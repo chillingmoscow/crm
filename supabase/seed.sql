@@ -78,6 +78,41 @@ insert into auth.users (
   ''
 );
 
+-- Официант: waiter@test.com / password123
+insert into auth.users (
+  id,
+  instance_id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at,
+  confirmation_token,
+  recovery_token,
+  email_change_token_new,
+  email_change
+) values (
+  'cccccccc-0000-0000-0000-000000000003',
+  '00000000-0000-0000-0000-000000000000',
+  'authenticated',
+  'authenticated',
+  'waiter@test.com',
+  crypt('password123', gen_salt('bf')),
+  now(),
+  '{"provider":"email","providers":["email"]}',
+  '{"first_name":"Иван","last_name":"Официантов"}',
+  now(),
+  now(),
+  '',
+  '',
+  '',
+  ''
+);
+
 -- Добавляем identity записи (нужны для правильной работы auth)
 insert into auth.identities (
   id,
@@ -104,6 +139,16 @@ insert into auth.identities (
     'bbbbbbbb-0000-0000-0000-000000000002',
     'manager@test.com',
     '{"sub":"bbbbbbbb-0000-0000-0000-000000000002","email":"manager@test.com"}',
+    'email',
+    now(),
+    now(),
+    now()
+  ),
+  (
+    'cccccccc-0000-0000-0000-000000000003',
+    'cccccccc-0000-0000-0000-000000000003',
+    'waiter@test.com',
+    '{"sub":"cccccccc-0000-0000-0000-000000000003","email":"waiter@test.com"}',
     'email',
     now(),
     now(),
@@ -172,10 +217,74 @@ values (
   'aaaaaaaa-0000-0000-0000-000000000001'
 );
 
--- Устанавливаем активное заведение для обоих пользователей
+-- Привязываем официанта к заведению (роль waiter)
+insert into public.user_venue_roles (user_id, venue_id, role_id, invited_by)
+values (
+  'cccccccc-0000-0000-0000-000000000003',
+  'dddddddd-0000-0000-0000-000000000001',
+  '00000000-0000-0000-0000-000000000005', -- системная роль waiter
+  'aaaaaaaa-0000-0000-0000-000000000001'
+);
+
+-- Устанавливаем активное заведение для всех пользователей
 update public.profiles
 set active_venue_id = 'dddddddd-0000-0000-0000-000000000001'
 where id in (
   'aaaaaaaa-0000-0000-0000-000000000001',
-  'bbbbbbbb-0000-0000-0000-000000000002'
+  'bbbbbbbb-0000-0000-0000-000000000002',
+  'cccccccc-0000-0000-0000-000000000003'
 );
+
+-- Дополнительные данные профилей для демонстрации
+update public.profiles set
+  phone           = '+7 (999) 111-11-11',
+  gender          = 'male',
+  birth_date      = '1985-03-15',
+  employment_date = '2023-01-10'
+where id = 'aaaaaaaa-0000-0000-0000-000000000001';
+
+update public.profiles set
+  phone           = '+7 (999) 222-22-22',
+  telegram_id     = '@manager_test',
+  gender          = 'female',
+  birth_date      = '1990-07-22',
+  employment_date = '2023-06-01'
+where id = 'bbbbbbbb-0000-0000-0000-000000000002';
+
+update public.profiles set
+  phone           = '+7 (999) 333-33-33',
+  gender          = 'male',
+  birth_date      = '1998-11-05',
+  employment_date = '2024-03-15'
+where id = 'cccccccc-0000-0000-0000-000000000003';
+
+-- Тестовые уведомления для владельца
+insert into public.notifications (user_id, venue_id, type, title, body, read, created_at)
+values
+  (
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'dddddddd-0000-0000-0000-000000000001',
+    'system',
+    'Добро пожаловать в CRM',
+    'Система управления персоналом настроена и готова к работе. Начните с приглашения сотрудников.',
+    false,
+    now() - interval '5 minutes'
+  ),
+  (
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'dddddddd-0000-0000-0000-000000000001',
+    'invite',
+    'Новый сотрудник принял приглашение',
+    'Иван Официантов подтвердил приглашение и добавлен в заведение «Ресторан "Тест"».',
+    false,
+    now() - interval '2 hours'
+  ),
+  (
+    'aaaaaaaa-0000-0000-0000-000000000001',
+    'dddddddd-0000-0000-0000-000000000001',
+    'system',
+    'Медицинские книжки',
+    'У 2 сотрудников скоро истекает срок медицинской книжки. Проверьте раздел «Сотрудники».',
+    true,
+    now() - interval '1 day'
+  );

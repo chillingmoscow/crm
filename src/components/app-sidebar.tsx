@@ -17,7 +17,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupLabel,
-  SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -27,16 +26,22 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/venue-switcher";
 
-const navSections = [
+// Roles that can access each nav item
+const NAV_SECTIONS = [
   {
     label: "Персонал",
-    items: [{ title: "Сотрудники", href: "/staff", icon: User }],
+    roles: ["owner", "manager", "admin"],
+    items: [
+      { title: "Сотрудники", href: "/staff",          icon: User,   roles: ["owner", "manager", "admin"] },
+      { title: "Должности",  href: "/settings/roles", icon: Shield, roles: ["owner", "admin"] },
+    ],
   },
   {
-    label: "Настройки",
+    label: "Сеть",
+    roles: ["owner"],
     items: [
-      { title: "Заведения", href: "/settings/venues", icon: Building2 },
-      { title: "Должности", href: "/settings/roles", icon: Shield },
+      { title: "Заведения",  href: "/settings/venues",   icon: Building2, roles: ["owner"] },
+      { title: "Настройки",  href: "/settings/account",  icon: Settings,  roles: ["owner"] },
     ],
   },
 ];
@@ -52,9 +57,10 @@ interface AppSidebarProps {
   userName: string;
   venues: Venue[];
   activeVenueId: string | null;
+  activeRoleCode: string | null;
 }
 
-export function AppSidebar({ userName, venues, activeVenueId }: AppSidebarProps) {
+export function AppSidebar({ userName, venues, activeVenueId, activeRoleCode }: AppSidebarProps) {
   const pathname = usePathname();
   const router   = useRouter();
   const supabase = createClient();
@@ -69,38 +75,29 @@ export function AppSidebar({ userName, venues, activeVenueId }: AppSidebarProps)
     router.push("/login");
   };
 
+  // Filter sections/items by the user's role in the active venue
+  const visibleSections = NAV_SECTIONS
+    .filter((s) => !activeRoleCode || s.roles.includes(activeRoleCode))
+    .map((s) => ({
+      ...s,
+      items: s.items.filter((item) => !activeRoleCode || item.roles.includes(activeRoleCode)),
+    }))
+    .filter((s) => s.items.length > 0);
+
   return (
     <Sidebar collapsible="icon">
-      {/* Header */}
-      <SidebarHeader className="border-b px-3 py-3">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild tooltip="CRM Platform">
-              <Link href="/dashboard">
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">
-                  C
-                </div>
-                <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-semibold text-sm">CRM Platform</span>
-                </div>
-              </Link>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarHeader>
-
       {/* Content: venue switcher + nav */}
       <SidebarContent>
-        {/* Venue switcher */}
-        <SidebarGroup>
+        {/* Venue switcher at the top */}
+        <SidebarGroup className="border-b">
           <VenueSwitcher venues={venues} activeVenueId={activeVenueId} />
         </SidebarGroup>
 
-        <SidebarSeparator />
-
-        {navSections.map((section) => (
+        {visibleSections.map((section) => (
           <SidebarGroup key={section.label}>
-            <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 px-2">
+              {section.label}
+            </SidebarGroupLabel>
             <SidebarMenu>
               {section.items.map((item) => (
                 <SidebarMenuItem key={item.href}>

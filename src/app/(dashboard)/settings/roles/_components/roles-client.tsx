@@ -1,14 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Trash2, Lock, Shield } from "lucide-react";
+import { Plus, Shield, Search, Settings2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { createRole, deleteRole, setRolePermission } from "../actions";
+import { Label } from "@/components/ui/label";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { createRole } from "../actions";
+
+// ── Types ────────────────────────────────────────────────────
 
 type Role = {
   id: string;
@@ -19,9 +27,6 @@ type Role = {
 
 type Permission = {
   id: string;
-  code: string;
-  description: string;
-  module: string;
 };
 
 type RolePermission = {
@@ -35,314 +40,365 @@ type Props = {
   permissions: Permission[];
   rolePermissions: RolePermission[];
   accountId: string | null;
+  staffCountByRole: Record<string, number>;
 };
 
-const MODULE_LABELS: Record<string, string> = {
-  platform: "Платформа",
-};
+// ── Column definitions ────────────────────────────────────────
+
+type ColKey = "name" | "staff" | "permissions";
+
+const COL_DEFS: { key: ColKey; label: string; width: string; required?: boolean }[] = [
+  { key: "name",        label: "Название",   width: "1fr",   required: true },
+  { key: "staff",       label: "Сотрудники", width: "120px" },
+  { key: "permissions", label: "Права",      width: "80px"  },
+];
+
+const DEFAULT_COLS: ColKey[] = ["name", "staff", "permissions"];
+
+function buildGrid(visible: Set<ColKey>) {
+  return COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width).join(" ");
+}
+
+// ── Column settings dropdown ──────────────────────────────────
+
+function ColumnSettings({
+  visible,
+  onChange,
+}: {
+  visible: Set<ColKey>;
+  onChange: (k: ColKey, on: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-8 w-8"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Settings2 className="w-4 h-4" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[180px]">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
+            Столбцы таблицы
+          </p>
+          {COL_DEFS.filter((c) => !c.required).map((col) => (
+            <label
+              key={col.key}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm select-none"
+            >
+              <input
+                type="checkbox"
+                checked={visible.has(col.key)}
+                onChange={(e) => onChange(col.key, e.target.checked)}
+                className="accent-primary"
+              />
+              {col.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────
 
 export function RolesClient({
   roles: initialRoles,
   permissions,
-  rolePermissions: initialRolePermissions,
+  rolePermissions,
   accountId,
+  staffCountByRole,
 }: Props) {
+  const router = useRouter();
   const [roles, setRoles] = useState(initialRoles);
-  const [rolePermissions, setRolePermissions] = useState(initialRolePermissions);
-  const [selectedId, setSelectedId] = useState(initialRoles[0]?.id ?? null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState("");
   const [isPending, startTransition] = useTransition();
 
-  const selectedRole = roles.find((r) => r.id === selectedId) ?? null;
-  const isSystem = (role: Role) => role.account_id === null;
+  // Column visibility — persisted in localStorage
+  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
+    if (typeof window === "undefined") return new Set(DEFAULT_COLS);
+    try {
+      const saved = localStorage.getItem("crm-roles-visible-cols");
+      if (saved) return new Set(JSON.parse(saved) as ColKey[]);
+    } catch {}
+    return new Set(DEFAULT_COLS);
+  });
+  const toggleCol = (key: ColKey, on: boolean) => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      try {
+        localStorage.setItem("crm-roles-visible-cols", JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  };
+  const template = buildGrid(visibleCols);
 
-  const permissionsByModule = permissions.reduce<Record<string, Permission[]>>(
-    (acc, p) => {
-      if (!acc[p.module]) acc[p.module] = [];
-      acc[p.module].push(p);
-      return acc;
-    },
-    {}
-  );
+  // Search
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
+  }, [searchOpen]);
 
-  function hasPermission(roleId: string, permissionId: string): boolean {
-    return rolePermissions.some(
-      (rp) =>
-        rp.role_id === roleId &&
-        rp.permission_id === permissionId &&
-        rp.granted
-    );
+  // Create sheet
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [newRoleName, setNewRoleName] = useState("");
+
+  function getGrantedCount(roleId: string): number {
+    return rolePermissions.filter((rp) => rp.role_id === roleId && rp.granted).length;
   }
 
+  // Filtering
+  const q = searchQuery.toLowerCase().trim();
+  const filteredRoles = roles.filter((r) => {
+    if (q && !r.name.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const isFiltered = q.length > 0;
+
   function handleCreate() {
-    const name = newName.trim();
+    const name = newRoleName.trim();
     if (!name) return;
     startTransition(async () => {
       const result = await createRole(name);
       if (result.error) {
         toast.error(result.error);
-      } else {
-        toast.success("Должность создана");
-        setNewName("");
-        setShowCreate(false);
-        // New role will appear after server revalidation
-        if (result.id) {
-          const created: Role = {
-            id: result.id,
-            account_id: accountId,
-            name,
-            code: `custom_${name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "").substring(0, 40)}`,
-          };
-          setRoles((prev) => [...prev, created]);
-          setSelectedId(result.id);
-        }
+        return;
+      }
+      toast.success("Должность создана");
+      if (result.id) {
+        const created: Role = {
+          id: result.id,
+          account_id: accountId,
+          name,
+          code: `custom_${name
+            .toLowerCase()
+            .replace(/\s+/g, "_")
+            .replace(/[^a-z0-9_]/g, "")
+            .substring(0, 40)}`,
+        };
+        setRoles((prev) => [...prev, created]);
+        setSheetOpen(false);
+        setNewRoleName("");
+        router.push(`/settings/roles/${result.id}`);
       }
     });
   }
 
-  function handleDelete(roleId: string) {
-    startTransition(async () => {
-      const result = await deleteRole(roleId);
-      if (result.error) {
-        toast.error(result.error);
-      } else {
-        toast.success("Должность удалена");
-        setRoles((prev) => prev.filter((r) => r.id !== roleId));
-        if (selectedId === roleId) {
-          const remaining = roles.filter((r) => r.id !== roleId);
-          setSelectedId(remaining[0]?.id ?? null);
-        }
-      }
-    });
-  }
-
-  function handleToggle(roleId: string, permissionId: string) {
-    const current = hasPermission(roleId, permissionId);
-    // Optimistic update
-    setRolePermissions((prev) => {
-      const existing = prev.find(
-        (rp) => rp.role_id === roleId && rp.permission_id === permissionId
-      );
-      if (existing) {
-        return prev.map((rp) =>
-          rp.role_id === roleId && rp.permission_id === permissionId
-            ? { ...rp, granted: !current }
-            : rp
+  // Cell renderers
+  const renderCell = (key: ColKey, role: Role) => {
+    switch (key) {
+      case "name":
+        return <div className="font-medium text-sm truncate">{role.name}</div>;
+      case "staff":
+        return (
+          <div className="text-sm text-muted-foreground">
+            {staffCountByRole[role.id] ?? 0}
+          </div>
         );
-      }
-      return [
-        ...prev,
-        { role_id: roleId, permission_id: permissionId, granted: !current },
-      ];
-    });
-
-    startTransition(async () => {
-      const result = await setRolePermission(roleId, permissionId, !current);
-      if (result.error) {
-        toast.error(result.error);
-        // Revert
-        setRolePermissions((prev) => {
-          const existing = prev.find(
-            (rp) => rp.role_id === roleId && rp.permission_id === permissionId
-          );
-          if (existing) {
-            return prev.map((rp) =>
-              rp.role_id === roleId && rp.permission_id === permissionId
-                ? { ...rp, granted: current }
-                : rp
-            );
-          }
-          return prev.filter(
-            (rp) =>
-              !(rp.role_id === roleId && rp.permission_id === permissionId)
-          );
-        });
-      }
-    });
-  }
+      case "permissions":
+        return (
+          <div className="text-sm text-muted-foreground">
+            {getGrantedCount(role.id)}/{permissions.length}
+          </div>
+        );
+    }
+  };
 
   return (
     <div className="p-6 md:p-8 w-full">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Должности и права доступа</h1>
-        <p className="text-muted-foreground mt-1">
-          Управляйте должностями и настраивайте их права доступа
-        </p>
-      </div>
-
-      <div className="flex gap-6 items-start">
-        {/* Left: role list */}
-        <div className="w-60 shrink-0 space-y-0.5">
-          {roles.map((role) => {
-            const active = selectedId === role.id;
-            return (
-              <button
-                key={role.id}
-                onClick={() => setSelectedId(role.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm text-left transition-colors ${
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "hover:bg-muted text-foreground"
-                }`}
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  {isSystem(role) ? (
-                    <Lock className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                  ) : (
-                    <Shield className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                  )}
-                  <span className="truncate">{role.name}</span>
-                </span>
-                {isSystem(role) && (
-                  <Badge
-                    variant={active ? "outline" : "secondary"}
-                    className={`ml-2 text-[10px] h-4 px-1.5 shrink-0 ${
-                      active
-                        ? "border-primary-foreground/40 text-primary-foreground bg-transparent"
-                        : ""
-                    }`}
-                  >
-                    Сист.
-                  </Badge>
-                )}
-              </button>
-            );
-          })}
-
-          {accountId && (
-            <>
-              <Separator className="my-2" />
-              {showCreate ? (
-                <div className="space-y-2 px-1 pt-1">
-                  <Input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="Название должности"
-                    className="h-8 text-sm"
-                    autoFocus
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleCreate();
-                      if (e.key === "Escape") {
-                        setShowCreate(false);
-                        setNewName("");
-                      }
-                    }}
-                  />
-                  <div className="flex gap-1.5">
-                    <Button
-                      size="sm"
-                      className="h-7 text-xs flex-1"
-                      onClick={handleCreate}
-                      disabled={isPending || !newName.trim()}
-                    >
-                      Создать
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-xs"
-                      onClick={() => {
-                        setShowCreate(false);
-                        setNewName("");
-                      }}
-                    >
-                      Отмена
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowCreate(true)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Новая должность
-                </button>
-              )}
-            </>
-          )}
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Должности</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            {roles.length > 0
+              ? `${roles.length} ${
+                  roles.length === 1
+                    ? "должность"
+                    : roles.length < 5
+                    ? "должности"
+                    : "должностей"
+                }`
+              : "Нет должностей"}
+            {isFiltered && ` · показано ${filteredRoles.length}`}
+          </p>
         </div>
 
-        {/* Right: permissions panel */}
-        {selectedRole ? (
-          <div className="flex-1 min-w-0 rounded-lg border p-5">
-            <div className="flex items-start justify-between gap-4 mb-4">
-              <div>
-                <h2 className="font-semibold text-lg">{selectedRole.name}</h2>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {isSystem(selectedRole)
-                    ? "Системная должность — права доступны только для просмотра"
-                    : "Настройте права доступа для этой должности"}
-                </p>
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <div className="flex items-center gap-1">
+            {searchOpen && (
+              <div className="relative">
+                <Input
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск"
+                  className="h-8 w-48 text-sm pr-7"
+                />
+                {searchQuery && (
+                  <button
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setSearchQuery("")}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
-              {!isSystem(selectedRole) && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => handleDelete(selectedRole.id)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="w-4 h-4 mr-1.5" />
-                  Удалить
-                </Button>
-              )}
-            </div>
-
-            <Separator className="mb-5" />
-
-            <div className="space-y-6">
-              {Object.entries(permissionsByModule).map(([module, perms]) => (
-                <div key={module}>
-                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                    {MODULE_LABELS[module] ?? module}
-                  </h3>
-                  <div className="space-y-3">
-                    {perms.map((permission) => {
-                      const granted = hasPermission(
-                        selectedRole.id,
-                        permission.id
-                      );
-                      const disabled = isSystem(selectedRole);
-                      return (
-                        <div
-                          key={permission.id}
-                          className="flex items-center gap-3"
-                        >
-                          <Checkbox
-                            id={`${selectedRole.id}-${permission.id}`}
-                            checked={granted}
-                            disabled={disabled}
-                            onCheckedChange={() =>
-                              !disabled &&
-                              handleToggle(selectedRole.id, permission.id)
-                            }
-                          />
-                          <label
-                            htmlFor={`${selectedRole.id}-${permission.id}`}
-                            className={`text-sm leading-none select-none ${
-                              disabled
-                                ? "cursor-default text-muted-foreground"
-                                : "cursor-pointer"
-                            }`}
-                          >
-                            {permission.description}
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
+            )}
+            <Button
+              variant="outline"
+              size="icon"
+              className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
+              onClick={() => {
+                if (searchOpen) setSearchQuery("");
+                setSearchOpen((v) => !v);
+              }}
+            >
+              <Search className="w-4 h-4" />
+            </Button>
           </div>
-        ) : (
-          <div className="flex-1 rounded-lg border flex items-center justify-center h-48 text-muted-foreground text-sm">
-            Выберите должность
-          </div>
-        )}
+
+          <ColumnSettings visible={visibleCols} onChange={toggleCol} />
+
+          {accountId && (
+            <Button
+              size="sm"
+              onClick={() => {
+                setNewRoleName("");
+                setSheetOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              Добавить
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Empty state */}
+      {roles.length === 0 && (
+        <div className="rounded-lg border border-dashed flex flex-col items-center justify-center p-16 text-center">
+          <Shield className="w-10 h-10 text-muted-foreground mb-3" />
+          <p className="text-sm font-medium">Нет должностей</p>
+          <p className="text-sm text-muted-foreground mt-1">Создайте первую должность</p>
+          {accountId && (
+            <Button
+              size="sm"
+              className="mt-4"
+              onClick={() => {
+                setNewRoleName("");
+                setSheetOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              Добавить должность
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Table */}
+      {roles.length > 0 && (
+        <div className="rounded-lg border overflow-hidden">
+          {/* Header row */}
+          <div
+            className="grid gap-3 px-4 py-3 bg-muted/50 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b"
+            style={{ gridTemplateColumns: template }}
+          >
+            {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
+              <span key={col.key}>{col.label}</span>
+            ))}
+          </div>
+
+          {/* Data rows */}
+          {filteredRoles.map((role, i) => (
+            <div key={role.id}>
+              {i > 0 && <Separator />}
+              <div
+                className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
+                style={{ gridTemplateColumns: template }}
+                onClick={() => router.push(`/settings/roles/${role.id}`)}
+              >
+                {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
+                  <div key={col.key}>{renderCell(col.key, role)}</div>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {isFiltered && filteredRoles.length === 0 && (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              Нет должностей, соответствующих поиску
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Create sheet */}
+      <Sheet
+        open={sheetOpen}
+        onOpenChange={(open) => {
+          setSheetOpen(open);
+          if (!open) setNewRoleName("");
+        }}
+      >
+        <SheetContent className="w-full sm:max-w-sm">
+          <SheetHeader>
+            <SheetTitle>Новая должность</SheetTitle>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-role-name">Название</Label>
+              <Input
+                id="new-role-name"
+                value={newRoleName}
+                onChange={(e) => setNewRoleName(e.target.value)}
+                placeholder="Например: Бармен"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setSheetOpen(false)}
+              >
+                Отмена
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleCreate}
+                disabled={isPending || !newRoleName.trim()}
+              >
+                Создать
+              </Button>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

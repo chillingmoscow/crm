@@ -15,7 +15,10 @@ export default async function RolesPage() {
   });
   if (!canManage) redirect("/dashboard");
 
-  const { data: accountId } = await supabase.rpc("get_active_account_id");
+  const [{ data: accountId }, { data: activeVenueId }] = await Promise.all([
+    supabase.rpc("get_active_account_id"),
+    supabase.rpc("get_active_venue_id"),
+  ]);
 
   const [rolesResult, permissionsResult] = await Promise.all([
     supabase
@@ -37,22 +40,36 @@ export default async function RolesPage() {
 
   const roles = rolesResult.data ?? [];
   const permissions = permissionsResult.data ?? [];
-
   const roleIds = roles.map((r) => r.id);
-  const { data: rolePermissions } =
+
+  const [rolePermsResult, venueRolesResult] = await Promise.all([
     roleIds.length > 0
-      ? await supabase
+      ? supabase
           .from("role_permissions")
           .select("role_id, permission_id, granted")
           .in("role_id", roleIds)
-      : { data: [] };
+      : (Promise.resolve({ data: [] as { role_id: string; permission_id: string; granted: boolean }[] })),
+    activeVenueId
+      ? supabase
+          .from("user_venue_roles")
+          .select("role_id")
+          .eq("venue_id", activeVenueId as string)
+          .eq("status", "active")
+      : (Promise.resolve({ data: [] as { role_id: string }[] })),
+  ]);
+
+  const staffCountByRole: Record<string, number> = {};
+  for (const row of venueRolesResult.data ?? []) {
+    staffCountByRole[row.role_id] = (staffCountByRole[row.role_id] ?? 0) + 1;
+  }
 
   return (
     <RolesClient
       roles={roles}
       permissions={permissions}
-      rolePermissions={rolePermissions ?? []}
+      rolePermissions={rolePermsResult.data ?? []}
       accountId={(accountId as string | null) ?? null}
+      staffCountByRole={staffCountByRole}
     />
   );
 }

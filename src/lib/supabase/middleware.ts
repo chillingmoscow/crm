@@ -26,13 +26,9 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   const { pathname } = request.nextUrl;
 
-  // Публичные маршруты — не требуют авторизации
+  // Define public paths before any auth check to avoid redirect loops
   const publicPaths = [
     "/login",
     "/register",
@@ -41,8 +37,21 @@ export async function updateSession(request: NextRequest) {
     "/auth/callback",
     "/invite",
   ];
-
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  // Invalid/expired refresh token — clear stale cookies.
+  // If already on a public path, don't redirect (would cause infinite loop).
+  if (userError) {
+    if (isPublicPath) return supabaseResponse;
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();

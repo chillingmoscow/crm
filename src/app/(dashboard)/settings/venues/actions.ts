@@ -12,6 +12,7 @@ type VenueData = {
   currency: string;
   timezone: string;
   workingHours: WorkingHours;
+  comment?: string | null;
 };
 
 export async function createVenue(
@@ -88,6 +89,7 @@ export async function updateVenue(
       currency:      data.currency,
       timezone:      data.timezone,
       working_hours: data.workingHours as unknown as Json,
+      comment:       data.comment ?? null,
     })
     .eq("id", id);
 

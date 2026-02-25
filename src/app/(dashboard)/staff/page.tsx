@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { StaffClient } from "./_components/staff-client";
-import { getStaff } from "./actions";
+import { getStaff, getPendingInvitations, getFiredStaff } from "./actions";
 
 export default async function StaffPage() {
   const supabase = await createClient();
@@ -26,14 +26,32 @@ export default async function StaffPage() {
     .select("id, name, code")
     .order("name");
 
-  const staff = await getStaff(venueId);
+  // Current user's role in the active venue
+  const { data: uvr } = await supabase
+    .from("user_venue_roles")
+    .select("roles(code)")
+    .eq("user_id", user.id)
+    .eq("venue_id", venueId)
+    .maybeSingle();
+
+  const activeRoleCode =
+    (uvr?.roles as { code: string } | null)?.code ?? null;
+
+  const [staff, invitations, firedStaff] = await Promise.all([
+    getStaff(venueId),
+    getPendingInvitations(venueId),
+    getFiredStaff(venueId),
+  ]);
 
   return (
     <StaffClient
       staff={staff}
+      invitations={invitations}
+      firedStaff={firedStaff}
       roles={roles ?? []}
       venueId={venueId}
       currentUserId={user.id}
+      activeRoleCode={activeRoleCode}
     />
   );
 }

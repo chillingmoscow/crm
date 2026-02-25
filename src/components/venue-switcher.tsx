@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Building2, Check, ChevronsUpDown } from "lucide-react";
 import {
@@ -25,9 +25,22 @@ type Props = {
 };
 
 export function VenueSwitcher({ venues, activeVenueId }: Props) {
-  const [isOpen, setIsOpen]        = useState(false);
+  const [isOpen, setIsOpen]          = useState(false);
   const [isPending, startTransition] = useTransition();
-  const router = useRouter();
+  const router  = useRouter();
+  const ref     = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [isOpen]);
 
   const activeVenue = venues.find((v) => v.venue_id === activeVenueId) ?? null;
 
@@ -45,55 +58,57 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
   };
 
   return (
-    <SidebarMenu>
-      {/* Venue list — shown above trigger when open */}
-      {isOpen && (
-        <>
-          {venues.map((venue) => (
-            <SidebarMenuItem key={venue.venue_id}>
-              <SidebarMenuButton
-                onClick={() => handleSwitch(venue.venue_id)}
-                isActive={venue.venue_id === activeVenueId}
-                tooltip={venue.venue_name}
-                disabled={isPending}
-                className="text-sm"
-              >
-                <Building2 />
-                <span className="truncate">{venue.venue_name}</span>
-                {venue.venue_id === activeVenueId && (
-                  <Check className="ml-auto w-4 h-4 shrink-0" />
-                )}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-          <SidebarSeparator />
-        </>
-      )}
-
-      {/* Trigger: current venue */}
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          size="lg"
-          onClick={() => setIsOpen((v) => !v)}
-          tooltip={activeVenue?.venue_name ?? "Заведение"}
-          disabled={isPending}
-        >
-          <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-muted shrink-0">
-            <Building2 className="w-4 h-4" />
-          </div>
-          <div className="flex flex-col min-w-0 flex-1 gap-0">
-            <span className="truncate text-sm font-medium leading-tight">
-              {activeVenue?.venue_name ?? "Выберите заведение"}
-            </span>
-            {activeVenue?.role_name && (
-              <span className="truncate text-xs text-muted-foreground leading-tight">
-                {activeVenue.role_name}
+    <div ref={ref}>
+      <SidebarMenu>
+        {/* Trigger: current venue */}
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            size="lg"
+            onClick={() => setIsOpen((v) => !v)}
+            tooltip={activeVenue?.venue_name ?? "Заведение"}
+            disabled={isPending}
+          >
+            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-muted shrink-0">
+              <Building2 className="w-4 h-4" />
+            </div>
+            <div className="flex flex-col min-w-0 flex-1 gap-0">
+              <span className="truncate text-sm font-medium leading-tight">
+                {activeVenue?.venue_name ?? "Выберите заведение"}
               </span>
-            )}
-          </div>
-          <ChevronsUpDown className="w-4 h-4 shrink-0 text-muted-foreground" />
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
+              {activeVenue?.role_name && (
+                <span className="truncate text-xs text-muted-foreground leading-tight">
+                  {activeVenue.role_name}
+                </span>
+              )}
+            </div>
+            <ChevronsUpDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+
+        {/* Venue list — expands downward */}
+        {isOpen && (
+          <>
+            <SidebarSeparator />
+            {venues.map((venue) => (
+              <SidebarMenuItem key={venue.venue_id}>
+                <SidebarMenuButton
+                  onClick={() => handleSwitch(venue.venue_id)}
+                  isActive={venue.venue_id === activeVenueId}
+                  tooltip={venue.venue_name}
+                  disabled={isPending}
+                  className="text-sm"
+                >
+                  <Building2 />
+                  <span className="truncate">{venue.venue_name}</span>
+                  {venue.venue_id === activeVenueId && (
+                    <Check className="ml-auto w-4 h-4 shrink-0" />
+                  )}
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </>
+        )}
+      </SidebarMenu>
+    </div>
   );
 }

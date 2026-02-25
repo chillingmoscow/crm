@@ -40,6 +40,39 @@ export async function createRole(
   return { id: data.id, error: null };
 }
 
+export async function updateRole(
+  roleId: string,
+  data: { name: string; comment: string | null }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const { data: role } = await supabase
+    .from("roles")
+    .select("code")
+    .eq("id", roleId)
+    .maybeSingle();
+
+  if (role?.code === "owner")
+    return { error: "Нельзя редактировать должность Владелец" };
+
+  const trimmed = data.name.trim();
+  if (!trimmed) return { error: "Название не может быть пустым" };
+
+  const { error } = await supabase
+    .from("roles")
+    .update({ name: trimmed, comment: data.comment })
+    .eq("id", roleId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/settings/roles");
+  return { error: null };
+}
+
 export async function deleteRole(
   roleId: string
 ): Promise<{ error: string | null }> {
@@ -78,15 +111,15 @@ export async function setRolePermission(
   const accountId = await getActiveAccountId();
   if (!accountId) return { error: "Заведение не настроено" };
 
-  // Verify role belongs to current account (prevent editing system roles)
+  // Prevent editing the owner role; all other roles (including system ones) are editable
   const { data: role } = await supabase
     .from("roles")
-    .select("account_id")
+    .select("code")
     .eq("id", roleId)
     .maybeSingle();
 
-  if (role?.account_id !== accountId)
-    return { error: "Нельзя редактировать системную должность" };
+  if (role?.code === "owner")
+    return { error: "Нельзя редактировать должность Владелец" };
 
   const { error } = await supabase.from("role_permissions").upsert(
     { role_id: roleId, permission_id: permissionId, granted },

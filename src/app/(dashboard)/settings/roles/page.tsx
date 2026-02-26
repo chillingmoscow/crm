@@ -4,6 +4,9 @@ import { RolesClient } from "./_components/roles-client";
 
 export default async function RolesPage() {
   const supabase = await createClient();
+  // New RPCs from recent migrations are not yet reflected in generated DB types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
 
   const {
     data: { user },
@@ -44,7 +47,7 @@ export default async function RolesPage() {
 
   const [rolePermsResult, venueRolesResult] = await Promise.all([
     roleIds.length > 0
-      ? supabase.rpc("get_effective_role_permissions", {
+      ? db.rpc("get_effective_role_permissions", {
           p_role_ids: roleIds,
         })
       : (Promise.resolve({ data: [] as { role_id: string; permission_id: string; granted: boolean }[] })),

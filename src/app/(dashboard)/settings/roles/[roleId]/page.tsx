@@ -9,6 +9,9 @@ export default async function RoleDetailServerPage({
 }) {
   const { roleId } = await params;
   const supabase = await createClient();
+  // New RPCs from recent migrations are not yet reflected in generated DB types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
 
   const {
     data: { user },
@@ -47,7 +50,7 @@ export default async function RoleDetailServerPage({
         .select("id, code, description, module")
         .order("module")
         .order("code"),
-      supabase
+      db
         .rpc("get_effective_role_permissions", { p_role_ids: [roleId] }),
       activeVenueId
         ? supabase

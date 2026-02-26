@@ -50,12 +50,14 @@ export default function RegisterPage() {
   const onSubmit = async (data: RegisterForm) => {
     setLoading(true);
     const supabase = createClient();
+    const publicSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+    const emailRedirectBase = publicSiteUrl || window.location.origin;
 
     const { error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        emailRedirectTo: `${emailRedirectBase}/auth/callback?next=/dashboard`,
         data: {
           first_name: data.first_name,
           last_name: data.last_name,

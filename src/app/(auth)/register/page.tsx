@@ -55,6 +55,7 @@ export default function RegisterPage() {
       email: data.email,
       password: data.password,
       options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
         data: {
           first_name: data.first_name,
           last_name: data.last_name,
@@ -68,8 +69,8 @@ export default function RegisterPage() {
       return;
     }
 
-    toast.success("Регистрация прошла успешно!");
-    router.push("/onboarding");
+    toast.success("Проверьте почту для подтверждения аккаунта");
+    router.push(`/verify-email?email=${encodeURIComponent(data.email)}`);
     router.refresh();
   };
 

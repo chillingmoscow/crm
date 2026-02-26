@@ -54,7 +54,9 @@ export default function LoginPage() {
       toast.error(
         error.message === "Invalid login credentials"
           ? "Неверный email или пароль"
-          : error.message
+          : error.message === "Email not confirmed"
+            ? "Почта не подтверждена. Подтвердите email по ссылке из письма."
+            : error.message
       );
       setLoading(false);
       return;

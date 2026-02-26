@@ -142,6 +142,42 @@ export async function sendInvitation(data: {
     venue_name: venueRow.name,
     role_name: roleName,
   };
+  const resendApiKey = process.env.RESEND_API_KEY ?? process.env.SMTP_PASS;
+
+  // Fallback: if Resend API key is not configured, use built-in Supabase emails.
+  if (!resendApiKey) {
+    const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {
+      data: linkPayload,
+      redirectTo,
+    });
+
+    if (inviteError) {
+      const isExistingUserError = inviteError.message
+        .toLowerCase()
+        .includes("already been registered");
+
+      if (!isExistingUserError) {
+        await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+        return { error: inviteError.message };
+      }
+
+      const { error: otpError } = await adminClient.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: redirectTo,
+          data: linkPayload,
+        },
+      });
+
+      if (otpError) {
+        await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+        return { error: otpError.message };
+      }
+    }
+
+    return { error: null };
+  }
 
   const { data: inviteLinkData, error: inviteLinkError } =
     await adminClient.auth.admin.generateLink({

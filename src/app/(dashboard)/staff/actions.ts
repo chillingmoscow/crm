@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendInvitationEmail } from "@/lib/invitations/mailer";
 import { revalidatePath } from "next/cache";
 
 export type PendingInvitation = {
@@ -132,6 +133,35 @@ export async function inviteStaff(data: {
   const email = data.email.trim().toLowerCase();
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
+  const [{ data: venueRow }, { data: inviterProfile }, { data: roleRow }] = await Promise.all([
+    supabase
+      .from("venues")
+      .select("name, accounts(name)")
+      .eq("id", data.venueId)
+      .maybeSingle(),
+    supabase
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("roles")
+      .select("name")
+      .eq("id", data.roleId)
+      .maybeSingle(),
+  ]);
+
+  if (!venueRow?.name) return { error: "Не удалось определить заведение для приглашения" };
+
+  const accountName =
+    ((venueRow.accounts as { name?: string } | null)?.name ?? null) ||
+    null;
+  const inviterName =
+    [inviterProfile?.first_name, inviterProfile?.last_name]
+      .filter(Boolean)
+      .join(" ") || null;
+  const roleName = roleRow?.name ?? null;
+
   // Keep one pending invite per email+venue to avoid ambiguous acceptance.
   await supabase
     .from("invitations")
@@ -159,41 +189,79 @@ export async function inviteStaff(data: {
   )}`;
 
   const admin = createAdminClient();
-  const { error: authError } = await admin.auth.admin.inviteUserByEmail(email, {
-    data: {
-      venue_id: data.venueId,
-      role_id: data.roleId,
-      invitation_id: insertedInvitation.id,
-    },
-    redirectTo,
-  });
+  const linkPayload = {
+    venue_id: data.venueId,
+    role_id: data.roleId,
+    invitation_id: insertedInvitation.id,
+    venue_name: venueRow.name,
+    role_name: roleName,
+  };
 
-  if (authError) {
-    const isExistingUserError = authError.message
+  const { data: inviteLinkData, error: inviteLinkError } =
+    await admin.auth.admin.generateLink({
+      type: "invite",
+      email,
+      options: {
+        data: linkPayload,
+        redirectTo,
+      },
+    });
+
+  let actionLink: string | null = inviteLinkData?.properties?.action_link ?? null;
+  let existingUser = false;
+
+  if (inviteLinkError) {
+    const isExistingUserError = inviteLinkError.message
       .toLowerCase()
       .includes("already been registered");
 
-    if (isExistingUserError) {
-      const { error: otpError } = await admin.auth.signInWithOtp({
+    if (!isExistingUserError) {
+      await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+      return { error: inviteLinkError.message };
+    }
+
+    const { data: magicLinkData, error: magicLinkError } =
+      await admin.auth.admin.generateLink({
+        type: "magiclink",
         email,
         options: {
-          shouldCreateUser: false,
-          emailRedirectTo: redirectTo,
+          data: linkPayload,
+          redirectTo,
         },
       });
 
-      if (!otpError) {
-        revalidatePath("/staff");
-        return { error: null };
-      }
+    if (magicLinkError || !magicLinkData?.properties?.action_link) {
+      await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+      return { error: magicLinkError?.message ?? "Не удалось сгенерировать ссылку приглашения" };
     }
 
-    // Rollback: remove the orphaned pending invitation
-    await supabase
-      .from("invitations")
-      .delete()
-      .eq("id", insertedInvitation.id);
-    return { error: authError.message };
+    existingUser = true;
+    actionLink = magicLinkData.properties.action_link;
+  }
+
+  if (!actionLink) {
+    await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+    return { error: "Не удалось сгенерировать ссылку приглашения" };
+  }
+
+  try {
+    await sendInvitationEmail({
+      to: email,
+      actionLink,
+      venueName: venueRow.name,
+      accountName,
+      inviterName,
+      roleName,
+      existingUser,
+    });
+  } catch (emailError) {
+    await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+    return {
+      error:
+        emailError instanceof Error
+          ? emailError.message
+          : "Не удалось отправить письмо-приглашение",
+    };
   }
 
   revalidatePath("/staff");

@@ -330,6 +330,7 @@ export function StaffClient({
       toast.success(`Приглашение отправлено на ${values.email}`);
       reset();
       setInviteOpen(false);
+      router.refresh();
     });
   };
 

@@ -103,6 +103,9 @@ export async function setRolePermission(
   granted: boolean
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
+  // New RPC from recent migrations is not yet reflected in generated DB types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -121,7 +124,7 @@ export async function setRolePermission(
   if (role?.code === "owner")
     return { error: "Нельзя редактировать должность Владелец" };
 
-  const { error } = await supabase.rpc("set_effective_role_permission", {
+  const { error } = await db.rpc("set_effective_role_permission", {
     p_role_id: roleId,
     p_permission_id: permissionId,
     p_granted: granted,

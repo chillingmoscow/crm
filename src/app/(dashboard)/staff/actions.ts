@@ -129,33 +129,70 @@ export async function inviteStaff(data: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const { error: invError } = await supabase.from("invitations").insert({
-    venue_id:   data.venueId,
-    email:      data.email,
-    role_id:    data.roleId,
-    invited_by: user.id,
-    status:     "pending",
-  });
-  if (invError) return { error: invError.message };
+  const email = data.email.trim().toLowerCase();
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+
+  // Keep one pending invite per email+venue to avoid ambiguous acceptance.
+  await supabase
+    .from("invitations")
+    .delete()
+    .eq("venue_id", data.venueId)
+    .ilike("email", email)
+    .eq("status", "pending");
+
+  const { data: insertedInvitation, error: invError } = await supabase
+    .from("invitations")
+    .insert({
+      venue_id:   data.venueId,
+      email,
+      role_id:    data.roleId,
+      invited_by: user.id,
+      status:     "pending",
+    })
+    .select("id")
+    .single();
+
+  if (invError || !insertedInvitation?.id) return { error: invError?.message ?? "Не удалось создать приглашение" };
+
+  const redirectTo = `${siteUrl}/auth/callback?next=${encodeURIComponent(
+    `/invite?invitation=${insertedInvitation.id}`
+  )}`;
 
   const admin = createAdminClient();
-  const { error: authError } = await admin.auth.admin.inviteUserByEmail(
-    data.email,
-    {
-      data: { venue_id: data.venueId, role_id: data.roleId },
-      redirectTo: `${
-        process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
-      }/auth/callback?next=/invite`,
-    }
-  );
+  const { error: authError } = await admin.auth.admin.inviteUserByEmail(email, {
+    data: {
+      venue_id: data.venueId,
+      role_id: data.roleId,
+      invitation_id: insertedInvitation.id,
+    },
+    redirectTo,
+  });
+
   if (authError) {
+    const isExistingUserError = authError.message
+      .toLowerCase()
+      .includes("already been registered");
+
+    if (isExistingUserError) {
+      const { error: otpError } = await admin.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: redirectTo,
+        },
+      });
+
+      if (!otpError) {
+        revalidatePath("/staff");
+        return { error: null };
+      }
+    }
+
     // Rollback: remove the orphaned pending invitation
     await supabase
       .from("invitations")
       .delete()
-      .eq("email", data.email)
-      .eq("venue_id", data.venueId)
-      .eq("status", "pending");
+      .eq("id", insertedInvitation.id);
     return { error: authError.message };
   }
 

@@ -16,8 +16,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *  6. Set active_venue_id on their profile
  *  7. Redirect to /dashboard (or /onboarding if profile is incomplete)
  */
-export default async function InvitePage() {
+export default async function InvitePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ invitation?: string }>;
+}) {
   const supabase = await createClient();
+  const admin = createAdminClient();
+  const db = admin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const params = await searchParams;
 
   const {
     data: { user },
@@ -25,18 +32,40 @@ export default async function InvitePage() {
 
   if (!user) redirect("/login");
 
+  // Invitation id can come directly from the email link (preferred for multi-tenant).
+  const invitationIdFromQuery = params.invitation ?? null;
+  const invitationIdFromMeta = (user.user_metadata?.invitation_id as string) ?? null;
+
   // Try user metadata first (populated by inviteUserByEmail)
   let venueId: string | null = (user.user_metadata?.venue_id as string) ?? null;
   let roleId: string | null  = (user.user_metadata?.role_id  as string) ?? null;
+  let invitationId: string | null = invitationIdFromQuery ?? invitationIdFromMeta;
+
+  // If invitation_id is present, resolve invitation first.
+  if (invitationId) {
+    const { data: invById } = await db
+      .from("invitations")
+      .select("id, venue_id, role_id")
+      .eq("id", invitationId)
+      .ilike("email", user.email!)
+      .eq("status", "pending")
+      .maybeSingle();
+
+    if (invById) {
+      venueId = invById.venue_id as string;
+      roleId = invById.role_id as string;
+      invitationId = invById.id as string;
+    } else {
+      invitationId = null;
+    }
+  }
 
   // Fall back to pending invitation row.
   // NOTE: invited user cannot read invitations via RLS, so use admin client.
-  if (!venueId || !roleId) {
-    const admin = createAdminClient();
-    const db = admin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!venueId || !roleId || !invitationId) {
     const { data: inv } = await db
       .from("invitations")
-      .select("venue_id, role_id")
+      .select("id, venue_id, role_id")
       .ilike("email", user.email!)
       .eq("status", "pending")
       .order("created_at", { ascending: false })
@@ -44,41 +73,34 @@ export default async function InvitePage() {
       .maybeSingle();
 
     if (inv) {
+      invitationId = inv.id as string;
       venueId = inv.venue_id as string;
       roleId  = inv.role_id  as string;
     }
   }
 
   // No pending invitation — go to dashboard
-  if (!venueId || !roleId) redirect("/dashboard");
+  if (!venueId || !roleId || !invitationId) redirect("/dashboard");
 
-  // Check if UVR already exists (idempotent — handles double-clicks)
-  const { data: existingUvr } = await supabase
+  // Idempotent membership upsert for multi-tenant invite acceptance.
+  await db
     .from("user_venue_roles")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("venue_id", venueId)
-    .maybeSingle();
+    .upsert(
+      {
+        user_id: user.id,
+        venue_id: venueId,
+        role_id: roleId,
+        status: "active",
+      },
+      { onConflict: "user_id,venue_id" }
+    );
 
-  if (!existingUvr) {
-    // Use admin client to bypass RLS on user_venue_roles and invitations
-    const admin = createAdminClient();
-    const db = admin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-
-    await db.from("user_venue_roles").insert({
-      user_id:  user.id,
-      venue_id: venueId,
-      role_id:  roleId,
-      status:   "active",
-    });
-
-    await db
-      .from("invitations")
-      .update({ status: "accepted" })
-      .eq("email", user.email)
-      .eq("venue_id", venueId)
-      .eq("status", "pending");
-  }
+  // Always mark this invitation accepted.
+  await db
+    .from("invitations")
+    .update({ status: "accepted" })
+    .eq("id", invitationId)
+    .eq("status", "pending");
 
   // Set this venue as the user's active venue
   await supabase

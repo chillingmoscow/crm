@@ -74,25 +74,69 @@ export async function sendInvitation(data: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  // Создаём запись приглашения
-  const { error: invError } = await supabase.from("invitations").insert({
-    venue_id:   data.venueId,
-    email:      data.email,
-    role_id:    data.roleId,
-    invited_by: user.id,
-    status:     "pending",
-  });
+  const email = data.email.trim().toLowerCase();
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 
-  if (invError) return { error: invError.message };
+  // Keep one pending invite per email+venue to avoid ambiguous acceptance.
+  await supabase
+    .from("invitations")
+    .delete()
+    .eq("venue_id", data.venueId)
+    .ilike("email", email)
+    .eq("status", "pending");
 
-  // Отправляем magic link через Supabase Auth (admin client для inviteUserByEmail)
+  const { data: insertedInvitation, error: invError } = await supabase
+    .from("invitations")
+    .insert({
+      venue_id:   data.venueId,
+      email,
+      role_id:    data.roleId,
+      invited_by: user.id,
+      status:     "pending",
+    })
+    .select("id")
+    .single();
+
+  if (invError || !insertedInvitation?.id) return { error: invError?.message ?? "Не удалось создать приглашение" };
+
+  const redirectTo = `${siteUrl}/auth/callback?next=${encodeURIComponent(
+    `/invite?invitation=${insertedInvitation.id}`
+  )}`;
+
+  // Отправляем magic link через Supabase Auth
   const adminClient = createAdminClient();
-  const { error: authError } = await adminClient.auth.admin.inviteUserByEmail(data.email, {
-    data: { venue_id: data.venueId, role_id: data.roleId },
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback?next=/invite`,
+  const { error: authError } = await adminClient.auth.admin.inviteUserByEmail(email, {
+    data: {
+      venue_id: data.venueId,
+      role_id: data.roleId,
+      invitation_id: insertedInvitation.id,
+    },
+    redirectTo,
   });
 
-  if (authError) return { error: authError.message };
+  if (authError) {
+    const isExistingUserError = authError.message
+      .toLowerCase()
+      .includes("already been registered");
+
+    if (isExistingUserError) {
+      const { error: otpError } = await adminClient.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: redirectTo,
+        },
+      });
+
+      if (!otpError) return { error: null };
+    }
+
+    await supabase
+      .from("invitations")
+      .delete()
+      .eq("id", insertedInvitation.id);
+    return { error: authError.message };
+  }
 
   return { error: null };
 }

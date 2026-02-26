@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { MailCheck } from "lucide-react";
+import { MailCheck, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -26,10 +26,10 @@ export default async function VerifyEmailPage({
         </div>
         <CardTitle className="text-2xl">Подтвердите почту</CardTitle>
         <CardDescription>
-          Мы отправили письмо с ссылкой для подтверждения аккаунта.
+          Мы отправили письмо с ссылкой для подтверждения аккаунта. Без подтверждения вход недоступен.
         </CardDescription>
       </CardHeader>
-      <CardContent className="text-center text-sm text-muted-foreground">
+      <CardContent className="text-center text-sm text-muted-foreground space-y-2">
         {email ? (
           <p>
             Письмо отправлено на <span className="font-medium text-foreground">{email}</span>.
@@ -37,13 +37,22 @@ export default async function VerifyEmailPage({
         ) : (
           <p>Проверьте входящие и папку «Спам».</p>
         )}
+        <p>
+          После подтверждения вернитесь на страницу входа и авторизуйтесь.
+        </p>
       </CardContent>
       <CardFooter className="flex flex-col gap-3">
         <Link href="/login" className="w-full">
           <Button className="w-full">Перейти ко входу</Button>
         </Link>
+        <Link href="/register" className="w-full">
+          <Button variant="outline" className="w-full">
+            <RefreshCcw className="h-4 w-4 mr-2" />
+            Зарегистрироваться снова
+          </Button>
+        </Link>
         <p className="text-xs text-muted-foreground text-center">
-          Пока почта не подтверждена, вход будет недоступен.
+          Если письмо не пришло за 1-2 минуты, проверьте папку «Спам».
         </p>
       </CardFooter>
     </Card>

@@ -327,6 +327,13 @@ export function StaffClient({
     startTransition(async () => {
       const result = await inviteStaff({ email: values.email, roleId: values.roleId, venueId });
       if (result.error) { toast.error(result.error); return; }
+      if (result.invitation) {
+        const invitation = result.invitation;
+        setInvitations((prev) => {
+          const withoutDuplicate = prev.filter((inv) => inv.inv_id !== invitation.inv_id);
+          return [invitation, ...withoutDuplicate];
+        });
+      }
       toast.success(`Приглашение отправлено на ${values.email}`);
       reset();
       setInviteOpen(false);

@@ -5,16 +5,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 /**
  * Invite acceptance page.
  *
- * Flow:
- *  1. User clicks the magic-link email sent by inviteUserByEmail()
- *  2. /auth/callback exchanges the code for a session and redirects here
- *  3. We read venue_id / role_id from:
- *       a) user.user_metadata (set by inviteUserByEmail)
- *       b) fall back to the most recent pending invitation row for their email
- *  4. Create an active user_venue_roles row (idempotent)
- *  5. Mark the invitation as accepted
- *  6. Set active_venue_id on their profile
- *  7. Redirect to /dashboard (or /onboarding if profile is incomplete)
+ * Accepts all active pending invitations for the current user email.
+ * This makes multi-tenant onboarding robust when several invites are sent
+ * before the user opens any of the links.
  */
 export default async function InvitePage({
   searchParams,
@@ -32,80 +25,52 @@ export default async function InvitePage({
 
   if (!user) redirect("/login");
 
-  // Invitation id can come directly from the email link (preferred for multi-tenant).
   const invitationIdFromQuery = params.invitation ?? null;
-  const invitationIdFromMeta = (user.user_metadata?.invitation_id as string) ?? null;
+  const nowIso = new Date().toISOString();
+  const { data: pendingInvitations } = await db
+    .from("invitations")
+    .select("id, venue_id, role_id, created_at")
+    .ilike("email", user.email!)
+    .eq("status", "pending")
+    .gt("expires_at", nowIso)
+    .order("created_at", { ascending: false });
 
-  // Try user metadata first (populated by inviteUserByEmail)
-  let venueId: string | null = (user.user_metadata?.venue_id as string) ?? null;
-  let roleId: string | null  = (user.user_metadata?.role_id  as string) ?? null;
-  let invitationId: string | null = invitationIdFromQuery ?? invitationIdFromMeta;
+  const pending = (pendingInvitations ??
+    []) as Array<{ id: string; venue_id: string; role_id: string; created_at: string }>;
 
-  // If invitation_id is present, resolve invitation first.
-  if (invitationId) {
-    const { data: invById } = await db
-      .from("invitations")
-      .select("id, venue_id, role_id")
-      .eq("id", invitationId)
-      .ilike("email", user.email!)
-      .eq("status", "pending")
-      .maybeSingle();
+  if (pending.length === 0) redirect("/dashboard");
 
-    if (invById) {
-      venueId = invById.venue_id as string;
-      roleId = invById.role_id as string;
-      invitationId = invById.id as string;
-    } else {
-      invitationId = null;
-    }
+  const selectedInvitation =
+    (invitationIdFromQuery
+      ? pending.find((inv) => inv.id === invitationIdFromQuery)
+      : null) ?? pending[0];
+
+  for (const inv of pending) {
+    await db
+      .from("user_venue_roles")
+      .upsert(
+        {
+          user_id: user.id,
+          venue_id: inv.venue_id,
+          role_id: inv.role_id,
+          status: "active",
+        },
+        { onConflict: "user_id,venue_id" }
+      );
   }
 
-  // Fall back to pending invitation row.
-  // NOTE: invited user cannot read invitations via RLS, so use admin client.
-  if (!venueId || !roleId || !invitationId) {
-    const { data: inv } = await db
-      .from("invitations")
-      .select("id, venue_id, role_id")
-      .ilike("email", user.email!)
-      .eq("status", "pending")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (inv) {
-      invitationId = inv.id as string;
-      venueId = inv.venue_id as string;
-      roleId  = inv.role_id  as string;
-    }
-  }
-
-  // No pending invitation — go to dashboard
-  if (!venueId || !roleId || !invitationId) redirect("/dashboard");
-
-  // Idempotent membership upsert for multi-tenant invite acceptance.
-  await db
-    .from("user_venue_roles")
-    .upsert(
-      {
-        user_id: user.id,
-        venue_id: venueId,
-        role_id: roleId,
-        status: "active",
-      },
-      { onConflict: "user_id,venue_id" }
-    );
-
-  // Always mark this invitation accepted.
   await db
     .from("invitations")
     .update({ status: "accepted" })
-    .eq("id", invitationId)
-    .eq("status", "pending");
+    .in(
+      "id",
+      pending.map((inv) => inv.id)
+    );
 
-  // Set this venue as the user's active venue
+  // Switch active venue to the one from the current invite link.
   await supabase
     .from("profiles")
-    .update({ active_venue_id: venueId })
+    .update({ active_venue_id: selectedInvitation.venue_id })
     .eq("id", user.id);
 
   redirect("/dashboard");

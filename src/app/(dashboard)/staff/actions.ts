@@ -123,12 +123,12 @@ export async function inviteStaff(data: {
   email:   string;
   roleId:  string;
   venueId: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; invitation: PendingInvitation | null }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { error: "Не авторизован" };
+  if (!user) return { error: "Не авторизован", invitation: null };
 
   const email = data.email.trim().toLowerCase();
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
@@ -151,7 +151,7 @@ export async function inviteStaff(data: {
       .maybeSingle(),
   ]);
 
-  if (!venueRow?.name) return { error: "Не удалось определить заведение для приглашения" };
+  if (!venueRow?.name) return { error: "Не удалось определить заведение для приглашения", invitation: null };
 
   const accountName =
     ((venueRow.accounts as { name?: string } | null)?.name ?? null) ||
@@ -182,7 +182,7 @@ export async function inviteStaff(data: {
     .select("id")
     .single();
 
-  if (invError || !insertedInvitation?.id) return { error: invError?.message ?? "Не удалось создать приглашение" };
+  if (invError || !insertedInvitation?.id) return { error: invError?.message ?? "Не удалось создать приглашение", invitation: null };
 
   const redirectTo = `${siteUrl}/auth/callback?next=${encodeURIComponent(
     `/invite?invitation=${insertedInvitation.id}`
@@ -212,7 +212,7 @@ export async function inviteStaff(data: {
 
       if (!isExistingUserError) {
         await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-        return { error: inviteError.message };
+        return { error: inviteError.message, invitation: null };
       }
 
       const { error: otpError } = await admin.auth.signInWithOtp({
@@ -226,12 +226,21 @@ export async function inviteStaff(data: {
 
       if (otpError) {
         await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-        return { error: otpError.message };
+        return { error: otpError.message, invitation: null };
       }
     }
 
+    const pendingInvitation: PendingInvitation = {
+      inv_id: insertedInvitation.id,
+      email,
+      role_id: data.roleId,
+      role_name: roleName ?? "",
+      role_code: "",
+      invited_at: new Date().toISOString(),
+    };
+
     revalidatePath("/staff");
-    return { error: null };
+    return { error: null, invitation: pendingInvitation };
   }
 
   const { data: inviteLinkData, error: inviteLinkError } =
@@ -253,8 +262,8 @@ export async function inviteStaff(data: {
       .includes("already been registered");
 
     if (!isExistingUserError) {
-      await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-      return { error: inviteLinkError.message };
+        await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+        return { error: inviteLinkError.message, invitation: null };
     }
 
     const { data: magicLinkData, error: magicLinkError } =
@@ -269,7 +278,7 @@ export async function inviteStaff(data: {
 
     if (magicLinkError || !magicLinkData?.properties?.action_link) {
       await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-      return { error: magicLinkError?.message ?? "Не удалось сгенерировать ссылку приглашения" };
+      return { error: magicLinkError?.message ?? "Не удалось сгенерировать ссылку приглашения", invitation: null };
     }
 
     existingUser = true;
@@ -278,7 +287,7 @@ export async function inviteStaff(data: {
 
   if (!actionLink) {
     await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-    return { error: "Не удалось сгенерировать ссылку приглашения" };
+    return { error: "Не удалось сгенерировать ссылку приглашения", invitation: null };
   }
 
   try {
@@ -298,11 +307,21 @@ export async function inviteStaff(data: {
         emailError instanceof Error
           ? emailError.message
           : "Не удалось отправить письмо-приглашение",
+      invitation: null,
     };
   }
 
+  const pendingInvitation: PendingInvitation = {
+    inv_id: insertedInvitation.id,
+    email,
+    role_id: data.roleId,
+    role_name: roleName ?? "",
+    role_code: "",
+    invited_at: new Date().toISOString(),
+  };
+
   revalidatePath("/staff");
-  return { error: null };
+  return { error: null, invitation: pendingInvitation };
 }
 
 export async function updateStaffRole(

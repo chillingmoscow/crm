@@ -29,12 +29,15 @@ export default async function InvitePage() {
   let venueId: string | null = (user.user_metadata?.venue_id as string) ?? null;
   let roleId: string | null  = (user.user_metadata?.role_id  as string) ?? null;
 
-  // Fall back to pending invitation row
+  // Fall back to pending invitation row.
+  // NOTE: invited user cannot read invitations via RLS, so use admin client.
   if (!venueId || !roleId) {
-    const { data: inv } = await supabase
+    const admin = createAdminClient();
+    const db = admin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const { data: inv } = await db
       .from("invitations")
       .select("venue_id, role_id")
-      .eq("email", user.email!)
+      .ilike("email", user.email!)
       .eq("status", "pending")
       .order("created_at", { ascending: false })
       .limit(1)

@@ -55,7 +55,7 @@ export default function LoginPage() {
         error.message === "Invalid login credentials"
           ? "Неверный email или пароль"
           : error.message === "Email not confirmed"
-            ? "Почта не подтверждена. Подтвердите email по ссылке из письма."
+            ? "Почта не подтверждена"
             : error.message
       );
       setLoading(false);

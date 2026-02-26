@@ -18,6 +18,7 @@ export async function switchVenue(
     .select("id")
     .eq("user_id", user.id)
     .eq("venue_id", venueId)
+    .eq("status", "active")
     .maybeSingle();
 
   if (!access) return { error: "Нет доступа к этому заведению" };

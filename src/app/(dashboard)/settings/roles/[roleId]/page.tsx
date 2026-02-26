@@ -48,9 +48,7 @@ export default async function RoleDetailServerPage({
         .order("module")
         .order("code"),
       supabase
-        .from("role_permissions")
-        .select("role_id, permission_id, granted")
-        .eq("role_id", roleId),
+        .rpc("get_effective_role_permissions", { p_role_ids: [roleId] }),
       activeVenueId
         ? supabase
             .from("user_venue_roles")

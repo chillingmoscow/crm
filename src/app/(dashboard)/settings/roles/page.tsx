@@ -44,10 +44,9 @@ export default async function RolesPage() {
 
   const [rolePermsResult, venueRolesResult] = await Promise.all([
     roleIds.length > 0
-      ? supabase
-          .from("role_permissions")
-          .select("role_id, permission_id, granted")
-          .in("role_id", roleIds)
+      ? supabase.rpc("get_effective_role_permissions", {
+          p_role_ids: roleIds,
+        })
       : (Promise.resolve({ data: [] as { role_id: string; permission_id: string; granted: boolean }[] })),
     activeVenueId
       ? supabase

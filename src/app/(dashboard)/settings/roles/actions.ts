@@ -121,10 +121,11 @@ export async function setRolePermission(
   if (role?.code === "owner")
     return { error: "Нельзя редактировать должность Владелец" };
 
-  const { error } = await supabase.from("role_permissions").upsert(
-    { role_id: roleId, permission_id: permissionId, granted },
-    { onConflict: "role_id,permission_id" }
-  );
+  const { error } = await supabase.rpc("set_effective_role_permission", {
+    p_role_id: roleId,
+    p_permission_id: permissionId,
+    p_granted: granted,
+  });
 
   if (error) return { error: error.message };
 

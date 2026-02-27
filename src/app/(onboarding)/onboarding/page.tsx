@@ -3,12 +3,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { OnboardingWizard } from "./_components/wizard";
 import { getSystemRoles } from "./actions";
+import { syncPendingInvitationsForUser } from "@/lib/invitations/sync-pending";
 
 export default async function OnboardingPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
+
+  await syncPendingInvitationsForUser({ userId: user.id, email: user.email });
 
   // Если онбординг уже пройден — в дашборд
   const { data: profile } = await supabase

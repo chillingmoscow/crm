@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificationBell } from "@/components/notification-bell";
+import { syncPendingInvitationsForUser } from "@/lib/invitations/sync-pending";
 
 export default async function DashboardLayout({
   children,
@@ -15,6 +16,9 @@ export default async function DashboardLayout({
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  // Safety net: if invite callback was interrupted, finalize pending invitations on first dashboard request.
+  await syncPendingInvitationsForUser({ userId: user.id, email: user.email });
 
   const { data: profile } = await supabase
     .from("profiles")

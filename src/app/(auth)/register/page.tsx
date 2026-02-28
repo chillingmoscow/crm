@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
@@ -82,7 +82,21 @@ function FloatingField({
   const [hasValue, setHasValue] = useState(false);
   const floated = focused || hasValue;
 
-  const { onBlur: rhfBlur, onChange: rhfChange, ...rest } = registration;
+  const { ref: rhfRef, onBlur: rhfBlur, onChange: rhfChange, ...rest } = registration;
+  const localRef = useRef<HTMLInputElement>(null);
+  const setRef   = useCallback((el: HTMLInputElement | null) => {
+    rhfRef(el);
+    localRef.current = el;
+  }, [rhfRef]);
+
+  // Detect autofill on mount — covers Safari which fills silently (no animation event)
+  useEffect(() => {
+    const el = localRef.current;
+    if (!el) return;
+    if (el.value) { setHasValue(true); return; }
+    const tid = setTimeout(() => { if (el.value) setHasValue(true); }, 150);
+    return () => clearTimeout(tid);
+  }, []);
 
   return (
     <div className="space-y-1">
@@ -115,6 +129,7 @@ function FloatingField({
 
         {/* Input */}
         <input
+          ref={setRef}
           id={id}
           type={type}
           autoComplete={autoComplete}
@@ -131,8 +146,9 @@ function FloatingField({
             rhfChange(e);
           }}
           onAnimationStart={(e) => {
-            // Detect browser autofill via CSS animation trick (globals.css)
-            if (e.animationName === "autoFillStart") setHasValue(true);
+            // Chrome: CSS animation trick (globals.css). Safari: covered by useEffect polling.
+            if (e.animationName === "autoFillStart")  setHasValue(true);
+            if (e.animationName === "autoFillCancel") setHasValue(!!localRef.current?.value);
           }}
           {...rest}
         />
@@ -305,7 +321,7 @@ export default function RegisterPage() {
   const [loading,     setLoading]     = useState(false);
   const [showPass,    setShowPass]    = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [globalError, setGlobalError] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<ReactNode | null>(null);
 
   const {
     register,
@@ -358,7 +374,14 @@ export default function RegisterPage() {
     if (error) {
       const msg = error.message.toLowerCase();
       if (msg.includes("already registered") || msg.includes("user already exists")) {
-        setGlobalError("Этот email уже зарегистрирован. Войдите или восстановите пароль.");
+        setGlobalError(
+          <>
+            Этот email уже зарегистрирован.{" "}
+            <Link href="/login" className="underline font-medium">Войдите</Link>{" "}
+            или{" "}
+            <Link href="/forgot-password" className="underline font-medium">восстановите пароль</Link>.
+          </>
+        );
       } else {
         setGlobalError(error.message);
       }
@@ -368,7 +391,14 @@ export default function RegisterPage() {
 
     // Supabase may return no error but empty identities for existing confirmed users
     if (signUpData?.user && signUpData.user.identities?.length === 0) {
-      setGlobalError("Этот email уже зарегистрирован. Войдите или восстановите пароль.");
+      setGlobalError(
+        <>
+          Этот email уже зарегистрирован.{" "}
+          <Link href="/login" className="underline font-medium">Войдите</Link>{" "}
+          или{" "}
+          <Link href="/forgot-password" className="underline font-medium">восстановите пароль</Link>.
+        </>
+      );
       setLoading(false);
       return;
     }

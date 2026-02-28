@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -38,7 +38,21 @@ function FloatingField({
   const [hasValue, setHasValue] = useState(false);
   const floated = focused || hasValue;
 
-  const { onBlur: rhfBlur, onChange: rhfChange, ...rest } = registration;
+  const { ref: rhfRef, onBlur: rhfBlur, onChange: rhfChange, ...rest } = registration;
+  const localRef = useRef<HTMLInputElement>(null);
+  const setRef   = useCallback((el: HTMLInputElement | null) => {
+    rhfRef(el);
+    localRef.current = el;
+  }, [rhfRef]);
+
+  // Detect autofill on mount — covers Safari which fills silently (no animation event)
+  useEffect(() => {
+    const el = localRef.current;
+    if (!el) return;
+    if (el.value) { setHasValue(true); return; }
+    const tid = setTimeout(() => { if (el.value) setHasValue(true); }, 150);
+    return () => clearTimeout(tid);
+  }, []);
 
   return (
     <div className="space-y-1">
@@ -67,6 +81,7 @@ function FloatingField({
         </label>
 
         <input
+          ref={setRef}
           id={id}
           type={type}
           autoComplete={autoComplete}
@@ -83,7 +98,9 @@ function FloatingField({
             rhfChange(e);
           }}
           onAnimationStart={(e) => {
-            if (e.animationName === "autoFillStart") setHasValue(true);
+            // Chrome: CSS animation trick (globals.css). Safari: covered by useEffect polling.
+            if (e.animationName === "autoFillStart")  setHasValue(true);
+            if (e.animationName === "autoFillCancel") setHasValue(!!localRef.current?.value);
           }}
           {...rest}
         />

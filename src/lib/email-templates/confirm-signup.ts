@@ -15,7 +15,7 @@ function escapeHtml(value: string) {
 export function buildConfirmSignupHtml(params: ConfirmSignupEmailParams): string {
   const siteUrl    = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://sheerly.app").replace(/\/$/, "");
   const actionLink = escapeHtml(params.actionLink);
-  const heading    = "Подтвердите email";
+  const heading    = "Подтвердите регистрацию";
 
   return `<!DOCTYPE html>
 <html lang="ru" xmlns="http://www.w3.org/1999/xhtml">
@@ -97,7 +97,7 @@ export function buildConfirmSignupHtml(params: ConfirmSignupEmailParams): string
                           <a href="${actionLink}"
                              target="_blank"
                              style="display:inline-block;padding:15px 36px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;letter-spacing:0.1px;">
-                            Подтвердить email
+                            Подтвердить
                           </a>
                         </td>
                       </tr>

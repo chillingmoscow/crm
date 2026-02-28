@@ -118,7 +118,7 @@ function FloatingField({
         <label
           htmlFor={id}
           className={[
-            "absolute pointer-events-none select-none transition-all duration-150 leading-none",
+            "absolute z-10 pointer-events-none select-none transition-all duration-150 leading-none",
             floated
               ? `top-0 -translate-y-1/2 left-3.5 text-[11px] font-medium px-1 bg-white ${focused ? "text-blue-500" : "text-gray-400"}`
               : "top-1/2 -translate-y-1/2 left-10 text-sm text-gray-400",

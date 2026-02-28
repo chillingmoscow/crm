@@ -10,12 +10,14 @@
 - Next.js 15 (App Router) + TypeScript + pnpm
 - Tailwind CSS + shadcn/ui (button, card, input, label, select, separator, switch, checkbox, badge, sidebar, sheet)
 - Supabase: локальное окружение через Supabase CLI + Docker
+- Supabase: production окружение на сервере (`supabase.sheerly.app`)
+- Production деплой через Coolify + GitHub webhook (автодеплой из `main`)
+- DNS/SSL для `sheerly.app` и `supabase.sheerly.app`
 - `@supabase/ssr` v0.6.x + `@supabase/supabase-js` v2
 - Middleware: обновление сессии, защита роутов, обход зацикливания при невалидном токене
 - TypeScript типы БД в `src/types/database.ts`
-- Деплой на production через Coolify (self-hosted Supabase + Next.js)
 
-### База данных (миграции 001–013)
+### База данных (миграции 001–023)
 
 | Файл | Содержимое |
 |---|---|
@@ -32,6 +34,16 @@
 | `011` | Расширенный профиль: phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number/date, passport_photos; бакет staff-documents |
 | `012` | Мягкое увольнение: `status`/`fired_at` в user_venue_roles; `get_fired_staff()` |
 | `013` | Таблица уведомлений с RLS; триггер auto-fill employment_date; расширение `get_venue_staff` (phone, telegram, gender, birth_date) |
+| `014` | Доступ к профилям сотрудников в рамках активного заведения |
+| `015` | Демо-структуры залов |
+| `016` | Усиление security/RLS для staff-операций |
+| `017` | Права системных ролей в матрице role_permissions |
+| `018` | Комментарии в сущностях персонала/заведений |
+| `019` | Production-структуры для залов |
+| `020` | Hardening активного membership (`active_venue_id`, `has_permission`, `get_active_account_id`) |
+| `021` | Ужесточение `public` grants |
+| `022` | Account-scoped права для системных ролей |
+| `023` | Backward compatibility для матрицы role permissions |
 
 ### Аутентификация
 
@@ -42,8 +54,10 @@
   - `/register` — тот же layout, поля: имя, email, пароль, подтверждение пароля
   - `/forgot-password` — двухколоночный layout, форма запроса сброса
   - `/reset-password` — центрированный layout, поля нового пароля с eye-toggle
-  - `/verify-email` — центрированный layout с инструкцией
+  - `/verify-email` — центрированный layout с инструкцией (отдельная страница после регистрации)
   - `/auth/email-confirmed` — центрированный layout с подтверждением
+- Локализация типовых ошибок входа (в т.ч. "Почта не подтверждена")
+- Исправлены redirect/callback сценарии (без `localhost`/SSL ошибок в production)
 - Исправлен конфликт padding с иконками автозаполнения браузера (Bitwarden и др.): условный `pr-4`/`pr-10` в зависимости от наличия `rightSlot`
 
 ### Email-шаблоны
@@ -82,6 +96,10 @@ Wizard из 4 шагов: аккаунт → заведение → персон
 - Дата трудоустройства = обязательное поле, автоматически заполняется при добавлении
 - Мягкое увольнение: статус "уволен", раздел "Уволенные сотрудники" с кнопкой "Восстановить"
 - Приглашение по email с выбором должности
+- Инвайты для существующих пользователей (без ошибки `already been registered`)
+- Мгновенное отображение pending-приглашения в таблице без ручной перезагрузки
+- Кастомные invitation письма через Resend API (с fallback на шаблонные письма Supabase)
+- Стабилизация мульти-тенантного потока: автоматическая синхронизация `pending` инвайтов при входе
 - Ролевой доступ: owner/manager/admin могут редактировать, остальные — только просмотр
 
 ---

@@ -91,3 +91,15 @@
   h2 { @apply font-semibold; }
   h3 { @apply font-medium; }
 }
+
+/* ── Autofill: remove browser blue/yellow background, animate for detection ── */
+@keyframes autoFillStart  { from {} to {} }
+@keyframes autoFillCancel { from {} to {} }
+
+input:-webkit-autofill {
+  animation-name: autoFillStart;
+  animation-duration: 1ms;
+  -webkit-box-shadow: 0 0 0 1000px white inset !important;
+  -webkit-text-fill-color: #111827 !important;
+  caret-color: #111827;
+}

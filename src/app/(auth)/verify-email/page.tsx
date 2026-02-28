@@ -1,14 +1,5 @@
 import Link from "next/link";
-import { MailCheck, RefreshCcw } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { MailCheck } from "lucide-react";
 
 export default async function VerifyEmailPage({
   searchParams,
@@ -19,42 +10,44 @@ export default async function VerifyEmailPage({
   const email = params.email;
 
   return (
-    <Card>
-      <CardHeader className="space-y-2 text-center">
-        <div className="mx-auto rounded-full bg-muted p-3 w-fit">
-          <MailCheck className="h-7 w-7" />
-        </div>
-        <CardTitle className="text-2xl">Подтвердите почту</CardTitle>
-        <CardDescription>
-          Мы отправили письмо с ссылкой для подтверждения аккаунта. Без подтверждения вход недоступен.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="text-center text-sm text-muted-foreground space-y-2">
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
+
+      {/* Logo */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
+
+      {/* Icon */}
+      <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center mb-6">
+        <MailCheck className="w-8 h-8 text-blue-600" />
+      </div>
+
+      {/* Heading */}
+      <h1 className="text-[32px] leading-[40px] font-semibold text-gray-900 text-center mb-3">
+        Подтвердите почту
+      </h1>
+
+      {/* Subtext */}
+      <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-2">
         {email ? (
-          <p>
-            Письмо отправлено на <span className="font-medium text-foreground">{email}</span>.
-          </p>
+          <>
+            Отправили письмо на{" "}
+            <span className="font-medium text-gray-800">{email}</span>
+          </>
         ) : (
-          <p>Проверьте входящие и папку «Спам».</p>
+          "Отправили письмо на вашу почту"
         )}
-        <p>
-          После подтверждения вернитесь на страницу входа и авторизуйтесь.
-        </p>
-      </CardContent>
-      <CardFooter className="flex flex-col gap-3">
-        <Link href="/login" className="w-full">
-          <Button className="w-full">Перейти ко входу</Button>
-        </Link>
-        <Link href="/register" className="w-full">
-          <Button variant="outline" className="w-full">
-            <RefreshCcw className="h-4 w-4 mr-2" />
-            Зарегистрироваться снова
-          </Button>
-        </Link>
-        <p className="text-xs text-muted-foreground text-center">
-          Если письмо не пришло за 1-2 минуты, проверьте папку «Спам».
-        </p>
-      </CardFooter>
-    </Card>
+      </p>
+      <p className="text-sm text-gray-400 text-center max-w-sm mb-10">
+        Перейдите по ссылке в письме, чтобы активировать аккаунт.
+        Не забудьте проверить папку «Спам».
+      </p>
+
+      {/* Button */}
+      <Link href="/login">
+        <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
+          Перейти ко входу
+        </button>
+      </Link>
+    </div>
   );
 }

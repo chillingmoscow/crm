@@ -65,7 +65,15 @@ const config: Config = {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
-  		}
+  		},
+  		fontSize: {
+  			'heading-lg':     ['40px', { lineHeight: '48px' }],
+  			'heading-md':     ['32px', { lineHeight: '40px' }],
+  			'heading-sm':     ['24px', { lineHeight: '32px' }],
+  			'text-md':        ['16px', { lineHeight: '24px' }],
+  			'text-small':     ['14px', { lineHeight: '22px' }],
+  			'text-xs-custom': ['12px', { lineHeight: '20px' }],
+  		},
   	}
   },
   plugins: [],

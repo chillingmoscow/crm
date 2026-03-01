@@ -5,7 +5,29 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendInvitationEmail } from "@/lib/invitations/mailer";
 import type { Json, VenueType, WorkingHours } from "@/types/database";
 
-// Загрузка логотипа в Supabase Storage
+// Загрузка фото профиля в Supabase Storage (папка avatar/)
+export async function uploadAvatar(formData: FormData): Promise<{ url: string | null; error: string | null }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { url: null, error: "Не авторизован" };
+
+  const file = formData.get("file") as File;
+  if (!file) return { url: null, error: "Файл не выбран" };
+
+  const ext = file.name.split(".").pop();
+  const path = `${user.id}/avatar/${Date.now()}.${ext}`;
+
+  const { error } = await supabase.storage
+    .from("avatars")
+    .upload(path, file, { upsert: true });
+
+  if (error) return { url: null, error: error.message };
+
+  const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+  return { url: data.publicUrl, error: null };
+}
+
+// Загрузка логотипа аккаунта/заведения в Supabase Storage (папка logo/)
 export async function uploadLogo(formData: FormData): Promise<{ url: string | null; error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -15,7 +37,7 @@ export async function uploadLogo(formData: FormData): Promise<{ url: string | nu
   if (!file) return { url: null, error: "Файл не выбран" };
 
   const ext = file.name.split(".").pop();
-  const path = `${user.id}/${Date.now()}.${ext}`;
+  const path = `${user.id}/logo/${Date.now()}.${ext}`;
 
   const { error } = await supabase.storage
     .from("avatars")
@@ -131,9 +153,11 @@ export async function sendInvitation(data: {
 
   if (invError || !insertedInvitation?.id) return { error: invError?.message ?? "Не удалось создать приглашение" };
 
-  const redirectTo = `${siteUrl}/auth/callback?next=${encodeURIComponent(
-    `/invite?invitation=${insertedInvitation.id}`
-  )}`;
+  // Build redirect paths:
+  //   - New users  → /set-password (create password first) → /invite?invitation=ID
+  //   - Existing users → /invite?invitation=ID directly
+  const inviteAcceptPath = `/invite?invitation=${insertedInvitation.id}`;
+  const setPasswordPath  = `/set-password?next=${encodeURIComponent(inviteAcceptPath)}`;
 
   // Генерируем ссылку (invite для новых пользователей, magiclink для существующих)
   const adminClient = createAdminClient();
@@ -147,10 +171,12 @@ export async function sendInvitation(data: {
   const resendApiKey = process.env.RESEND_API_KEY ?? process.env.SMTP_PASS;
 
   // Fallback: if Resend API key is not configured, use built-in Supabase emails.
+  // The `redirectTo` in Supabase emails is where the user lands after token verification.
   if (!resendApiKey) {
     const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {
       data: linkPayload,
-      redirectTo,
+      // New invited users need to create a password first
+      redirectTo: `${siteUrl}${setPasswordPath}`,
     });
 
     if (inviteError) {
@@ -167,7 +193,8 @@ export async function sendInvitation(data: {
         email,
         options: {
           shouldCreateUser: false,
-          emailRedirectTo: redirectTo,
+          // Existing users skip set-password and go straight to invite acceptance
+          emailRedirectTo: `${siteUrl}${inviteAcceptPath}`,
           data: linkPayload,
         },
       });
@@ -181,20 +208,23 @@ export async function sendInvitation(data: {
     return { error: null };
   }
 
+  // Main path: use generateLink to get hashed_token, then build custom app-domain URLs.
+  // This keeps all invite links on our domain instead of the Supabase-hosted URL.
   const { data: inviteLinkData, error: inviteLinkError } =
     await adminClient.auth.admin.generateLink({
       type: "invite",
       email,
-      options: {
-        data: linkPayload,
-        redirectTo,
-      },
+      options: { data: linkPayload },
     });
 
-  let actionLink: string | null = inviteLinkData?.properties?.action_link ?? null;
+  let actionLink: string | null = null;
   let existingUser = false;
 
-  if (inviteLinkError) {
+  if (!inviteLinkError && inviteLinkData?.properties?.hashed_token) {
+    // New user: verify token → create password → accept invite
+    const ht = inviteLinkData.properties.hashed_token;
+    actionLink = `${siteUrl}/auth/confirm?token_hash=${ht}&type=invite&next=${encodeURIComponent(setPasswordPath)}`;
+  } else if (inviteLinkError) {
     const isExistingUserError = inviteLinkError.message
       .toLowerCase()
       .includes("already been registered");
@@ -208,19 +238,18 @@ export async function sendInvitation(data: {
       await adminClient.auth.admin.generateLink({
         type: "magiclink",
         email,
-        options: {
-          data: linkPayload,
-          redirectTo,
-        },
+        options: { data: linkPayload },
       });
 
-    if (magicLinkError || !magicLinkData?.properties?.action_link) {
+    if (magicLinkError || !magicLinkData?.properties?.hashed_token) {
       await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
       return { error: magicLinkError?.message ?? "Не удалось сгенерировать ссылку приглашения" };
     }
 
     existingUser = true;
-    actionLink = magicLinkData.properties.action_link;
+    // Existing user: verify token → accept invite (no password creation needed)
+    const ht = magicLinkData.properties.hashed_token;
+    actionLink = `${siteUrl}/auth/confirm?token_hash=${ht}&type=magiclink&next=${encodeURIComponent(inviteAcceptPath)}`;
   }
 
   if (!actionLink) {

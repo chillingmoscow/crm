@@ -24,19 +24,18 @@ export async function syncPendingInvitationsForUser(params: {
 
   if (pending.length === 0) return;
 
-  for (const inv of pending) {
-    await db
-      .from("user_venue_roles")
-      .upsert(
-        {
-          user_id: params.userId,
-          venue_id: inv.venue_id,
-          role_id: inv.role_id,
-          status: "active",
-        },
-        { onConflict: "user_id,venue_id" }
-      );
-  }
+  // Single batch upsert instead of N sequential round-trips
+  await db
+    .from("user_venue_roles")
+    .upsert(
+      pending.map((inv) => ({
+        user_id: params.userId,
+        venue_id: inv.venue_id,
+        role_id: inv.role_id,
+        status: "active",
+      })),
+      { onConflict: "user_id,venue_id" }
+    );
 
   await db
     .from("invitations")

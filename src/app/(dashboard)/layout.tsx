@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCachedUser, createClient } from "@/lib/supabase/server";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { NotificationBell } from "@/components/notification-bell";
@@ -10,29 +10,34 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getCachedUser deduplicates the Supabase Auth API call across this render tree
+  // (layout + all child pages get the same user object from React cache)
+  const [user, supabase] = await Promise.all([
+    getCachedUser(),
+    createClient(),
+  ]);
   if (!user) redirect("/login");
 
-  // Safety net: if invite callback was interrupted, finalize pending invitations on first dashboard request.
-  await syncPendingInvitationsForUser({ userId: user.id, email: user.email });
+  // profile + venues in parallel — saves one sequential round-trip
+  const [{ data: profile }, { data: venues }] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("first_name, last_name, active_venue_id")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabase.rpc("get_user_venues"),
+  ]);
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("first_name, last_name, active_venue_id")
-    .eq("id", user.id)
-    .maybeSingle();
+  // Safety net: sync pending invitations only for users without an active venue
+  // (invited users on first login). Skipped for everyone already set up.
+  if (!profile?.active_venue_id) {
+    await syncPendingInvitationsForUser({ userId: user.id, email: user.email });
+  }
 
   const userName =
     [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") ||
     user.email?.split("@")[0] ||
     "Пользователь";
-
-  // All venues the user has access to
-  const { data: venues } = await supabase.rpc("get_user_venues");
 
   const venueList = (venues ?? []) as {
     venue_id: string;

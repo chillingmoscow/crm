@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import type { Database } from "@/types/database";
 
 export async function createClient() {
@@ -26,3 +27,16 @@ export async function createClient() {
     }
   );
 }
+
+/**
+ * Per-request cached auth user — Supabase Auth API вызывается ровно один раз
+ * на весь RSC-дерево (layout + все дочерние страницы).
+ * Возвращает null если не авторизован или при ошибке.
+ */
+export const getCachedUser = cache(async () => {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user;
+});

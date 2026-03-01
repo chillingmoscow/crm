@@ -1,7 +1,6 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { revalidatePath } from "next/cache";
 
 export type Notification = {
   id:         string;
@@ -39,7 +38,9 @@ export async function markNotificationRead(
     .from("notifications")
     .update({ read: true })
     .eq("id", id);
-  revalidatePath("/", "layout");
+  // NotificationBell is a pure Client Component — it updates its own state
+  // after this action. revalidatePath("/","layout") would re-run all layout DB
+  // queries on every notification click, which is wasteful and unnecessary.
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
@@ -52,5 +53,5 @@ export async function markAllNotificationsRead(): Promise<void> {
     .update({ read: true })
     .eq("user_id", user.id)
     .eq("read", false);
-  revalidatePath("/", "layout");
+  // Client updates its own state — no layout revalidation needed.
 }

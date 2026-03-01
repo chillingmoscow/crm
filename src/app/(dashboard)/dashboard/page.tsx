@@ -1,20 +1,21 @@
-import { createClient } from "@/lib/supabase/server";
+import { getCachedUser, createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getCachedUser() returns the same user object already fetched by layout —
+  // no additional Supabase Auth API call is made.
+  const [user, supabase] = await Promise.all([
+    getCachedUser(),
+    createClient(),
+  ]);
 
   if (!user) redirect("/login");
 
   const { data: profile } = await supabase
     .from("profiles")
     .select("active_venue_id")
-    .eq("id", user!.id)
+    .eq("id", user.id)
     .returns<{ active_venue_id: string | null }[]>()
     .maybeSingle();
 

@@ -19,17 +19,26 @@ interface Props {
   data: WizardData;
   onUpdate: (patch: Partial<WizardData>) => void;
   onNext: () => void;
+  onBack: () => void;
 }
 
-export function StepAccount({ data, onUpdate, onNext }: Props) {
+export function StepAccount({ data, onUpdate, onNext, onBack }: Props) {
   const [uploading, setUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(data.accountLogoUrl);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<Form>({
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: { accountName: data.accountName },
   });
+
+  const accountNameValue = watch("accountName");
+  const canSubmit = accountNameValue.trim().length > 0 && !isSubmitting && !uploading;
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -141,17 +150,18 @@ export function StepAccount({ data, onUpdate, onNext }: Props) {
           {/* Name */}
           <div className="space-y-1.5">
             <label htmlFor="accountName" className="text-sm font-medium text-gray-700">
-              Название аккаунта
+              Название аккаунта <span className="text-gray-400 font-normal">*</span>
             </label>
             <input
               id="accountName"
               placeholder="Например: Ресторан «Берёзка» или Иванов Иван"
-              className={`h-12 w-full rounded-xl border px-4 text-sm
-                         placeholder:text-gray-400 outline-none transition-colors duration-150
-                         ${errors.accountName
-                           ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                           : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                         }`}
+              className={[
+                "h-12 w-full rounded-xl border px-4 text-sm bg-white",
+                "placeholder:text-gray-400 outline-none transition-colors duration-150",
+                errors.accountName
+                  ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                  : "border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
+              ].join(" ")}
               {...register("accountName")}
             />
             {errors.accountName && (
@@ -164,11 +174,19 @@ export function StepAccount({ data, onUpdate, onNext }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="px-8 pb-8">
+        <div className="px-8 pb-8 flex gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="h-12 px-6 rounded-xl border border-gray-200 bg-white hover:bg-gray-50
+                       text-gray-700 text-sm font-medium transition-colors duration-150"
+          >
+            Назад
+          </button>
           <button
             type="submit"
-            disabled={isSubmitting || uploading}
-            className="h-12 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm
+            disabled={!canSubmit}
+            className="h-12 flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm
                        font-medium transition-colors duration-150 flex items-center justify-center
                        disabled:opacity-50 disabled:cursor-not-allowed"
           >

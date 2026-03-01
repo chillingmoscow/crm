@@ -29,7 +29,15 @@
       "Bash(PATH=\"/Users/pavel.oplochko/Library/pnpm:$PATH\" /Users/pavel.oplochko/Library/pnpm/pnpm dlx:*)",
       "Bash(PATH=\"/Users/pavel.oplochko/Library/pnpm:$PATH\" /Users/pavel.oplochko/Library/pnpm/pnpm dlx shadcn@latest add sidebar --overwrite:*)",
       "Bash(timeout 12 /Users/pavel.oplochko/Library/pnpm/pnpm dev:*)",
-      "Bash(docker exec:*)"
+      "Bash(docker exec:*)",
+      "Bash(git push origin main)",
+      "Bash(sshpass -version)",
+      "Bash(sshpass -p 'bTi112hnwev@X-' ssh -o StrictHostKeyChecking=no root@185.178.44.60 \"docker ps --format ''table {{.Names}}\\\\t{{.Image}}\\\\t{{.Ports}}''\")",
+      "Bash(sshpass -p 'bTi112hnwev@X-' ssh -o StrictHostKeyChecking=no root@185.178.44.60 \"docker inspect supabase-db-jk8o8os4wowowg088ksckcc4 | python3 -c \"\"import json,sys; env=json.load\\(sys.stdin\\)[0][''Config''][''Env'']; [print\\(e\\) for e in env if ''PASS'' in e or ''PASSWORD'' in e or ''POSTGRES'' in e]\"\"\")",
+      "Bash(sshpass -p 'bTi112hnwev@X-' ssh -o StrictHostKeyChecking=no root@185.178.44.60 \"docker exec -i supabase-db-jk8o8os4wowowg088ksckcc4 psql -U postgres -d postgres\")",
+      "Bash(sshpass -p 'bTi112hnwev@X-' ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=10 root@185.178.44.60 \"docker logs ksg0sco00sw804c4c088wo48-155353825701 2>&1 | tail -15\")",
+      "Bash(sshpass -p 'bTi112hnwev@X-' ssh -o StrictHostKeyChecking=no root@185.178.44.60 \"docker exec supabase-db-jk8o8os4wowowg088ksckcc4 psql -U postgres -d postgres -c \"\"SELECT id, name, public FROM storage.buckets;\"\"\")",
+      "Bash(git add -A)"
     ]
   }
 }

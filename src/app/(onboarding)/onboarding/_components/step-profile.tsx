@@ -1,11 +1,18 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { useForm } from "react-hook-form";
+import { useState, useRef, useMemo } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Upload, UserRound, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { uploadLogo, saveProfile } from "../actions";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
@@ -13,8 +20,10 @@ import { uploadLogo, saveProfile } from "../actions";
 const schema = z.object({
   firstName:  z.string().min(1, "Введите имя"),
   lastName:   z.string().min(1, "Введите фамилию"),
-  gender:     z.enum(["male", "female", "other"], { required_error: "Выберите пол" }),
-  birthDate:  z.string().min(1, "Укажите дату рождения"),
+  gender:     z.enum(["male", "female"], { required_error: "Выберите пол" }),
+  birthDay:   z.string().min(1, "Укажите день"),
+  birthMonth: z.string().min(1, "Укажите месяц"),
+  birthYear:  z.string().min(1, "Укажите год"),
   phone:      z.string().min(1, "Укажите телефон"),
   telegramId: z.string().min(1, "Укажите ID Telegram").regex(/^\d+$/, "ID Telegram — только цифры"),
   address:    z.string().optional(),
@@ -37,17 +46,28 @@ export interface ProfileInitialData {
 
 interface Props {
   initial:   ProfileInitialData;
-  stepLabel: string;        // e.g. "1 из 5" or "1 из 1"
+  stepLabel: string;
   onNext:    () => void;
 }
 
-// ─── Gender selector ──────────────────────────────────────────────────────────
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const GENDERS = [
-  { value: "male",   label: "Мужской"  },
-  { value: "female", label: "Женский"  },
-  { value: "other",  label: "Другой"   },
+  { value: "male",   label: "Мужской" },
+  { value: "female", label: "Женский" },
 ] as const;
+
+const MONTHS = [
+  "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+  "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+];
+
+function daysInMonth(month: string, year: string): number {
+  const m = parseInt(month, 10);
+  const y = parseInt(year, 10);
+  if (!m || !y) return 31;
+  return new Date(y, m, 0).getDate();
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -57,26 +77,31 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
   const [photoUrl, setPhotoUrl]         = useState<string | null>(initial.photoUrl);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Max birth date = 14 years ago, min = 100 years ago
-  const today       = new Date();
-  const maxBirthDate = new Date(today.getFullYear() - 14, today.getMonth(), today.getDate())
-    .toISOString().split("T")[0]!;
-  const minBirthDate = new Date(today.getFullYear() - 100, today.getMonth(), today.getDate())
-    .toISOString().split("T")[0]!;
+  // Parse initial birth date if present
+  const [initYear, initMonth, initDay] = initial.birthDate?.split("-") ?? ["", "", ""];
+
+  const currentYear = new Date().getFullYear();
+  const minYear = currentYear - 100;
+  const maxYear = currentYear - 14;
 
   const {
     register,
     handleSubmit,
     watch,
     setValue,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
       firstName:  initial.firstName,
       lastName:   initial.lastName,
-      gender:     (initial.gender as Form["gender"]) ?? undefined,
-      birthDate:  initial.birthDate ?? "",
+      gender:     (initial.gender === "male" || initial.gender === "female")
+                    ? initial.gender
+                    : undefined,
+      birthDay:   initDay  ?? "",
+      birthMonth: initMonth ?? "",
+      birthYear:  initYear  ?? "",
       phone:      initial.phone ?? "",
       telegramId: initial.telegramId ?? "",
       address:    initial.address ?? "",
@@ -84,6 +109,22 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
   });
 
   const selectedGender = watch("gender");
+  const watchMonth     = watch("birthMonth");
+  const watchYear      = watch("birthYear");
+
+  const maxDay = useMemo(
+    () => daysInMonth(watchMonth, watchYear),
+    [watchMonth, watchYear],
+  );
+
+  const dayOptions = Array.from({ length: maxDay }, (_, i) =>
+    String(i + 1).padStart(2, "0"),
+  );
+
+  const yearOptions = Array.from(
+    { length: maxYear - minYear + 1 },
+    (_, i) => String(maxYear - i),
+  );
 
   // ── Photo upload ────────────────────────────────────────────────────────────
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -108,11 +149,15 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
 
   // ── Submit ──────────────────────────────────────────────────────────────────
   const onSubmit = async (values: Form) => {
+    const birthDate = values.birthYear && values.birthMonth && values.birthDay
+      ? `${values.birthYear}-${values.birthMonth.padStart(2, "0")}-${values.birthDay.padStart(2, "0")}`
+      : "";
+
     const { error } = await saveProfile({
       firstName:  values.firstName,
       lastName:   values.lastName,
       gender:     values.gender,
-      birthDate:  values.birthDate,
+      birthDate,
       phone:      values.phone,
       telegramId: values.telegramId,
       address:    values.address ?? "",
@@ -131,7 +176,7 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="px-8 pt-8 pb-6 border-b border-gray-50">
+      <div className="px-8 pt-8 pb-6 border-b border-gray-100">
         <div className="flex items-center justify-between mb-5">
           <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center">
             <UserRound className="w-6 h-6 text-blue-600" />
@@ -148,7 +193,7 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
       <form onSubmit={handleSubmit(onSubmit)}>
         <div className="px-8 py-6 space-y-6">
 
-          {/* ── Photo ────────────────────────────────────────────────────── */}
+          {/* ── Фото ─────────────────────────────────────────────────────── */}
           <div className="flex items-center gap-5">
             <button
               type="button"
@@ -191,7 +236,7 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
             />
           </div>
 
-          {/* ── Section: Личные данные ────────────────────────────────────── */}
+          {/* ── Личные данные ─────────────────────────────────────────────── */}
           <div className="space-y-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
               Личные данные
@@ -207,7 +252,9 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
                   className={inputCls(!!errors.firstName)}
                   {...register("firstName")}
                 />
-                {errors.firstName && <p className="text-xs text-red-600">{errors.firstName.message}</p>}
+                {errors.firstName && (
+                  <p className="text-xs text-red-500">{errors.firstName.message}</p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="lastName" className="text-sm font-medium text-gray-700">Фамилия</label>
@@ -217,11 +264,13 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
                   className={inputCls(!!errors.lastName)}
                   {...register("lastName")}
                 />
-                {errors.lastName && <p className="text-xs text-red-600">{errors.lastName.message}</p>}
+                {errors.lastName && (
+                  <p className="text-xs text-red-500">{errors.lastName.message}</p>
+                )}
               </div>
             </div>
 
-            {/* Пол */}
+            {/* Пол — только 2 варианта */}
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-gray-700">Пол</label>
               <div className="flex gap-2">
@@ -241,27 +290,74 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
                   </button>
                 ))}
               </div>
-              {errors.gender && <p className="text-xs text-red-600">{errors.gender.message}</p>}
+              {errors.gender && (
+                <p className="text-xs text-red-500">{errors.gender.message}</p>
+              )}
             </div>
 
-            {/* Дата рождения */}
+            {/* Дата рождения — 3 селекта */}
             <div className="space-y-1.5">
-              <label htmlFor="birthDate" className="text-sm font-medium text-gray-700">
-                Дата рождения
-              </label>
-              <input
-                id="birthDate"
-                type="date"
-                min={minBirthDate}
-                max={maxBirthDate}
-                className={inputCls(!!errors.birthDate)}
-                {...register("birthDate")}
-              />
-              {errors.birthDate && <p className="text-xs text-red-600">{errors.birthDate.message}</p>}
+              <label className="text-sm font-medium text-gray-700">Дата рождения</label>
+              <div className="grid grid-cols-3 gap-2">
+                {/* День */}
+                <Controller
+                  name="birthDay"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger className={selectTriggerCls(!!errors.birthDay)}>
+                        <SelectValue placeholder="День" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 rounded-xl border-gray-100 shadow-lg">
+                        {dayOptions.map((d) => (
+                          <SelectItem key={d} value={d}>{parseInt(d, 10)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {/* Месяц */}
+                <Controller
+                  name="birthMonth"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger className={selectTriggerCls(!!errors.birthMonth)}>
+                        <SelectValue placeholder="Месяц" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 rounded-xl border-gray-100 shadow-lg">
+                        {MONTHS.map((m, i) => (
+                          <SelectItem key={i} value={String(i + 1).padStart(2, "0")}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                {/* Год */}
+                <Controller
+                  name="birthYear"
+                  control={control}
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger className={selectTriggerCls(!!errors.birthYear)}>
+                        <SelectValue placeholder="Год" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-60 rounded-xl border-gray-100 shadow-lg">
+                        {yearOptions.map((y) => (
+                          <SelectItem key={y} value={y}>{y}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+              {(errors.birthDay || errors.birthMonth || errors.birthYear) && (
+                <p className="text-xs text-red-500">Укажите дату рождения</p>
+              )}
             </div>
           </div>
 
-          {/* ── Section: Контакты ─────────────────────────────────────────── */}
+          {/* ── Контакты ──────────────────────────────────────────────────── */}
           <div className="space-y-4">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
               Контакты
@@ -277,7 +373,9 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
                 className={inputCls(!!errors.phone)}
                 {...register("phone")}
               />
-              {errors.phone && <p className="text-xs text-red-600">{errors.phone.message}</p>}
+              {errors.phone && (
+                <p className="text-xs text-red-500">{errors.phone.message}</p>
+              )}
             </div>
 
             {/* Telegram ID */}
@@ -308,7 +406,9 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
                 className={inputCls(!!errors.telegramId)}
                 {...register("telegramId")}
               />
-              {errors.telegramId && <p className="text-xs text-red-600">{errors.telegramId.message}</p>}
+              {errors.telegramId && (
+                <p className="text-xs text-red-500">{errors.telegramId.message}</p>
+              )}
             </div>
 
             {/* Адрес */}
@@ -349,10 +449,19 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
 
 function inputCls(hasError: boolean) {
   return [
-    "h-12 w-full rounded-xl border px-4 text-sm placeholder:text-gray-400",
+    "h-12 w-full rounded-xl border px-4 text-sm bg-white placeholder:text-gray-400",
     "outline-none transition-colors duration-150",
     hasError
       ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
-      : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
+      : "border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
+  ].join(" ");
+}
+
+function selectTriggerCls(hasError: boolean) {
+  return [
+    "h-12 rounded-xl text-sm bg-white transition-colors duration-150",
+    hasError
+      ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+      : "border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
   ].join(" ");
 }

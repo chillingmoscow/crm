@@ -50,7 +50,7 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
   const [workingHours, setWorkingHours] = useState<WorkingHours>(data.workingHours);
   const [loading, setLoading] = useState(false);
 
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<Form>({
+  const { register, handleSubmit, setValue, getValues, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
       venueName:    data.venueName,
@@ -311,7 +311,10 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
         <div className="px-8 pb-8 flex gap-3">
           <button
             type="button"
-            onClick={onBack}
+            onClick={() => {
+              onUpdate({ ...getValues(), workingHours });
+              onBack();
+            }}
             className="h-12 px-6 rounded-xl border border-gray-200 bg-white hover:bg-gray-50
                        text-gray-700 text-sm font-medium transition-colors duration-150"
           >

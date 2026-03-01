@@ -1,9 +1,15 @@
 export const VENUE_TYPES = [
-  { value: "restaurant", label: "Ресторан" },
-  { value: "bar",        label: "Бар" },
-  { value: "cafe",       label: "Кафе" },
-  { value: "club",       label: "Клуб" },
-  { value: "other",      label: "Другое" },
+  { value: "bar",         label: "Бар"          },
+  { value: "snack_bar",   label: "Закусочная"   },
+  { value: "hookah",      label: "Кальянная"    },
+  { value: "cafe",        label: "Кафе"         },
+  { value: "pastry_shop", label: "Кондитерская" },
+  { value: "coffee_shop", label: "Кофейня"      },
+  { value: "pub",         label: "Паб"          },
+  { value: "pizzeria",    label: "Пиццерия"     },
+  { value: "restaurant",  label: "Ресторан"     },
+  { value: "canteen",     label: "Столовая"     },
+  { value: "fast_food",   label: "Фастфуд"      },
 ] as const;
 
 export const CURRENCIES = [

@@ -13,11 +13,17 @@ import { createAccountAndVenue } from "../actions";
 import type { WizardData } from "./wizard";
 import type { WorkingHours } from "@/types/database";
 
+const ALL_VENUE_TYPE_VALUES = [
+  "bar", "snack_bar", "hookah", "cafe", "pastry_shop",
+  "coffee_shop", "pub", "pizzeria", "restaurant", "canteen", "fast_food",
+] as const;
+
 const schema = z.object({
   venueName:    z.string().min(1, "Введите название"),
-  venueType:    z.enum(["restaurant", "bar", "cafe", "club", "other"]),
-  venueAddress: z.string().optional(),
-  venuePhone:   z.string().optional(),
+  venueType:    z.enum(ALL_VENUE_TYPE_VALUES),
+  venueAddress: z.string().min(1, "Укажите адрес"),
+  venuePhone:   z.string().min(1, "Укажите телефон"),
+  venueWebsite: z.string().optional(),
   currency:     z.string().min(1),
   timezone:     z.string().min(1),
 });
@@ -31,6 +37,15 @@ interface Props {
   onBack: () => void;
 }
 
+const inputCls = (hasError: boolean) =>
+  [
+    "h-12 w-full rounded-xl border px-4 text-sm placeholder:text-gray-400",
+    "outline-none transition-colors duration-150",
+    hasError
+      ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+      : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
+  ].join(" ");
+
 export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
   const [workingHours, setWorkingHours] = useState<WorkingHours>(data.workingHours);
   const [loading, setLoading] = useState(false);
@@ -39,9 +54,12 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
     resolver: zodResolver(schema),
     defaultValues: {
       venueName:    data.venueName,
-      venueType:    data.venueType,
+      venueType:    (ALL_VENUE_TYPE_VALUES as readonly string[]).includes(data.venueType)
+                      ? (data.venueType as Form["venueType"])
+                      : "restaurant",
       venueAddress: data.venueAddress,
       venuePhone:   data.venuePhone,
+      venueWebsite: data.venueWebsite,
       currency:     data.currency,
       timezone:     data.timezone,
     },
@@ -75,8 +93,9 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
       accountLogoUrl: data.accountLogoUrl,
       venueName:      values.venueName,
       venueType:      values.venueType,
-      venueAddress:   values.venueAddress ?? "",
-      venuePhone:     values.venuePhone   ?? "",
+      venueAddress:   values.venueAddress,
+      venuePhone:     values.venuePhone,
+      venueWebsite:   values.venueWebsite ?? "",
       currency:       values.currency,
       timezone:       values.timezone,
       workingHours,
@@ -121,12 +140,7 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
             <input
               id="venueName"
               placeholder="Ресторан «Берёзка»"
-              className={`h-12 w-full rounded-xl border px-4 text-sm
-                         placeholder:text-gray-400 outline-none transition-colors duration-150
-                         ${errors.venueName
-                           ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
-                           : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                         }`}
+              className={inputCls(!!errors.venueName)}
               {...register("venueName")}
             />
             {errors.venueName && (
@@ -140,7 +154,11 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
               Тип заведения <span className="text-gray-400 font-normal">*</span>
             </label>
             <Select
-              defaultValue={data.venueType}
+              defaultValue={
+                (ALL_VENUE_TYPE_VALUES as readonly string[]).includes(data.venueType)
+                  ? data.venueType
+                  : "restaurant"
+              }
               onValueChange={(v) => setValue("venueType", v as Form["venueType"])}
             >
               <SelectTrigger className="h-12 rounded-xl border-gray-200 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
@@ -157,27 +175,49 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
           {/* Address + Phone */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label htmlFor="venueAddress" className="text-sm font-medium text-gray-700">Адрес</label>
+              <label htmlFor="venueAddress" className="text-sm font-medium text-gray-700">
+                Адрес <span className="text-gray-400 font-normal">*</span>
+              </label>
               <input
                 id="venueAddress"
                 placeholder="г. Москва, ул. Пушкина, 1"
-                className="h-12 w-full rounded-xl border border-gray-200 px-4 text-sm
-                           placeholder:text-gray-400 outline-none transition-colors duration-150
-                           focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className={inputCls(!!errors.venueAddress)}
                 {...register("venueAddress")}
               />
+              {errors.venueAddress && (
+                <p className="text-xs text-red-600">{errors.venueAddress.message}</p>
+              )}
             </div>
             <div className="space-y-1.5">
-              <label htmlFor="venuePhone" className="text-sm font-medium text-gray-700">Телефон</label>
+              <label htmlFor="venuePhone" className="text-sm font-medium text-gray-700">
+                Телефон <span className="text-gray-400 font-normal">*</span>
+              </label>
               <input
                 id="venuePhone"
+                type="tel"
                 placeholder="+7 (999) 000-00-00"
-                className="h-12 w-full rounded-xl border border-gray-200 px-4 text-sm
-                           placeholder:text-gray-400 outline-none transition-colors duration-150
-                           focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className={inputCls(!!errors.venuePhone)}
                 {...register("venuePhone")}
               />
+              {errors.venuePhone && (
+                <p className="text-xs text-red-600">{errors.venuePhone.message}</p>
+              )}
             </div>
+          </div>
+
+          {/* Website */}
+          <div className="space-y-1.5">
+            <label htmlFor="venueWebsite" className="text-sm font-medium text-gray-700">
+              Веб-сайт
+              <span className="ml-1.5 text-xs font-normal text-gray-400">(необязательно)</span>
+            </label>
+            <input
+              id="venueWebsite"
+              type="url"
+              placeholder="https://myrestaurant.ru"
+              className={inputCls(false)}
+              {...register("venueWebsite")}
+            />
           </div>
 
           {/* Currency + Timezone */}

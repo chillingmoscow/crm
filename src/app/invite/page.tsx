@@ -8,6 +8,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * Accepts all active pending invitations for the current user email.
  * This makes multi-tenant onboarding robust when several invites are sent
  * before the user opens any of the links.
+ *
+ * After accepting, checks profile completeness:
+ *   - If the profile is already filled → redirect to /dashboard
+ *   - Otherwise                        → redirect to /onboarding/employee
  */
 export default async function InvitePage({
   searchParams,
@@ -73,5 +77,19 @@ export default async function InvitePage({
     .update({ active_venue_id: selectedInvitation.venue_id })
     .eq("id", user.id);
 
-  redirect("/onboarding/employee");
+  // Check whether the profile is already complete.
+  // Required fields: first_name, last_name, phone, telegram_id
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("first_name, last_name, phone, telegram_id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  const profileComplete =
+    !!profile?.first_name &&
+    !!profile?.last_name &&
+    !!profile?.phone &&
+    !!profile?.telegram_id;
+
+  redirect(profileComplete ? "/dashboard" : "/onboarding/employee");
 }

@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Upload, UserRound } from "lucide-react";
+import { Loader2, Upload, UserRound, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { uploadLogo, saveProfile } from "../actions";
 
@@ -16,7 +16,7 @@ const schema = z.object({
   gender:     z.enum(["male", "female", "other"], { required_error: "Выберите пол" }),
   birthDate:  z.string().min(1, "Укажите дату рождения"),
   phone:      z.string().min(1, "Укажите телефон"),
-  telegramId: z.string().min(1, "Укажите Telegram"),
+  telegramId: z.string().min(1, "Укажите ID Telegram").regex(/^\d+$/, "ID Telegram — только цифры"),
   address:    z.string().optional(),
 });
 
@@ -280,22 +280,34 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
               {errors.phone && <p className="text-xs text-red-600">{errors.phone.message}</p>}
             </div>
 
-            {/* Telegram */}
+            {/* Telegram ID */}
             <div className="space-y-1.5">
-              <label htmlFor="telegramId" className="text-sm font-medium text-gray-700">
-                Telegram
-              </label>
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">
-                  @
-                </span>
-                <input
-                  id="telegramId"
-                  placeholder="username"
-                  className={[inputCls(!!errors.telegramId), "pl-8"].join(" ")}
-                  {...register("telegramId")}
-                />
+              <div className="flex items-center gap-1.5">
+                <label htmlFor="telegramId" className="text-sm font-medium text-gray-700">
+                  ID Telegram
+                </label>
+                <div className="group relative inline-flex">
+                  <HelpCircle className="w-4 h-4 text-gray-400 cursor-pointer hover:text-gray-600 transition-colors" />
+                  <div
+                    className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+                               w-64 rounded-xl bg-gray-900 px-3 py-2.5 text-xs text-white shadow-lg
+                               opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10"
+                  >
+                    Чтобы узнать свой числовой ID, напишите боту{" "}
+                    <span className="font-semibold text-blue-300">@userinfobot</span>{" "}
+                    в Telegram — он пришлёт ваш ID в ответ.
+                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px
+                                    border-4 border-transparent border-t-gray-900" />
+                  </div>
+                </div>
               </div>
+              <input
+                id="telegramId"
+                inputMode="numeric"
+                placeholder="123456789"
+                className={inputCls(!!errors.telegramId)}
+                {...register("telegramId")}
+              />
               {errors.telegramId && <p className="text-xs text-red-600">{errors.telegramId.message}</p>}
             </div>
 

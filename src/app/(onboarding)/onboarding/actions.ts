@@ -35,6 +35,7 @@ export async function createAccountAndVenue(data: {
   venueType: VenueType;
   venueAddress: string;
   venuePhone: string;
+  venueWebsite: string;
   currency: string;
   timezone: string;
   workingHours: WorkingHours;
@@ -50,6 +51,7 @@ export async function createAccountAndVenue(data: {
     p_venue_type:    data.venueType,
     p_venue_address: data.venueAddress,
     p_venue_phone:   data.venuePhone,
+    p_venue_website: data.venueWebsite,
     p_currency:      data.currency,
     p_timezone:      data.timezone,
     p_working_hours: data.workingHours as unknown as Json,
@@ -275,7 +277,7 @@ export async function saveProfile(data: {
       gender:      data.gender,
       birth_date:  data.birthDate,
       phone:       data.phone.trim(),
-      telegram_id: data.telegramId.replace(/^@/, "").trim(),
+      telegram_id: data.telegramId.trim(),
       address:     data.address.trim() || null,
       photo_url:   data.photoUrl,
     })

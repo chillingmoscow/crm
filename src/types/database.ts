@@ -314,6 +314,7 @@ export type Database = {
           phone: string | null
           timezone: string
           type: Database["public"]["Enums"]["venue_type"]
+          website: string | null
           working_hours: Json | null
         }
         Insert: {
@@ -327,6 +328,7 @@ export type Database = {
           phone?: string | null
           timezone?: string
           type?: Database["public"]["Enums"]["venue_type"]
+          website?: string | null
           working_hours?: Json | null
         }
         Update: {
@@ -340,6 +342,7 @@ export type Database = {
           phone?: string | null
           timezone?: string
           type?: Database["public"]["Enums"]["venue_type"]
+          website?: string | null
           working_hours?: Json | null
         }
         Relationships: [
@@ -371,6 +374,7 @@ export type Database = {
           p_venue_name: string
           p_venue_phone: string
           p_venue_type: Database["public"]["Enums"]["venue_type"]
+          p_venue_website?: string
           p_working_hours: Json
         }
         Returns: Json
@@ -413,7 +417,7 @@ export type Database = {
     }
     Enums: {
       invitation_status: "pending" | "accepted" | "expired"
-      venue_type: "restaurant" | "bar" | "cafe" | "club" | "other"
+      venue_type: "restaurant" | "bar" | "cafe" | "club" | "other" | "snack_bar" | "hookah" | "pastry_shop" | "coffee_shop" | "pub" | "pizzeria" | "canteen" | "fast_food"
     }
     CompositeTypes: {
       [_ in never]: never

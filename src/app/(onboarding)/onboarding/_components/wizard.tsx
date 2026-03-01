@@ -18,6 +18,7 @@ export interface WizardData {
   venueType: VenueType;
   venueAddress: string;
   venuePhone: string;
+  venueWebsite: string;
   currency: string;
   timezone: string;
   workingHours: WorkingHours;
@@ -51,6 +52,7 @@ export function OnboardingWizard({ roles, initialProfile }: Props) {
     venueType:      "restaurant",
     venueAddress:   "",
     venuePhone:     "",
+    venueWebsite:   "",
     currency:       "RUB",
     timezone:       "Europe/Moscow",
     workingHours:   INITIAL_WORKING_HOURS,

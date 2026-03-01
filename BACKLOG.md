@@ -44,9 +44,13 @@
 | `021` | Ужесточение `public` grants |
 | `022` | Account-scoped права для системных ролей |
 | `023` | Backward compatibility для матрицы role permissions |
+| `028` | Исправление `get_user_venues()` (UNION + `status = 'active'`) + `complete_owner_onboarding()` явный `status = 'active'` |
 
 ### Аутентификация
 
+- Исправлен `{}` в error banner на странице регистрации (`setGlobalError(error.message)` вместо объекта)
+- Исправлен overlap иконки браузерного автозаполнения (Bitwarden и др.) — `z-10` на иконку + `ring-2 ring-blue-100` на фокус (login + register)
+- Убран `router.refresh()` после `router.push()` на регистрации — устранена заметная задержка после "Продолжить"
 - Email/пароль, восстановление пароля
 - OAuth callback + приём приглашений (`/invite`)
 - Полный редизайн всех auth-страниц в стиле Sheerly:
@@ -69,6 +73,13 @@
 
 ### Онбординг (`/onboarding`)
 Wizard из 4 шагов: аккаунт → заведение → персонал → готово
+- Исправлены стили полей в `step-profile` — соответствуют login/register (`ring-2` на focus/error)
+- Переименован лейбл "ID Telegram" → "Telegram ID"; тултип переведён на JS-таймер, скрывается через 5 с
+- Wizard сохраняет данные шага 1 (`savedProfile` state) при возврате с шага 2
+- `step-profile` использует `uploadAvatar` (бакет `avatars/`) вместо `uploadLogo` — аватары и логотипы в разных папках
+- Приглашение по email: ссылка ведёт на домен приложения (`/auth/confirm?token_hash=...`), а не на Supabase
+- Добавлены `/auth/confirm` route handler и `/set-password` страница для invited-users flow
+- Миграция `028`: исправлен `get_user_venues()` (UNION + `status = 'active'`), venue switcher появляется сразу после онбординга; `complete_owner_onboarding()` явно выставляет `status = 'active'`
 
 ### UI Shell
 - Collapsible sidebar (shadcn Sidebar): схлопывается в иконки на desktop, drawer на mobile

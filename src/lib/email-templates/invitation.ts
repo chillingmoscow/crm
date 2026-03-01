@@ -57,11 +57,10 @@ export function buildInvitationHtml(params: InvitationEmailParams): string {
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;">
           <tr>
             <td align="center" style="padding-bottom:20px;">
-              <img src="${siteUrl}/logo-full.svg"
+              <img src="${siteUrl}/logo-mail.png"
                    alt="Sheerly"
-                   width="120"
-                   height="29"
-                   style="display:block;border:0;outline:none;text-decoration:none;" />
+                   width="260"
+                   style="display:block;border:0;outline:none;text-decoration:none;height:auto;" />
             </td>
           </tr>
         </table>

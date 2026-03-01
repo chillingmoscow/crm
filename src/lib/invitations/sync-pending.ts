@@ -7,8 +7,7 @@ export async function syncPendingInvitationsForUser(params: {
   const email = params.email?.trim().toLowerCase();
   if (!email) return;
 
-  const admin = createAdminClient();
-  const db = admin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const db = createAdminClient();
 
   const nowIso = new Date().toISOString();
   const { data: pendingInvitations } = await db

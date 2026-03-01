@@ -25,7 +25,7 @@ export default async function EmployeeOnboardingPage() {
   // Fetch current profile data
   const { data: profile } = await supabase
     .from("profiles")
-    .select("first_name, last_name, photo_url, gender, birth_date, phone, telegram_id, address")
+    .select("first_name, last_name, photo_url, avatar_url, gender, birth_date, phone, telegram_id, address")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -42,7 +42,7 @@ export default async function EmployeeOnboardingPage() {
   const initialProfile: ProfileInitialData = {
     firstName:  profile?.first_name  ?? "",
     lastName:   profile?.last_name   ?? "",
-    photoUrl:   profile?.photo_url   ?? null,
+    photoUrl:   profile?.avatar_url  ?? profile?.photo_url ?? null,
     gender:     profile?.gender      ?? null,
     birthDate:  profile?.birth_date  ?? null,
     phone:      profile?.phone       ?? null,

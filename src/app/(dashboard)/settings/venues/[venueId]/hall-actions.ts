@@ -42,10 +42,7 @@ async function getAuthDb() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Cast through any: venue_halls / hall_layouts are not yet in generated DB types.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any;
-  return { db, user };
+  return { db: supabase, user };
 }
 
 // ── Hall CRUD ────────────────────────────────────────────────

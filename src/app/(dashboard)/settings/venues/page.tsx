@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { VenuesClient } from "./_components/venues-client";
-import type { WorkingHours } from "@/types/database";
+import type { Json, WorkingHours } from "@/types/database";
 
 export type VenueRow = {
   id: string;
@@ -49,25 +49,23 @@ export default async function VenuesPage() {
   const rawList = venuesRaw ?? [];
   const venueIds = rawList.map((v) => v.id);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db = supabase as any;
   const hallCountMap: Record<string, number> = {};
   const tableCountMap: Record<string, number> = {};
 
   if (venueIds.length > 0) {
-    const { data: hallsData } = await db
+    const { data: hallsData } = await supabase
       .from("venue_halls")
       .select("id, venue_id")
       .in("venue_id", venueIds);
 
-    const halls = (hallsData ?? []) as { id: string; venue_id: string }[];
+    const halls = hallsData ?? [];
     halls.forEach((h) => {
       hallCountMap[h.venue_id] = (hallCountMap[h.venue_id] ?? 0) + 1;
     });
 
     const hallIds = halls.map((h) => h.id);
     if (hallIds.length > 0) {
-      const { data: layoutsData } = await db
+      const { data: layoutsData } = await supabase
         .from("hall_layouts")
         .select("hall_id, objects")
         .in("hall_id", hallIds);
@@ -75,10 +73,12 @@ export default async function VenuesPage() {
       const hallVenueMap: Record<string, string> = {};
       halls.forEach((h) => { hallVenueMap[h.id] = h.venue_id; });
 
-      (layoutsData ?? []).forEach((layout: { hall_id: string; objects: unknown }) => {
+      (layoutsData ?? []).forEach((layout) => {
         const venueId = hallVenueMap[layout.hall_id];
         if (!venueId) return;
-        const objects = Array.isArray(layout.objects) ? layout.objects : [];
+        const objects = Array.isArray(layout.objects)
+          ? layout.objects
+          : ((layout.objects as Json[] | null) ?? []);
         const tableCount = (objects as { kind?: string }[]).filter((o) => o.kind === "table").length;
         tableCountMap[venueId] = (tableCountMap[venueId] ?? 0) + tableCount;
       });

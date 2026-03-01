@@ -4,6 +4,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { StaffDetailPage } from "./_components/staff-detail-page";
 import type { FullStaffProfile } from "../actions";
 
+type TargetVenueRole = {
+  id: string;
+  role_id: string;
+  roles: { name: string; code: string } | null;
+};
+
 export default async function StaffMemberPage({
   params,
 }: {
@@ -46,26 +52,25 @@ export default async function StaffMemberPage({
   } = await admin.auth.admin.getUserById(userId);
   if (!targetAuthUser) redirect("/staff");
 
-  // Target user's profile (bypasses RLS — admin)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: profileRow } = await (admin as any)
+  const { data: profileRow } = await admin
     .from("profiles")
     .select(
       "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment"
     )
     .eq("id", userId)
+    .returns<FullStaffProfile[]>()
     .maybeSingle();
 
   if (!profileRow) redirect("/staff");
 
   // Target user's active UVR in this venue
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: targetUvr } = await (admin as any)
+  const { data: targetUvr } = await admin
     .from("user_venue_roles")
     .select("id, role_id, roles(name, code)")
     .eq("user_id", userId)
     .eq("venue_id", venueId)
     .eq("status", "active")
+    .returns<TargetVenueRole[]>()
     .maybeSingle();
 
   if (!targetUvr) redirect("/staff");
@@ -76,34 +81,15 @@ export default async function StaffMemberPage({
     .select("id, name, code")
     .order("name");
 
-  // Map profile row to FullStaffProfile
-  const row = profileRow as unknown as Record<string, unknown>;
-  const staffProfile: FullStaffProfile = {
-    id:                  row.id as string,
-    first_name:          (row.first_name as string | null) ?? null,
-    last_name:           (row.last_name as string | null) ?? null,
-    phone:               (row.phone as string | null) ?? null,
-    telegram_id:         (row.telegram_id as string | null) ?? null,
-    gender:              (row.gender as string | null) ?? null,
-    birth_date:          (row.birth_date as string | null) ?? null,
-    address:             (row.address as string | null) ?? null,
-    employment_date:     (row.employment_date as string | null) ?? null,
-    avatar_url:          (row.avatar_url as string | null) ?? null,
-    medical_book_number: (row.medical_book_number as string | null) ?? null,
-    medical_book_date:   (row.medical_book_date as string | null) ?? null,
-    passport_photos:     (row.passport_photos as string[] | null) ?? [],
-    comment:             (row.comment as string | null) ?? null,
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const uvrRow = targetUvr as any;
-
   return (
     <StaffDetailPage
-      profile={staffProfile}
+      profile={{
+        ...profileRow,
+        passport_photos: profileRow.passport_photos ?? [],
+      }}
       email={targetAuthUser.email ?? ""}
-      uvrId={uvrRow.id}
-      roleName={uvrRow.roles?.name ?? ""}
+      uvrId={targetUvr.id}
+      roleName={targetUvr.roles?.name ?? ""}
       venueId={venueId}
       roles={roles ?? []}
       canEdit={canEdit}

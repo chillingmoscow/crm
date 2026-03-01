@@ -308,6 +308,7 @@ export async function saveProfile(data: {
       phone:       data.phone.trim(),
       telegram_id: data.telegramId.trim(),
       address:     data.address.trim() || null,
+      avatar_url:  data.photoUrl,
       photo_url:   data.photoUrl,
     })
     .eq("id", user.id);

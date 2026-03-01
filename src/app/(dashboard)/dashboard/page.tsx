@@ -1,5 +1,4 @@
 import { getCachedUser, createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
@@ -36,19 +35,6 @@ export default async function DashboardPage() {
         .eq("id", user.id);
       redirect("/dashboard");
     }
-
-    // If invitation is pending, let /invite accept it.
-    const admin = createAdminClient();
-    const db = admin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    const { data: pendingInvite } = await db
-      .from("invitations")
-      .select("id")
-      .ilike("email", user.email ?? "")
-      .eq("status", "pending")
-      .limit(1)
-      .maybeSingle();
-
-    if (pendingInvite?.id) redirect("/invite");
 
     redirect("/onboarding");
   }

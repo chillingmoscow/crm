@@ -19,8 +19,7 @@ export default async function InvitePage({
   searchParams: Promise<{ invitation?: string }>;
 }) {
   const supabase = await createClient();
-  const admin = createAdminClient();
-  const db = admin as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const db = createAdminClient();
   const params = await searchParams;
 
   const {
@@ -49,19 +48,17 @@ export default async function InvitePage({
       ? pending.find((inv) => inv.id === invitationIdFromQuery)
       : null) ?? pending[0];
 
-  for (const inv of pending) {
-    await db
-      .from("user_venue_roles")
-      .upsert(
-        {
-          user_id: user.id,
-          venue_id: inv.venue_id,
-          role_id: inv.role_id,
-          status: "active",
-        },
-        { onConflict: "user_id,venue_id" }
-      );
-  }
+  await db
+    .from("user_venue_roles")
+    .upsert(
+      pending.map((inv) => ({
+        user_id: user.id,
+        venue_id: inv.venue_id,
+        role_id: inv.role_id,
+        status: "active",
+      })),
+      { onConflict: "user_id,venue_id" }
+    );
 
   await db
     .from("invitations")

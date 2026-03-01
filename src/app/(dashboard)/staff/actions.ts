@@ -83,25 +83,12 @@ export async function getStaffProfile(
       "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment"
     )
     .eq("id", userId)
+    .returns<FullStaffProfile[]>()
     .maybeSingle();
   if (!data) return null;
-  // Cast through unknown because generated DB types don't yet include migration 011 columns
-  const row = data as unknown as Record<string, unknown>;
   return {
-    id:                  row.id as string,
-    first_name:          (row.first_name as string | null) ?? null,
-    last_name:           (row.last_name as string | null) ?? null,
-    phone:               (row.phone as string | null) ?? null,
-    telegram_id:         (row.telegram_id as string | null) ?? null,
-    gender:              (row.gender as string | null) ?? null,
-    birth_date:          (row.birth_date as string | null) ?? null,
-    address:             (row.address as string | null) ?? null,
-    employment_date:     (row.employment_date as string | null) ?? null,
-    avatar_url:          (row.avatar_url as string | null) ?? null,
-    medical_book_number: (row.medical_book_number as string | null) ?? null,
-    medical_book_date:   (row.medical_book_date as string | null) ?? null,
-    passport_photos:     (row.passport_photos as string[] | null) ?? [],
-    comment:             (row.comment as string | null) ?? null,
+    ...data,
+    passport_photos: data.passport_photos ?? [],
   };
 }
 
@@ -369,9 +356,7 @@ export async function restoreStaff(
 
 export async function getFiredStaff(venueId: string): Promise<FiredStaffMember[]> {
   const supabase = await createClient();
-  // Cast needed: get_fired_staff not yet in generated DB types (migration 012)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any).rpc("get_fired_staff", {
+  const { data, error } = await supabase.rpc("get_fired_staff", {
     p_venue_id: venueId,
   });
   if (error) return [];

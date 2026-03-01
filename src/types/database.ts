@@ -58,6 +58,52 @@ export type Database = {
           },
         ]
       }
+      account_role_permissions: {
+        Row: {
+          account_id: string
+          granted: boolean
+          permission_id: string
+          role_id: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          granted?: boolean
+          permission_id: string
+          role_id: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          granted?: boolean
+          permission_id?: string
+          role_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_role_permissions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_role_permissions_permission_id_fkey"
+            columns: ["permission_id"]
+            isOneToOne: false
+            referencedRelation: "permissions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_role_permissions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           created_at: string
@@ -113,6 +159,82 @@ export type Database = {
           },
         ]
       }
+      hall_layouts: {
+        Row: {
+          canvas_height: number
+          canvas_width: number
+          hall_id: string
+          objects: Json
+          updated_at: string
+        }
+        Insert: {
+          canvas_height?: number
+          canvas_width?: number
+          hall_id: string
+          objects?: Json
+          updated_at?: string
+        }
+        Update: {
+          canvas_height?: number
+          canvas_width?: number
+          hall_id?: string
+          objects?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hall_layouts_hall_id_fkey"
+            columns: ["hall_id"]
+            isOneToOne: true
+            referencedRelation: "venue_halls"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          link: string | null
+          read: boolean
+          title: string
+          type: string
+          user_id: string
+          venue_id: string | null
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          link?: string | null
+          read?: boolean
+          title: string
+          type?: string
+          user_id: string
+          venue_id?: string | null
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          link?: string | null
+          read?: boolean
+          title?: string
+          type?: string
+          user_id?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       permissions: {
         Row: {
           code: string
@@ -138,12 +260,18 @@ export type Database = {
         Row: {
           active_venue_id: string | null
           address: string | null
+          avatar_url: string | null
           birth_date: string | null
+          comment: string | null
           created_at: string
+          employment_date: string | null
           first_name: string | null
           gender: string | null
           id: string
           last_name: string | null
+          medical_book_date: string | null
+          medical_book_number: string | null
+          passport_photos: string[]
           phone: string | null
           photo_url: string | null
           telegram_id: string | null
@@ -151,12 +279,18 @@ export type Database = {
         Insert: {
           active_venue_id?: string | null
           address?: string | null
+          avatar_url?: string | null
           birth_date?: string | null
+          comment?: string | null
           created_at?: string
+          employment_date?: string | null
           first_name?: string | null
           gender?: string | null
           id: string
           last_name?: string | null
+          medical_book_date?: string | null
+          medical_book_number?: string | null
+          passport_photos?: string[]
           phone?: string | null
           photo_url?: string | null
           telegram_id?: string | null
@@ -164,12 +298,18 @@ export type Database = {
         Update: {
           active_venue_id?: string | null
           address?: string | null
+          avatar_url?: string | null
           birth_date?: string | null
+          comment?: string | null
           created_at?: string
+          employment_date?: string | null
           first_name?: string | null
           gender?: string | null
           id?: string
           last_name?: string | null
+          medical_book_date?: string | null
+          medical_book_number?: string | null
+          passport_photos?: string[]
           phone?: string | null
           photo_url?: string | null
           telegram_id?: string | null
@@ -221,18 +361,21 @@ export type Database = {
         Row: {
           account_id: string | null
           code: string
+          comment: string | null
           id: string
           name: string
         }
         Insert: {
           account_id?: string | null
           code: string
+          comment?: string | null
           id?: string
           name: string
         }
         Update: {
           account_id?: string | null
           code?: string
+          comment?: string | null
           id?: string
           name?: string
         }
@@ -249,25 +392,31 @@ export type Database = {
       user_venue_roles: {
         Row: {
           created_at: string
+          fired_at: string | null
           id: string
           invited_by: string | null
           role_id: string
+          status: string
           user_id: string
           venue_id: string
         }
         Insert: {
           created_at?: string
+          fired_at?: string | null
           id?: string
           invited_by?: string | null
           role_id: string
+          status?: string
           user_id: string
           venue_id: string
         }
         Update: {
           created_at?: string
+          fired_at?: string | null
           id?: string
           invited_by?: string | null
           role_id?: string
+          status?: string
           user_id?: string
           venue_id?: string
         }
@@ -306,6 +455,7 @@ export type Database = {
         Row: {
           account_id: string
           address: string | null
+          comment: string | null
           created_at: string
           currency: string
           id: string
@@ -320,6 +470,7 @@ export type Database = {
         Insert: {
           account_id: string
           address?: string | null
+          comment?: string | null
           created_at?: string
           currency?: string
           id?: string
@@ -334,6 +485,7 @@ export type Database = {
         Update: {
           account_id?: string
           address?: string | null
+          comment?: string | null
           created_at?: string
           currency?: string
           id?: string
@@ -351,6 +503,41 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      venue_halls: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          updated_at: string
+          venue_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+          venue_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+          venue_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venue_halls_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
         ]
@@ -381,11 +568,34 @@ export type Database = {
       }
       get_active_account_id: {
         Args: never
-        Returns: string
+        Returns: string | null
       }
       get_active_venue_id: {
         Args: never
-        Returns: string
+        Returns: string | null
+      }
+      get_effective_role_permissions: {
+        Args: { p_role_ids?: string[] | null }
+        Returns: {
+          granted: boolean
+          permission_id: string
+          role_id: string
+        }[]
+      }
+      get_fired_staff: {
+        Args: { p_venue_id: string }
+        Returns: {
+          avatar_url: string | null
+          email: string
+          fired_at: string | null
+          first_name: string | null
+          last_name: string | null
+          role_code: string
+          role_id: string
+          role_name: string
+          user_id: string
+          uvr_id: string
+        }[]
       }
       get_user_venues: {
         Args: never
@@ -399,20 +609,34 @@ export type Database = {
       get_venue_staff: {
         Args: { p_venue_id: string }
         Returns: {
-          uvr_id:     string
-          user_id:    string
-          role_id:    string
-          role_name:  string
-          role_code:  string
+          avatar_url: string | null
+          birth_date: string | null
+          email: string
+          employment_date: string | null
           first_name: string | null
-          last_name:  string | null
-          email:      string
-          joined_at:  string
+          gender: string | null
+          joined_at: string
+          last_name: string | null
+          phone: string | null
+          role_code: string
+          role_id: string
+          role_name: string
+          telegram_id: string | null
+          user_id: string
+          uvr_id: string
         }[]
       }
       has_permission: {
         Args: { permission_code: string }
         Returns: boolean
+      }
+      set_effective_role_permission: {
+        Args: {
+          p_granted: boolean
+          p_permission_id: string
+          p_role_id: string
+        }
+        Returns: undefined
       }
     }
     Enums: {

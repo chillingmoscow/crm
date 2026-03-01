@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { OnboardingWizard } from "./_components/wizard";
 import { getSystemRoles } from "./actions";
+import type { ProfileInitialData } from "./_components/step-profile";
 import { syncPendingInvitationsForUser } from "@/lib/invitations/sync-pending";
 
 export default async function OnboardingPage() {
@@ -16,9 +17,8 @@ export default async function OnboardingPage() {
   // Если онбординг уже пройден — в дашборд
   const { data: profile } = await supabase
     .from("profiles")
-    .select("active_venue_id")
+    .select("active_venue_id, first_name, last_name, photo_url, gender, birth_date, phone, telegram_id, address")
     .eq("id", user.id)
-    .returns<{ active_venue_id: string | null }[]>()
     .maybeSingle();
 
   if (profile?.active_venue_id) redirect("/dashboard");
@@ -55,5 +55,16 @@ export default async function OnboardingPage() {
 
   const roles = await getSystemRoles();
 
-  return <OnboardingWizard roles={roles} />;
+  const initialProfile: ProfileInitialData = {
+    firstName:  profile?.first_name  ?? "",
+    lastName:   profile?.last_name   ?? "",
+    photoUrl:   profile?.photo_url   ?? null,
+    gender:     profile?.gender      ?? null,
+    birthDate:  profile?.birth_date  ?? null,
+    phone:      profile?.phone       ?? null,
+    telegramId: profile?.telegram_id ?? null,
+    address:    profile?.address     ?? null,
+  };
+
+  return <OnboardingWizard roles={roles} initialProfile={initialProfile} />;
 }

@@ -4,54 +4,65 @@ import { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Upload, X } from "lucide-react";
+import { Loader2, Upload, UserRound } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { uploadLogo } from "../actions";
-import { saveProfile } from "../actions";
+import { uploadLogo, saveProfile } from "../actions";
 
-export interface ProfileInitialData {
-  firstName: string;
-  lastName: string;
-  photoUrl: string | null;
-  gender: string | null;
-  birthDate: string | null;
-  phone: string | null;
-  telegramId: string | null;
-  address: string | null;
-}
+// ─── Schema ──────────────────────────────────────────────────────────────────
 
 const schema = z.object({
-  firstName: z.string().min(1, "Введите имя"),
-  lastName: z.string().min(1, "Введите фамилию"),
-  phone: z.string().min(1, "Введите телефон"),
-  telegramId: z.string().optional(),
-  address: z.string().optional(),
-  gender: z.enum(["male", "female", "other"]).optional(),
-  birthDate: z.string().optional(),
+  firstName:  z.string().min(1, "Введите имя"),
+  lastName:   z.string().min(1, "Введите фамилию"),
+  gender:     z.enum(["male", "female", "other"], { required_error: "Выберите пол" }),
+  birthDate:  z.string().min(1, "Укажите дату рождения"),
+  phone:      z.string().min(1, "Укажите телефон"),
+  telegramId: z.string().min(1, "Укажите Telegram"),
+  address:    z.string().optional(),
 });
 
 type Form = z.infer<typeof schema>;
 
-interface Props {
-  initial: ProfileInitialData;
-  onNext: () => void;
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+export interface ProfileInitialData {
+  firstName:  string;
+  lastName:   string;
+  photoUrl:   string | null;
+  gender:     string | null;
+  birthDate:  string | null;
+  phone:      string | null;
+  telegramId: string | null;
+  address:    string | null;
 }
 
-const GENDER_OPTIONS = [
-  { value: "male", label: "Мужской" },
-  { value: "female", label: "Женский" },
-  { value: "other", label: "Другой" },
+interface Props {
+  initial:   ProfileInitialData;
+  stepLabel: string;        // e.g. "1 из 5" or "1 из 1"
+  onNext:    () => void;
+}
+
+// ─── Gender selector ──────────────────────────────────────────────────────────
+
+const GENDERS = [
+  { value: "male",   label: "Мужской"  },
+  { value: "female", label: "Женский"  },
+  { value: "other",  label: "Другой"   },
 ] as const;
 
-export function StepProfile({ initial, onNext }: Props) {
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function StepProfile({ initial, stepLabel, onNext }: Props) {
   const [photoPreview, setPhotoPreview] = useState<string | null>(initial.photoUrl);
-  const [photoUrl, setPhotoUrl] = useState<string | null>(initial.photoUrl);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading]       = useState(false);
+  const [photoUrl, setPhotoUrl]         = useState<string | null>(initial.photoUrl);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Max birth date = 14 years ago, min = 100 years ago
+  const today       = new Date();
+  const maxBirthDate = new Date(today.getFullYear() - 14, today.getMonth(), today.getDate())
+    .toISOString().split("T")[0]!;
+  const minBirthDate = new Date(today.getFullYear() - 100, today.getMonth(), today.getDate())
+    .toISOString().split("T")[0]!;
 
   const {
     register,
@@ -62,44 +73,49 @@ export function StepProfile({ initial, onNext }: Props) {
   } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
-      firstName: initial.firstName,
-      lastName: initial.lastName,
-      phone: initial.phone ?? "",
+      firstName:  initial.firstName,
+      lastName:   initial.lastName,
+      gender:     (initial.gender as Form["gender"]) ?? undefined,
+      birthDate:  initial.birthDate ?? "",
+      phone:      initial.phone ?? "",
       telegramId: initial.telegramId ?? "",
-      address: initial.address ?? "",
-      gender: (initial.gender as "male" | "female" | "other") ?? undefined,
-      birthDate: initial.birthDate ?? "",
+      address:    initial.address ?? "",
     },
   });
 
   const selectedGender = watch("gender");
 
+  // ── Photo upload ────────────────────────────────────────────────────────────
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     setPhotoPreview(URL.createObjectURL(file));
     setUploading(true);
+
     const fd = new FormData();
     fd.append("file", file);
     const { url, error } = await uploadLogo(fd);
+
     setUploading(false);
     if (error) {
       toast.error(error);
-      setPhotoPreview(photoUrl);
+      setPhotoPreview(initial.photoUrl);
       return;
     }
     setPhotoUrl(url);
   };
 
+  // ── Submit ──────────────────────────────────────────────────────────────────
   const onSubmit = async (values: Form) => {
     const { error } = await saveProfile({
-      firstName: values.firstName,
-      lastName: values.lastName,
-      phone: values.phone,
-      telegramId: values.telegramId ?? null,
-      address: values.address ?? null,
-      gender: values.gender ?? null,
-      birthDate: values.birthDate ?? null,
+      firstName:  values.firstName,
+      lastName:   values.lastName,
+      gender:     values.gender,
+      birthDate:  values.birthDate,
+      phone:      values.phone,
+      telegramId: values.telegramId,
+      address:    values.address ?? "",
       photoUrl,
     });
 
@@ -112,63 +128,59 @@ export function StepProfile({ initial, onNext }: Props) {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Ваш профиль</CardTitle>
-        <CardDescription>Заполните информацию о себе</CardDescription>
-      </CardHeader>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="px-8 pt-8 pb-6 border-b border-gray-50">
+        <div className="flex items-center justify-between mb-5">
+          <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center">
+            <UserRound className="w-6 h-6 text-blue-600" />
+          </div>
+          <span className="text-xs font-medium text-gray-400 bg-gray-50 px-3 py-1 rounded-full">
+            Шаг {stepLabel}
+          </span>
+        </div>
+        <h1 className="text-2xl font-semibold text-gray-900 mb-1">Ваш профиль</h1>
+        <p className="text-sm text-gray-500">Расскажите немного о себе</p>
+      </div>
+
+      {/* ── Body ───────────────────────────────────────────────────────────── */}
       <form onSubmit={handleSubmit(onSubmit)}>
-        <CardContent className="space-y-6">
-          {/* Фото */}
-          <div className="space-y-2">
-            <Label>Фото</Label>
-            <div className="flex items-center gap-4">
-              <div
-                className="w-20 h-20 rounded-full border-2 border-dashed border-muted-foreground/30 flex items-center justify-center cursor-pointer overflow-hidden hover:border-primary/50 transition-colors relative group"
+        <div className="px-8 py-6 space-y-6">
+
+          {/* ── Photo ────────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-5">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              className="relative w-20 h-20 rounded-full border-2 border-dashed border-gray-200
+                         hover:border-blue-400 transition-colors duration-150 overflow-hidden
+                         flex items-center justify-center bg-gray-50 shrink-0"
+            >
+              {photoPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photoPreview} alt="Фото" className="w-full h-full object-cover" />
+              ) : (
+                <Upload className="w-5 h-5 text-gray-400" />
+              )}
+              {uploading && (
+                <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                  <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+                </div>
+              )}
+            </button>
+            <div>
+              <button
+                type="button"
                 onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="h-9 px-4 rounded-xl border border-gray-200 bg-white hover:bg-gray-50
+                           text-gray-700 text-sm font-medium transition-colors duration-150
+                           disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {photoPreview ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={photoPreview}
-                    alt="photo"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <Upload className="w-6 h-6 text-muted-foreground" />
-                )}
-                {uploading && (
-                  <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col gap-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading}
-                >
-                  Загрузить
-                </Button>
-                {photoPreview && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setPhotoPreview(null);
-                      setPhotoUrl(null);
-                    }}
-                  >
-                    <X className="w-3 h-3 mr-1" />
-                    Удалить
-                  </Button>
-                )}
-                <p className="text-xs text-muted-foreground">PNG, JPG до 5 МБ</p>
-              </div>
+                {photoPreview ? "Заменить фото" : "Загрузить фото"}
+              </button>
+              <p className="text-xs text-gray-400 mt-1.5">PNG, JPG до 5 МБ</p>
             </div>
             <input
               ref={fileRef}
@@ -179,101 +191,156 @@ export function StepProfile({ initial, onNext }: Props) {
             />
           </div>
 
-          {/* Имя и фамилия */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="firstName">Имя *</Label>
-              <Input
-                id="firstName"
-                placeholder="Иван"
-                {...register("firstName")}
+          {/* ── Section: Личные данные ────────────────────────────────────── */}
+          <div className="space-y-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Личные данные
+            </p>
+
+            {/* Имя + Фамилия */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="firstName" className="text-sm font-medium text-gray-700">Имя</label>
+                <input
+                  id="firstName"
+                  placeholder="Иван"
+                  className={inputCls(!!errors.firstName)}
+                  {...register("firstName")}
+                />
+                {errors.firstName && <p className="text-xs text-red-600">{errors.firstName.message}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="lastName" className="text-sm font-medium text-gray-700">Фамилия</label>
+                <input
+                  id="lastName"
+                  placeholder="Иванов"
+                  className={inputCls(!!errors.lastName)}
+                  {...register("lastName")}
+                />
+                {errors.lastName && <p className="text-xs text-red-600">{errors.lastName.message}</p>}
+              </div>
+            </div>
+
+            {/* Пол */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-gray-700">Пол</label>
+              <div className="flex gap-2">
+                {GENDERS.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setValue("gender", value, { shouldValidate: true })}
+                    className={[
+                      "flex-1 h-11 rounded-xl border text-sm transition-colors duration-150 font-medium",
+                      selectedGender === value
+                        ? "bg-blue-50 border-blue-500 text-blue-700"
+                        : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50",
+                    ].join(" ")}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {errors.gender && <p className="text-xs text-red-600">{errors.gender.message}</p>}
+            </div>
+
+            {/* Дата рождения */}
+            <div className="space-y-1.5">
+              <label htmlFor="birthDate" className="text-sm font-medium text-gray-700">
+                Дата рождения
+              </label>
+              <input
+                id="birthDate"
+                type="date"
+                min={minBirthDate}
+                max={maxBirthDate}
+                className={inputCls(!!errors.birthDate)}
+                {...register("birthDate")}
               />
-              {errors.firstName && (
-                <p className="text-sm text-destructive">{errors.firstName.message}</p>
-              )}
+              {errors.birthDate && <p className="text-xs text-red-600">{errors.birthDate.message}</p>}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="lastName">Фамилия *</Label>
-              <Input
-                id="lastName"
-                placeholder="Иванов"
-                {...register("lastName")}
+          </div>
+
+          {/* ── Section: Контакты ─────────────────────────────────────────── */}
+          <div className="space-y-4">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Контакты
+            </p>
+
+            {/* Телефон */}
+            <div className="space-y-1.5">
+              <label htmlFor="phone" className="text-sm font-medium text-gray-700">Телефон</label>
+              <input
+                id="phone"
+                type="tel"
+                placeholder="+7 (999) 000-00-00"
+                className={inputCls(!!errors.phone)}
+                {...register("phone")}
               />
-              {errors.lastName && (
-                <p className="text-sm text-destructive">{errors.lastName.message}</p>
-              )}
+              {errors.phone && <p className="text-xs text-red-600">{errors.phone.message}</p>}
+            </div>
+
+            {/* Telegram */}
+            <div className="space-y-1.5">
+              <label htmlFor="telegramId" className="text-sm font-medium text-gray-700">
+                Telegram
+              </label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">
+                  @
+                </span>
+                <input
+                  id="telegramId"
+                  placeholder="username"
+                  className={[inputCls(!!errors.telegramId), "pl-8"].join(" ")}
+                  {...register("telegramId")}
+                />
+              </div>
+              {errors.telegramId && <p className="text-xs text-red-600">{errors.telegramId.message}</p>}
+            </div>
+
+            {/* Адрес */}
+            <div className="space-y-1.5">
+              <label htmlFor="address" className="text-sm font-medium text-gray-700">
+                Адрес проживания
+                <span className="ml-1.5 text-xs font-normal text-gray-400">(необязательно)</span>
+              </label>
+              <input
+                id="address"
+                placeholder="г. Москва, ул. Пушкина, д. 1, кв. 1"
+                className={inputCls(false)}
+                {...register("address")}
+              />
             </div>
           </div>
+        </div>
 
-          {/* Пол */}
-          <div className="space-y-2">
-            <Label>Пол</Label>
-            <div className="flex gap-2">
-              {GENDER_OPTIONS.map((opt) => (
-                <Button
-                  key={opt.value}
-                  type="button"
-                  variant={selectedGender === opt.value ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setValue("gender", opt.value)}
-                >
-                  {opt.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {/* Дата рождения */}
-          <div className="space-y-2">
-            <Label htmlFor="birthDate">Дата рождения</Label>
-            <Input
-              id="birthDate"
-              type="date"
-              {...register("birthDate")}
-            />
-          </div>
-
-          {/* Телефон */}
-          <div className="space-y-2">
-            <Label htmlFor="phone">Телефон *</Label>
-            <Input
-              id="phone"
-              type="tel"
-              placeholder="+7 999 123 45 67"
-              {...register("phone")}
-            />
-            {errors.phone && (
-              <p className="text-sm text-destructive">{errors.phone.message}</p>
-            )}
-          </div>
-
-          {/* Telegram */}
-          <div className="space-y-2">
-            <Label htmlFor="telegramId">Telegram</Label>
-            <Input
-              id="telegramId"
-              placeholder="@username"
-              {...register("telegramId")}
-            />
-          </div>
-
-          {/* Адрес */}
-          <div className="space-y-2">
-            <Label htmlFor="address">Адрес</Label>
-            <Input
-              id="address"
-              placeholder="Город, улица, дом"
-              {...register("address")}
-            />
-          </div>
-        </CardContent>
-
-        <div className="px-6 pb-6">
-          <Button type="submit" className="w-full" disabled={isSubmitting || uploading}>
-            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Готово"}
-          </Button>
+        {/* ── Footer ─────────────────────────────────────────────────────── */}
+        <div className="px-8 pb-8">
+          <button
+            type="submit"
+            disabled={isSubmitting || uploading}
+            className="h-12 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm
+                       font-medium transition-colors duration-150 flex items-center justify-center
+                       disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            Далее
+          </button>
         </div>
       </form>
-    </Card>
+    </div>
   );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function inputCls(hasError: boolean) {
+  return [
+    "h-12 w-full rounded-xl border px-4 text-sm placeholder:text-gray-400",
+    "outline-none transition-colors duration-150",
+    hasError
+      ? "border-red-300 focus:border-red-400 focus:ring-2 focus:ring-red-100"
+      : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
+  ].join(" ");
 }

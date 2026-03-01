@@ -1,9 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { CheckCircle, Settings, Users, BarChart3, Calendar } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CheckCircle, Users, Calendar, BarChart3, Settings } from "lucide-react";
 
 const FEATURES = [
   { icon: Users,    label: "Управление персоналом" },
@@ -16,40 +14,46 @@ export function StepDone() {
   const router = useRouter();
 
   return (
-    <Card>
-      <CardHeader className="text-center space-y-3">
-        <div className="flex justify-center">
-          <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+
+      {/* Header — centred success state */}
+      <div className="px-8 pt-10 pb-6 border-b border-gray-50 text-center">
+        <div className="flex justify-center mb-5">
+          <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center">
             <CheckCircle className="w-9 h-9 text-green-600" />
           </div>
         </div>
-        <CardTitle className="text-2xl">Всё готово!</CardTitle>
-        <CardDescription>
+        <h1 className="text-2xl font-semibold text-gray-900 mb-1">Всё готово!</h1>
+        <p className="text-sm text-gray-500 max-w-[320px] mx-auto">
           Заведение создано и настроено. Теперь у вас есть доступ ко всем инструментам платформы.
-        </CardDescription>
-      </CardHeader>
+        </p>
+      </div>
 
-      <CardContent className="space-y-6">
+      {/* Body */}
+      <div className="px-8 py-6">
         <div className="grid grid-cols-2 gap-3">
           {FEATURES.map(({ icon: Icon, label }) => (
             <div
               key={label}
-              className="flex items-center gap-2 p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground"
+              className="flex items-center gap-2.5 px-4 py-3 rounded-xl bg-gray-50 text-sm text-gray-600"
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              <Icon className="w-4 h-4 text-gray-400 shrink-0" />
               {label}
             </div>
           ))}
         </div>
+      </div>
 
-        <Button
-          className="w-full"
-          size="lg"
+      {/* Footer */}
+      <div className="px-8 pb-8">
+        <button
           onClick={() => router.push("/dashboard")}
+          className="h-12 w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm
+                     font-medium transition-colors duration-150 flex items-center justify-center"
         >
           Перейти в панель управления
-        </Button>
-      </CardContent>
-    </Card>
+        </button>
+      </div>
+    </div>
   );
 }

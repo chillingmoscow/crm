@@ -252,16 +252,16 @@ export async function sendInvitation(data: {
   return { error: null };
 }
 
-// Сохранение профиля пользователя
+// Сохранение профиля пользователя (шаг 1 онбординга — владелец и сотрудник)
 export async function saveProfile(data: {
-  firstName: string;
-  lastName: string;
-  phone: string;
-  telegramId: string | null;
-  address: string | null;
-  gender: string | null;
-  birthDate: string | null;
-  photoUrl: string | null;
+  firstName:  string;
+  lastName:   string;
+  gender:     string;
+  birthDate:  string;
+  phone:      string;
+  telegramId: string;
+  address:    string;
+  photoUrl:   string | null;
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -270,13 +270,13 @@ export async function saveProfile(data: {
   const { error } = await supabase
     .from("profiles")
     .update({
-      first_name:  data.firstName,
-      last_name:   data.lastName,
-      phone:       data.phone || null,
-      telegram_id: data.telegramId || null,
-      address:     data.address || null,
-      gender:      data.gender || null,
-      birth_date:  data.birthDate || null,
+      first_name:  data.firstName.trim(),
+      last_name:   data.lastName.trim(),
+      gender:      data.gender,
+      birth_date:  data.birthDate,
+      phone:       data.phone.trim(),
+      telegram_id: data.telegramId.replace(/^@/, "").trim(),
+      address:     data.address.trim() || null,
       photo_url:   data.photoUrl,
     })
     .eq("id", user.id);

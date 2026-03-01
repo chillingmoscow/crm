@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
+import { StepProfile, type ProfileInitialData } from "./step-profile";
 import { StepAccount } from "./step-account";
 import { StepVenue } from "./step-venue";
 import { StepStaff } from "./step-staff";
@@ -8,10 +10,10 @@ import { StepDone } from "./step-done";
 import type { VenueType, WorkingHours } from "@/types/database";
 
 export interface WizardData {
-  // Step 1
+  // Step 2 — Account
   accountName: string;
   accountLogoUrl: string | null;
-  // Step 2
+  // Step 3 — Venue
   venueName: string;
   venueType: VenueType;
   venueAddress: string;
@@ -19,7 +21,7 @@ export interface WizardData {
   currency: string;
   timezone: string;
   workingHours: WorkingHours;
-  // Step 3 — venueId needed after creation
+  // Step 4 — venueId needed after creation
   venueId: string | null;
 }
 
@@ -33,118 +35,106 @@ const INITIAL_WORKING_HOURS: WorkingHours = {
   sun: { open: "11:00", close: "22:00", closed: false },
 };
 
+const TOTAL_STEPS = 5;
+
 interface Props {
   roles: { id: string; name: string; code: string }[];
+  initialProfile: ProfileInitialData;
 }
 
-export function OnboardingWizard({ roles }: Props) {
+export function OnboardingWizard({ roles, initialProfile }: Props) {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<WizardData>({
-    accountName: "",
+    accountName:    "",
     accountLogoUrl: null,
-    venueName: "",
-    venueType: "restaurant",
-    venueAddress: "",
-    venuePhone: "",
-    currency: "RUB",
-    timezone: "Europe/Moscow",
-    workingHours: INITIAL_WORKING_HOURS,
-    venueId: null,
+    venueName:      "",
+    venueType:      "restaurant",
+    venueAddress:   "",
+    venuePhone:     "",
+    currency:       "RUB",
+    timezone:       "Europe/Moscow",
+    workingHours:   INITIAL_WORKING_HOURS,
+    venueId:        null,
   });
 
   const update = (patch: Partial<WizardData>) =>
     setData((prev) => ({ ...prev, ...patch }));
 
-  const STEPS = ["Аккаунт", "Заведение", "Сотрудники", "Готово"];
+  const progressPct = Math.round((step / TOTAL_STEPS) * 100);
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <div className="border-b bg-background">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <span className="font-semibold text-sm">Настройка платформы</span>
-          <span className="text-sm text-muted-foreground">
-            Шаг {step} из {STEPS.length}
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <header className="bg-white border-b border-gray-100 shrink-0">
+        <div className="max-w-[560px] mx-auto px-6 h-16 flex items-center justify-between">
+          <Image
+            src="/logo-full.svg"
+            alt="Sheerly"
+            width={100}
+            height={24}
+            priority
+          />
+          <span className="text-sm text-gray-400 tabular-nums">
+            {step}&thinsp;/&thinsp;{TOTAL_STEPS}
           </span>
         </div>
+      </header>
+
+      {/* ── Progress bar ─────────────────────────────────────────────────── */}
+      <div className="h-0.5 bg-gray-100 shrink-0">
+        <div
+          className="h-0.5 bg-blue-600 transition-all duration-500 ease-out"
+          style={{ width: `${progressPct}%` }}
+        />
       </div>
 
-      {/* Step indicator */}
-      <div className="border-b bg-background">
-        <div className="max-w-2xl mx-auto px-4 py-3">
-          <div className="flex items-center gap-2">
-            {STEPS.map((label, i) => {
-              const n = i + 1;
-              const isDone = step > n;
-              const isActive = step === n;
-              return (
-                <div key={n} className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-colors ${
-                        isDone
-                          ? "bg-primary text-primary-foreground"
-                          : isActive
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {isDone ? "✓" : n}
-                    </div>
-                    <span
-                      className={`text-sm hidden sm:block ${
-                        isActive ? "font-medium" : "text-muted-foreground"
-                      }`}
-                    >
-                      {label}
-                    </span>
-                  </div>
-                  {i < STEPS.length - 1 && (
-                    <div
-                      className={`h-px flex-1 w-8 ${
-                        isDone ? "bg-primary" : "bg-border"
-                      }`}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      {/* ── Content ──────────────────────────────────────────────────────── */}
+      <main className="flex-1 flex items-start justify-center p-4 pt-10 pb-16">
+        <div className="w-full max-w-[520px]">
 
-      {/* Content */}
-      <div className="flex-1 flex items-start justify-center p-4 pt-8">
-        <div className="w-full max-w-2xl">
           {step === 1 && (
-            <StepAccount
-              data={data}
-              onUpdate={update}
+            <StepProfile
+              initial={initialProfile}
+              stepLabel="1 из 5"
               onNext={() => setStep(2)}
             />
           )}
+
           {step === 2 && (
+            <StepAccount
+              data={data}
+              onUpdate={update}
+              onNext={() => setStep(3)}
+            />
+          )}
+
+          {step === 3 && (
             <StepVenue
               data={data}
               onUpdate={update}
               onNext={(venueId) => {
                 update({ venueId });
-                setStep(3);
+                setStep(4);
               }}
-              onBack={() => setStep(1)}
+              onBack={() => setStep(2)}
             />
           )}
-          {step === 3 && (
+
+          {step === 4 && (
             <StepStaff
               venueId={data.venueId!}
               roles={roles}
-              onNext={() => setStep(4)}
-              onSkip={() => setStep(4)}
+              onNext={() => setStep(5)}
+              onSkip={() => setStep(5)}
             />
           )}
-          {step === 4 && <StepDone />}
+
+          {step === 5 && <StepDone />}
+
         </div>
-      </div>
+      </main>
+
     </div>
   );
 }

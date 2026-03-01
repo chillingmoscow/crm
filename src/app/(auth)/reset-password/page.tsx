@@ -13,7 +13,10 @@ import { createClient } from "@/lib/supabase/client";
 
 const resetSchema = z
   .object({
-    password:         z.string().min(8, "Минимум 8 символов"),
+    password: z
+      .string()
+      .min(8, "Минимум 8 символов и 2 буквы")
+      .regex(/(?:[^\p{L}]*\p{L}){2}/u, "Минимум 8 символов и 2 буквы"),
     confirm_password: z.string(),
   })
   .refine((d) => d.password === d.confirm_password, {
@@ -22,6 +25,19 @@ const resetSchema = z
   });
 
 type ResetForm = z.infer<typeof resetSchema>;
+
+function hasMinTwoLetters(value: string) {
+  const letters = value.match(/\p{L}/gu);
+  return (letters?.length ?? 0) >= 2;
+}
+
+function mapSupabaseResetError(message: string) {
+  const lower = message.toLowerCase();
+  if (lower.includes("new password should be different from the old password")) {
+    return "Новый пароль должен отличаться от старого.";
+  }
+  return "Не удалось обновить пароль. Попробуйте ещё раз.";
+}
 
 // ─── Password strength ────────────────────────────────────────────────────────
 
@@ -148,7 +164,10 @@ export default function ResetPasswordPage() {
 
   const passwordVal = watch("password")         ?? "";
   const confirmVal  = watch("confirm_password") ?? "";
-  const isFormReady = passwordVal.length >= 8 && confirmVal.length >= 1;
+  const isFormReady =
+    passwordVal.length >= 8 &&
+    hasMinTwoLetters(passwordVal) &&
+    confirmVal.length >= 1;
   const strength    = getStrength(passwordVal);
 
   useEffect(() => {
@@ -208,7 +227,7 @@ export default function ResetPasswordPage() {
     const { error } = await supabase.auth.updateUser({ password: data.password });
 
     if (error) {
-      setGlobalError(error.message);
+      setGlobalError(mapSupabaseResetError(error.message));
       setLoading(false);
       return;
     }
@@ -357,7 +376,7 @@ export default function ResetPasswordPage() {
               ].join(" ")}
             >
               {loading && <Loader2 className="animate-spin w-4 h-4" />}
-              Восстановить пароль
+              Сохранить
             </button>
           </div>
         </form>

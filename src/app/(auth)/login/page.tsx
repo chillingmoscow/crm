@@ -73,12 +73,12 @@ function FloatingField({
         className={[
           "relative flex items-center border rounded-xl bg-white h-12 transition-colors duration-150",
           error    ? "border-red-400"
-          : focused ? "border-blue-500"
+          : focused ? "border-blue-500 ring-2 ring-blue-100"
           : "border-gray-200 hover:border-gray-300",
         ].join(" ")}
       >
-        {/* Left icon */}
-        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+        {/* Left icon — z-10 keeps it above browser autofill background */}
+        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10">
           {icon}
         </span>
 
@@ -326,7 +326,6 @@ export default function LoginPage() {
     }
 
     router.push("/dashboard");
-    router.refresh();
   };
 
   return (

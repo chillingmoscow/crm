@@ -77,6 +77,7 @@ export function OnboardingWizard({ roles, initialProfile }: Props) {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<WizardData>(INITIAL_DATA);
   const [hydrated, setHydrated] = useState(false);
+  const [savedProfile, setSavedProfile] = useState<ProfileInitialData | null>(null);
 
   // Load from localStorage on mount (client-only)
   useEffect(() => {
@@ -163,9 +164,10 @@ export function OnboardingWizard({ roles, initialProfile }: Props) {
 
           {step === 1 && (
             <StepProfile
-              initial={initialProfile}
+              initial={savedProfile ?? initialProfile}
               stepLabel="1 из 5"
               onNext={() => goTo(2)}
+              onSaved={(p) => setSavedProfile(p)}
             />
           )}
 

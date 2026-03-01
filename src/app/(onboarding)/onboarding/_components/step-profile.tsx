@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { uploadLogo, saveProfile } from "../actions";
+import { uploadAvatar, saveProfile } from "../actions";
 
 // ─── Schema ──────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ const schema = z.object({
   birthMonth: z.string().min(1, "Укажите месяц"),
   birthYear:  z.string().min(1, "Укажите год"),
   phone:      z.string().min(1, "Укажите телефон"),
-  telegramId: z.string().min(1, "Укажите ID Telegram").regex(/^\d+$/, "ID Telegram — только цифры"),
+  telegramId: z.string().min(1, "Укажите Telegram ID").regex(/^\d+$/, "Telegram ID — только цифры"),
   address:    z.string().optional(),
 });
 
@@ -48,6 +48,7 @@ interface Props {
   initial:   ProfileInitialData;
   stepLabel: string;
   onNext:    () => void;
+  onSaved?:  (data: ProfileInitialData) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -71,11 +72,23 @@ function daysInMonth(month: string, year: string): number {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function StepProfile({ initial, stepLabel, onNext }: Props) {
+export function StepProfile({ initial, stepLabel, onNext, onSaved }: Props) {
   const [photoPreview, setPhotoPreview] = useState<string | null>(initial.photoUrl);
   const [uploading, setUploading]       = useState(false);
   const [photoUrl, setPhotoUrl]         = useState<string | null>(initial.photoUrl);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const fileRef         = useRef<HTMLInputElement>(null);
+  const tooltipTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [tooltipVisible, setTooltipVisible] = useState(false);
+
+  const showTooltip = () => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    setTooltipVisible(true);
+    tooltipTimerRef.current = setTimeout(() => setTooltipVisible(false), 5000);
+  };
+  const hideTooltip = () => {
+    if (tooltipTimerRef.current) clearTimeout(tooltipTimerRef.current);
+    tooltipTimerRef.current = setTimeout(() => setTooltipVisible(false), 5000);
+  };
 
   // Parse initial birth date if present
   const [initYear, initMonth, initDay] = initial.birthDate?.split("-") ?? ["", "", ""];
@@ -136,7 +149,7 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
 
     const fd = new FormData();
     fd.append("file", file);
-    const { url, error } = await uploadLogo(fd);
+    const { url, error } = await uploadAvatar(fd);
 
     setUploading(false);
     if (error) {
@@ -169,6 +182,16 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
       return;
     }
 
+    onSaved?.({
+      firstName:  values.firstName,
+      lastName:   values.lastName,
+      photoUrl,
+      gender:     values.gender,
+      birthDate:  birthDate || null,
+      phone:      values.phone,
+      telegramId: values.telegramId,
+      address:    values.address ?? null,
+    });
     onNext();
   };
 
@@ -382,21 +405,35 @@ export function StepProfile({ initial, stepLabel, onNext }: Props) {
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5">
                 <label htmlFor="telegramId" className="text-sm font-medium text-gray-700">
-                  ID Telegram
+                  Telegram ID
                 </label>
-                <div className="group relative inline-flex">
+                <div
+                  className="relative inline-flex"
+                  onMouseEnter={showTooltip}
+                  onMouseLeave={hideTooltip}
+                >
                   <HelpCircle className="w-4 h-4 text-gray-400 cursor-pointer hover:text-gray-600 transition-colors" />
-                  <div
-                    className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2
-                               w-64 rounded-xl bg-gray-900 px-3 py-2.5 text-xs text-white shadow-lg
-                               opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-10"
-                  >
-                    Чтобы узнать свой числовой ID, напишите боту{" "}
-                    <span className="font-semibold text-blue-300">@userinfobot</span>{" "}
-                    в Telegram — он пришлёт ваш ID в ответ.
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px
-                                    border-4 border-transparent border-t-gray-900" />
-                  </div>
+                  {tooltipVisible && (
+                    <div
+                      onMouseEnter={showTooltip}
+                      onMouseLeave={hideTooltip}
+                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+                                 w-64 rounded-xl bg-gray-900 px-3 py-2.5 text-xs text-white shadow-lg z-10"
+                    >
+                      Чтобы узнать свой числовой ID, напишите боту{" "}
+                      <a
+                        href="https://t.me/userinfobot"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-blue-300 hover:text-blue-200 underline"
+                      >
+                        @userinfobot
+                      </a>{" "}
+                      в Telegram — он пришлёт ваш ID в ответ.
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px
+                                      border-4 border-transparent border-t-gray-900" />
+                    </div>
+                  )}
                 </div>
               </div>
               <input

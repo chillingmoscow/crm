@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -132,6 +132,8 @@ export default function ResetPasswordPage() {
   const [showPass,     setShowPass]     = useState(false);
   const [showConfirm,  setShowConfirm]  = useState(false);
   const [globalError,  setGlobalError]  = useState<string | null>(null);
+  const [tokenReady,   setTokenReady]   = useState(false);
+  const [tokenLoading, setTokenLoading] = useState(true);
 
   const {
     register,
@@ -149,7 +151,56 @@ export default function ResetPasswordPage() {
   const isFormReady = passwordVal.length >= 8 && confirmVal.length >= 1;
   const strength    = getStrength(passwordVal);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const prepareRecoverySession = async () => {
+      const supabase = createClient();
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get("token_hash");
+      const type = params.get("type");
+
+      // If user already has an authenticated session, allow password update.
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session) {
+        if (isMounted) {
+          setTokenReady(true);
+          setTokenLoading(false);
+        }
+        return;
+      }
+
+      if (!tokenHash || type !== "recovery") {
+        if (isMounted) {
+          setGlobalError("Ссылка для восстановления недействительна или устарела.");
+          setTokenLoading(false);
+        }
+        return;
+      }
+
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: "recovery",
+      });
+
+      if (isMounted) {
+        if (verifyError) {
+          setGlobalError("Ссылка для восстановления недействительна или устарела.");
+        } else {
+          setTokenReady(true);
+        }
+        setTokenLoading(false);
+      }
+    };
+
+    void prepareRecoverySession();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const onSubmit = async (data: ResetForm) => {
+    if (!tokenReady) return;
     setLoading(true);
     setGlobalError(null);
     const supabase = createClient();
@@ -165,6 +216,16 @@ export default function ResetPasswordPage() {
     setDone(true);
     setLoading(false);
   };
+
+  if (tokenLoading) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
+    );
+  }
 
   // ── Success state ──────────────────────────────────────────────────────────
   if (done) {
@@ -287,10 +348,10 @@ export default function ResetPasswordPage() {
           <div className="pt-2">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !tokenReady}
               className={[
                 "w-full h-[50px] text-base font-medium rounded-xl transition-colors duration-200 flex items-center justify-center gap-2",
-                isFormReady
+                isFormReady && tokenReady
                   ? "bg-blue-600 hover:bg-blue-700 text-white"
                   : "bg-[#F9FAFB] text-gray-400 border border-gray-200",
               ].join(" ")}

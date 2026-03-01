@@ -137,30 +137,42 @@ export type Database = {
       profiles: {
         Row: {
           active_venue_id: string | null
+          address: string | null
+          birth_date: string | null
           created_at: string
           first_name: string | null
+          gender: string | null
           id: string
           last_name: string | null
           phone: string | null
           photo_url: string | null
+          telegram_id: string | null
         }
         Insert: {
           active_venue_id?: string | null
+          address?: string | null
+          birth_date?: string | null
           created_at?: string
           first_name?: string | null
+          gender?: string | null
           id: string
           last_name?: string | null
           phone?: string | null
           photo_url?: string | null
+          telegram_id?: string | null
         }
         Update: {
           active_venue_id?: string | null
+          address?: string | null
+          birth_date?: string | null
           created_at?: string
           first_name?: string | null
+          gender?: string | null
           id?: string
           last_name?: string | null
           phone?: string | null
           photo_url?: string | null
+          telegram_id?: string | null
         }
         Relationships: [
           {

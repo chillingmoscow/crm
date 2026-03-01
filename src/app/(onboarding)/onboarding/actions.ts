@@ -252,6 +252,39 @@ export async function sendInvitation(data: {
   return { error: null };
 }
 
+// Сохранение профиля пользователя
+export async function saveProfile(data: {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  telegramId: string | null;
+  address: string | null;
+  gender: string | null;
+  birthDate: string | null;
+  photoUrl: string | null;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      first_name:  data.firstName,
+      last_name:   data.lastName,
+      phone:       data.phone || null,
+      telegram_id: data.telegramId || null,
+      address:     data.address || null,
+      gender:      data.gender || null,
+      birth_date:  data.birthDate || null,
+      photo_url:   data.photoUrl,
+    })
+    .eq("id", user.id);
+
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
 // Получение системных ролей (для выбора в онбординге)
 export async function getSystemRoles() {
   const supabase = await createClient();

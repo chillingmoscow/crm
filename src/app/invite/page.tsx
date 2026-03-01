@@ -73,5 +73,5 @@ export default async function InvitePage({
     .update({ active_venue_id: selectedInvitation.venue_id })
     .eq("id", user.id);
 
-  redirect("/dashboard");
+  redirect("/onboarding/employee");
 }

@@ -13,11 +13,12 @@
 - Supabase: production окружение на сервере (`supabase.sheerly.app`)
 - Production деплой через Coolify + GitHub webhook (автодеплой из `main`)
 - DNS/SSL для `sheerly.app` и `supabase.sheerly.app`
-- `@supabase/ssr` v0.6.x + `@supabase/supabase-js` v2
+- `@supabase/ssr` v0.8.x + `@supabase/supabase-js` v2
 - Middleware: обновление сессии, защита роутов, обход зацикливания при невалидном токене
 - TypeScript типы БД в `src/types/database.ts`
+- Удалён демо-роут `/invite/layout-demo` и связанные seed/snippet файлы
 
-### База данных (миграции 001–023)
+### База данных (миграции 001–028)
 
 | Файл | Содержимое |
 |---|---|
@@ -44,6 +45,10 @@
 | `021` | Ужесточение `public` grants |
 | `022` | Account-scoped права для системных ролей |
 | `023` | Backward compatibility для матрицы role permissions |
+| `024` | Дополнительные поля профиля (`gender`, `birth_date`, `telegram_id`, `address`) |
+| `025` | Исправление каскадов удаления пользователя (`accounts.owner_id`, `invitations.invited_by`) |
+| `026` | Новые типы `venue_type`, поле `venues.website`, обновлён `complete_owner_onboarding()` |
+| `027` | Обновлён constraint `profiles.gender` |
 | `028` | Исправление `get_user_venues()` (UNION + `status = 'active'`) + `complete_owner_onboarding()` явный `status = 'active'` |
 
 ### Аутентификация
@@ -53,6 +58,7 @@
 - Убран `router.refresh()` после `router.push()` на регистрации — устранена заметная задержка после "Продолжить"
 - Email/пароль, восстановление пароля
 - OAuth callback + приём приглашений (`/invite`)
+- `Invite`-flow защищён middleware (роут больше не публичный для неавторизованных)
 - Полный редизайн всех auth-страниц в стиле Sheerly:
   - `/login` — двухколоночный layout (PromoPanel + форма), FloatingField с плавающим лейблом
   - `/register` — тот же layout, поля: имя, email, пароль, подтверждение пароля
@@ -72,11 +78,12 @@
 - Настройка в Coolify: переменные `GOTRUE_MAILER_TEMPLATES_CONFIRMATION`, `GOTRUE_MAILER_TEMPLATES_RECOVERY` → URL шаблонов из `public/email-templates/`
 
 ### Онбординг (`/onboarding`)
-Wizard из 4 шагов: аккаунт → заведение → персонал → готово
+Wizard из 5 шагов: профиль → аккаунт → заведение → персонал → готово
 - Исправлены стили полей в `step-profile` — соответствуют login/register (`ring-2` на focus/error)
 - Переименован лейбл "ID Telegram" → "Telegram ID"; тултип переведён на JS-таймер, скрывается через 5 с
 - Wizard сохраняет данные шага 1 (`savedProfile` state) при возврате с шага 2
 - `step-profile` использует `uploadAvatar` (бакет `avatars/`) вместо `uploadLogo` — аватары и логотипы в разных папках
+- Синхронизация аватара в `profiles.avatar_url` и `profiles.photo_url` для обратной совместимости
 - Приглашение по email: ссылка ведёт на домен приложения (`/auth/confirm?token_hash=...`), а не на Supabase
 - Добавлены `/auth/confirm` route handler и `/set-password` страница для invited-users flow
 - Миграция `028`: исправлен `get_user_venues()` (UNION + `status = 'active'`), venue switcher появляется сразу после онбординга; `complete_owner_onboarding()` явно выставляет `status = 'active'`
@@ -109,6 +116,7 @@ Wizard из 4 шагов: аккаунт → заведение → персон
 - Приглашение по email с выбором должности
 - Инвайты для существующих пользователей (без ошибки `already been registered`)
 - Мгновенное отображение pending-приглашения в таблице без ручной перезагрузки
+- Batch upsert приглашений при принятии (`/invite`) вместо последовательных запросов
 - Кастомные invitation письма через Resend API (с fallback на шаблонные письма Supabase)
 - Стабилизация мульти-тенантного потока: автоматическая синхронизация `pending` инвайтов при входе
 - Ролевой доступ: owner/manager/admin могут редактировать, остальные — только просмотр
@@ -155,7 +163,7 @@ Wizard из 4 шагов: аккаунт → заведение → персон
 | RLS на уровне БД | Безопасность данных независимо от кода |
 | Server Actions | Нет отдельного API-слоя, данные прямо в Server Components |
 | Soft-delete (status fired) | Сотрудники не удаляются, история сохраняется |
-| `as unknown as Record<string, unknown>` | Обход устаревших Supabase TS-типов при новых колонках из миграций |
+| Актуализированные Supabase TS-типы | Убраны `any`/касты в server actions и страницах, снижён риск runtime-ошибок |
 | Динамический grid-template | Видимость столбцов без сдвигов через `style={{ gridTemplateColumns }}` |
 | FloatingField — условный `pr-4`/`pr-10` | Email-поля без rightSlot не получают лишний отступ, иконки браузера не перекрывают текст |
 | Email-шаблоны в `public/email-templates/` | Файлы отдаются Next.js статически; GoTrue подхватывает по URL через `GOTRUE_MAILER_TEMPLATES_*` |

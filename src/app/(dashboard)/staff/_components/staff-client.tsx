@@ -9,7 +9,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import {
   UserPlus, Calendar, Clock, X, Settings2,
-  ChevronDown, RotateCcw, Search, Filter,
+  ChevronDown, RotateCcw, Search, Filter, AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ import type { StaffMember, PendingInvitation, FiredStaffMember } from "../action
 // ── Column definitions ───────────────────────────────────────
 type ColKey =
   | "avatar" | "name" | "email" | "phone" | "telegram"
-  | "gender" | "birth_date" | "role" | "employment_date";
+  | "gender" | "birth_date" | "role" | "qr_import" | "employment_date";
 
 const COL_DEFS: {
   key: ColKey; label: string; width: string; required?: boolean;
@@ -53,10 +53,11 @@ const COL_DEFS: {
   { key: "gender",          label: "Пол",                  width: "60px" },
   { key: "birth_date",      label: "Дата рождения",        width: "120px" },
   { key: "role",            label: "Должность",            width: "140px" },
+  { key: "qr_import",       label: "Импорт из QR",         width: "120px" },
   { key: "employment_date", label: "Трудоустройство",      width: "160px", headerClass: "text-right" },
 ];
 
-const DEFAULT_COLS: ColKey[] = ["avatar", "name", "email", "role", "employment_date"];
+const DEFAULT_COLS: ColKey[] = ["avatar", "name", "email", "role", "qr_import", "employment_date"];
 
 function buildGrid(visible: Set<ColKey>) {
   const cols = COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width);
@@ -169,7 +170,11 @@ function ColumnSettings({ visible, onChange }: {
 }
 
 // ── Filter dropdown ──────────────────────────────────────────
-type Filter = { roleId: string | null; gender: string | null };
+type Filter = {
+  roleId: string | null;
+  gender: string | null;
+  importedFromQr: "all" | "yes" | "no";
+};
 
 function FilterPanel({ filter, onChange, roles }: {
   filter: Filter;
@@ -188,7 +193,7 @@ function FilterPanel({ filter, onChange, roles }: {
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
 
-  const isActive = filter.roleId !== null || filter.gender !== null;
+  const isActive = filter.roleId !== null || filter.gender !== null || filter.importedFromQr !== "all";
 
   return (
     <div className="relative" ref={ref}>
@@ -233,10 +238,28 @@ function FilterPanel({ filter, onChange, roles }: {
             </select>
           </div>
 
+          <div className="space-y-1.5">
+            <Label className="text-xs">Импорт из QR</Label>
+            <select
+              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              value={filter.importedFromQr}
+              onChange={(e) =>
+                onChange({
+                  ...filter,
+                  importedFromQr: e.target.value as Filter["importedFromQr"],
+                })
+              }
+            >
+              <option value="all">Все</option>
+              <option value="yes">Только импортированные</option>
+              <option value="no">Только созданные вручную</option>
+            </select>
+          </div>
+
           {isActive && (
             <button
               className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => onChange({ roleId: null, gender: null })}
+              onClick={() => onChange({ roleId: null, gender: null, importedFromQr: "all" })}
             >
               Сбросить фильтры
             </button>
@@ -295,7 +318,7 @@ export function StaffClient({
   }, [searchOpen]);
 
   // Filter
-  const [filter, setFilter] = useState<Filter>({ roleId: null, gender: null });
+  const [filter, setFilter] = useState<Filter>({ roleId: null, gender: null, importedFromQr: "all" });
 
   const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
 
@@ -314,12 +337,15 @@ export function StaffClient({
     if (q && !displayName(m).toLowerCase().includes(q) && !m.email.toLowerCase().includes(q)) return false;
     if (filter.roleId  && m.role_id !== filter.roleId)   return false;
     if (filter.gender  && m.gender  !== filter.gender)   return false;
+    if (filter.importedFromQr === "yes" && !m.imported_from_quickresto) return false;
+    if (filter.importedFromQr === "no" && m.imported_from_quickresto) return false;
     return true;
   });
 
   const filteredInvitations = invitations.filter((inv) => {
     if (q && !inv.email.toLowerCase().includes(q)) return false;
     if (filter.roleId && inv.role_id !== filter.roleId) return false;
+    if (filter.importedFromQr !== "all") return false;
     return true;
   });
 
@@ -380,7 +406,7 @@ export function StaffClient({
   };
 
   const totalCount = staff.length + invitations.length;
-  const isFiltered = q.length > 0 || filter.roleId !== null || filter.gender !== null;
+  const isFiltered = q.length > 0 || filter.roleId !== null || filter.gender !== null || filter.importedFromQr !== "all";
 
   // ── Cell renderers ─────────────────────────────────────────
   const renderCell = (key: ColKey, member: StaffMember) => {
@@ -400,10 +426,23 @@ export function StaffClient({
               {displayName(member)}
               {isMe && <span className="ml-2 text-xs text-muted-foreground font-normal">(вы)</span>}
             </p>
+            {member.imported_from_quickresto && member.email.toLowerCase().endsWith("@import.local") ? (
+              <span
+                className="inline-flex mt-1 items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700"
+                title="Нужно указать e-mail сотрудника и пригласить его в систему."
+              >
+                <AlertTriangle className="w-3 h-3" />
+                Требуется e-mail
+              </span>
+            ) : null}
           </div>
         );
       case "email":
-        return <div className="text-sm text-muted-foreground min-w-0 truncate">{member.email}</div>;
+        return (
+          <div className="text-sm text-muted-foreground min-w-0 truncate">
+            {member.email.toLowerCase().endsWith("@import.local") ? "Email не указан" : member.email}
+          </div>
+        );
       case "phone":
         return <div className="text-sm text-muted-foreground truncate">{member.phone || "—"}</div>;
       case "telegram":
@@ -428,6 +467,12 @@ export function StaffClient({
               {member.role_name}
             </Badge>
           </button>
+        );
+      case "qr_import":
+        return (
+          <div className="text-sm text-muted-foreground">
+            {member.imported_from_quickresto ? "Да" : "Нет"}
+          </div>
         );
       case "employment_date":
         return (
@@ -460,6 +505,8 @@ export function StaffClient({
         );
       case "role":
         return <Badge variant="secondary" className="text-xs cursor-default">{inv.role_name}</Badge>;
+      case "qr_import":
+        return <div className="text-sm text-muted-foreground">—</div>;
       case "employment_date":
         return (
           <div className="flex items-center gap-1 justify-end text-xs text-muted-foreground">

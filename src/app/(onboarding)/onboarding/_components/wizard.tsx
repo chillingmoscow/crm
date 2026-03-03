@@ -2,18 +2,26 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
+import { toast } from "sonner";
 import { StepProfile, type ProfileInitialData } from "./step-profile";
+import { StepImportMode } from "./step-import-mode";
 import { StepAccount } from "./step-account";
 import { StepVenue } from "./step-venue";
 import { StepStaff } from "./step-staff";
 import { StepDone } from "./step-done";
+import { StepQuickRestoCredentials } from "./step-quickresto-credentials";
+import { StepQuickRestoOptions } from "./step-quickresto-options";
+import { StepQuickRestoImport } from "./step-quickresto-import";
+import { createAccountOnly } from "../actions";
 import type { VenueType, WorkingHours } from "@/types/database";
 
 export interface WizardData {
-  // Step 2 — Account
+  mode: "manual" | "quickresto" | null;
+  accountId: string | null;
+
   accountName: string;
   accountLogoUrl: string | null;
-  // Step 3 — Venue
+
   venueName: string;
   venueType: VenueType;
   venueAddress: string;
@@ -22,8 +30,16 @@ export interface WizardData {
   currency: string;
   timezone: string;
   workingHours: WorkingHours;
-  // Step 4 — venueId needed after creation
   venueId: string | null;
+
+  quickRestoLogin: string;
+  quickRestoConnectionId: string | null;
+  importVenues: boolean;
+  importRoles: boolean;
+  importEmployees: boolean;
+  selectedVenueExternalIds: number[];
+  selectedRoleExternalIds: number[];
+  selectedEmployeeExternalIds: number[];
 }
 
 const INITIAL_WORKING_HOURS: WorkingHours = {
@@ -37,26 +53,40 @@ const INITIAL_WORKING_HOURS: WorkingHours = {
 };
 
 const INITIAL_DATA: WizardData = {
-  accountName:    "",
+  mode: null,
+  accountId: null,
+
+  accountName: "",
   accountLogoUrl: null,
-  venueName:      "",
-  venueType:      "restaurant",
-  venueAddress:   "",
-  venuePhone:     "",
-  venueWebsite:   "",
-  currency:       "RUB",
-  timezone:       "Europe/Moscow",
-  workingHours:   INITIAL_WORKING_HOURS,
-  venueId:        null,
+
+  venueName: "",
+  venueType: "restaurant",
+  venueAddress: "",
+  venuePhone: "",
+  venueWebsite: "",
+  currency: "RUB",
+  timezone: "Europe/Moscow",
+  workingHours: INITIAL_WORKING_HOURS,
+  venueId: null,
+
+  quickRestoLogin: "",
+  quickRestoConnectionId: null,
+  importVenues: true,
+  importRoles: true,
+  importEmployees: true,
+  selectedVenueExternalIds: [],
+  selectedRoleExternalIds: [],
+  selectedEmployeeExternalIds: [],
 };
 
-const STORAGE_KEY = "onboarding_wizard_v1";
-const TOTAL_STEPS = 5;
+function getStorageKey(userId: string) {
+  return `onboarding_wizard_v2_${userId}`;
+}
 
-function loadFromStorage(): { step: number; data: WizardData } {
+function loadFromStorage(storageKey: string): { step: number; data: WizardData } {
   if (typeof window === "undefined") return { step: 1, data: INITIAL_DATA };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     if (!raw) return { step: 1, data: INITIAL_DATA };
     const parsed = JSON.parse(raw) as { step?: number; data?: WizardData };
     return {
@@ -69,39 +99,58 @@ function loadFromStorage(): { step: number; data: WizardData } {
 }
 
 interface Props {
+  userId: string;
   roles: { id: string; name: string; code: string }[];
   initialProfile: ProfileInitialData;
+  initialAccount: { id: string | null; name: string; logoUrl: string | null };
+  startQuickRestoFlow?: boolean;
 }
 
-export function OnboardingWizard({ roles, initialProfile }: Props) {
+export function OnboardingWizard({ userId, roles, initialProfile, initialAccount, startQuickRestoFlow = false }: Props) {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<WizardData>(INITIAL_DATA);
   const [hydrated, setHydrated] = useState(false);
   const [savedProfile, setSavedProfile] = useState<ProfileInitialData | null>(null);
+  const storageKey = getStorageKey(userId);
 
-  // Load from localStorage on mount (client-only)
   useEffect(() => {
-    const saved = loadFromStorage();
-    // Don't restore beyond step 3 — account/venue creation already happened
-    const safeStep = saved.step <= 3 ? saved.step : 1;
+    const saved = loadFromStorage(storageKey);
+    const safeStep = saved.step <= 7 ? saved.step : 1;
+    const preparedData = {
+      ...saved.data,
+      accountId: initialAccount.id ?? null,
+      accountName: initialAccount.name || saved.data.accountName,
+      accountLogoUrl: initialAccount.logoUrl ?? saved.data.accountLogoUrl,
+    };
+
+    if (startQuickRestoFlow && initialAccount.id) {
+      setStep(4);
+      setData({
+        ...preparedData,
+        mode: "quickresto",
+      });
+      setHydrated(true);
+      return;
+    }
+
     setStep(safeStep);
-    setData(saved.data);
+    setData(preparedData);
     setHydrated(true);
-  }, []);
+  }, [initialAccount.id, initialAccount.logoUrl, initialAccount.name, startQuickRestoFlow, storageKey]);
 
   const saveToStorage = useCallback((nextStep: number, nextData: WizardData) => {
     if (typeof window === "undefined") return;
-    // Don't persist once venue is created (step 4+) to avoid re-running RPC
-    if (nextStep >= 4) {
-      localStorage.removeItem(STORAGE_KEY);
+    const finishStep = nextData.mode === "quickresto" ? 7 : 6;
+    if (nextStep >= finishStep) {
+      localStorage.removeItem(storageKey);
       return;
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ step: nextStep, data: nextData }));
+      localStorage.setItem(storageKey, JSON.stringify({ step: nextStep, data: nextData }));
     } catch {
-      // ignore storage quota errors
+      // ignore localStorage failures
     }
-  }, []);
+  }, [storageKey]);
 
   const update = useCallback((patch: Partial<WizardData>) => {
     setData((prev) => {
@@ -109,7 +158,7 @@ export function OnboardingWizard({ roles, initialProfile }: Props) {
       saveToStorage(step, next);
       return next;
     });
-  }, [step, saveToStorage]);
+  }, [saveToStorage, step]);
 
   const goTo = useCallback((nextStep: number, patch?: Partial<WizardData>) => {
     setData((prev) => {
@@ -120,9 +169,9 @@ export function OnboardingWizard({ roles, initialProfile }: Props) {
     setStep(nextStep);
   }, [saveToStorage]);
 
-  const progressPct = Math.round((step / TOTAL_STEPS) * 100);
+  const totalSteps = data.mode === "quickresto" ? 7 : 6;
+  const progressPct = Math.round((step / totalSteps) * 100);
 
-  // Avoid hydration mismatch — render nothing until client data is loaded
   if (!hydrated) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -133,76 +182,203 @@ export function OnboardingWizard({ roles, initialProfile }: Props) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-
-      {/* ── Header ───────────────────────────────────────────────────────── */}
       <header className="bg-white border-b border-gray-100 shrink-0">
         <div className="max-w-[560px] mx-auto px-6 h-16 flex items-center justify-between">
-          <Image
-            src="/logo-full.svg"
-            alt="Sheerly"
-            width={100}
-            height={24}
-            priority
-          />
+          <Image src="/logo-full.svg" alt="Sheerly" width={100} height={24} priority />
           <span className="text-sm text-gray-400 tabular-nums">
-            {step}&thinsp;/&thinsp;{TOTAL_STEPS}
+            {step}&thinsp;/&thinsp;{totalSteps}
           </span>
         </div>
       </header>
 
-      {/* ── Progress bar ─────────────────────────────────────────────────── */}
       <div className="h-0.5 bg-gray-100 shrink-0">
-        <div
-          className="h-0.5 bg-blue-600 transition-all duration-500 ease-out"
-          style={{ width: `${progressPct}%` }}
-        />
+        <div className="h-0.5 bg-blue-600 transition-all duration-500 ease-out" style={{ width: `${progressPct}%` }} />
       </div>
 
-      {/* ── Content ──────────────────────────────────────────────────────── */}
       <main className="flex-1 flex items-start justify-center p-4 pt-10 pb-16">
         <div className="w-full max-w-[520px]">
-
           {step === 1 && (
-            <StepProfile
-              initial={savedProfile ?? initialProfile}
-              stepLabel="1 из 5"
+            <StepAccount
+              data={data}
+              onUpdate={update}
+              onBack={() => {}}
+              stepLabel={`Шаг 1 из ${totalSteps}`}
+              hideBack
               onNext={() => goTo(2)}
-              onSaved={(p) => setSavedProfile(p)}
             />
           )}
 
           {step === 2 && (
-            <StepAccount
-              data={data}
-              onUpdate={update}
+            <StepProfile
+              initial={savedProfile ?? initialProfile}
+              stepLabel={`Шаг 2 из ${totalSteps}`}
               onNext={() => goTo(3)}
-              onBack={() => goTo(1)}
+              onSaved={(p) => setSavedProfile(p)}
             />
           )}
 
           {step === 3 && (
-            <StepVenue
-              data={data}
-              onUpdate={update}
-              onNext={(venueId) => goTo(4, { venueId })}
-              onBack={() => goTo(2)}
+            <StepImportMode
+              stepLabel={`Шаг 3 из ${totalSteps}`}
+              onSelect={async (mode) => {
+                if (mode === "quickresto") {
+                  if (data.accountId) {
+                    goTo(4, {
+                      mode,
+                      venueId: null,
+                      quickRestoConnectionId: null,
+                      selectedVenueExternalIds: [],
+                      selectedRoleExternalIds: [],
+                      selectedEmployeeExternalIds: [],
+                    });
+                    return;
+                  }
+
+                  const result = await createAccountOnly({
+                    accountName: data.accountName,
+                    accountLogoUrl: data.accountLogoUrl,
+                  });
+
+                  if (result.error || !result.accountId) {
+                    toast.error(result.error ?? "Не удалось создать аккаунт");
+                    return;
+                  }
+
+                  goTo(4, {
+                    mode,
+                    accountId: result.accountId,
+                    venueId: null,
+                    quickRestoConnectionId: null,
+                    selectedVenueExternalIds: [],
+                    selectedRoleExternalIds: [],
+                    selectedEmployeeExternalIds: [],
+                  });
+                  return;
+                }
+
+                goTo(4, {
+                  mode,
+                  venueId: null,
+                  quickRestoConnectionId: null,
+                  selectedVenueExternalIds: [],
+                  selectedRoleExternalIds: [],
+                  selectedEmployeeExternalIds: [],
+                });
+              }}
             />
           )}
 
-          {step === 4 && (
+          {step === 4 && data.mode !== "quickresto" && (
+            <StepVenue
+              data={data}
+              stepLabel={`Шаг 4 из ${totalSteps}`}
+              onUpdate={update}
+              onNext={(venueId) => goTo(5, { venueId })}
+              onBack={() => goTo(3)}
+            />
+          )}
+
+          {step === 5 && data.mode !== "quickresto" && (
             <StepStaff
               venueId={data.venueId!}
               roles={roles}
-              onNext={() => goTo(5)}
-              onSkip={() => goTo(5)}
+              stepLabel={`Шаг 5 из ${totalSteps}`}
+              onNext={() => goTo(6)}
+              onSkip={() => goTo(6)}
             />
           )}
 
-          {step === 5 && <StepDone />}
+          {step === 6 && data.mode !== "quickresto" && <StepDone />}
 
+          {step === 4 && data.mode === "quickresto" && (
+            <StepQuickRestoCredentials
+              accountId={data.accountId}
+              initialLogin={data.quickRestoLogin}
+              stepLabel={`Шаг 4 из ${totalSteps}`}
+              onBack={() => goTo(3)}
+              onSkipIntegration={() =>
+                goTo(4, {
+                  mode: "manual",
+                  quickRestoConnectionId: null,
+                  selectedVenueExternalIds: [],
+                  selectedRoleExternalIds: [],
+                  selectedEmployeeExternalIds: [],
+                })
+              }
+              onNext={({ login, connectionId }) =>
+                goTo(5, {
+                  quickRestoLogin: login,
+                  quickRestoConnectionId: connectionId,
+                })
+              }
+            />
+          )}
+
+          {step === 5 && data.mode === "quickresto" && (
+            <StepQuickRestoOptions
+              accountId={data.accountId}
+              connectionId={data.quickRestoConnectionId}
+              stepLabel={`Шаг 5 из ${totalSteps}`}
+              importVenues={data.importVenues}
+              importRoles={data.importRoles}
+              importEmployees={data.importEmployees}
+              selectedVenueExternalIds={data.selectedVenueExternalIds}
+              selectedRoleExternalIds={data.selectedRoleExternalIds}
+              selectedEmployeeExternalIds={data.selectedEmployeeExternalIds}
+              onUpdate={update}
+              onBack={() => goTo(4)}
+              onSkipIntegration={() =>
+                goTo(4, {
+                  mode: "manual",
+                  quickRestoConnectionId: null,
+                  selectedVenueExternalIds: [],
+                  selectedRoleExternalIds: [],
+                  selectedEmployeeExternalIds: [],
+                })
+              }
+              onNext={() => goTo(6)}
+            />
+          )}
+
+          {step === 6 && data.mode === "quickresto" && (
+            <StepQuickRestoImport
+              accountId={data.accountId}
+              connectionId={data.quickRestoConnectionId}
+              stepLabel={`Шаг 6 из ${totalSteps}`}
+              importVenues={data.importVenues}
+              importRoles={data.importRoles}
+              importEmployees={data.importEmployees}
+              selectedVenueExternalIds={data.selectedVenueExternalIds}
+              selectedRoleExternalIds={data.selectedRoleExternalIds}
+              selectedEmployeeExternalIds={data.selectedEmployeeExternalIds}
+              onBack={() => goTo(5)}
+              onSkipIntegration={() =>
+                goTo(4, {
+                  mode: "manual",
+                  quickRestoConnectionId: null,
+                  selectedVenueExternalIds: [],
+                  selectedRoleExternalIds: [],
+                  selectedEmployeeExternalIds: [],
+                })
+              }
+              onDone={(payload) => {
+                if (payload?.needsVenueSetup) {
+                  goTo(4, {
+                    mode: "manual",
+                    importVenues: false,
+                    importRoles: false,
+                    importEmployees: false,
+                  });
+                  return;
+                }
+                goTo(7);
+              }}
+            />
+          )}
+
+          {step === 7 && data.mode === "quickresto" && <StepDone />}
         </div>
       </main>
-
     </div>
   );
 }

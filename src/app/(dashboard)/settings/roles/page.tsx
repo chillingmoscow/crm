@@ -4,6 +4,14 @@ import { RolesClient } from "./_components/roles-client";
 
 export default async function RolesPage() {
   const supabase = await createClient();
+  type LooseQueryBuilder = {
+  select: (columns: string) => LooseQueryBuilder;
+  eq: (column: string, value: unknown) => LooseQueryBuilder;
+  in: (column: string, values: string[]) => LooseQueryBuilder;
+  maybeSingle: () => Promise<{ data: unknown }>;
+};
+
+const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
 
   const {
     data: { user },
@@ -42,6 +50,19 @@ export default async function RolesPage() {
   const permissions = permissionsResult.data ?? [];
   const roleIds = roles.map((r) => r.id);
 
+  let importedRoleLinks: { local_id: string }[] = [];
+  if (accountId && roleIds.length > 0) {
+    const result = (await db
+      .from("external_entity_links")
+      .select("local_id")
+      .eq("account_id", accountId)
+      .eq("provider", "quickresto")
+      .eq("entity_type", "role")
+      .in("local_id", roleIds)) as unknown as { data: { local_id: string }[] | null };
+    importedRoleLinks = result.data ?? [];
+  }
+  const importedRoleIds = importedRoleLinks.map((row) => row.local_id);
+
   const [rolePermsResult, venueRolesResult] = await Promise.all([
     roleIds.length > 0
       ? supabase.rpc("get_effective_role_permissions", {
@@ -69,6 +90,7 @@ export default async function RolesPage() {
       rolePermissions={rolePermsResult.data ?? []}
       accountId={accountId ?? null}
       staffCountByRole={staffCountByRole}
+      importedRoleIds={importedRoleIds}
     />
   );
 }

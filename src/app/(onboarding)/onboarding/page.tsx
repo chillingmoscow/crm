@@ -5,8 +5,13 @@ import { getSystemRoles } from "./actions";
 import type { ProfileInitialData } from "./_components/step-profile";
 import { syncPendingInvitationsForUser } from "@/lib/invitations/sync-pending";
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ force?: string; mode?: string }>;
+}) {
   const supabase = await createClient();
+  const params = await searchParams;
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
@@ -20,7 +25,10 @@ export default async function OnboardingPage() {
     .eq("id", user.id)
     .maybeSingle();
 
-  if (profile?.active_venue_id) redirect("/dashboard");
+  const forceMode = params.force === "1";
+  const startQuickRestoFlow = params.mode === "quickresto";
+
+  if (profile?.active_venue_id && !forceMode) redirect("/dashboard");
 
   // Staff fallback: if user already has active venue role, set active venue and skip owner onboarding.
   const { data: membership } = await supabase
@@ -31,13 +39,19 @@ export default async function OnboardingPage() {
     .limit(1)
     .maybeSingle();
 
-  if (membership?.venue_id) {
+  if (membership?.venue_id && !forceMode) {
     await supabase
       .from("profiles")
       .update({ active_venue_id: membership.venue_id })
       .eq("id", user.id);
     redirect("/dashboard");
   }
+
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("id, name, logo_url")
+    .eq("owner_id", user.id)
+    .maybeSingle();
 
   const roles = await getSystemRoles();
 
@@ -52,5 +66,17 @@ export default async function OnboardingPage() {
     address:    profile?.address     ?? null,
   };
 
-  return <OnboardingWizard roles={roles} initialProfile={initialProfile} />;
+  return (
+    <OnboardingWizard
+      userId={user.id}
+      roles={roles}
+      initialProfile={initialProfile}
+      initialAccount={{
+        id: account?.id ?? null,
+        name: account?.name ?? "",
+        logoUrl: account?.logo_url ?? null,
+      }}
+      startQuickRestoFlow={forceMode && startQuickRestoFlow}
+    />
+  );
 }

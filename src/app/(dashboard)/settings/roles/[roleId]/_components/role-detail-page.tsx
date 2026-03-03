@@ -42,6 +42,7 @@ type Props = {
   rolePermissions: RolePermission[];
   accountId: string | null;
   staffCount: number;
+  importedFromQuickResto: boolean;
 };
 
 // ── Constants ────────────────────────────────────────────────
@@ -59,6 +60,7 @@ export function RoleDetailPage({
   rolePermissions: initialRolePerms,
   accountId,
   staffCount,
+  importedFromQuickResto,
 }: Props) {
   const router = useRouter();
   const [rolePermissions, setRolePerms] = useState(initialRolePerms);
@@ -176,6 +178,11 @@ export function RoleDetailPage({
                 Системная
               </Badge>
             )}
+            {importedFromQuickResto ? (
+              <Badge variant="outline" className="text-xs border-blue-200 text-blue-700">
+                Импортировано из QuickResto
+              </Badge>
+            ) : null}
             <span className="text-sm text-muted-foreground flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" />
               {staffCount}{" "}

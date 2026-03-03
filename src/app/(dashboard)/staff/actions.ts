@@ -43,6 +43,8 @@ export type StaffMember = {
   birth_date:      string | null;
   employment_date: string | null;
   joined_at:       string;
+  terminal_pin?:   string | null;
+  imported_from_quickresto?: boolean;
 };
 
 export type FullStaffProfile = {
@@ -60,6 +62,7 @@ export type FullStaffProfile = {
   medical_book_date:   string | null;
   passport_photos:     string[];
   comment:             string | null;
+  terminal_pin:        string | null;
 };
 
 export type ProfileUpdate = Omit<FullStaffProfile, "id" | "passport_photos">;
@@ -80,7 +83,7 @@ export async function getStaffProfile(
   const { data } = await supabase
     .from("profiles")
     .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment"
+      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment, terminal_pin"
     )
     .eq("id", userId)
     .returns<FullStaffProfile[]>()
@@ -309,6 +312,123 @@ export async function inviteStaff(data: {
 
   revalidatePath("/staff");
   return { error: null, invitation: pendingInvitation };
+}
+
+function isValidEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function isImportedPlaceholderEmail(value: string): boolean {
+  return value.toLowerCase().endsWith("@import.local");
+}
+
+export async function setImportedStaffEmailAndInvite(data: {
+  userId: string;
+  email: string;
+  roleId: string;
+  venueId: string;
+}): Promise<{ error: string | null; invitation: PendingInvitation | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован", invitation: null };
+
+  const nextEmail = data.email.trim().toLowerCase();
+  if (!isValidEmail(nextEmail)) {
+    return { error: "Укажите корректный email", invitation: null };
+  }
+
+  const [{ data: canManage }, { data: targetMembership }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "platform.manage_staff" }),
+    supabase
+      .from("user_venue_roles")
+      .select("id")
+      .eq("user_id", data.userId)
+      .eq("venue_id", data.venueId)
+      .eq("role_id", data.roleId)
+      .eq("status", "active")
+      .maybeSingle(),
+  ]);
+
+  if (!canManage || !targetMembership) {
+    return { error: "Недостаточно прав для отправки приглашения", invitation: null };
+  }
+
+  const admin = createAdminClient();
+  const { error: updateAuthError } = await admin.auth.admin.updateUserById(data.userId, {
+    email: nextEmail,
+    email_confirm: false,
+  });
+
+  if (updateAuthError) {
+    return { error: updateAuthError.message, invitation: null };
+  }
+
+  const inviteResult = await inviteStaff({
+    email: nextEmail,
+    roleId: data.roleId,
+    venueId: data.venueId,
+  });
+
+  revalidatePath("/staff");
+  return inviteResult;
+}
+
+export async function inviteImportedStaffByCurrentEmail(data: {
+  userId: string;
+  roleId: string;
+  venueId: string;
+}): Promise<{ error: string | null; invitation: PendingInvitation | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован", invitation: null };
+
+  const [{ data: canManage }, { data: targetMembership }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "platform.manage_staff" }),
+    supabase
+      .from("user_venue_roles")
+      .select("id")
+      .eq("user_id", data.userId)
+      .eq("venue_id", data.venueId)
+      .eq("role_id", data.roleId)
+      .eq("status", "active")
+      .maybeSingle(),
+  ]);
+
+  if (!canManage || !targetMembership) {
+    return { error: "Недостаточно прав для отправки приглашения", invitation: null };
+  }
+
+  const admin = createAdminClient();
+  const {
+    data: { user: targetUser },
+    error: targetError,
+  } = await admin.auth.admin.getUserById(data.userId);
+
+  if (targetError || !targetUser?.email) {
+    return { error: targetError?.message ?? "Не удалось получить email сотрудника", invitation: null };
+  }
+
+  const email = targetUser.email.toLowerCase();
+  if (isImportedPlaceholderEmail(email)) {
+    return { error: "У сотрудника пока нет реального email", invitation: null };
+  }
+
+  if (!isValidEmail(email)) {
+    return { error: "Некорректный email сотрудника", invitation: null };
+  }
+
+  const inviteResult = await inviteStaff({
+    email,
+    roleId: data.roleId,
+    venueId: data.venueId,
+  });
+
+  revalidatePath("/staff");
+  return inviteResult;
 }
 
 export async function updateStaffRole(

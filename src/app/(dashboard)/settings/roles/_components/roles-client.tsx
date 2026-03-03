@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Shield, Search, Settings2, X } from "lucide-react";
+import { Plus, Shield, Search, Settings2, X, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -41,19 +41,21 @@ type Props = {
   rolePermissions: RolePermission[];
   accountId: string | null;
   staffCountByRole: Record<string, number>;
+  importedRoleIds: string[];
 };
 
 // ── Column definitions ────────────────────────────────────────
 
-type ColKey = "name" | "staff" | "permissions";
+type ColKey = "name" | "staff" | "permissions" | "qr_import";
 
 const COL_DEFS: { key: ColKey; label: string; width: string; required?: boolean }[] = [
   { key: "name",        label: "Название",   width: "1fr",   required: true },
   { key: "staff",       label: "Сотрудники", width: "120px" },
   { key: "permissions", label: "Права",      width: "80px"  },
+  { key: "qr_import",   label: "Импорт из QR", width: "120px"  },
 ];
 
-const DEFAULT_COLS: ColKey[] = ["name", "staff", "permissions"];
+const DEFAULT_COLS: ColKey[] = ["name", "staff", "permissions", "qr_import"];
 
 function buildGrid(visible: Set<ColKey>) {
   return COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width).join(" ");
@@ -115,6 +117,76 @@ function ColumnSettings({
   );
 }
 
+type RoleFilter = {
+  importedFromQr: "all" | "yes" | "no";
+};
+
+function RoleFilterPanel({
+  filter,
+  onChange,
+}: {
+  filter: RoleFilter;
+  onChange: (next: RoleFilter) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const isActive = filter.importedFromQr !== "all";
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        variant="outline"
+        size="icon"
+        className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Filter className="w-4 h-4" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[220px] space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Фильтры
+          </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Импорт из QR</Label>
+            <select
+              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              value={filter.importedFromQr}
+              onChange={(e) =>
+                onChange({
+                  importedFromQr: e.target.value as RoleFilter["importedFromQr"],
+                })
+              }
+            >
+              <option value="all">Все</option>
+              <option value="yes">Только импортированные</option>
+              <option value="no">Только созданные вручную</option>
+            </select>
+          </div>
+          {isActive ? (
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+              onClick={() => onChange({ importedFromQr: "all" })}
+            >
+              Сбросить фильтры
+            </button>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ─────────────────────────────────────────────
 
 export function RolesClient({
@@ -123,9 +195,11 @@ export function RolesClient({
   rolePermissions,
   accountId,
   staffCountByRole,
+  importedRoleIds,
 }: Props) {
   const router = useRouter();
   const [roles, setRoles] = useState(initialRoles);
+  const importedSet = useMemo(() => new Set(importedRoleIds), [importedRoleIds]);
   const [isPending, startTransition] = useTransition();
 
   // Column visibility — persisted in localStorage
@@ -154,6 +228,7 @@ export function RolesClient({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [filter, setFilter] = useState<RoleFilter>({ importedFromQr: "all" });
   useEffect(() => {
     if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
   }, [searchOpen]);
@@ -170,9 +245,12 @@ export function RolesClient({
   const q = searchQuery.toLowerCase().trim();
   const filteredRoles = roles.filter((r) => {
     if (q && !r.name.toLowerCase().includes(q)) return false;
+    const imported = importedSet.has(r.id);
+    if (filter.importedFromQr === "yes" && !imported) return false;
+    if (filter.importedFromQr === "no" && imported) return false;
     return true;
   });
-  const isFiltered = q.length > 0;
+  const isFiltered = q.length > 0 || filter.importedFromQr !== "all";
 
   function handleCreate() {
     const name = newRoleName.trim();
@@ -207,7 +285,11 @@ export function RolesClient({
   const renderCell = (key: ColKey, role: Role) => {
     switch (key) {
       case "name":
-        return <div className="font-medium text-sm truncate">{role.name}</div>;
+        return (
+          <div className="min-w-0">
+            <div className="font-medium text-sm truncate">{role.name}</div>
+          </div>
+        );
       case "staff":
         return (
           <div className="text-sm text-muted-foreground">
@@ -218,6 +300,12 @@ export function RolesClient({
         return (
           <div className="text-sm text-muted-foreground">
             {getGrantedCount(role.id)}/{permissions.length}
+          </div>
+        );
+      case "qr_import":
+        return (
+          <div className="text-sm text-muted-foreground">
+            {importedSet.has(role.id) ? "Да" : "Нет"}
           </div>
         );
     }
@@ -278,6 +366,7 @@ export function RolesClient({
             </Button>
           </div>
 
+          <RoleFilterPanel filter={filter} onChange={setFilter} />
           <ColumnSettings visible={visibleCols} onChange={toggleCol} />
 
           {accountId && (

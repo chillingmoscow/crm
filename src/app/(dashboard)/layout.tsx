@@ -28,10 +28,33 @@ export default async function DashboardLayout({
     supabase.rpc("get_user_venues"),
   ]);
 
-  // Safety net: sync pending invitations only for users without an active venue
-  // (invited users on first login). Skipped for everyone already set up.
-  if (!profile?.active_venue_id) {
+  let activeVenueId = profile?.active_venue_id ?? null;
+
+  // Safety net: sync pending invitations only for users without an active venue.
+  if (!activeVenueId) {
     await syncPendingInvitationsForUser({ userId: user.id, email: user.email });
+
+    // After syncing invitations, try to resolve an active venue immediately to avoid
+    // rendering dashboard shell and then redirecting in nested pages.
+    const { data: membership } = await supabase
+      .from("user_venue_roles")
+      .select("venue_id")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
+
+    if (membership?.venue_id) {
+      await supabase
+        .from("profiles")
+        .update({ active_venue_id: membership.venue_id })
+        .eq("id", user.id);
+      activeVenueId = membership.venue_id;
+    }
+  }
+
+  if (!activeVenueId) {
+    redirect("/onboarding");
   }
 
   const userName =
@@ -48,14 +71,14 @@ export default async function DashboardLayout({
 
   // Role code for the currently active venue
   const activeRoleCode =
-    venueList.find((v) => v.venue_id === profile?.active_venue_id)?.role_code ?? null;
+    venueList.find((v) => v.venue_id === activeVenueId)?.role_code ?? null;
 
   return (
     <SidebarProvider>
       <AppSidebar
         userName={userName}
         venues={venueList}
-        activeVenueId={profile?.active_venue_id ?? null}
+        activeVenueId={activeVenueId}
         activeRoleCode={activeRoleCode}
       />
       <SidebarInset>

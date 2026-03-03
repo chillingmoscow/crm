@@ -32,13 +32,14 @@ import type { VenueRow } from "../page";
 import type { VenueType, WorkingHours } from "@/types/database";
 
 // ── Column definitions ───────────────────────────────────────
-type ColKey = "name" | "type" | "address" | "phone" | "currency" | "timezone" | "halls_count" | "tables_count";
+type ColKey = "name" | "type" | "qr_import" | "address" | "phone" | "currency" | "timezone" | "halls_count" | "tables_count";
 
 const COL_DEFS: {
   key: ColKey; label: string; width: string; required?: boolean;
 }[] = [
   { key: "name",         label: "Название",      width: "1fr",   required: true },
   { key: "type",         label: "Тип",           width: "120px" },
+  { key: "qr_import",    label: "Импорт из QR",  width: "120px" },
   { key: "halls_count",  label: "Залы",          width: "70px" },
   { key: "tables_count", label: "Столы",         width: "70px" },
   { key: "address",      label: "Адрес",         width: "1fr" },
@@ -47,7 +48,7 @@ const COL_DEFS: {
   { key: "timezone",     label: "Часовой пояс",  width: "160px" },
 ];
 
-const DEFAULT_COLS: ColKey[] = ["name", "type", "halls_count", "tables_count", "address", "phone"];
+const DEFAULT_COLS: ColKey[] = ["name", "type", "qr_import", "halls_count", "tables_count", "address", "phone"];
 
 function buildGrid(visible: Set<ColKey>) {
   return COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width).join(" ");
@@ -134,7 +135,10 @@ function ColumnSettings({ visible, onChange }: {
 }
 
 // ── Filter dropdown ──────────────────────────────────────────
-type VenueFilter = { type: string | null };
+type VenueFilter = {
+  type: string | null;
+  importedFromQr: "all" | "yes" | "no";
+};
 
 function FilterPanel({ filter, onChange }: {
   filter: VenueFilter;
@@ -152,7 +156,7 @@ function FilterPanel({ filter, onChange }: {
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
 
-  const isActive = filter.type !== null;
+  const isActive = filter.type !== null || filter.importedFromQr !== "all";
 
   return (
     <div className="relative" ref={ref}>
@@ -174,7 +178,7 @@ function FilterPanel({ filter, onChange }: {
             <select
               className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
               value={filter.type ?? ""}
-              onChange={(e) => onChange({ type: e.target.value || null })}
+              onChange={(e) => onChange({ ...filter, type: e.target.value || null })}
             >
               <option value="">Все типы</option>
               {VENUE_TYPES.map((t) => (
@@ -182,10 +186,27 @@ function FilterPanel({ filter, onChange }: {
               ))}
             </select>
           </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Импорт из QR</Label>
+            <select
+              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              value={filter.importedFromQr}
+              onChange={(e) =>
+                onChange({
+                  ...filter,
+                  importedFromQr: e.target.value as VenueFilter["importedFromQr"],
+                })
+              }
+            >
+              <option value="all">Все</option>
+              <option value="yes">Только импортированные</option>
+              <option value="no">Только созданные вручную</option>
+            </select>
+          </div>
           {isActive && (
             <button
               className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => onChange({ type: null })}
+              onClick={() => onChange({ type: null, importedFromQr: "all" })}
             >
               Сбросить фильтры
             </button>
@@ -233,7 +254,7 @@ export function VenuesClient({ venues: initialVenues }: Props) {
   }, [searchOpen]);
 
   // Filter
-  const [filter, setFilter] = useState<VenueFilter>({ type: null });
+  const [filter, setFilter] = useState<VenueFilter>({ type: null, importedFromQr: "all" });
 
   const { register, handleSubmit, setValue, reset, formState: { errors } } =
     useForm<Form>({
@@ -292,17 +313,25 @@ export function VenuesClient({ venues: initialVenues }: Props) {
         !(v.address ?? "").toLowerCase().includes(q) &&
         !(v.phone ?? "").toLowerCase().includes(q)) return false;
     if (filter.type && v.type !== filter.type) return false;
+    if (filter.importedFromQr === "yes" && !v.imported_from_quickresto) return false;
+    if (filter.importedFromQr === "no" && v.imported_from_quickresto) return false;
     return true;
   });
-  const isFiltered = q.length > 0 || filter.type !== null;
+  const isFiltered = q.length > 0 || filter.type !== null || filter.importedFromQr !== "all";
 
   // ── Cell renderers ─────────────────────────────────────────
   const renderCell = (key: ColKey, venue: VenueRow) => {
     switch (key) {
       case "name":
-        return <div className="font-medium text-sm truncate">{venue.name}</div>;
+        return (
+          <div className="min-w-0">
+            <div className="font-medium text-sm truncate">{venue.name}</div>
+          </div>
+        );
       case "type":
         return <Badge variant="secondary" className="text-xs cursor-default">{VENUE_TYPE_LABELS[venue.type] ?? venue.type}</Badge>;
+      case "qr_import":
+        return <div className="text-sm text-muted-foreground">{venue.imported_from_quickresto ? "Да" : "Нет"}</div>;
       case "address":
         return <div className="text-sm text-muted-foreground truncate">{venue.address || "—"}</div>;
       case "phone":

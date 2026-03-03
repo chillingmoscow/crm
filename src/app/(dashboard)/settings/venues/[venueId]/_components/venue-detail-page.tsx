@@ -8,6 +8,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -62,7 +63,13 @@ type Venue = {
 const TABS = ["Основное", "Карта залов"] as const;
 type Tab = (typeof TABS)[number];
 
-export function VenueDetailPage({ venue }: { venue: Venue }) {
+export function VenueDetailPage({
+  venue,
+  importedFromQuickResto,
+}: {
+  venue: Venue;
+  importedFromQuickResto: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [workingHours, setWorkingHours] = useState<WorkingHours>(
@@ -144,7 +151,14 @@ export function VenueDetailPage({ venue }: { venue: Venue }) {
           )}
         </div>
 
-        <h1 className="text-2xl font-semibold mb-6">{venue.name}</h1>
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold">{venue.name}</h1>
+          {importedFromQuickResto ? (
+            <Badge variant="outline" className="mt-2 text-xs border-blue-200 text-blue-700">
+              Импортировано из QuickResto
+            </Badge>
+          ) : null}
+        </div>
 
         {/* Tabs */}
         <div className="border-b mb-6">

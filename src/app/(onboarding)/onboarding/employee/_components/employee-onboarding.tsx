@@ -38,7 +38,7 @@ export function EmployeeOnboarding({ initialProfile }: Props) {
         <div className="w-full max-w-[520px]">
           <StepProfile
             initial={initialProfile}
-            stepLabel="1 из 1"
+            stepLabel="Шаг 1 из 1"
             onNext={() => router.push("/dashboard")}
           />
         </div>

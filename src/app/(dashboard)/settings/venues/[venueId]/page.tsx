@@ -22,6 +22,12 @@ export default async function VenueDetailServerPage({
 }) {
   const { venueId } = await params;
   const supabase = await createClient();
+  type LooseQueryBuilder = {
+    select: (columns: string) => LooseQueryBuilder;
+    eq: (column: string, value: unknown) => LooseQueryBuilder;
+    maybeSingle: () => Promise<{ data: unknown }>;
+  };
+  const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
 
   const {
     data: { user },
@@ -47,5 +53,14 @@ export default async function VenueDetailServerPage({
 
   if (!venue) redirect("/settings/venues");
 
-  return <VenueDetailPage venue={venue} />;
+  const importedVenueResult = (await db
+    .from("external_entity_links")
+    .select("id")
+    .eq("account_id", account.id)
+    .eq("provider", "quickresto")
+    .eq("entity_type", "venue")
+    .eq("local_id", venueId)
+    .maybeSingle()) as unknown as { data: { id: string } | null };
+
+  return <VenueDetailPage venue={venue} importedFromQuickResto={Boolean(importedVenueResult.data?.id)} />;
 }

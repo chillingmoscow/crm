@@ -18,6 +18,13 @@ export default async function StaffMemberPage({
   const { userId } = await params;
 
   const supabase = await createClient();
+  type LooseQueryBuilder = {
+  select: (columns: string) => LooseQueryBuilder;
+  eq: (column: string, value: unknown) => LooseQueryBuilder;
+  maybeSingle: () => Promise<{ data: unknown }>;
+};
+
+const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -55,7 +62,7 @@ export default async function StaffMemberPage({
   const { data: profileRow } = await admin
     .from("profiles")
     .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment"
+      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment, terminal_pin"
     )
     .eq("id", userId)
     .returns<FullStaffProfile[]>()
@@ -75,6 +82,14 @@ export default async function StaffMemberPage({
 
   if (!targetUvr) redirect("/staff");
 
+  const { data: importedLink } = await db
+    .from("external_entity_links")
+    .select("id")
+    .eq("provider", "quickresto")
+    .eq("entity_type", "staff")
+    .eq("local_id", userId)
+    .maybeSingle();
+
   // Available roles
   const { data: roles } = await supabase
     .from("roles")
@@ -89,11 +104,13 @@ export default async function StaffMemberPage({
       }}
       email={targetAuthUser.email ?? ""}
       uvrId={targetUvr.id}
+      roleId={targetUvr.role_id}
       roleName={targetUvr.roles?.name ?? ""}
       venueId={venueId}
       roles={roles ?? []}
       canEdit={canEdit}
       isMe={user.id === userId}
+      importedFromQuickResto={Boolean(importedLink)}
     />
   );
 }

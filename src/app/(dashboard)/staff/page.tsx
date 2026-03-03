@@ -9,6 +9,13 @@ export default async function StaffPage() {
     getCachedUser(),
     createClient(),
   ]);
+  type LooseQueryBuilder = {
+  select: (columns: string) => LooseQueryBuilder;
+  eq: (column: string, value: unknown) => LooseQueryBuilder;
+  in: (column: string, values: string[]) => LooseQueryBuilder;
+};
+
+const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   if (!user) redirect("/login");
 
   // Phase 2 — profile + roles in parallel (both only need user.id / no dependencies)
@@ -43,9 +50,39 @@ export default async function StaffPage() {
   const activeRoleCode =
     (uvr?.roles as { code: string } | null)?.code ?? null;
 
+  const userIds = staff.map((member) => member.user_id);
+  let importedLinks: { local_id: string }[] = [];
+  let profilePins: { id: string; terminal_pin: string | null }[] = [];
+
+  if (userIds.length > 0) {
+    const [importedResult, pinResult] = await Promise.all([
+      (await db
+        .from("external_entity_links")
+        .select("local_id")
+        .eq("provider", "quickresto")
+        .eq("entity_type", "staff")
+        .in("local_id", userIds)) as unknown as { data: { local_id: string }[] | null },
+      supabase
+        .from("profiles")
+        .select("id, terminal_pin")
+        .in("id", userIds),
+    ]);
+
+    importedLinks = importedResult.data ?? [];
+    profilePins = (pinResult.data as { id: string; terminal_pin: string | null }[] | null) ?? [];
+  }
+
+  const importedIds = new Set(importedLinks.map((row) => row.local_id));
+  const pinByUserId = new Map(profilePins.map((row) => [row.id, row.terminal_pin]));
+  const enrichedStaff = staff.map((member) => ({
+    ...member,
+    imported_from_quickresto: importedIds.has(member.user_id),
+    terminal_pin: pinByUserId.get(member.user_id) ?? null,
+  }));
+
   return (
     <StaffClient
-      staff={staff}
+      staff={enrichedStaff}
       invitations={invitations}
       firedStaff={firedStaff}
       roles={roles ?? []}

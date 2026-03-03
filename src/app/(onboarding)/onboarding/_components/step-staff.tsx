@@ -26,9 +26,10 @@ interface Props {
   roles: { id: string; name: string; code: string }[];
   onNext: () => void;
   onSkip: () => void;
+  stepLabel?: string;
 }
 
-export function StepStaff({ venueId, roles, onNext, onSkip }: Props) {
+export function StepStaff({ venueId, roles, onNext, onSkip, stepLabel = "Шаг 4 из 5" }: Props) {
   const [invited, setInvited] = useState<Invited[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -67,7 +68,7 @@ export function StepStaff({ venueId, roles, onNext, onSkip }: Props) {
             <Users className="w-6 h-6 text-blue-600" />
           </div>
           <span className="text-xs font-medium text-gray-400 bg-gray-50 px-3 py-1 rounded-full">
-            Шаг 4 из 5
+            {stepLabel}
           </span>
         </div>
         <h1 className="text-2xl font-semibold text-gray-900 mb-1">Пригласить сотрудников</h1>

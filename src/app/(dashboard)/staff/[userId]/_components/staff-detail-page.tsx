@@ -9,6 +9,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { ArrowLeft, Camera, FileImage, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -21,7 +22,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { createClient } from "@/lib/supabase/client";
-import { updateStaffProfile, fireStaff } from "../../actions";
+import {
+  fireStaff,
+  inviteImportedStaffByCurrentEmail,
+  setImportedStaffEmailAndInvite,
+  updateStaffProfile,
+} from "../../actions";
 import type { FullStaffProfile } from "../../actions";
 
 const schema = z.object({
@@ -46,11 +52,13 @@ interface Props {
   profile:  FullStaffProfile;
   email:    string;
   uvrId:    string;
+  roleId:   string;
   roleName: string;
   venueId:  string;
   roles:    Role[];
   canEdit:  boolean;
   isMe:     boolean;
+  importedFromQuickResto: boolean;
 }
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -65,10 +73,12 @@ export function StaffDetailPage({
   profile,
   email,
   uvrId,
+  roleId,
   roleName,
   venueId,
   canEdit,
   isMe,
+  importedFromQuickResto,
 }: Props) {
   const router = useRouter();
   const [avatarUrl, setAvatarUrl]           = useState<string | null>(profile.avatar_url);
@@ -78,12 +88,18 @@ export function StaffDetailPage({
   const [uploadingDocs, setUploadingDocs]     = useState(false);
   const [confirmFire, setConfirmFire]         = useState(false);
   const [isPending, startTransition]        = useTransition();
+  const [isInvitePending, startInviteTransition] = useTransition();
+  const [contactEmail, setContactEmail] = useState(email);
 
   const avatarInputRef   = useRef<HTMLInputElement>(null);
   const passportInputRef = useRef<HTMLInputElement>(null);
 
   const displayName =
-    [profile.first_name, profile.last_name].filter(Boolean).join(" ") || email;
+    [profile.first_name, profile.last_name].filter(Boolean).join(" ") || contactEmail;
+
+  const isImportedPlaceholderEmail =
+    importedFromQuickResto && contactEmail.toLowerCase().endsWith("@import.local");
+  const canManageImportedInvite = importedFromQuickResto && canEdit && !isMe;
 
   const { register, handleSubmit, setValue, formState: { errors } } =
     useForm<FormValues>({
@@ -198,6 +214,33 @@ export function StaffDetailPage({
     });
   };
 
+  const handleInviteImported = () => {
+    if (!canManageImportedInvite) return;
+
+    startInviteTransition(async () => {
+      const result = isImportedPlaceholderEmail
+        ? await setImportedStaffEmailAndInvite({
+            userId: profile.id,
+            email: contactEmail,
+            roleId,
+            venueId,
+          })
+        : await inviteImportedStaffByCurrentEmail({
+            userId: profile.id,
+            roleId,
+            venueId,
+          });
+
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+
+      toast.success(`Приглашение отправлено на ${contactEmail}`);
+      router.refresh();
+    });
+  };
+
   return (
     <div className="max-w-2xl mx-auto px-6 py-6 w-full">
       {/* ── Sticky header ── */}
@@ -259,7 +302,12 @@ export function StaffDetailPage({
         <div>
           <h1 className="text-2xl font-semibold">{displayName}</h1>
           <p className="text-muted-foreground">{roleName}</p>
-          <p className="text-sm text-muted-foreground">{email}</p>
+          <p className="text-sm text-muted-foreground">{contactEmail}</p>
+          {importedFromQuickResto ? (
+            <Badge variant="outline" className="mt-2 text-xs border-blue-200 text-blue-700">
+              Импортировано из QuickResto
+            </Badge>
+          ) : null}
         </div>
       </div>
 
@@ -351,7 +399,36 @@ export function StaffDetailPage({
             </div>
             <div className="space-y-1.5">
               <Label>Email</Label>
-              <Input value={email} readOnly className="bg-muted/50 text-muted-foreground" />
+              <div className="flex items-center gap-2">
+                <Input
+                  value={contactEmail}
+                  onChange={(event) => setContactEmail(event.target.value)}
+                  readOnly={!canManageImportedInvite || !isImportedPlaceholderEmail}
+                  className={
+                    !canManageImportedInvite || !isImportedPlaceholderEmail
+                      ? "bg-muted/50 text-muted-foreground"
+                      : ""
+                  }
+                  placeholder="employee@example.com"
+                />
+                {canManageImportedInvite ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleInviteImported}
+                    disabled={isInvitePending}
+                    className="shrink-0"
+                  >
+                    {isInvitePending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                    {isImportedPlaceholderEmail ? "Сохранить и пригласить" : "Пригласить"}
+                  </Button>
+                ) : null}
+              </div>
+              {canManageImportedInvite && isImportedPlaceholderEmail ? (
+                <p className="text-xs text-muted-foreground">
+                  Укажите реальный e-mail сотрудника и отправьте приглашение.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="telegram_id">Telegram</Label>
@@ -361,6 +438,15 @@ export function StaffDetailPage({
                 {...register("telegram_id")}
                 readOnly={!canEdit}
                 className={!canEdit ? "bg-muted/50" : ""}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>PIN терминала</Label>
+              <Input
+                value={profile.terminal_pin ?? ""}
+                readOnly
+                className="bg-muted/50 text-muted-foreground"
+                placeholder="Не задан"
               />
             </div>
           </div>

@@ -18,11 +18,20 @@ type Form = z.infer<typeof schema>;
 interface Props {
   data: WizardData;
   onUpdate: (patch: Partial<WizardData>) => void;
-  onNext: () => void;
+  onNext: () => void | Promise<void>;
   onBack: () => void;
+  stepLabel?: string;
+  hideBack?: boolean;
 }
 
-export function StepAccount({ data, onUpdate, onNext, onBack }: Props) {
+export function StepAccount({
+  data,
+  onUpdate,
+  onNext,
+  onBack,
+  stepLabel = "Шаг 2 из 5",
+  hideBack = false,
+}: Props) {
   const [uploading, setUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(data.accountLogoUrl);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -60,9 +69,9 @@ export function StepAccount({ data, onUpdate, onNext, onBack }: Props) {
     onUpdate({ accountLogoUrl: url });
   };
 
-  const onSubmit = (values: Form) => {
+  const onSubmit = async (values: Form) => {
     onUpdate({ accountName: values.accountName });
-    onNext();
+    await onNext();
   };
 
   return (
@@ -75,7 +84,7 @@ export function StepAccount({ data, onUpdate, onNext, onBack }: Props) {
             <Building2 className="w-6 h-6 text-blue-600" />
           </div>
           <span className="text-xs font-medium text-gray-400 bg-gray-50 px-3 py-1 rounded-full">
-            Шаг 2 из 5
+            {stepLabel}
           </span>
         </div>
         <h1 className="text-2xl font-semibold text-gray-900 mb-1">Профиль аккаунта</h1>
@@ -175,20 +184,22 @@ export function StepAccount({ data, onUpdate, onNext, onBack }: Props) {
 
         {/* Footer */}
         <div className="px-8 pb-8 flex gap-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="h-12 px-6 rounded-xl border border-gray-200 bg-white hover:bg-gray-50
-                       text-gray-700 text-sm font-medium transition-colors duration-150"
-          >
-            Назад
-          </button>
+          {!hideBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="h-12 flex-1 rounded-xl border border-gray-200 bg-white hover:bg-gray-50
+                         text-gray-700 text-sm font-medium transition-colors duration-150"
+            >
+              Назад
+            </button>
+          ) : null}
           <button
             type="submit"
             disabled={!canSubmit}
-            className="h-12 flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm
+            className={`h-12 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm
                        font-medium transition-colors duration-150 flex items-center justify-center
-                       disabled:opacity-50 disabled:cursor-not-allowed"
+                       disabled:opacity-50 disabled:cursor-not-allowed ${hideBack ? "w-full" : "flex-1"}`}
           >
             {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             Далее

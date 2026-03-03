@@ -35,6 +35,7 @@ interface Props {
   onUpdate: (patch: Partial<WizardData>) => void;
   onNext: (venueId: string) => void;
   onBack: () => void;
+  stepLabel?: string;
 }
 
 const inputCls = (hasError: boolean) =>
@@ -46,7 +47,7 @@ const inputCls = (hasError: boolean) =>
       : "border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100",
   ].join(" ");
 
-export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
+export function StepVenue({ data, onUpdate, onNext, onBack, stepLabel = "Шаг 3 из 5" }: Props) {
   const [workingHours, setWorkingHours] = useState<WorkingHours>(data.workingHours);
   const [loading, setLoading] = useState(false);
 
@@ -121,7 +122,7 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
             <MapPin className="w-6 h-6 text-blue-600" />
           </div>
           <span className="text-xs font-medium text-gray-400 bg-gray-50 px-3 py-1 rounded-full">
-            Шаг 3 из 5
+            {stepLabel}
           </span>
         </div>
         <h1 className="text-2xl font-semibold text-gray-900 mb-1">Первое заведение</h1>
@@ -315,7 +316,7 @@ export function StepVenue({ data, onUpdate, onNext, onBack }: Props) {
               onUpdate({ ...getValues(), workingHours });
               onBack();
             }}
-            className="h-12 px-6 rounded-xl border border-gray-200 bg-white hover:bg-gray-50
+            className="h-12 flex-1 rounded-xl border border-gray-200 bg-white hover:bg-gray-50
                        text-gray-700 text-sm font-medium transition-colors duration-150"
           >
             Назад

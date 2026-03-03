@@ -14,10 +14,18 @@ export type VenueRow = {
   working_hours: WorkingHours | null;
   halls_count: number;
   tables_count: number;
+  imported_from_quickresto?: boolean;
 };
 
 export default async function VenuesPage() {
   const supabase = await createClient();
+  type LooseQueryBuilder = {
+  select: (columns: string) => LooseQueryBuilder;
+  eq: (column: string, value: unknown) => LooseQueryBuilder;
+  in: (column: string, values: string[]) => LooseQueryBuilder;
+};
+
+const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -92,5 +100,24 @@ export default async function VenuesPage() {
     tables_count: tableCountMap[v.id] ?? 0,
   }));
 
-  return <VenuesClient venues={venues} />;
+  const venueIdsForImport = venues.map((v) => v.id);
+  let importedVenueLinks: { local_id: string }[] = [];
+  if (venueIdsForImport.length > 0) {
+    const result = (await db
+      .from("external_entity_links")
+      .select("local_id")
+      .eq("account_id", account.id)
+      .eq("provider", "quickresto")
+      .eq("entity_type", "venue")
+      .in("local_id", venueIdsForImport)) as unknown as { data: { local_id: string }[] | null };
+    importedVenueLinks = result.data ?? [];
+  }
+
+  const importedVenueSet = new Set(importedVenueLinks.map((row) => row.local_id));
+  const enrichedVenues = venues.map((venue) => ({
+    ...venue,
+    imported_from_quickresto: importedVenueSet.has(venue.id),
+  }));
+
+  return <VenuesClient venues={enrichedVenues} />;
 }

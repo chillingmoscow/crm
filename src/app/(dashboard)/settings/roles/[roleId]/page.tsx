@@ -9,6 +9,12 @@ export default async function RoleDetailServerPage({
 }) {
   const { roleId } = await params;
   const supabase = await createClient();
+  type LooseQueryBuilder = {
+    select: (columns: string) => LooseQueryBuilder;
+    eq: (column: string, value: unknown) => LooseQueryBuilder;
+    maybeSingle: () => Promise<{ data: unknown }>;
+  };
+  const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
 
   const {
     data: { user },
@@ -40,7 +46,7 @@ export default async function RoleDetailServerPage({
     redirect("/settings/roles");
   }
 
-  const [permissionsResult, rolePermsResult, venueRolesResult] =
+  const [permissionsResult, rolePermsResult, venueRolesResult, importedRoleResult] =
     await Promise.all([
       supabase
         .from("permissions")
@@ -57,6 +63,13 @@ export default async function RoleDetailServerPage({
             .eq("venue_id", activeVenueId as string)
             .eq("status", "active")
         : Promise.resolve({ data: [] as { id: string }[] }),
+      (db
+        .from("external_entity_links")
+        .select("id")
+        .eq("provider", "quickresto")
+        .eq("entity_type", "role")
+        .eq("local_id", roleId)
+        .maybeSingle()) as unknown as Promise<{ data: { id: string } | null }>,
     ]);
 
   return (
@@ -66,6 +79,7 @@ export default async function RoleDetailServerPage({
       rolePermissions={rolePermsResult.data ?? []}
       accountId={accountId ?? null}
       staffCount={(venueRolesResult.data ?? []).length}
+      importedFromQuickResto={Boolean(importedRoleResult.data?.id)}
     />
   );
 }

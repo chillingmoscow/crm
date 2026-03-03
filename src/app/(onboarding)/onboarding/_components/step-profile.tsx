@@ -205,7 +205,7 @@ export function StepProfile({ initial, stepLabel, onNext, onSaved }: Props) {
             <UserRound className="w-6 h-6 text-blue-600" />
           </div>
           <span className="text-xs font-medium text-gray-400 bg-gray-50 px-3 py-1 rounded-full">
-            Шаг {stepLabel}
+            {stepLabel}
           </span>
         </div>
         <h1 className="text-2xl font-semibold text-gray-900 mb-1">Ваш профиль</h1>

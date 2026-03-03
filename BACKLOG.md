@@ -18,7 +18,7 @@
 - TypeScript типы БД в `src/types/database.ts`
 - Удалён демо-роут `/invite/layout-demo` и связанные seed/snippet файлы
 
-### База данных (миграции 001–028)
+### База данных (миграции 001–031)
 
 | Файл | Содержимое |
 |---|---|
@@ -50,6 +50,9 @@
 | `026` | Новые типы `venue_type`, поле `venues.website`, обновлён `complete_owner_onboarding()` |
 | `027` | Обновлён constraint `profiles.gender` |
 | `028` | Исправление `get_user_venues()` (UNION + `status = 'active'`) + `complete_owner_onboarding()` явный `status = 'active'` |
+| `029` | Интеграции Quick Resto: `integration_connections`, `external_entity_links`, `integration_import_runs`, `integration_external_snapshots` + RLS policies |
+| `030` | `profiles.terminal_pin` для PIN из Quick Resto |
+| `031` | GRANT для `authenticated`/`service_role` на новые integration-таблицы |
 
 ### Аутентификация
 
@@ -78,7 +81,7 @@
 - Настройка в Coolify: переменные `GOTRUE_MAILER_TEMPLATES_CONFIRMATION`, `GOTRUE_MAILER_TEMPLATES_RECOVERY` → URL шаблонов из `public/email-templates/`
 
 ### Онбординг (`/onboarding`)
-Wizard из 5 шагов: профиль → аккаунт → заведение → персонал → готово
+Wizard с ветвлением `manual` / `Quick Resto`
 - Исправлены стили полей в `step-profile` — соответствуют login/register (`ring-2` на focus/error)
 - Переименован лейбл "ID Telegram" → "Telegram ID"; тултип переведён на JS-таймер, скрывается через 5 с
 - Wizard сохраняет данные шага 1 (`savedProfile` state) при возврате с шага 2
@@ -87,6 +90,30 @@ Wizard из 5 шагов: профиль → аккаунт → заведени
 - Приглашение по email: ссылка ведёт на домен приложения (`/auth/confirm?token_hash=...`), а не на Supabase
 - Добавлены `/auth/confirm` route handler и `/set-password` страница для invited-users flow
 - Миграция `028`: исправлен `get_user_venues()` (UNION + `status = 'active'`), venue switcher появляется сразу после онбординга; `complete_owner_onboarding()` явно выставляет `status = 'active'`
+- Для ветки Quick Resto добавлены шаги: креды API → выбор сущностей → выбор конкретных заведений/должностей/сотрудников → импорт и итог
+- Унифицированы подписи шагов (`Шаг X из Y`), кнопки `Назад/Далее` и логика завершения импорта (`Завершить` только после результата)
+- Добавлена обработка сценариев без найденных сущностей и корректный текст/состояния на шаге импорта
+
+### Quick Resto интеграция
+- Реализован клиент Quick Resto API (`list/read` для заведений, должностей, сотрудников) с `basicAuth`, где `layer_name = login`
+- Реализовано безопасное хранение API-пароля (AES-256-GCM, `INTEGRATIONS_ENCRYPTION_KEY`)
+- Импорт:
+  - заведения: upsert + привязка внешних ID
+  - должности: импорт `Custom`, upsert + привязка внешних ID
+  - сотрудники: skip `blocked`, импорт профиля/контактов/даты рождения/PIN, привязка к ролям и заведениям
+- Для сотрудников без реального email:
+  - авто-временный `@import.local`
+  - индикатор в списке сотрудников
+  - на странице сотрудника: редактирование email + кнопка `Сохранить и пригласить` / `Пригласить`
+- Добавлены признаки импорта из QR:
+  - таблицы сотрудников/должностей/заведений: колонка `Импорт из QR` + фильтр
+  - страницы конкретной сущности: бейдж `Импортировано из QuickResto`
+- Интеграция вынесена в отдельный поток `/settings/integrations/quickresto` (больше не запускается как середина онбординга)
+
+### Продакшен релиз (Quick Resto)
+- Изменения слиты в `main` и задеплоены через Coolify webhook
+- На production вручную применены schema-миграции `029` и `030` (без переноса/миграции данных)
+- После проверки прав доступа добавлены GRANT и зафиксированы в миграции `031`
 
 ### UI Shell
 - Collapsible sidebar (shadcn Sidebar): схлопывается в иконки на desktop, drawer на mobile

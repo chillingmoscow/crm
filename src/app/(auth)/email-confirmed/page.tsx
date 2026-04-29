@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 
-import { verificationHero } from "@/components/auth/auth-content";
+import { Button } from "@/components/ui/button";
 import {
-  AuthBackLink,
-  AuthLoadingScreen,
-  AuthNotice,
-  AuthPrimaryButton,
-  AuthShell,
-  AuthStatusCard,
-} from "@/components/auth/auth-shell";
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
 
 export default function EmailConfirmedPage() {
@@ -41,12 +41,12 @@ export default function EmailConfirmedPage() {
         type: "signup",
       });
 
-      if (!isMounted) {
-        return;
-      }
+      if (!isMounted) return;
 
       if (verifyError) {
-        setError("Не удалось подтвердить почту. Запросите новое письмо и попробуйте ещё раз.");
+        setError(
+          "Не удалось подтвердить почту. Запросите новое письмо и попробуйте ещё раз."
+        );
       }
 
       setLoading(false);
@@ -60,51 +60,56 @@ export default function EmailConfirmedPage() {
   }, []);
 
   if (loading) {
-    return <AuthLoadingScreen label="Подтверждаем электронную почту" />;
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Подтверждаем электронную почту…
+          </p>
+        </CardContent>
+      </Card>
+    );
   }
 
   if (error) {
     return (
-      <AuthShell hero={verificationHero}>
-        <AuthStatusCard
-          badge="Verification error"
-          icon={<AlertCircle className="h-5 w-5" />}
-          title="Не удалось подтвердить почту"
-          description={error}
-          actions={
-            <>
-              <AuthPrimaryButton asChild className="max-w-full sm:max-w-[320px]">
-                <Link href="/register">Зарегистрироваться снова</Link>
-              </AuthPrimaryButton>
-              <AuthBackLink href="/login">Вернуться ко входу</AuthBackLink>
-            </>
-          }
-        >
-          <AuthNotice variant="error">
-            Если письмо пришло давно, безопаснее запросить новую ссылку и пройти подтверждение заново.
-          </AuthNotice>
-        </AuthStatusCard>
-      </AuthShell>
+      <Card>
+        <CardHeader className="space-y-2 text-center">
+          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <AlertCircle className="h-5 w-5" />
+          </div>
+          <CardTitle>Не удалось подтвердить почту</CardTitle>
+          <CardDescription>{error}</CardDescription>
+        </CardHeader>
+        <CardFooter className="flex flex-col gap-2">
+          <Button asChild className="w-full">
+            <Link href="/register">Зарегистрироваться снова</Link>
+          </Button>
+          <Button asChild variant="ghost" className="w-full">
+            <Link href="/login">Вернуться ко входу</Link>
+          </Button>
+        </CardFooter>
+      </Card>
     );
   }
 
   return (
-    <AuthShell hero={verificationHero}>
-      <AuthStatusCard
-        badge="Verification success"
-        icon={<CheckCircle2 className="h-5 w-5" />}
-        title="Почта подтверждена"
-        description="Аккаунт активирован. Можно возвращаться к работе в Sheerly."
-        actions={
-          <AuthPrimaryButton asChild className="max-w-full sm:max-w-[320px]">
-            <Link href="/dashboard">Открыть систему</Link>
-          </AuthPrimaryButton>
-        }
-      >
-        <AuthNotice variant="success">
-          Статус аккаунта обновлён, а визуальный поток остаётся тем же в светлой и тёмной теме.
-        </AuthNotice>
-      </AuthStatusCard>
-    </AuthShell>
+    <Card>
+      <CardHeader className="space-y-2 text-center">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <CheckCircle2 className="h-5 w-5" />
+        </div>
+        <CardTitle>Почта подтверждена</CardTitle>
+        <CardDescription>
+          Аккаунт активирован. Можно возвращаться к работе.
+        </CardDescription>
+      </CardHeader>
+      <CardFooter>
+        <Button asChild className="w-full">
+          <Link href="/dashboard">Открыть систему</Link>
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }

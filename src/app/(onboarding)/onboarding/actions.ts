@@ -90,10 +90,17 @@ export async function createAccountAndVenue(data: {
   currency: string;
   timezone: string;
   workingHours: WorkingHours;
-}): Promise<{ accountId: string | null; venueId: string | null; error: string | null }> {
+  // Legal entity (added in stage 2). The wizard will start collecting these
+  // in stage 2B; for now we accept them as optional and fall back to a stub
+  // (legal_form='IP', name=accountName, no INN). The owner can edit the real
+  // legal entity from /org/legal-entities afterwards.
+  legalName?: string;
+  legalForm?: "IP" | "OOO" | "AO" | "PAO" | "NKO" | "OTHER";
+  legalInn?: string;
+}): Promise<{ accountId: string | null; legalEntityId: string | null; venueId: string | null; error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { accountId: null, venueId: null, error: "Не авторизован" };
+  if (!user) return { accountId: null, legalEntityId: null, venueId: null, error: "Не авторизован" };
 
   const { data: existingAccount } = await supabase
     .from("accounts")
@@ -119,7 +126,7 @@ export async function createAccountAndVenue(data: {
       .single();
 
     if (venueError || !insertedVenue?.id) {
-      return { accountId: existingAccount.id, venueId: null, error: venueError?.message ?? "Не удалось создать заведение" };
+      return { accountId: existingAccount.id, legalEntityId: null, venueId: null, error: venueError?.message ?? "Не удалось создать заведение" };
     }
 
     const { data: ownerRole } = await supabase
@@ -148,12 +155,15 @@ export async function createAccountAndVenue(data: {
       .update({ active_venue_id: insertedVenue.id })
       .eq("id", user.id);
 
-    return { accountId: existingAccount.id, venueId: insertedVenue.id, error: null };
+    return { accountId: existingAccount.id, legalEntityId: null, venueId: insertedVenue.id, error: null };
   }
 
   const { data: result, error } = await supabase.rpc("complete_owner_onboarding", {
     p_account_name:  data.accountName,
     p_account_logo:  data.accountLogoUrl ?? "",
+    p_legal_name:    data.legalName ?? data.accountName,
+    p_legal_form:    data.legalForm ?? "IP",
+    p_legal_inn:     data.legalInn ?? "",
     p_venue_name:    data.venueName,
     p_venue_type:    data.venueType,
     p_venue_address: data.venueAddress,
@@ -164,13 +174,14 @@ export async function createAccountAndVenue(data: {
     p_working_hours: data.workingHours as unknown as Json,
   });
 
-  if (error) return { accountId: null, venueId: null, error: error.message };
+  if (error) return { accountId: null, legalEntityId: null, venueId: null, error: error.message };
 
-  const rpcResult = result as { account_id: string; venue_id: string };
+  const rpcResult = result as { account_id: string; legal_entity_id: string; venue_id: string };
   return {
-    accountId: rpcResult.account_id,
-    venueId:   rpcResult.venue_id,
-    error:     null,
+    accountId:     rpcResult.account_id,
+    legalEntityId: rpcResult.legal_entity_id,
+    venueId:       rpcResult.venue_id,
+    error:         null,
   };
 }
 

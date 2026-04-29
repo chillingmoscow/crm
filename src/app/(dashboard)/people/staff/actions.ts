@@ -340,7 +340,7 @@ export async function setImportedStaffEmailAndInvite(data: {
   }
 
   const [{ data: canManage }, { data: targetMembership }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "platform.manage_staff" }),
+    supabase.rpc("has_permission", { permission_code: "people.invite_staff" }),
     supabase
       .from("user_venue_roles")
       .select("id")
@@ -387,7 +387,7 @@ export async function inviteImportedStaffByCurrentEmail(data: {
   if (!user) return { error: "Не авторизован", invitation: null };
 
   const [{ data: canManage }, { data: targetMembership }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "platform.manage_staff" }),
+    supabase.rpc("has_permission", { permission_code: "people.invite_staff" }),
     supabase
       .from("user_venue_roles")
       .select("id")

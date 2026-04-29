@@ -19,7 +19,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   if (!user) redirect("/login");
 
   const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "platform.manage_roles",
+    permission_code: "people.manage_roles",
   });
   if (!canManage) redirect("/dashboard");
 

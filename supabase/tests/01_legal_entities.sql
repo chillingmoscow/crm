@@ -382,6 +382,54 @@ end;
 $$;
 
 -- ────────────────────────────────────────────────────────────
+-- 10. Cross-tenant FK: cannot link a venue to a legal_entity that
+--     belongs to a different account (migration 036).
+-- ────────────────────────────────────────────────────────────
+do $$
+declare
+  v_account_a       uuid;
+  v_legal_a         uuid;
+  v_venue_a         uuid;
+  v_account_b       uuid;
+  v_legal_b         uuid;
+  v_caught          boolean := false;
+begin
+  -- Account A
+  insert into public.accounts (name, owner_id) values
+    ('Tenant A', '99999999-9999-9999-9999-999999999991')
+    returning id into v_account_a;
+  insert into public.legal_entities (account_id, name, legal_form) values
+    (v_account_a, 'LE A', 'IP'::public.legal_form_enum)
+    returning id into v_legal_a;
+  insert into public.venues (account_id, name, type) values
+    (v_account_a, 'Spot A', 'cafe'::public.venue_type)
+    returning id into v_venue_a;
+
+  -- Account B (separate tenant) with its own legal_entity
+  insert into public.accounts (name, owner_id) values
+    ('Tenant B', '99999999-9999-9999-9999-999999999992')
+    returning id into v_account_b;
+  insert into public.legal_entities (account_id, name, legal_form) values
+    (v_account_b, 'LE B', 'IP'::public.legal_form_enum)
+    returning id into v_legal_b;
+
+  -- Same-tenant link is OK.
+  update public.venues set default_legal_entity_id = v_legal_a where id = v_venue_a;
+
+  -- Cross-tenant link must fail with FK violation (composite FK
+  -- introduced by migration 036).
+  begin
+    update public.venues set default_legal_entity_id = v_legal_b where id = v_venue_a;
+  exception when foreign_key_violation then
+    v_caught := true;
+  end;
+
+  perform public.test_assert(v_caught,
+    'cross-tenant venue → legal_entity link must be rejected by composite FK');
+end;
+$$;
+
+-- ────────────────────────────────────────────────────────────
 -- All done — print success and ROLLBACK so the DB stays clean.
 -- ────────────────────────────────────────────────────────────
 do $$

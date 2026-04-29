@@ -150,7 +150,6 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
   };
 
   return (
-    <fieldset disabled={readOnly} className="contents">
     <div className="space-y-6">
       {readOnly && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -158,6 +157,10 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
           доступна только для просмотра.
         </div>
       )}
+      {/* Wrap only the editable cards in the fieldset so the action
+          bar below (with the Close button) stays interactive even when
+          readOnly is true. */}
+      <fieldset disabled={readOnly} className="contents">
       <Card>
         <CardHeader>
           <CardTitle>Реквизиты</CardTitle>
@@ -394,6 +397,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
           </div>
         </CardContent>
       </Card>
+      </fieldset>
 
       <div className="flex items-center justify-end gap-2">
         <Button
@@ -412,6 +416,5 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
         )}
       </div>
     </div>
-    </fieldset>
   );
 }

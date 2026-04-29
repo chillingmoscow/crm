@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendInvitationEmail } from "@/lib/invitations/mailer";
+import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/invitations/mailer";
 import { revalidatePath } from "next/cache";
 
 export type PendingInvitation = {
@@ -186,10 +186,10 @@ export async function inviteStaff(data: {
     venue_name: venueRow.name,
     role_name: roleName,
   };
-  const resendApiKey = process.env.RESEND_API_KEY ?? process.env.SMTP_PASS;
+  const hasCustomMailer = hasCustomMailerConfig();
 
-  // Fallback: if Resend API key is not configured, use built-in Supabase emails.
-  if (!resendApiKey) {
+  // Fallback: if custom SMTP mailer is not configured, use built-in Supabase emails.
+  if (!hasCustomMailer) {
     const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       data: linkPayload,
       redirectTo,

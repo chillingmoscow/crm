@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendInvitationEmail } from "@/lib/invitations/mailer";
+import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/invitations/mailer";
 import type { Json, VenueType, WorkingHours } from "@/types/database";
 import { randomUUID } from "crypto";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
@@ -253,11 +253,11 @@ export async function sendInvitation(data: {
     venue_name: venueRow.name,
     role_name: roleName,
   };
-  const resendApiKey = process.env.RESEND_API_KEY ?? process.env.SMTP_PASS;
+  const hasCustomMailer = hasCustomMailerConfig();
 
-  // Fallback: if Resend API key is not configured, use built-in Supabase emails.
+  // Fallback: if custom SMTP mailer is not configured, use built-in Supabase emails.
   // The `redirectTo` in Supabase emails is where the user lands after token verification.
-  if (!resendApiKey) {
+  if (!hasCustomMailer) {
     const { error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {
       data: linkPayload,
       // New invited users need to create a password first

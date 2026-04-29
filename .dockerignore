@@ -1,0 +1,14 @@
+.git
+.gitignore
+.next
+.pnpm-store
+node_modules
+.env.local
+.env.*
+Dockerfile*
+README.md
+BACKLOG.md
+supabase
+*.log
+coverage
+tsconfig.tsbuildinfo

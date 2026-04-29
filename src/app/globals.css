@@ -5,6 +5,7 @@
 @layer base {
   :root {
     /* Notion-inspired warm neutral palette */
+    color-scheme: light;
     --background: 0 0% 100%;
     --foreground: 30 6% 13%;           /* warm near-black #37352f */
     --card: 0 0% 100%;
@@ -38,9 +39,12 @@
     --sidebar-accent-foreground: 30 6% 13%;
     --sidebar-border: 35 6% 90%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --autofill-bg: #ffffff;
+    --autofill-text: #0f172a;
   }
 
   .dark {
+    color-scheme: dark;
     --background: 30 5% 11%;
     --foreground: 40 8% 93%;
     --card: 30 5% 11%;
@@ -73,6 +77,8 @@
     --sidebar-accent-foreground: 40 6% 88%;
     --sidebar-border: 30 4% 17%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --autofill-bg: #0f172a;
+    --autofill-text: #f8fafc;
   }
 }
 
@@ -85,6 +91,7 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    transition: background-color 200ms ease, color 200ms ease;
   }
   /* Notion-like: semibold headings, not bold */
   h1 { @apply font-semibold tracking-tight; }
@@ -99,7 +106,7 @@
 input:-webkit-autofill {
   animation-name: autoFillStart;
   animation-duration: 1ms;
-  -webkit-box-shadow: 0 0 0 1000px white inset !important;
-  -webkit-text-fill-color: #111827 !important;
-  caret-color: #111827;
+  -webkit-box-shadow: 0 0 0 1000px var(--autofill-bg) inset !important;
+  -webkit-text-fill-color: var(--autofill-text) !important;
+  caret-color: var(--autofill-text);
 }

@@ -2,7 +2,17 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Check, Loader2, AlertCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2 } from "lucide-react";
+
+import { verificationHero } from "@/components/auth/auth-content";
+import {
+  AuthBackLink,
+  AuthLoadingScreen,
+  AuthNotice,
+  AuthPrimaryButton,
+  AuthShell,
+  AuthStatusCard,
+} from "@/components/auth/auth-shell";
 import { createClient } from "@/lib/supabase/client";
 
 export default function EmailConfirmedPage() {
@@ -20,7 +30,7 @@ export default function EmailConfirmedPage() {
 
       if (!tokenHash || type !== "signup") {
         if (isMounted) {
-          setError("Ссылка подтверждения недействительна или устарела.");
+          setError("Ссылка подтверждения недействительна или уже устарела.");
           setLoading(false);
         }
         return;
@@ -31,81 +41,70 @@ export default function EmailConfirmedPage() {
         type: "signup",
       });
 
-      if (isMounted) {
-        if (verifyError) {
-          setError("Не удалось подтвердить почту. Запросите новое письмо.");
-        }
-        setLoading(false);
+      if (!isMounted) {
+        return;
       }
+
+      if (verifyError) {
+        setError("Не удалось подтвердить почту. Запросите новое письмо и попробуйте ещё раз.");
+      }
+
+      setLoading(false);
     };
 
     void verifySignup();
+
     return () => {
       isMounted = false;
     };
   }, []);
 
   if (loading) {
-    return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-      </div>
-    );
+    return <AuthLoadingScreen label="Подтверждаем электронную почту" />;
   }
 
   if (error) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-        <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-6">
-          <AlertCircle className="w-8 h-8 text-red-600" />
-        </div>
-        <h1 className="text-[28px] leading-[36px] font-semibold text-gray-900 text-center mb-3">
-          Ошибка подтверждения
-        </h1>
-        <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-10">
-          {error}
-        </p>
-        <Link href="/register">
-          <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
-            Зарегистрироваться снова
-          </button>
-        </Link>
-      </div>
+      <AuthShell hero={verificationHero}>
+        <AuthStatusCard
+          badge="Verification error"
+          icon={<AlertCircle className="h-5 w-5" />}
+          title="Не удалось подтвердить почту"
+          description={error}
+          actions={
+            <>
+              <AuthPrimaryButton asChild className="max-w-full sm:max-w-[320px]">
+                <Link href="/register">Зарегистрироваться снова</Link>
+              </AuthPrimaryButton>
+              <AuthBackLink href="/login">Вернуться ко входу</AuthBackLink>
+            </>
+          }
+        >
+          <AuthNotice variant="error">
+            Если письмо пришло давно, безопаснее запросить новую ссылку и пройти подтверждение заново.
+          </AuthNotice>
+        </AuthStatusCard>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-
-      {/* Logo */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-
-      {/* Green checkmark circle */}
-      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-6">
-        <Check className="w-8 h-8 text-green-600" strokeWidth={2.5} />
-      </div>
-
-      {/* Heading */}
-      <h1 className="text-[32px] leading-[40px] font-semibold text-gray-900 text-center mb-3">
-        Электронная почта<br />подтверждена
-      </h1>
-
-      {/* Subtext */}
-      <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-10">
-        Ваш аккаунт активирован. Добро пожаловать в Sheerly!
-      </p>
-
-      {/* Button */}
-      <Link href="/dashboard">
-        <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
-          Войти в систему
-        </button>
-      </Link>
-    </div>
+    <AuthShell hero={verificationHero}>
+      <AuthStatusCard
+        badge="Verification success"
+        icon={<CheckCircle2 className="h-5 w-5" />}
+        title="Почта подтверждена"
+        description="Аккаунт активирован. Можно возвращаться к работе в Sheerly."
+        actions={
+          <AuthPrimaryButton asChild className="max-w-full sm:max-w-[320px]">
+            <Link href="/dashboard">Открыть систему</Link>
+          </AuthPrimaryButton>
+        }
+      >
+        <AuthNotice variant="success">
+          Статус аккаунта обновлён, а визуальный поток остаётся тем же в светлой и тёмной теме.
+        </AuthNotice>
+      </AuthStatusCard>
+    </AuthShell>
   );
 }

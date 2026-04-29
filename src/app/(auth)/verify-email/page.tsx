@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { MailCheck } from "lucide-react";
 
+import { verificationHero } from "@/components/auth/auth-content";
+import {
+  AuthNotice,
+  AuthPrimaryButton,
+  AuthShell,
+  AuthStatusCard,
+} from "@/components/auth/auth-shell";
+
 export default async function VerifyEmailPage({
   searchParams,
 }: {
@@ -10,44 +18,31 @@ export default async function VerifyEmailPage({
   const email = params.email;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-
-      {/* Logo */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-
-      {/* Icon */}
-      <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center mb-6">
-        <MailCheck className="w-8 h-8 text-blue-600" />
-      </div>
-
-      {/* Heading */}
-      <h1 className="text-[32px] leading-[40px] font-semibold text-gray-900 text-center mb-3">
-        Подтвердите почту
-      </h1>
-
-      {/* Subtext */}
-      <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-2">
-        {email ? (
-          <>
-            Отправили письмо на{" "}
-            <span className="font-medium text-gray-800">{email}</span>
-          </>
-        ) : (
-          "Отправили письмо на вашу почту"
-        )}
-      </p>
-      <p className="text-sm text-gray-400 text-center max-w-sm mb-10">
-        Перейдите по ссылке в письме, чтобы активировать аккаунт.
-        Не забудьте проверить папку «Спам».
-      </p>
-
-      {/* Button */}
-      <Link href="/login">
-        <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
-          Перейти ко входу
-        </button>
-      </Link>
-    </div>
+    <AuthShell hero={verificationHero}>
+      <AuthStatusCard
+        badge="Email verification"
+        icon={<MailCheck className="h-5 w-5" />}
+        title="Подтвердите почту"
+        description={
+          email ? (
+            <>
+              Мы отправили письмо на{" "}
+              <span className="font-medium text-slate-900 dark:text-white">{email}</span>.
+            </>
+          ) : (
+            "Мы отправили письмо на вашу рабочую почту."
+          )
+        }
+        actions={
+          <AuthPrimaryButton asChild className="max-w-full sm:max-w-[320px]">
+            <Link href="/login">Перейти ко входу</Link>
+          </AuthPrimaryButton>
+        }
+      >
+        <AuthNotice>
+          Откройте письмо и перейдите по ссылке подтверждения. Если письма нет, проверьте папку «Спам».
+        </AuthNotice>
+      </AuthStatusCard>
+    </AuthShell>
   );
 }

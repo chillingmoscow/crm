@@ -319,15 +319,34 @@ export interface AccountVenueRow {
  * List all venues of the active account along with their current
  * default_legal_entity_id. Used on the legal-entity detail page to
  * show which venues are attached and offer attach/detach toggles.
+ *
+ * Important: explicitly filters by get_active_account_id(). The
+ * venues_select_member RLS policy (migration 020) only checks active
+ * membership by venue_id, NOT account, so a user who is a member of
+ * venues across multiple accounts would otherwise see foreign-account
+ * venues here. Trying to attach those would fail at the composite FK
+ * (migration 036) and produce confusing UI errors.
  */
 export async function listAccountVenues(): Promise<{
   rows: AccountVenueRow[];
   error: string | null;
 }> {
   const supabase = await createClient();
+
+  const { data: accountId, error: accountErr } = await supabase.rpc(
+    "get_active_account_id"
+  );
+  if (accountErr || !accountId) {
+    return {
+      rows: [],
+      error: accountErr?.message ?? "Не удалось определить активный аккаунт",
+    };
+  }
+
   const { data, error } = await supabase
     .from("venues")
     .select("id, name, default_legal_entity_id")
+    .eq("account_id", accountId as unknown as string)
     .order("name", { ascending: true });
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as AccountVenueRow[], error: null };

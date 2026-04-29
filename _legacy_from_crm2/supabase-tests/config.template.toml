@@ -1,0 +1,46 @@
+project_id = "crm2-platform-core"
+
+[api]
+enabled = true
+port = __SUPABASE_API_PORT__
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = __SUPABASE_DB_PORT__
+shadow_port = __SUPABASE_SHADOW_PORT__
+major_version = 15
+
+[studio]
+enabled = true
+port = __SUPABASE_STUDIO_PORT__
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = __SUPABASE_INBUCKET_PORT__
+
+[analytics]
+enabled = true
+port = __SUPABASE_ANALYTICS_PORT__
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:__NEXT_PORT__"
+additional_redirect_urls = ["http://127.0.0.1:__NEXT_PORT__/auth/callback"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+minimum_password_length = 5
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false

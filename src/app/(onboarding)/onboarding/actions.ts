@@ -102,62 +102,11 @@ export async function createAccountAndVenue(data: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { accountId: null, legalEntityId: null, venueId: null, error: "Не авторизован" };
 
-  const { data: existingAccount } = await supabase
-    .from("accounts")
-    .select("id")
-    .eq("owner_id", user.id)
-    .maybeSingle();
-
-  if (existingAccount?.id) {
-    const { data: insertedVenue, error: venueError } = await supabase
-      .from("venues")
-      .insert({
-        account_id: existingAccount.id,
-        name: data.venueName,
-        type: data.venueType,
-        address: data.venueAddress || null,
-        phone: data.venuePhone || null,
-        website: data.venueWebsite || null,
-        currency: data.currency,
-        timezone: data.timezone,
-        working_hours: data.workingHours as unknown as Json,
-      })
-      .select("id")
-      .single();
-
-    if (venueError || !insertedVenue?.id) {
-      return { accountId: existingAccount.id, legalEntityId: null, venueId: null, error: venueError?.message ?? "Не удалось создать заведение" };
-    }
-
-    const { data: ownerRole } = await supabase
-      .from("roles")
-      .select("id")
-      .is("account_id", null)
-      .eq("code", "owner")
-      .maybeSingle();
-
-    if (ownerRole?.id) {
-      await supabase
-        .from("user_venue_roles")
-        .upsert(
-          {
-            user_id: user.id,
-            venue_id: insertedVenue.id,
-            role_id: ownerRole.id,
-            status: "active",
-          },
-          { onConflict: "user_id,venue_id" }
-        );
-    }
-
-    await supabase
-      .from("profiles")
-      .update({ active_venue_id: insertedVenue.id })
-      .eq("id", user.id);
-
-    return { accountId: existingAccount.id, legalEntityId: null, venueId: insertedVenue.id, error: null };
-  }
-
+  // complete_owner_onboarding is idempotent (migration 043): on retry
+  // it returns the existing account_id / legal_entity_id / venue_id
+  // without creating duplicates and back-fills venues.default_legal_entity_id
+  // if it was NULL. Always route through it so every onboarding path —
+  // first attempt or retry — produces a venue with a default legal entity.
   const { data: result, error } = await supabase.rpc("complete_owner_onboarding", {
     p_account_name:  data.accountName,
     p_account_logo:  data.accountLogoUrl ?? "",

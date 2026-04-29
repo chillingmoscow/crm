@@ -3,8 +3,13 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
-import { getLegalEntity } from "@/lib/org/legal-entities";
+import {
+  getLegalEntity,
+  listAccountVenues,
+  listLegalEntities,
+} from "@/lib/org/legal-entities";
 import { LegalEntityDetailClient } from "./_components/legal-entity-detail";
+import { LegalEntityVenues } from "./_components/legal-entity-venues";
 
 export default async function LegalEntityDetailPage({
   params,
@@ -29,14 +34,28 @@ export default async function LegalEntityDetailPage({
 
   // Manage / delete permissions are checked separately so the form
   // can show read-only state for users who can view but not edit.
-  const [{ data: canManage }, { data: canDelete }] = await Promise.all([
+  const [
+    { data: canManage },
+    { data: canDelete },
+    { rows: venues },
+    { rows: legalEntities },
+  ] = await Promise.all([
     supabase.rpc("has_permission", {
       permission_code: "org.manage_legal_entities",
     }),
     supabase.rpc("has_permission", {
       permission_code: "org.delete_legal_entity",
     }),
+    listAccountVenues(),
+    listLegalEntities(),
   ]);
+
+  // id → display name lookup so the venues section can show "currently
+  // attached to <other LE>" rows informatively.
+  const legalEntityNames: Record<string, string> = {};
+  for (const le of legalEntities) {
+    legalEntityNames[le.id] = le.short_name ?? le.name;
+  }
 
   return (
     <div className="p-6 md:p-8 w-full max-w-4xl">
@@ -59,6 +78,15 @@ export default async function LegalEntityDetailPage({
         canManage={!!canManage}
         canDelete={!!canDelete}
       />
+
+      <div className="mt-6">
+        <LegalEntityVenues
+          legalEntityId={row.id}
+          venues={venues}
+          legalEntityNames={legalEntityNames}
+          readOnly={!canManage}
+        />
+      </div>
     </div>
   );
 }

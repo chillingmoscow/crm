@@ -276,7 +276,7 @@ export function RolesClient({
         setRoles((prev) => [...prev, created]);
         setSheetOpen(false);
         setNewRoleName("");
-        router.push(`/settings/roles/${result.id}`);
+        router.push(`/people/roles/${result.id}`);
       }
     });
   }
@@ -426,7 +426,7 @@ export function RolesClient({
               <div
                 className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
                 style={{ gridTemplateColumns: template }}
-                onClick={() => router.push(`/settings/roles/${role.id}`)}
+                onClick={() => router.push(`/people/roles/${role.id}`)}
               >
                 {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
                   <div key={col.key}>{renderCell(col.key, role)}</div>

@@ -456,7 +456,7 @@ export function StaffClient({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              router.push(`/settings/roles/${member.role_id}`);
+              router.push(`/people/roles/${member.role_id}`);
             }}
             className="text-left"
           >
@@ -616,7 +616,7 @@ export function StaffClient({
               <div
                 className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
                 style={{ gridTemplateColumns: template }}
-                onClick={() => router.push(`/staff/${member.user_id}`)}
+                onClick={() => router.push(`/people/staff/${member.user_id}`)}
               >
                 {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
                   <div key={col.key}>{renderCell(col.key, member)}</div>

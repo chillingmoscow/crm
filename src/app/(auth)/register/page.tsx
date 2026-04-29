@@ -51,10 +51,14 @@ export default function RegisterPage() {
     setLoading(true);
     const supabase = createClient();
 
-    const { error } = await supabase.auth.signUp({
+    const publicSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+    const emailRedirectBase = publicSiteUrl || window.location.origin;
+
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
+        emailRedirectTo: `${emailRedirectBase}/auth/callback?next=/email-confirmed`,
         data: {
           first_name: data.first_name,
           last_name: data.last_name,
@@ -63,14 +67,31 @@ export default function RegisterPage() {
     });
 
     if (error) {
-      toast.error(error.message);
+      const message = error.message.toLowerCase();
+      if (message.includes("already registered") || message.includes("user already exists")) {
+        toast.error("Этот email уже зарегистрирован. Войдите или восстановите пароль.");
+      } else {
+        toast.error(error.message);
+      }
       setLoading(false);
       return;
     }
 
-    toast.success("Регистрация прошла успешно!");
-    router.push("/onboarding");
-    router.refresh();
+    // Supabase returns a non-error response for already-registered confirmed
+    // emails (obfuscated to avoid disclosing user existence). Detect via
+    // the empty identities array and surface the proper UX.
+    if (signUpData?.user && signUpData.user.identities?.length === 0) {
+      toast.error("Этот email уже зарегистрирован. Войдите или восстановите пароль.");
+      setLoading(false);
+      return;
+    }
+
+    // signUp returns no session when email confirmation is enabled. The
+    // /onboarding route is auth-protected and would bounce the user back
+    // to /login. Send them to /verify-email instead so they can complete
+    // the email-confirmation step first.
+    toast.success("Письмо для подтверждения уже в пути.");
+    router.push(`/verify-email?email=${encodeURIComponent(data.email)}`);
   };
 
   return (

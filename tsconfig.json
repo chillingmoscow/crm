@@ -23,5 +23,5 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "_legacy_from_finance", "_legacy_from_crm2"]
+  "exclude": ["node_modules", "_legacy_from_finance", "_legacy_from_crm2", "crm2"]
 }

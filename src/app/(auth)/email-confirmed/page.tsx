@@ -2,17 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Check, Loader2, AlertCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function EmailConfirmedPage() {
@@ -30,7 +20,7 @@ export default function EmailConfirmedPage() {
 
       if (!tokenHash || type !== "signup") {
         if (isMounted) {
-          setError("Ссылка подтверждения недействительна или уже устарела.");
+          setError("Ссылка подтверждения недействительна или устарела.");
           setLoading(false);
         }
         return;
@@ -41,19 +31,15 @@ export default function EmailConfirmedPage() {
         type: "signup",
       });
 
-      if (!isMounted) return;
-
-      if (verifyError) {
-        setError(
-          "Не удалось подтвердить почту. Запросите новое письмо и попробуйте ещё раз."
-        );
+      if (isMounted) {
+        if (verifyError) {
+          setError("Не удалось подтвердить почту. Запросите новое письмо.");
+        }
+        setLoading(false);
       }
-
-      setLoading(false);
     };
 
     void verifySignup();
-
     return () => {
       isMounted = false;
     };
@@ -61,55 +47,65 @@ export default function EmailConfirmedPage() {
 
   if (loading) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-3 py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Подтверждаем электронную почту…
-          </p>
-        </CardContent>
-      </Card>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
+        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      </div>
     );
   }
 
   if (error) {
     return (
-      <Card>
-        <CardHeader className="space-y-2 text-center">
-          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-            <AlertCircle className="h-5 w-5" />
-          </div>
-          <CardTitle>Не удалось подтвердить почту</CardTitle>
-          <CardDescription>{error}</CardDescription>
-        </CardHeader>
-        <CardFooter className="flex flex-col gap-2">
-          <Button asChild className="w-full">
-            <Link href="/register">Зарегистрироваться снова</Link>
-          </Button>
-          <Button asChild variant="ghost" className="w-full">
-            <Link href="/login">Вернуться ко входу</Link>
-          </Button>
-        </CardFooter>
-      </Card>
+      <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
+        <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-6">
+          <AlertCircle className="w-8 h-8 text-red-600" />
+        </div>
+        <h1 className="text-[28px] leading-[36px] font-semibold text-gray-900 text-center mb-3">
+          Ошибка подтверждения
+        </h1>
+        <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-10">
+          {error}
+        </p>
+        <Link href="/register">
+          <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
+            Зарегистрироваться снова
+          </button>
+        </Link>
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader className="space-y-2 text-center">
-        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <CheckCircle2 className="h-5 w-5" />
-        </div>
-        <CardTitle>Почта подтверждена</CardTitle>
-        <CardDescription>
-          Аккаунт активирован. Можно возвращаться к работе.
-        </CardDescription>
-      </CardHeader>
-      <CardFooter>
-        <Button asChild className="w-full">
-          <Link href="/dashboard">Открыть систему</Link>
-        </Button>
-      </CardFooter>
-    </Card>
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
+
+      {/* Logo */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
+
+      {/* Green checkmark circle */}
+      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-6">
+        <Check className="w-8 h-8 text-green-600" strokeWidth={2.5} />
+      </div>
+
+      {/* Heading */}
+      <h1 className="text-[32px] leading-[40px] font-semibold text-gray-900 text-center mb-3">
+        Электронная почта<br />подтверждена
+      </h1>
+
+      {/* Subtext */}
+      <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-10">
+        Ваш аккаунт активирован. Добро пожаловать в Sheerly!
+      </p>
+
+      {/* Button */}
+      <Link href="/dashboard">
+        <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
+          Войти в систему
+        </button>
+      </Link>
+    </div>
   );
 }

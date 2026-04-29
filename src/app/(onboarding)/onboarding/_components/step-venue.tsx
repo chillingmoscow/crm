@@ -92,6 +92,12 @@ export function StepVenue({ data, onUpdate, onNext, onBack, stepLabel = "Шаг 
     const result = await createAccountAndVenue({
       accountName:    data.accountName,
       accountLogoUrl: data.accountLogoUrl,
+      // Legal entity from the Account step (collected via DaData lookup
+      // or filled manually). Empty values let the RPC fall back to the
+      // accountName / 'IP' stub.
+      legalName:      data.legalName.trim() || undefined,
+      legalForm:      data.legalForm,
+      legalInn:       data.legalInn.trim() || undefined,
       venueName:      values.venueName,
       venueType:      values.venueType,
       venueAddress:   values.venueAddress,

@@ -13,6 +13,7 @@ type VenueData = {
   timezone: string;
   workingHours: WorkingHours;
   comment?: string | null;
+  defaultLegalEntityId?: string | null;
 };
 
 export async function createVenue(
@@ -82,14 +83,20 @@ export async function updateVenue(
   const { error } = await supabase
     .from("venues")
     .update({
-      name:          data.name,
-      type:          data.type,
-      address:       data.address ?? null,
-      phone:         data.phone ?? null,
-      currency:      data.currency,
-      timezone:      data.timezone,
-      working_hours: data.workingHours as unknown as Json,
-      comment:       data.comment ?? null,
+      name:                    data.name,
+      type:                    data.type,
+      address:                 data.address ?? null,
+      phone:                   data.phone ?? null,
+      currency:                data.currency,
+      timezone:                data.timezone,
+      working_hours:           data.workingHours as unknown as Json,
+      comment:                 data.comment ?? null,
+      // Composite FK from migration 036 enforces that the legal entity
+      // belongs to the venue's account. Passing undefined leaves the
+      // column unchanged; null clears it.
+      ...(data.defaultLegalEntityId !== undefined
+        ? { default_legal_entity_id: data.defaultLegalEntityId }
+        : {}),
     })
     .eq("id", id);
 

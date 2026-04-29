@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import Link from "next/link";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,13 +38,14 @@ const INITIAL_WORKING_HOURS: WorkingHours = {
 };
 
 const schema = z.object({
-  name:     z.string().min(1, "Введите название"),
-  type:     z.enum(["restaurant", "bar", "cafe", "club", "other"]),
-  address:  z.string().optional(),
-  phone:    z.string().optional(),
-  currency: z.string().min(1),
-  timezone: z.string().min(1),
-  comment:  z.string().optional(),
+  name:                    z.string().min(1, "Введите название"),
+  type:                    z.enum(["restaurant", "bar", "cafe", "club", "other"]),
+  address:                 z.string().optional(),
+  phone:                   z.string().optional(),
+  currency:                z.string().min(1),
+  timezone:                z.string().min(1),
+  comment:                 z.string().optional(),
+  default_legal_entity_id: z.string().nullable().optional(),
 });
 
 type Form = z.infer<typeof schema>;
@@ -58,6 +60,13 @@ type Venue = {
   timezone: string;
   working_hours: WorkingHours | null;
   comment: string | null;
+  default_legal_entity_id: string | null;
+};
+
+export type LegalEntityOption = {
+  id: string;
+  name: string;
+  legal_form: string;
 };
 
 const TABS = ["Основное", "Карта залов"] as const;
@@ -66,9 +75,11 @@ type Tab = (typeof TABS)[number];
 export function VenueDetailPage({
   venue,
   importedFromQuickResto,
+  legalEntities,
 }: {
   venue: Venue;
   importedFromQuickResto: boolean;
+  legalEntities: LegalEntityOption[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -78,18 +89,20 @@ export function VenueDetailPage({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("Основное");
 
-  const { register, handleSubmit, setValue, formState: { errors } } = useForm<Form>({
+  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
-      name:     venue.name,
-      type:     venue.type as Form["type"],
-      address:  venue.address ?? "",
-      phone:    venue.phone ?? "",
-      currency: venue.currency,
-      timezone: venue.timezone,
-      comment:  venue.comment ?? "",
+      name:                    venue.name,
+      type:                    venue.type as Form["type"],
+      address:                 venue.address ?? "",
+      phone:                   venue.phone ?? "",
+      currency:                venue.currency,
+      timezone:                venue.timezone,
+      comment:                 venue.comment ?? "",
+      default_legal_entity_id: venue.default_legal_entity_id,
     },
   });
+  const selectedLegalEntityId = watch("default_legal_entity_id") ?? null;
 
   const toggleDay = (day: DayKey) => {
     setWorkingHours((prev) => ({
@@ -115,6 +128,7 @@ export function VenueDetailPage({
         currency: values.currency, timezone: values.timezone,
         workingHours,
         comment: values.comment || null,
+        defaultLegalEntityId: values.default_legal_entity_id ?? null,
       });
       if (result.error) { toast.error(result.error); return; }
       toast.success("Изменения сохранены");
@@ -236,6 +250,44 @@ export function VenueDetailPage({
                   {TIMEZONES.map((tz) => <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          {/* Row 4: Legal entity picker. Each venue runs under a "default"
+               legal entity used for finance documents. Stage 2B feature. */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Юрлицо по умолчанию</Label>
+              {legalEntities.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  Сначала создайте юрлицо в разделе{" "}
+                  <Link href="/org/legal-entities" className="underline underline-offset-2">
+                    Юрлица
+                  </Link>
+                  .
+                </p>
+              ) : (
+                <Select
+                  value={selectedLegalEntityId ?? "__none__"}
+                  onValueChange={(v) =>
+                    setValue("default_legal_entity_id", v === "__none__" ? null : v, {
+                      shouldDirty: true,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Не выбрано" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Не выбрано</SelectItem>
+                    {legalEntities.map((le) => (
+                      <SelectItem key={le.id} value={le.id}>
+                        {le.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
 

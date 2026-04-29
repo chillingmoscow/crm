@@ -22,6 +22,14 @@ export interface WizardData {
   accountName: string;
   accountLogoUrl: string | null;
 
+  // Legal entity fields collected on the Account step. Used by
+  // createAccountAndVenue → complete_owner_onboarding RPC. If left
+  // empty, the RPC falls back to legal_form='IP' / name=accountName
+  // and the owner can edit the entity later from /org/legal-entities.
+  legalName: string;
+  legalForm: "IP" | "OOO" | "AO" | "PAO" | "NKO" | "OTHER";
+  legalInn: string;
+
   venueName: string;
   venueType: VenueType;
   venueAddress: string;
@@ -58,6 +66,10 @@ const INITIAL_DATA: WizardData = {
 
   accountName: "",
   accountLogoUrl: null,
+
+  legalName: "",
+  legalForm: "OOO",
+  legalInn: "",
 
   venueName: "",
   venueType: "restaurant",

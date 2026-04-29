@@ -8,10 +8,23 @@ import { Loader2, Upload, X, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import { uploadLogo } from "../actions";
 import type { WizardData } from "./wizard";
+import { InnInput } from "@/components/org/inn-input";
+import type { ResolvedParty } from "@/lib/dadata/party";
 
 const schema = z.object({
   accountName: z.string().min(1, "Введите название"),
 });
+
+type LegalForm = WizardData["legalForm"];
+
+const LEGAL_FORM_OPTIONS: { value: LegalForm; label: string }[] = [
+  { value: "IP",    label: "ИП" },
+  { value: "OOO",   label: "ООО" },
+  { value: "AO",    label: "АО" },
+  { value: "PAO",   label: "ПАО" },
+  { value: "NKO",   label: "НКО" },
+  { value: "OTHER", label: "Иное" },
+];
 
 type Form = z.infer<typeof schema>;
 
@@ -179,6 +192,70 @@ export function StepAccount({
             <p className="text-xs text-gray-400">
               Название бренда или ваше имя — видно только вам и вашим сотрудникам
             </p>
+          </div>
+
+          {/* Legal entity (optional). Pre-fills via DaData if INN is given;
+               otherwise the RPC creates a stub the owner can edit later. */}
+          <div className="space-y-3 pt-3 border-t border-gray-100">
+            <div>
+              <label className="text-sm font-medium text-gray-700">
+                Юрлицо
+              </label>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Можно пропустить — заполните позже в разделе «Юрлица». Если знаете
+                ИНН, нажмите «Из DaData» — реквизиты подтянутся автоматически.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="legalInn" className="text-xs font-medium text-gray-600">
+                ИНН
+              </label>
+              <InnInput
+                id="legalInn"
+                value={data.legalInn}
+                onChange={(v) => onUpdate({ legalInn: v })}
+                onParty={(party: ResolvedParty) =>
+                  onUpdate({
+                    legalInn:  party.inn,
+                    legalName: party.name,
+                    legalForm: party.legalForm,
+                  })
+                }
+              />
+            </div>
+
+            <div className="grid grid-cols-[1fr_120px] gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="legalName" className="text-xs font-medium text-gray-600">
+                  Полное наименование
+                </label>
+                <input
+                  id="legalName"
+                  value={data.legalName}
+                  onChange={(e) => onUpdate({ legalName: e.target.value })}
+                  placeholder='ООО "Хорошее" / ИП Иванов И.И.'
+                  className="h-10 w-full rounded-xl border border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 px-3 text-sm bg-white outline-none transition-colors duration-150"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="legalForm" className="text-xs font-medium text-gray-600">
+                  Форма
+                </label>
+                <select
+                  id="legalForm"
+                  value={data.legalForm}
+                  onChange={(e) => onUpdate({ legalForm: e.target.value as LegalForm })}
+                  className="h-10 w-full rounded-xl border border-gray-200 hover:border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 px-3 text-sm bg-white outline-none transition-colors duration-150"
+                >
+                  {LEGAL_FORM_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
         </div>
 

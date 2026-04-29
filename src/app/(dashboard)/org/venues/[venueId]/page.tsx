@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { VenueDetailPage } from "./_components/venue-detail-page";
+import { listLegalEntities } from "@/lib/org/legal-entities";
 import type { WorkingHours } from "@/types/database";
 
 type VenueDetail = {
@@ -13,6 +14,7 @@ type VenueDetail = {
   timezone: string;
   working_hours: WorkingHours | null;
   comment: string | null;
+  default_legal_entity_id: string | null;
 };
 
 export default async function VenueDetailServerPage({
@@ -45,7 +47,9 @@ export default async function VenueDetailServerPage({
 
   const { data: venue } = await supabase
     .from("venues")
-    .select("id, name, type, address, phone, currency, timezone, working_hours, comment")
+    .select(
+      "id, name, type, address, phone, currency, timezone, working_hours, comment, default_legal_entity_id"
+    )
     .eq("id", venueId)
     .eq("account_id", account.id)
     .returns<VenueDetail[]>()
@@ -62,5 +66,20 @@ export default async function VenueDetailServerPage({
     .eq("local_id", venueId)
     .maybeSingle()) as unknown as { data: { id: string } | null };
 
-  return <VenueDetailPage venue={venue} importedFromQuickResto={Boolean(importedVenueResult.data?.id)} />;
+  // Account legal entities for the picker. Fetched here so the client
+  // component doesn't need to call a server action just to populate
+  // a select.
+  const { rows: legalEntities } = await listLegalEntities();
+
+  return (
+    <VenueDetailPage
+      venue={venue}
+      importedFromQuickResto={Boolean(importedVenueResult.data?.id)}
+      legalEntities={legalEntities.map((le) => ({
+        id: le.id,
+        name: le.short_name ?? le.name,
+        legal_form: le.legal_form,
+      }))}
+    />
+  );
 }

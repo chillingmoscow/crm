@@ -10,6 +10,7 @@ import {
   LogOut,
   Settings,
   ChevronUp,
+  FileBadge2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -39,10 +40,11 @@ const NAV_SECTIONS = [
   },
   {
     label: "Организация",
-    roles: ["owner"],
+    roles: ["owner", "admin", "accountant"],
     items: [
-      { title: "Аккаунт",   href: "/org/account", icon: Settings,  roles: ["owner"] },
-      { title: "Заведения", href: "/org/venues",  icon: Building2, roles: ["owner"] },
+      { title: "Аккаунт",   href: "/org/account",         icon: Settings,    roles: ["owner"] },
+      { title: "Юрлица",    href: "/org/legal-entities",  icon: FileBadge2,  roles: ["owner", "admin", "accountant"] },
+      { title: "Заведения", href: "/org/venues",          icon: Building2,   roles: ["owner"] },
     ],
   },
   {

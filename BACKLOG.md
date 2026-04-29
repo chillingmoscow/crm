@@ -150,6 +150,32 @@ Wizard с ветвлением `manual` / `Quick Resto`
 
 ---
 
+## 🚀 Слияние finance-tracker → crm
+
+См. [`docs/MERGE_PLAN.md`](docs/MERGE_PLAN.md) — техническое задание v2.1 (29 апр 2026).
+См. [`docs/CURRENT_TENANCY.md`](docs/CURRENT_TENANCY.md) — карта текущей мультитенантности.
+
+**Блочная архитектура:**
+- **People** — сотрудники, должности, права (`/people/*`)
+- **Org** — тенант, юрлица, заведения, аудит (`/org/*`)
+- **Finance** — счета, транзакции, контрагенты, дашборд (`/finance/*`)
+- **CRM** — гости, брони, лояльность (`/crm/*`)
+
+**Этапы (9–13 недель, MVP за 5–6 недель):**
+- [ ] **Этап 0** — подготовка: `_legacy_from_finance/`, удаление `finance-tracker/`, env-vars DaData
+- [ ] **Этап 1** — реструктуризация `crm/src/` в блоки (рефактор, без новой логики)
+- [ ] **Этап 2** — `legal_entities` + DaData + обновлённый онбординг (миграции 032–035)
+- [ ] **Этап 3** — Finance backend + attachments (миграции 036–044)
+- [ ] **Этап 4** — Finance UI: транзакции, счета, категории, контрагенты, дашборд
+- [ ] **Этап 5** — CRM-скелет: `guests`, `reservations`, `loyalty_*` (миграции 045–048)
+- [ ] **Этап 6** — sidebar, smart-redirect, `docs/ARCHITECTURE.md`
+- [ ] **Этап 7** (опц.) — webhook QuickResto → транзакции
+
+Артефакты ft в [`_legacy_from_finance/`](_legacy_from_finance/) (только референс — код не для прямого импорта).
+Полная git-история ft — `~/Desktop/finance-tracker-archive.bundle`.
+
+---
+
 ## 🔜 Ближайшее
 
 - [ ] **Уведомления** — механизм создания: при принятии приглашения, увольнении, истечении медкнижки

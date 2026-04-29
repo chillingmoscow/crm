@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Mail, MailCheck, ArrowLeft } from "lucide-react";
+import { Loader2, Mail, MailCheck, ArrowLeft, AlertCircle } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 
@@ -275,8 +275,10 @@ function BackToLogin() {
 export default function ForgotPasswordPage() {
   const [loading,       setLoading]       = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
+  const [resendNotice,  setResendNotice]  = useState<string | null>(null);
   const [sent,          setSent]          = useState(false);
   const [sentEmail,     setSentEmail]     = useState("");
+  const [globalError,   setGlobalError]   = useState<string | null>(null);
 
   const {
     register,
@@ -292,6 +294,11 @@ export default function ForgotPasswordPage() {
   const emailVal    = watch("email") ?? "";
   const isFormReady = emailVal.includes("@");
 
+  // Returns the Supabase error (or null on success) so callers can surface
+  // it to the user. Without this, the success screen would show even if
+  // resetPasswordForEmail rejected the request (rate limiting, bad redirect
+  // URL, transient API errors) and the user would wait for an email that
+  // was never sent.
   const doSendReset = async (email: string) => {
     const supabase = createClient();
     // Use the production NEXT_PUBLIC_SITE_URL when set so the link in
@@ -299,14 +306,21 @@ export default function ForgotPasswordPage() {
     // opened on a different host (preview, dev, etc.).
     const publicSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
     const redirectBase = publicSiteUrl || window.location.origin;
-    await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${redirectBase}/reset-password`,
     });
+    return error;
   };
 
   const onSubmit = async (data: ForgotForm) => {
     setLoading(true);
-    await doSendReset(data.email);
+    setGlobalError(null);
+    const error = await doSendReset(data.email);
+    if (error) {
+      setGlobalError("Не удалось отправить письмо для сброса. Попробуйте ещё раз.");
+      setLoading(false);
+      return;
+    }
     setSentEmail(data.email);
     setSent(true);
     setLoading(false);
@@ -314,7 +328,13 @@ export default function ForgotPasswordPage() {
 
   const onResend = async () => {
     setResendLoading(true);
-    await doSendReset(sentEmail);
+    setResendNotice(null);
+    const error = await doSendReset(sentEmail);
+    if (error) {
+      setResendNotice("Не удалось отправить письмо повторно. Попробуйте чуть позже.");
+    } else {
+      setResendNotice("Письмо отправлено повторно.");
+    }
     setResendLoading(false);
   };
 
@@ -349,7 +369,7 @@ export default function ForgotPasswordPage() {
                 <span className="font-medium text-gray-800">{sentEmail}</span>
               </p>
 
-              <p className="text-sm text-gray-400 mb-8">
+              <p className="text-sm text-gray-400 mb-3">
                 Не получили электронное письмо?{" "}
                 <button
                   type="button"
@@ -360,6 +380,20 @@ export default function ForgotPasswordPage() {
                   {resendLoading ? "Отправляем…" : "Отправить повторно"}
                 </button>
               </p>
+
+              {resendNotice && (
+                <p
+                  className={[
+                    "text-sm mb-8",
+                    resendNotice.startsWith("Не удалось")
+                      ? "text-red-500"
+                      : "text-green-600",
+                  ].join(" ")}
+                >
+                  {resendNotice}
+                </p>
+              )}
+              {!resendNotice && <div className="mb-8" />}
 
               <Link
                 href="/login"
@@ -396,6 +430,13 @@ export default function ForgotPasswordPage() {
             <p className="text-[16px] leading-[24px] text-gray-500 text-center mb-8">
               Не волнуйтесь, такое бывает. Введите адрес почты, и мы отправим письмо для восстановления пароля.
             </p>
+
+            {globalError && (
+              <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 mb-5 text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{globalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
               <FloatingField

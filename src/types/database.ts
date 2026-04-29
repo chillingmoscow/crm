@@ -26,6 +26,54 @@ export interface WorkingHours {
 export type Database = {
   public: {
     Tables: {
+      account_files: {
+        Row: {
+          account_id: string
+          id: string
+          mime_type: string
+          name: string
+          size_bytes: number
+          storage_path: string
+          uploaded_at: string
+          uploaded_by: string
+        }
+        Insert: {
+          account_id: string
+          id?: string
+          mime_type: string
+          name: string
+          size_bytes: number
+          storage_path: string
+          uploaded_at?: string
+          uploaded_by: string
+        }
+        Update: {
+          account_id?: string
+          id?: string
+          mime_type?: string
+          name?: string
+          size_bytes?: number
+          storage_path?: string
+          uploaded_at?: string
+          uploaded_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_files_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_files_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_role_permissions: {
         Row: {
           account_id: string
@@ -173,6 +221,357 @@ export type Database = {
           },
         ]
       }
+      bank_account_groups: {
+        Row: {
+          account_id: string
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_account_groups_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bank_accounts: {
+        Row: {
+          account_id: string
+          account_number: string | null
+          acquiring_percentage: number | null
+          balance: number
+          bank_name: string | null
+          bik: string | null
+          card_holder: string | null
+          card_number_last4: string | null
+          correspondent_account: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          deleted_at: string | null
+          deleted_by: string | null
+          description: string | null
+          group_id: string | null
+          id: string
+          is_active: boolean
+          legal_entity_id: string
+          name: string
+          type: Database["public"]["Enums"]["bank_account_type_enum"]
+          updated_at: string | null
+          updated_by: string | null
+          venue_id: string | null
+        }
+        Insert: {
+          account_id: string
+          account_number?: string | null
+          acquiring_percentage?: number | null
+          balance?: number
+          bank_name?: string | null
+          bik?: string | null
+          card_holder?: string | null
+          card_number_last4?: string | null
+          correspondent_account?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          group_id?: string | null
+          id?: string
+          is_active?: boolean
+          legal_entity_id: string
+          name: string
+          type: Database["public"]["Enums"]["bank_account_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+          venue_id?: string | null
+        }
+        Update: {
+          account_id?: string
+          account_number?: string | null
+          acquiring_percentage?: number | null
+          balance?: number
+          bank_name?: string | null
+          bik?: string | null
+          card_holder?: string | null
+          card_number_last4?: string | null
+          correspondent_account?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          group_id?: string | null
+          id?: string
+          is_active?: boolean
+          legal_entity_id?: string
+          name?: string
+          type?: Database["public"]["Enums"]["bank_account_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_accounts_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_accounts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_accounts_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_accounts_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "bank_account_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_accounts_legal_entity_tenant_fkey"
+            columns: ["account_id", "legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "bank_accounts_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_accounts_venue_tenant_fkey"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
+      counterparties: {
+        Row: {
+          account_id: string
+          address: string | null
+          contact_person: string | null
+          created_at: string
+          created_by: string | null
+          dadata_synced_at: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          description: string | null
+          email: string | null
+          group_id: string | null
+          id: string
+          inn: string | null
+          is_active: boolean
+          kpp: string | null
+          legal_form: Database["public"]["Enums"]["legal_form_enum"]
+          name: string
+          ogrn: string | null
+          phone: string | null
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          address?: string | null
+          contact_person?: string | null
+          created_at?: string
+          created_by?: string | null
+          dadata_synced_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          email?: string | null
+          group_id?: string | null
+          id?: string
+          inn?: string | null
+          is_active?: boolean
+          kpp?: string | null
+          legal_form?: Database["public"]["Enums"]["legal_form_enum"]
+          name: string
+          ogrn?: string | null
+          phone?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          address?: string | null
+          contact_person?: string | null
+          created_at?: string
+          created_by?: string | null
+          dadata_synced_at?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          email?: string | null
+          group_id?: string | null
+          id?: string
+          inn?: string | null
+          is_active?: boolean
+          kpp?: string | null
+          legal_form?: Database["public"]["Enums"]["legal_form_enum"]
+          name?: string
+          ogrn?: string | null
+          phone?: string | null
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counterparties_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counterparties_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counterparties_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counterparties_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "counterparty_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counterparties_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      counterparty_attachments: {
+        Row: {
+          counterparty_id: string
+          description: string | null
+          document_date: string | null
+          document_number: string | null
+          document_type: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id: string
+        }
+        Insert: {
+          counterparty_id: string
+          description?: string | null
+          document_date?: string | null
+          document_number?: string | null
+          document_type?: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id: string
+        }
+        Update: {
+          counterparty_id?: string
+          description?: string | null
+          document_date?: string | null
+          document_number?: string | null
+          document_type?: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counterparty_attachments_counterparty_id_fkey"
+            columns: ["counterparty_id"]
+            isOneToOne: false
+            referencedRelation: "counterparties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "counterparty_attachments_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "account_files"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      counterparty_groups: {
+        Row: {
+          account_id: string
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          sort_order?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "counterparty_groups_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_entity_links: {
         Row: {
           account_id: string
@@ -207,6 +606,124 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "external_entity_links_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finance_categories: {
+        Row: {
+          account_id: string
+          color: string | null
+          created_at: string
+          created_by: string | null
+          description: string | null
+          group_id: string | null
+          icon: string | null
+          id: string
+          is_active: boolean
+          is_system: boolean
+          name: string
+          sort_order: number
+          type: Database["public"]["Enums"]["finance_category_type_enum"]
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          group_id?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name: string
+          sort_order?: number
+          type: Database["public"]["Enums"]["finance_category_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          color?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          group_id?: string | null
+          icon?: string | null
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name?: string
+          sort_order?: number
+          type?: Database["public"]["Enums"]["finance_category_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_categories_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_categories_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_categories_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "finance_category_groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "finance_categories_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      finance_category_groups: {
+        Row: {
+          account_id: string
+          created_at: string
+          id: string
+          name: string
+          sort_order: number
+          type: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          id?: string
+          name: string
+          sort_order?: number
+          type?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          id?: string
+          name?: string
+          sort_order?: number
+          type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "finance_category_groups_account_id_fkey"
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
@@ -576,6 +1093,42 @@ export type Database = {
           },
         ]
       }
+      legal_entity_attachments: {
+        Row: {
+          description: string | null
+          document_type: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id: string
+          legal_entity_id: string
+        }
+        Insert: {
+          description?: string | null
+          document_type?: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id: string
+          legal_entity_id: string
+        }
+        Update: {
+          description?: string | null
+          document_type?: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id?: string
+          legal_entity_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "legal_entity_attachments_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "account_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "legal_entity_attachments_legal_entity_id_fkey"
+            columns: ["legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notifications: {
         Row: {
           body: string | null
@@ -777,6 +1330,195 @@ export type Database = {
           },
         ]
       }
+      transaction_attachments: {
+        Row: {
+          document_type: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id: string
+          transaction_id: string
+        }
+        Insert: {
+          document_type?: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id: string
+          transaction_id: string
+        }
+        Update: {
+          document_type?: Database["public"]["Enums"]["attachment_document_type_enum"]
+          file_id?: string
+          transaction_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transaction_attachments_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "account_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transaction_attachments_transaction_id_fkey"
+            columns: ["transaction_id"]
+            isOneToOne: false
+            referencedRelation: "transactions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      transactions: {
+        Row: {
+          account_id: string
+          amount: number
+          bank_account_id: string
+          category_id: string | null
+          counterparty_id: string | null
+          created_at: string
+          created_by: string | null
+          currency: string
+          date: string
+          deleted_at: string | null
+          deleted_by: string | null
+          description: string | null
+          id: string
+          legal_entity_id: string
+          public_id: number
+          source: Database["public"]["Enums"]["transaction_source_enum"]
+          source_external_id: string | null
+          to_bank_account_id: string | null
+          to_legal_entity_id: string | null
+          type: Database["public"]["Enums"]["transaction_type_enum"]
+          updated_at: string | null
+          updated_by: string | null
+          venue_id: string | null
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          bank_account_id: string
+          category_id?: string | null
+          counterparty_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          date: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          id?: string
+          legal_entity_id: string
+          public_id?: number
+          source?: Database["public"]["Enums"]["transaction_source_enum"]
+          source_external_id?: string | null
+          to_bank_account_id?: string | null
+          to_legal_entity_id?: string | null
+          type: Database["public"]["Enums"]["transaction_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+          venue_id?: string | null
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          bank_account_id?: string
+          category_id?: string | null
+          counterparty_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          date?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          description?: string | null
+          id?: string
+          legal_entity_id?: string
+          public_id?: number
+          source?: Database["public"]["Enums"]["transaction_source_enum"]
+          source_external_id?: string | null
+          to_bank_account_id?: string | null
+          to_legal_entity_id?: string | null
+          type?: Database["public"]["Enums"]["transaction_type_enum"]
+          updated_at?: string | null
+          updated_by?: string | null
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "transactions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_bank_account_tenant_fkey"
+            columns: ["account_id", "bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "transactions_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "finance_categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_counterparty_id_fkey"
+            columns: ["counterparty_id"]
+            isOneToOne: false
+            referencedRelation: "counterparties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_legal_entity_tenant_fkey"
+            columns: ["account_id", "legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "transactions_to_bank_account_tenant_fkey"
+            columns: ["account_id", "to_bank_account_id"]
+            isOneToOne: false
+            referencedRelation: "bank_accounts"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "transactions_to_legal_entity_tenant_fkey"
+            columns: ["account_id", "to_legal_entity_id"]
+            isOneToOne: false
+            referencedRelation: "legal_entities"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "transactions_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "transactions_venue_tenant_fkey"
+            columns: ["account_id", "venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
       user_venue_roles: {
         Row: {
           created_at: string
@@ -932,11 +1674,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "venues_default_legal_entity_id_fkey"
-            columns: ["default_legal_entity_id"]
+            foreignKeyName: "venues_default_legal_entity_tenant_fkey"
+            columns: ["account_id", "default_legal_entity_id"]
             isOneToOne: false
             referencedRelation: "legal_entities"
-            referencedColumns: ["id"]
+            referencedColumns: ["account_id", "id"]
           },
         ]
       }
@@ -947,6 +1689,10 @@ export type Database = {
     Functions: {
       accept_invitation: {
         Args: { p_invitation_id: string }
+        Returns: undefined
+      }
+      apply_transaction_balance_delta: {
+        Args: { p_bank_account_id: string; p_delta: number }
         Returns: undefined
       }
       complete_owner_onboarding:
@@ -1054,6 +1800,22 @@ export type Database = {
       }
     }
     Enums: {
+      attachment_document_type_enum:
+        | "receipt"
+        | "contract"
+        | "act"
+        | "invoice"
+        | "waybill"
+        | "tax_document"
+        | "registration_doc"
+        | "other"
+      bank_account_type_enum:
+        | "checking"
+        | "debit_card"
+        | "cash"
+        | "fund"
+        | "safe"
+      finance_category_type_enum: "income" | "expense"
       invitation_status: "pending" | "accepted" | "expired"
       legal_form_enum: "IP" | "OOO" | "AO" | "PAO" | "NKO" | "OTHER"
       tax_system_enum:
@@ -1063,6 +1825,8 @@ export type Database = {
         | "PSN"
         | "NPD"
         | "AUSN"
+      transaction_source_enum: "manual" | "quickresto" | "import" | "bank_sync"
+      transaction_type_enum: "income" | "expense" | "transfer"
       venue_type:
         | "restaurant"
         | "bar"
@@ -1204,6 +1968,24 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      attachment_document_type_enum: [
+        "receipt",
+        "contract",
+        "act",
+        "invoice",
+        "waybill",
+        "tax_document",
+        "registration_doc",
+        "other",
+      ],
+      bank_account_type_enum: [
+        "checking",
+        "debit_card",
+        "cash",
+        "fund",
+        "safe",
+      ],
+      finance_category_type_enum: ["income", "expense"],
       invitation_status: ["pending", "accepted", "expired"],
       legal_form_enum: ["IP", "OOO", "AO", "PAO", "NKO", "OTHER"],
       tax_system_enum: [
@@ -1214,6 +1996,8 @@ export const Constants = {
         "NPD",
         "AUSN",
       ],
+      transaction_source_enum: ["manual", "quickresto", "import", "bank_sync"],
+      transaction_type_enum: ["income", "expense", "transfer"],
       venue_type: [
         "restaurant",
         "bar",
@@ -1233,8 +2017,14 @@ export const Constants = {
   },
 } as const
 
+
 // Convenience aliases
 export type VenueType        = Database["public"]["Enums"]["venue_type"]
 export type InvitationStatus = Database["public"]["Enums"]["invitation_status"]
 export type LegalForm        = Database["public"]["Enums"]["legal_form_enum"]
 export type TaxSystem        = Database["public"]["Enums"]["tax_system_enum"]
+export type BankAccountType  = Database["public"]["Enums"]["bank_account_type_enum"]
+export type FinanceCategoryType = Database["public"]["Enums"]["finance_category_type_enum"]
+export type TransactionType  = Database["public"]["Enums"]["transaction_type_enum"]
+export type TransactionSource = Database["public"]["Enums"]["transaction_source_enum"]
+export type AttachmentDocumentType = Database["public"]["Enums"]["attachment_document_type_enum"]

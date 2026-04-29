@@ -51,11 +51,14 @@ export default function LoginPage() {
     });
 
     if (error) {
-      toast.error(
-        error.message === "Invalid login credentials"
-          ? "Неверный email или пароль"
-          : error.message
-      );
+      const message = error.message.toLowerCase();
+      if (message.includes("invalid login credentials")) {
+        toast.error("Неверный email или пароль");
+      } else if (message.includes("email not confirmed")) {
+        toast.error("Почта не подтверждена. Проверьте входящие и папку «Спам».");
+      } else {
+        toast.error("Не удалось выполнить вход. Попробуйте ещё раз.");
+      }
       setLoading(false);
       return;
     }

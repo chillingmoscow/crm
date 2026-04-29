@@ -105,6 +105,7 @@ export function LegalEntityDetailClient({ row, canManage, canDelete }: Props) {
       <LegalEntityForm
         mode="edit"
         legalEntityId={row.id}
+        readOnly={!canManage}
         initial={{
           name:                   row.name,
           short_name:             row.short_name,

@@ -89,15 +89,28 @@ export function StepVenue({ data, onUpdate, onNext, onBack, stepLabel = "Шаг 
     setLoading(true);
     onUpdate({ ...values, workingHours });
 
+    // Legal entity from the Account step. If the user provided either a
+    // name or an INN, forward all three fields together so the RPC uses
+    // them as-is. If the subsection was skipped entirely, omit ALL three
+    // (including legalForm) so the server-side fallback in
+    // createAccountAndVenue (legal_form='IP', name=accountName) actually
+    // activates — passing legalForm alone would make the RPC's coalesce
+    // pick 'OOO' over the intended default.
+    const trimmedLegalName = data.legalName.trim();
+    const trimmedLegalInn  = data.legalInn.trim();
+    const legalEntityProvided = trimmedLegalName !== "" || trimmedLegalInn !== "";
+    const legalEntityFields = legalEntityProvided
+      ? {
+          legalName: trimmedLegalName || undefined,
+          legalForm: data.legalForm,
+          legalInn:  trimmedLegalInn || undefined,
+        }
+      : {};
+
     const result = await createAccountAndVenue({
       accountName:    data.accountName,
       accountLogoUrl: data.accountLogoUrl,
-      // Legal entity from the Account step (collected via DaData lookup
-      // or filled manually). Empty values let the RPC fall back to the
-      // accountName / 'IP' stub.
-      legalName:      data.legalName.trim() || undefined,
-      legalForm:      data.legalForm,
-      legalInn:       data.legalInn.trim() || undefined,
+      ...legalEntityFields,
       venueName:      values.venueName,
       venueType:      values.venueType,
       venueAddress:   values.venueAddress,

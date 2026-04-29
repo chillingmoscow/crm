@@ -48,9 +48,15 @@ type Props = {
   mode: "create" | "edit";
   legalEntityId?: string;
   initial?: Partial<LegalEntityFormInput>;
+  /**
+   * When true, all inputs are disabled and the save button is hidden.
+   * Use for users with org.view_legal_entities but without
+   * org.manage_legal_entities — they should see the data, not edit it.
+   */
+  readOnly?: boolean;
 };
 
-export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
+export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
 
@@ -144,7 +150,14 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
   };
 
   return (
+    <fieldset disabled={readOnly} className="contents">
     <div className="space-y-6">
+      {readOnly && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          У вас нет права <code>org.manage_legal_entities</code>. Карточка
+          доступна только для просмотра.
+        </div>
+      )}
       <Card>
         <CardHeader>
           <CardTitle>Реквизиты</CardTitle>
@@ -157,6 +170,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
               value={form.inn ?? ""}
               onChange={(v) => update("inn", v)}
               onParty={applyDadataParty}
+              disabled={readOnly}
             />
           </div>
 
@@ -184,6 +198,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
             <Select
               value={form.legal_form}
               onValueChange={(v) => update("legal_form", v as LegalForm)}
+              disabled={readOnly}
             >
               <SelectTrigger id="legal_form">
                 <SelectValue />
@@ -245,6 +260,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
               onValueChange={(v) =>
                 update("tax_system", v === "__none__" ? null : (v as TaxSystem))
               }
+              disabled={readOnly}
             >
               <SelectTrigger id="tax_system">
                 <SelectValue placeholder="Не выбрано" />
@@ -264,6 +280,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
               id="vat_payer"
               checked={form.vat_payer ?? false}
               onCheckedChange={(v) => update("vat_payer", v)}
+              disabled={readOnly}
             />
             <Label htmlFor="vat_payer">Плательщик НДС</Label>
           </div>
@@ -281,6 +298,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
               id="legal_address"
               value={form.legal_address ?? ""}
               onChange={(v) => update("legal_address", v)}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -289,6 +307,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
               id="actual_address"
               value={form.actual_address ?? ""}
               onChange={(v) => update("actual_address", v)}
+              disabled={readOnly}
             />
           </div>
           <div className="space-y-2">
@@ -297,6 +316,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
               id="postal_address"
               value={form.postal_address ?? ""}
               onChange={(v) => update("postal_address", v)}
+              disabled={readOnly}
             />
           </div>
         </CardContent>
@@ -417,14 +437,22 @@ export function LegalEntityForm({ mode, legalEntityId, initial }: Props) {
       </Card>
 
       <div className="flex items-center justify-end gap-2">
-        <Button variant="ghost" onClick={() => router.back()} disabled={saving}>
-          Отмена
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => router.back()}
+          disabled={saving}
+        >
+          {readOnly ? "Закрыть" : "Отмена"}
         </Button>
-        <Button onClick={onSave} disabled={saving}>
-          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {mode === "create" ? "Создать" : "Сохранить"}
-        </Button>
+        {!readOnly && (
+          <Button type="button" onClick={onSave} disabled={saving}>
+            {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {mode === "create" ? "Создать" : "Сохранить"}
+          </Button>
+        )}
       </div>
     </div>
+    </fieldset>
   );
 }

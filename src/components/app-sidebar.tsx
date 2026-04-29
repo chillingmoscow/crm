@@ -40,7 +40,7 @@ const NAV_SECTIONS = [
     label: "Сеть",
     roles: ["owner"],
     items: [
-      { title: "Заведения",  href: "/settings/venues",   icon: Building2, roles: ["owner"] },
+      { title: "Заведения",  href: "/org/venues",        icon: Building2, roles: ["owner"] },
       { title: "Интеграции", href: "/settings/integrations", icon: Settings, roles: ["owner"] },
       { title: "Настройки",  href: "/settings/account",  icon: Settings,  roles: ["owner"] },
     ],

@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/sidebar";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
-import { VenueSwitcher } from "@/components/venue-switcher";
+import { VenueSwitcher } from "@/components/shared/venue-switcher";
 
 // Roles that can access each nav item
 const NAV_SECTIONS = [

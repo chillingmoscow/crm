@@ -2,7 +2,7 @@
 
 import { Toaster } from "sonner";
 
-import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeProvider } from "@/components/shared/theme-provider";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (

@@ -1,0 +1,2258 @@
+import React, { useState } from 'react';
+import {
+  Box,
+  Button,
+  TextField,
+  Typography,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  Select,
+  SelectChangeEvent,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TablePagination,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  Avatar,
+  Checkbox,
+  Autocomplete,
+  InputBase,
+} from '@mui/material';
+import DeleteIcon from '@mui/icons-material/DeleteOutline';
+import HistoryIcon from '@mui/icons-material/History';
+import CreateIcon from '@mui/icons-material/CreateOutlined';
+import UpdateIcon from '@mui/icons-material/Update';
+import BusinessIcon from '@mui/icons-material/BusinessOutlined';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import SearchIcon from '@mui/icons-material/SearchOutlined';
+import AddIcon from '@mui/icons-material/AddOutlined';
+import RemoveIcon from '@mui/icons-material/RemoveOutlined';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrowsOutlined';
+import AccountBalanceOutlinedIcon from '@mui/icons-material/AccountBalanceOutlined';
+import { useFinance } from '../../context/FinanceContext';
+import { useUser } from '../../context/UserContext';
+import { Transaction } from '../../types';
+import RightSidebar from '../../components/Layout/RightSidebar';
+import ConfirmDialog from '../Common/ConfirmDialog';
+import { alpha } from '@mui/material/styles';
+import FileUpload from '../Common/FileUpload';
+import { COMPONENT_SIZES, CURRENCIES } from '../../utils/constants';
+import { 
+  formatCurrency, 
+  formatDate, 
+  formatDateTime, 
+  linkify, 
+  safeIncludes,
+  generateRandomColor
+} from '../../utils/helpers';
+
+// Функция для генерации красивых цветов (исключая серые тона)
+const generateRandomColor = (): string => {
+  const colors = [
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
+    '#DDA0DD', '#98D8C8', '#F7DC6F', '#BB8FCE', '#85C1E9',
+    '#F8C471', '#82E0AA', '#F1948A', '#85C1E9', '#F4D03F',
+    '#A569BD', '#5DADE2', '#58D68D', '#F39C12', '#E74C3C',
+    '#3498DB', '#2ECC71', '#9B59B6', '#E67E22', '#1ABC9C'
+  ];
+  return colors[Math.floor(Math.random() * colors.length)];
+};
+
+// Функция для преобразования текста с URL в кликабельные ссылки
+const linkify = (text: string) => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const parts = text.split(urlRegex);
+  
+  return parts.map((part, i) => {
+    if (part.match(urlRegex)) {
+      return (
+        <a 
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#6364FF', textDecoration: 'underline' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
+    return part;
+  });
+};
+
+// Интерфейс для параметров пагинации
+interface LabelDisplayedRowsProps {
+  from: number;
+  to: number;
+  count: number;
+}
+
+// Компонент страницы транзакций
+const TransactionsPage: React.FC = () => {
+  const { 
+    transactions, 
+    accounts, 
+    categories, 
+    counterparties, 
+    addTransaction, 
+    updateTransaction, 
+    deleteTransaction, 
+    addCounterparty, 
+    addCategory, 
+    addAccount,
+    addAttachmentToTransaction,
+    removeAttachmentFromTransaction
+  } = useFinance();
+  const { users, currentUser } = useUser();
+  
+  // Состояния для пагинации
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  
+  // Состояние для выбранных транзакций
+  const [selected, setSelected] = useState<string[]>([]);
+  
+  // Состояние для поиска
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Состояние для сайдбара
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  
+  // Состояние для сайдбара создания контрагента
+  const [counterpartySidebarOpen, setCounterpartySidebarOpen] = useState(false);
+  const [newCounterparty, setNewCounterparty] = useState({
+    name: '',
+    legalEntity: '',
+    inn: '',
+    contactPerson: '',
+    phone: '',
+    email: '',
+    description: ''
+  });
+  
+  // Добавить в начало компонента TransactionsPage состояние для формы новой категории
+  const [categorySidebarOpen, setCategorySidebarOpen] = useState(false);
+  const [newCategory, setNewCategory] = useState({
+    name: '',
+    type: 'expense' as 'income' | 'expense',
+    description: '',
+    color: generateRandomColor() // Случайный цвет в формате HEX
+  });
+
+  const [currentTransaction, setCurrentTransaction] = useState<Partial<Transaction>>({
+    amount: 0,
+    accountId: '',
+    categoryId: '',
+    counterpartyId: '',
+    description: '',
+    date: new Date(),
+    type: 'expense',
+    toAccountId: '',
+  });
+
+  // Добавить состояние для формы нового счета
+  const [accountSidebarOpen, setAccountSidebarOpen] = useState(false);
+  const [newAccount, setNewAccount] = useState({
+    name: '',
+    balance: 0,
+    currency: 'RUB',
+    description: '',
+    groupName: '',
+    accountType: 'checking' as const,
+    // Банковские поля
+    bankName: '',
+    bik: '',
+    accountNumber: '',
+    correspondentAccount: '',
+    acquiringPercentage: 0,
+    // Поля для карт
+    cardHolder: '',
+    cardNumber: ''
+  });
+
+  // Открыть сайдбар для добавления нового прихода
+  const handleAddIncomeClick = () => {
+    setCurrentTransaction({
+      amount: 0,
+      accountId: accounts.length > 0 ? accounts[0].id : '',
+      categoryId: '',
+      counterpartyId: '',
+      description: '',
+      date: new Date(),
+      type: 'income',
+      toAccountId: '',
+    });
+    setIsEditing(false);
+    setSidebarOpen(true);
+  };
+
+  // Открыть сайдбар для добавления нового расхода
+  const handleAddExpenseClick = () => {
+    setCurrentTransaction({
+      amount: 0,
+      accountId: accounts.length > 0 ? accounts[0].id : '',
+      categoryId: '',
+      counterpartyId: '',
+      description: '',
+      date: new Date(),
+      type: 'expense',
+      toAccountId: '',
+    });
+    setIsEditing(false);
+    setSidebarOpen(true);
+  };
+
+  // Открыть сайдбар для добавления нового перевода
+  const handleAddTransferClick = () => {
+    if (accounts.length < 2) {
+      alert('Для создания перевода необходимо иметь как минимум два счета');
+      return;
+    }
+    
+    setCurrentTransaction({
+      amount: 0,
+      accountId: accounts.length > 0 ? accounts[0].id : '',
+      toAccountId: accounts.length > 1 ? accounts[1].id : '',
+      categoryId: '',
+      counterpartyId: '',
+      description: 'Перевод средств',
+      date: new Date(),
+      type: 'transfer',
+    });
+    setIsEditing(false);
+    setSidebarOpen(true);
+  };
+
+  // Открыть сайдбар для редактирования транзакции
+  const handleEditClick = (transaction: Transaction) => {
+    setCurrentTransaction({
+      ...transaction,
+      date: new Date(transaction.date),
+    });
+    setIsEditing(true);
+    setSidebarOpen(true);
+  };
+
+  // Закрыть сайдбар
+  const handleClose = () => {
+    setSidebarOpen(false);
+  };
+
+  // Обработка изменения полей формы
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setCurrentTransaction({
+      ...currentTransaction,
+      [name]: name === 'amount' ? parseFloat(value) || 0 : value,
+    });
+  };
+
+  // Обработка изменения даты
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setCurrentTransaction({
+      ...currentTransaction,
+      date: new Date(e.target.value),
+    });
+  };
+
+  // Обработка изменения типа транзакции
+  const handleTypeChange = (e: SelectChangeEvent) => {
+    const type = e.target.value as 'income' | 'expense' | 'transfer';
+    
+    if (type === 'transfer') {
+      // Для перевода выбираем второй счет автоматически, если есть
+      const targetAccountId = accounts.find(a => a.id !== currentTransaction.accountId)?.id || '';
+      setCurrentTransaction({
+        ...currentTransaction,
+        type,
+        categoryId: '',
+        toAccountId: targetAccountId,
+      });
+    } else {
+      // Для доходов/расходов сбрасываем категорию и целевой счет
+      setCurrentTransaction({
+        ...currentTransaction,
+        type,
+        categoryId: '',
+        toAccountId: '', // Сбрасываем целевой счет
+      });
+    }
+  };
+
+  // Создадим обработчик для выбора счета через Autocomplete
+  const handleAccountAutocompleteChange = (event: React.SyntheticEvent, newValue: any) => {
+    // Если выбрана опция "Добавить счет"
+    if (newValue && newValue.isAddOption) {
+      // Открываем сайдбар для создания нового счета
+      setAccountSidebarOpen(true);
+      return;
+    }
+    
+    const newAccountId = newValue ? newValue.id : '';
+    
+    // Если выбран тот же счет, что и целевой в случае перевода,
+    // меняем целевой счет на другой доступный
+    if (currentTransaction.type === 'transfer' && newAccountId === currentTransaction.toAccountId) {
+      const otherAccount = accounts.find(a => a.id !== newAccountId);
+      
+      setCurrentTransaction({
+        ...currentTransaction,
+        accountId: newAccountId,
+        toAccountId: otherAccount?.id || '',
+      });
+    } else {
+      setCurrentTransaction({
+        ...currentTransaction,
+        accountId: newAccountId,
+      });
+    }
+  };
+
+  // Создадим обработчик для выбора целевого счета через Autocomplete
+  const handleToAccountAutocompleteChange = (event: React.SyntheticEvent, newValue: any) => {
+    // Если выбрана опция "Добавить счет"
+    if (newValue && newValue.isAddOption) {
+      // Открываем сайдбар для создания нового счета
+      setAccountSidebarOpen(true);
+      return;
+    }
+    
+    const newToAccountId = newValue ? newValue.id : '';
+    
+    // Если выбран тот же счет, что и исходный в случае перевода,
+    // меняем исходный счет на другой доступный
+    if (currentTransaction.type === 'transfer' && newToAccountId === currentTransaction.accountId) {
+      const otherAccount = accounts.find(a => a.id !== newToAccountId);
+      
+      setCurrentTransaction({
+        ...currentTransaction,
+        accountId: otherAccount?.id || '',
+        toAccountId: newToAccountId,
+      });
+    } else {
+      setCurrentTransaction({
+        ...currentTransaction,
+        toAccountId: newToAccountId,
+      });
+    }
+  };
+
+  // Обработка изменения категории
+  const handleCategoryChange = (event: React.SyntheticEvent, newValue: any) => {
+    // Если выбрана опция "Добавить статью"
+    if (newValue && newValue.isAddOption) {
+      // Устанавливаем тип новой категории в соответствии с типом транзакции
+      setNewCategory(prev => ({
+        ...prev,
+        type: currentTransaction.type === 'income' ? 'income' : 'expense'
+      }));
+      
+      // Открываем сайдбар для создания новой категории
+      setCategorySidebarOpen(true);
+      return;
+    }
+    
+    // Иначе устанавливаем выбранную категорию
+    setCurrentTransaction({
+      ...currentTransaction,
+      categoryId: newValue ? newValue.id : ''
+    });
+  };
+
+  // Обработка изменения контрагента
+  const handleCounterpartyChange = (event: React.SyntheticEvent, newValue: any) => {
+    // Если выбрана опция "Добавить контрагента"
+    if (newValue && newValue.isAddOption) {
+      // Открываем сайдбар для создания нового контрагента
+      setCounterpartySidebarOpen(true);
+      return;
+    }
+    
+    // Иначе устанавливаем выбранного контрагента
+    setCurrentTransaction({
+      ...currentTransaction,
+      counterpartyId: newValue ? newValue.id : ''
+    });
+  };
+  
+  // Обработка изменения полей нового контрагента
+  const handleNewCounterpartyChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNewCounterparty({
+      ...newCounterparty,
+      [name]: value
+    });
+  };
+  
+  // Сохранение нового контрагента
+  const handleSaveNewCounterparty = () => {
+    // Проверка обязательных полей
+    if (!newCounterparty.name) {
+      alert('Пожалуйста, укажите название контрагента');
+      return;
+    }
+    
+    // Создаем нового контрагента
+    addCounterparty(newCounterparty);
+    
+    // Закрываем сайдбар
+    setCounterpartySidebarOpen(false);
+    
+    // Обновляем транзакцию после добавления контрагента
+    // Это не сработает немедленно, поэтому мы будем полагаться на обновление списка контрагентов
+    // и пользователь сможет выбрать нового контрагента из списка
+    
+    // Сбрасываем форму
+    setNewCounterparty({
+      name: '',
+      legalEntity: '',
+      inn: '',
+      contactPerson: '',
+      phone: '',
+      email: '',
+      description: ''
+    });
+  };
+
+  // Обработка изменения полей новой категории
+  const handleNewCategoryChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNewCategory(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  // Сохранение новой категории
+  const handleSaveNewCategory = () => {
+    // Проверка обязательных полей
+    if (!newCategory.name) {
+      alert('Пожалуйста, укажите название статьи');
+      return;
+    }
+    
+    // Создаем новую категорию
+    addCategory(newCategory);
+    
+    // Закрываем сайдбар
+    setCategorySidebarOpen(false);
+    
+    // Находим ID только что созданной категории (последняя добавленная с таким именем)
+    setTimeout(() => {
+      const newlyCreatedCategory = categories
+        .filter(c => c.type === newCategory.type && c.name === newCategory.name)
+        .pop();
+      
+      if (newlyCreatedCategory) {
+        // Устанавливаем новую категорию для транзакции
+        setCurrentTransaction(prev => ({
+          ...prev,
+          categoryId: newlyCreatedCategory.id
+        }));
+      }
+      
+      // Сбрасываем форму
+      setNewCategory({
+        name: '',
+        type: 'expense' as 'income' | 'expense',
+        description: '',
+        color: generateRandomColor()
+      });
+    }, 100);
+  };
+
+  // Сохранение транзакции
+  const handleSave = async () => {
+    // Проверяем обязательные поля в зависимости от типа транзакции
+    if (
+      !currentTransaction.amount ||
+      !currentTransaction.accountId ||
+      !currentTransaction.date ||
+      !currentTransaction.type
+    ) {
+      alert('Пожалуйста, заполните все обязательные поля');
+      return;
+    }
+    
+    // Проверка для переводов
+    if (currentTransaction.type === 'transfer' && !currentTransaction.toAccountId) {
+      alert('Пожалуйста, выберите целевой счет для перевода');
+      return;
+    }
+    
+    if (currentTransaction.type === 'transfer' && 
+        currentTransaction.accountId === currentTransaction.toAccountId) {
+      alert('Исходный и целевой счета должны быть разными');
+      return;
+    }
+    
+    // Проверка на отрицательную сумму
+    if (currentTransaction.amount <= 0) {
+      alert('Сумма должна быть больше нуля');
+      return;
+    }
+
+    // Сохраняем временные файлы
+    const tempFiles = currentTransaction.attachments?.filter(file => file.id.startsWith('temp-')) || [];
+    
+    if (isEditing && currentTransaction.id) {
+      // Обновление существующей транзакции
+      const updatedTransaction = {
+        ...currentTransaction,
+        categoryId: (currentTransaction.categoryId === 'no-category' || !currentTransaction.categoryId) ? undefined : currentTransaction.categoryId,
+      } as Transaction;
+      
+      updateTransaction(updatedTransaction);
+      
+      // Загружаем временные файлы, если они есть
+      for (const file of tempFiles) {
+        try {
+          // Получаем Blob из URL
+          const response = await fetch(file.url);
+          const blob = await response.blob();
+          const fileObj = new File([blob], file.name, { type: file.type });
+          
+          await addAttachmentToTransaction(currentTransaction.id, fileObj);
+        } catch (error) {
+          console.error('Ошибка при добавлении файла:', error);
+        }
+      }
+    } else {
+      // Создание новой транзакции
+      const selectedAccount = getAccountById(currentTransaction.accountId!);
+      const newTransactionData = {
+        amount: currentTransaction.amount!,
+        currency: selectedAccount?.currency || 'RUB', // Добавляем валюту из выбранного счета
+        accountId: currentTransaction.accountId!,
+        categoryId: (currentTransaction.categoryId === 'no-category' || !currentTransaction.categoryId) ? undefined : currentTransaction.categoryId, // Исправлено: правильно обрабатываем 'no-category'
+        counterpartyId: currentTransaction.counterpartyId || undefined,
+        description: currentTransaction.description || '',
+        date: currentTransaction.date!,
+        type: currentTransaction.type!,
+        toAccountId: currentTransaction.type === 'transfer' ? currentTransaction.toAccountId : undefined,
+      };
+      
+      console.log('TransactionsPage: Создаем транзакцию с данными:', newTransactionData);
+      console.log('TransactionsPage: currentTransaction:', currentTransaction);
+      console.log('TransactionsPage: selectedAccount:', selectedAccount);
+      
+      // Добавляем транзакцию
+      try {
+        await addTransaction(newTransactionData);
+        console.log('TransactionsPage: Транзакция успешно создана');
+      } catch (error) {
+        console.error('TransactionsPage: Ошибка при создании транзакции:', error);
+        alert(`Ошибка при создании транзакции: ${error}`);
+        return; // Не закрываем форму если была ошибка
+      }
+      
+      // Для временных файлов нужно будет реализовать отдельную логику в контексте
+      // Сейчас просто выводим сообщение, если есть временные файлы
+      if (tempFiles.length > 0) {
+        console.log(`Есть ${tempFiles.length} временных файлов для загрузки`);
+        // В будущем здесь можно реализовать логику загрузки файлов
+        // после создания транзакции
+      }
+    }
+
+    // Закрытие сайдбара
+    handleClose();
+  };
+
+  // Открытие диалога подтверждения удаления
+  const handleDeleteClick = () => {
+    setConfirmDialogOpen(true);
+  };
+
+  // Удаление транзакции
+  const handleDelete = () => {
+    if (currentTransaction.id) {
+      deleteTransaction(currentTransaction.id);
+      setConfirmDialogOpen(false);
+      handleClose();
+    }
+  };
+
+  // Обработка изменения страницы
+  const handleChangePage = (event: unknown, newPage: number) => {
+    setPage(newPage);
+  };
+
+  // Обработка изменения количества строк на странице
+  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setRowsPerPage(parseInt(event.target.value, 10));
+    setPage(0);
+  };
+  
+  // Функции для выбора транзакций
+  const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      const newSelected = paginatedTransactions.map(transaction => transaction.id);
+      setSelected(newSelected);
+      return;
+    }
+    setSelected([]);
+  };
+  
+  const handleSelectClick = (event: React.MouseEvent<HTMLButtonElement>, id: string) => {
+    event.stopPropagation();
+    
+    const selectedIndex = selected.indexOf(id);
+    let newSelected: string[] = [];
+
+    if (selectedIndex === -1) {
+      // Если не выбран, то добавляем в выбранные
+      newSelected = [...selected, id];
+    } else {
+      // Если уже выбран, то убираем из выбранных
+      newSelected = selected.filter(item => item !== id);
+    }
+
+    setSelected(newSelected);
+  };
+  
+  const isSelected = (id: string) => selected.indexOf(id) !== -1;
+  
+  // Проверяем, все ли выбранные транзакции одного типа
+  const areAllSameType = () => {
+    if (selected.length <= 1) return true;
+    
+    const selectedTransactions = transactions.filter(t => selected.includes(t.id));
+    if (selectedTransactions.length === 0) return false;
+    
+    const firstType = selectedTransactions[0].type;
+    return selectedTransactions.every(t => t.type === firstType);
+  };
+  
+  // Обработчик копирования транзакции
+  const handleCopyTransaction = () => {
+    if (selected.length !== 1) return;
+    
+    const transactionToCopy = transactions.find(t => t.id === selected[0]);
+    if (transactionToCopy) {
+      setCurrentTransaction({
+        ...transactionToCopy,
+        id: undefined, // Не копируем ID, чтобы создать новую транзакцию
+        date: new Date(), // Устанавливаем текущую дату
+        description: `Копия: ${transactionToCopy.description}`,
+      });
+      setIsEditing(false);
+      setSidebarOpen(true);
+      setSelected([]);
+    }
+  };
+  
+  // Обработчик группового редактирования
+  const handleBulkEdit = () => {
+    if (selected.length === 1) {
+      // Если выбрана только одна транзакция, открываем ее для редактирования
+      const transaction = transactions.find(t => t.id === selected[0]);
+      if (transaction) {
+        handleEditClick(transaction);
+      }
+    } else if (selected.length > 1 && areAllSameType()) {
+      // Для групповых операций нужно будет реализовать отдельную логику
+      alert('Групповое редактирование в разработке');
+    }
+  };
+  
+  // Обработчик группового удаления
+  const handleBulkDelete = () => {
+    setConfirmDialogOpen(true);
+  };
+  
+  // Подтверждение удаления выбранных транзакций
+  const confirmBulkDelete = () => {
+    selected.forEach(id => {
+      deleteTransaction(id);
+    });
+    setConfirmDialogOpen(false);
+    setSelected([]);
+  };
+
+  // Сортировка транзакций по дате (сначала новые)
+  const sortedTransactions = [...transactions].sort((a, b) => 
+    new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  // Обработчик изменения поискового запроса
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    setSearchQuery(newValue);
+    setPage(0); // Сбрасываем страницу при изменении поискового запроса
+  };
+
+  // Функция для получения данных по id
+  const getAccountById = (id: string) => accounts.find(account => account.id === id);
+  const getCategoryById = (id: string) => categories.find(category => category.id === id);
+  const getCounterpartyById = (id: string) => counterparties.find(counterparty => counterparty.id === id);
+
+  // Получение имени пользователя по ID
+  const getUserName = (userId: string) => {
+    if (userId === 'system') return 'Система';
+    const user = users.find(u => u.id === userId);
+    return user ? user.fullName : 'Неизвестный пользователь';
+  };
+  
+  // Форматирование даты
+  const formatDate = (date: Date) => {
+    return new Date(date).toLocaleDateString('ru-RU');
+  };
+  
+  // Форматирование даты и времени
+  const formatDateTime = (date: Date) => {
+    return new Date(date).toLocaleString('ru-RU', { 
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+  
+  // Форматирование суммы с учетом валюты
+  const formatAmount = (transaction: Transaction) => {
+    const account = getAccountById(transaction.accountId);
+    if (!account) return `${transaction.amount}`;
+    
+    return new Intl.NumberFormat('ru-RU', {
+      style: 'currency',
+      currency: account.currency,
+      signDisplay: 'never' // Никогда не показывать знак
+    }).format(transaction.amount);
+  };
+
+  // Фильтрация транзакций по поисковому запросу
+  const filterTransactions = (transactions: Transaction[]) => {
+    if (!searchQuery || !searchQuery.trim()) {
+      return transactions;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    
+    const filtered = transactions.filter(transaction => {
+      const account = getAccountById(transaction.accountId);
+      const category = transaction.type !== 'transfer' && transaction.categoryId && transaction.categoryId !== 'no-category' 
+        ? getCategoryById(transaction.categoryId) 
+        : null;
+      const toAccount = transaction.toAccountId ? getAccountById(transaction.toAccountId) : null;
+      const counterparty = transaction.counterpartyId ? getCounterpartyById(transaction.counterpartyId) : null;
+      
+      // Функция для безопасной проверки вхождения подстроки
+      const safeIncludes = (text: string | undefined | null) => {
+        if (!text) return false;
+        return text.toLowerCase().includes(query);
+      };
+      
+      // Проверяем все поля
+      if (safeIncludes(transaction.description)) {
+        return true;
+      }
+      
+      if (safeIncludes(account?.name)) {
+        return true;
+      }
+      
+      if (safeIncludes(toAccount?.name)) {
+        return true;
+      }
+      
+      if (safeIncludes(category?.name)) {
+        return true;
+      }
+      
+      if (safeIncludes(counterparty?.name)) {
+        return true;
+      }
+      
+      // Поиск по сумме
+      const amountStr = transaction.amount.toString();
+      if (amountStr.includes(query)) {
+        return true;
+      }
+      
+      return false;
+    });
+    
+    return filtered;
+  };
+
+  // Фильтрация транзакций по поисковому запросу
+  const filteredTransactions = filterTransactions(sortedTransactions);
+
+  // Получение транзакций для текущей страницы
+  const paginatedTransactions = filteredTransactions.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
+
+  // Обработка изменения полей нового счета
+  const handleNewAccountChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setNewAccount(prev => ({
+      ...prev,
+      [name]: name === 'balance' ? parseFloat(value) || 0 : value
+    }));
+  };
+
+  // Сохранение нового счета
+  const handleSaveNewAccount = () => {
+    // Проверка обязательных полей
+    if (!newAccount.name) {
+      alert('Пожалуйста, укажите название счета');
+      return;
+    }
+    
+    // Создаем новый счет
+    addAccount(newAccount);
+    
+    // Закрываем сайдбар
+    setAccountSidebarOpen(false);
+    
+    // Находим ID только что созданного счета (последний добавленный с таким именем)
+    setTimeout(() => {
+      const newlyCreatedAccount = accounts
+        .filter(a => a.name === newAccount.name)
+        .pop();
+      
+      if (newlyCreatedAccount) {
+        // Устанавливаем новый счет для транзакции
+        setCurrentTransaction(prev => ({
+          ...prev,
+          accountId: newlyCreatedAccount.id
+        }));
+      }
+      
+      // Сбрасываем форму
+      setNewAccount({
+        name: '',
+        balance: 0,
+        currency: 'RUB',
+        description: '',
+        groupName: '',
+        accountType: 'checking' as const,
+        // Банковские поля
+        bankName: '',
+        bik: '',
+        accountNumber: '',
+        correspondentAccount: '',
+        acquiringPercentage: 0,
+        // Поля для карт
+        cardHolder: '',
+        cardNumber: ''
+      });
+    }, 100);
+  };
+
+  // Обработчик добавления файлов к транзакции
+  const handleAddFiles = async (files: File[]) => {
+    if (!isEditing) {
+      // Для новой транзакции сохраняем файлы во временном состоянии
+      setCurrentTransaction(prev => ({
+        ...prev,
+        attachments: [
+          ...(prev.attachments || []),
+          ...files.map(file => ({
+            id: `temp-${Date.now()}-${file.name}`,
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            url: URL.createObjectURL(file),
+            uploadedAt: new Date(),
+            uploadedBy: currentUser?.id || 'system'
+          }))
+        ]
+      }));
+      return;
+    }
+
+    if (!currentTransaction.id) {
+      alert('Сохраните транзакцию перед добавлением файлов');
+      return;
+    }
+
+    for (const file of files) {
+      try {
+        await addAttachmentToTransaction(currentTransaction.id, file);
+      } catch (error) {
+        console.error('Ошибка при добавлении файла:', error);
+        alert(`Ошибка при добавлении файла ${file.name}`);
+      }
+    }
+  };
+
+  // Обработчик удаления файла из транзакции
+  const handleRemoveFile = (fileId: string) => {
+    if (!isEditing && fileId.startsWith('temp-')) {
+      // Для новой транзакции удаляем файл из временного состояния
+      setCurrentTransaction(prev => ({
+        ...prev,
+        attachments: prev.attachments?.filter(file => file.id !== fileId) || []
+      }));
+      return;
+    }
+    
+    if (!currentTransaction.id) return;
+    
+    removeAttachmentFromTransaction(currentTransaction.id, fileId);
+  };
+
+  return (
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
+        <Box sx={{ 
+          backgroundColor: alpha('#e0e0e0', 0.5), 
+          borderRadius: '16px',
+          px: 2,
+          display: 'flex',
+          alignItems: 'center',
+          width: 300,
+          border: '1px solid #E5E7EB',
+        }}>
+          <SearchIcon sx={{ color: 'text.secondary' }} />
+          <InputBase
+            placeholder="Поиск по транзакциям..."
+            sx={{ ml: 1, flex: 1 }}
+            value={searchQuery}
+            onChange={handleSearchChange}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                // Обновляем состояние для принудительной фильтрации
+                setSearchQuery(searchQuery);
+              }
+            }}
+          />
+        </Box>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="contained"
+            onClick={handleAddIncomeClick}
+            disabled={accounts.length === 0 || categories.filter(c => c.type === 'income').length === 0}
+            color="primary"
+            startIcon={<AddIcon sx={{ fontSize: 18 }} />}
+            sx={{ 
+              borderRadius: '12px',
+              boxShadow: 'none',
+              px: 3,
+              py: 1
+            }}
+          >
+            Приход
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAddExpenseClick}
+            disabled={accounts.length === 0 || categories.filter(c => c.type === 'expense').length === 0}
+            color="primary"
+            startIcon={<RemoveIcon sx={{ fontSize: 18 }} />}
+            sx={{ 
+              borderRadius: '12px',
+              boxShadow: 'none',
+              px: 3,
+              py: 1
+            }}
+          >
+            Расход
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleAddTransferClick}
+            disabled={accounts.length < 2}
+            color="primary"
+            startIcon={<CompareArrowsIcon sx={{ fontSize: 18 }} />}
+            sx={{ 
+              borderRadius: '12px',
+              boxShadow: 'none',
+              px: 3,
+              py: 1
+            }}
+          >
+            Перевод
+          </Button>
+        </Box>
+      </Box>
+
+      {(accounts.length === 0 || categories.length === 0) && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="body1" color="error">
+            {accounts.length === 0 ? 'Для создания транзакций необходимо сначала создать хотя бы один счет.' : ''}
+            {categories.length === 0 ? 'Для создания транзакций необходимо сначала создать хотя бы одну категорию.' : ''}
+          </Typography>
+        </Paper>
+      )}
+
+      {/* Таблица транзакций */}
+      {transactions.length === 0 ? (
+        <Paper sx={{ p: 4, borderRadius: '16px', border: '1px solid #F3F4F6' }}>
+          <Typography variant="body1" color="textSecondary" align="center">
+            У вас пока нет транзакций. Используйте кнопки "Приход", "Расход" или "Перевод" для создания новых операций.
+          </Typography>
+        </Paper>
+      ) : (
+        <Paper sx={{ borderRadius: '16px', border: '1px solid #F3F4F6', overflow: 'hidden' }}>
+          <TableContainer sx={{ maxHeight: 'calc(100vh - 200px)' }}>
+            <Table sx={{ borderCollapse: 'separate', borderSpacing: 0 }} stickyHeader>
+              {selected.length > 0 ? (
+                // Панель инструментов для выбранных транзакций
+                <TableHead>
+                  <TableRow sx={{ height: 48 }}>
+                    <TableCell padding="checkbox" sx={{ width: 48, p: '0 0 0 16px', height: 48, borderBottom: '1px solid #F3F4F6' }}>
+                      <Checkbox
+                        indeterminate={selected.length > 0 && selected.length < paginatedTransactions.length}
+                        checked={paginatedTransactions.length > 0 && selected.length === paginatedTransactions.length}
+                        onChange={handleSelectAllClick}
+                        sx={{ p: 0 }}
+                      />
+                    </TableCell>
+                    <TableCell colSpan={6} padding="none" sx={{ p: 0, height: 48, borderBottom: '1px solid #F3F4F6' }}>
+                      <Box 
+                        sx={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          height: '100%',
+                          pl: 1
+                        }}
+                      >
+                        <Typography
+                          sx={{ 
+                            fontSize: '0.75rem',
+                            color: 'text.secondary',
+                            fontWeight: 'normal',
+                            mr: 2
+                          }}
+                          variant="caption"
+                          component="span"
+                        >
+                          {selected.length}
+                        </Typography>
+                        
+                        {selected.length === 1 && (
+                          <Button
+                            onClick={handleCopyTransaction}
+                            size="small"
+                            variant="outlined"
+                            sx={{ 
+                              mr: 1, 
+                              py: 0.5, 
+                              minHeight: 0, 
+                              borderColor: 'primary.light',
+                              color: 'primary.main',
+                              fontSize: '0.75rem',
+                              textTransform: 'none',
+                              borderRadius: '8px'
+                            }}
+                          >
+                            Копировать
+                          </Button>
+                        )}
+                        
+                        {areAllSameType() && (
+                          <Button
+                            onClick={handleBulkEdit}
+                            size="small"
+                            variant="outlined"
+                            sx={{ 
+                              mr: 1, 
+                              py: 0.5, 
+                              minHeight: 0, 
+                              borderColor: 'primary.light',
+                              color: 'primary.main',
+                              fontSize: '0.75rem',
+                              textTransform: 'none',
+                              borderRadius: '8px'
+                            }}
+                          >
+                            Редактировать
+                          </Button>
+                        )}
+                        
+                        <Button
+                          onClick={handleBulkDelete}
+                          size="small"
+                          variant="contained"
+                          sx={{ 
+                            py: 0.5, 
+                            minHeight: 0, 
+                            bgcolor: 'error.main',
+                            color: 'white',
+                            fontSize: '0.75rem',
+                            textTransform: 'none',
+                            borderRadius: '8px',
+                            '&:hover': {
+                              bgcolor: 'error.dark',
+                            }
+                          }}
+                        >
+                          Удалить
+                        </Button>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+              ) : (
+                // Обычные заголовки таблицы
+                <TableHead>
+                  <TableRow sx={{ height: 48 }}>
+                    <TableCell padding="checkbox" sx={{ width: 48, p: '0 0 0 16px', height: 48, borderBottom: '1px solid #F3F4F6' }}>
+                      <Checkbox
+                        indeterminate={selected.length > 0 && selected.length < paginatedTransactions.length}
+                        checked={paginatedTransactions.length > 0 && selected.length === paginatedTransactions.length}
+                        onChange={handleSelectAllClick}
+                        sx={{ p: 0 }}
+                      />
+                    </TableCell>
+                    <TableCell sx={{ width: '12%', height: 48, py: 0, borderBottom: '1px solid #F3F4F6' }}>Дата</TableCell>
+                    <TableCell sx={{ width: '18%', height: 48, py: 0, borderBottom: '1px solid #F3F4F6' }}>Сумма</TableCell>
+                    <TableCell sx={{ width: '23%', height: 48, py: 0, borderBottom: '1px solid #F3F4F6' }}>Статья</TableCell>
+                    <TableCell sx={{ width: '22%', height: 48, py: 0, borderBottom: '1px solid #F3F4F6' }}>Контрагент</TableCell>
+                    <TableCell sx={{ width: '25%', height: 48, py: 0, borderBottom: '1px solid #F3F4F6' }}>Счет</TableCell>
+                  </TableRow>
+                </TableHead>
+              )}
+              <TableBody>
+                {paginatedTransactions.map((transaction) => {
+                  const account = getAccountById(transaction.accountId);
+                  const category = transaction.type !== 'transfer' && transaction.categoryId && transaction.categoryId !== 'no-category' 
+                    ? getCategoryById(transaction.categoryId) 
+                    : null;
+                  const counterparty = transaction.counterpartyId ? getCounterpartyById(transaction.counterpartyId) : null;
+                  const toAccount = transaction.toAccountId ? getAccountById(transaction.toAccountId) : null;
+                  const isItemSelected = isSelected(transaction.id);
+                  
+                  return (
+                    <TableRow 
+                      key={transaction.id}
+                      onClick={() => handleEditClick(transaction)}
+                      sx={{ 
+                        cursor: 'pointer',
+                        height: 56, // Уменьшенная высота строки
+                        '&:hover': {
+                          backgroundColor: '#F9FAFB',
+                        },
+                        ...(isItemSelected ? { backgroundColor: '#F3F4F6' } : {}),
+                        '& .MuiTableCell-root': { 
+                          borderBottom: '1px solid #F3F4F6',
+                          py: 1.5,
+                          height: 56, // Уменьшенная высота ячеек
+                        }
+                      }}
+                      selected={isItemSelected}
+                    >
+                      <TableCell padding="checkbox" sx={{ width: 48, p: '0 0 0 16px' }}>
+                        <Checkbox
+                          checked={isItemSelected}
+                          onClick={(event) => handleSelectClick(event, transaction.id)}
+                          sx={{ p: 0 }}
+                        />
+                      </TableCell>
+                      <TableCell>{formatDate(transaction.date)}</TableCell>
+                      <TableCell sx={{ 
+                        color: transaction.type === 'income' ? 'success.main' : 
+                               transaction.type === 'expense' ? 'error.main' : 'text.primary',
+                        fontWeight: 500
+                      }}>
+                        {transaction.type === 'income' ? '+' : transaction.type === 'expense' ? '-' : ''}
+                        {formatAmount(transaction)}
+                      </TableCell>
+                      <TableCell>
+                        {transaction.type === 'transfer' ? (
+                          <Box sx={{ height: 56, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <Box
+                                sx={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: '50%',
+                                  backgroundColor: '#9E9E9E', // Серый цвет
+                                  mr: 1,
+                                }}
+                              />
+                              <Typography variant="body2">Перевод между счетами</Typography>
+                            </Box>
+                            {transaction.description && (
+                              <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, lineHeight: 1.2 }}>
+                                {linkify(transaction.description)}
+                              </Typography>
+                            )}
+                          </Box>
+                        ) : (
+                          <Box sx={{ height: 56, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              {category && (
+                                <Box
+                                  sx={{
+                                    width: 8,
+                                    height: 8,
+                                    borderRadius: '50%',
+                                    backgroundColor: category.color || '#ccc',
+                                    mr: 1,
+                                  }}
+                                />
+                              )}
+                              <Typography variant="body2">
+                                {category ? category.name : 'Без статьи'}
+                              </Typography>
+                            </Box>
+                            {transaction.description && (
+                              <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, lineHeight: 1.2 }}>
+                                {linkify(transaction.description)}
+                              </Typography>
+                            )}
+                          </Box>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ height: 56, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          {counterparty ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <Box sx={{ 
+                                width: 24, 
+                                height: 24, 
+                                borderRadius: '50%', 
+                                backgroundColor: '#F3F4F6',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                mr: 1
+                              }}>
+                                <BusinessIcon sx={{ color: 'text.secondary', fontSize: '16px' }} />
+                              </Box>
+                              {counterparty.name}
+                            </Box>
+                          ) : (
+                            '—'
+                          )}
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ height: 56, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                          {transaction.type === 'transfer' && toAccount ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                              <Typography variant="body2">
+                                {account ? account.name : 'Неизвестный счет'}
+                              </Typography>
+                              <ArrowForwardIcon fontSize="small" sx={{ mx: 1, color: '#9E9E9E', fontSize: '16px' }} />
+                              <Typography variant="body2">
+                                {toAccount.name}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography variant="body2">
+                              {account ? account.name : 'Неизвестный счет'}
+                            </Typography>
+                          )}
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <TablePagination
+            rowsPerPageOptions={[25, 50, 100]}
+            component="div"
+            count={filteredTransactions.length}
+            rowsPerPage={rowsPerPage}
+            page={page}
+            onPageChange={handleChangePage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            labelRowsPerPage="Строк на странице:"
+            labelDisplayedRows={({ from, to, count }: LabelDisplayedRowsProps) => 
+              `${from}–${to} из ${count !== -1 ? count : `более чем ${to}`}`
+            }
+            sx={{
+              borderTop: '1px solid #F3F4F6',
+              '.MuiTablePagination-selectLabel, .MuiTablePagination-displayedRows': {
+                fontSize: '0.875rem',
+                color: 'text.secondary'
+              },
+              '.MuiTablePagination-select': {
+                fontSize: '0.875rem'
+              }
+            }}
+          />
+        </Paper>
+      )}
+
+      {/* Правый сайдбар для добавления/редактирования транзакции */}
+      <RightSidebar 
+        open={sidebarOpen} 
+        onClose={handleClose} 
+        title={
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <Typography variant="h6" component="div" sx={{ fontWeight: 600 }}>
+              {isEditing 
+                ? 'Редактировать транзакцию' 
+                : (
+                  <Box component="span" sx={{ display: 'flex', alignItems: 'baseline' }}>
+                    Добавить операцию{' '}
+                    <Box 
+                      component="span" 
+                      onClick={() => handleTypeChange({ target: { value: currentTransaction.type === 'income' ? 'expense' : currentTransaction.type === 'expense' ? 'transfer' : 'income' }} as SelectChangeEvent)}
+                      sx={{ 
+                        cursor: 'pointer',
+                        color: currentTransaction.type === 'income' 
+                          ? 'success.main' 
+                          : currentTransaction.type === 'expense'
+                            ? 'error.main'
+                            : 'primary.main',
+                        fontWeight: 500,
+                        borderBottom: '1px dashed',
+                        borderColor: currentTransaction.type === 'income' 
+                          ? 'success.main' 
+                          : currentTransaction.type === 'expense'
+                            ? 'error.main'
+                            : 'primary.main',
+                        ml: 0.5,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        '&:hover': {
+                          opacity: 0.8
+                        }
+                      }}
+                    >
+                      {currentTransaction.type === 'income' && (
+                        <>
+                          прихода
+                          <AddIcon sx={{ fontSize: 16, ml: 0.5 }} />
+                        </>
+                      )}
+                      {currentTransaction.type === 'expense' && (
+                        <>
+                          расхода
+                          <RemoveIcon sx={{ fontSize: 16, ml: 0.5 }} />
+                        </>
+                      )}
+                      {currentTransaction.type === 'transfer' && (
+                        <>
+                          перевода
+                          <CompareArrowsIcon sx={{ fontSize: 16, ml: 0.5 }} />
+                        </>
+                      )}
+                    </Box>
+                  </Box>
+                )
+              }
+            </Typography>
+          </Box>
+        }
+        width={550}
+      >
+        <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
+          {/* Для переводов - специальная компоновка */}
+          {currentTransaction.type === 'transfer' ? (
+            <>
+              {/* Сумма - полная ширина */}
+              <TextField
+                name="amount"
+                label="Сумма"
+                value={currentTransaction.amount === 0 ? '' : currentTransaction.amount || ''}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  // Разрешаем пустое значение или числовое значение (включая десятичные числа)
+                  if (value === '' || /^[0-9]*\.?[0-9]*$/.test(value)) {
+                    handleInputChange({
+                      ...e,
+                      target: {
+                        ...e.target,
+                        name: 'amount',
+                        value: value
+                      }
+                    });
+                  }
+                }}
+                required
+                fullWidth
+                InputLabelProps={{
+                  shrink: true,
+                }}
+                inputProps={{
+                  inputMode: 'decimal',
+                  style: { textAlign: 'left' }
+                }}
+                sx={{
+                  '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
+                    '-webkit-appearance': 'none',
+                    margin: 0,
+                  },
+                  '& input[type=number]': {
+                    '-moz-appearance': 'textfield',
+                  },
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: '12px',
+                  },
+                  '& .MuiInputBase-input': {
+                  }
+                }}
+                placeholder="0,00"
+              />
+
+              {/* Счет списания - полная ширина */}
+              <Autocomplete
+                id="account-select"
+                options={[
+                  { id: 'add-new-account', name: 'Добавить счет', isAddOption: true as const },
+                  ...accounts.map(account => ({ 
+                    id: account.id, 
+                    name: account.name, 
+                    balance: account.balance,
+                    currency: account.currency
+                  }))
+                ]}
+                getOptionLabel={(option: any) => option.name}
+                value={
+                  currentTransaction.accountId
+                    ? { 
+                        id: currentTransaction.accountId, 
+                        name: accounts.find(a => a.id === currentTransaction.accountId)?.name || '',
+                        balance: accounts.find(a => a.id === currentTransaction.accountId)?.balance || 0,
+                        currency: accounts.find(a => a.id === currentTransaction.accountId)?.currency || 'RUB'
+                      } 
+                    : null
+                }
+                onChange={handleAccountAutocompleteChange}
+                filterOptions={(options: any[], state) => {
+                  const addOption = options.find(option => option.isAddOption);
+                  const filtered = options
+                    .filter(option => !option.isAddOption && 
+                      option.name.toLowerCase().includes(state.inputValue.toLowerCase()));
+                  return addOption ? [addOption, ...filtered] : filtered;
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Счет списания"
+                    placeholder="Начните вводить для поиска"
+                    required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: '12px',
+                      }
+                    }}
+                  />
+                )}
+                renderOption={(props, option: any) => (
+                  <li {...props}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      {option.isAddOption ? (
+                        <>
+                          <AddCircleOutlineIcon fontSize="small" sx={{ mr: 1, color: 'primary.main', fontSize: 18 }} />
+                          <Typography color="primary.main">{option.name}</Typography>
+                        </>
+                      ) : (
+                        <>
+                          <BusinessIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
+                          {option.name}
+                        </>
+                      )}
+                    </Box>
+                  </li>
+                )}
+                isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+                fullWidth
+                disabled={accounts.length === 0}
+              />
+
+              {/* Счет зачисления - полная ширина */}
+              <Autocomplete
+                id="to-account-select"
+                options={[
+                  { id: 'add-new-account', name: 'Добавить счет', isAddOption: true as const },
+                  ...accounts
+                    .filter(account => account.id !== currentTransaction.accountId)
+                    .map(account => ({ 
+                      id: account.id, 
+                      name: account.name, 
+                      balance: account.balance,
+                      currency: account.currency
+                    }))
+                ]}
+                getOptionLabel={(option: any) => option.name}
+                value={
+                  currentTransaction.toAccountId
+                    ? { 
+                        id: currentTransaction.toAccountId, 
+                        name: accounts.find(a => a.id === currentTransaction.toAccountId)?.name || '',
+                        balance: accounts.find(a => a.id === currentTransaction.toAccountId)?.balance || 0,
+                        currency: accounts.find(a => a.id === currentTransaction.toAccountId)?.currency || 'RUB'
+                      } 
+                    : null
+                }
+                onChange={handleToAccountAutocompleteChange}
+                filterOptions={(options: any[], state) => {
+                  const addOption = options.find(option => option.isAddOption);
+                  const filtered = options
+                    .filter(option => !option.isAddOption && 
+                      option.name.toLowerCase().includes(state.inputValue.toLowerCase()));
+                  return addOption ? [addOption, ...filtered] : filtered;
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Счет зачисления"
+                    placeholder="Начните вводить для поиска"
+                    required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: '12px',
+                      }
+                    }}
+                  />
+                )}
+                renderOption={(props, option: any) => (
+                  <li {...props}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      {option.isAddOption ? (
+                        <>
+                          <AddCircleOutlineIcon fontSize="small" sx={{ mr: 1, color: 'primary.main', fontSize: 18 }} />
+                          <Typography color="primary.main">{option.name}</Typography>
+                        </>
+                      ) : (
+                        <>
+                          <BusinessIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
+                          {option.name}
+                        </>
+                      )}
+                    </Box>
+                  </li>
+                )}
+                isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+                fullWidth
+                disabled={accounts.length < 2}
+              />
+
+              {/* Дата - полная ширина */}
+              <TextField
+                name="date"
+                label="Дата"
+                type="date"
+                value={currentTransaction.date ? new Date(currentTransaction.date).toISOString().split('T')[0] : ''}
+                onChange={handleDateChange}
+                required
+                fullWidth
+                InputLabelProps={{
+                  shrink: true,
+                }}
+                sx={{ 
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: '12px',
+                  },
+                  '& .MuiInputBase-input': {
+                  }
+                }}
+              />
+            </>
+          ) : (
+            <>
+              {/* Для доходов и расходов - обычная компоновка */}
+              {/* Первый ряд: Сумма и Счет */}
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <TextField
+                  name="amount"
+                  label="Сумма"
+                  value={currentTransaction.amount === 0 ? '' : currentTransaction.amount || ''}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || /^[0-9]*\.?[0-9]*$/.test(value)) {
+                      handleInputChange({
+                        ...e,
+                        target: {
+                          ...e.target,
+                          name: 'amount',
+                          value: value
+                        }
+                      });
+                    }
+                  }}
+                  required
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  inputProps={{
+                    inputMode: 'decimal',
+                    style: { textAlign: 'left' }
+                  }}
+                  sx={{
+                    width: '50%',
+                    '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
+                      '-webkit-appearance': 'none',
+                      margin: 0,
+                    },
+                    '& input[type=number]': {
+                      '-moz-appearance': 'textfield',
+                    },
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: '12px',
+                    },
+                    '& .MuiInputBase-input': {
+                    }
+                  }}
+                  placeholder="0,00"
+                />
+                
+                <Autocomplete
+                  id="account-select"
+                  options={[
+                    { id: 'add-new-account', name: 'Добавить счет', isAddOption: true as const },
+                    ...accounts.map(account => ({ 
+                      id: account.id, 
+                      name: account.name, 
+                      balance: account.balance,
+                      currency: account.currency
+                    }))
+                  ]}
+                  getOptionLabel={(option: any) => option.name}
+                  value={
+                    currentTransaction.accountId
+                      ? { 
+                          id: currentTransaction.accountId, 
+                          name: accounts.find(a => a.id === currentTransaction.accountId)?.name || '',
+                          balance: accounts.find(a => a.id === currentTransaction.accountId)?.balance || 0,
+                          currency: accounts.find(a => a.id === currentTransaction.accountId)?.currency || 'RUB'
+                        } 
+                      : null
+                  }
+                  onChange={handleAccountAutocompleteChange}
+                  filterOptions={(options: any[], state) => {
+                    const addOption = options.find(option => option.isAddOption);
+                    const filtered = options
+                      .filter(option => !option.isAddOption && 
+                        option.name.toLowerCase().includes(state.inputValue.toLowerCase()));
+                    return addOption ? [addOption, ...filtered] : filtered;
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Счет"
+                      placeholder="Начните вводить для поиска"
+                      required
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: '12px',
+                        }
+                      }}
+                    />
+                  )}
+                  renderOption={(props, option: any) => (
+                    <li {...props}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        {option.isAddOption ? (
+                          <>
+                            <AddCircleOutlineIcon fontSize="small" sx={{ mr: 1, color: 'primary.main', fontSize: 18 }} />
+                            <Typography color="primary.main">{option.name}</Typography>
+                          </>
+                        ) : (
+                          <>
+                            <BusinessIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
+                            {option.name}
+                          </>
+                        )}
+                      </Box>
+                    </li>
+                  )}
+                  isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+                  sx={{ 
+                    width: '50%',
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: '12px',
+                    }
+                  }}
+                  disabled={accounts.length === 0}
+                />
+              </Box>
+              
+              {/* Второй ряд: Категория и Дата */}
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <Autocomplete
+                  id="category-select"
+                  options={[
+                    { id: 'add-new-category', name: 'Добавить статью', isAddOption: true as const },
+                    { id: 'no-category', name: 'Без статьи', isNoCategory: true as const },
+                    ...categories
+                      .filter(category => category.type === currentTransaction.type)
+                      .map(category => ({ id: category.id, name: category.name, color: category.color }))
+                  ]}
+                  getOptionLabel={(option: any) => option.name}
+                  value={
+                    currentTransaction.categoryId === 'no-category' 
+                      ? { id: 'no-category', name: 'Без статьи', isNoCategory: true as const } 
+                      : currentTransaction.categoryId 
+                        ? { 
+                            id: currentTransaction.categoryId, 
+                            name: categories.find(c => c.id === currentTransaction.categoryId)?.name || '',
+                            color: categories.find(c => c.id === currentTransaction.categoryId)?.color
+                          } 
+                        : null
+                  }
+                  onChange={handleCategoryChange}
+                  filterOptions={(options: any[], state) => {
+                    const addOption = options.find(option => option.isAddOption);
+                    const noCategory = options.find(option => option.isNoCategory);
+                    const filtered = options
+                      .filter(option => !option.isAddOption && !option.isNoCategory && 
+                        option.name.toLowerCase().includes(state.inputValue.toLowerCase()));
+                    const result = [];
+                    if (addOption) result.push(addOption);
+                    if (noCategory) result.push(noCategory);
+                    return [...result, ...filtered];
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Статья"
+                      placeholder="Начните вводить для поиска"
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: '12px',
+                        }
+                      }}
+                    />
+                  )}
+                  renderOption={(props, option: any) => (
+                    <li {...props}>
+                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                        {option.isAddOption ? (
+                          <>
+                            <AddCircleOutlineIcon fontSize="small" sx={{ mr: 1, color: 'primary.main', fontSize: 18 }} />
+                            <Typography color="primary.main">{option.name}</Typography>
+                          </>
+                        ) : option.isNoCategory ? (
+                          <Typography sx={{ fontStyle: 'italic' }}>{option.name}</Typography>
+                        ) : (
+                          <>
+                            <Box
+                              sx={{
+                                width: 12,
+                                height: 12,
+                                borderRadius: '50%',
+                                backgroundColor: option.color || '#ccc',
+                                mr: 1,
+                              }}
+                            />
+                            {option.name}
+                          </>
+                        )}
+                      </Box>
+                    </li>
+                  )}
+                  isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+                  sx={{ 
+                    width: '50%',
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: '12px',
+                    }
+                  }}
+                />
+                
+                <TextField
+                  name="date"
+                  label="Дата"
+                  type="date"
+                  value={currentTransaction.date ? new Date(currentTransaction.date).toISOString().split('T')[0] : ''}
+                  onChange={handleDateChange}
+                  required
+                  InputLabelProps={{
+                    shrink: true,
+                  }}
+                  sx={{ 
+                    width: '50%',
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: '12px',
+                    },
+                    '& .MuiInputBase-input': {
+                    }
+                  }}
+                />
+              </Box>
+              
+              {/* Контрагент */}
+              <Autocomplete
+                id="counterparty-select"
+                options={[
+                  { id: 'add-new', name: 'Добавить контрагента', isAddOption: true as const },
+                  ...counterparties.map(cp => ({ id: cp.id, name: cp.name }))
+                ]}
+                getOptionLabel={(option: any) => option.name}
+                value={currentTransaction.counterpartyId ? 
+                  { id: currentTransaction.counterpartyId, name: getCounterpartyById(currentTransaction.counterpartyId)?.name || '' } : 
+                  null}
+                onChange={handleCounterpartyChange}
+                filterOptions={(options: any[], state) => {
+                  const addOption = options.find(option => option.isAddOption);
+                  const filtered = options
+                    .filter(option => !option.isAddOption && option.name.toLowerCase().includes(state.inputValue.toLowerCase()));
+                  return addOption ? [addOption, ...filtered] : filtered;
+                }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Контрагент"
+                    placeholder="Начните вводить для поиска"
+                  />
+                )}
+                renderOption={(props, option: any) => (
+                  <li {...props}>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      {option.isAddOption ? (
+                        <>
+                          <AddCircleOutlineIcon fontSize="small" sx={{ mr: 1, color: 'primary.main', fontSize: 18 }} />
+                          <Typography color="primary.main">{option.name}</Typography>
+                        </>
+                      ) : (
+                        <>
+                          <BusinessIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
+                          {option.name}
+                        </>
+                      )}
+                    </Box>
+                  </li>
+                )}
+                isOptionEqualToValue={(option: any, value: any) => option.id === value.id}
+                fullWidth
+              />
+
+              {/* Описание - только для доходов и расходов */}
+              <TextField
+                name="description"
+                label="Описание"
+                type="text"
+                fullWidth
+                multiline
+                rows={3}
+                value={currentTransaction.description}
+                onChange={handleInputChange}
+              />
+
+              {/* Файлы - только для доходов и расходов */}
+              <>
+                <Divider sx={{ mt: 2, mb: 1 }} />
+                {currentTransaction.attachments && currentTransaction.attachments.length > 0 && (
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                    Прикрепленные файлы
+                  </Typography>
+                )}
+                <FileUpload
+                  files={currentTransaction.attachments || []}
+                  onAddFiles={handleAddFiles}
+                  onRemoveFile={handleRemoveFile}
+                />
+              </>
+            </>
+          )}
+          
+          {isEditing && currentTransaction.audit && (
+            <>
+              <Divider sx={{ mt: 3, mb: 2 }} />
+              <Typography variant="subtitle2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center' }}>
+                <HistoryIcon fontSize="small" sx={{ mr: 1, fontSize: 18 }} />
+                История изменений
+              </Typography>
+              
+              <List disablePadding>
+                {/* Информация о создании */}
+                {currentTransaction.audit.createdAt && (
+                  <ListItem sx={{ py: 1, px: 0 }}>
+                    <Avatar 
+                      sx={{ 
+                        width: 32, 
+                        height: 32, 
+                        mr: 2, 
+                        bgcolor: 'success.main',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      <CreateIcon sx={{ fontSize: 18 }} />
+                    </Avatar>
+                    <ListItemText 
+                      primary={
+                        <Typography variant="body2">
+                          Создано: <b>{getUserName(currentTransaction.audit.createdBy)}</b>
+                        </Typography>
+                      }
+                      secondary={formatDateTime(new Date(currentTransaction.audit.createdAt))}
+                    />
+                  </ListItem>
+                )}
+                
+                {/* Информация об обновлении */}
+                {currentTransaction.audit.updatedAt && (
+                  <ListItem sx={{ py: 1, px: 0 }}>
+                    <Avatar 
+                      sx={{ 
+                        width: 32, 
+                        height: 32, 
+                        mr: 2, 
+                        bgcolor: 'primary.main',
+                        fontSize: '0.75rem'
+                      }}
+                    >
+                      <UpdateIcon sx={{ fontSize: 18 }} />
+                    </Avatar>
+                    <ListItemText 
+                      primary={
+                        <Typography variant="body2">
+                          Изменено: <b>{getUserName(currentTransaction.audit.updatedBy || '')}</b>
+                        </Typography>
+                      }
+                      secondary={formatDateTime(new Date(currentTransaction.audit.updatedAt))}
+                    />
+                  </ListItem>
+                )}
+              </List>
+            </>
+          )}
+          
+          {isEditing && (
+            <>
+              <Divider sx={{ my: 1 }} />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Button 
+                  startIcon={<DeleteIcon />} 
+                  color="error" 
+                  variant="outlined"
+                  onClick={handleDeleteClick}
+                  sx={{
+                    borderRadius: '12px',
+                    borderColor: 'error.light',
+                    color: 'error.main',
+                    '&:hover': {
+                      borderColor: 'error.main',
+                      backgroundColor: 'error.main',
+                      color: 'white'
+                    },
+                    py: 1
+                  }}
+                >
+                  Удалить
+                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button 
+                    onClick={handleClose} 
+                    variant="outlined"
+                    sx={{
+                      borderRadius: '12px',
+                      borderColor: '#E5E7EB',
+                      color: 'text.secondary',
+                      '&:hover': {
+                        borderColor: '#D1D5DB',
+                        backgroundColor: 'rgba(0, 0, 0, 0.01)'
+                      },
+                      py: 1,
+                      minWidth: 100
+                    }}
+                  >
+                    Отмена
+                  </Button>
+                  <Button 
+                    onClick={handleSave} 
+                    variant="contained"
+                    sx={{
+                      borderRadius: '12px',
+                      boxShadow: 'none',
+                      '&:hover': {
+                        boxShadow: '0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                      },
+                      py: 1,
+                      minWidth: 100
+                    }}
+                  >
+                    Сохранить
+                  </Button>
+                </Box>
+              </Box>
+            </>
+          )}
+          
+          {!isEditing && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+              <Button 
+                onClick={handleClose} 
+                variant="outlined"
+                sx={{
+                  borderRadius: '12px',
+                  borderColor: '#E5E7EB',
+                  color: 'text.secondary',
+                  '&:hover': {
+                    borderColor: '#D1D5DB',
+                    backgroundColor: 'rgba(0, 0, 0, 0.01)'
+                  },
+                  py: 1,
+                  minWidth: 100
+                }}
+              >
+                Отмена
+              </Button>
+              <Button 
+                onClick={handleSave} 
+                variant="contained"
+                sx={{
+                  borderRadius: '12px',
+                  boxShadow: 'none',
+                  '&:hover': {
+                    boxShadow: '0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -1px rgba(0, 0, 0, 0.06)'
+                  },
+                  py: 1,
+                  minWidth: 100
+                }}
+              >
+                Сохранить
+              </Button>
+            </Box>
+          )}
+        </Box>
+      </RightSidebar>
+
+      {/* Диалог подтверждения удаления */}
+      <ConfirmDialog
+        open={confirmDialogOpen}
+        title={selected.length > 1 ? "Удалить выбранные транзакции" : "Удалить транзакцию"}
+        message={selected.length > 1 
+          ? `Вы уверены, что хотите удалить ${selected.length} выбранных транзакций? Это действие нельзя отменить.` 
+          : "Вы уверены, что хотите удалить эту транзакцию? Это действие нельзя отменить."}
+        confirmText="Удалить"
+        cancelText="Отмена"
+        confirmColor="primary"
+        onConfirm={selected.length > 0 ? confirmBulkDelete : handleDelete}
+        onCancel={() => setConfirmDialogOpen(false)}
+      />
+
+      {/* Сайдбар для создания нового контрагента */}
+      <RightSidebar 
+        open={counterpartySidebarOpen} 
+        onClose={() => setCounterpartySidebarOpen(false)} 
+        title="Добавить нового контрагента"
+        width={550}
+      >
+        <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            name="name"
+            label="Название"
+            type="text"
+            fullWidth
+            value={newCounterparty.name}
+            onChange={handleNewCounterpartyChange}
+            required
+          />
+          
+          <TextField
+            name="inn"
+            label="ИНН"
+            type="text"
+            fullWidth
+            value={newCounterparty.inn}
+            onChange={handleNewCounterpartyChange}
+          />
+          
+          <TextField
+            name="contactPerson"
+            label="Контактное лицо"
+            type="text"
+            fullWidth
+            value={newCounterparty.contactPerson}
+            onChange={handleNewCounterpartyChange}
+          />
+          
+          <TextField
+            name="phone"
+            label="Телефон"
+            type="tel"
+            fullWidth
+            value={newCounterparty.phone}
+            onChange={handleNewCounterpartyChange}
+          />
+          
+          <TextField
+            name="email"
+            label="Email"
+            type="email"
+            fullWidth
+            value={newCounterparty.email}
+            onChange={handleNewCounterpartyChange}
+          />
+          
+          <TextField
+            name="description"
+            label="Описание"
+            type="text"
+            fullWidth
+            multiline
+            rows={3}
+            value={newCounterparty.description}
+            onChange={handleNewCounterpartyChange}
+          />
+          
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+            <Button onClick={() => setCounterpartySidebarOpen(false)} variant="outlined" sx={{ minWidth: 100 }}>
+              Отмена
+            </Button>
+            <Button onClick={handleSaveNewCounterparty} variant="contained" sx={{ minWidth: 100 }}>
+              Сохранить
+            </Button>
+          </Box>
+        </Box>
+      </RightSidebar>
+
+      {/* Сайдбар для создания новой категории */}
+      <RightSidebar 
+        open={categorySidebarOpen} 
+        onClose={() => setCategorySidebarOpen(false)} 
+        title="Добавить новую статью"
+        width={550}
+      >
+        <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            name="name"
+            label="Название"
+            type="text"
+            fullWidth
+            value={newCategory.name}
+            onChange={handleNewCategoryChange}
+            required
+          />
+          
+          <FormControl fullWidth>
+            <InputLabel>Тип</InputLabel>
+            <Select
+              name="type"
+              value={newCategory.type}
+              label="Тип"
+              onChange={(e) => setNewCategory({...newCategory, type: e.target.value as 'income' | 'expense'})}
+            >
+              <MenuItem value="income">Доход</MenuItem>
+              <MenuItem value="expense">Расход</MenuItem>
+            </Select>
+          </FormControl>
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <TextField
+              name="color"
+              label="Цвет"
+              type="text"
+              value={newCategory.color}
+              onChange={handleNewCategoryChange}
+              sx={{ flexGrow: 1 }}
+            />
+            <Box 
+              sx={{ 
+                width: 24, 
+                height: 24, 
+                borderRadius: '50%',
+                backgroundColor: newCategory.color || '#ccc',
+                border: '1px solid #ddd',
+                cursor: 'pointer'
+              }}
+              onClick={() => {
+                // Генерируем случайный цвет
+                const randomColor = generateRandomColor();
+                setNewCategory({...newCategory, color: randomColor});
+              }}
+            />
+          </Box>
+          
+          <TextField
+            name="description"
+            label="Описание"
+            type="text"
+            fullWidth
+            multiline
+            rows={3}
+            value={newCategory.description}
+            onChange={handleNewCategoryChange}
+          />
+          
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+            <Button onClick={() => setCategorySidebarOpen(false)} variant="outlined" sx={{ minWidth: 100 }}>
+              Отмена
+            </Button>
+            <Button onClick={handleSaveNewCategory} variant="contained" sx={{ minWidth: 100 }}>
+              Сохранить
+            </Button>
+          </Box>
+        </Box>
+      </RightSidebar>
+
+      {/* Сайдбар для создания нового счета */}
+      <RightSidebar 
+        open={accountSidebarOpen} 
+        onClose={() => setAccountSidebarOpen(false)} 
+        title="Добавить новый счет"
+        width={550}
+      >
+        <Box component="form" sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField
+            name="name"
+            label="Название"
+            type="text"
+            fullWidth
+            value={newAccount.name}
+            onChange={handleNewAccountChange}
+            required
+          />
+          
+          <TextField
+            name="balance"
+            label="Баланс"
+            type="number"
+            fullWidth
+            value={newAccount.balance}
+            onChange={handleNewAccountChange}
+            required
+          />
+          
+          <FormControl fullWidth>
+            <InputLabel>Валюта</InputLabel>
+            <Select
+              name="currency"
+              value={newAccount.currency}
+              label="Валюта"
+              onChange={(e) => setNewAccount({...newAccount, currency: e.target.value})}
+              required
+            >
+              <MenuItem value="RUB">Рубль (₽)</MenuItem>
+              <MenuItem value="USD">Доллар ($)</MenuItem>
+              <MenuItem value="EUR">Евро (€)</MenuItem>
+              <MenuItem value="CNY">Юань (¥)</MenuItem>
+              <MenuItem value="GBP">Фунт (£)</MenuItem>
+            </Select>
+          </FormControl>
+          
+          <TextField
+            name="description"
+            label="Описание"
+            type="text"
+            fullWidth
+            multiline
+            rows={3}
+            value={newAccount.description}
+            onChange={handleNewAccountChange}
+          />
+          
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2, gap: 1 }}>
+            <Button onClick={() => setAccountSidebarOpen(false)} variant="outlined" sx={{ minWidth: 100 }}>
+              Отмена
+            </Button>
+            <Button onClick={handleSaveNewAccount} variant="contained" sx={{ minWidth: 100 }}>
+              Сохранить
+            </Button>
+          </Box>
+        </Box>
+      </RightSidebar>
+    </Box>
+  );
+};
+
+export default TransactionsPage; 

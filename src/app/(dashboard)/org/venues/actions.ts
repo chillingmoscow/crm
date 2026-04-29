@@ -65,7 +65,7 @@ export async function createVenue(
     });
   }
 
-  revalidatePath("/settings/venues");
+  revalidatePath("/org/venues");
   return { id: venue.id, error: null };
 }
 
@@ -95,7 +95,7 @@ export async function updateVenue(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/settings/venues");
+  revalidatePath("/org/venues");
   return { error: null };
 }
 
@@ -112,6 +112,6 @@ export async function deleteVenue(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/settings/venues");
+  revalidatePath("/org/venues");
   return { error: null };
 }

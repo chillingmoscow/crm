@@ -41,7 +41,7 @@ export default async function VenueDetailServerPage({
     .eq("owner_id", user.id)
     .maybeSingle();
 
-  if (!account) redirect("/settings/venues");
+  if (!account) redirect("/org/venues");
 
   const { data: venue } = await supabase
     .from("venues")
@@ -51,7 +51,7 @@ export default async function VenueDetailServerPage({
     .returns<VenueDetail[]>()
     .maybeSingle();
 
-  if (!venue) redirect("/settings/venues");
+  if (!venue) redirect("/org/venues");
 
   const importedVenueResult = (await db
     .from("external_entity_links")

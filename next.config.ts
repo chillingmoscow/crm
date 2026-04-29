@@ -19,6 +19,22 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
     ],
   },
+  async redirects() {
+    // 301-redirects from pre-block-restructure URLs to the new
+    // block-namespaced paths (docs/MERGE_PLAN.md §6 Этап 1).
+    // Remove these once external bookmarks and search index have
+    // refreshed (~2 weeks after deployment).
+    return [
+      { source: "/staff",                    destination: "/people/staff",  permanent: true },
+      { source: "/staff/:path*",             destination: "/people/staff/:path*", permanent: true },
+      { source: "/settings/roles",           destination: "/people/roles",  permanent: true },
+      { source: "/settings/roles/:path*",    destination: "/people/roles/:path*",  permanent: true },
+      { source: "/settings/venues",          destination: "/org/venues",    permanent: true },
+      { source: "/settings/venues/:path*",   destination: "/org/venues/:path*",    permanent: true },
+      { source: "/settings/account",         destination: "/org/account",   permanent: true },
+      { source: "/settings/profile",         destination: "/profile",       permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

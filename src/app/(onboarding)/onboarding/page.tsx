@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { OnboardingWizard } from "./_components/wizard";
 import { getSystemRoles } from "./actions";
 import type { ProfileInitialData } from "./_components/step-profile";
-import { syncPendingInvitationsForUser } from "@/lib/invitations/sync-pending";
+import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function OnboardingPage({
   searchParams,

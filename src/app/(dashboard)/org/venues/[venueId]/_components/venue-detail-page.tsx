@@ -126,7 +126,7 @@ export function VenueDetailPage({
       const result = await deleteVenue(venue.id);
       if (result.error) { toast.error(result.error); return; }
       toast.success("Заведение удалено");
-      router.push("/settings/venues");
+      router.push("/org/venues");
     });
   };
 
@@ -139,7 +139,7 @@ export function VenueDetailPage({
             variant="ghost"
             size="sm"
             className="gap-1.5 text-muted-foreground hover:text-foreground -ml-2"
-            onClick={() => router.push("/settings/venues")}
+            onClick={() => router.push("/org/venues")}
           >
             <ArrowLeft className="w-4 h-4" />
             Заведения

@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/invitations/mailer";
+import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
 import type { Json, VenueType, WorkingHours } from "@/types/database";
 import { randomUUID } from "crypto";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";

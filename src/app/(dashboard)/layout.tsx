@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCachedUser, createClient } from "@/lib/supabase/server";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
-import { NotificationBell } from "@/components/notification-bell";
-import { syncPendingInvitationsForUser } from "@/lib/invitations/sync-pending";
+import { AppSidebar } from "@/components/shared/sidebar";
+import { NotificationBell } from "@/components/shared/notification-bell";
+import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function DashboardLayout({
   children,

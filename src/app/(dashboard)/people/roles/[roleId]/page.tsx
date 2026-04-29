@@ -39,11 +39,11 @@ export default async function RoleDetailServerPage({
     .returns<{ id: string; account_id: string | null; name: string; code: string; comment: string | null }[]>()
     .maybeSingle();
 
-  if (!role) redirect("/settings/roles");
+  if (!role) redirect("/people/roles");
 
   // Reject access to roles belonging to a different account
   if (role.account_id !== null && role.account_id !== accountId) {
-    redirect("/settings/roles");
+    redirect("/people/roles");
   }
 
   const [permissionsResult, rolePermsResult, venueRolesResult, importedRoleResult] =

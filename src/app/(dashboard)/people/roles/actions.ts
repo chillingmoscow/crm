@@ -36,7 +36,7 @@ export async function createRole(
 
   if (error) return { id: null, error: error.message };
 
-  revalidatePath("/settings/roles");
+  revalidatePath("/people/roles");
   return { id: data.id, error: null };
 }
 
@@ -69,7 +69,7 @@ export async function updateRole(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/settings/roles");
+  revalidatePath("/people/roles");
   return { error: null };
 }
 
@@ -93,7 +93,7 @@ export async function deleteRole(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/settings/roles");
+  revalidatePath("/people/roles");
   return { error: null };
 }
 
@@ -129,6 +129,6 @@ export async function setRolePermission(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/settings/roles");
+  revalidatePath("/people/roles");
   return { error: null };
 }

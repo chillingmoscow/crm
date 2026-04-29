@@ -57,7 +57,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   const {
     data: { user: targetAuthUser },
   } = await admin.auth.admin.getUserById(userId);
-  if (!targetAuthUser) redirect("/staff");
+  if (!targetAuthUser) redirect("/people/staff");
 
   const { data: profileRow } = await admin
     .from("profiles")
@@ -68,7 +68,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     .returns<FullStaffProfile[]>()
     .maybeSingle();
 
-  if (!profileRow) redirect("/staff");
+  if (!profileRow) redirect("/people/staff");
 
   // Target user's active UVR in this venue
   const { data: targetUvr } = await admin
@@ -80,7 +80,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     .returns<TargetVenueRole[]>()
     .maybeSingle();
 
-  if (!targetUvr) redirect("/staff");
+  if (!targetUvr) redirect("/people/staff");
 
   const { data: importedLink } = await db
     .from("external_entity_links")

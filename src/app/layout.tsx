@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { Providers } from "@/components/providers";
+import { Providers } from "@/components/shared/providers";
 
 import "./globals.css";
 

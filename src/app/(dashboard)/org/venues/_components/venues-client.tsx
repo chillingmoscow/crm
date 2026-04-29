@@ -435,7 +435,7 @@ export function VenuesClient({ venues: initialVenues }: Props) {
               <div
                 className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
                 style={{ gridTemplateColumns: template }}
-                onClick={() => router.push(`/settings/venues/${venue.id}`)}
+                onClick={() => router.push(`/org/venues/${venue.id}`)}
               >
                 {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
                   <div key={col.key}>{renderCell(col.key, venue)}</div>

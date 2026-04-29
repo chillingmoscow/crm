@@ -306,3 +306,66 @@ export async function syncLegalEntityFromDadata(
   revalidatePath(`/org/legal-entities/${id}`);
   return { error: null };
 }
+
+// ─── Venue ↔ legal entity link ───────────────────────────────────────────────
+
+export interface AccountVenueRow {
+  id: string;
+  name: string;
+  default_legal_entity_id: string | null;
+}
+
+/**
+ * List all venues of the active account along with their current
+ * default_legal_entity_id. Used on the legal-entity detail page to
+ * show which venues are attached and offer attach/detach toggles.
+ */
+export async function listAccountVenues(): Promise<{
+  rows: AccountVenueRow[];
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("venues")
+    .select("id, name, default_legal_entity_id")
+    .order("name", { ascending: true });
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data ?? []) as AccountVenueRow[], error: null };
+}
+
+/**
+ * Attach a venue to a legal entity (set venue.default_legal_entity_id).
+ * Composite FK from migration 036 enforces tenant consistency.
+ */
+export async function attachVenueToLegalEntity(
+  legalEntityId: string,
+  venueId: string
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("venues")
+    .update({ default_legal_entity_id: legalEntityId })
+    .eq("id", venueId);
+  if (error) return { error: error.message };
+  revalidatePath(`/org/legal-entities/${legalEntityId}`);
+  revalidatePath(`/org/venues/${venueId}`);
+  return { error: null };
+}
+
+/**
+ * Detach a venue from its current legal entity (set NULL). Composite FK
+ * with a NULL part is always valid under MATCH SIMPLE.
+ */
+export async function detachVenueFromLegalEntity(
+  venueId: string
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("venues")
+    .update({ default_legal_entity_id: null })
+    .eq("id", venueId);
+  if (error) return { error: error.message };
+  revalidatePath("/org/legal-entities");
+  revalidatePath(`/org/venues/${venueId}`);
+  return { error: null };
+}

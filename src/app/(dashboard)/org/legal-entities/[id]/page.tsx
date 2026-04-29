@@ -34,9 +34,18 @@ export default async function LegalEntityDetailPage({
 
   // Manage / delete permissions are checked separately so the form
   // can show read-only state for users who can view but not edit.
+  //
+  // canManageVenues is checked too because the venues section attaches
+  // and detaches by writing to venues.default_legal_entity_id, and that
+  // mutation is gated by the venues_update RLS policy on
+  // org.manage_venues (migration 034 §7.2). A user with manage_legal_
+  // entities but without manage_venues (e.g. accountant per matrix)
+  // would see actionable buttons and then hit RLS errors on click —
+  // hide them instead.
   const [
     { data: canManage },
     { data: canDelete },
+    { data: canManageVenues },
     { rows: venues },
     { rows: legalEntities },
   ] = await Promise.all([
@@ -45,6 +54,9 @@ export default async function LegalEntityDetailPage({
     }),
     supabase.rpc("has_permission", {
       permission_code: "org.delete_legal_entity",
+    }),
+    supabase.rpc("has_permission", {
+      permission_code: "org.manage_venues",
     }),
     listAccountVenues(),
     listLegalEntities(),
@@ -84,7 +96,7 @@ export default async function LegalEntityDetailPage({
           legalEntityId={row.id}
           venues={venues}
           legalEntityNames={legalEntityNames}
-          readOnly={!canManage}
+          readOnly={!canManageVenues}
         />
       </div>
     </div>

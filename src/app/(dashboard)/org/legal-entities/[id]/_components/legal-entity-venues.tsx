@@ -113,8 +113,11 @@ export function LegalEntityVenues({
           )}
         </div>
 
-        {/* Other venues — option to attach */}
-        {others.length > 0 && !readOnly && (
+        {/* Other venues — visible in both modes; attach buttons hide when
+            the caller is read-only. View-only users still need to see the
+            full account ↔ legal-entity topology, just without action
+            buttons. */}
+        {others.length > 0 && (
           <div className="space-y-2">
             <div className="text-sm font-medium text-muted-foreground">
               Остальные заведения аккаунта
@@ -142,25 +145,27 @@ export function LegalEntityVenues({
                         </div>
                       )}
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onAttach(v.id)}
-                      disabled={busyVenueId === v.id}
-                      title={
-                        currentLeName
-                          ? `Заведение перейдёт от «${currentLeName}» к этому юрлицу`
-                          : undefined
-                      }
-                    >
-                      {busyVenueId === v.id ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {currentLeName ? "Перепривязать" : "Привязать"}
-                    </Button>
+                    {!readOnly && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => onAttach(v.id)}
+                        disabled={busyVenueId === v.id}
+                        title={
+                          currentLeName
+                            ? `Заведение перейдёт от «${currentLeName}» к этому юрлицу`
+                            : undefined
+                        }
+                      >
+                        {busyVenueId === v.id ? (
+                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <LinkIcon className="mr-1.5 h-3.5 w-3.5" />
+                        )}
+                        {currentLeName ? "Перепривязать" : "Привязать"}
+                      </Button>
+                    )}
                   </li>
                 );
               })}
@@ -168,13 +173,18 @@ export function LegalEntityVenues({
           </div>
         )}
 
-        {others.length === 0 && attached.length === 0 && !readOnly && (
+        {others.length === 0 && attached.length === 0 && (
           <p className="text-sm text-muted-foreground italic">
-            В аккаунте пока нет заведений. Создайте первое в разделе{" "}
-            <Link href="/org/venues" className="underline underline-offset-2">
-              Заведения
-            </Link>
-            .
+            В аккаунте пока нет заведений.
+            {!readOnly && (
+              <>
+                {" "}Создайте первое в разделе{" "}
+                <Link href="/org/venues" className="underline underline-offset-2">
+                  Заведения
+                </Link>
+                .
+              </>
+            )}
           </p>
         )}
       </CardContent>

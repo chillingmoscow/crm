@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/invitations/mailer";
+import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
 import { revalidatePath } from "next/cache";
 
 export type PendingInvitation = {

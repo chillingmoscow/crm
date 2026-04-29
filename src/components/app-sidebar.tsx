@@ -127,7 +127,7 @@ export function AppSidebar({ userName, venues, activeVenueId, activeRoleCode }: 
             <>
               <SidebarMenuItem>
                 <SidebarMenuButton asChild tooltip="Настройки профиля">
-                  <Link href="/settings/profile">
+                  <Link href="/profile">
                     <Settings />
                     <span>Настройки профиля</span>
                   </Link>

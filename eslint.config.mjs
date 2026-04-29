@@ -10,6 +10,7 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  { ignores: ["_legacy_from_finance/**", "_legacy_from_crm2/**"] },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
 ];
 

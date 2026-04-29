@@ -3,8 +3,13 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
-import { getLegalEntity } from "@/lib/org/legal-entities";
+import {
+  getLegalEntity,
+  listAccountVenues,
+  listLegalEntities,
+} from "@/lib/org/legal-entities";
 import { LegalEntityDetailClient } from "./_components/legal-entity-detail";
+import { LegalEntityVenues } from "./_components/legal-entity-venues";
 
 export default async function LegalEntityDetailPage({
   params,
@@ -29,14 +34,40 @@ export default async function LegalEntityDetailPage({
 
   // Manage / delete permissions are checked separately so the form
   // can show read-only state for users who can view but not edit.
-  const [{ data: canManage }, { data: canDelete }] = await Promise.all([
+  //
+  // canManageVenues is checked too because the venues section attaches
+  // and detaches by writing to venues.default_legal_entity_id, and that
+  // mutation is gated by the venues_update RLS policy on
+  // org.manage_venues (migration 034 §7.2). A user with manage_legal_
+  // entities but without manage_venues (e.g. accountant per matrix)
+  // would see actionable buttons and then hit RLS errors on click —
+  // hide them instead.
+  const [
+    { data: canManage },
+    { data: canDelete },
+    { data: canManageVenues },
+    { rows: venues },
+    { rows: legalEntities },
+  ] = await Promise.all([
     supabase.rpc("has_permission", {
       permission_code: "org.manage_legal_entities",
     }),
     supabase.rpc("has_permission", {
       permission_code: "org.delete_legal_entity",
     }),
+    supabase.rpc("has_permission", {
+      permission_code: "org.manage_venues",
+    }),
+    listAccountVenues(),
+    listLegalEntities(),
   ]);
+
+  // id → display name lookup so the venues section can show "currently
+  // attached to <other LE>" rows informatively.
+  const legalEntityNames: Record<string, string> = {};
+  for (const le of legalEntities) {
+    legalEntityNames[le.id] = le.short_name ?? le.name;
+  }
 
   return (
     <div className="p-6 md:p-8 w-full max-w-4xl">
@@ -59,6 +90,15 @@ export default async function LegalEntityDetailPage({
         canManage={!!canManage}
         canDelete={!!canDelete}
       />
+
+      <div className="mt-6">
+        <LegalEntityVenues
+          legalEntityId={row.id}
+          venues={venues}
+          legalEntityNames={legalEntityNames}
+          readOnly={!canManageVenues}
+        />
+      </div>
     </div>
   );
 }

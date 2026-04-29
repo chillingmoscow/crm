@@ -150,7 +150,6 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
   };
 
   return (
-    <fieldset disabled={readOnly} className="contents">
     <div className="space-y-6">
       {readOnly && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -158,6 +157,10 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
           доступна только для просмотра.
         </div>
       )}
+      {/* Wrap only the editable cards in the fieldset so the action
+          bar below (with the Close button) stays interactive even when
+          readOnly is true. */}
+      <fieldset disabled={readOnly} className="contents">
       <Card>
         <CardHeader>
           <CardTitle>Реквизиты</CardTitle>
@@ -324,47 +327,6 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
 
       <Card>
         <CardHeader>
-          <CardTitle>Подписанты</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="director_name">Руководитель</Label>
-            <Input
-              id="director_name"
-              value={form.director_name ?? ""}
-              onChange={(e) => update("director_name", e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="director_position">Должность</Label>
-            <Input
-              id="director_position"
-              value={form.director_position ?? ""}
-              onChange={(e) => update("director_position", e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="accountant_name">Главный бухгалтер</Label>
-            <Input
-              id="accountant_name"
-              value={form.accountant_name ?? ""}
-              onChange={(e) => update("accountant_name", e.target.value)}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="signature_basis">Действует на основании</Label>
-            <Input
-              id="signature_basis"
-              value={form.signature_basis ?? ""}
-              onChange={(e) => update("signature_basis", e.target.value)}
-              placeholder="Устав / Доверенность №…"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Контакты</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
@@ -435,6 +397,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
           </div>
         </CardContent>
       </Card>
+      </fieldset>
 
       <div className="flex items-center justify-end gap-2">
         <Button
@@ -453,6 +416,5 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
         )}
       </div>
     </div>
-    </fieldset>
   );
 }

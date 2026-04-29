@@ -6,7 +6,6 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-// Custom types for working_hours JSONB column
 export interface WorkingHoursDay {
   open?: string
   close?: string
@@ -24,6 +23,31 @@ export interface WorkingHours {
 }
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       account_files: {
@@ -1455,18 +1479,18 @@ export type Database = {
             referencedColumns: ["account_id", "id"]
           },
           {
-            foreignKeyName: "transactions_category_id_fkey"
-            columns: ["category_id"]
+            foreignKeyName: "transactions_category_tenant_fkey"
+            columns: ["account_id", "category_id"]
             isOneToOne: false
             referencedRelation: "finance_categories"
-            referencedColumns: ["id"]
+            referencedColumns: ["account_id", "id"]
           },
           {
-            foreignKeyName: "transactions_counterparty_id_fkey"
-            columns: ["counterparty_id"]
+            foreignKeyName: "transactions_counterparty_tenant_fkey"
+            columns: ["account_id", "counterparty_id"]
             isOneToOne: false
             referencedRelation: "counterparties"
-            referencedColumns: ["id"]
+            referencedColumns: ["account_id", "id"]
           },
           {
             foreignKeyName: "transactions_created_by_fkey"
@@ -1966,6 +1990,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       attachment_document_type_enum: [
@@ -2017,8 +2044,11 @@ export const Constants = {
   },
 } as const
 
+// ─── Hand-added enum aliases ─────────────────────────────────────────────────
+// `pnpm supabase gen types` doesn't emit named enum aliases — only the
+// nested `Database["public"]["Enums"]["..."]` chain. These re-exports
+// keep the call-sites readable. Re-add after every regen.
 
-// Convenience aliases
 export type VenueType        = Database["public"]["Enums"]["venue_type"]
 export type InvitationStatus = Database["public"]["Enums"]["invitation_status"]
 export type LegalForm        = Database["public"]["Enums"]["legal_form_enum"]

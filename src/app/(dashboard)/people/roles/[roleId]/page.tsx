@@ -21,10 +21,13 @@ export default async function RoleDetailServerPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "people.manage_roles",
+  // Detail view is gated on view_roles. Edit operations on the page
+  // (and underlying role_permissions / account_role_permissions writes)
+  // are still gated on people.manage_roles via RLS.
+  const { data: canView } = await supabase.rpc("has_permission", {
+    permission_code: "people.view_roles",
   });
-  if (!canManage) redirect("/dashboard");
+  if (!canView) redirect("/dashboard");
 
   const [{ data: accountId }, { data: activeVenueId }] = await Promise.all([
     supabase.rpc("get_active_account_id"),

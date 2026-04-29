@@ -1,28 +1,30 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Eye, EyeOff, KeyRound, Loader2, LockKeyhole, Mail } from "lucide-react";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
 
-import { loginHero } from "@/components/auth/auth-content";
-import {
-  AuthCard,
-  AuthField,
-  AuthNotice,
-  AuthPrimaryButton,
-  AuthShell,
-} from "@/components/auth/auth-shell";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const loginSchema = z.object({
-  email: z.string().email("Проверьте правильность email"),
-  password: z.string().min(1, "Введите пароль"),
+  email: z.string().email("Введите корректный email"),
+  password: z.string().min(6, "Минимум 6 символов"),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
@@ -30,28 +32,17 @@ type LoginForm = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
-  const [showPass, setShowPass] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
-  const [globalError, setGlobalError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
-    watch,
     formState: { errors },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
-    mode: "onSubmit",
-    reValidateMode: "onChange",
   });
-
-  const email = watch("email") ?? "";
-  const password = watch("password") ?? "";
-  const isFormReady = email.includes("@") && password.length > 0;
 
   const onSubmit = async (data: LoginForm) => {
     setLoading(true);
-    setGlobalError(null);
     const supabase = createClient();
 
     const { error } = await supabase.auth.signInWithPassword({
@@ -61,103 +52,76 @@ export default function LoginPage() {
 
     if (error) {
       const message = error.message.toLowerCase();
-
       if (message.includes("invalid login credentials")) {
-        setGlobalError("Неверный email или пароль.");
+        toast.error("Неверный email или пароль");
       } else if (message.includes("email not confirmed")) {
-        setGlobalError("Почта не подтверждена. Проверьте входящие и папку «Спам».");
+        toast.error("Почта не подтверждена. Проверьте входящие и папку «Спам».");
       } else {
-        setGlobalError("Не удалось выполнить вход. Попробуйте ещё раз.");
+        toast.error("Не удалось выполнить вход. Попробуйте ещё раз.");
       }
-
       setLoading(false);
       return;
     }
 
     router.push("/dashboard");
+    router.refresh();
   };
 
   return (
-    <AuthShell hero={loginHero}>
-      <AuthCard
-        badge="Secure sign in"
-        icon={<LockKeyhole className="h-5 w-5" />}
-        title="Войти в рабочее пространство"
-        description="Используйте рабочую почту и пароль, чтобы продолжить работу с командами, ролями и заведениями."
-        footer={
-          <p className="text-center">
-            Нет аккаунта?{" "}
-            <Link
-              href="/register"
-              className="font-medium text-slate-900 underline-offset-4 hover:underline dark:text-white"
-            >
-              Создать доступ
-            </Link>
-          </p>
-        }
-      >
-        <div className="space-y-5">
-          {globalError ? <AuthNotice variant="error">{globalError}</AuthNotice> : null}
-
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
-            <AuthField
-              label="Рабочая почта"
+    <Card>
+      <CardHeader className="space-y-1">
+        <CardTitle className="text-2xl">Вход в систему</CardTitle>
+        <CardDescription>Введите ваш email и пароль</CardDescription>
+      </CardHeader>
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
               type="email"
-              placeholder="name@company.ru"
-              autoComplete="email"
-              error={errors.email?.message}
-              icon={<Mail className="h-4 w-4" />}
+              placeholder="you@example.com"
               {...register("email")}
             />
-
-            <AuthField
-              label="Пароль"
-              type={showPass ? "text" : "password"}
-              placeholder="Введите пароль"
-              autoComplete="current-password"
-              error={errors.password?.message}
-              icon={<KeyRound className="h-4 w-4" />}
-              rightSlot={
-                <button
-                  type="button"
-                  onClick={() => setShowPass((value) => !value)}
-                  className="text-slate-400 transition hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200"
-                  aria-label={showPass ? "Скрыть пароль" : "Показать пароль"}
-                >
-                  {showPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              }
-              {...register("password")}
-            />
-
-            <div className="flex items-center justify-between gap-3 pt-1">
-              <div className="flex items-center gap-2.5">
-                <Checkbox
-                  id="remember_me"
-                  checked={rememberMe}
-                  onCheckedChange={(value) => setRememberMe(value === true)}
-                  className="rounded-md border-slate-300 data-[state=checked]:border-sky-500 data-[state=checked]:bg-sky-500 dark:border-white/15 dark:data-[state=checked]:border-sky-400 dark:data-[state=checked]:bg-sky-400"
-                />
-                <Label htmlFor="remember_me" className="text-sm text-slate-600 dark:text-slate-300">
-                  Запомнить меня
-                </Label>
-              </div>
-
+            {errors.email && (
+              <p className="text-sm text-destructive">{errors.email.message}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="password">Пароль</Label>
               <Link
                 href="/forgot-password"
-                className="text-sm font-medium text-sky-700 underline-offset-4 hover:underline dark:text-sky-300"
+                className="text-sm text-muted-foreground hover:text-primary"
               >
                 Забыли пароль?
               </Link>
             </div>
-
-            <AuthPrimaryButton type="submit" disabled={loading || !isFormReady}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Войти
-            </AuthPrimaryButton>
-          </form>
-        </div>
-      </AuthCard>
-    </AuthShell>
+            <Input
+              id="password"
+              type="password"
+              {...register("password")}
+            />
+            {errors.password && (
+              <p className="text-sm text-destructive">
+                {errors.password.message}
+              </p>
+            )}
+          </div>
+        </CardContent>
+        <CardFooter className="flex flex-col gap-4">
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading && <Loader2 className="animate-spin" />}
+            Войти
+          </Button>
+          <p className="text-sm text-muted-foreground text-center">
+            Нет аккаунта?{" "}
+            <Link href="/register" className="text-primary hover:underline">
+              Зарегистрироваться
+            </Link>
+          </p>
+        </CardFooter>
+      </form>
+    </Card>
   );
 }

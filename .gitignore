@@ -35,3 +35,7 @@ supabase/snippets/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local-only project copies (full source dumps for inspection,
+# distinct from the curated _legacy_from_* references that ARE tracked).
+/crm2/

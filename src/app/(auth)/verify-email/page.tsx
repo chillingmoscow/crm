@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { MailCheck } from "lucide-react";
 
-import { verificationHero } from "@/components/auth/auth-content";
+import { Button } from "@/components/ui/button";
 import {
-  AuthNotice,
-  AuthPrimaryButton,
-  AuthShell,
-  AuthStatusCard,
-} from "@/components/auth/auth-shell";
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export default async function VerifyEmailPage({
   searchParams,
@@ -18,31 +20,32 @@ export default async function VerifyEmailPage({
   const email = params.email;
 
   return (
-    <AuthShell hero={verificationHero}>
-      <AuthStatusCard
-        badge="Email verification"
-        icon={<MailCheck className="h-5 w-5" />}
-        title="Подтвердите почту"
-        description={
-          email ? (
+    <Card>
+      <CardHeader className="space-y-2 text-center">
+        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <MailCheck className="h-5 w-5" />
+        </div>
+        <CardTitle>Подтвердите почту</CardTitle>
+        <CardDescription>
+          {email ? (
             <>
               Мы отправили письмо на{" "}
-              <span className="font-medium text-slate-900 dark:text-white">{email}</span>.
+              <span className="font-medium">{email}</span>.
             </>
           ) : (
             "Мы отправили письмо на вашу рабочую почту."
-          )
-        }
-        actions={
-          <AuthPrimaryButton asChild className="max-w-full sm:max-w-[320px]">
-            <Link href="/login">Перейти ко входу</Link>
-          </AuthPrimaryButton>
-        }
-      >
-        <AuthNotice>
-          Откройте письмо и перейдите по ссылке подтверждения. Если письма нет, проверьте папку «Спам».
-        </AuthNotice>
-      </AuthStatusCard>
-    </AuthShell>
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="text-sm text-muted-foreground text-center">
+        Откройте письмо и перейдите по ссылке подтверждения. Если письма нет —
+        проверьте папку «Спам».
+      </CardContent>
+      <CardFooter>
+        <Button asChild className="w-full">
+          <Link href="/login">Перейти ко входу</Link>
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }

@@ -79,6 +79,10 @@ create policy "transaction_attachments_select"
     )
   );
 
+-- Файл, на который ссылается pivot, обязан принадлежать активному
+-- account: FK-проверки в Postgres обходят RLS, и без этой проверки
+-- пользователь мог бы прислать чужой file_id и связать с ним свою
+-- транзакцию. То же — для counterparty/legal_entity-pivot ниже.
 create policy "transaction_attachments_insert"
   on public.transaction_attachments for insert
   with check (
@@ -87,6 +91,11 @@ create policy "transaction_attachments_insert"
       select 1 from public.transactions t
       where t.id = transaction_attachments.transaction_id
         and t.account_id = public.get_active_account_id()
+    )
+    and exists (
+      select 1 from public.account_files af
+      where af.id = transaction_attachments.file_id
+        and af.account_id = public.get_active_account_id()
     )
   );
 
@@ -124,6 +133,11 @@ create policy "counterparty_attachments_insert"
       where c.id = counterparty_attachments.counterparty_id
         and c.account_id = public.get_active_account_id()
     )
+    and exists (
+      select 1 from public.account_files af
+      where af.id = counterparty_attachments.file_id
+        and af.account_id = public.get_active_account_id()
+    )
   );
 
 create policy "counterparty_attachments_delete"
@@ -160,6 +174,11 @@ create policy "legal_entity_attachments_insert"
       where le.id = legal_entity_attachments.legal_entity_id
         and le.account_id = public.get_active_account_id()
     )
+    and exists (
+      select 1 from public.account_files af
+      where af.id = legal_entity_attachments.file_id
+        and af.account_id = public.get_active_account_id()
+    )
   );
 
 create policy "legal_entity_attachments_delete"
@@ -176,16 +195,30 @@ create policy "legal_entity_attachments_delete"
 -- ───────────────────────── storage.objects: account-attachments ─────────────
 -- Объекты в bucket `account-attachments` лежат с префиксом UUID
 -- account_id (storage_path шаблон: {account_id}/{yyyy}/{mm}/{uuid}-{name}).
--- RLS гейтит доступ так же, как account_files: залогинен и активный
--- account == первая папка пути.
+--
+-- SELECT/DELETE — авторизация делегирована RLS на account_files: объект
+-- виден тогда и только тогда, когда у пользователя есть видимая строка
+-- в account_files с этим storage_path. Тем самым доступ к storage не
+-- может обойти проверку «прикреплён ли файл к сущности, которую я могу
+-- видеть» (например, legal-entity файлы требуют org.view_legal_entities,
+-- а не просто finance.view_attachments — см. account_files_select).
+--
+-- INSERT — на момент аплоада строка account_files может ещё не
+-- существовать (стандартный flow: сначала upload в storage, потом
+-- INSERT в account_files). Поэтому INSERT остаётся через префикс
+-- папки + finance.upload_attachments. Cross-tenant запись отсекается
+-- последующим INSERT в account_files (RLS требует совпадения
+-- account_id с активным).
 
 create policy "account_attachments_select"
   on storage.objects for select
   to authenticated
   using (
     bucket_id = 'account-attachments'
-    and (storage.foldername(name))[1] = public.get_active_account_id()::text
-    and public.has_permission('finance.view_attachments')
+    and exists (
+      select 1 from public.account_files af
+      where af.storage_path = name
+    )
   );
 
 create policy "account_attachments_insert"
@@ -202,6 +235,9 @@ create policy "account_attachments_delete"
   to authenticated
   using (
     bucket_id = 'account-attachments'
-    and (storage.foldername(name))[1] = public.get_active_account_id()::text
+    and exists (
+      select 1 from public.account_files af
+      where af.storage_path = name
+    )
     and public.has_permission('finance.delete_attachments')
   );

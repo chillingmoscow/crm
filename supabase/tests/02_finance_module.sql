@@ -185,6 +185,53 @@ begin
   end;
   perform public.test_assert(v_caught,
     'cross-tenant transactions.legal_entity_id must be rejected');
+
+  -- transactions.category_id из чужого account → composite FK violation.
+  v_caught := false;
+  declare
+    v_cat_b uuid;
+  begin
+    select id into v_cat_b
+      from public.finance_categories
+      where account_id = f.account_b and type = 'income'
+      limit 1;
+    begin
+      insert into public.transactions (
+        account_id, legal_entity_id, type, amount,
+        bank_account_id, category_id, date
+      ) values (
+        f.account_a, f.le_a, 'income', 100,
+        f.ba_a, v_cat_b, now()
+      );
+    exception when foreign_key_violation then
+      v_caught := true;
+    end;
+    perform public.test_assert(v_caught,
+      'cross-tenant transactions.category_id must be rejected');
+  end;
+
+  -- transactions.counterparty_id из чужого account → composite FK violation.
+  v_caught := false;
+  declare
+    v_cp_b uuid;
+  begin
+    insert into public.counterparties (account_id, name, legal_form)
+    values (f.account_b, 'CP B', 'OOO'::public.legal_form_enum)
+    returning id into v_cp_b;
+    begin
+      insert into public.transactions (
+        account_id, legal_entity_id, type, amount,
+        bank_account_id, counterparty_id, date
+      ) values (
+        f.account_a, f.le_a, 'expense', 50,
+        f.ba_a, v_cp_b, now()
+      );
+    exception when foreign_key_violation then
+      v_caught := true;
+    end;
+    perform public.test_assert(v_caught,
+      'cross-tenant transactions.counterparty_id must be rejected');
+  end;
 end;
 $$;
 

@@ -42,6 +42,12 @@ create table public.finance_categories (
   updated_by      uuid references public.profiles(id)
 );
 
+-- Composite UNIQUE для будущих composite FK из transactions (миграция 040).
+-- Гарантирует, что transaction.category_id всегда принадлежит тому же
+-- account, что и сама транзакция.
+alter table public.finance_categories
+  add constraint finance_categories_account_id_id_key unique (account_id, id);
+
 create index finance_categories_account_idx       on public.finance_categories(account_id);
 create index finance_categories_type_idx          on public.finance_categories(account_id, type) where is_active = true;
 create index finance_categories_group_idx         on public.finance_categories(group_id) where group_id is not null;

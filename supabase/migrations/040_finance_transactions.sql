@@ -32,9 +32,12 @@ create table public.transactions (
   -- to_legal_entity_id = legal_entity_id → внутренний перевод одного юрлица
   -- to_legal_entity_id != legal_entity_id → перевод между юрлицами одного account
 
-  -- Поля только для income/expense
-  category_id     uuid references public.finance_categories(id) on delete set null,
-  counterparty_id uuid references public.counterparties(id) on delete set null,
+  -- Поля только для income/expense.
+  -- FK через composite (account_id, ...) ниже — гарантируют, что
+  -- категория и контрагент принадлежат тому же account, что транзакция
+  -- (Postgres иначе принял бы cross-tenant ссылку).
+  category_id     uuid,
+  counterparty_id uuid,
 
   description     text,
   date            timestamptz not null,
@@ -70,6 +73,17 @@ create table public.transactions (
     foreign key (account_id, to_legal_entity_id)
     references public.legal_entities (account_id, id)
     on delete restrict,
+  -- ON DELETE SET NULL (col) (PG 15+) обнуляет только category_id /
+  -- counterparty_id, оставляя account_id NOT NULL. Удаление категории
+  -- или контрагента не ломает историю транзакций.
+  constraint transactions_category_tenant_fkey
+    foreign key (account_id, category_id)
+    references public.finance_categories (account_id, id)
+    on delete set null (category_id),
+  constraint transactions_counterparty_tenant_fkey
+    foreign key (account_id, counterparty_id)
+    references public.counterparties (account_id, id)
+    on delete set null (counterparty_id),
 
   -- Транзакция типа transfer обязана иметь to_*; income/expense — нет.
   constraint transfer_requires_to_account

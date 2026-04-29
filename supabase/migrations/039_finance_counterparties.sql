@@ -46,6 +46,12 @@ create table public.counterparties (
   deleted_by      uuid references public.profiles(id)
 );
 
+-- Composite UNIQUE для будущих composite FK из transactions (миграция 040).
+-- Гарантирует, что transaction.counterparty_id всегда принадлежит тому
+-- же account, что и сама транзакция.
+alter table public.counterparties
+  add constraint counterparties_account_id_id_key unique (account_id, id);
+
 create index counterparties_account_idx     on public.counterparties(account_id);
 create index counterparties_inn_idx         on public.counterparties(account_id, inn) where inn is not null;
 create index counterparties_group_idx       on public.counterparties(group_id) where group_id is not null;

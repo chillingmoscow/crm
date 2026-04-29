@@ -34,7 +34,10 @@ export const AddressInput = forwardRef<HTMLInputElement, AddressInputProps>(
     const [open, setOpen] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
     const debounceRef = useRef<NodeJS.Timeout | null>(null);
-    const lastQueryRef = useRef("");
+    // One-shot flag set by `pick()` so the very next value-driven effect
+    // skips refetching for the suggestion the user just clicked. Re-typing
+    // the same query later still triggers a fresh lookup.
+    const skipNextFetchRef = useRef(false);
 
     // Debounced fetch.
     useEffect(() => {
@@ -47,12 +50,12 @@ export const AddressInput = forwardRef<HTMLInputElement, AddressInputProps>(
         return;
       }
 
-      // Skip if we already have suggestions for exactly this query
-      // (e.g. user just clicked one and the value snapped to it).
-      if (query === lastQueryRef.current) return;
+      if (skipNextFetchRef.current) {
+        skipNextFetchRef.current = false;
+        return;
+      }
 
       debounceRef.current = setTimeout(async () => {
-        lastQueryRef.current = query;
         setLoading(true);
         try {
           const res = await fetch("/api/dadata/address", {
@@ -90,7 +93,10 @@ export const AddressInput = forwardRef<HTMLInputElement, AddressInputProps>(
     }, []);
 
     const pick = (suggestion: AddressSuggestion) => {
-      lastQueryRef.current = suggestion.value;
+      // Suppress the immediate refetch that would otherwise fire from
+      // the value-change effect. The dropdown is closed too, so the
+      // user sees their selection without a flicker.
+      skipNextFetchRef.current = true;
       onChange(suggestion.value);
       onPick?.(suggestion);
       setOpen(false);

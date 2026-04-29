@@ -33,7 +33,7 @@ const NAV_SECTIONS = [
     roles: ["owner", "manager", "admin"],
     items: [
       { title: "Сотрудники", href: "/people/staff",   icon: User,   roles: ["owner", "manager", "admin"] },
-      { title: "Должности",  href: "/settings/roles", icon: Shield, roles: ["owner", "admin"] },
+      { title: "Должности",  href: "/people/roles",   icon: Shield, roles: ["owner", "admin"] },
     ],
   },
   {

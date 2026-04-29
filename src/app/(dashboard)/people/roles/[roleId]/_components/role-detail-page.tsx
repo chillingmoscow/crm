@@ -140,7 +140,7 @@ export function RoleDetailPage({
         return;
       }
       toast.success("Должность удалена");
-      router.push("/settings/roles");
+      router.push("/people/roles");
     });
   }
 
@@ -161,7 +161,7 @@ export function RoleDetailPage({
           variant="ghost"
           size="sm"
           className="-ml-2 text-muted-foreground hover:text-foreground"
-          onClick={() => router.push("/settings/roles")}
+          onClick={() => router.push("/people/roles")}
         >
           <ChevronLeft className="w-4 h-4 mr-1" />
           Должности

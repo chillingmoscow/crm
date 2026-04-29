@@ -26,23 +26,30 @@ import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
 
-// Roles that can access each nav item
+// Sidebar nav grouped by block (docs/MERGE_PLAN.md §2.1).
+// Finance and CRM blocks will join in stages 4–5.
 const NAV_SECTIONS = [
   {
-    label: "Персонал",
+    label: "Люди",
     roles: ["owner", "manager", "admin"],
     items: [
-      { title: "Сотрудники", href: "/people/staff",   icon: User,   roles: ["owner", "manager", "admin"] },
-      { title: "Должности",  href: "/people/roles",   icon: Shield, roles: ["owner", "admin"] },
+      { title: "Сотрудники", href: "/people/staff", icon: User,   roles: ["owner", "manager", "admin"] },
+      { title: "Должности",  href: "/people/roles", icon: Shield, roles: ["owner", "admin"] },
     ],
   },
   {
-    label: "Сеть",
+    label: "Организация",
     roles: ["owner"],
     items: [
-      { title: "Заведения",  href: "/org/venues",        icon: Building2, roles: ["owner"] },
+      { title: "Аккаунт",   href: "/org/account", icon: Settings,  roles: ["owner"] },
+      { title: "Заведения", href: "/org/venues",  icon: Building2, roles: ["owner"] },
+    ],
+  },
+  {
+    label: "Настройки",
+    roles: ["owner"],
+    items: [
       { title: "Интеграции", href: "/settings/integrations", icon: Settings, roles: ["owner"] },
-      { title: "Аккаунт",    href: "/org/account",       icon: Settings,  roles: ["owner"] },
     ],
   },
 ];

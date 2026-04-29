@@ -177,6 +177,12 @@ export async function createTransaction(
  * and NEW automatically. Cross-tenant FKs (migration 040) ensure that
  * any swapped legal_entity / bank_account / category / counterparty
  * stays inside the active account.
+ *
+ * When `patch.type` changes the variant, the now-irrelevant columns
+ * are nulled out — otherwise the row would violate the check
+ * constraints from migration 040 (`income_expense_no_to_account`,
+ * `transfer_requires_to_account`, etc.). Mirrors the normalisation
+ * `createTransaction` does on insert.
  */
 export async function updateTransaction(
   id: string,
@@ -188,10 +194,19 @@ export async function updateTransaction(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
+  const normalised: Record<string, unknown> = { ...patch };
+  if (patch.type === "transfer") {
+    normalised.category_id     = null;
+    normalised.counterparty_id = null;
+  } else if (patch.type === "income" || patch.type === "expense") {
+    normalised.to_bank_account_id = null;
+    normalised.to_legal_entity_id = null;
+  }
+
   const { error } = await supabase
     .from("transactions")
     .update({
-      ...patch,
+      ...normalised,
       updated_at: new Date().toISOString(),
       updated_by: user.id,
     })

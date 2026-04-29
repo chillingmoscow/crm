@@ -210,7 +210,7 @@ export function StaffDetailPage({
       const result = await fireStaff(uvrId);
       if (result.error) { toast.error(result.error); return; }
       toast.success("Сотрудник уволен");
-      router.push("/staff");
+      router.push("/people/staff");
     });
   };
 
@@ -249,7 +249,7 @@ export function StaffDetailPage({
           variant="ghost"
           size="sm"
           className="gap-1.5 -ml-2 text-muted-foreground hover:text-foreground"
-          onClick={() => router.push("/staff")}
+          onClick={() => router.push("/people/staff")}
         >
           <ArrowLeft className="w-4 h-4" />
           Сотрудники

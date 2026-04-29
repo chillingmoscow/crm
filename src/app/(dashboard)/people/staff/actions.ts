@@ -105,7 +105,7 @@ export async function updateStaffProfile(
     .update(data)
     .eq("id", userId);
   if (error) return { error: error.message };
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return { error: null };
 }
 
@@ -229,7 +229,7 @@ export async function inviteStaff(data: {
       invited_at: new Date().toISOString(),
     };
 
-    revalidatePath("/staff");
+    revalidatePath("/people/staff");
     return { error: null, invitation: pendingInvitation };
   }
 
@@ -310,7 +310,7 @@ export async function inviteStaff(data: {
     invited_at: new Date().toISOString(),
   };
 
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return { error: null, invitation: pendingInvitation };
 }
 
@@ -371,7 +371,7 @@ export async function setImportedStaffEmailAndInvite(data: {
     venueId: data.venueId,
   });
 
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return inviteResult;
 }
 
@@ -427,7 +427,7 @@ export async function inviteImportedStaffByCurrentEmail(data: {
     venueId: data.venueId,
   });
 
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return inviteResult;
 }
 
@@ -442,7 +442,7 @@ export async function updateStaffRole(
     .eq("id", uvrId);
 
   if (error) return { error: error.message };
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return { error: null };
 }
 
@@ -456,7 +456,7 @@ export async function fireStaff(
     .eq("id", uvrId);
 
   if (error) return { error: error.message };
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return { error: null };
 }
 
@@ -470,7 +470,7 @@ export async function restoreStaff(
     .eq("id", uvrId);
 
   if (error) return { error: error.message };
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return { error: null };
 }
 
@@ -516,6 +516,6 @@ export async function cancelInvitation(
     .eq("id", invId);
 
   if (error) return { error: error.message };
-  revalidatePath("/staff");
+  revalidatePath("/people/staff");
   return { error: null };
 }

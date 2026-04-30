@@ -10,19 +10,20 @@ import { CategoriesClient } from "./_components/categories-client";
 export default async function FinanceCategoriesPage() {
   const supabase = await createClient();
 
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "finance.view_categories",
-  });
+  // Resolve both permission checks before listing — the inactive-rows
+  // payload must be gated on canManage so view-only users never receive
+  // hidden categories in the wire response (UI hiding alone leaks data
+  // via the network tab / serialised RSC payload).
+  const [{ data: canView }, { data: canManage }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "finance.view_categories" }),
+    supabase.rpc("has_permission", { permission_code: "finance.manage_categories" }),
+  ]);
   if (!canView) redirect("/dashboard");
 
-  const [{ data: canManage }, { rows: categories }, { rows: groups }] =
-    await Promise.all([
-      supabase.rpc("has_permission", { permission_code: "finance.manage_categories" }),
-      // Show all rows (including deactivated) so manage users can restore them.
-      // The client filters by is_active for the default view.
-      listFinanceCategories({ include_inactive: true }),
-      listFinanceCategoryGroups(),
-    ]);
+  const [{ rows: categories }, { rows: groups }] = await Promise.all([
+    listFinanceCategories({ include_inactive: !!canManage }),
+    listFinanceCategoryGroups(),
+  ]);
 
   return (
     <CategoriesClient

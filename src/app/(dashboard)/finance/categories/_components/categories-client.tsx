@@ -141,14 +141,14 @@ export function CategoriesClient({ categories, groups, canManage }: Props) {
               onClick={() => setCreateMode({ type: "income" })}
             >
               <Plus className="mr-1.5 h-4 w-4" />
-              Доход
+              Новая статья дохода
             </Button>
             <Button
               type="button"
               onClick={() => setCreateMode({ type: "expense" })}
             >
               <Plus className="mr-1.5 h-4 w-4" />
-              Расход
+              Новая статья расхода
             </Button>
           </div>
         )}

@@ -37,9 +37,16 @@ const INITIAL_WORKING_HOURS: WorkingHours = {
   sun: { open: "11:00", close: "22:00", closed: false },
 };
 
+// `type` was a tight enum mirroring the original 5-value venue_type
+// from migration 001. Migration 026 added 8 more (snack_bar, hookah,
+// pastry_shop, coffee_shop, pub, pizzeria, canteen, fast_food) but
+// this schema wasn't updated — saves silently failed on zod validation
+// for every venue with one of the new types. The DB enum is the source
+// of truth; the Select dropdown is bound to VENUE_TYPES already, so we
+// just accept any non-empty string here and let the DB catch nonsense.
 const schema = z.object({
   name:                    z.string().min(1, "Введите название"),
-  type:                    z.enum(["restaurant", "bar", "cafe", "club", "other"]),
+  type:                    z.string().min(1),
   address:                 z.string().optional(),
   phone:                   z.string().optional(),
   currency:                z.string().min(1),

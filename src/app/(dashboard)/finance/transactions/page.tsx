@@ -48,7 +48,14 @@ export default async function TransactionsPage({
   if (!canView) redirect("/dashboard");
 
   const filters = parseFilters(sp);
-  const page = parseInt(sp.page ?? "1", 10) || 1;
+  // parseInt is forgiving (it parses "abc" as NaN), but it accepts
+  // negative numbers and silently treats them as truthy. Manual lower
+  // clamp here; upper bound (page > totalPages) is applied below once
+  // the row count is known.
+  const requestedPage = parseInt(sp.page ?? "1", 10);
+  const lowerClampedPage = Number.isFinite(requestedPage) && requestedPage > 0
+    ? requestedPage
+    : 1;
   const requestedSize = parseInt(sp.size ?? `${DEFAULT_PAGE_SIZE}`, 10);
   const pageSize = ALLOWED_PAGE_SIZES.includes(requestedSize)
     ? requestedSize
@@ -71,7 +78,7 @@ export default async function TransactionsPage({
     { rows: categories },
     { rows: counterparties },
   ] = await Promise.all([
-    listTransactions({ filters: effectiveFilters, page, pageSize }),
+    listTransactions({ filters: effectiveFilters, page: lowerClampedPage, pageSize }),
     listLegalEntities(),
     listAccountVenues(),
     // Filter dropdowns only need active rows. Detail joins below pull
@@ -81,6 +88,12 @@ export default async function TransactionsPage({
     listFinanceCategories({ include_inactive: false }),
     listCounterparties({ include_deleted: false }),
   ]);
+
+  // Final page passed to the UI is the one the lib actually used,
+  // bounded above by totalPages — protects against `?page=999` showing
+  // an empty state with a misleading "999 / 1" counter.
+  const totalPages = Math.max(1, Math.ceil(txResult.total / pageSize));
+  const page = Math.min(lowerClampedPage, totalPages);
 
   return (
     <TransactionsList

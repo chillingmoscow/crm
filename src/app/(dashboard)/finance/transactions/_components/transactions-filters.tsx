@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,7 @@ export function TransactionsFilters({
   counterparties,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
   const [type,           setType]           = useState<string>(initial.type ?? TYPE_ALL);
@@ -108,8 +109,12 @@ export function TransactionsFilters({
     for (const [key, value] of Object.entries(merged)) {
       if (value != null && value !== "") params.set(key, String(value));
     }
-    // Reset to page 1 whenever the filter set changes — page indices
-    // tied to the previous result set become misleading otherwise.
+    // Preserve the user's chosen page size — applying filters resets
+    // to page 1 (results don't align across filter sets) but a switch
+    // to 100/200 rows per page should survive.
+    const currentSize = searchParams.get("size");
+    if (currentSize) params.set("size", currentSize);
+
     const qs = params.toString();
     startTransition(() => {
       router.push(qs ? `/finance/transactions?${qs}` : "/finance/transactions");
@@ -127,8 +132,13 @@ export function TransactionsFilters({
     setAmountMin(null);
     setAmountMax(null);
     setQ("");
+    // Preserve the page-size preference on reset for the same reason
+    // as in apply() — clearing filters shouldn't snap pagination back
+    // to default.
+    const currentSize = searchParams.get("size");
+    const qs = currentSize ? `size=${currentSize}` : "";
     startTransition(() => {
-      router.push("/finance/transactions");
+      router.push(qs ? `/finance/transactions?${qs}` : "/finance/transactions");
     });
   };
 

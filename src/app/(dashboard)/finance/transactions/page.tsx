@@ -40,11 +40,13 @@ export default async function TransactionsPage({
   const sp = await searchParams;
   const supabase = await createClient();
 
-  // Permission gate up front. Soft-delete / restore UI + create form
-  // land in stage 4.5b; for now we only need view.
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "finance.view_transactions",
-  });
+  // Permission gate up front. canCreate gates the «Создать» button on
+  // the list; the underlying RLS (transactions_insert) is the source
+  // of truth, but we hide guaranteed-failing buttons (PR #9 lesson).
+  const [{ data: canView }, { data: canCreate }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "finance.view_transactions" }),
+    supabase.rpc("has_permission", { permission_code: "finance.create_transaction" }),
+  ]);
   if (!canView) redirect("/dashboard");
 
   const filters = parseFilters(sp);
@@ -108,6 +110,7 @@ export default async function TransactionsPage({
       bankAccounts={bankAccounts}
       categories={categories}
       counterparties={counterparties}
+      canCreate={!!canCreate}
     />
   );
 }

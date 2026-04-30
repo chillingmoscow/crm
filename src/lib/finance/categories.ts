@@ -117,10 +117,10 @@ export async function updateFinanceCategory(
 }
 
 /**
- * Soft-deactivate a category. Hard delete is gated on
- * finance.delete_category — RLS rejects for everyone else. Hard delete
- * additionally would NULL out `transactions.category_id` (composite FK
- * with ON DELETE SET NULL on category_id, migration 040).
+ * Soft-deactivate a category. Sets is_active=false; the row stays in
+ * the table so existing transactions keep their category_id reference.
+ * Hard delete (deleteFinanceCategory) goes through ON DELETE SET NULL
+ * on transactions.category_id (composite FK, migration 040).
  */
 export async function deactivateFinanceCategory(
   id: string
@@ -129,6 +129,23 @@ export async function deactivateFinanceCategory(
   const { error } = await supabase
     .from("finance_categories")
     .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/finance/categories");
+  return { error: null };
+}
+
+/**
+ * Re-activate a category that was previously hidden. Mirror of
+ * deactivateFinanceCategory.
+ */
+export async function reactivateFinanceCategory(
+  id: string
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("finance_categories")
+    .update({ is_active: true, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) return { error: error.message };
   revalidatePath("/finance/categories");

@@ -38,10 +38,22 @@ type Props = {
   attachments: AttachmentRowDisplay[];
   /** Default document_type sent on upload. */
   defaultDocumentType?: AttachmentDocumentType;
-  /** When true, inputs/actions are hidden — read-only mode. */
+  /**
+   * When true, hides every write action (upload, detach, hard-delete).
+   * Use for soft-deleted parents or "no manage rights at all" callers.
+   */
   readOnly?: boolean;
-  /** When true, the "Hard delete file" action is hidden. */
-  hideDelete?: boolean;
+  /**
+   * Granular gates so the page can hide a single button when the
+   * underlying RLS rejects it. Each defaults to true. RLS still enforces
+   * authorisation server-side — these flags only prevent guaranteed-error
+   * click paths, e.g. a manager with `upload_attachments` but without
+   * `delete_attachments` shouldn't see Detach (the pivot delete policy
+   * gates on `finance.delete_attachments`).
+   */
+  canUpload?: boolean;
+  canDetach?: boolean;
+  canHardDelete?: boolean;
   /** Optional accept list passed to the file input. */
   accept?: string;
 };
@@ -62,9 +74,16 @@ export function AttachmentUploader({
   attachments,
   defaultDocumentType,
   readOnly = false,
-  hideDelete = false,
+  canUpload = true,
+  canDetach = true,
+  canHardDelete = true,
   accept,
 }: Props) {
+  // Effective per-button visibility. readOnly trumps everything; otherwise
+  // each gate independently hides its button.
+  const showUpload     = !readOnly && canUpload;
+  const showDetach     = !readOnly && canDetach;
+  const showHardDelete = !readOnly && canHardDelete;
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
@@ -179,7 +198,7 @@ export function AttachmentUploader({
                 >
                   <Download className="h-4 w-4" />
                 </Button>
-                {!readOnly && (
+                {showDetach && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -191,7 +210,7 @@ export function AttachmentUploader({
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
-                {!readOnly && !hideDelete && (
+                {showHardDelete && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -210,7 +229,7 @@ export function AttachmentUploader({
         </ul>
       )}
 
-      {!readOnly && (
+      {showUpload && (
         <div>
           <input
             ref={inputRef}

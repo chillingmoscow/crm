@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   Tags,
   Users,
+  Wallet,
 } from "lucide-react";
 import {
   Sidebar,
@@ -54,15 +55,16 @@ const NAV_SECTIONS = [
   },
   {
     // Финансы (стадии 4.x). Подпункты добавляются по мере готовности —
-    // /finance/transactions и /finance/accounts появятся в 4.4 и 4.5.
-    // Все четыре роли по матрице 034 имеют view_dashboard / view_categories
-    // / view_counterparties; manage-уровень гейтится на самих страницах.
+    // /finance/transactions появится в 4.5. Все четыре роли по матрице
+    // 034 имеют view_dashboard / view_categories / view_counterparties /
+    // view_bank_accounts; manage-уровень гейтится на самих страницах.
     label: "Финансы",
     roles: ["owner", "admin", "accountant", "manager"],
     items: [
       // exact: чтобы Дашборд не выделялся, когда мы на /finance/categories
       // или другой дочерней странице.
       { title: "Дашборд",     href: "/finance",                icon: LayoutDashboard, exact: true, roles: ["owner", "admin", "accountant", "manager"] },
+      { title: "Счета",       href: "/finance/accounts",       icon: Wallet,                        roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         roles: ["owner", "admin", "accountant", "manager"] },
     ],

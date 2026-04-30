@@ -21,6 +21,16 @@ export class DadataError extends Error {
 }
 
 /**
+ * Whether the DaData integration has its API key set in env.
+ * Server-only (reads process.env). Pages call this once and pass the
+ * boolean down to client components so they can hide DaData-bound
+ * controls instead of letting the user trigger a guaranteed error.
+ */
+export function isDadataConfigured(): boolean {
+  return !!process.env.DADATA_API_KEY;
+}
+
+/**
  * POST a JSON body to a DaData endpoint and return the parsed JSON.
  * Throws DadataError on non-2xx responses or missing API key.
  */
@@ -30,8 +40,11 @@ export async function dadataPost<TResponse>(
 ): Promise<TResponse> {
   const apiKey = process.env.DADATA_API_KEY;
   if (!apiKey) {
+    // User-facing message — keeps env-var name out of the toast and
+    // gives ops a clear next step without leaking implementation
+    // detail to end users.
     throw new DadataError(
-      "DADATA_API_KEY is not configured. Set it in .env.local."
+      "Сервис подсказок DaData не настроен. Обратитесь к администратору."
     );
   }
 

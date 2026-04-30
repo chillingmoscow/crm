@@ -14,6 +14,13 @@ export type AddressInputProps = {
   placeholder?: string;
   id?: string;
   disabled?: boolean;
+  /**
+   * When false, the field works as a plain text input — no debounced
+   * fetches to /api/dadata/address. Server pages call isDadataConfigured()
+   * and pass the result down to avoid noisy 5xx responses when the API
+   * key isn't set.
+   */
+  suggestionsEnabled?: boolean;
 };
 
 /**
@@ -26,7 +33,7 @@ export type AddressInputProps = {
  */
 export const AddressInput = forwardRef<HTMLInputElement, AddressInputProps>(
   function AddressInput(
-    { value, onChange, onPick, placeholder, id, disabled },
+    { value, onChange, onPick, placeholder, id, disabled, suggestionsEnabled = true },
     ref
   ) {
     const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
@@ -41,6 +48,14 @@ export const AddressInput = forwardRef<HTMLInputElement, AddressInputProps>(
 
     // Debounced fetch.
     useEffect(() => {
+      // Short-circuit when DaData isn't configured — saves the round-trip
+      // and the inevitable 500. Field still works as plain text.
+      if (!suggestionsEnabled) {
+        setSuggestions([]);
+        setLoading(false);
+        return;
+      }
+
       const query = value.trim();
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -79,7 +94,7 @@ export const AddressInput = forwardRef<HTMLInputElement, AddressInputProps>(
       return () => {
         if (debounceRef.current) clearTimeout(debounceRef.current);
       };
-    }, [value]);
+    }, [value, suggestionsEnabled]);
 
     // Close on outside click.
     useEffect(() => {

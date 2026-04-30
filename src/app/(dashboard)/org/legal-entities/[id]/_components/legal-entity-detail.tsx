@@ -17,9 +17,16 @@ type Props = {
   row: LegalEntityRow;
   canManage: boolean;
   canDelete: boolean;
+  /** Hide the «Обновить из DaData» button when DaData isn't configured. */
+  dadataEnabled?: boolean;
 };
 
-export function LegalEntityDetailClient({ row, canManage, canDelete }: Props) {
+export function LegalEntityDetailClient({
+  row,
+  canManage,
+  canDelete,
+  dadataEnabled = true,
+}: Props) {
   const router = useRouter();
   const [syncing, setSyncing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -62,7 +69,7 @@ export function LegalEntityDetailClient({ row, canManage, canDelete }: Props) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        {canManage && (
+        {canManage && dadataEnabled && (
           <Button
             type="button"
             variant="outline"
@@ -106,6 +113,7 @@ export function LegalEntityDetailClient({ row, canManage, canDelete }: Props) {
         mode="edit"
         legalEntityId={row.id}
         readOnly={!canManage}
+        dadataEnabled={dadataEnabled}
         initial={{
           name:                   row.name,
           short_name:             row.short_name,

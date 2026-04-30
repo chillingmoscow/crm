@@ -54,9 +54,21 @@ type Props = {
    * org.manage_legal_entities — they should see the data, not edit it.
    */
   readOnly?: boolean;
+  /**
+   * When false, the «Из DaData» button on ИНН and the address
+   * autocomplete are silently disabled. Server pages call
+   * isDadataConfigured() and pass the result down.
+   */
+  dadataEnabled?: boolean;
 };
 
-export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false }: Props) {
+export function LegalEntityForm({
+  mode,
+  legalEntityId,
+  initial,
+  readOnly = false,
+  dadataEnabled = true,
+}: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
 
@@ -174,6 +186,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
               onChange={(v) => update("inn", v)}
               onParty={applyDadataParty}
               disabled={readOnly}
+              hideLookupButton={!dadataEnabled}
             />
           </div>
 
@@ -302,6 +315,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
               value={form.legal_address ?? ""}
               onChange={(v) => update("legal_address", v)}
               disabled={readOnly}
+              suggestionsEnabled={dadataEnabled}
             />
           </div>
           <div className="space-y-2">
@@ -311,6 +325,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
               value={form.actual_address ?? ""}
               onChange={(v) => update("actual_address", v)}
               disabled={readOnly}
+              suggestionsEnabled={dadataEnabled}
             />
           </div>
           <div className="space-y-2">
@@ -320,6 +335,7 @@ export function LegalEntityForm({ mode, legalEntityId, initial, readOnly = false
               value={form.postal_address ?? ""}
               onChange={(v) => update("postal_address", v)}
               disabled={readOnly}
+              suggestionsEnabled={dadataEnabled}
             />
           </div>
         </CardContent>

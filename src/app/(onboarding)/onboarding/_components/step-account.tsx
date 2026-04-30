@@ -35,6 +35,8 @@ interface Props {
   onBack: () => void;
   stepLabel?: string;
   hideBack?: boolean;
+  /** Hide the «Из DaData» button when the API key isn't configured. */
+  dadataEnabled?: boolean;
 }
 
 export function StepAccount({
@@ -44,6 +46,7 @@ export function StepAccount({
   onBack,
   stepLabel = "Шаг 2 из 5",
   hideBack = false,
+  dadataEnabled = true,
 }: Props) {
   const [uploading, setUploading] = useState(false);
   const [logoPreview, setLogoPreview] = useState<string | null>(data.accountLogoUrl);
@@ -222,6 +225,7 @@ export function StepAccount({
                     legalForm: party.legalForm,
                   })
                 }
+                hideLookupButton={!dadataEnabled}
               />
             </div>
 

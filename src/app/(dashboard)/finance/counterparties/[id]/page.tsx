@@ -8,6 +8,7 @@ import {
   listCounterpartyGroups,
 } from "@/lib/finance/counterparties";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
+import { isDadataConfigured } from "@/lib/dadata/client";
 import { CounterpartyDetail } from "./_components/counterparty-detail";
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -95,6 +96,7 @@ export default async function CounterpartyDetailPage({
         canManage={!!canManage}
         canUploadAttachments={!!canUploadAttachments}
         canDeleteAttachments={!!canDeleteAttachments}
+        dadataEnabled={isDadataConfigured()}
       />
     </div>
   );

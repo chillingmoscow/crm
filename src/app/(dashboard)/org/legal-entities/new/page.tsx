@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { isDadataConfigured } from "@/lib/dadata/client";
 import { LegalEntityForm } from "../_components/legal-entity-form";
 
 export default async function NewLegalEntityPage() {
@@ -17,6 +18,8 @@ export default async function NewLegalEntityPage() {
   });
   if (!canManage) redirect("/org/legal-entities");
 
+  const dadataEnabled = isDadataConfigured();
+
   return (
     <div className="p-6 md:p-8 w-full max-w-4xl">
       <Link
@@ -29,11 +32,12 @@ export default async function NewLegalEntityPage() {
 
       <h1 className="text-2xl font-semibold mb-1">Новое юрлицо</h1>
       <p className="text-muted-foreground text-sm mb-6">
-        Введите ИНН и нажмите «Из DaData» — поля заполнятся автоматически. После
-        этого можно скорректировать вручную.
+        {dadataEnabled
+          ? "Введите ИНН и нажмите «Из DaData» — поля заполнятся автоматически. После этого можно скорректировать вручную."
+          : "DaData не настроена — заполните поля вручную."}
       </p>
 
-      <LegalEntityForm mode="create" />
+      <LegalEntityForm mode="create" dadataEnabled={dadataEnabled} />
     </div>
   );
 }

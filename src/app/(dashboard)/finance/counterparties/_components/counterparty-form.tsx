@@ -46,6 +46,13 @@ type Props = {
   groups: CounterpartyGroupRow[];
   /** When true, all inputs are disabled and the save button is hidden. */
   readOnly?: boolean;
+  /**
+   * When false, hides the «Из DaData» lookup button on the ИНН field
+   * and disables the address autocomplete. Server pages call
+   * isDadataConfigured() and pass the result down so users don't see
+   * actions that are guaranteed to fail when the API key isn't set.
+   */
+  dadataEnabled?: boolean;
 };
 
 export function CounterpartyForm({
@@ -54,6 +61,7 @@ export function CounterpartyForm({
   initial,
   groups,
   readOnly = false,
+  dadataEnabled = true,
 }: Props) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
@@ -146,7 +154,7 @@ export function CounterpartyForm({
                 }))
               }
               placeholder="10 или 12 цифр"
-              hideLookupButton={readOnly}
+              hideLookupButton={readOnly || !dadataEnabled}
             />
           </div>
 
@@ -230,6 +238,7 @@ export function CounterpartyForm({
               id="cp-address"
               value={form.address ?? ""}
               onChange={(next) => setForm((f) => ({ ...f, address: next }))}
+              suggestionsEnabled={dadataEnabled}
             />
           </div>
 

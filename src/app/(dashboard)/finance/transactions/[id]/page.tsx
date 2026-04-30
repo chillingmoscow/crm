@@ -31,21 +31,33 @@ export default async function TransactionDetailPage({
   const supabase = await createClient();
 
   // Permissions resolved up front so child gates align with RLS that
-  // will fire on click. update / delete UI lands in stage 4.5b — for
-  // 4.5a we only need view + attachment gates.
+  // will fire on click. Edit ownership rule mirrors RLS migration 042
+  // §transactions_update: own row + update_transaction OR
+  // update_any_transaction. Soft-delete UI ships in 4.5c.
   const [
     { data: canView },
+    { data: canUpdateOwn },
+    { data: canUpdateAny },
     { data: canUploadAttachments },
     { data: canDeleteAttachments },
+    { data: { user } },
   ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "finance.view_transactions" }),
+    supabase.rpc("has_permission", { permission_code: "finance.update_transaction" }),
+    supabase.rpc("has_permission", { permission_code: "finance.update_any_transaction" }),
     supabase.rpc("has_permission", { permission_code: "finance.upload_attachments" }),
     supabase.rpc("has_permission", { permission_code: "finance.delete_attachments" }),
+    supabase.auth.getUser(),
   ]);
   if (!canView) redirect("/dashboard");
 
   const { row, error } = await getTransaction(id);
   if (error || !row) redirect("/finance/transactions");
+
+  const isOwner = !!user && row.created_by === user.id;
+  const canEdit = !row.deleted_at && (
+    isOwner ? !!canUpdateOwn || !!canUpdateAny : !!canUpdateAny
+  );
 
   const [
     { rows: legalEntities },
@@ -93,6 +105,7 @@ export default async function TransactionDetailPage({
         categories={categories}
         counterparties={counterparties}
         attachments={attachments}
+        canEdit={canEdit}
         canUploadAttachments={!!canUploadAttachments}
         canDeleteAttachments={!!canDeleteAttachments}
       />

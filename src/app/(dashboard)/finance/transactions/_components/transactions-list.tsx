@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
+  Plus,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -54,7 +55,7 @@ type Props = {
   bankAccounts: BankAccountRow[];
   categories: FinanceCategoryRow[];
   counterparties: CounterpartyRow[];
-  // canCreate prop comes back in 4.5b once /new exists.
+  canCreate: boolean;
 };
 
 export function TransactionsList({
@@ -69,6 +70,7 @@ export function TransactionsList({
   bankAccounts,
   categories,
   counterparties,
+  canCreate,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -128,7 +130,14 @@ export function TransactionsList({
             Доходы, расходы и переводы. Балансы счетов пересчитываются автоматически.
           </p>
         </div>
-        {/* Create button lands in stage 4.5b together with /new page. */}
+        {canCreate && (
+          <Button asChild>
+            <Link href="/finance/transactions/new">
+              <Plus className="mr-1.5 h-4 w-4" />
+              Создать
+            </Link>
+          </Button>
+        )}
       </div>
 
       <TransactionsFilters

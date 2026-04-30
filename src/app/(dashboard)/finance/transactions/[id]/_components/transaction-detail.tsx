@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   ArrowLeftRight,
+  Pencil,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -42,6 +43,12 @@ type Props = {
   categories: FinanceCategoryRow[];
   counterparties: CounterpartyRow[];
   attachments: AttachmentRowDisplay[];
+  /**
+   * Whether the current user can edit this transaction. Computed
+   * server-side: own row + update_transaction OR update_any_transaction,
+   * AND not soft-deleted.
+   */
+  canEdit: boolean;
   /** finance.upload_attachments — gates upload button. */
   canUploadAttachments: boolean;
   /** finance.delete_attachments — gates detach + hard-delete buttons. */
@@ -56,6 +63,7 @@ export function TransactionDetail({
   categories,
   counterparties,
   attachments,
+  canEdit,
   canUploadAttachments,
   canDeleteAttachments,
 }: Props) {
@@ -98,7 +106,15 @@ export function TransactionDetail({
             {formatDate(row.date)}
           </p>
         </div>
-        {/* Edit / delete buttons land in stage 4.5b. */}
+        {canEdit && (
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/finance/transactions/${row.id}/edit`}>
+              <Pencil className="mr-1.5 h-4 w-4" />
+              Редактировать
+            </Link>
+          </Button>
+        )}
+        {/* Soft-delete / restore buttons land in stage 4.5c. */}
       </div>
 
       <Card>

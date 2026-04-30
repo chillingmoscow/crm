@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
-import { uploadAttachment } from "@/lib/files/upload";
+import { deleteAccountFile, uploadAttachment } from "@/lib/files/upload";
 import type { AttachmentDocumentType } from "@/types/database";
 import type {
   AccountFileRow,
@@ -235,7 +235,13 @@ export async function uploadAndAttach(args: {
   }
 
   if (attachErr) {
-    return { fileId: upload.row.id, error: attachErr };
+    // Roll back the orphan: storage object + account_files row. Common
+    // attach failures (RLS denial on the pivot, bad parent id, unique
+    // violation on (transaction_id, file_id), etc.) would otherwise
+    // leave an unreferenced file accumulating in the bucket. Best-effort
+    // — if cleanup itself fails, the original attach error wins.
+    await deleteAccountFile(upload.row.id);
+    return { fileId: null, error: attachErr };
   }
   return { fileId: upload.row.id, error: null };
 }

@@ -114,7 +114,12 @@ export function Combobox({
             <CommandGroup>
               {allowClear && (
                 <CommandItem
+                  // cmdk filters by value+keywords. Without the clearLabel
+                  // in keywords, the clear row would vanish as soon as
+                  // the user starts typing — wrong for a row that means
+                  // "show everything".
                   value="__clear__"
+                  keywords={[clearLabel, "все", "all", "сброс"]}
                   onSelect={() => {
                     onChange(null);
                     setOpen(false);
@@ -137,7 +142,15 @@ export function Combobox({
                   disabled={option.disabled}
                   onSelect={() => {
                     if (option.disabled) return;
-                    onChange(option.value === value ? null : option.value);
+                    if (option.value === value) {
+                      // Re-selecting the current option clears only when
+                      // allowClear is on. Required fields (allowClear=false)
+                      // mustn't be droppable to null via this path.
+                      if (allowClear) onChange(null);
+                      setOpen(false);
+                      return;
+                    }
+                    onChange(option.value);
                     setOpen(false);
                   }}
                 >

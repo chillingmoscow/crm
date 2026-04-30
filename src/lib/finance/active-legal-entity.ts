@@ -3,6 +3,8 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 
+import { createClient } from "@/lib/supabase/server";
+
 /**
  * Cookie that holds the user's chosen legal entity for finance views.
  * This is a UI-level scoping convenience — RLS itself doesn't depend on
@@ -30,7 +32,11 @@ export async function getActiveFinanceLegalEntityId(): Promise<string | null> {
  * Set the active finance legal entity. Pass null to clear (show all).
  *
  * The cookie is httpOnly so client JS can't tamper with it; the
- * <LegalEntitySwitcher> calls this via a server action.
+ * <LegalEntitySwitcher> calls this via a server action. Defense in
+ * depth: we verify the LE is visible to the caller (RLS-gated lookup
+ * on legal_entities) before persisting — that way a tampered request
+ * can't leave the cookie pointing at a foreign id even though RLS
+ * would still hide the rows.
  */
 export async function setActiveFinanceLegalEntityId(
   legalEntityId: string | null
@@ -38,14 +44,25 @@ export async function setActiveFinanceLegalEntityId(
   const store = await cookies();
   if (legalEntityId === null) {
     store.delete(COOKIE_NAME);
-  } else {
-    store.set(COOKIE_NAME, legalEntityId, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: ONE_YEAR_SECONDS,
-    });
+    revalidatePath("/finance", "layout");
+    return { error: null };
   }
+
+  const supabase = await createClient();
+  const { data, error: lookupErr } = await supabase
+    .from("legal_entities")
+    .select("id")
+    .eq("id", legalEntityId)
+    .maybeSingle();
+  if (lookupErr) return { error: lookupErr.message };
+  if (!data) return { error: "Юрлицо не найдено" };
+
+  store.set(COOKIE_NAME, legalEntityId, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: ONE_YEAR_SECONDS,
+  });
   revalidatePath("/finance", "layout");
   return { error: null };
 }

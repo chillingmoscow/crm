@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { deleteAccountFile, uploadAttachment } from "@/lib/files/upload";
 import type { AttachmentDocumentType } from "@/types/database";
 import type {
   AccountFileRow,
@@ -177,4 +178,70 @@ export async function detachFromLegalEntity(args: {
   if (error) return { error: error.message };
   revalidatePath(`/org/legal-entities/${args.legalEntityId}`);
   return { error: null };
+}
+
+// ─── Combined upload + attach (used by <AttachmentUploader>) ────────────────
+//
+// Client component flow:
+//   1. user picks a file via <input type="file">,
+//   2. component calls uploadAndAttach({parent, file}),
+//   3. server action uploads the bytes to storage, inserts an
+//      account_files row, then inserts the pivot row in one trip.
+// If any step fails, the orphan storage object is removed by
+// `uploadAttachment`'s rollback path (see lib/files/upload.ts).
+
+export type AttachmentParent =
+  | { kind: "transaction";   id: string }
+  | { kind: "counterparty";  id: string }
+  | { kind: "legal_entity";  id: string };
+
+export async function uploadAndAttach(args: {
+  parent: AttachmentParent;
+  file: File;
+  document_type?: AttachmentDocumentType;
+}): Promise<{ fileId: string | null; error: string | null }> {
+  const upload = await uploadAttachment({
+    file: args.file,
+    name: args.file.name,
+    mime_type: args.file.type || "application/octet-stream",
+  });
+  if (upload.error || !upload.row) {
+    return { fileId: null, error: upload.error ?? "Не удалось загрузить файл" };
+  }
+
+  let attachErr: string | null = null;
+  switch (args.parent.kind) {
+    case "transaction":
+      ({ error: attachErr } = await attachToTransaction({
+        transactionId: args.parent.id,
+        fileId: upload.row.id,
+        document_type: args.document_type,
+      }));
+      break;
+    case "counterparty":
+      ({ error: attachErr } = await attachToCounterparty({
+        counterpartyId: args.parent.id,
+        fileId: upload.row.id,
+        document_type: args.document_type,
+      }));
+      break;
+    case "legal_entity":
+      ({ error: attachErr } = await attachToLegalEntity({
+        legalEntityId: args.parent.id,
+        fileId: upload.row.id,
+        document_type: args.document_type,
+      }));
+      break;
+  }
+
+  if (attachErr) {
+    // Roll back the orphan: storage object + account_files row. Common
+    // attach failures (RLS denial on the pivot, bad parent id, unique
+    // violation on (transaction_id, file_id), etc.) would otherwise
+    // leave an unreferenced file accumulating in the bucket. Best-effort
+    // — if cleanup itself fails, the original attach error wins.
+    await deleteAccountFile(upload.row.id);
+    return { fileId: null, error: attachErr };
+  }
+  return { fileId: upload.row.id, error: null };
 }

@@ -11,6 +11,9 @@ import {
   Settings,
   ChevronUp,
   FileBadge2,
+  LayoutDashboard,
+  Tags,
+  Users,
 } from "lucide-react";
 import {
   Sidebar,
@@ -28,7 +31,9 @@ import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
 
 // Sidebar nav grouped by block (docs/MERGE_PLAN.md §2.1).
-// Finance and CRM blocks will join in stages 4–5.
+// CRM block will join in stage 5. Finance subitems are added here as
+// each page lands — keeping the sidebar a faithful index of what's
+// actually shippable, not a list of 404s.
 const NAV_SECTIONS = [
   {
     label: "Люди",
@@ -45,6 +50,21 @@ const NAV_SECTIONS = [
       { title: "Аккаунт",   href: "/org/account",         icon: Settings,    roles: ["owner"] },
       { title: "Юрлица",    href: "/org/legal-entities",  icon: FileBadge2,  roles: ["owner", "admin", "accountant"] },
       { title: "Заведения", href: "/org/venues",          icon: Building2,   roles: ["owner"] },
+    ],
+  },
+  {
+    // Финансы (стадии 4.x). Подпункты добавляются по мере готовности —
+    // /finance/transactions и /finance/accounts появятся в 4.4 и 4.5.
+    // Все четыре роли по матрице 034 имеют view_dashboard / view_categories
+    // / view_counterparties; manage-уровень гейтится на самих страницах.
+    label: "Финансы",
+    roles: ["owner", "admin", "accountant", "manager"],
+    items: [
+      // exact: чтобы Дашборд не выделялся, когда мы на /finance/categories
+      // или другой дочерней странице.
+      { title: "Дашборд",     href: "/finance",                icon: LayoutDashboard, exact: true, roles: ["owner", "admin", "accountant", "manager"] },
+      { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          roles: ["owner", "admin", "accountant", "manager"] },
+      { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         roles: ["owner", "admin", "accountant", "manager"] },
     ],
   },
   {
@@ -109,20 +129,29 @@ export function AppSidebar({ userName, venues, activeVenueId, activeRoleCode }: 
               {section.label}
             </SidebarGroupLabel>
             <SidebarMenu>
-              {section.items.map((item) => (
-                <SidebarMenuItem key={item.href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith(item.href)}
-                    tooltip={item.title}
-                  >
-                    <Link href={item.href}>
-                      <item.icon />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {section.items.map((item) => {
+                // exact items match only when the path is identical —
+                // for things like the Финансы dashboard at /finance,
+                // which would otherwise highlight on every /finance/*.
+                const isActive =
+                  "exact" in item && item.exact
+                    ? pathname === item.href
+                    : pathname.startsWith(item.href);
+                return (
+                  <SidebarMenuItem key={item.href}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={isActive}
+                      tooltip={item.title}
+                    >
+                      <Link href={item.href}>
+                        <item.icon />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroup>
         ))}

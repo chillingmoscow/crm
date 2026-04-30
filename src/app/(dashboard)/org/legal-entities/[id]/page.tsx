@@ -8,6 +8,7 @@ import {
   listAccountVenues,
   listLegalEntities,
 } from "@/lib/org/legal-entities";
+import { isDadataConfigured } from "@/lib/dadata/client";
 import { LegalEntityDetailClient } from "./_components/legal-entity-detail";
 import { LegalEntityVenues } from "./_components/legal-entity-venues";
 
@@ -89,6 +90,7 @@ export default async function LegalEntityDetailPage({
         row={row}
         canManage={!!canManage}
         canDelete={!!canDelete}
+        dadataEnabled={isDadataConfigured()}
       />
 
       <div className="mt-6">

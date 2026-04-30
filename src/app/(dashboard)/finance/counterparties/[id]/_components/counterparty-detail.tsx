@@ -31,6 +31,8 @@ type Props = {
   canManage: boolean;
   canUploadAttachments: boolean;
   canDeleteAttachments: boolean;
+  /** Hide the «Обновить из DaData» button + disable address suggestions. */
+  dadataEnabled?: boolean;
 };
 
 export function CounterpartyDetail({
@@ -40,6 +42,7 @@ export function CounterpartyDetail({
   canManage,
   canUploadAttachments,
   canDeleteAttachments,
+  dadataEnabled = true,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<"sync" | "delete" | "restore" | null>(null);
@@ -104,7 +107,7 @@ export function CounterpartyDetail({
     <div className="space-y-6">
       {canManage && (
         <div className="flex flex-wrap items-center gap-2">
-          {row.inn && (
+          {row.inn && dadataEnabled && (
             <Button
               type="button"
               variant="outline"
@@ -175,6 +178,7 @@ export function CounterpartyDetail({
             initial={row}
             groups={groups}
             readOnly={!canManage || isDeleted}
+            dadataEnabled={dadataEnabled}
           />
           {isDeleted && (
             <p className="mt-3 text-xs text-muted-foreground italic">

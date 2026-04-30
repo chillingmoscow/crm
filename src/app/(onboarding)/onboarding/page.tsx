@@ -4,6 +4,7 @@ import { OnboardingWizard } from "./_components/wizard";
 import { getSystemRoles } from "./actions";
 import type { ProfileInitialData } from "./_components/step-profile";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
+import { isDadataConfigured } from "@/lib/dadata/client";
 
 export default async function OnboardingPage({
   searchParams,
@@ -77,6 +78,7 @@ export default async function OnboardingPage({
         logoUrl: account?.logo_url ?? null,
       }}
       startQuickRestoFlow={forceMode && startQuickRestoFlow}
+      dadataEnabled={isDadataConfigured()}
     />
   );
 }

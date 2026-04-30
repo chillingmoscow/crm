@@ -116,9 +116,18 @@ interface Props {
   initialProfile: ProfileInitialData;
   initialAccount: { id: string | null; name: string; logoUrl: string | null };
   startQuickRestoFlow?: boolean;
+  /** Hides the «Из DaData» button on the legal-entity step when DaData isn't configured. */
+  dadataEnabled?: boolean;
 }
 
-export function OnboardingWizard({ userId, roles, initialProfile, initialAccount, startQuickRestoFlow = false }: Props) {
+export function OnboardingWizard({
+  userId,
+  roles,
+  initialProfile,
+  initialAccount,
+  startQuickRestoFlow = false,
+  dadataEnabled = true,
+}: Props) {
   const [step, setStep] = useState(1);
   const [data, setData] = useState<WizardData>(INITIAL_DATA);
   const [hydrated, setHydrated] = useState(false);
@@ -217,6 +226,7 @@ export function OnboardingWizard({ userId, roles, initialProfile, initialAccount
               stepLabel={`Шаг 1 из ${totalSteps}`}
               hideBack
               onNext={() => goTo(2)}
+              dadataEnabled={dadataEnabled}
             />
           )}
 

@@ -28,6 +28,8 @@ type SearchParams = {
   amount_min?: string;
   amount_max?: string;
   q?: string;
+  /** "1" / "true" — include soft-deleted; gated on canDelete server-side. */
+  include_deleted?: string;
   page?: string;
   size?: string;
 };
@@ -43,13 +45,25 @@ export default async function TransactionsPage({
   // Permission gate up front. canCreate gates the «Создать» button on
   // the list; the underlying RLS (transactions_insert) is the source
   // of truth, but we hide guaranteed-failing buttons (PR #9 lesson).
-  const [{ data: canView }, { data: canCreate }] = await Promise.all([
+  // canDelete gates the «Показать удалённые» toggle and the actual
+  // include_deleted filter — RLS migration 046 only relaxes the
+  // SELECT for users with delete_transaction.
+  // canExport gates the «Экспорт CSV» button (matrix: owner / admin /
+  // accountant). The export route also re-checks server-side.
+  const [
+    { data: canView },
+    { data: canCreate },
+    { data: canDelete },
+    { data: canExport },
+  ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "finance.view_transactions" }),
     supabase.rpc("has_permission", { permission_code: "finance.create_transaction" }),
+    supabase.rpc("has_permission", { permission_code: "finance.delete_transaction" }),
+    supabase.rpc("has_permission", { permission_code: "finance.export" }),
   ]);
   if (!canView) redirect("/dashboard");
 
-  const filters = parseFilters(sp);
+  const filters = parseFilters(sp, !!canDelete);
   // parseInt is forgiving (it parses "abc" as NaN), but it accepts
   // negative numbers and silently treats them as truthy. Manual lower
   // clamp here; upper bound (page > totalPages) is applied below once
@@ -111,6 +125,8 @@ export default async function TransactionsPage({
       categories={categories}
       counterparties={counterparties}
       canCreate={!!canCreate}
+      canSeeDeleted={!!canDelete}
+      canExport={!!canExport}
     />
   );
 }
@@ -119,7 +135,10 @@ export default async function TransactionsPage({
 
 const ALLOWED_TYPES = new Set<TransactionRow["type"]>(["income", "expense", "transfer"]);
 
-function parseFilters(sp: SearchParams): TransactionListFilters {
+function parseFilters(
+  sp: SearchParams,
+  canSeeDeleted: boolean
+): TransactionListFilters {
   const f: TransactionListFilters = {};
 
   // Type — strict whitelist so a stray ?type=foo doesn't slip through.
@@ -144,6 +163,13 @@ function parseFilters(sp: SearchParams): TransactionListFilters {
     if (Number.isFinite(n)) f.amount_max = n;
   }
   if (sp.q && sp.q.trim()) f.q = sp.q.trim();
+
+  // include_deleted is server-gated on canSeeDeleted — without it, RLS
+  // (migration 046) hides soft-deleted rows anyway, but we also drop
+  // the URL param so the toggle UI doesn't think it's active.
+  if (canSeeDeleted && (sp.include_deleted === "1" || sp.include_deleted === "true")) {
+    f.include_deleted = true;
+  }
 
   return f;
 }

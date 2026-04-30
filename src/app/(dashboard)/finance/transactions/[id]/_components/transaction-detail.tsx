@@ -1,9 +1,15 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   ArrowLeftRight,
+  Loader2,
   Pencil,
+  RotateCcw,
+  Trash2,
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
@@ -20,6 +26,10 @@ import {
   AttachmentUploader,
   type AttachmentRowDisplay,
 } from "@/components/shared/attachment-uploader";
+import {
+  restoreTransaction,
+  softDeleteTransaction,
+} from "@/lib/finance/transactions";
 import type {
   BankAccountRow,
   CounterpartyRow,
@@ -49,6 +59,8 @@ type Props = {
    * AND not soft-deleted.
    */
   canEdit: boolean;
+  /** finance.delete_transaction — gates Удалить + Восстановить buttons. */
+  canDelete: boolean;
   /** finance.upload_attachments — gates upload button. */
   canUploadAttachments: boolean;
   /** finance.delete_attachments — gates detach + hard-delete buttons. */
@@ -64,10 +76,49 @@ export function TransactionDetail({
   counterparties,
   attachments,
   canEdit,
+  canDelete,
   canUploadAttachments,
   canDeleteAttachments,
 }: Props) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<"delete" | "restore" | null>(null);
+  const [, startTransition] = useTransition();
   const isDeleted = !!row.deleted_at;
+
+  const handleSoftDelete = () => {
+    if (
+      !window.confirm(
+        `Удалить транзакцию #${row.public_id}? Балансы счетов пересчитаются автоматически. Транзакцию можно восстановить.`
+      )
+    ) {
+      return;
+    }
+    setBusy("delete");
+    startTransition(async () => {
+      const { error } = await softDeleteTransaction(row.id);
+      setBusy(null);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      toast.success("Транзакция удалена");
+      router.push("/finance/transactions");
+    });
+  };
+
+  const handleRestore = () => {
+    setBusy("restore");
+    startTransition(async () => {
+      const { error } = await restoreTransaction(row.id);
+      setBusy(null);
+      if (error) {
+        toast.error(error);
+        return;
+      }
+      toast.success("Транзакция восстановлена");
+      router.refresh();
+    });
+  };
 
   const leName = (id: string | null) =>
     id
@@ -106,15 +157,49 @@ export function TransactionDetail({
             {formatDate(row.date)}
           </p>
         </div>
-        {canEdit && (
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/finance/transactions/${row.id}/edit`}>
-              <Pencil className="mr-1.5 h-4 w-4" />
-              Редактировать
-            </Link>
-          </Button>
-        )}
-        {/* Soft-delete / restore buttons land in stage 4.5c. */}
+        <div className="flex items-center gap-2">
+          {canEdit && (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/finance/transactions/${row.id}/edit`}>
+                <Pencil className="mr-1.5 h-4 w-4" />
+                Редактировать
+              </Link>
+            </Button>
+          )}
+          {canDelete && isDeleted && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleRestore}
+              disabled={busy !== null}
+            >
+              {busy === "restore" ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <RotateCcw className="mr-1.5 h-4 w-4" />
+              )}
+              Восстановить
+            </Button>
+          )}
+          {canDelete && !isDeleted && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleSoftDelete}
+              disabled={busy !== null}
+              className="text-destructive hover:text-destructive"
+            >
+              {busy === "delete" ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-1.5 h-4 w-4" />
+              )}
+              Удалить
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card>

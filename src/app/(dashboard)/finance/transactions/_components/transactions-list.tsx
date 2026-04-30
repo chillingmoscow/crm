@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   ChevronLeft,
   ChevronRight,
+  Download,
   Plus,
   TrendingDown,
   TrendingUp,
@@ -14,6 +15,8 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -56,6 +59,10 @@ type Props = {
   categories: FinanceCategoryRow[];
   counterparties: CounterpartyRow[];
   canCreate: boolean;
+  /** finance.delete_transaction — gates the «Показать удалённые» toggle. */
+  canSeeDeleted: boolean;
+  /** finance.export — gates the «Экспорт» button. */
+  canExport: boolean;
 };
 
 export function TransactionsList({
@@ -71,6 +78,8 @@ export function TransactionsList({
   categories,
   counterparties,
   canCreate,
+  canSeeDeleted,
+  canExport,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -121,6 +130,16 @@ export function TransactionsList({
     ? legalEntityName(activeLegalEntityIdFromCookie)
     : null;
 
+  // Build the export URL from the current searchParams so the user
+  // gets the same filtered set they're looking at. Plain anchor with
+  // `download` — the browser navigates without leaving the page.
+  const exportHref = (() => {
+    const qs = searchParams.toString();
+    return qs
+      ? `/api/finance/transactions/export?${qs}`
+      : "/api/finance/transactions/export";
+  })();
+
   return (
     <div className="p-6 md:p-8 w-full max-w-7xl">
       <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
@@ -130,14 +149,27 @@ export function TransactionsList({
             Доходы, расходы и переводы. Балансы счетов пересчитываются автоматически.
           </p>
         </div>
-        {canCreate && (
-          <Button asChild>
-            <Link href="/finance/transactions/new">
-              <Plus className="mr-1.5 h-4 w-4" />
-              Создать
-            </Link>
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canExport && (
+            <Button asChild variant="outline">
+              {/* Plain <a> + download attr — server route streams CSV
+                  with Content-Disposition: attachment, browser handles
+                  the save dialog. */}
+              <a href={exportHref} download>
+                <Download className="mr-1.5 h-4 w-4" />
+                Экспорт CSV
+              </a>
+            </Button>
+          )}
+          {canCreate && (
+            <Button asChild>
+              <Link href="/finance/transactions/new">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Создать
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <TransactionsFilters
@@ -149,11 +181,19 @@ export function TransactionsList({
         counterparties={counterparties}
       />
 
-      {cookieFilterActive && (
-        <div className="mt-3 text-xs text-muted-foreground">
-          Активное юрлицо: <span className="text-foreground font-medium">{cookieLEName}</span> — переключатель в шапке.
-        </div>
-      )}
+      <div className="mt-3 flex items-center gap-4 flex-wrap">
+        {canSeeDeleted && (
+          <IncludeDeletedToggle
+            checked={!!filters.include_deleted}
+            disabled={isPending}
+          />
+        )}
+        {cookieFilterActive && (
+          <div className="text-xs text-muted-foreground">
+            Активное юрлицо: <span className="text-foreground font-medium">{cookieLEName}</span> — переключатель в шапке.
+          </div>
+        )}
+      </div>
 
       <div className="mt-4 rounded-md border bg-background overflow-hidden">
         {transactions.length === 0 ? (
@@ -311,6 +351,45 @@ export function TransactionsList({
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────
+
+function IncludeDeletedToggle({
+  checked,
+  disabled,
+}: {
+  checked: boolean;
+  disabled: boolean;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  const handleChange = (next: boolean) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next) {
+      params.set("include_deleted", "1");
+    } else {
+      params.delete("include_deleted");
+    }
+    // Toggling reset filters list view — pagination indices tied to a
+    // different result set become misleading otherwise.
+    params.delete("page");
+    const qs = params.toString();
+    startTransition(() => {
+      router.push(qs ? `/finance/transactions?${qs}` : "/finance/transactions");
+    });
+  };
+
+  return (
+    <Label className="flex items-center gap-2 text-sm text-muted-foreground font-normal cursor-pointer select-none">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={(v) => handleChange(v === true)}
+        disabled={disabled}
+      />
+      Показать удалённые
+    </Label>
+  );
+}
 
 function TypeBadge({ type }: { type: TransactionRow["type"] }) {
   if (type === "income") {

@@ -194,8 +194,15 @@ export async function GET(request: Request) {
   // UTF-8 instead of cp1251 — without it Cyrillic shows as garbage.
   const body = "﻿" + lines.join("\r\n") + "\r\n";
 
+  // Filename pieces come from query params (date_from / date_to). If
+  // either contains a quote / newline / control char, building the
+  // header with template-literal interpolation throws inside
+  // `new Response(..., { headers })` and the route returns 500 for
+  // an attacker-controllable input. Sanitize to ISO-shape only —
+  // anything else collapses to "_" so we never expose the raw param
+  // back through the header.
   const filenameSuffix = filters.date_from || filters.date_to
-    ? `_${filters.date_from ?? "..."}_${filters.date_to ?? "..."}`
+    ? `_${sanitiseIsoDate(filters.date_from) ?? "..."}_${sanitiseIsoDate(filters.date_to) ?? "..."}`
     : `_${new Date().toISOString().slice(0, 10)}`;
 
   return new Response(body, {
@@ -256,9 +263,24 @@ function parseFilters(
 }
 
 function csvCell(value: string): string {
-  // Always wrap in quotes — simplest correct rule for cells that may
-  // contain semicolons, quotes, or newlines.
-  return `"${value.replace(/"/g, '""')}"`;
+  // CSV/Excel formula injection: Excel and Google Sheets evaluate any
+  // cell whose first character is = / + / - / @ / TAB / CR as a
+  // formula on open, which lets an attacker store something like
+  // `=HYPERLINK(...)` in a description / counterparty name and have
+  // it execute when someone exports + opens the file. OWASP-recommended
+  // mitigation: prefix risky leading chars with a single quote so the
+  // spreadsheet treats the cell as text. We then quote the whole thing
+  // for the usual reasons (semicolons, quotes, newlines).
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return `"${safe.replace(/"/g, '""')}"`;
+}
+
+function sanitiseIsoDate(value: string | undefined | null): string | null {
+  // Date-shaped strings only: digits + dashes, max 10 chars
+  // (YYYY-MM-DD). Drops anything else so a tampered ?date_from=…
+  // can't smuggle quotes / CRLF into the Content-Disposition header.
+  if (!value) return null;
+  return /^[\d-]{1,10}$/.test(value) ? value : null;
 }
 
 function formatIsoDate(iso: string): string {

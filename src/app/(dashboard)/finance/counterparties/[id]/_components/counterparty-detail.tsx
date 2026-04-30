@@ -190,17 +190,24 @@ export function CounterpartyDetail({
         </CardHeader>
         <CardContent>
           {/*
-            Upload button visible only when user has both manage_counterparties
-            (page-level intent gate) and finance.upload_attachments (RLS on
-            the storage INSERT + pivot INSERT). Detach uses delete_attachments
-            on the pivot — keep `hideDelete` aligned with that policy too.
+            Each attachment action has its own RLS (migration 045):
+              upload  → finance.upload_attachments
+              detach  → finance.delete_attachments (pivot delete policy)
+              delete  → finance.delete_attachments (account_files delete)
+            Page-level readOnly fires when the user can't manage the
+            counterparty at all or the row is soft-deleted; otherwise
+            each button is gated on its own permission so a manager
+            with upload but without delete_attachments doesn't see a
+            Detach button that's guaranteed to fail at click.
           */}
           <AttachmentUploader
             parent={{ kind: "counterparty", id: row.id }}
             attachments={attachments}
             defaultDocumentType="contract"
-            readOnly={!canManage || !canUploadAttachments || isDeleted}
-            hideDelete={!canDeleteAttachments}
+            readOnly={!canManage || isDeleted}
+            canUpload={canUploadAttachments}
+            canDetach={canDeleteAttachments}
+            canHardDelete={canDeleteAttachments}
           />
         </CardContent>
       </Card>

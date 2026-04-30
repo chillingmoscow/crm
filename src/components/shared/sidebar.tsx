@@ -15,6 +15,7 @@ import {
   Tags,
   Users,
   Wallet,
+  ArrowLeftRight,
 } from "lucide-react";
 import {
   Sidebar,
@@ -64,6 +65,7 @@ const NAV_SECTIONS = [
       // exact: чтобы Дашборд не выделялся, когда мы на /finance/categories
       // или другой дочерней странице.
       { title: "Дашборд",     href: "/finance",                icon: LayoutDashboard, exact: true, roles: ["owner", "admin", "accountant", "manager"] },
+      { title: "Транзакции",  href: "/finance/transactions",   icon: ArrowLeftRight,                roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Счета",       href: "/finance/accounts",       icon: Wallet,                        roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         roles: ["owner", "admin", "accountant", "manager"] },

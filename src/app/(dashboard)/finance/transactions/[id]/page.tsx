@@ -33,11 +33,14 @@ export default async function TransactionDetailPage({
   // Permissions resolved up front so child gates align with RLS that
   // will fire on click. Edit ownership rule mirrors RLS migration 042
   // §transactions_update: own row + update_transaction OR
-  // update_any_transaction. Soft-delete UI ships in 4.5c.
+  // update_any_transaction. Soft-delete + restore both gate on
+  // delete_transaction (the only finance.delete_* permission for
+  // transactions).
   const [
     { data: canView },
     { data: canUpdateOwn },
     { data: canUpdateAny },
+    { data: canDelete },
     { data: canUploadAttachments },
     { data: canDeleteAttachments },
     { data: { user } },
@@ -45,6 +48,7 @@ export default async function TransactionDetailPage({
     supabase.rpc("has_permission", { permission_code: "finance.view_transactions" }),
     supabase.rpc("has_permission", { permission_code: "finance.update_transaction" }),
     supabase.rpc("has_permission", { permission_code: "finance.update_any_transaction" }),
+    supabase.rpc("has_permission", { permission_code: "finance.delete_transaction" }),
     supabase.rpc("has_permission", { permission_code: "finance.upload_attachments" }),
     supabase.rpc("has_permission", { permission_code: "finance.delete_attachments" }),
     supabase.auth.getUser(),
@@ -106,6 +110,7 @@ export default async function TransactionDetailPage({
         counterparties={counterparties}
         attachments={attachments}
         canEdit={canEdit}
+        canDelete={!!canDelete}
         canUploadAttachments={!!canUploadAttachments}
         canDeleteAttachments={!!canDeleteAttachments}
       />

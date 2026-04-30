@@ -110,7 +110,18 @@ export function TransactionForm({
     setForm((f) => ({
       ...f,
       type: next,
-      category_id:        next === "transfer" ? null : f.category_id,
+      // Drop the existing category whenever it doesn't match the new
+      // type — the picker is filtered by type, so an income → expense
+      // (or vice versa) flip leaves an invisible, now-invalid id in
+      // form state that would silently submit through. transfer also
+      // clears it (no category column on transfer).
+      category_id:
+        next === "transfer"
+          ? null
+          : f.category_id &&
+              categories.find((c) => c.id === f.category_id)?.type === next
+            ? f.category_id
+            : null,
       counterparty_id:    next === "transfer" ? null : f.counterparty_id,
       to_bank_account_id: next === "transfer" ? f.to_bank_account_id : null,
       to_legal_entity_id: next === "transfer" ? f.to_legal_entity_id : null,
@@ -452,8 +463,17 @@ function TypePill({
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 function todayIso(): string {
+  // Use the user's local calendar date, not UTC. `toISOString()`
+  // converts to UTC first, which shifts the prefilled date forward
+  // by a day for users west of UTC in the evening (e.g. PST 22:00
+  // local → 05:00 UTC next day → "2026-05-02" instead of today's
+  // 2026-05-01). Risky in finance flows where the date drives reports
+  // and balances.
   const d = new Date();
-  return toIsoDate(d.toISOString());
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 function toIsoDate(input: string): string {

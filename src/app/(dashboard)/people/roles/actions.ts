@@ -9,9 +9,18 @@ async function getActiveAccountId(): Promise<string | null> {
   return (data as string | null) ?? null;
 }
 
-export async function createRole(
-  name: string
-): Promise<{ id: string | null; error: string | null }> {
+export async function createRole(input: {
+  name: string;
+  /**
+   * If provided, copy all `granted=true` permissions from this source role
+   * into the freshly-created role. Source must be visible to the active
+   * account (system role OR custom role owned by the account).
+   * If the copy step fails, the role is still created — we surface a soft
+   * warning instead of rolling back, so the user keeps the new role and
+   * can adjust permissions manually.
+   */
+  copyFromRoleId?: string | null;
+}): Promise<{ id: string | null; error: string | null; warning?: string }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -21,7 +30,7 @@ export async function createRole(
   const accountId = await getActiveAccountId();
   if (!accountId) return { id: null, error: "Заведение не настроено" };
 
-  const trimmed = name.trim();
+  const trimmed = input.name.trim();
   const code = `custom_${trimmed
     .toLowerCase()
     .replace(/\s+/g, "_")
@@ -36,13 +45,24 @@ export async function createRole(
 
   if (error) return { id: null, error: error.message };
 
+  let warning: string | undefined;
+  if (input.copyFromRoleId) {
+    const { error: copyError } = await supabase.rpc("copy_role_permissions", {
+      p_source_role_id: input.copyFromRoleId,
+      p_target_role_id: data.id,
+    });
+    if (copyError) {
+      warning = `Должность создана, но не удалось скопировать права: ${copyError.message}`;
+    }
+  }
+
   revalidatePath("/people/roles");
-  return { id: data.id, error: null };
+  return { id: data.id, error: null, warning };
 }
 
 export async function updateRole(
   roleId: string,
-  data: { name: string; comment: string | null }
+  data: { name: string; comment: string | null; icon?: string | null }
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const {
@@ -62,9 +82,19 @@ export async function updateRole(
   const trimmed = data.name.trim();
   if (!trimmed) return { error: "Название не может быть пустым" };
 
+  // Whitelist on icon: empty string → null (clear). Other validation
+  // happens client-side via ICON_REGISTRY — backend just stores.
+  const updatePayload: { name: string; comment: string | null; icon?: string | null } = {
+    name: trimmed,
+    comment: data.comment,
+  };
+  if (data.icon !== undefined) {
+    updatePayload.icon = data.icon && data.icon.trim() ? data.icon : null;
+  }
+
   const { error } = await supabase
     .from("roles")
-    .update({ name: trimmed, comment: data.comment })
+    .update(updatePayload)
     .eq("id", roleId);
 
   if (error) return { error: error.message };

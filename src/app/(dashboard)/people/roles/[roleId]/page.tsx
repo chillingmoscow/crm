@@ -37,9 +37,9 @@ export default async function RoleDetailServerPage({
   // Fetch the role — accessible if it's a system role or belongs to the active account
   const { data: role } = await supabase
     .from("roles")
-    .select("id, account_id, name, code, comment")
+    .select("id, account_id, name, code, comment, icon")
     .eq("id", roleId)
-    .returns<{ id: string; account_id: string | null; name: string; code: string; comment: string | null }[]>()
+    .returns<{ id: string; account_id: string | null; name: string; code: string; comment: string | null; icon: string | null }[]>()
     .maybeSingle();
 
   if (!role) redirect("/people/roles");

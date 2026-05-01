@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCachedUser, createClient } from "@/lib/supabase/server";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/shared/sidebar";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
@@ -65,6 +65,7 @@ export default async function DashboardLayout({
   const venueList = (venues ?? []) as {
     venue_id: string;
     venue_name: string;
+    venue_type: string | null;
     role_code: string;
     role_name: string;
   }[];
@@ -77,14 +78,13 @@ export default async function DashboardLayout({
     <SidebarProvider>
       <AppSidebar
         userName={userName}
+        userEmail={user.email ?? ""}
         venues={venueList}
         activeVenueId={activeVenueId}
         activeRoleCode={activeRoleCode}
       />
       <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-4">
-          <SidebarTrigger />
-          <div className="flex-1" />
+        <header className="flex h-14 items-center gap-2 px-6 justify-end">
           <NotificationBell />
         </header>
         <main className="flex-1 flex flex-col">{children}</main>

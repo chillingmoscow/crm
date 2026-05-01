@@ -4,81 +4,85 @@
 
 @layer base {
   :root {
-    /* Notion-inspired warm neutral palette */
+    /* Sheerly · Zinc base + Blue accent (matches sheerly.pen tokens) */
     color-scheme: light;
-    --background: 0 0% 100%;
-    --foreground: 30 6% 13%;           /* warm near-black #37352f */
-    --card: 0 0% 100%;
-    --card-foreground: 30 6% 13%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 30 6% 13%;
-    --primary: 30 6% 13%;
-    --primary-foreground: 60 10% 97%;
-    --secondary: 40 8% 95%;
-    --secondary-foreground: 30 6% 13%;
-    --muted: 40 8% 95%;
-    --muted-foreground: 30 4% 47%;     /* warm medium gray */
-    --accent: 40 8% 93%;
-    --accent-foreground: 30 6% 13%;
-    --destructive: 0 84.2% 60.2%;
+    --background: 0 0% 98%;            /* #fafafa */
+    --foreground: 240 6% 4%;           /* #09090b */
+    --card: 0 0% 98%;
+    --card-foreground: 240 6% 4%;
+    --popover: 0 0% 98%;
+    --popover-foreground: 240 6% 4%;
+    --primary: 225 72% 48%;            /* #1d4ed8 — DS accent blue. NOT for CTAs */
+    --primary-foreground: 214 100% 97%;/* #eff6ff */
+    --brand: 215 89% 51%;              /* #1570EF — Sheerly brand. ALL CTAs use this */
+    --brand-foreground: 0 0% 100%;
+    --secondary: 240 5% 96%;           /* #f4f4f5 */
+    --secondary-foreground: 240 6% 10%;/* #18181b */
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;    /* #71717a */
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+    --destructive: 357 100% 45%;       /* #e7000b */
     --destructive-foreground: 0 0% 100%;
-    --border: 35 6% 90%;              /* warm light border */
-    --input: 35 6% 90%;
-    --ring: 30 6% 13%;
-    --radius: 0.375rem;
-    --chart-1: 12 76% 61%;
+    --border: 240 6% 90%;              /* #e4e4e7 */
+    --input: 240 6% 90%;
+    --ring: 217 91% 60%;               /* #3b82f6 */
+    --radius: 0.5rem;
+    --chart-1: 225 72% 48%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
-    --sidebar-background: 40 12% 97%; /* warm off-white sidebar */
-    --sidebar-foreground: 30 5% 28%;
-    --sidebar-primary: 30 6% 13%;
-    --sidebar-primary-foreground: 60 10% 97%;
-    --sidebar-accent: 40 8% 93%;
-    --sidebar-accent-foreground: 30 6% 13%;
-    --sidebar-border: 35 6% 90%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-    --autofill-bg: #ffffff;
-    --autofill-text: #0f172a;
+    --sidebar-background: 0 0% 98%;    /* #fafafa */
+    --sidebar-foreground: 240 6% 4%;   /* #09090b */
+    --sidebar-primary: 240 6% 10%;     /* #18181b */
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 96%;        /* #f4f4f4 */
+    --sidebar-accent-foreground: 240 6% 10%;
+    --sidebar-border: 240 6% 90%;      /* #e4e4e7 */
+    --sidebar-ring: 240 5% 46%;        /* #71717a */
+    --autofill-bg: #fafafa;
+    --autofill-text: #09090b;
   }
 
   .dark {
     color-scheme: dark;
-    --background: 30 5% 11%;
-    --foreground: 40 8% 93%;
-    --card: 30 5% 11%;
-    --card-foreground: 40 8% 93%;
-    --popover: 30 5% 11%;
-    --popover-foreground: 40 8% 93%;
-    --primary: 40 8% 93%;
-    --primary-foreground: 30 6% 13%;
-    --secondary: 30 4% 17%;
-    --secondary-foreground: 40 8% 93%;
-    --muted: 30 4% 17%;
-    --muted-foreground: 35 5% 55%;
-    --accent: 30 4% 17%;
-    --accent-foreground: 40 8% 93%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 40 8% 93%;
-    --border: 30 4% 17%;
-    --input: 30 4% 17%;
-    --ring: 35 5% 70%;
-    --chart-1: 220 70% 50%;
+    --background: 240 6% 5%;           /* #09090b */
+    --foreground: 0 0% 98%;            /* #fafafa */
+    --card: 240 6% 10%;                /* #18181b */
+    --card-foreground: 0 0% 98%;
+    --popover: 240 6% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 225 72% 48%;            /* keep blue accent in dark */
+    --primary-foreground: 214 100% 97%;
+    --brand: 215 89% 51%;              /* #1570EF — same in dark */
+    --brand-foreground: 0 0% 100%;
+    --secondary: 240 4% 16%;           /* #27272a */
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;    /* #a1a1aa */
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 359 100% 70%;       /* #ff6669 */
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 100% / 0.1;         /* #ffffff1a */
+    --input: 0 0% 100% / 0.1;
+    --ring: 221 83% 53%;               /* #2563eb */
+    --chart-1: 225 80% 49%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --sidebar-background: 30 5% 9%;
-    --sidebar-foreground: 40 6% 88%;
-    --sidebar-primary: 224.3 76.3% 48%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 30 4% 15%;
-    --sidebar-accent-foreground: 40 6% 88%;
-    --sidebar-border: 30 4% 17%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-    --autofill-bg: #0f172a;
-    --autofill-text: #f8fafc;
+    --sidebar-background: 240 6% 10%;  /* #18181b */
+    --sidebar-foreground: 0 0% 98%;
+    --sidebar-primary: 225 80% 49%;    /* #1447e6 */
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 7% 18%;      /* #2a2a30 */
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-border: 0 0% 100% / 0.1;
+    --sidebar-ring: 240 4% 46%;
+    --autofill-bg: #18181b;
+    --autofill-text: #fafafa;
   }
 }
 
@@ -93,10 +97,9 @@
     -moz-osx-font-smoothing: grayscale;
     transition: background-color 200ms ease, color 200ms ease;
   }
-  /* Notion-like: semibold headings, not bold */
-  h1 { @apply font-semibold tracking-tight; }
-  h2 { @apply font-semibold; }
-  h3 { @apply font-medium; }
+  h1 { @apply font-bold tracking-tight; }
+  h2 { @apply font-semibold tracking-tight; }
+  h3 { @apply font-semibold; }
 }
 
 /* ── Autofill: remove browser blue/yellow background, animate for detection ── */

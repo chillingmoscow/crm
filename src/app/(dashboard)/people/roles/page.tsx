@@ -34,7 +34,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   const [rolesResult, permissionsResult] = await Promise.all([
     supabase
       .from("roles")
-      .select("id, account_id, name, code")
+      .select("id, account_id, name, code, comment, icon")
       .or(
         accountId
           ? `account_id.is.null,account_id.eq.${accountId}`

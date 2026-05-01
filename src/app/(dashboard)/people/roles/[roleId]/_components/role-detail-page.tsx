@@ -1,17 +1,28 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronLeft, Loader2, Trash2, Users } from "lucide-react";
+import { ChevronLeft, Loader2, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { deleteRole, setRolePermission, updateRole } from "../../actions";
+import { metaForModule, sortModuleKeys } from "./permission-modules";
+import { IconPicker } from "./icon-picker";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -21,6 +32,7 @@ type Role = {
   name: string;
   code: string;
   comment: string | null;
+  icon: string | null;
 };
 
 type Permission = {
@@ -45,12 +57,7 @@ type Props = {
   importedFromQuickResto: boolean;
 };
 
-// ── Constants ────────────────────────────────────────────────
-
-const MODULE_LABELS: Record<string, string> = { platform: "Платформа" };
-
-const TABS = ["Права доступа", "Оплата труда", "Настройки"] as const;
-type Tab = (typeof TABS)[number];
+type TabKey = "permissions" | "compensation" | "settings" | "danger";
 
 // ── Component ────────────────────────────────────────────────
 
@@ -60,60 +67,81 @@ export function RoleDetailPage({
   rolePermissions: initialRolePerms,
   accountId,
   staffCount,
-  importedFromQuickResto,
 }: Props) {
   const router = useRouter();
   const [rolePermissions, setRolePerms] = useState(initialRolePerms);
-  const [activeTab, setActiveTab] = useState<Tab>("Права доступа");
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>("permissions");
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   // Settings tab state
   const [nameValue, setNameValue] = useState(role.name);
   const [commentValue, setCommentValue] = useState(role.comment ?? "");
+  const [iconValue, setIconValue] = useState<string | null>(role.icon);
+  const dirty =
+    nameValue.trim() !== role.name ||
+    (commentValue || null) !== role.comment ||
+    iconValue !== role.icon;
+
+  // Permissions search
+  const [permQuery, setPermQuery] = useState("");
 
   const isOwner = role.code === "owner";
   const canEdit = !isOwner;
-  // Delete only for custom (account-specific) non-owner roles
   const canDelete = !isOwner && accountId !== null && role.account_id === accountId;
+
+  // ── Helpers ────────────────────────────────────────────────
 
   function hasPermission(permId: string): boolean {
     return rolePermissions.some(
       (rp) =>
-        rp.role_id === role.id && rp.permission_id === permId && rp.granted
+        rp.role_id === role.id && rp.permission_id === permId && rp.granted,
     );
   }
 
-  function handleToggle(permissionId: string) {
-    const current = hasPermission(permissionId);
+  function applyPermissionLocal(permissionId: string, granted: boolean) {
     setRolePerms((prev) => {
       const existing = prev.find((rp) => rp.permission_id === permissionId);
       if (existing) {
         return prev.map((rp) =>
-          rp.permission_id === permissionId ? { ...rp, granted: !current } : rp
+          rp.permission_id === permissionId ? { ...rp, granted } : rp,
         );
       }
-      return [
-        ...prev,
-        { role_id: role.id, permission_id: permissionId, granted: !current },
-      ];
+      return [...prev, { role_id: role.id, permission_id: permissionId, granted }];
     });
+  }
+
+  function handleToggle(permissionId: string) {
+    if (!canEdit) return;
+    const next = !hasPermission(permissionId);
+    const previous = !next;
+    applyPermissionLocal(permissionId, next);
 
     startTransition(async () => {
-      const result = await setRolePermission(role.id, permissionId, !current);
+      const result = await setRolePermission(role.id, permissionId, next);
       if (result.error) {
         toast.error(result.error);
-        setRolePerms((prev) => {
-          const existing = prev.find((rp) => rp.permission_id === permissionId);
-          if (existing) {
-            return prev.map((rp) =>
-              rp.permission_id === permissionId
-                ? { ...rp, granted: current }
-                : rp
-            );
-          }
-          return prev.filter((rp) => rp.permission_id !== permissionId);
-        });
+        applyPermissionLocal(permissionId, previous);
+      }
+    });
+  }
+
+  function handleBulkSet(perms: Permission[], target: boolean) {
+    if (!canEdit) return;
+    // Optimistic UI: set all locally, then fire requests in parallel.
+    const toToggle = perms.filter((p) => hasPermission(p.id) !== target);
+    if (toToggle.length === 0) return;
+    toToggle.forEach((p) => applyPermissionLocal(p.id, target));
+
+    startTransition(async () => {
+      const results = await Promise.all(
+        toToggle.map((p) => setRolePermission(role.id, p.id, target)),
+      );
+      const failed = results.filter((r) => r.error).length;
+      if (failed > 0) {
+        toast.error(`Не удалось обновить ${failed} из ${toToggle.length} прав`);
+        // Roll back failed ones — keep simple: re-fetch best left to caller refresh.
+        router.refresh();
       }
     });
   }
@@ -123,12 +151,14 @@ export function RoleDetailPage({
       const result = await updateRole(role.id, {
         name: nameValue,
         comment: commentValue || null,
+        icon: iconValue,
       });
       if (result.error) {
         toast.error(result.error);
         return;
       }
       toast.success("Изменения сохранены");
+      router.refresh();
     });
   }
 
@@ -144,228 +174,343 @@ export function RoleDetailPage({
     });
   }
 
-  const permissionsByModule = permissions.reduce<Record<string, Permission[]>>(
-    (acc, p) => {
-      if (!acc[p.module]) acc[p.module] = [];
-      acc[p.module].push(p);
-      return acc;
-    },
-    {}
+  // ── Derived ────────────────────────────────────────────────
+
+  const grantedCount = useMemo(
+    () =>
+      permissions.filter((p) =>
+        rolePermissions.some(
+          (rp) =>
+            rp.role_id === role.id && rp.permission_id === p.id && rp.granted,
+        ),
+      ).length,
+    [permissions, rolePermissions, role.id],
   );
 
+  // Group permissions by module, filtered by search
+  const groupedPermissions = useMemo(() => {
+    const q = permQuery.toLowerCase().trim();
+    const filtered = q
+      ? permissions.filter((p) => p.description.toLowerCase().includes(q))
+      : permissions;
+    const byModule: Record<string, Permission[]> = {};
+    for (const p of filtered) {
+      (byModule[p.module] ??= []).push(p);
+    }
+    return sortModuleKeys(Object.keys(byModule)).map((key) => ({
+      key,
+      meta: metaForModule(key),
+      perms: byModule[key],
+    }));
+  }, [permissions, permQuery]);
+
+  // Total permissions per module (for "X из Y" display, ignoring search filter)
+  const totalsByModule = useMemo(() => {
+    const t: Record<string, number> = {};
+    for (const p of permissions) {
+      t[p.module] = (t[p.module] ?? 0) + 1;
+    }
+    return t;
+  }, [permissions]);
+
+  // ── Render ─────────────────────────────────────────────────
+
   return (
-    <div className="p-6 md:p-8 w-full max-w-2xl">
-      {/* Back button */}
-      <div className="mb-6">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-2 text-muted-foreground hover:text-foreground"
-          onClick={() => router.push("/people/roles")}
+    <div className="flex-1 flex flex-col">
+      {/* Top breadcrumb bar */}
+      <div className="flex items-center px-6 md:px-8 pt-4 w-full">
+        <Link
+          href="/people/roles"
+          className="inline-flex items-center gap-1 px-2 py-1.5 -ml-2 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
-          <ChevronLeft className="w-4 h-4 mr-1" />
+          <ChevronLeft className="w-4 h-4" />
           Должности
-        </Button>
+        </Link>
       </div>
 
-      {/* Title */}
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">{nameValue || role.name}</h1>
-          <div className="flex items-center gap-3 mt-1.5">
-            {isOwner && (
-              <Badge variant="secondary" className="text-xs">
-                Системная
-              </Badge>
-            )}
-            {importedFromQuickResto ? (
-              <Badge variant="outline" className="text-xs border-blue-200 text-blue-700">
-                Импортировано из QuickResto
-              </Badge>
-            ) : null}
-            <span className="text-sm text-muted-foreground flex items-center gap-1.5">
-              <Users className="w-3.5 h-3.5" />
+      {/* Page body */}
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
+        {/* Header */}
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <h1 className="text-3xl font-bold tracking-tight">
+              {nameValue || role.name}
+            </h1>
+            <div className="text-sm text-muted-foreground">
               {staffCount}{" "}
               {staffCount === 1
                 ? "сотрудник"
                 : staffCount < 5
                 ? "сотрудника"
                 : "сотрудников"}
-            </span>
+              {" · "}
+              {grantedCount} из {permissions.length} прав
+            </div>
           </div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="border-b mb-6">
-        <div className="flex">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Tab: Права доступа ───────────────────────────────── */}
-      {activeTab === "Права доступа" && (
-        <div className="space-y-6">
-          {isOwner && (
-            <p className="text-sm text-muted-foreground rounded-lg bg-muted px-4 py-3">
-              Системная должность — права нельзя изменить
-            </p>
+          {activeTab === "settings" && canEdit && (
+            <Button onClick={handleSave} disabled={isPending || !dirty || !nameValue.trim()}>
+              {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Сохранить
+            </Button>
           )}
+        </div>
 
-          {Object.entries(permissionsByModule).map(([module, perms]) => (
-            <div key={module}>
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                {MODULE_LABELS[module] ?? module}
-              </h3>
-              <div className="space-y-3">
-                {perms.map((permission) => {
-                  const granted = hasPermission(permission.id);
-                  return (
-                    <div key={permission.id} className="flex items-center gap-3">
-                      <Checkbox
-                        id={`perm-${permission.id}`}
-                        checked={granted}
-                        disabled={!canEdit}
-                        onCheckedChange={() =>
-                          canEdit && handleToggle(permission.id)
-                        }
-                      />
-                      <label
-                        htmlFor={`perm-${permission.id}`}
-                        className={`text-sm leading-none select-none ${
-                          !canEdit
-                            ? "cursor-default text-muted-foreground"
-                            : "cursor-pointer"
-                        }`}
-                      >
-                        {permission.description}
-                      </label>
+        {/* Tabs */}
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as TabKey)}
+        >
+          <TabsList>
+            <TabsTrigger value="permissions">Права доступа</TabsTrigger>
+            <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
+            <TabsTrigger value="settings">Настройки</TabsTrigger>
+            {canDelete && (
+              <TabsTrigger value="danger">Опасная зона</TabsTrigger>
+            )}
+          </TabsList>
+
+          {/* ── Permissions ───────────────────────────────────── */}
+          <TabsContent value="permissions" className="space-y-4">
+            {isOwner && (
+              <p className="text-sm text-muted-foreground rounded-lg bg-muted px-4 py-3">
+                Системная должность — права нельзя изменить
+              </p>
+            )}
+
+            {/* Toolbar: search + bulk */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="relative w-full max-w-[280px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={permQuery}
+                  onChange={(e) => setPermQuery(e.target.value)}
+                  placeholder="Найти право…"
+                  className="pl-9 h-9 text-[13px]"
+                />
+              </div>
+              {canEdit && (
+                <div className="flex items-center gap-1 ml-auto">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleBulkSet(permissions, true)}
+                    disabled={isPending}
+                  >
+                    Выделить всё
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleBulkSet(permissions, false)}
+                    disabled={isPending}
+                  >
+                    Сбросить
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Module group cards */}
+            {groupedPermissions.length === 0 && (
+              <div className="text-sm text-muted-foreground rounded-lg border border-dashed p-8 text-center">
+                По запросу «{permQuery}» ничего не найдено
+              </div>
+            )}
+            {groupedPermissions.map(({ key, meta, perms }) => {
+              const Icon = meta.icon;
+              const grantedInGroup = perms.filter((p) =>
+                hasPermission(p.id),
+              ).length;
+              const totalInGroup = totalsByModule[key];
+              const allGranted = grantedInGroup === totalInGroup;
+              return (
+                <div
+                  key={key}
+                  className="rounded-[14px] border bg-card overflow-hidden"
+                >
+                  {/* Group header */}
+                  <div className="flex items-center gap-3 bg-muted px-5 py-3.5 border-b">
+                    <div className="flex items-center justify-center size-7 rounded-lg bg-brand/10 shrink-0">
+                      <Icon className="w-4 h-4 text-brand" />
                     </div>
-                  );
-                })}
+                    <span className="text-sm font-semibold">{meta.label}</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold text-muted-foreground bg-secondary border">
+                      {grantedInGroup} из {totalInGroup}
+                    </span>
+                    <div className="flex-1" />
+                    {canEdit && (
+                      <Switch
+                        checked={allGranted}
+                        onCheckedChange={(checked) =>
+                          handleBulkSet(
+                            permissions.filter((p) => p.module === key),
+                            checked,
+                          )
+                        }
+                        disabled={isPending}
+                        aria-label={`${meta.label} — переключить все права`}
+                      />
+                    )}
+                  </div>
+
+                  {/* Rows */}
+                  <div>
+                    {perms.map((perm, i) => {
+                      const granted = hasPermission(perm.id);
+                      return (
+                        <div
+                          key={perm.id}
+                          className={`flex items-center gap-3 px-5 py-3 ${
+                            i < perms.length - 1 ? "border-b" : ""
+                          }`}
+                        >
+                          <Checkbox
+                            id={`perm-${perm.id}`}
+                            checked={granted}
+                            disabled={!canEdit}
+                            onCheckedChange={() => handleToggle(perm.id)}
+                          />
+                          <label
+                            htmlFor={`perm-${perm.id}`}
+                            className={`text-[13px] leading-tight select-none ${
+                              !canEdit
+                                ? "cursor-default text-muted-foreground"
+                                : "cursor-pointer text-foreground"
+                            }`}
+                          >
+                            {perm.description}
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </TabsContent>
+
+          {/* ── Compensation (stub) ───────────────────────────── */}
+          <TabsContent value="compensation">
+            <div className="rounded-lg border border-dashed p-16 text-center">
+              <p className="text-sm font-medium text-muted-foreground">
+                Оплата труда
+              </p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Раздел в разработке
+              </p>
+            </div>
+          </TabsContent>
+
+          {/* ── Settings ──────────────────────────────────────── */}
+          <TabsContent value="settings">
+            <div className="max-w-[720px] flex flex-col gap-5">
+              <div className="space-y-1.5">
+                <Label className="text-[13px] font-medium">Иконка</Label>
+                <div className="flex items-center gap-3">
+                  <IconPicker
+                    value={iconValue}
+                    roleCode={role.code}
+                    onChange={setIconValue}
+                    disabled={!canEdit}
+                  />
+                  <p className="text-[12px] text-muted-foreground leading-relaxed">
+                    Отображается в списке должностей и в шапке этой страницы.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="role-name" className="text-[13px] font-medium">
+                  Название
+                </Label>
+                <Input
+                  id="role-name"
+                  value={nameValue}
+                  onChange={(e) => setNameValue(e.target.value)}
+                  readOnly={!canEdit}
+                  className={!canEdit ? "bg-muted/50" : ""}
+                  placeholder="Название должности"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="role-comment"
+                  className="text-[13px] font-medium"
+                >
+                  Описание
+                </Label>
+                <Textarea
+                  id="role-comment"
+                  value={commentValue}
+                  onChange={(e) => setCommentValue(e.target.value)}
+                  readOnly={!canEdit}
+                  className={!canEdit ? "bg-muted/50" : ""}
+                  placeholder="Для чего используется роль, кому назначается…"
+                  rows={4}
+                />
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          </TabsContent>
 
-      {/* ── Tab: Оплата труда (stub) ─────────────────────────── */}
-      {activeTab === "Оплата труда" && (
-        <div className="rounded-lg border border-dashed p-16 text-center">
-          <p className="text-sm font-medium text-muted-foreground">
-            Оплата труда
-          </p>
-          <p className="text-sm text-muted-foreground mt-1">
-            Раздел в разработке
-          </p>
-        </div>
-      )}
-
-      {/* ── Tab: Настройки ───────────────────────────────────── */}
-      {activeTab === "Настройки" && (
-        <div className="space-y-6">
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="role-name">Название</Label>
-              <Input
-                id="role-name"
-                value={nameValue}
-                onChange={(e) => setNameValue(e.target.value)}
-                readOnly={!canEdit}
-                className={!canEdit ? "bg-muted/50" : ""}
-                placeholder="Название должности"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="role-comment">Комментарий</Label>
-              <Textarea
-                id="role-comment"
-                value={commentValue}
-                onChange={(e) => setCommentValue(e.target.value)}
-                readOnly={!canEdit}
-                className={!canEdit ? "bg-muted/50" : ""}
-                placeholder="Дополнительные заметки о должности..."
-                rows={4}
-              />
-            </div>
-
-            {canEdit && (
-              <Button
-                onClick={handleSave}
-                disabled={isPending || !nameValue.trim()}
-                size="sm"
-              >
-                {isPending && (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                )}
-                Сохранить
-              </Button>
-            )}
-          </div>
-
-          {/* Danger zone — only for custom non-owner roles */}
+          {/* ── Danger zone ───────────────────────────────────── */}
           {canDelete && (
-            <>
-              <Separator className="mt-8" />
-              <div className="space-y-3 pt-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Опасная зона
-                </p>
-                {confirmDelete ? (
-                  <div className="rounded-lg border border-destructive p-4 space-y-3">
-                    <p className="text-sm">
-                      Удалить должность{" "}
-                      <strong>&laquo;{nameValue || role.name}&raquo;</strong>?
-                      Это действие нельзя отменить.
-                    </p>
-                    <div className="flex gap-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setConfirmDelete(false)}
-                      >
-                        Отмена
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={handleDelete}
-                        disabled={isPending}
-                      >
-                        <Trash2 className="w-4 h-4 mr-1.5" />
-                        Удалить
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
+            <TabsContent value="danger">
+              <div className="max-w-[720px] rounded-[14px] border border-destructive/40 bg-card p-6 flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Удалить должность
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Должность «{nameValue || role.name}» будет удалена
+                    безвозвратно. Сотрудники с этой ролью потеряют доступ —
+                    переназначьте их перед удалением.
+                  </p>
+                </div>
+                <div>
                   <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-destructive border-destructive/40 hover:bg-destructive/5 hover:border-destructive"
-                    onClick={() => setConfirmDelete(true)}
+                    variant="destructive"
+                    onClick={() => setConfirmDeleteOpen(true)}
+                    disabled={isPending}
                   >
-                    <Trash2 className="w-4 h-4 mr-1.5" />
+                    <Trash2 className="w-4 h-4" />
                     Удалить должность
                   </Button>
-                )}
+                </div>
               </div>
-            </>
+            </TabsContent>
           )}
-        </div>
-      )}
+        </Tabs>
+      </div>
+
+      {/* Delete confirmation modal */}
+      <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Удалить должность?</DialogTitle>
+            <DialogDescription>
+              Должность «{nameValue || role.name}» будет удалена. Действие
+              нельзя отменить.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDeleteOpen(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={isPending}
+            >
+              <Trash2 className="w-4 h-4" />
+              Удалить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

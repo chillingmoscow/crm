@@ -1327,6 +1327,7 @@ export type Database = {
           account_id: string | null
           code: string
           comment: string | null
+          icon: string | null
           id: string
           name: string
         }
@@ -1334,6 +1335,7 @@ export type Database = {
           account_id?: string | null
           code: string
           comment?: string | null
+          icon?: string | null
           id?: string
           name: string
         }
@@ -1341,6 +1343,7 @@ export type Database = {
           account_id?: string | null
           code?: string
           comment?: string | null
+          icon?: string | null
           id?: string
           name?: string
         }
@@ -1752,6 +1755,10 @@ export type Database = {
             }
             Returns: Json
           }
+      copy_role_permissions: {
+        Args: { p_source_role_id: string; p_target_role_id: string }
+        Returns: undefined
+      }
       get_active_account_id: { Args: never; Returns: string }
       get_active_legal_entity_id: { Args: never; Returns: string }
       get_active_venue_id: { Args: never; Returns: string }
@@ -1785,6 +1792,7 @@ export type Database = {
           role_name: string
           venue_id: string
           venue_name: string
+          venue_type: string
         }[]
       }
       get_venue_staff: {
@@ -2043,6 +2051,7 @@ export const Constants = {
     },
   },
 } as const
+
 
 // ─── Hand-added enum aliases ─────────────────────────────────────────────────
 // `pnpm supabase gen types` doesn't emit named enum aliases — only the

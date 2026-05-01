@@ -3,17 +3,28 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Shield, Search, Settings2, X, Filter } from "lucide-react";
+import {
+  Plus,
+  Shield,
+  Search,
+  Settings2,
+  X,
+  Check,
+  Filter,
+} from "lucide-react";
+import { iconForRole } from "./role-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
+import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Sparkles } from "lucide-react";
 import { createRole } from "../actions";
 
 // ── Types ────────────────────────────────────────────────────
@@ -23,6 +34,8 @@ type Role = {
   account_id: string | null;
   name: string;
   code: string;
+  comment: string | null;
+  icon: string | null;
 };
 
 type Permission = {
@@ -48,18 +61,25 @@ type Props = {
 
 type ColKey = "name" | "staff" | "permissions" | "qr_import";
 
-const COL_DEFS: { key: ColKey; label: string; width: string; required?: boolean }[] = [
-  { key: "name",        label: "Название",   width: "1fr",   required: true },
-  { key: "staff",       label: "Сотрудники", width: "120px" },
-  { key: "permissions", label: "Права",      width: "80px"  },
-  { key: "qr_import",   label: "Импорт из QR", width: "120px"  },
+const COL_DEFS: {
+  key: ColKey;
+  label: string;
+  width: string;
+  /** "center" centers both header label and cell content; default = left */
+  align?: "center";
+  required?: boolean;
+}[] = [
+  // Hybrid sizing: name & permissions are flexible (split extra width
+  // proportionally so on wide screens neither column hogs all space);
+  // staff & QR have fixed widths sized to their tiny content (badge+label,
+  // single icon).
+  { key: "name",        label: "Должность",   width: "minmax(220px, 2fr)", required: true },
+  { key: "staff",       label: "Сотрудники",  width: "180px" },
+  { key: "permissions", label: "Права",       width: "minmax(260px, 1fr)" },
+  { key: "qr_import",   label: "Импорт из QR",width: "100px", align: "center" },
 ];
 
 const DEFAULT_COLS: ColKey[] = ["name", "staff", "permissions", "qr_import"];
-
-function buildGrid(visible: Set<ColKey>) {
-  return COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width).join(" ");
-}
 
 // ── Column settings dropdown ──────────────────────────────────
 
@@ -222,8 +242,6 @@ export function RolesClient({
       return next;
     });
   };
-  const template = buildGrid(visibleCols);
-
   // Search
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -233,9 +251,23 @@ export function RolesClient({
     if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
   }, [searchOpen]);
 
-  // Create sheet
+  // Create drawer
   const [sheetOpen, setSheetOpen] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
+  // "" = create from scratch; otherwise = source role id to copy permissions from
+  const [copyFromRoleId, setCopyFromRoleId] = useState<string>("");
+
+  // Roles available as a "copy from" source — exclude the role being created.
+  // Sorted: system roles first, then custom by name.
+  const copyableRoles = useMemo(
+    () =>
+      [...roles].sort((a, b) => {
+        if (a.account_id === null && b.account_id !== null) return -1;
+        if (a.account_id !== null && b.account_id === null) return 1;
+        return a.name.localeCompare(b.name, "ru");
+      }),
+    [roles],
+  );
 
   function getGrantedCount(roleId: string): number {
     return rolePermissions.filter((rp) => rp.role_id === roleId && rp.granted).length;
@@ -256,12 +288,19 @@ export function RolesClient({
     const name = newRoleName.trim();
     if (!name) return;
     startTransition(async () => {
-      const result = await createRole(name);
+      const result = await createRole({
+        name,
+        copyFromRoleId: copyFromRoleId || undefined,
+      });
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success("Должность создана");
+      if (result.warning) {
+        toast.warning(result.warning);
+      } else {
+        toast.success("Должность создана");
+      }
       if (result.id) {
         const created: Role = {
           id: result.id,
@@ -272,51 +311,101 @@ export function RolesClient({
             .replace(/\s+/g, "_")
             .replace(/[^a-z0-9_]/g, "")
             .substring(0, 40)}`,
+          comment: null,
+          icon: null,
         };
         setRoles((prev) => [...prev, created]);
         setSheetOpen(false);
         setNewRoleName("");
+        setCopyFromRoleId("");
         router.push(`/people/roles/${result.id}`);
       }
     });
   }
 
+  const totalStaffDistributed = Object.values(staffCountByRole).reduce(
+    (sum, n) => sum + n,
+    0,
+  );
+
   // Cell renderers
   const renderCell = (key: ColKey, role: Role) => {
     switch (key) {
-      case "name":
+      case "name": {
+        const desc = role.comment?.trim();
         return (
           <div className="min-w-0">
             <div className="font-medium text-sm truncate">{role.name}</div>
+            {desc && (
+              <div className="text-xs text-muted-foreground truncate mt-0.5">
+                {desc}
+              </div>
+            )}
           </div>
         );
-      case "staff":
+      }
+      case "staff": {
+        const count = staffCountByRole[role.id] ?? 0;
+        if (count === 0) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        const label =
+          count === 1
+            ? "сотрудник"
+            : count < 5
+            ? "сотрудника"
+            : "сотрудников";
         return (
-          <div className="text-sm text-muted-foreground">
-            {staffCountByRole[role.id] ?? 0}
+          <div className="flex items-center gap-2 text-sm">
+            <span className="flex items-center justify-center size-6 rounded-full bg-violet-400 text-white text-[11px] font-semibold">
+              {count}
+            </span>
+            <span className="text-muted-foreground">{label}</span>
           </div>
         );
-      case "permissions":
+      }
+      case "permissions": {
+        const granted = getGrantedCount(role.id);
+        const total = permissions.length;
+        const pct = total > 0 ? Math.round((granted / total) * 100) : 0;
         return (
-          <div className="text-sm text-muted-foreground">
-            {getGrantedCount(role.id)}/{permissions.length}
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-medium">
+                {granted} из {total}
+              </span>
+              <span className="text-muted-foreground">{pct}%</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-brand transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
           </div>
         );
-      case "qr_import":
+      }
+      case "qr_import": {
+        const imported = importedSet.has(role.id);
         return (
-          <div className="text-sm text-muted-foreground">
-            {importedSet.has(role.id) ? "Да" : "Нет"}
+          <div className="flex items-center" aria-label={imported ? "Да" : "Нет"}>
+            {imported ? (
+              <Check className="w-4 h-4 text-brand" />
+            ) : (
+              <X className="w-4 h-4 text-muted-foreground" />
+            )}
           </div>
         );
+      }
     }
   };
 
   return (
     <div className="p-6 md:p-8 w-full">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Должности</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Должности</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {roles.length > 0
               ? `${roles.length} ${
@@ -327,6 +416,14 @@ export function RolesClient({
                     : "должностей"
                 }`
               : "Нет должностей"}
+            {totalStaffDistributed > 0 &&
+              ` · ${totalStaffDistributed} ${
+                totalStaffDistributed === 1
+                  ? "сотрудник распределён"
+                  : totalStaffDistributed < 5
+                  ? "сотрудника распределены"
+                  : "сотрудников распределены"
+              }`}
             {isFiltered && ` · показано ${filteredRoles.length}`}
           </p>
         </div>
@@ -407,87 +504,161 @@ export function RolesClient({
       )}
 
       {/* Table */}
-      {roles.length > 0 && (
-        <div className="rounded-lg border overflow-hidden">
-          {/* Header row */}
-          <div
-            className="grid gap-3 px-4 py-3 bg-muted/50 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b"
-            style={{ gridTemplateColumns: template }}
-          >
-            {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
-              <span key={col.key}>{col.label}</span>
-            ))}
-          </div>
+      {roles.length > 0 && (() => {
+        const visibleColDefs = COL_DEFS.filter((c) => visibleCols.has(c.key));
+        // 36px icon + configurable cols (no trailing chevron — design dropped it)
+        const gridTemplate = `36px ${visibleColDefs
+          .map((c) => c.width)
+          .join(" ")}`;
 
-          {/* Data rows */}
-          {filteredRoles.map((role, i) => (
-            <div key={role.id}>
-              {i > 0 && <Separator />}
-              <div
-                className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
-                style={{ gridTemplateColumns: template }}
-                onClick={() => router.push(`/people/roles/${role.id}`)}
-              >
-                {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
-                  <div key={col.key}>{renderCell(col.key, role)}</div>
-                ))}
+        return (
+          <div className="rounded-xl border bg-card overflow-hidden">
+            {/* Header row */}
+            <div
+              className="grid gap-6 px-5 py-3 bg-muted/60 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b"
+              style={{ gridTemplateColumns: gridTemplate }}
+            >
+              <span aria-hidden />
+              {visibleColDefs.map((col) => (
+                <span
+                  key={col.key}
+                  className={col.align === "center" ? "text-center" : undefined}
+                >
+                  {col.label}
+                </span>
+              ))}
+            </div>
+
+            {/* Data rows */}
+            {filteredRoles.map((role) => {
+              const isOwner = role.code === "owner";
+              const RoleIcon = iconForRole(role.code, role.icon);
+              return (
+                <div
+                  key={role.id}
+                  className="grid gap-6 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                  style={{ gridTemplateColumns: gridTemplate }}
+                  onClick={() => router.push(`/people/roles/${role.id}`)}
+                >
+                  {/* Icon */}
+                  <div
+                    className={`flex items-center justify-center size-9 rounded-lg ${
+                      isOwner
+                        ? "bg-brand/10 text-brand"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    <RoleIcon className="w-4 h-4" />
+                  </div>
+
+                  {visibleColDefs.map((col) => (
+                    <div
+                      key={col.key}
+                      className={`min-w-0 ${
+                        col.align === "center"
+                          ? "flex items-center justify-center"
+                          : ""
+                      }`}
+                    >
+                      {renderCell(col.key, role)}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+
+            {isFiltered && filteredRoles.length === 0 && (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                Нет должностей, соответствующих поиску
               </div>
-            </div>
-          ))}
+            )}
+          </div>
+        );
+      })()}
 
-          {isFiltered && filteredRoles.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              Нет должностей, соответствующих поиску
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Create sheet */}
-      <Sheet
+      {/* Create drawer (520px, design-system pattern) */}
+      <EditDrawer
         open={sheetOpen}
         onOpenChange={(open) => {
           setSheetOpen(open);
-          if (!open) setNewRoleName("");
+          if (!open) {
+            setNewRoleName("");
+            setCopyFromRoleId("");
+          }
         }}
+        title="Новая должность"
+        description="Создайте роль с нуля или скопируйте права у существующей."
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setSheetOpen(false)}>
+              Отмена
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={isPending || !newRoleName.trim()}
+            >
+              Создать
+            </Button>
+          </>
+        }
       >
-        <SheetContent className="w-full sm:max-w-sm">
-          <SheetHeader>
-            <SheetTitle>Новая должность</SheetTitle>
-          </SheetHeader>
-          <div className="mt-6 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-role-name">Название</Label>
-              <Input
-                id="new-role-name"
-                value={newRoleName}
-                onChange={(e) => setNewRoleName(e.target.value)}
-                placeholder="Например: Бармен"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreate();
-                }}
-              />
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setSheetOpen(false)}
-              >
-                Отмена
-              </Button>
-              <Button
-                className="flex-1"
-                onClick={handleCreate}
-                disabled={isPending || !newRoleName.trim()}
-              >
-                Создать
-              </Button>
-            </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="new-role-name" className="text-[13px] font-medium">
+            Название <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="new-role-name"
+            value={newRoleName}
+            onChange={(e) => setNewRoleName(e.target.value)}
+            placeholder="Например: Бармен"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleCreate();
+            }}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="copy-from" className="text-[13px] font-medium">
+            На основе существующей роли
+          </Label>
+          <Select
+            value={copyFromRoleId || "__none__"}
+            onValueChange={(v) => setCopyFromRoleId(v === "__none__" ? "" : v)}
+          >
+            <SelectTrigger id="copy-from">
+              <SelectValue placeholder="Не копировать — настроить с нуля" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">
+                Не копировать — настроить с нуля
+              </SelectItem>
+              {copyableRoles.map((r) => (
+                <SelectItem key={r.id} value={r.id}>
+                  {r.name}
+                  {r.account_id === null && (
+                    <span className="text-muted-foreground"> · системная</span>
+                  )}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Hint card per design (sparkles + tip) */}
+        <div className="flex items-start gap-2.5 rounded-[10px] bg-secondary border border-border p-3.5">
+          <Sparkles className="w-4 h-4 text-brand shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <p className="text-[12px] font-semibold text-secondary-foreground leading-tight">
+              Совет
+            </p>
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              Скопируйте «Хостес» или «Официант», если новая роль похожа —
+              настроить только разницу прав быстрее, чем 48 чекбоксов с нуля.
+            </p>
           </div>
-        </SheetContent>
-      </Sheet>
+        </div>
+      </EditDrawer>
     </div>
   );
 }

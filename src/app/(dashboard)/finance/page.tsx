@@ -47,14 +47,16 @@ export default async function FinanceDashboardPage({
   const monthStart = isoLocal(new Date(today.getFullYear(), today.getMonth(), 1));
   const monthEnd   = isoLocal(new Date(today.getFullYear(), today.getMonth() + 1, 0));
 
-  const dateFrom = sanitiseIsoDate(sp.date_from) ?? monthStart;
-  const dateTo   = sanitiseIsoDate(sp.date_to)   ?? monthEnd;
-  const venueId  = sp.venue_id ?? null;
+  // Sanitise once and re-use. `sanitiseIsoDate` returns null for
+  // anything that isn't a real ISO calendar date, so a malformed deep
+  // link (e.g. /finance?date_from=foo or 2026-13-40) silently falls
+  // back to the default month range without crashing the picker.
+  const overrideDateFrom = sanitiseIsoDate(sp.date_from);
+  const overrideDateTo   = sanitiseIsoDate(sp.date_to);
+  const venueId          = sp.venue_id ?? null;
 
-  // Whether the URL has explicit overrides — drives the «active vs
-  // default» state of the period filter so we don't show the user a
-  // «Сбросить» button when they haven't touched anything yet.
-  const userHasOverridden = !!sp.date_from || !!sp.date_to || !!sp.venue_id;
+  const dateFrom = overrideDateFrom ?? monthStart;
+  const dateTo   = overrideDateTo   ?? monthEnd;
 
   const [
     { rows: legalEntities },
@@ -104,9 +106,18 @@ export default async function FinanceDashboardPage({
       {/* Period filter */}
       <Card>
         <CardContent className="pt-6">
+          {/*
+            Forwarding raw `sp.date_from` / `sp.date_to` from the URL
+            into DateRangePicker would crash the dashboard on a
+            malformed deep-link (e.g. `/finance?date_from=foo`) because
+            the picker calls format(parseISO(value)) and parseISO of
+            "foo" returns Invalid Date, which format() throws on.
+            Pass the sanitised values — invalid input shows as empty
+            without breaking render.
+          */}
           <DashboardPeriodFilter
-            initialDateFrom={userHasOverridden ? sp.date_from ?? null : null}
-            initialDateTo={userHasOverridden ? sp.date_to ?? null : null}
+            initialDateFrom={overrideDateFrom}
+            initialDateTo={overrideDateTo}
             initialVenueId={venueId}
             venues={venues}
           />
@@ -395,7 +406,20 @@ function isoLocal(d: Date): string {
 
 function sanitiseIsoDate(value: string | undefined | null): string | null {
   if (!value) return null;
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  // Shape check first — cheap and rules out most garbage.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  // Then reality check: `2026-13-40` matches the regex but is not a
+  // real calendar date. JS `Date` overflows month/day silently
+  // (becomes the next year, etc.), so round-trip through UTC and
+  // compare. If the parsed date doesn't match the original, the
+  // string was nonsense; reject it. Postgres date filters reject
+  // these literals too — silent zero values in widgets otherwise.
+  const d = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}` === value ? value : null;
 }
 
 function formatDate(iso: string): string {

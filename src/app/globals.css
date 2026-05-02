@@ -110,3 +110,67 @@ input:-webkit-autofill {
   -webkit-text-fill-color: var(--autofill-text) !important;
   caret-color: var(--autofill-text);
 }
+
+/* ──────────────────────────────────────────────────────────────────
+ * BlockNote (Sheerly DS bridge)
+ * Maps BlockNote's `--bn-*` design tokens to our existing CSS vars
+ * so the KB editor inherits the Notion-warm palette + dark mode
+ * without duplicating values. Scoped under `.bn-sheerly` (className
+ * we set on <BlockNoteView/>) to avoid bleeding into other UI.
+ *
+ * BlockNote shadcn variant already consumes shadcn tokens for chrome
+ * (toolbars, menus); these vars cover the editor surface itself.
+ * ────────────────────────────────────────────────────────────────── */
+
+.bn-sheerly {
+  /* Editor canvas */
+  --bn-colors-editor-text:        hsl(var(--foreground));
+  --bn-colors-editor-background:  hsl(var(--background));
+
+  /* Floating menus (slash, link, formatting toolbar) */
+  --bn-colors-menu-text:          hsl(var(--popover-foreground));
+  --bn-colors-menu-background:    hsl(var(--popover));
+
+  /* Tooltips */
+  --bn-colors-tooltip-text:       hsl(var(--popover-foreground));
+  --bn-colors-tooltip-background: hsl(var(--popover));
+
+  /* Hover states inside menus */
+  --bn-colors-hovered-text:       hsl(var(--accent-foreground));
+  --bn-colors-hovered-background: hsl(var(--accent));
+
+  /* Selected-item state */
+  --bn-colors-selected-text:       hsl(var(--primary-foreground));
+  --bn-colors-selected-background: hsl(var(--primary));
+
+  /* Disabled */
+  --bn-colors-disabled-text:       hsl(var(--muted-foreground));
+  --bn-colors-disabled-background: hsl(var(--muted));
+
+  /* Borders, drag-handle */
+  --bn-colors-border:    hsl(var(--border));
+  --bn-colors-shadow:    hsl(var(--border));
+  --bn-colors-side-menu: hsl(var(--muted-foreground));
+
+  /* Geometry: пуш-через DS-радиус */
+  --bn-border-radius: var(--radius);
+
+  /* Typography: Sheerly не задаёт явный font в DS — оставляем body
+     stack из tailwind (system-ui), убирая Inter из BlockNote. */
+  --bn-font-family:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans",
+    sans-serif;
+}
+
+/* Highlight palette (BlockNote built-in /color command). Сохраняем
+   тёплую гамму Notion-warm, но синхронизируем серый/коричневый с DS. */
+.bn-sheerly {
+  --bn-colors-highlights-gray-text:       hsl(var(--muted-foreground));
+  --bn-colors-highlights-gray-background: hsl(var(--muted));
+}
+
+/* Гарантируем border-radius по DS-шкале на основной обёртке редактора. */
+.bn-sheerly .bn-editor {
+  border-radius: var(--radius);
+}

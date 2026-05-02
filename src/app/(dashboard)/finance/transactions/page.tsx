@@ -2,19 +2,26 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
-import { listBankAccounts } from "@/lib/finance/bank-accounts";
-import { listFinanceCategories } from "@/lib/finance/categories";
-import { listCounterparties } from "@/lib/finance/counterparties";
+import { listBankAccounts, listBankAccountGroups } from "@/lib/finance/bank-accounts";
+import {
+  listFinanceCategories,
+  listFinanceCategoryGroups,
+} from "@/lib/finance/categories";
+import {
+  listCounterparties,
+  listCounterpartyGroups,
+} from "@/lib/finance/counterparties";
 import { listTransactions } from "@/lib/finance/transactions";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
-import { TransactionsList } from "./_components/transactions-list";
-import type {
-  TransactionListFilters,
-  TransactionRow,
-} from "@/types/finance";
+import type { TransactionListFilters, TransactionRow } from "@/types/finance";
 
-const DEFAULT_PAGE_SIZE = 50;
+import { TransactionsPage } from "./_components/transactions-page";
+
+const DEFAULT_PAGE_SIZE = 25;
 const ALLOWED_PAGE_SIZES = [25, 50, 100, 200];
+
+const NO_CATEGORY_SENTINEL = "__no-category__";
+const NO_COUNTERPARTY_SENTINEL = "__no-counterparty__";
 
 type SearchParams = {
   type?: string;
@@ -25,16 +32,29 @@ type SearchParams = {
   counterparty_id?: string;
   date_from?: string;
   date_to?: string;
+  date_preset?: string;
   amount_min?: string;
   amount_max?: string;
   q?: string;
-  /** "1" / "true" — include soft-deleted; gated on canDelete server-side. */
-  include_deleted?: string;
   page?: string;
   size?: string;
 };
 
-export default async function TransactionsPage({
+/**
+ * Server entry for /finance/transactions.
+ *
+ * URL is the source of truth for filters and pagination — the client
+ * mirrors searchParams into UI controls and calls router.push back.
+ * Drawer-form / inline-create / multi-select-row state stays client-only.
+ *
+ * Permission contract:
+ * - finance.view_transactions to enter the page (otherwise → /dashboard).
+ * - finance.create_transaction to show the «+ Добавить операцию» CTA.
+ * - finance.delete_transaction to show bulk-delete and the delete button
+ *   inside the edit drawer.
+ * - finance.export to show the export-CSV icon.
+ */
+export default async function TransactionsServerPage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
@@ -42,14 +62,6 @@ export default async function TransactionsPage({
   const sp = await searchParams;
   const supabase = await createClient();
 
-  // Permission gate up front. canCreate gates the «Создать» button on
-  // the list; the underlying RLS (transactions_insert) is the source
-  // of truth, but we hide guaranteed-failing buttons (PR #9 lesson).
-  // canDelete gates the «Показать удалённые» toggle and the actual
-  // include_deleted filter — RLS migration 046 only relaxes the
-  // SELECT for users with delete_transaction.
-  // canExport gates the «Экспорт CSV» button (matrix: owner / admin /
-  // accountant). The export route also re-checks server-side.
   const [
     { data: canView },
     { data: canCreate },
@@ -61,71 +73,80 @@ export default async function TransactionsPage({
     supabase.rpc("has_permission", { permission_code: "finance.delete_transaction" }),
     supabase.rpc("has_permission", { permission_code: "finance.export" }),
   ]);
+
   if (!canView) redirect("/dashboard");
 
-  const filters = parseFilters(sp, !!canDelete);
-  // parseInt is forgiving (it parses "abc" as NaN), but it accepts
-  // negative numbers and silently treats them as truthy. Manual lower
-  // clamp here; upper bound (page > totalPages) is applied below once
-  // the row count is known.
-  const requestedPage = parseInt(sp.page ?? "1", 10);
-  const lowerClampedPage = Number.isFinite(requestedPage) && requestedPage > 0
-    ? requestedPage
-    : 1;
-  const requestedSize = parseInt(sp.size ?? `${DEFAULT_PAGE_SIZE}`, 10);
-  const pageSize = ALLOWED_PAGE_SIZES.includes(requestedSize)
-    ? requestedSize
-    : DEFAULT_PAGE_SIZE;
+  const cookieLegalEntityId = await getActiveFinanceLegalEntityId();
+  const filters = parseFilters(sp);
 
   // Honour the LegalEntitySwitcher cookie when no explicit
-  // legal_entity_id filter is present in the URL — the cookie is the
-  // soft default, the URL filter overrides it for this view.
-  const cookieLegalEntityId = await getActiveFinanceLegalEntityId();
+  // ?legal_entity_id is in the URL — the cookie is the soft default,
+  // a URL filter overrides it.
   const effectiveFilters: TransactionListFilters = {
     ...filters,
     legal_entity_id: filters.legal_entity_id ?? cookieLegalEntityId ?? undefined,
   };
+
+  // parseInt is forgiving for "abc" → NaN, but accepts negatives. Manual
+  // lower clamp here; upper bound applied below once we know the count.
+  const requestedPage = parseInt(sp.page ?? "1", 10);
+  const lowerClampedPage =
+    Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const requestedSize = parseInt(sp.size ?? `${DEFAULT_PAGE_SIZE}`, 10);
+  const pageSize = ALLOWED_PAGE_SIZES.includes(requestedSize)
+    ? requestedSize
+    : DEFAULT_PAGE_SIZE;
 
   const [
     txResult,
     { rows: legalEntities },
     { rows: venues },
     { rows: bankAccounts },
+    { rows: bankAccountGroups },
     { rows: categories },
+    { rows: categoryGroups },
     { rows: counterparties },
+    { rows: counterpartyGroups },
   ] = await Promise.all([
-    listTransactions({ filters: effectiveFilters, page: lowerClampedPage, pageSize }),
+    listTransactions({
+      filters: effectiveFilters,
+      page: lowerClampedPage,
+      pageSize,
+    }),
     listLegalEntities(),
     listAccountVenues(),
-    // Filter dropdowns only need active rows. Detail joins below pull
-    // names by id from these arrays — we deliberately don't fetch the
-    // full id→name map server-side because the lists are small.
     listBankAccounts({ include_deleted: false }),
+    listBankAccountGroups(),
     listFinanceCategories({ include_inactive: false }),
+    listFinanceCategoryGroups(),
     listCounterparties({ include_deleted: false }),
+    listCounterpartyGroups(),
   ]);
 
-  // Final page passed to the UI is the one the lib actually used,
-  // bounded above by totalPages — protects against `?page=999` showing
-  // an empty state with a misleading "999 / 1" counter.
+  // Final page bounded above by totalPages → ?page=999 doesn't show
+  // an empty table with a misleading "999 / 1" counter.
   const totalPages = Math.max(1, Math.ceil(txResult.total / pageSize));
   const page = Math.min(lowerClampedPage, totalPages);
 
   return (
-    <TransactionsList
-      transactions={txResult.rows}
+    <TransactionsPage
+      initialTransactions={txResult.rows}
       total={txResult.total}
       page={page}
       pageSize={pageSize}
-      filters={filters}
       activeLegalEntityIdFromCookie={cookieLegalEntityId}
+      filtersFromUrl={filters}
+      datePresetFromUrl={sp.date_preset ?? null}
       legalEntities={legalEntities}
       venues={venues}
       bankAccounts={bankAccounts}
+      bankAccountGroups={bankAccountGroups}
       categories={categories}
+      categoryGroups={categoryGroups}
       counterparties={counterparties}
+      counterpartyGroups={counterpartyGroups}
       canCreate={!!canCreate}
-      canSeeDeleted={!!canDelete}
+      canDelete={!!canDelete}
       canExport={!!canExport}
     />
   );
@@ -135,24 +156,35 @@ export default async function TransactionsPage({
 
 const ALLOWED_TYPES = new Set<TransactionRow["type"]>(["income", "expense", "transfer"]);
 
-function parseFilters(
-  sp: SearchParams,
-  canSeeDeleted: boolean
-): TransactionListFilters {
+function parseFilters(sp: SearchParams): TransactionListFilters {
   const f: TransactionListFilters = {};
 
-  // Type — strict whitelist so a stray ?type=foo doesn't slip through.
   if (sp.type && ALLOWED_TYPES.has(sp.type as TransactionRow["type"])) {
     f.type = sp.type as TransactionRow["type"];
   }
 
   if (sp.legal_entity_id) f.legal_entity_id = sp.legal_entity_id;
   if (sp.venue_id)        f.venue_id        = sp.venue_id;
-  if (sp.bank_account_id) f.bank_account_id = sp.bank_account_id;
-  if (sp.category_id)     f.category_id     = sp.category_id;
-  if (sp.counterparty_id) f.counterparty_id = sp.counterparty_id;
-  if (sp.date_from)       f.date_from       = sp.date_from;
-  if (sp.date_to)         f.date_to         = sp.date_to;
+
+  if (sp.bank_account_id) f.bank_account_id = splitCsv(sp.bank_account_id);
+
+  // Category & counterparty: extract the "no-X" sentinel as a separate
+  // boolean and pass real ids as an array. The lib then assembles the
+  // proper `field.is.null OR field.in.(...)` PostgREST clause.
+  const cat = splitCsv(sp.category_id);
+  const catNo = cat.includes(NO_CATEGORY_SENTINEL);
+  const realCats = cat.filter((id) => id !== NO_CATEGORY_SENTINEL);
+  if (realCats.length > 0) f.category_id = realCats;
+  if (catNo) f.category_include_none = true;
+
+  const cp = splitCsv(sp.counterparty_id);
+  const cpNo = cp.includes(NO_COUNTERPARTY_SENTINEL);
+  const realCps = cp.filter((id) => id !== NO_COUNTERPARTY_SENTINEL);
+  if (realCps.length > 0) f.counterparty_id = realCps;
+  if (cpNo) f.counterparty_include_none = true;
+
+  if (sp.date_from) f.date_from = sp.date_from;
+  if (sp.date_to)   f.date_to   = sp.date_to;
 
   if (sp.amount_min) {
     const n = Number(sp.amount_min);
@@ -162,14 +194,16 @@ function parseFilters(
     const n = Number(sp.amount_max);
     if (Number.isFinite(n)) f.amount_max = n;
   }
+
   if (sp.q && sp.q.trim()) f.q = sp.q.trim();
 
-  // include_deleted is server-gated on canSeeDeleted — without it, RLS
-  // (migration 046) hides soft-deleted rows anyway, but we also drop
-  // the URL param so the toggle UI doesn't think it's active.
-  if (canSeeDeleted && (sp.include_deleted === "1" || sp.include_deleted === "true")) {
-    f.include_deleted = true;
-  }
-
   return f;
+}
+
+function splitCsv(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }

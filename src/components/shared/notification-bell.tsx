@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Bell, Check, CheckCheck, Info, UserPlus, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
   getNotifications,
@@ -85,19 +84,18 @@ export function NotificationBell() {
 
   return (
     <div className="relative" ref={ref}>
-      {/* Bell button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="relative h-8 w-8 text-muted-foreground hover:text-foreground"
+      {/* Bell button — стиль топбара DS: 36×36, bordered, bg-background */}
+      <button
+        type="button"
         aria-label="Уведомления"
         onClick={() => setOpen((v) => !v)}
+        className="relative inline-flex items-center justify-center size-9 rounded-lg border border-border bg-background text-foreground hover:bg-accent transition-colors"
       >
-        <Bell className="w-4 h-4" />
+        <Bell className="w-[18px] h-[18px]" />
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-destructive" />
+          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand ring-2 ring-background" />
         )}
-      </Button>
+      </button>
 
       {/* Panel */}
       {open && (

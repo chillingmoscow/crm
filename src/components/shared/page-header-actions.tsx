@@ -1,17 +1,20 @@
 "use client";
 
 /**
- * PageHeaderActions — слот для инъекции элементов из конкретной
- * страницы в общий header дашборда (рядом с колокольчиком).
+ * Page-level slots for the dashboard top bar.
  *
- * Используется entity-страницами (роль, сотрудник, счёт, транзакция,
- * контр-агент…) для рендера info-popover'а с метаданными
- * (id / создал / создана / изменил / изменена) — см. дизайн r5eX3.
+ * Top bar layout (см. правила в `docs/design-system.md` § Top bar):
  *
- * Паттерн: SidebarProvider оборачивает всё в layout, тут добавляется
- * ещё один client-провайдер; страница вызывает <PageHeaderActions>...
- * </PageHeaderActions>, его children мутируют контекст и рендерятся
- * в <PageHeaderActionsSlot /> (живёт в layout header).
+ *   [ SidebarTrigger | Breadcrumb ]   …   [ PageHeaderActions | NotificationBell ]
+ *
+ * - `<PageBreadcrumb>` — слева: ‹ Раздел breadcrumb-link или title.
+ *   Используется на entity-страницах (детальная роль / сотрудник / etc).
+ *   Пропускается для index-страниц (Должности, Сотрудники, Дашборд) —
+ *   там breadcrumb не нужен, главный заголовок остаётся в теле страницы.
+ *
+ * - `<PageHeaderActions>` — справа: info-popover, опциональная help-кнопка
+ *   и т.д. Bell живёт в layout всегда. Info button показываем только когда
+ *   у сущности есть meaningful audit info (created/updated by/at).
  */
 
 import {
@@ -23,36 +26,57 @@ import {
 } from "react";
 
 type Ctx = {
+  breadcrumb: ReactNode;
+  setBreadcrumb: (a: ReactNode) => void;
   actions: ReactNode;
   setActions: (a: ReactNode) => void;
 };
 
-const PageHeaderActionsContext = createContext<Ctx | null>(null);
+const PageHeaderContext = createContext<Ctx | null>(null);
 
 export function PageHeaderActionsProvider({ children }: { children: ReactNode }) {
+  const [breadcrumb, setBreadcrumb] = useState<ReactNode>(null);
   const [actions, setActions] = useState<ReactNode>(null);
   return (
-    <PageHeaderActionsContext.Provider value={{ actions, setActions }}>
+    <PageHeaderContext.Provider
+      value={{ breadcrumb, setBreadcrumb, actions, setActions }}
+    >
       {children}
-    </PageHeaderActionsContext.Provider>
+    </PageHeaderContext.Provider>
   );
 }
 
-/** Slot — рендерит actions, заданные через `<PageHeaderActions>` */
+/** Slot для actions (правая сторона топбара, перед колокольчиком) */
 export function PageHeaderActionsSlot() {
-  const ctx = useContext(PageHeaderActionsContext);
+  const ctx = useContext(PageHeaderContext);
   return <>{ctx?.actions ?? null}</>;
 }
 
-/** Page-side: оборачивает любые ноды и пушит их в slot. */
+/** Slot для breadcrumb (левая сторона топбара, после SidebarTrigger) */
+export function PageHeaderBreadcrumbSlot() {
+  const ctx = useContext(PageHeaderContext);
+  return <>{ctx?.breadcrumb ?? null}</>;
+}
+
+/** Page-side: пушит actions в правый слот */
 export function PageHeaderActions({ children }: { children: ReactNode }) {
-  const ctx = useContext(PageHeaderActionsContext);
+  const ctx = useContext(PageHeaderContext);
   useEffect(() => {
     if (!ctx) return;
     ctx.setActions(children);
-    return () => {
-      ctx.setActions(null);
-    };
+    return () => ctx.setActions(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [children]);
+  return null;
+}
+
+/** Page-side: пушит breadcrumb в левый слот */
+export function PageBreadcrumb({ children }: { children: ReactNode }) {
+  const ctx = useContext(PageHeaderContext);
+  useEffect(() => {
+    if (!ctx) return;
+    ctx.setBreadcrumb(children);
+    return () => ctx.setBreadcrumb(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [children]);
   return null;

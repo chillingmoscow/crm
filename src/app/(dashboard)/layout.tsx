@@ -10,6 +10,7 @@ import { NotificationBell } from "@/components/shared/notification-bell";
 import {
   PageHeaderActionsProvider,
   PageHeaderActionsSlot,
+  PageHeaderBreadcrumbSlot,
 } from "@/components/shared/page-header-actions";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
@@ -109,17 +110,14 @@ export default async function DashboardLayout({
       />
       <SidebarInset>
         <PageHeaderActionsProvider>
+          {/* Top bar: [trigger | breadcrumb] … [actions | bell].
+              Правила в `docs/design-system.md` § Top bar. */}
           <header className="flex h-14 items-center gap-2 px-6">
-            {/*
-              Mobile-only trigger: on phones the sidebar collapses into a Sheet
-              (openMobile state), and the in-sidebar TogglePill is inside that
-              off-canvas sheet — so we need a visible button in the page header
-              to open it. Hidden on md+ where the sidebar is always visible
-              and the TogglePill on its right edge handles toggling.
-            */}
+            {/* Mobile-only sidebar trigger (TogglePill живёт внутри
+                свёрнутого sheet на телефонах — отсюда нужна публичная кнопка). */}
             <SidebarTrigger className="md:hidden" />
+            <PageHeaderBreadcrumbSlot />
             <div className="flex-1" />
-            {/* Slot: entity pages inject info-popover etc here */}
             <PageHeaderActionsSlot />
             <NotificationBell />
           </header>

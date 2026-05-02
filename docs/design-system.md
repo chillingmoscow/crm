@@ -224,28 +224,52 @@ import { Button } from "@/components/ui/button";
 - Header карточки: `bg-muted px-5 py-3.5` + icon-tile (28×28 brand-tint) + label + count pill «X из Y» + master switch
 - Rows: `flex items-center px-5 py-3 border-b last:border-b-0`, чекбокс/тоггл слева + текст 13px
 
-### Entity detail page (роль / сотрудник / счёт / транзакция / контр-агент / …)
+### Top bar (общий header дашборда)
 
-Универсальный паттерн страницы конкретной сущности. Источник: дизайн `r5eX3`.
+Топбар — общая 56px-плашка, рендерится в `(dashboard)/layout.tsx`. Содержит
+4 типа элементов в строгом порядке:
 
-**Структура:**
 ```
-[ ‹ Раздел  breadcrumb-link ]                 [ ⓘ info ] [ 🔔 bell ]   ← header (общий)
-[ h1 Название               ]   [ Сохранить ] ← left: title (28px bold)
-[ subtitle: краткое описание ]                  + опциональный CTA справа
-                  [ Tab1  Tab2  Tab3  ]       ← centered tabs (TabsList justify-center)
-                  ─────────────────────
-              [   centered content (max-w 720) ]
+[ SidebarTrigger | Breadcrumb ]   …   [ PageHeaderActions | NotificationBell ]
+       ↑              ↑                          ↑                  ↑
+   md:hidden       slot                       slot               постоянно
 ```
 
-**Info-popover** (i-кнопка справа, рядом с колокольчиком):
-- Использовать `<EntityInfoPopover>` из `src/components/shared/entity-info-popover.tsx`
-- Внутри **5 строк**: ID, Создана, Создал (brand-blue), Изменена, Изменил (brand-blue)
-- Триггер: 36×36 icon-button с `Info` иконкой
-- Инжектится через `<PageHeaderActions>` из
-  `src/components/shared/page-header-actions.tsx`:
+**Кнопки в топбаре** (info / bell / опционально help) — единый стиль:
+36×36 (`size-9`), `rounded-lg` (8px), `border border-border`, `bg-background`,
+`text-foreground`, hover `bg-accent`. Иконка 18px (`w-[18px] h-[18px]`).
+Если есть индикатор — точка `bg-brand` 8×8 в правом-верхнем углу.
+
+#### Когда что показывать
+
+| Элемент | Index/list (например, /people/roles) | Entity detail (например, /people/roles/[id]) |
+|---|---|---|
+| **Breadcrumb** (← Раздел) | НЕТ — заголовок раздела живёт в теле страницы | ДА — `<PageBreadcrumb>` с `<Link>` обратно на список |
+| **Info-popover** (i кнопка) | НЕТ | ДА — `<EntityInfoPopover>` с метаданными сущности |
+| **Help-popover** (?) | TBD (когда появится) | TBD (по контексту страницы) |
+| **NotificationBell** | ДА (всегда) | ДА (всегда) |
+
+Если у сущности **нет audit-полей** в БД (created_at/updated_at/by) —
+info-popover не имеет смысла, его можно опустить. **Требование:** для
+сущностей, на которые есть detail page, добавь audit-поля в таблицу
++ триггеры (см. `supabase/migrations/052_roles_audit_fields.sql`
+как референс).
+
+#### Page-side API
 
 ```tsx
+import {
+  PageBreadcrumb,
+  PageHeaderActions,
+} from "@/components/shared/page-header-actions";
+import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
+
+<PageBreadcrumb>
+  <Link href="/people/roles" className="...muted/13/medium...">
+    <ChevronLeft /> Должности
+  </Link>
+</PageBreadcrumb>
+
 <PageHeaderActions>
   <EntityInfoPopover
     title="О должности"
@@ -258,9 +282,25 @@ import { Button } from "@/components/ui/button";
 </PageHeaderActions>
 ```
 
-**Требование к таблицам сущностей в БД:** должны иметь
-`created_at / updated_at / created_by / updated_by` (см. миграцию 052
-для `roles` как референс — таблица + триггеры на auto-set).
+Slots авто-очищаются на unmount (через `useEffect` cleanup) — переход
+со страницы на страницу не требует ручной чистки.
+
+### Entity detail page — разметка тела (роль / сотрудник / счёт / …)
+
+Под топбаром:
+
+```
+[ h1 Название           ] [ Сохранить ] ← always-rendered CTA, disabled когда не нужен
+[ subtitle: описание    ]                 (важно: НЕ conditional — иначе layout-shift при переключении табов)
+              [  Tab1  Tab2  Tab3  ]   ← centered tabs (`<TabsList className="justify-center">`)
+              ─────────────────────
+          [  centered content (max-w 720) ]
+```
+
+**CTA в шапке всегда отрендерен** — управляется только `disabled`. Условный
+рендер ломает ширину строки и даёт микро-jump при tab switch (см. фидбек
+2026-05-02). Если CTA не релевантен на конкретном табе — `disabled={true}`
+с осмысленной формулировкой.
 
 ---
 

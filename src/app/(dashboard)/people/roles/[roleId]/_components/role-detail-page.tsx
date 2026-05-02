@@ -23,7 +23,10 @@ import {
 import { deleteRole, setRolePermission, updateRole } from "../../actions";
 import { metaForModule, sortModuleKeys } from "./permission-modules";
 import { IconPicker } from "../../_components/icon-picker";
-import { PageHeaderActions } from "@/components/shared/page-header-actions";
+import {
+  PageBreadcrumb,
+  PageHeaderActions,
+} from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 
 // ── Types ────────────────────────────────────────────────────
@@ -219,7 +222,18 @@ export function RoleDetailPage({
 
   return (
     <div className="flex-1 flex flex-col">
-      {/* Inject info-popover into layout's top header (next to bell) */}
+      {/* Breadcrumb in layout's top bar (left side) */}
+      <PageBreadcrumb>
+        <Link
+          href="/people/roles"
+          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Должности
+        </Link>
+      </PageBreadcrumb>
+
+      {/* Info popover in layout's top bar (right side, next to bell) */}
       <PageHeaderActions>
         <EntityInfoPopover
           title="О должности"
@@ -231,20 +245,11 @@ export function RoleDetailPage({
         />
       </PageHeaderActions>
 
-      {/* Top breadcrumb bar */}
-      <div className="flex items-center px-6 md:px-8 pt-4 w-full">
-        <Link
-          href="/people/roles"
-          className="inline-flex items-center gap-1 px-2 py-1.5 -ml-2 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Должности
-        </Link>
-      </div>
-
       {/* Page body */}
       <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        {/* Header */}
+        {/* Header — Save button rendered always to avoid layout shift between tabs.
+            Disabled outside «Основное» tab; nothing to save on Permissions
+            (toggles persist on click) or Опасная зона. */}
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div className="flex flex-col gap-1.5 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
@@ -253,8 +258,6 @@ export function RoleDetailPage({
                 {nameValue || role.name}
               </h1>
               {role.account_id === null && (
-                // Matches iXYPZ in design (см. roles-client). Тот же бейдж
-                // повторяется на детальной — без border/uppercase.
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
                   <Lock className="w-2.5 h-2.5" />
                   <span className="text-[10px] font-medium leading-none">
@@ -263,15 +266,22 @@ export function RoleDetailPage({
                 </span>
               )}
             </div>
-            {/* Subtitle = role description (was staff count — now lives in info card) */}
             {(commentValue || role.comment) && (
               <p className="text-sm text-muted-foreground leading-snug">
                 {commentValue || role.comment}
               </p>
             )}
           </div>
-          {activeTab === "main" && canEdit && (
-            <Button onClick={handleSave} disabled={isPending || !dirty || !nameValue.trim()}>
+          {canEdit && (
+            <Button
+              onClick={handleSave}
+              disabled={
+                isPending ||
+                activeTab !== "main" ||
+                !dirty ||
+                !nameValue.trim()
+              }
+            >
               {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               Сохранить
             </Button>

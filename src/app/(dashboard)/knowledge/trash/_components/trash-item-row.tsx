@@ -8,12 +8,14 @@ import { ru } from "date-fns/locale";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { restoreKbPage } from "@/lib/knowledge/pages";
 
 interface TrashItemRowProps {
   id: string;
   title: string;
   icon: string | null;
+  iconColor: string | null;
   deletedAt: string | null;
   deletedByName: string | null;
 }
@@ -22,6 +24,7 @@ export function TrashItemRow({
   id,
   title,
   icon,
+  iconColor,
   deletedAt,
   deletedByName,
 }: TrashItemRowProps) {
@@ -42,9 +45,7 @@ export function TrashItemRow({
 
   return (
     <div className="flex items-center gap-3 rounded-md border bg-card p-3">
-      <span className="flex size-6 shrink-0 items-center justify-center text-base">
-        {icon ?? "📄"}
-      </span>
+      <KbPageIcon icon={icon} color={iconColor} size={20} />
       <div className="flex flex-col min-w-0 flex-1">
         <p className="truncate text-sm font-medium">
           {title || "Без названия"}

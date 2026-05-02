@@ -88,6 +88,7 @@ export default async function KnowledgeTrashPage() {
                 id={row.id}
                 title={row.title}
                 icon={row.icon}
+                iconColor={row.icon_color}
                 deletedAt={row.deleted_at}
                 deletedByName={
                   row.deleted_by ? profilesById.get(row.deleted_by) ?? null : null

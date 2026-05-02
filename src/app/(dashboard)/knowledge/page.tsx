@@ -5,6 +5,7 @@ import { ru } from "date-fns/locale";
 
 import { listRecentKbPages } from "@/lib/knowledge/pages";
 import { EmptyState } from "@/components/ui/empty-state";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { CreateRootPageButton } from "@/app/(dashboard)/knowledge/_components/create-root-page-button";
 
 /**
@@ -64,6 +65,7 @@ function RecentList({
     slug: string;
     title: string;
     icon: string | null;
+    icon_color: string | null;
     updated_at: string | null;
     created_at: string;
   }>;
@@ -78,9 +80,7 @@ function RecentList({
               href={`/knowledge/${row.slug}`}
               className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent"
             >
-              <span className="flex size-6 items-center justify-center text-base">
-                {row.icon ?? "📄"}
-              </span>
+              <KbPageIcon icon={row.icon} color={row.icon_color} size={18} />
               <span className="flex-1 truncate text-sm font-medium">
                 {row.title || "Без названия"}
               </span>

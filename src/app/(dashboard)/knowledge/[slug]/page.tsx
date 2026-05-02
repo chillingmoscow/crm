@@ -141,6 +141,7 @@ export default async function KbPageView({ params }: PageProps) {
             pageId={row.id}
             initialTitle={row.title}
             initialIcon={row.icon}
+            initialIconColor={row.icon_color}
             initialContent={(row.content as unknown as KbBlock[]) ?? []}
             canEdit={canEdit}
           />

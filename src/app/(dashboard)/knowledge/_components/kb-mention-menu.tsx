@@ -2,9 +2,10 @@
 
 import type { BlockNoteEditor } from "@blocknote/core";
 import { SuggestionMenuController } from "@blocknote/react";
-import { FileText, User } from "lucide-react";
+import { User } from "lucide-react";
 
 import { searchKbMentions, type KbMention } from "@/lib/knowledge/mentions";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 
 interface KbMentionMenuProps {
   editor: BlockNoteEditor;
@@ -42,11 +43,16 @@ export function KbMentionMenu({ editor }: KbMentionMenuProps) {
 function buildItem(it: KbMention, editor: BlockNoteEditor) {
   if (it.kind === "page") {
     const label = it.title || "Без названия";
-    const display = `${it.icon ? `${it.icon} ` : ""}${label}`;
+    // Inline-link тексту не нужен иконочный prefix для Lucide-иконок
+    // (рендерятся отдельно перед текстом в menu, и в самой статье
+    // достаточно текста-ссылки). Для emoji оставляем prefix — они
+    // часть «иконки страницы» в восприятии Notion.
+    const isEmoji = it.icon && it.icon.length <= 4 && !/^[a-z][a-z0-9-]*$/.test(it.icon);
+    const display = isEmoji ? `${it.icon} ${label}` : label;
     return {
       title: label,
       subtext: "Страница",
-      icon: <FileText className="size-4" />,
+      icon: <KbPageIcon icon={it.icon} color={it.icon_color} size={16} />,
       onItemClick: () => {
         editor.insertInlineContent([
           {

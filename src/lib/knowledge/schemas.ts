@@ -24,6 +24,9 @@ export const kbPageSaveSchema = z.object({
   id: z.string().uuid(),
   title: z.string().trim().min(1).max(200),
   icon: z.string().trim().max(64).nullable().optional(),
+  // Free-form: validation что значение из палитры — на клиенте
+  // (KbIconPicker), БД хранит как text. null = нет тинта.
+  icon_color: z.string().trim().max(16).nullable().optional(),
   content: kbContentSchema,
   // 1 MB plain-text cap as a soft guard against runaway pages.
   plain_text: z.string().max(1_000_000),

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ChevronRight, FileText, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { createKbPage } from "@/lib/knowledge/pages";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type { KbTreeNode } from "@/types/knowledge";
 
 interface KbTreeNavProps {
@@ -227,9 +228,7 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
         )}
 
         {/* Icon */}
-        <span className="flex size-5 shrink-0 items-center justify-center text-base leading-none">
-          {node.icon ?? <FileText className="size-3.5 text-muted-foreground" />}
-        </span>
+        <KbPageIcon icon={node.icon} color={node.icon_color} size={14} className="mx-0.5" />
 
         {/* Title (link) */}
         <Link

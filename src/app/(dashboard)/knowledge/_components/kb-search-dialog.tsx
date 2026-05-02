@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search, FileText } from "lucide-react";
+import { Loader2, Search } from "lucide-react";
 
 import {
   Command,
@@ -22,6 +22,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { searchKbPages } from "@/lib/knowledge/search";
 import type { KbSearchHit } from "@/types/knowledge";
 
@@ -202,9 +203,7 @@ function KbSearchDialog({ open, onOpenChange }: KbSearchDialogProps) {
                 value={hit.id}
                 onSelect={() => onSelect(hit.slug)}
               >
-                <span className="flex size-5 shrink-0 items-center justify-center text-base">
-                  {hit.icon ?? <FileText className="size-3.5 text-muted-foreground" />}
-                </span>
+                <KbPageIcon icon={hit.icon} color={hit.icon_color} size={16} />
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <span className="truncate text-sm font-medium">
                     {hit.title || "Без названия"}

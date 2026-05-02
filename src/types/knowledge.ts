@@ -52,6 +52,9 @@ export type KbPageSaveInput = {
   id: string;
   title: string;
   icon?: string | null;
+  /** Color name from KB_ICON_COLORS. Только для Lucide-иконок;
+   *  emoji игнорируют. null = no tint. */
+  icon_color?: string | null;
   content: KbBlock[];
   /** Plaintext projection for FTS. Computed on client via blocksToMarkdownLossy. */
   plain_text: string;
@@ -72,6 +75,7 @@ export type KbTreeNode = {
   parent_id: string | null;
   title: string;
   icon: string | null;
+  icon_color: string | null;
   slug: string;
   position: number;
   has_children: boolean;
@@ -85,6 +89,7 @@ export type KbSearchHit = {
   slug: string;
   title: string;
   icon: string | null;
+  icon_color: string | null;
   /** ts_headline snippet with <mark>...</mark> around matches. */
   snippet: string;
   rank: number;

@@ -8,6 +8,7 @@ export type KbMentionPage = {
   slug: string;
   title: string;
   icon: string | null;
+  icon_color: string | null;
 };
 
 export type KbMentionPerson = {
@@ -58,12 +59,14 @@ export async function searchKbMentions(
     slug: string;
     title: string;
     icon: string | null;
+    icon_color: string | null;
   }>).map((p) => ({
     kind: "page" as const,
     id: p.id,
     slug: p.slug,
     title: p.title || "Без названия",
     icon: p.icon,
+    icon_color: p.icon_color,
   }));
 
   const people: KbMention[] = ((peopleRes.data ?? []) as Array<{

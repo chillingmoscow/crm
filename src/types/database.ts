@@ -1178,6 +1178,7 @@ export type Database = {
           deleted_at: string | null
           deleted_by: string | null
           icon: string | null
+          icon_color: string | null
           id: string
           parent_id: string | null
           plain_text: string
@@ -1197,6 +1198,7 @@ export type Database = {
           deleted_at?: string | null
           deleted_by?: string | null
           icon?: string | null
+          icon_color?: string | null
           id?: string
           parent_id?: string | null
           plain_text?: string
@@ -1216,6 +1218,7 @@ export type Database = {
           deleted_at?: string | null
           deleted_by?: string | null
           icon?: string | null
+          icon_color?: string | null
           id?: string
           parent_id?: string | null
           plain_text?: string
@@ -2123,6 +2126,7 @@ export type Database = {
         Returns: {
           depth: number
           icon: string
+          icon_color: string
           id: string
           slug: string
           title: string
@@ -2140,6 +2144,7 @@ export type Database = {
         Args: {
           p_content: Json
           p_icon: string
+          p_icon_color: string
           p_id: string
           p_link_targets: string[]
           p_plain_text: string
@@ -2151,6 +2156,7 @@ export type Database = {
         Args: { p_limit?: number; p_query: string }
         Returns: {
           icon: string
+          icon_color: string
           id: string
           rank: number
           slug: string

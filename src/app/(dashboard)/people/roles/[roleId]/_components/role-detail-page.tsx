@@ -318,11 +318,17 @@ export function RoleDetailPage({
             )}
             {groupedPermissions.map(({ key, meta, perms }) => {
               const Icon = meta.icon;
-              const grantedInGroup = perms.filter((p) =>
+              // Master state must reflect the WHOLE module, not the
+              // search-filtered subset — otherwise a fully-granted module
+              // can render the switch as off whenever a query hides some
+              // rows, and toggling would issue spurious bulk writes.
+              const allModulePerms = permissions.filter((p) => p.module === key);
+              const grantedInGroup = allModulePerms.filter((p) =>
                 hasPermission(p.id),
               ).length;
               const totalInGroup = totalsByModule[key];
-              const allGranted = grantedInGroup === totalInGroup;
+              const allGranted =
+                totalInGroup > 0 && grantedInGroup === totalInGroup;
               return (
                 <div
                   key={key}
@@ -342,10 +348,7 @@ export function RoleDetailPage({
                       <Switch
                         checked={allGranted}
                         onCheckedChange={(checked) =>
-                          handleBulkSet(
-                            permissions.filter((p) => p.module === key),
-                            checked,
-                          )
+                          handleBulkSet(allModulePerms, checked)
                         }
                         disabled={isPending}
                         aria-label={`${meta.label} — переключить все права`}

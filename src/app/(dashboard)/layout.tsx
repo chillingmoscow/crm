@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
 import { getCachedUser, createClient } from "@/lib/supabase/server";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/shared/sidebar";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
@@ -100,7 +104,16 @@ export default async function DashboardLayout({
         accountName={accountName}
       />
       <SidebarInset>
-        <header className="flex h-14 items-center gap-2 px-6 justify-end">
+        <header className="flex h-14 items-center gap-2 px-6">
+          {/*
+            Mobile-only trigger: on phones the sidebar collapses into a Sheet
+            (openMobile state), and the in-sidebar TogglePill is inside that
+            off-canvas sheet — so we need a visible button in the page header
+            to open it. Hidden on md+ where the sidebar is always visible
+            and the TogglePill on its right edge handles toggling.
+          */}
+          <SidebarTrigger className="md:hidden" />
+          <div className="flex-1" />
           <NotificationBell />
         </header>
         <main className="flex-1 flex flex-col">{children}</main>

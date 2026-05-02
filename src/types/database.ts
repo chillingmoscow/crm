@@ -6,22 +6,6 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export interface WorkingHoursDay {
-  open?: string
-  close?: string
-  closed: boolean
-}
-
-export interface WorkingHours {
-  mon?: WorkingHoursDay
-  tue?: WorkingHoursDay
-  wed?: WorkingHoursDay
-  thu?: WorkingHoursDay
-  fri?: WorkingHoursDay
-  sat?: WorkingHoursDay
-  sun?: WorkingHoursDay
-}
-
 export type Database = {
   graphql_public: {
     Tables: {
@@ -990,6 +974,253 @@ export type Database = {
           },
         ]
       }
+      kb_page_attachments: {
+        Row: {
+          attached_at: string
+          attached_by: string | null
+          caption: string | null
+          file_id: string
+          page_id: string
+        }
+        Insert: {
+          attached_at?: string
+          attached_by?: string | null
+          caption?: string | null
+          file_id: string
+          page_id: string
+        }
+        Update: {
+          attached_at?: string
+          attached_by?: string | null
+          caption?: string | null
+          file_id?: string
+          page_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_attachments_attached_by_fkey"
+            columns: ["attached_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_attachments_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "account_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_attachments_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kb_page_links: {
+        Row: {
+          account_id: string
+          from_page_id: string
+          to_page_id: string
+        }
+        Insert: {
+          account_id: string
+          from_page_id: string
+          to_page_id: string
+        }
+        Update: {
+          account_id?: string
+          from_page_id?: string
+          to_page_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_links_from_page_id_fkey"
+            columns: ["from_page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_links_from_tenant_fkey"
+            columns: ["account_id", "from_page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "kb_page_links_to_page_id_fkey"
+            columns: ["to_page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_links_to_tenant_fkey"
+            columns: ["account_id", "to_page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
+      kb_page_versions: {
+        Row: {
+          account_id: string
+          change_note: string | null
+          content: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          page_id: string
+          title: string
+          version_number: number
+        }
+        Insert: {
+          account_id: string
+          change_note?: string | null
+          content: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          page_id: string
+          title: string
+          version_number: number
+        }
+        Update: {
+          account_id?: string
+          change_note?: string | null
+          content?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          page_id?: string
+          title?: string
+          version_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_versions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_versions_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_versions_page_tenant_fkey"
+            columns: ["account_id", "page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
+      kb_pages: {
+        Row: {
+          account_id: string
+          content: Json
+          cover_url: string | null
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          deleted_by: string | null
+          icon: string | null
+          id: string
+          parent_id: string | null
+          plain_text: string
+          position: number
+          search_tsv: unknown
+          slug: string
+          title: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          content?: Json
+          cover_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          icon?: string | null
+          id?: string
+          parent_id?: string | null
+          plain_text?: string
+          position?: number
+          search_tsv?: unknown
+          slug: string
+          title?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          content?: Json
+          cover_url?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          deleted_by?: string | null
+          icon?: string | null
+          id?: string
+          parent_id?: string | null
+          plain_text?: string
+          position?: number
+          search_tsv?: unknown
+          slug?: string
+          title?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_pages_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_pages_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_pages_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_pages_parent_tenant_fkey"
+            columns: ["account_id", "parent_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["account_id", "id"]
+          },
+          {
+            foreignKeyName: "kb_pages_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       legal_entities: {
         Row: {
           account_id: string
@@ -1809,6 +2040,38 @@ export type Database = {
       }
       has_permission: { Args: { permission_code: string }; Returns: boolean }
       is_account_owner: { Args: { p_account_id: string }; Returns: boolean }
+      kb_get_ancestors: {
+        Args: { p_page_id: string }
+        Returns: {
+          depth: number
+          icon: string
+          id: string
+          slug: string
+          title: string
+        }[]
+      }
+      kb_save_page: {
+        Args: {
+          p_content: Json
+          p_icon: string
+          p_id: string
+          p_link_targets: string[]
+          p_plain_text: string
+          p_title: string
+        }
+        Returns: number
+      }
+      kb_search: {
+        Args: { p_limit?: number; p_query: string }
+        Returns: {
+          icon: string
+          id: string
+          rank: number
+          slug: string
+          snippet: string
+          title: string
+        }[]
+      }
       log_audit: {
         Args: {
           p_action_code: string
@@ -2043,6 +2306,23 @@ export const Constants = {
     },
   },
 } as const
+
+
+export interface WorkingHoursDay {
+  open?: string
+  close?: string
+  closed: boolean
+}
+
+export interface WorkingHours {
+  mon?: WorkingHoursDay
+  tue?: WorkingHoursDay
+  wed?: WorkingHoursDay
+  thu?: WorkingHoursDay
+  fri?: WorkingHoursDay
+  sat?: WorkingHoursDay
+  sun?: WorkingHoursDay
+}
 
 // ─── Hand-added enum aliases ─────────────────────────────────────────────────
 // `pnpm supabase gen types` doesn't emit named enum aliases — only the

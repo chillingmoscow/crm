@@ -234,11 +234,11 @@ import { Button } from "@/components/ui/button";
 |---|---|
 | **Default** | `border-input` (`#e4e4e7`), фон `bg-background` |
 | **Filled** | то же что Default, текст `text-foreground` |
-| **Focused** | `border-brand` (1px) + halo `box-shadow: 0 0 0 3px brand/40` (#1570ef66). **Не offset-ring**, не двойная обводка |
+| **Focused** | `border-brand` (1px) + мягкий halo через `ring-2 ring-brand/30`. **Не offset-ring**, не двойная обводка. (`.pen` показывает `spread:3 / 40%` — в браузере это получается резче, поэтому подбираем визуальный эквивалент.) |
 | **Error** | `border-destructive` + сообщение под полем 12px destructive |
 | **Disabled** | opacity 50%, cursor not-allowed |
 
-В Tailwind: `focus-visible:outline-none focus-visible:border-brand focus-visible:ring-[3px] focus-visible:ring-brand/40`.
+В Tailwind: `focus-visible:outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30`.
 
 **Textarea** — `resize-none` по умолчанию (запрет ручного растягивания —
 ломает компоновку). Если в редком случае нужно растягивать, передавай

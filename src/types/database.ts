@@ -98,6 +98,49 @@ export type Database = {
           },
         ]
       }
+      account_hidden_roles: {
+        Row: {
+          account_id: string
+          hidden_at: string
+          hidden_by: string | null
+          role_id: string
+        }
+        Insert: {
+          account_id: string
+          hidden_at?: string
+          hidden_by?: string | null
+          role_id: string
+        }
+        Update: {
+          account_id?: string
+          hidden_at?: string
+          hidden_by?: string | null
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_hidden_roles_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_hidden_roles_hidden_by_fkey"
+            columns: ["hidden_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_hidden_roles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_role_permissions: {
         Row: {
           account_id: string
@@ -1327,22 +1370,37 @@ export type Database = {
           account_id: string | null
           code: string
           comment: string | null
+          created_at: string
+          created_by: string | null
+          icon: string | null
           id: string
           name: string
+          updated_at: string
+          updated_by: string | null
         }
         Insert: {
           account_id?: string | null
           code: string
           comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          icon?: string | null
           id?: string
           name: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Update: {
           account_id?: string | null
           code?: string
           comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          icon?: string | null
           id?: string
           name?: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
@@ -1350,6 +1408,20 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roles_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1752,6 +1824,10 @@ export type Database = {
             }
             Returns: Json
           }
+      copy_role_permissions: {
+        Args: { p_source_role_id: string; p_target_role_id: string }
+        Returns: undefined
+      }
       get_active_account_id: { Args: never; Returns: string }
       get_active_legal_entity_id: { Args: never; Returns: string }
       get_active_venue_id: { Args: never; Returns: string }
@@ -1785,6 +1861,7 @@ export type Database = {
           role_name: string
           venue_id: string
           venue_name: string
+          venue_type: string
         }[]
       }
       get_venue_staff: {
@@ -1808,6 +1885,7 @@ export type Database = {
         }[]
       }
       has_permission: { Args: { permission_code: string }; Returns: boolean }
+      hide_system_role: { Args: { p_role_id: string }; Returns: undefined }
       is_account_owner: { Args: { p_account_id: string }; Returns: boolean }
       log_audit: {
         Args: {
@@ -2044,11 +2122,8 @@ export const Constants = {
   },
 } as const
 
-// ─── Hand-added enum aliases ─────────────────────────────────────────────────
-// `pnpm supabase gen types` doesn't emit named enum aliases — only the
-// nested `Database["public"]["Enums"]["..."]` chain. These re-exports
-// keep the call-sites readable. Re-add after every regen.
 
+// ─── Hand-added enum aliases ─────────────────────────────────────────────────
 export type VenueType        = Database["public"]["Enums"]["venue_type"]
 export type InvitationStatus = Database["public"]["Enums"]["invitation_status"]
 export type LegalForm        = Database["public"]["Enums"]["legal_form_enum"]

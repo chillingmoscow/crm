@@ -35,20 +35,71 @@ export async function listKbPages(): Promise<{
   return { rows: (data ?? []) as KbPageRow[], error: null };
 }
 
-/** Soft-deleted pages, for the trash view. RLS hides these from users
- * without `kb.delete_pages` (see migration 050 §3). */
+/** Trash list row — slim проекция KbPageRow (без content/plain_text/
+ *  search_tsv), чтобы не вытаскивать тяжёлый jsonb для каждой
+ *  каскадно-удалённой страницы (см. Codex #32 P2). */
+export type KbDeletedPageRow = Pick<
+  KbPageRow,
+  | "id"
+  | "account_id"
+  | "parent_id"
+  | "position"
+  | "title"
+  | "icon"
+  | "icon_color"
+  | "slug"
+  | "deleted_at"
+  | "deleted_by"
+  | "deleted_root_id"
+  | "created_by"
+  | "created_at"
+  | "updated_at"
+  | "updated_by"
+> & { descendants_count: number };
+
+/** Direct-delete roots в корзине. Каскадно-удалённые потомки
+ * (deleted_root_id != id) не показываются — они вернутся вместе
+ * с родителем при restore. RLS hides эти строки от пользователей
+ * без `kb.delete_pages` (см. миграцию 050 §3).
+ *
+ * Перформанс: тянем только метаданные (без content jsonb / plain_text /
+ * search_tsv), а cascade-дочерние строки фетчим отдельным узким
+ * запросом — только колонку deleted_root_id для подсчёта counts.
+ * После большого subtree-delete страница /knowledge/trash раньше
+ * десериализовала весь content каждого hidden descendant'а только
+ * чтобы посчитать одну цифру. */
 export async function listDeletedKbPages(): Promise<{
-  rows: KbPageRow[];
+  rows: KbDeletedPageRow[];
   error: string | null;
 }> {
   const supabase = await createClient();
+  const slim =
+    "id, account_id, parent_id, position, title, icon, icon_color, slug, deleted_at, deleted_by, deleted_root_id, created_by, created_at, updated_at, updated_by";
+
+  // Узкий запрос за всеми soft-deleted мета-строками (без heavy jsonb).
+  // Roots vs cascade-children разруливаем в JS (PostgREST нативно не
+  // умеет «col_a = col_b» в фильтре).
   const { data, error } = await supabase
     .from("kb_pages")
-    .select("*")
+    .select(slim)
     .not("deleted_at", "is", null)
     .order("deleted_at", { ascending: false });
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as KbPageRow[], error: null };
+
+  const all = (data ?? []) as KbDeletedPageRow[];
+  const cascadeByRoot = new Map<string, number>();
+  for (const r of all) {
+    if (r.deleted_root_id && r.deleted_root_id !== r.id) {
+      cascadeByRoot.set(
+        r.deleted_root_id,
+        (cascadeByRoot.get(r.deleted_root_id) ?? 0) + 1,
+      );
+    }
+  }
+  const roots = all
+    .filter((r) => !r.deleted_root_id || r.deleted_root_id === r.id)
+    .map((r) => ({ ...r, descendants_count: cascadeByRoot.get(r.id) ?? 0 }));
+  return { rows: roots, error: null };
 }
 
 export async function getKbPageBySlug(slug: string): Promise<{
@@ -221,8 +272,12 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   } as never);
   if (error) return { version_number: null, error: error.message };
 
-  revalidatePath("/knowledge");
-  revalidatePath(`/knowledge/${parsed.data.id}`);
+  // Намеренно НЕ вызываем revalidatePath: server-action call из
+  // клиента триггерит RSC-refresh текущего route'а, что в свою очередь
+  // меняет row.updated_at → key={id-updated_at} в slug-page → BlockNote
+  // remount → закрывается slash-меню прямо во время выбора. Локальный
+  // state редактора уже актуальный; дерево/landing подхватят новый
+  // title на следующей навигации (приемлемый trade-off для авто-save).
   return { version_number: (data as number | null) ?? null, error: null };
 }
 
@@ -248,38 +303,31 @@ export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: strin
   return { error: null };
 }
 
-/** Soft delete: cascades to descendants via parent_id ON DELETE CASCADE
- * is for hard delete only. We mark only the targeted page; UI shows
- * children as orphaned subtrees. If the user wants cascade-soft-delete,
- * that's a separate iteration. */
-export async function softDeleteKbPage(id: string): Promise<{ error: string | null }> {
+/** Cascade soft-delete: помечает страницу + всех её живых потомков.
+ *  Все они получают одинаковые deleted_at/by + deleted_root_id = id.
+ *  Иерархия parent_id потомков не меняется → restore возвращает дерево
+ *  ровно в той же форме. См. миграцию 063. */
+export async function softDeleteKbPage(
+  id: string,
+): Promise<{ deleted: number; error: string | null }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Не авторизован" };
-
-  const { error } = await supabase
-    .from("kb_pages")
-    .update({
-      deleted_at: new Date().toISOString(),
-      deleted_by: user.id,
-    })
-    .eq("id", id);
-  if (error) return { error: error.message };
+  const { data, error } = await supabase.rpc("kb_soft_delete_cascade", { p_id: id });
+  if (error) return { deleted: 0, error: error.message };
 
   revalidatePath("/knowledge");
-  return { error: null };
+  return { deleted: (data as number | null) ?? 0, error: null };
 }
 
-export async function restoreKbPage(id: string): Promise<{ error: string | null }> {
+/** Cascade restore: возвращает страницу + все строки, удалённые с ней
+ *  каскадом (deleted_root_id = id). Иерархия восстанавливается ровно
+ *  как была. */
+export async function restoreKbPage(
+  id: string,
+): Promise<{ restored: number; error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("kb_pages")
-    .update({ deleted_at: null, deleted_by: null })
-    .eq("id", id);
-  if (error) return { error: error.message };
+  const { data, error } = await supabase.rpc("kb_restore_cascade", { p_id: id });
+  if (error) return { restored: 0, error: error.message };
 
   revalidatePath("/knowledge");
-  return { error: null };
+  return { restored: (data as number | null) ?? 0, error: null };
 }

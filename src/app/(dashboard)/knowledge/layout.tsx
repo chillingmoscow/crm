@@ -34,18 +34,20 @@ export default async function KnowledgeLayout({
 
   return (
     <KbSearchProvider>
-      <div className="flex w-full min-h-[calc(100vh-3rem)]">
+      {/* Top bar = h-14 (см. dashboard layout). Aside занимает всё
+          оставшееся ниже, без своего scroll'а — внутри KbTreeNav сам
+          разруливает (search + tree сверху scroll, Корзина pinned). */}
+      <div className="flex w-full min-h-[calc(100vh-3.5rem)]">
         <aside
           aria-label="Дерево страниц"
-          className="hidden md:flex sticky top-12 h-[calc(100vh-3rem)] w-72 shrink-0
-                     flex-col border-r bg-sidebar overflow-y-auto"
+          className="hidden md:flex sticky top-14 h-[calc(100vh-3.5rem)] w-72 shrink-0
+                     flex-col border-r bg-sidebar"
         >
           <KbTreeNav nodes={nodes} canSeeTrash={Boolean(canDelete)} />
         </aside>
         <main className="flex-1 min-w-0 flex flex-col">
-          {/* Mobile-only sticky bar with tree-drawer trigger.
-              Desktop (≥ md) uses the sticky-aside above. */}
-          <div className="md:hidden sticky top-12 z-30 border-b bg-background/95
+          {/* Mobile-only sticky bar with tree-drawer trigger. */}
+          <div className="md:hidden sticky top-14 z-30 border-b bg-background/95
                           px-4 py-2 backdrop-blur">
             <KbMobileTreeDrawer
               nodes={nodes}

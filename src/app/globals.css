@@ -192,3 +192,69 @@ input:-webkit-autofill {
 .bn-sheerly .bn-editor {
   padding: 0;
 }
+
+/* Воздух между блоками — Notion-like reading rhythm. BlockNote-default
+   .bn-block-content имеет padding:3px 0 + line-height:1.5; этого мало
+   для типографики Sheerly (paragraph base = 16px, ~24px line). Бьём
+   через padding на контент, не через margin на outer (margin триггерит
+   transition в BlockNote → визуальный «прыжок» при структурных
+   изменениях). */
+.bn-sheerly .bn-block-content {
+  padding: 6px 0;
+  line-height: 1.65;
+}
+
+/* Чуть больше воздуха над/под заголовками — H1/H2/H3 в Notion имеют
+   свой внутренний ритм. Селектор по data-content-type, чтобы не
+   ломать исходный padding для списков/чек-листов. */
+.bn-sheerly .bn-block-content[data-content-type="heading"] {
+  padding-top: 18px;
+  padding-bottom: 4px;
+}
+
+/* BlockNote shadcn-tooltips. Они рендерятся через Radix Portal в body
+   (вне .bn-sheerly scope), поэтому правила нужны глобальные. По
+   умолчанию у них bg-primary (брендовый акцент) + ромбовидный Arrow,
+   что выглядит шумно. Делаем их «спокойными»: серый popover-фон,
+   стрелку прячем. Селектор data-slot="tooltip-content" уникален именно
+   для BlockNote shadcn-варианта (наш собственный TooltipContent его
+   не выставляет — см. components/ui/tooltip.tsx). */
+[data-slot="tooltip-content"] {
+  background-color: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+}
+[data-slot="tooltip-content"] > svg {
+  display: none !important;
+}
+
+/* Emoji-picker (BlockNote использует web-component `em-emoji-picker`
+   из emoji-mart). Из коробки имеет max-height:100% → раскрывается на
+   всю высоту вьюпорта. Прижимаем к Notion-like compact picker. */
+em-emoji-picker {
+  max-height: 360px !important;
+  min-height: 320px !important;
+  height: 360px !important;
+}
+
+/* Color/highlight picker: shadcn-вариант использует DropdownMenuItem
+   с reserved-слотом под check-indicator (галочку). У BlockNote же
+   слева идёт «color-icon» (квадратик с цветом A), и стандартный
+   checkmark Radix'а ложится прямо поверх него + сдвигает остальные
+   айтемы. Прячем встроенный indicator и подсвечиваем выбранный
+   вариант через bn-color-icon::after (рамка вокруг квадратика). */
+.bn-sheerly .bn-color-picker-dropdown [role="menuitem"],
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemcheckbox"],
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemradio"] {
+  padding-left: 8px;
+}
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemcheckbox"] > span:first-child:not(.bn-color-icon),
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemradio"] > span:first-child:not(.bn-color-icon) {
+  display: none;
+}
+.bn-sheerly .bn-color-picker-dropdown [data-state="checked"] .bn-color-icon,
+.bn-sheerly .bn-color-picker-dropdown [aria-selected="true"] .bn-color-icon {
+  outline: 2px solid hsl(var(--brand) / 0.6);
+  outline-offset: 1px;
+}

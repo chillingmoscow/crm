@@ -11,6 +11,7 @@ import {
   X,
   Check,
   Filter,
+  Lock,
 } from "lucide-react";
 import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
@@ -70,13 +71,12 @@ const COL_DEFS: {
   align?: "center";
   required?: boolean;
 }[] = [
-  // Hybrid sizing: name & permissions are flexible (split extra width
-  // proportionally so on wide screens neither column hogs all space);
-  // staff & QR have fixed widths sized to their tiny content (badge+label,
-  // single icon).
-  { key: "name",        label: "Должность",   width: "minmax(220px, 2fr)", required: true },
-  { key: "staff",       label: "Сотрудники",  width: "180px" },
-  { key: "permissions", label: "Права",       width: "minmax(260px, 1fr)" },
+  // Точно по дизайну MlKFD/RuvhI: name = 1fr, staff = 140, perms = 220
+  // (фиксированный — прогресс-бар не должен растягиваться на полэкрана),
+  // qr_import = 100. Gap между колонками — 16 (gap-4).
+  { key: "name",        label: "Должность",   width: "minmax(220px, 1fr)", required: true },
+  { key: "staff",       label: "Сотрудники",  width: "140px" },
+  { key: "permissions", label: "Права",       width: "220px" },
   { key: "qr_import",   label: "Импорт из QR",width: "100px", align: "center" },
 ];
 
@@ -343,8 +343,13 @@ export function RolesClient({
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-medium text-sm truncate">{role.name}</span>
               {isSystem && (
-                <span className="inline-flex shrink-0 items-center px-1.5 py-px rounded-full text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-secondary border">
-                  Системная
+                // Matches iXYPZ in design: lock 10 + 10/500 text muted-foreground,
+                // bg-secondary, NO border, NO uppercase, gap 4, padding [2,6].
+                <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                  <Lock className="w-2.5 h-2.5" />
+                  <span className="text-[10px] font-medium leading-none">
+                    Системная
+                  </span>
                 </span>
               )}
             </div>
@@ -380,13 +385,23 @@ export function RolesClient({
         const granted = getGrantedCount(role.id);
         const total = permissions.length;
         const pct = total > 0 ? Math.round((granted / total) * 100) : 0;
+        const isFull = pct === 100;
         return (
+          // Per design (J6GKvm): width 220 fixed (set in COL_DEFS), text colors
+          // per state — count в foreground/600, percent в brand/500 при 100%
+          // (highlight) или muted/500 иначе. Bar 6px, brand fill, muted track.
           <div className="flex flex-col gap-1.5 min-w-0">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="font-medium">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] font-semibold text-foreground">
                 {granted} из {total}
               </span>
-              <span className="text-muted-foreground">{pct}%</span>
+              <span
+                className={`text-[11px] font-medium ${
+                  isFull ? "text-brand" : "text-muted-foreground"
+                }`}
+              >
+                {pct}%
+              </span>
             </div>
             <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
               <div
@@ -527,7 +542,7 @@ export function RolesClient({
           <div className="rounded-xl border bg-card overflow-hidden">
             {/* Header row */}
             <div
-              className="grid gap-6 px-5 py-3 bg-muted/60 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b"
+              className="grid gap-4 px-5 py-3 bg-muted/60 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b"
               style={{ gridTemplateColumns: gridTemplate }}
             >
               <span aria-hidden />
@@ -548,7 +563,7 @@ export function RolesClient({
               return (
                 <div
                   key={role.id}
-                  className="grid gap-6 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                  className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
                   style={{ gridTemplateColumns: gridTemplate }}
                   onClick={() => router.push(`/people/roles/${role.id}`)}
                 >

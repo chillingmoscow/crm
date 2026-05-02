@@ -231,8 +231,13 @@ export function RoleDetailPage({
                 {nameValue || role.name}
               </h1>
               {role.account_id === null && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider text-muted-foreground bg-secondary border">
-                  Системная
+                // Matches iXYPZ in design (см. roles-client). Тот же бейдж
+                // повторяется на детальной — без border/uppercase.
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                  <Lock className="w-2.5 h-2.5" />
+                  <span className="text-[10px] font-medium leading-none">
+                    Системная
+                  </span>
                 </span>
               )}
             </div>

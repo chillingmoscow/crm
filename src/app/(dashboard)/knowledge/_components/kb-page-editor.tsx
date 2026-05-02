@@ -84,6 +84,13 @@ export function KbPageEditor({
     snapshotHash(initialTitle, initialIcon ?? "", initialContent),
   );
 
+  // BlockNote fires its first onChange while *loading* the initial
+  // document — and at that point the document goes through internal
+  // normalization (block IDs assigned, attrs canonicalized), so the
+  // hash of `content` differs from what we put in. We treat that
+  // first onChange as the new baseline instead of as an edit.
+  const isFirstEditorEventRef = useRef(true);
+
   useEffect(() => {
     titleRef.current = title;
   }, [title]);
@@ -173,8 +180,12 @@ export function KbPageEditor({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Status row above the title — small, non-intrusive */}
-      <SaveStatus state={saveState} />
+      {/* Status row — fixed-height slot so its appearance/disappearance
+          doesn't push the editor up/down (avoids visible "screen jump"
+          on every save cycle). */}
+      <div className="h-5">
+        <SaveStatus state={saveState} />
+      </div>
 
       {/* Title + icon row */}
       <div className="flex items-start gap-3">
@@ -217,6 +228,17 @@ export function KbPageEditor({
         onChange={({ content, plainText }) => {
           contentRef.current = content;
           plainTextRef.current = plainText;
+          if (isFirstEditorEventRef.current) {
+            // BlockNote's normalization pass — adopt the result as our
+            // baseline so subsequent diffs are honest.
+            isFirstEditorEventRef.current = false;
+            lastSavedHashRef.current = snapshotHash(
+              titleRef.current,
+              iconRef.current,
+              content,
+            );
+            return;
+          }
           scheduleSave();
         }}
       />

@@ -4,7 +4,6 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
 import { listRecentKbPages } from "@/lib/knowledge/pages";
-import { Card } from "@/components/ui/card";
 import { CreateRootPageButton } from "@/app/(dashboard)/knowledge/_components/create-root-page-button";
 
 /**
@@ -43,16 +42,21 @@ export default async function KnowledgeLandingPage() {
 
 function EmptyState() {
   return (
-    <Card className="flex flex-col items-center justify-center gap-3 p-12 text-center">
+    // Sheerly empty-state spec (`p2umw`): muted background, p-32, gap-16,
+    // min-height 320, vertically centred. См. sheerly.pen Q4FzoZ §13.
+    <div
+      className="flex min-h-[320px] flex-col items-center justify-center gap-4
+                 rounded-xl border bg-muted/40 p-8 text-center"
+    >
       <BookOpen className="size-8 text-muted-foreground" />
       <div className="flex flex-col gap-1">
         <p className="text-sm font-medium">Здесь пока нет страниц</p>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground max-w-sm">
           Создайте первую страницу — например, регламент бара или чек-лист открытия смены.
         </p>
       </div>
       <CreateRootPageButton />
-    </Card>
+    </div>
   );
 }
 

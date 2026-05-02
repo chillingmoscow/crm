@@ -260,12 +260,12 @@ function ContentSnippet({ content }: { content: KbBlock[] }) {
 function DeltaBadge({ delta }: { delta: number | null }) {
   if (delta === null) {
     return (
-      <span className="text-[10px] text-muted-foreground/60">первая версия</span>
+      <span className="text-xs text-muted-foreground/60">первая версия</span>
     );
   }
   if (delta === 0) {
     return (
-      <span className="text-[10px] text-muted-foreground/70">
+      <span className="text-xs text-muted-foreground/70">
         правки без изменения длины
       </span>
     );
@@ -274,7 +274,7 @@ function DeltaBadge({ delta }: { delta: number | null }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-sm px-1 py-px text-[10px] font-medium",
+        "inline-flex items-center gap-0.5 rounded-sm px-1.5 py-px text-xs font-medium",
         positive
           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
           : "bg-rose-500/10 text-rose-700 dark:text-rose-400",
@@ -313,7 +313,7 @@ function VersionRow({
           <span className="text-sm font-medium">v{row.version_number}</span>
           <DeltaBadge delta={row.delta} />
           {isCurrent && (
-            <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               Текущая
             </span>
           )}

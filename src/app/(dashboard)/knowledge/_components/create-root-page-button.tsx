@@ -28,7 +28,7 @@ export function CreateRootPageButton() {
   };
 
   return (
-    <Button onClick={onClick} disabled={pending}>
+    <Button onClick={onClick} disabled={pending} size="sm">
       <Plus className="size-4" />
       Новая страница
     </Button>

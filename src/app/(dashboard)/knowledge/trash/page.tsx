@@ -3,7 +3,6 @@ import { Trash2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { listDeletedKbPages } from "@/lib/knowledge/pages";
-import { Card } from "@/components/ui/card";
 import { TrashItemRow } from "@/app/(dashboard)/knowledge/trash/_components/trash-item-row";
 
 /**
@@ -57,14 +56,20 @@ export default async function KnowledgeTrashPage() {
       </header>
 
       {rows.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center gap-2 p-12 text-center">
+        // Sheerly empty-state — см. landing /knowledge.
+        <div
+          className="flex min-h-[320px] flex-col items-center justify-center gap-4
+                     rounded-xl border bg-muted/40 p-8 text-center"
+        >
           <Trash2 className="size-8 text-muted-foreground" />
-          <p className="text-sm font-medium">Корзина пуста</p>
-          <p className="text-sm text-muted-foreground">
-            Здесь появляются страницы, которые вы удалили. Они хранятся
-            пока их не восстановят или не удалят навсегда.
-          </p>
-        </Card>
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-medium">Корзина пуста</p>
+            <p className="text-sm text-muted-foreground max-w-sm">
+              Здесь появляются страницы, которые вы удалили. Они хранятся
+              пока их не восстановят или не удалят навсегда.
+            </p>
+          </div>
+        </div>
       ) : (
         <ul className="flex flex-col gap-1">
           {rows.map((row) => (

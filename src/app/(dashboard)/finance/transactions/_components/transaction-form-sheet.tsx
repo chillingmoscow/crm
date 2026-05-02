@@ -49,9 +49,11 @@ import type {
 } from "@/types/finance";
 import type { LegalEntityRow } from "@/lib/org/legal-entities";
 
+import { useRouter } from "next/navigation";
+
 import { CategoryFormSheet } from "./category-form-sheet";
 import { CounterpartyFormSheet } from "./counterparty-form-sheet";
-import { BankAccountFormSheet } from "./bank-account-form-sheet";
+import { BankAccountFormSheet, type CreatedBankAccount } from "./bank-account-form-sheet";
 import { formatDateTime, todayIso } from "../_lib/utils";
 
 export type FormMode =
@@ -107,11 +109,12 @@ export function TransactionFormSheet({
   onSaved,
   onTypeChange,
   legalEntities,
-  bankAccounts,
+  bankAccounts: bankAccountsProp,
   categories,
   counterparties,
   canDelete,
 }: Props) {
+  const router = useRouter();
   const open = mode.kind !== "closed";
   const isEditing = mode.kind === "edit";
 
@@ -124,6 +127,58 @@ export function TransactionFormSheet({
   const [categorySheetOpen, setCategorySheetOpen] = useState(false);
   const [counterpartySheetOpen, setCounterpartySheetOpen] = useState(false);
   const [bankAccountSheetOpen, setBankAccountSheetOpen] = useState(false);
+
+  // Accounts created via inline-create within the current drawer session.
+  // We can't rely on the parent's `bankAccounts` prop being refreshed in
+  // time — user may pick the new account and submit before parent's
+  // router.refresh() round-trip completes. So we keep our own bridge
+  // list and merge it with props; the rest of the component then reads
+  // from the merged `bankAccounts` (no other usages need to change).
+  const [localAccounts, setLocalAccounts] = useState<CreatedBankAccount[]>([]);
+  const bankAccounts = useMemo<BankAccountRow[]>(() => {
+    const ids = new Set(bankAccountsProp.map((b) => b.id));
+    const extras = localAccounts.filter((a) => !ids.has(a.id));
+    if (extras.length === 0) return bankAccountsProp;
+    // Cast: BankAccountPicker reads only id/name/legal_entity_id from
+    // the array; the synthetic rows pad the rest with null/defaults
+    // and are never rendered outside the picker label.
+    return [
+      ...bankAccountsProp,
+      ...extras.map(
+        (a) =>
+          ({
+            ...a,
+            account_id: "",
+            balance: 0,
+            description: null,
+            group_id: null,
+            bank_name: null,
+            bik: null,
+            account_number: null,
+            correspondent_account: null,
+            acquiring_percentage: null,
+            card_holder: null,
+            card_number_last4: null,
+            is_active: true,
+            venue_id: null,
+            created_at: new Date().toISOString(),
+            created_by: null,
+            updated_at: null,
+            updated_by: null,
+            deleted_at: null,
+            deleted_by: null,
+          }) as BankAccountRow,
+      ),
+    ];
+  }, [bankAccountsProp, localAccounts]);
+
+  // Reset the inline-create bridge whenever the drawer closes — once
+  // closed, props will eventually be refreshed by the parent's
+  // router.refresh() and the synthetic copies become redundant (or
+  // conflict with the real ones if names changed server-side).
+  useEffect(() => {
+    if (mode.kind === "closed") setLocalAccounts([]);
+  }, [mode.kind]);
 
   useEffect(() => {
     if (mode.kind === "closed") return;
@@ -471,15 +526,24 @@ export function TransactionFormSheet({
         legalEntities={legalEntities}
         defaultLegalEntityId={sourceLegalEntityId}
         onClose={() => setBankAccountSheetOpen(false)}
-        onCreated={(id) => {
+        onCreated={(account) => {
+          // Stash a synthetic record so the merged `bankAccounts` list
+          // already contains this id when the user clicks Save —
+          // otherwise validation in handleSave wouldn't find it.
+          setLocalAccounts((prev) => [...prev, account]);
           if (!form.bank_account_id) {
-            update("bank_account_id", id);
+            update("bank_account_id", account.id);
           } else if (form.type === "transfer" && !form.to_bank_account_id) {
-            update("to_bank_account_id", id);
+            update("to_bank_account_id", account.id);
           } else {
-            update("bank_account_id", id);
+            update("bank_account_id", account.id);
           }
           setBankAccountSheetOpen(false);
+          // Kick a background refresh so the list page (and the
+          // bank-accounts page when the user navigates) sees the new
+          // account from the server. Form state is preserved through
+          // refresh because TransactionFormSheet stays mounted.
+          router.refresh();
         }}
       />
 

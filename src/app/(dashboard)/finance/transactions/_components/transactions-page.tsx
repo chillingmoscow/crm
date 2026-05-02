@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowLeftRight,
@@ -18,8 +17,6 @@ import {
   Plus,
   Search,
   Trash2,
-  TrendingDown,
-  TrendingUp,
   Wallet,
   X,
 } from "lucide-react";
@@ -57,6 +54,7 @@ import type {
   CounterpartyRow,
   FinanceCategoryGroupRow,
   FinanceCategoryRow,
+  TransactionListFilters,
   TransactionRow,
 } from "@/types/finance";
 import type {
@@ -64,7 +62,7 @@ import type {
   LegalEntityRow,
 } from "@/lib/org/legal-entities";
 
-import { AmountRangeFilter, type AmountRangeValue } from "./filters/amount-range-filter";
+import { AmountRangeFilter } from "./filters/amount-range-filter";
 import { DateRangeFilter, type DateRangeValue } from "./filters/date-range-filter";
 import {
   MultiSelectFilter,
@@ -80,19 +78,28 @@ import {
 } from "../_lib/utils";
 
 const FILTERS_VISIBLE_STORAGE_KEY = "transactions.filters-visible";
-const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 
 const NO_CATEGORY_ID = "__no-category__";
 const NO_COUNTERPARTY_ID = "__no-counterparty__";
 
+const SEARCH_DEBOUNCE_MS = 350;
+
 type Props = {
   initialTransactions: TransactionRow[];
-  /** Total count from the server. Currently unused; reserved for the
-   * future "load older pages" affordance once we paginate server-side. */
-  initialTotal: number;
+  /** Total count from the server matching current filters (for pagination). */
+  total: number;
+  /** Current 1-based page from URL (already clamped server-side). */
+  page: number;
+  /** Current page size from URL (one of PAGE_SIZE_OPTIONS). */
+  pageSize: number;
   activeLegalEntityIdFromCookie: string | null;
+  /** Filters parsed server-side from URL — drives initial render and external sync. */
+  filtersFromUrl: TransactionListFilters;
+  /** Date preset label persisted in URL — restores button label after navigation. */
+  datePresetFromUrl: string | null;
   legalEntities: LegalEntityRow[];
-  /** Currently unused — reserved for the venue filter chip. */
+  /** Reserved for a future venue filter chip. */
   venues: AccountVenueRow[];
   bankAccounts: BankAccountRow[];
   bankAccountGroups: BankAccountGroupRow[];
@@ -105,16 +112,6 @@ type Props = {
   canExport: boolean;
 };
 
-type FiltersState = {
-  dateRange: DateRangeValue;
-  datePreset: string | null;
-  type: "all" | TransactionRow["type"];
-  accountIds: string[];
-  categoryIds: string[];
-  counterpartyIds: string[];
-  amountRange: AmountRangeValue;
-};
-
 type FormMode =
   | { kind: "closed" }
   | { kind: "create"; type: TransactionRow["type"] }
@@ -122,9 +119,12 @@ type FormMode =
 
 export function TransactionsPage({
   initialTransactions,
-  // initialTotal is intentionally unread — the table works on the
-  // in-memory initial slice; total is derived from the filtered set.
+  total,
+  page,
+  pageSize,
   activeLegalEntityIdFromCookie,
+  filtersFromUrl,
+  datePresetFromUrl,
   legalEntities,
   bankAccounts,
   bankAccountGroups,
@@ -137,39 +137,112 @@ export function TransactionsPage({
   canExport,
 }: Props) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
+
   const transactions = initialTransactions;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const fromIndex = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const toIndex = Math.min(page * pageSize, total);
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchExpanded, setSearchExpanded] = useState(false);
+  // ─── URL helpers ──────────────────────────────────────────────────────────
+
+  const updateUrl = useCallback(
+    (updates: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(updates)) {
+        if (value === null || value === "") params.delete(key);
+        else params.set(key, value);
+      }
+      // Filter changes invalidate page indices — reset to page 1 unless the
+      // caller is the one toggling page itself.
+      const onlyPaging = Object.keys(updates).every(
+        (k) => k === "page" || k === "size",
+      );
+      if (!onlyPaging) params.delete("page");
+      const qs = params.toString();
+      startTransition(() => {
+        router.push(qs ? `${pathname}?${qs}` : pathname);
+      });
+    },
+    [searchParams, pathname, router],
+  );
+
+  // ─── Filter values derived from URL ───────────────────────────────────────
+
+  // Type
+  const typeValue = (filtersFromUrl.type ?? "all") as
+    | "all"
+    | TransactionRow["type"];
+
+  // Date range + preset
+  const dateRange: DateRangeValue = useMemo(
+    () => ({
+      start: filtersFromUrl.date_from ? new Date(filtersFromUrl.date_from) : null,
+      end: filtersFromUrl.date_to ? new Date(filtersFromUrl.date_to) : null,
+    }),
+    [filtersFromUrl.date_from, filtersFromUrl.date_to],
+  );
+
+  // Multi-select arrays — sentinels reattached for UI display (not in
+  // filtersFromUrl.category_id which only carries real ids).
+  const accountIds = useMemo(
+    () => normaliseToArray(filtersFromUrl.bank_account_id),
+    [filtersFromUrl.bank_account_id],
+  );
+
+  const categoryIds = useMemo(() => {
+    const real = normaliseToArray(filtersFromUrl.category_id);
+    return filtersFromUrl.category_include_none ? [NO_CATEGORY_ID, ...real] : real;
+  }, [filtersFromUrl.category_id, filtersFromUrl.category_include_none]);
+
+  const counterpartyIds = useMemo(() => {
+    const real = normaliseToArray(filtersFromUrl.counterparty_id);
+    return filtersFromUrl.counterparty_include_none
+      ? [NO_COUNTERPARTY_ID, ...real]
+      : real;
+  }, [filtersFromUrl.counterparty_id, filtersFromUrl.counterparty_include_none]);
+
+  const amountRange = useMemo(
+    () => ({
+      min: filtersFromUrl.amount_min ?? null,
+      max: filtersFromUrl.amount_max ?? null,
+    }),
+    [filtersFromUrl.amount_min, filtersFromUrl.amount_max],
+  );
+
+  // Search has its own draft state for typing UX, debounced into URL.
+  const urlQ = filtersFromUrl.q ?? "";
+  const [searchDraft, setSearchDraft] = useState(urlQ);
+  const [searchExpanded, setSearchExpanded] = useState(!!urlQ);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [filters, setFilters] = useState<FiltersState>({
-    dateRange: { start: null, end: null },
-    datePreset: null,
-    type: "all",
-    accountIds: [],
-    categoryIds: [],
-    counterpartyIds: [],
-    amountRange: { min: null, max: null },
-  });
-  const [selected, setSelected] = useState<string[]>([]);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [filtersVisible, setFiltersVisible] = useState(true);
-  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [formMode, setFormMode] = useState<FormMode>({ kind: "closed" });
-  const [prefill, setPrefill] = useState<TransactionRow | null>(null);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
 
+  // External URL change (e.g. user clicks chip-clear) → re-sync draft.
+  useEffect(() => {
+    setSearchDraft(urlQ);
+  }, [urlQ]);
+
+  // Debounced push to URL.
+  useEffect(() => {
+    if (searchDraft === urlQ) return;
+    const t = setTimeout(() => {
+      updateUrl({ q: searchDraft.trim() || null });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchDraft]);
+
+  // Filter-panel visibility — local UX, persisted via localStorage.
+  const [filtersVisible, setFiltersVisible] = useState(true);
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(FILTERS_VISIBLE_STORAGE_KEY);
       if (stored !== null) setFiltersVisible(stored === "true");
     } catch {
-      // localStorage may be blocked in private mode — keep the default.
+      // private mode etc — keep default.
     }
   }, []);
-
   const toggleFiltersVisibility = useCallback(() => {
     setFiltersVisible((v) => {
       const next = !v;
@@ -182,168 +255,29 @@ export function TransactionsPage({
     });
   }, []);
 
-  // ─── Quick lookups ────────────────────────────────────────────────────────
+  // ─── Selection (client-only — doesn't persist across pages) ──────────────
 
-  const accountById = useMemo(
-    () => new Map(bankAccounts.map((b) => [b.id, b] as const)),
-    [bankAccounts]
-  );
-  const categoryById = useMemo(
-    () => new Map(categories.map((c) => [c.id, c] as const)),
-    [categories]
-  );
-  const counterpartyById = useMemo(
-    () => new Map(counterparties.map((c) => [c.id, c] as const)),
-    [counterparties]
-  );
-
-  // ─── Filter dropdown data ─────────────────────────────────────────────────
-
-  const accountFilterItems: MultiSelectItem[] = useMemo(
-    () =>
-      bankAccounts.map((b) => ({ id: b.id, name: b.name, groupId: b.group_id })),
-    [bankAccounts]
-  );
-  const accountFilterGroups: MultiSelectGroup[] = useMemo(
-    () => bankAccountGroups.map((g) => ({ id: g.id, name: g.name })),
-    [bankAccountGroups]
-  );
-
-  const categoryFilterItems: MultiSelectItem[] = useMemo(
-    () => [
-      { id: NO_CATEGORY_ID, name: "Без статьи", special: true },
-      ...categories.map((c) => ({ id: c.id, name: c.name, groupId: c.group_id })),
-    ],
-    [categories]
-  );
-  const categoryFilterGroups: MultiSelectGroup[] = useMemo(
-    () => categoryGroups.map((g) => ({ id: g.id, name: g.name })),
-    [categoryGroups]
-  );
-
-  const counterpartyFilterItems: MultiSelectItem[] = useMemo(
-    () => [
-      { id: NO_COUNTERPARTY_ID, name: "Без контрагента", special: true },
-      ...counterparties.map((c) => ({ id: c.id, name: c.name, groupId: c.group_id })),
-    ],
-    [counterparties]
-  );
-  const counterpartyFilterGroups: MultiSelectGroup[] = useMemo(
-    () => counterpartyGroups.map((g) => ({ id: g.id, name: g.name })),
-    [counterpartyGroups]
-  );
-
-  // ─── Apply filters + search + sort ────────────────────────────────────────
-
-  const filtered = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    const list = transactions.filter((tx) => {
-      if (filters.type !== "all" && tx.type !== filters.type) return false;
-
-      if (filters.accountIds.length > 0) {
-        const matchesPrimary = filters.accountIds.includes(tx.bank_account_id);
-        const matchesSecondary =
-          tx.to_bank_account_id !== null &&
-          filters.accountIds.includes(tx.to_bank_account_id);
-        if (!matchesPrimary && !matchesSecondary) return false;
-      }
-
-      if (filters.categoryIds.length > 0) {
-        const includesNone = filters.categoryIds.includes(NO_CATEGORY_ID);
-        const realIds = filters.categoryIds.filter((id) => id !== NO_CATEGORY_ID);
-        if (!tx.category_id) {
-          if (!includesNone) return false;
-        } else if (realIds.length > 0 && !realIds.includes(tx.category_id)) {
-          return false;
-        } else if (realIds.length === 0 && !includesNone) {
-          return false;
-        }
-      }
-
-      if (filters.counterpartyIds.length > 0) {
-        const includesNone = filters.counterpartyIds.includes(NO_COUNTERPARTY_ID);
-        const realIds = filters.counterpartyIds.filter((id) => id !== NO_COUNTERPARTY_ID);
-        if (!tx.counterparty_id) {
-          if (!includesNone) return false;
-        } else if (realIds.length > 0 && !realIds.includes(tx.counterparty_id)) {
-          return false;
-        } else if (realIds.length === 0 && !includesNone) {
-          return false;
-        }
-      }
-
-      if (filters.dateRange.start || filters.dateRange.end) {
-        const txDate = new Date(tx.date);
-        if (filters.dateRange.start) {
-          const s = new Date(filters.dateRange.start);
-          s.setHours(0, 0, 0, 0);
-          if (txDate < s) return false;
-        }
-        if (filters.dateRange.end) {
-          const e = new Date(filters.dateRange.end);
-          e.setHours(23, 59, 59, 999);
-          if (txDate > e) return false;
-        }
-      }
-
-      const amount = Number(tx.amount);
-      if (filters.amountRange.min !== null && amount < filters.amountRange.min) return false;
-      if (filters.amountRange.max !== null && amount > filters.amountRange.max) return false;
-
-      if (q) {
-        const account = accountById.get(tx.bank_account_id);
-        const toAccount = tx.to_bank_account_id ? accountById.get(tx.to_bank_account_id) : null;
-        const cat = tx.category_id ? categoryById.get(tx.category_id) : null;
-        const cp = tx.counterparty_id ? counterpartyById.get(tx.counterparty_id) : null;
-        const haystack = [
-          tx.description ?? "",
-          account?.name ?? "",
-          toAccount?.name ?? "",
-          cat?.name ?? "",
-          cp?.name ?? "",
-          String(tx.amount),
-        ]
-          .join(" ")
-          .toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-
-      return true;
-    });
-
-    return list.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-  }, [
-    transactions,
-    filters,
-    searchQuery,
-    accountById,
-    categoryById,
-    counterpartyById,
-  ]);
-
-  const total = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(page, totalPages);
-  const fromIndex = total === 0 ? 0 : (safePage - 1) * pageSize + 1;
-  const toIndex = Math.min(safePage * pageSize, total);
-  const paginated = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(1);
-  }, [page, totalPages]);
-
-  // ─── Selection helpers ────────────────────────────────────────────────────
-
+  const [selected, setSelected] = useState<string[]>([]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  // Reset selection when transaction list changes (page nav, filter change).
+  // Stale ids could otherwise trigger bulk operations on rows the user
+  // doesn't see anymore.
+  const transactionIdsKey = useMemo(
+    () => transactions.map((t) => t.id).join(","),
+    [transactions],
+  );
+  useEffect(() => {
+    setSelected([]);
+  }, [transactionIdsKey]);
+
   const allOnPageSelected =
-    paginated.length > 0 && paginated.every((tx) => selectedSet.has(tx.id));
+    transactions.length > 0 && transactions.every((tx) => selectedSet.has(tx.id));
   const someOnPageSelected = selected.length > 0 && !allOnPageSelected;
 
   const toggleAllOnPage = () => {
     if (allOnPageSelected) setSelected([]);
-    else setSelected(paginated.map((tx) => tx.id));
+    else setSelected(transactions.map((tx) => tx.id));
   };
 
   const toggleOne = (id: string) => {
@@ -352,7 +286,9 @@ export function TransactionsPage({
 
   const allSelectedSameType = useMemo(() => {
     if (selected.length <= 1) return true;
-    const types = new Set(transactions.filter((t) => selectedSet.has(t.id)).map((t) => t.type));
+    const types = new Set(
+      transactions.filter((t) => selectedSet.has(t.id)).map((t) => t.type),
+    );
     return types.size === 1;
   }, [selected.length, selectedSet, transactions]);
 
@@ -361,6 +297,11 @@ export function TransactionsPage({
       .filter((t) => selectedSet.has(t.id))
       .reduce((sum, t) => sum + Number(t.amount), 0);
   }, [selectedSet, transactions]);
+
+  // ─── Bulk delete ──────────────────────────────────────────────────────────
+
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const performBulkDelete = async () => {
     setBulkDeleting(true);
@@ -381,44 +322,102 @@ export function TransactionsPage({
     router.refresh();
   };
 
+  // ─── Quick lookups ────────────────────────────────────────────────────────
+
+  const accountById = useMemo(
+    () => new Map(bankAccounts.map((b) => [b.id, b] as const)),
+    [bankAccounts],
+  );
+  const categoryById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c] as const)),
+    [categories],
+  );
+  const counterpartyById = useMemo(
+    () => new Map(counterparties.map((c) => [c.id, c] as const)),
+    [counterparties],
+  );
+
+  // ─── Filter dropdown source data ──────────────────────────────────────────
+
+  const accountFilterItems: MultiSelectItem[] = useMemo(
+    () =>
+      bankAccounts.map((b) => ({ id: b.id, name: b.name, groupId: b.group_id })),
+    [bankAccounts],
+  );
+  const accountFilterGroups: MultiSelectGroup[] = useMemo(
+    () => bankAccountGroups.map((g) => ({ id: g.id, name: g.name })),
+    [bankAccountGroups],
+  );
+
+  const categoryFilterItems: MultiSelectItem[] = useMemo(
+    () => [
+      { id: NO_CATEGORY_ID, name: "Без статьи", special: true },
+      ...categories.map((c) => ({ id: c.id, name: c.name, groupId: c.group_id })),
+    ],
+    [categories],
+  );
+  const categoryFilterGroups: MultiSelectGroup[] = useMemo(
+    () => categoryGroups.map((g) => ({ id: g.id, name: g.name })),
+    [categoryGroups],
+  );
+
+  const counterpartyFilterItems: MultiSelectItem[] = useMemo(
+    () => [
+      { id: NO_COUNTERPARTY_ID, name: "Без контрагента", special: true },
+      ...counterparties.map((c) => ({
+        id: c.id,
+        name: c.name,
+        groupId: c.group_id,
+      })),
+    ],
+    [counterparties],
+  );
+  const counterpartyFilterGroups: MultiSelectGroup[] = useMemo(
+    () => counterpartyGroups.map((g) => ({ id: g.id, name: g.name })),
+    [counterpartyGroups],
+  );
+
   // ─── Active filter count + reset ──────────────────────────────────────────
 
   const activeFilterCount = useMemo(() => {
     let c = 0;
-    if (filters.dateRange.start || filters.dateRange.end) c++;
-    if (filters.type !== "all") c++;
-    if (filters.accountIds.length > 0) c++;
-    if (filters.categoryIds.length > 0) c++;
-    if (filters.counterpartyIds.length > 0) c++;
-    if (filters.amountRange.min !== null || filters.amountRange.max !== null) c++;
+    if (filtersFromUrl.date_from || filtersFromUrl.date_to) c++;
+    if (filtersFromUrl.type) c++;
+    if (accountIds.length > 0) c++;
+    if (categoryIds.length > 0) c++;
+    if (counterpartyIds.length > 0) c++;
+    if (filtersFromUrl.amount_min !== undefined || filtersFromUrl.amount_max !== undefined)
+      c++;
     return c;
-  }, [filters]);
+  }, [filtersFromUrl, accountIds, categoryIds, counterpartyIds]);
 
-  const hasAnyActiveFilter = activeFilterCount > 0 || searchQuery.trim() !== "";
+  const hasAnyActiveFilter = activeFilterCount > 0 || urlQ !== "";
 
   const resetAllFilters = () => {
-    setFilters({
-      dateRange: { start: null, end: null },
-      datePreset: null,
-      type: "all",
-      accountIds: [],
-      categoryIds: [],
-      counterpartyIds: [],
-      amountRange: { min: null, max: null },
+    // Keep page-size preference; drop everything else.
+    const keep = searchParams.get("size");
+    const params = new URLSearchParams();
+    if (keep) params.set("size", keep);
+    const qs = params.toString();
+    startTransition(() => {
+      router.push(qs ? `${pathname}?${qs}` : pathname);
     });
-    setSearchQuery("");
   };
 
   const expandPeriodToYear = () => {
-    setFilters((f) => ({
-      ...f,
-      dateRange: {
-        start: new Date(new Date().getFullYear(), 0, 1),
-        end: new Date(new Date().getFullYear(), 11, 31),
-      },
-      datePreset: "Текущий год",
-    }));
+    const y = new Date().getFullYear();
+    updateUrl({
+      date_from: toIsoDate(new Date(y, 0, 1)),
+      date_to: toIsoDate(new Date(y, 11, 31)),
+      date_preset: "Текущий год",
+    });
   };
+
+  // ─── Form drawer (create/edit) — client-only state ────────────────────────
+
+  const [formMode, setFormMode] = useState<FormMode>({ kind: "closed" });
+  const [prefill, setPrefill] = useState<TransactionRow | null>(null);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
 
   const openCreate = (type: TransactionRow["type"]) => {
     setCreateMenuOpen(false);
@@ -426,9 +425,9 @@ export function TransactionsPage({
       toast.error("Для создания перевода необходимо иметь как минимум два счёта");
       return;
     }
-    // No accounts at all → still open the form; the bank-account picker
-    // inside renders «+ Создать счёт», which onboards the user without
-    // forcing them back to /finance/accounts.
+    // No accounts at all → still open the form; bank-account picker has
+    // an inline-create affordance that onboards the user without
+    // bouncing them to /finance/accounts.
     setFormMode({ kind: "create", type });
   };
 
@@ -447,25 +446,43 @@ export function TransactionsPage({
     setFormMode({ kind: "create", type: tx.type });
   };
 
+  // ─── Cookie-LE notice ─────────────────────────────────────────────────────
+
   const cookieFilterActive =
-    filters.accountIds.length === 0 &&
+    !filtersFromUrl.legal_entity_id &&
     !!activeLegalEntityIdFromCookie &&
     bankAccounts.some(
-      (b) => b.legal_entity_id === activeLegalEntityIdFromCookie
+      (b) => b.legal_entity_id === activeLegalEntityIdFromCookie,
     );
   const cookieLEName = cookieFilterActive
-    ? legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)?.short_name ??
+    ? legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)
+        ?.short_name ??
       legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)?.name ??
       null
     : null;
 
-  // Subtitle text in the header — counter for the visible result set.
-  const subtitle =
-    transactions.length === 0
-      ? "Здесь появятся ваши приходы, расходы и переводы."
-      : total === transactions.length
-        ? `${total} ${pluralize(total, ["операция", "операции", "операций"])}`
-        : `${total} ${pluralize(total, ["операция", "операции", "операций"])} за выбранный период`;
+  // ─── Header subtitle (counter) ────────────────────────────────────────────
+
+  const subtitle = (() => {
+    if (total === 0 && !hasAnyActiveFilter) {
+      return "Здесь появятся ваши приходы, расходы и переводы.";
+    }
+    if (hasAnyActiveFilter) {
+      return `${total} ${pluralize(total, ["операция", "операции", "операций"])} за выбранный период`;
+    }
+    return `${total} ${pluralize(total, ["операция", "операции", "операций"])}`;
+  })();
+
+  // ─── Export href: append current URL params so filtered exports work ──────
+
+  const exportHref = (() => {
+    const qs = searchParams.toString();
+    return qs
+      ? `/api/finance/transactions/export?${qs}`
+      : "/api/finance/transactions/export";
+  })();
+
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="p-6 md:p-8 w-full">
@@ -479,28 +496,27 @@ export function TransactionsPage({
         <div className="flex items-center gap-1.5">
           {/* Expandable search */}
           <div className="flex items-center">
-            {searchExpanded || searchQuery ? (
+            {searchExpanded || searchDraft ? (
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   ref={searchInputRef}
                   autoFocus
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setPage(1);
-                  }}
+                  value={searchDraft}
+                  onChange={(e) => setSearchDraft(e.target.value)}
                   onBlur={() => {
-                    if (!searchQuery) setSearchExpanded(false);
+                    if (!searchDraft) setSearchExpanded(false);
                   }}
                   placeholder="Поиск по операциям…"
                   className="pl-9 pr-8 h-9 w-72"
                 />
-                {searchQuery && (
+                {searchDraft && (
                   <button
                     type="button"
                     onClick={() => {
-                      setSearchQuery("");
+                      setSearchDraft("");
+                      // Skip debounce — explicit clear, push immediately.
+                      updateUrl({ q: null });
                       searchInputRef.current?.focus();
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground hover:bg-muted"
@@ -522,9 +538,8 @@ export function TransactionsPage({
 
           <IconButton
             onClick={toggleFiltersVisibility}
-            // Active visual only when filters are actually applied — visibility
-            // alone shouldn't make the icon look "engaged" (the chips below
-            // already communicate that the panel is open).
+            // Active visual only when there are real applied filters —
+            // panel-visibility alone shouldn't make the button look engaged.
             active={activeFilterCount > 0}
             badge={activeFilterCount}
             aria-label={filtersVisible ? "Скрыть фильтры" : "Показать фильтры"}
@@ -534,7 +549,7 @@ export function TransactionsPage({
 
           {canExport && (
             <IconButton asChild aria-label="Экспорт CSV">
-              <a href="/api/finance/transactions/export" download>
+              <a href={exportHref} download>
                 <Download className="h-4 w-4" />
               </a>
             </IconButton>
@@ -553,21 +568,28 @@ export function TransactionsPage({
 
       {/* Filter chips bar */}
       {filtersVisible && (
-        <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div
+          className={cn(
+            "mb-4 flex flex-wrap items-center gap-2 transition-opacity",
+            isPending && "opacity-70",
+          )}
+        >
           <DateRangeFilter
-            value={filters.dateRange}
-            presetLabel={filters.datePreset}
+            value={dateRange}
+            presetLabel={datePresetFromUrl}
             onChange={(next, preset) => {
-              setFilters((f) => ({ ...f, dateRange: next, datePreset: preset }));
-              setPage(1);
+              updateUrl({
+                date_from: next.start ? toIsoDate(next.start) : null,
+                date_to: next.end ? toIsoDate(next.end) : null,
+                date_preset: preset,
+              });
             }}
           />
 
           <TypeFilter
-            value={filters.type}
+            value={typeValue}
             onChange={(next) => {
-              setFilters((f) => ({ ...f, type: next }));
-              setPage(1);
+              updateUrl({ type: next === "all" ? null : next });
             }}
           />
 
@@ -575,10 +597,9 @@ export function TransactionsPage({
             placeholder="Счета"
             items={accountFilterItems}
             groups={accountFilterGroups}
-            selectedIds={filters.accountIds}
+            selectedIds={accountIds}
             onChange={(ids) => {
-              setFilters((f) => ({ ...f, accountIds: ids }));
-              setPage(1);
+              updateUrl({ bank_account_id: ids.length ? ids.join(",") : null });
             }}
           />
 
@@ -586,10 +607,9 @@ export function TransactionsPage({
             placeholder="Статьи"
             items={categoryFilterItems}
             groups={categoryFilterGroups}
-            selectedIds={filters.categoryIds}
+            selectedIds={categoryIds}
             onChange={(ids) => {
-              setFilters((f) => ({ ...f, categoryIds: ids }));
-              setPage(1);
+              updateUrl({ category_id: ids.length ? ids.join(",") : null });
             }}
           />
 
@@ -597,25 +617,29 @@ export function TransactionsPage({
             placeholder="Контрагенты"
             items={counterpartyFilterItems}
             groups={counterpartyFilterGroups}
-            selectedIds={filters.counterpartyIds}
+            selectedIds={counterpartyIds}
             onChange={(ids) => {
-              setFilters((f) => ({ ...f, counterpartyIds: ids }));
-              setPage(1);
+              updateUrl({ counterparty_id: ids.length ? ids.join(",") : null });
             }}
           />
 
           <AmountRangeFilter
-            value={filters.amountRange}
+            value={amountRange}
             onChange={(next) => {
-              setFilters((f) => ({ ...f, amountRange: next }));
-              setPage(1);
+              updateUrl({
+                amount_min: next.min !== null ? String(next.min) : null,
+                amount_max: next.max !== null ? String(next.max) : null,
+              });
             }}
           />
 
-          {searchQuery && (
+          {urlQ && (
             <Chip
-              label={`Поиск: «${searchQuery}»`}
-              onClear={() => setSearchQuery("")}
+              label={`Поиск: «${urlQ}»`}
+              onClear={() => {
+                setSearchDraft("");
+                updateUrl({ q: null });
+              }}
             />
           )}
 
@@ -640,19 +664,27 @@ export function TransactionsPage({
         </p>
       )}
 
-      {/* Table / empty state / no-results */}
-      <div className="rounded-lg border bg-background overflow-hidden">
-        {paginated.length === 0 ? (
-          transactions.length === 0 ? (
+      {/* Table / empty / no-results */}
+      <div
+        className={cn(
+          "rounded-lg border bg-background overflow-hidden transition-opacity",
+          isPending && "opacity-70",
+        )}
+      >
+        {transactions.length === 0 ? (
+          !hasAnyActiveFilter ? (
             <EmptyAllState
               canCreate={canCreate}
               onCreate={(type) => openCreate(type)}
             />
           ) : (
             <NoResultsState
-              hasSearch={searchQuery.trim() !== ""}
-              hasDateFilter={!!(filters.dateRange.start || filters.dateRange.end)}
-              onClearSearch={() => setSearchQuery("")}
+              hasSearch={urlQ !== ""}
+              hasDateFilter={!!(dateRange.start || dateRange.end)}
+              onClearSearch={() => {
+                setSearchDraft("");
+                updateUrl({ q: null });
+              }}
               onExpandPeriod={expandPeriodToYear}
               onResetAll={resetAllFilters}
             />
@@ -678,7 +710,12 @@ export function TransactionsPage({
                   <th colSpan={5} className="text-left px-2">
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium text-brand">
-                        {selected.length} {pluralize(selected.length, ["выбрана", "выбрано", "выбрано"])}
+                        {selected.length}{" "}
+                        {pluralize(selected.length, [
+                          "выбрана",
+                          "выбрано",
+                          "выбрано",
+                        ])}
                       </span>
                       <span className="text-xs text-brand/80">
                         на сумму {formatCurrency(selectedTotal, "RUB")}
@@ -701,7 +738,7 @@ export function TransactionsPage({
                             className="h-8 text-xs"
                             onClick={() => {
                               const tx = transactions.find(
-                                (t) => t.id === selected[0]
+                                (t) => t.id === selected[0],
                               );
                               if (tx) openEdit(tx);
                             }}
@@ -712,10 +749,11 @@ export function TransactionsPage({
                         {canDelete && (
                           <Button
                             size="sm"
-                            className="h-8 text-xs bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            variant="destructive"
+                            className="h-8 text-xs"
                             onClick={() => setConfirmBulkDelete(true)}
                           >
-                            <Trash2 className="mr-1 h-3.5 w-3.5" />
+                            <Trash2 />
                             Удалить
                           </Button>
                         )}
@@ -738,16 +776,26 @@ export function TransactionsPage({
                       className="data-[state=checked]:bg-brand data-[state=checked]:border-brand data-[state=indeterminate]:bg-brand data-[state=indeterminate]:border-brand"
                     />
                   </th>
-                  <th className="px-3 font-medium" style={{ width: "12%" }}>Дата</th>
-                  <th className="px-3 font-medium" style={{ width: "16%" }}>Сумма</th>
-                  <th className="px-3 font-medium" style={{ width: "30%" }}>Статья и описание</th>
-                  <th className="px-3 font-medium" style={{ width: "20%" }}>Контрагент</th>
-                  <th className="px-3 font-medium" style={{ width: "22%" }}>Счёт</th>
+                  <th className="px-3 font-medium" style={{ width: "12%" }}>
+                    Дата
+                  </th>
+                  <th className="px-3 font-medium" style={{ width: "16%" }}>
+                    Сумма
+                  </th>
+                  <th className="px-3 font-medium" style={{ width: "30%" }}>
+                    Статья и описание
+                  </th>
+                  <th className="px-3 font-medium" style={{ width: "20%" }}>
+                    Контрагент
+                  </th>
+                  <th className="px-3 font-medium" style={{ width: "22%" }}>
+                    Счёт
+                  </th>
                 </tr>
               )}
             </thead>
             <tbody>
-              {paginated.map((tx) => (
+              {transactions.map((tx) => (
                 <Row
                   key={tx.id}
                   tx={tx}
@@ -772,8 +820,7 @@ export function TransactionsPage({
             <Select
               value={String(pageSize)}
               onValueChange={(v) => {
-                setPageSize(Number(v));
-                setPage(1);
+                updateUrl({ size: v, page: null });
               }}
             >
               <SelectTrigger className="inline-flex w-auto h-7 px-2 mx-1 align-middle">
@@ -793,21 +840,25 @@ export function TransactionsPage({
           </div>
           <div className="flex items-center gap-1">
             <span className="text-sm tabular-nums text-muted-foreground mr-2">
-              Стр. {safePage} из {totalPages}
+              Стр. {page} из {totalPages}
             </span>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={safePage <= 1}
+              onClick={() =>
+                updateUrl({ page: String(Math.max(1, page - 1)) })
+              }
+              disabled={page <= 1 || isPending}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button
               size="sm"
               variant="outline"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={safePage >= totalPages}
+              onClick={() =>
+                updateUrl({ page: String(Math.min(totalPages, page + 1)) })
+              }
+              disabled={page >= totalPages || isPending}
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
@@ -840,12 +891,12 @@ export function TransactionsPage({
               Отмена
             </Button>
             <Button
+              variant="destructive"
               onClick={performBulkDelete}
               disabled={bulkDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {bulkDeleting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-              <Trash2 className="mr-1.5 h-4 w-4" />
+              {bulkDeleting && <Loader2 className="animate-spin" />}
+              <Trash2 />
               Удалить{selected.length > 1 ? ` ${selected.length}` : ""}
             </Button>
           </DialogFooter>
@@ -896,7 +947,7 @@ function IconButton({
 } & React.HTMLAttributes<HTMLElement>) {
   const className = cn(
     "relative inline-flex items-center justify-center h-9 w-9 rounded-md border border-border bg-background text-muted-foreground hover:bg-muted transition-colors",
-    active && "bg-brand/10 border-brand/20 text-brand"
+    active && "bg-brand/10 border-brand/20 text-brand",
   );
   if (asChild) {
     return (
@@ -950,12 +1001,10 @@ function CreateButton({
   onPick: (type: TransactionRow["type"]) => void;
   transferDisabled: boolean;
 }) {
-  // Always enabled — the form's bank-account picker handles the
-  // "no accounts yet" onboarding flow via inline-create.
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
-        <Button className="h-9 bg-brand hover:bg-brand/90 text-white gap-1.5">
+        <Button className="h-9 gap-1.5">
           <Plus className="h-4 w-4" />
           Добавить операцию
           <ChevronDown className="h-4 w-4 opacity-80" />
@@ -967,7 +1016,7 @@ function CreateButton({
           onClick={() => onPick("income")}
           className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
         >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
             <Plus className="h-3.5 w-3.5" />
           </span>
           Приход
@@ -977,7 +1026,7 @@ function CreateButton({
           onClick={() => onPick("expense")}
           className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent"
         >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-rose-100 text-rose-700">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
             <Minus className="h-3.5 w-3.5" />
           </span>
           Расход
@@ -988,7 +1037,7 @@ function CreateButton({
           disabled={transferDisabled}
           className="flex w-full items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent disabled:opacity-50 disabled:hover:bg-transparent"
         >
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand/10 text-brand">
             <ArrowLeftRight className="h-3.5 w-3.5" />
           </span>
           Перевод
@@ -1004,13 +1053,13 @@ function TypeFilter({
   value,
   onChange,
 }: {
-  value: FiltersState["type"];
-  onChange: (v: FiltersState["type"]) => void;
+  value: "all" | TransactionRow["type"];
+  onChange: (v: "all" | TransactionRow["type"]) => void;
 }) {
-  const options: { value: FiltersState["type"]; label: string }[] = [
-    { value: "all", label: "Все типы" },
-    { value: "income", label: "Приход" },
-    { value: "expense", label: "Расход" },
+  const options: { value: "all" | TransactionRow["type"]; label: string }[] = [
+    { value: "all",      label: "Все типы" },
+    { value: "income",   label: "Приход" },
+    { value: "expense",  label: "Расход" },
     { value: "transfer", label: "Переводы" },
   ];
   const active = value !== "all";
@@ -1026,7 +1075,7 @@ function TypeFilter({
               "h-8 rounded-full pl-3 pr-8 font-normal text-sm",
               active
                 ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
-                : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted"
+                : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted",
             )}
           >
             <span>{label}</span>
@@ -1055,7 +1104,7 @@ function TypeFilter({
             onClick={() => onChange(o.value)}
             className={cn(
               "block w-full rounded-sm px-3 py-2 text-sm text-left hover:bg-accent",
-              o.value === value && "bg-accent"
+              o.value === value && "bg-accent",
             )}
           >
             {o.label}
@@ -1195,7 +1244,7 @@ function Row({
       className={cn(
         "h-14 cursor-pointer border-t transition-colors",
         "hover:bg-accent/40",
-        isSelected && "bg-brand/5"
+        isSelected && "bg-brand/5",
       )}
     >
       <td className="px-3 align-middle" onClick={(e) => e.stopPropagation()}>
@@ -1275,7 +1324,8 @@ function AccountLine({
   account: BankAccountRow | undefined;
   showBalance?: boolean;
 }) {
-  if (!account) return <span className="text-muted-foreground text-sm">Неизвестный счёт</span>;
+  if (!account)
+    return <span className="text-muted-foreground text-sm">Неизвестный счёт</span>;
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5">
@@ -1309,7 +1359,7 @@ function DescriptionLine({ text }: { text: string }) {
           </a>
         ) : (
           <span key={i}>{p.value}</span>
-        )
+        ),
       )}
     </p>
   );
@@ -1326,8 +1376,15 @@ function pluralize(n: number, forms: [string, string, string]): string {
   return forms[2];
 }
 
-// Suppress unused-import warnings while we keep the icons available for
-// later wiring (file attachments + trend indicators in row balance).
-void TrendingDown;
-void TrendingUp;
-void Link;
+function normaliseToArray(v: string | string[] | undefined): string[] {
+  if (v === undefined) return [];
+  if (Array.isArray(v)) return v;
+  return v ? [v] : [];
+}
+
+function toIsoDate(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}

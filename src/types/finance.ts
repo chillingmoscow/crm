@@ -128,9 +128,14 @@ export type TransactionFormInput =
 export type TransactionListFilters = {
   legal_entity_id?: string;
   venue_id?: string;
-  bank_account_id?: string;
-  category_id?: string;
-  counterparty_id?: string;
+  /** Single id (eq) or list (in). Used by /finance/transactions multi-select. */
+  bank_account_id?: string | string[];
+  category_id?: string | string[];
+  counterparty_id?: string | string[];
+  /** When true, also include rows where category_id IS NULL (combined OR with category_id). */
+  category_include_none?: boolean;
+  /** When true, also include rows where counterparty_id IS NULL (combined OR with counterparty_id). */
+  counterparty_include_none?: boolean;
   type?: TransactionRow["type"];
   source?: TransactionRow["source"];
   /** ISO date (inclusive) */

@@ -51,9 +51,28 @@ export async function listTransactions(
 
   if (filters.legal_entity_id)  query = query.eq("legal_entity_id", filters.legal_entity_id);
   if (filters.venue_id)         query = query.eq("venue_id", filters.venue_id);
-  if (filters.bank_account_id)  query = query.eq("bank_account_id", filters.bank_account_id);
-  if (filters.category_id)      query = query.eq("category_id", filters.category_id);
-  if (filters.counterparty_id)  query = query.eq("counterparty_id", filters.counterparty_id);
+
+  // Single-or-list filter: scalar → eq, array → in. Used by the multi-select
+  // chips on /finance/transactions to pass [id1, id2, …] without us having
+  // to widen the API to per-id round trips.
+  query = applyEqOrIn(query, "bank_account_id", filters.bank_account_id);
+
+  // Category & counterparty additionally support an "include null" flag — the
+  // multi-select chips have a special "Без статьи" / "Без контрагента" entry.
+  // OR-clause syntax follows postgrest: `field.is.null,field.in.(a,b)`.
+  query = applyEqOrInWithNull(
+    query,
+    "category_id",
+    filters.category_id,
+    filters.category_include_none,
+  );
+  query = applyEqOrInWithNull(
+    query,
+    "counterparty_id",
+    filters.counterparty_id,
+    filters.counterparty_include_none,
+  );
+
   if (filters.type)             query = query.eq("type", filters.type);
   if (filters.source)           query = query.eq("source", filters.source);
 
@@ -81,6 +100,44 @@ export async function listTransactions(
     pageSize,
     error: null,
   };
+}
+
+// Local query builder helpers for list-filter polymorphism. Kept here (not
+// extracted into a shared util) because they're tightly coupled to the
+// supabase-js fluent API and only used by listTransactions.
+
+type Q = ReturnType<ReturnType<Awaited<ReturnType<typeof createClient>>["from"]>["select"]>;
+
+function applyEqOrIn(query: Q, field: string, value: string | string[] | undefined): Q {
+  if (value === undefined) return query;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return query;
+    return query.in(field, value);
+  }
+  if (value === "") return query;
+  return query.eq(field, value);
+}
+
+function applyEqOrInWithNull(
+  query: Q,
+  field: string,
+  value: string | string[] | undefined,
+  includeNone: boolean | undefined,
+): Q {
+  const list = Array.isArray(value)
+    ? value.filter((v) => v !== "")
+    : value
+      ? [value]
+      : [];
+  const wantsNone = !!includeNone;
+
+  if (list.length === 0 && !wantsNone) return query;
+  if (list.length === 0 && wantsNone) return query.is(field, null);
+  if (list.length > 0 && !wantsNone) return query.in(field, list);
+
+  // Both: rows with field IS NULL OR field IN (list).
+  // Postgrest .or() takes a CSV of `<col>.<op>.<value>` clauses.
+  return query.or(`${field}.is.null,${field}.in.(${list.join(",")})`);
 }
 
 export async function getTransaction(

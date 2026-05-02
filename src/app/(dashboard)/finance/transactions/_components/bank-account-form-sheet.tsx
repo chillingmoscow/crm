@@ -30,12 +30,27 @@ const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
 
 const CURRENCY_OPTIONS = ["RUB", "USD", "EUR"];
 
+/**
+ * Subset of BankAccountRow needed by the transaction form-sheet to
+ * complete its save flow without waiting for `router.refresh()` to
+ * re-fetch props. Includes the fields read by transaction `handleSave`:
+ * `id`, `legal_entity_id`, `currency` — plus `name` and `type` so the
+ * BankAccountPicker can render the freshly-created entry immediately.
+ */
+export type CreatedBankAccount = {
+  id: string;
+  legal_entity_id: string;
+  name: string;
+  type: BankAccountRow["type"];
+  currency: string;
+};
+
 type Props = {
   open: boolean;
   legalEntities: LegalEntityRow[];
   defaultLegalEntityId: string | null;
   onClose: () => void;
-  onCreated: (id: string) => void;
+  onCreated: (account: CreatedBankAccount) => void;
 };
 
 export function BankAccountFormSheet({
@@ -85,7 +100,18 @@ export function BankAccountFormSheet({
       return;
     }
     toast.success("Счёт создан");
-    onCreated(id);
+    // Hand the full account info back, not just the id — transaction
+    // form needs `legal_entity_id` and `currency` for its save payload
+    // BEFORE the parent's router.refresh() repopulates `bankAccounts`
+    // (otherwise the just-created id is in form state but absent from
+    // the lookup array, and validation rejects with «Счёт не найден»).
+    onCreated({
+      id,
+      legal_entity_id: legalEntityId,
+      name: name.trim(),
+      type,
+      currency,
+    });
   };
 
   return (

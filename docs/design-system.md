@@ -1,6 +1,15 @@
 # Sheerly Design System
 
 Источник истины: `sheerly.pen` → frame `Sheerly · Design System` (node `Q4FzoZ`).
+
+> **⚠️ Правило: дизайн-система — первоисточник.**
+> Перед тем как создавать новый компонент, страницу или править существующее
+> оформление — открой `.pen` (через `mcp__pencil__get_screenshot` или
+> `mcp__pencil__batch_get`) и сверься. Если правил для твоего кейса в DS нет —
+> добавь их туда сначала, потом реализуй. Никогда не выдумывай токены, размеры,
+> отступы или скругления. Этот файл — зеркало `.pen`, его задача избавить от
+> повторных походов в `.pen` для уже задокументированного, но не заменить его.
+
 Этот документ — короткое текстовое зеркало, чтобы при редактуре кода не нужно
 было каждый раз открывать `.pen`. Если правила в `.pen` обновились — обнови
 этот файл. Если у тебя есть только этот файл — открой `.pen` и сверь.
@@ -217,6 +226,76 @@ import { Button } from "@/components/ui/button";
 
 ---
 
+## Form States (`Q4FzoZ` → `CxLzo` / Section/Form States)
+
+Состояния полей ввода — Input, Textarea, Select:
+
+| Состояние | Что меняется |
+|---|---|
+| **Default** | `border-input` (`#e4e4e7`), фон `bg-background` |
+| **Filled** | то же что Default, текст `text-foreground` |
+| **Focused** | `border-brand` (1px) + halo `box-shadow: 0 0 0 3px brand/40` (#1570ef66). **Не offset-ring**, не двойная обводка |
+| **Error** | `border-destructive` + сообщение под полем 12px destructive |
+| **Disabled** | opacity 50%, cursor not-allowed |
+
+В Tailwind: `focus-visible:outline-none focus-visible:border-brand focus-visible:ring-[3px] focus-visible:ring-brand/40`.
+
+**Textarea** — `resize-none` по умолчанию (запрет ручного растягивания —
+ломает компоновку). Если в редком случае нужно растягивать, передавай
+`className="resize-y"`.
+
+---
+
+## Тени (`Q4FzoZ` → `E4KLo0`)
+
+4 уровня. Все используют `#0a0a0a` с низкой непрозрачностью — работают
+одинаково в light и dark.
+
+| Уровень | Параметры | Когда |
+|---|---|---|
+| **XS · subtle** | `y:1 blur:2 #0a0a0a 8%` (`shadow-sm`) | Кнопки в hover, мелкие плашки, ползунки |
+| **SM · cards** | `y:2 blur:6 #0a0a0a 8%` (`shadow`) | Карточки в списках, dropdown-айтемы |
+| **MD · popover** | `y:8 blur:24 spread:-4 #0a0a0a 15%` (`shadow-md`) | Поповеры, диалоги, drawer-шапки |
+| **LG · drawer** | `x:-10 blur:30 spread:-5 #0a0a0a 15%` | Drawer справа, Sheet, Side-panel |
+
+---
+
+## Отступы (`Q4FzoZ` → `VnHBQ`)
+
+Шкала на основе **4px**. Padding, gap, margin — только из этой шкалы.
+
+| Значение | Tailwind | Когда |
+|---|---|---|
+| **4 · xs** | `p-1 gap-1` | Внутри icon-кнопок, gap между tag+иконой, padding chip-бейджей |
+| **8 · sm** | `p-2 gap-2` | Gap внутри кнопок, padding мелких pill, расстояние inline-элементов |
+| **12 · base** | `p-3 gap-3` | Gap form-fields, padding small-button, расстояние между rows |
+| **16 · md** | `p-4 gap-4` | Padding топбара, gap между фильтрами, отступ между card-секциями |
+| **20 · lg** | `p-5 gap-5` | Padding страницы по вертикали, gap между карточек в Page Body |
+| **24 · xl** | `p-6 gap-6` | Padding больших card-секций, gap между form-rows, padding страниц |
+| **32 · 2xl** | `p-8 gap-8` | Padding страницы по горизонтали, gap между большими секциями DS |
+| **48 · 3xl** | `p-12 gap-12` | Padding empty-state, gap между крупными hero-блоками, full-screen |
+
+---
+
+## Скругления (`Q4FzoZ` → `xA95j`)
+
+7 значений. Самое частое — `8 base` (кнопки/input/select).
+
+| Значение | Tailwind | Когда |
+|---|---|---|
+| **0 · sharp** | `rounded-none` | Очень редко: разделители-баннеры на всю ширину |
+| **6 · sm** | `rounded-md` (`--radius - 2`) | Dropdown-айтемы, tag-чипы, segmented-buttons |
+| **8 · base** | `rounded-lg` (`--radius`) | Кнопки, input, select, dropdown — самое частое |
+| **10 · md** | `rounded-[10px]` | Поповеры, dropdown-меню, секции внутри карточек |
+| **12 · lg** | `rounded-xl` | Модалки, диалоги, banner-карточки |
+| **14 · xl** | `rounded-[14px]` | Главные карточки страниц, table-card, section-card |
+| **9999 · pill** | `rounded-full` | Бейджи, фильтр-чипы, аватары, switch-дорожки, dot-индикаторы |
+
+`--radius` в `globals.css` = `0.5rem` (8px) — соответствует `8 base`. Из него
+производятся `rounded-md` и `rounded-sm`.
+
+---
+
 ## «Не делать»
 
 - ❌ `bg-primary` для CTA (используй `bg-brand` или дефолт `<Button>`)
@@ -226,6 +305,11 @@ import { Button } from "@/components/ui/button";
 - ❌ Несколько brand-CTA одного веса на одном экране
 - ❌ Иконки 32+ как inline — это feature-размер для hero/empty state
 - ❌ Менять ширину drawer (всегда 520) или цвет backdrop (всегда `bg-black/40`)
+- ❌ Focus-ring со смещением (`ring-offset-2`) на input/textarea/select —
+  только border swap + halo через `ring-[3px] ring-brand/40`
+- ❌ `resize-y` или `resize-both` на Textarea без явной причины — дефолт `resize-none`
+- ❌ Произвольные значения отступов/радиусов вне шкалы (`p-7`, `rounded-[11px]` и т.п.)
+- ❌ Произвольные тени (`shadow-2xl`, custom `box-shadow`) — только из 4 уровней DS
 
 ---
 
@@ -233,20 +317,21 @@ import { Button } from "@/components/ui/button";
 
 | Раздел | Node ID в `Q4FzoZ` |
 |---|---|
-| Brand Palette | `a38yJk` |
-| Neutral Palette | `goXoh` |
-| Semantic Tokens | `RzvtD` |
+| Цвета (бренд + нейтральные + semantic) | `a38yJk` |
 | Typography | `DjOE7` |
 | Components | `COoVe` |
 | Iconography | `H9zuOp` |
-| Form States | `CxBIh` |
+| Form States (Input/Textarea/Select) | `CxBIh` (карточки `CxLzo` + `xNGUx`) |
 | Status & Avatars | `y0JfM` |
 | Navigation Patterns | `d6RCNR` |
 | Empty States & Tooltips | `IBB1T` |
 | Sheerly · Кнопки | `omqGO` |
-| Sheerly · Цвета | `p1HsiN` |
 | Sheerly · Оверлеи | `LCFsp` |
 | Sheerly · Быстрые правила | `P16TE` |
+| **Sheerly · Тени** | `E4KLo0` |
+| **Sheerly · Отступы** | `VnHBQ` |
+| **Sheerly · Скругления** | `xA95j` |
+| Тёмная тема (отдельный фрейм) | `t6BIlw` |
 
 Доступ через MCP: `mcp__pencil__get_screenshot` или `mcp__pencil__batch_get`
 с `filePath: /Users/pavel.oplochko/Desktop/Projects/crm/sheerly.pen`.

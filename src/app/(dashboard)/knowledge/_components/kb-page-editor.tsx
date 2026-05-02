@@ -90,13 +90,6 @@ interface KbPageEditorProps {
   initialIcon: string | null;
   initialIconColor: string | null;
   initialContent: KbBlock[];
-  /** ISO timestamp последнего сохранения (server-side row.updated_at).
-   *  Только для отображения «Изменено …» в meta-row под заголовком. */
-  initialUpdatedAt?: string | null;
-  /** Имя последнего редактора. Server-side; обновляется только при
-   *  навигации (router.refresh / переход) — авто-сейв не триггерит. */
-  initialUpdatedByName?: string | null;
-  initialUpdatedByAvatarUrl?: string | null;
   canEdit: boolean;
 }
 
@@ -116,9 +109,6 @@ export function KbPageEditor({
   initialIcon,
   initialIconColor,
   initialContent,
-  initialUpdatedAt,
-  initialUpdatedByName,
-  initialUpdatedByAvatarUrl,
   canEdit,
 }: KbPageEditorProps) {
   const [title, setTitle] = useState(initialTitle);
@@ -243,12 +233,6 @@ export function KbPageEditor({
     return () => window.removeEventListener("beforeunload", handler);
   }, [canEdit, saveState.kind]);
 
-  // «Изменено…» строка обновляется только при server refresh (нав.).
-  // Во время редактирования мы используем saveState для индикации
-  // pending/saving/saved и НЕ перезаписываем initialUpdatedAt — он
-  // отражает то, что сейчас лежит в БД на момент рендера страницы.
-  const updatedDisplay = formatRelativeRu(initialUpdatedAt);
-
   return (
     <div className="flex flex-col gap-3">
       {/* Status row — fixed-height slot so its appearance/disappearance
@@ -301,25 +285,6 @@ export function KbPageEditor({
                      hover:border-0 focus:border-0 focus-visible:border-0
                      focus-visible:ring-0 focus-visible:outline-none"
         />
-        {(updatedDisplay || initialUpdatedByName) && (
-          <div className="-ml-0.5 mt-1 flex items-center gap-2 text-[13px] text-muted-foreground">
-            <UserAvatar
-              name={initialUpdatedByName}
-              avatarUrl={initialUpdatedByAvatarUrl ?? null}
-            />
-            <span>
-              {initialUpdatedByName && (
-                <span className="text-foreground/80 font-medium">
-                  {initialUpdatedByName}
-                </span>
-              )}
-              {initialUpdatedByName && updatedDisplay && (
-                <span className="px-1 text-muted-foreground/60">·</span>
-              )}
-              {updatedDisplay && <span>изменил {updatedDisplay}</span>}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Editor surface */}
@@ -459,64 +424,6 @@ function formatTime(d: Date): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function UserAvatar({
-  name,
-  avatarUrl,
-}: {
-  name: string | null | undefined;
-  avatarUrl: string | null;
-}) {
-  const initials = (name ?? "")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
-    .join("") || "?";
-  if (avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={avatarUrl}
-        alt={name ?? ""}
-        className="size-5 rounded-full object-cover bg-muted"
-      />
-    );
-  }
-  return (
-    <span className="size-5 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[10px] font-medium">
-      {initials}
-    </span>
-  );
-}
-
-/** Простое относительное время на русском. Без зависимостей. */
-function formatRelativeRu(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const then = new Date(iso).getTime();
-  const now = Date.now();
-  const diffSec = Math.max(0, Math.round((now - then) / 1000));
-  if (diffSec < 60) return "только что";
-  const diffMin = Math.round(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} ${plural(diffMin, "минуту", "минуты", "минут")} назад`;
-  const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} ${plural(diffHr, "час", "часа", "часов")} назад`;
-  const diffDay = Math.round(diffHr / 24);
-  if (diffDay < 7) return `${diffDay} ${plural(diffDay, "день", "дня", "дней")} назад`;
-  return new Date(iso).toLocaleDateString("ru-RU", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
 }
 
 /** Cheap fingerprint of (title, icon, color, content) for change detection.

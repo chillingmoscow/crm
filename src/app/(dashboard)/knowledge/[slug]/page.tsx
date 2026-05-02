@@ -1,12 +1,14 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { getKbPageBySlug, listKbPages } from "@/lib/knowledge/pages";
 import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
-import { PageHeaderActions } from "@/components/shared/page-header-actions";
+import {
+  PageBreadcrumb,
+  PageHeaderActions,
+} from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
+import { KbBackLink } from "@/app/(dashboard)/knowledge/_components/kb-back-link";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
 import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
@@ -94,13 +96,21 @@ export default async function KbPageView({ params }: PageProps) {
   const updatedByName = updatedByEntry?.name ?? null;
   const updatedByAvatarUrl = updatedByEntry?.avatarUrl ?? null;
 
+  // Profile lookup for the author (Создал) — нужен только для аватарки
+  // в info-popover; имя уже посчитали выше.
+  const createdByEntry = row.created_by
+    ? profilesById.get(row.created_by) ?? null
+    : null;
+  const createdByAvatarUrl = createdByEntry?.avatarUrl ?? null;
+
   return (
     <div className="flex-1 flex flex-col">
-      {/* Right-side top-bar actions: history, delete, info popover.
-          Breadcrumb (back-link) живёт inline в теле — выше заголовка
-          страницы, в той же колонке что контент, чтобы вертикальная
-          граница KB-сайдбара не разрывалась горизонтальной плашкой
-          breadcrumb'а на уровне топбара. */}
+      {/* Top-bar slots (теперь отрисовываются в KB-собственном header'е,
+          см. knowledge/layout.tsx). Левая часть — breadcrumb back-link,
+          правая — version history, delete, info popover. */}
+      <PageBreadcrumb>
+        <KbBackLink href={backHref} label={backLabel} />
+      </PageBreadcrumb>
       <PageHeaderActions>
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
         <KbPageActions
@@ -112,31 +122,23 @@ export default async function KbPageView({ params }: PageProps) {
         <EntityInfoPopover
           title="О странице"
           id={row.id}
-          // У KB-страниц человекочитаемый slug в URL (`/knowledge/<slug>`),
-          // UUID видно только в БД. Показываем slug, чтобы он совпадал с
-          // тем, что пользователь видит в адресной строке.
-          idLabel="URL"
-          idValue={row.slug}
           createdAt={row.created_at}
           createdByName={createdByName}
+          createdByAvatarUrl={createdByAvatarUrl}
+          createdByLabel="Автор"
           updatedAt={row.updated_at}
           updatedByName={updatedByName}
+          updatedByAvatarUrl={updatedByAvatarUrl}
+          updatedByLabel="Редактор"
+          showTime
+          relativeUpdatedAt
         />
       </PageHeaderActions>
 
       {/* Page body — full-width container; editor itself is centred
           to ~720px for Notion-like reading width. */}
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-3">
+      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          {/* Inline breadcrumb back-link — над заголовком страницы. */}
-          <Link
-            href={backHref}
-            className="inline-flex items-center gap-1 -ml-2 px-2 py-1.5 rounded-md w-fit text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            {backLabel}
-          </Link>
-
           {/*
             Key by (id, updated_at). Normal auto-save doesn't bump
             updated_at in the current view (no router.refresh after save),
@@ -151,9 +153,6 @@ export default async function KbPageView({ params }: PageProps) {
             initialIcon={row.icon}
             initialIconColor={row.icon_color}
             initialContent={(row.content as unknown as KbBlock[]) ?? []}
-            initialUpdatedAt={row.updated_at}
-            initialUpdatedByName={updatedByName}
-            initialUpdatedByAvatarUrl={updatedByAvatarUrl}
             canEdit={canEdit}
           />
 

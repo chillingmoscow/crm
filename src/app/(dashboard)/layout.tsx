@@ -3,15 +3,10 @@ import { getCachedUser, createClient } from "@/lib/supabase/server";
 import {
   SidebarInset,
   SidebarProvider,
-  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/shared/sidebar";
-import { NotificationBell } from "@/components/shared/notification-bell";
-import {
-  PageHeaderActionsProvider,
-  PageHeaderActionsSlot,
-  PageHeaderBreadcrumbSlot,
-} from "@/components/shared/page-header-actions";
+import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
+import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function DashboardLayout({
@@ -111,16 +106,9 @@ export default async function DashboardLayout({
       <SidebarInset>
         <PageHeaderActionsProvider>
           {/* Top bar: [trigger | breadcrumb] … [actions | bell].
-              Правила в `docs/design-system.md` § Top bar. */}
-          <header className="flex h-14 items-center gap-2 px-6">
-            {/* Mobile-only sidebar trigger (TogglePill живёт внутри
-                свёрнутого sheet на телефонах — отсюда нужна публичная кнопка). */}
-            <SidebarTrigger className="md:hidden" />
-            <PageHeaderBreadcrumbSlot />
-            <div className="flex-1" />
-            <PageHeaderActionsSlot />
-            <NotificationBell />
-          </header>
+              На /knowledge скрывается — KB рендерит собственный topbar
+              (см. components/shared/dashboard-topbar.tsx). */}
+          <DashboardTopbar />
           <main className="flex-1 flex flex-col">{children}</main>
         </PageHeaderActionsProvider>
       </SidebarInset>

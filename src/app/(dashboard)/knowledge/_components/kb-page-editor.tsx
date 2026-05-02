@@ -239,10 +239,12 @@ export function KbPageEditor({
           }}
           placeholder="Без названия"
           disabled={!canEdit}
+          // Detail-page H1 per Sheerly DS (yU4hW/RbRH4): 28px / bold /
+          // -0.5 letter-spacing / leading-tight. Так же оформлен h1
+          // в role-detail-page.tsx.
           className="h-12 flex-1 border-transparent bg-transparent px-2
-                     text-3xl font-semibold tracking-tight shadow-none
-                     hover:border-border focus-visible:border-border
-                     md:text-3xl"
+                     text-[28px] font-bold tracking-tight leading-tight shadow-none
+                     hover:border-border focus-visible:border-border"
         />
       </div>
 

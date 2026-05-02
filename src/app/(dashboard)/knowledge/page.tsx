@@ -20,10 +20,14 @@ export default async function KnowledgeLandingPage() {
   const { rows } = await listRecentKbPages(10);
 
   return (
-    <div className="flex flex-col gap-6 px-8 py-6">
+    // Section/index page — без breadcrumb в топбаре (per DS), title в теле.
+    // Body padding и H1-стилизация по конвенции role/staff list pages.
+    <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
       <header className="flex items-end justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold tracking-tight">База знаний</h1>
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+            База знаний
+          </h1>
           <p className="text-sm text-muted-foreground">
             SOP, регламенты, рецепты, онбординг и внутренние материалы команды.
           </p>

@@ -1,11 +1,15 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
+import { ChevronLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { getKbPageBySlug, listKbPages } from "@/lib/knowledge/pages";
 import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
-import { KbBreadcrumbs } from "@/app/(dashboard)/knowledge/_components/kb-breadcrumbs";
+import {
+  PageBreadcrumb,
+  PageHeaderActions,
+} from "@/components/shared/page-header-actions";
+import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
 import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
@@ -26,9 +30,12 @@ export default async function KbPageView({ params }: PageProps) {
   // is false and the «Удалить» button hides when canDelete is false.
   const supabase = await createClient();
 
-  // Author of the last save (or original author if never edited) for
-  // the «Обновлено … · Имя» line in the header.
   const lastEditorId = row.updated_by ?? row.created_by;
+  const profileIds = Array.from(
+    new Set(
+      [row.created_by, row.updated_by].filter((id): id is string => !!id),
+    ),
+  );
 
   const [
     { data: user },
@@ -37,7 +44,7 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasDelete },
     { rows: allPages },
     { chain },
-    { data: lastEditor },
+    { data: profiles },
   ] = await Promise.all([
     supabase.auth.getUser(),
     supabase.rpc("has_permission", { permission_code: "kb.edit_any_page" }),
@@ -45,13 +52,12 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
     listKbPages(),
     getKbBreadcrumbs(row.id),
-    lastEditorId
+    profileIds.length > 0
       ? supabase
           .from("profiles")
-          .select("first_name, last_name")
-          .eq("id", lastEditorId)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
+          .select("id, first_name, last_name")
+          .in("id", profileIds)
+      : Promise.resolve({ data: [] as { id: string; first_name: string | null; last_name: string | null }[] }),
   ]);
 
   const canEdit =
@@ -60,59 +66,88 @@ export default async function KbPageView({ params }: PageProps) {
   const canDelete = Boolean(hasDelete);
   const childCount = allPages.filter((p) => p.parent_id === row.id).length;
 
-  const lastEditedAt = row.updated_at ?? row.created_at;
-  const editorName = lastEditor
-    ? [lastEditor.first_name, lastEditor.last_name].filter(Boolean).join(" ")
+  // Resolve back-link target: parent page if any, else /knowledge.
+  // chain comes root → leaf, last entry is the current page itself.
+  const parent = chain.length >= 2 ? chain[chain.length - 2] : null;
+  const backHref = parent ? `/knowledge/${parent.slug}` : "/knowledge";
+  const backLabel = parent
+    ? parent.title || "Без названия"
+    : "База знаний";
+
+  // Profile lookup for info-popover audit fields.
+  const profilesById = new Map<string, string>();
+  for (const p of profiles ?? []) {
+    const parts = [p.first_name, p.last_name].filter(Boolean) as string[];
+    profilesById.set(p.id, parts.length > 0 ? parts.join(" ") : "—");
+  }
+  const createdByName = row.created_by
+    ? profilesById.get(row.created_by) ?? null
     : null;
+  const updatedByName = row.updated_by
+    ? profilesById.get(row.updated_by) ?? null
+    : lastEditorId
+      ? profilesById.get(lastEditorId) ?? null
+      : null;
 
   return (
-    <article className="flex flex-col gap-6 px-8 py-6 max-w-4xl mx-auto">
-      <header className="flex items-center justify-between gap-4">
-        <KbBreadcrumbs chain={chain} />
-        <div className="flex items-center gap-2">
-          <KbVersionHistory pageId={row.id} canEdit={canEdit} />
-          <KbPageActions
+    <div className="flex-1 flex flex-col">
+      {/* Breadcrumb in layout's top bar (left side) — single ← link
+          back to parent page (or /knowledge for root pages). */}
+      <PageBreadcrumb>
+        <Link
+          href={backHref}
+          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          {backLabel}
+        </Link>
+      </PageBreadcrumb>
+
+      {/* Right-side actions in top bar — history, delete, info popover.
+          History/Delete are KB-specific entity actions; info popover
+          carries createdAt/updatedAt/by audit data per DS convention. */}
+      <PageHeaderActions>
+        <KbVersionHistory pageId={row.id} canEdit={canEdit} />
+        <KbPageActions
+          pageId={row.id}
+          pageTitle={row.title}
+          childCount={childCount}
+          canDelete={canDelete}
+        />
+        <EntityInfoPopover
+          title="О странице"
+          id={row.id}
+          createdAt={row.created_at}
+          createdByName={createdByName}
+          updatedAt={row.updated_at}
+          updatedByName={updatedByName}
+        />
+      </PageHeaderActions>
+
+      {/* Page body — full-width container; editor itself is centred
+          to ~720px for Notion-like reading width (DS pattern для
+          entity-detail body, см. docs/design-system.md). */}
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
+        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+          {/*
+            Key by (id, updated_at). Normal auto-save doesn't bump
+            updated_at in the current view (no router.refresh after save),
+            so the cursor survives typing. Version restore DOES call
+            router.refresh, which re-fetches the row with new updated_at →
+            editor remounts with the restored content.
+          */}
+          <KbPageEditor
+            key={`${row.id}-${row.updated_at ?? row.created_at}`}
             pageId={row.id}
-            pageTitle={row.title}
-            childCount={childCount}
-            canDelete={canDelete}
+            initialTitle={row.title}
+            initialIcon={row.icon}
+            initialContent={(row.content as unknown as KbBlock[]) ?? []}
+            canEdit={canEdit}
           />
+
+          <KbBacklinks pageId={row.id} />
         </div>
-      </header>
-
-      {lastEditedAt && (
-        <p className="text-xs text-muted-foreground">
-          Обновлено{" "}
-          {formatDistanceToNow(new Date(lastEditedAt), {
-            addSuffix: true,
-            locale: ru,
-          })}
-          {editorName && (
-            <>
-              {" · "}
-              <span className="text-foreground/80">{editorName}</span>
-            </>
-          )}
-        </p>
-      )}
-
-      {/*
-        Key by (id, updated_at). Normal auto-save doesn't bump
-        updated_at in the current view (no router.refresh after save),
-        so the cursor survives typing. Version restore DOES call
-        router.refresh, which re-fetches the row with new updated_at →
-        editor remounts with the restored content.
-      */}
-      <KbPageEditor
-        key={`${row.id}-${row.updated_at ?? row.created_at}`}
-        pageId={row.id}
-        initialTitle={row.title}
-        initialIcon={row.icon}
-        initialContent={(row.content as unknown as KbBlock[]) ?? []}
-        canEdit={canEdit}
-      />
-
-      <KbBacklinks pageId={row.id} />
-    </article>
+      </div>
+    </div>
   );
 }

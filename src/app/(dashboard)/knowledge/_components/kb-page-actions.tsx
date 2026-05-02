@@ -66,14 +66,17 @@ export function KbPageActions({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-muted-foreground hover:text-destructive"
+        {/* Top-bar icon button — стиль iedpv (36×36, no border,
+            18px icon). Hover уезжает в destructive-цвет, чтобы
+            помечать destructive intent. */}
+        <button
+          type="button"
+          aria-label="Удалить страницу"
+          title="Удалить страницу"
+          className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
         >
-          <Trash2 className="size-4" />
-          Удалить
-        </Button>
+          <Trash2 className="w-[18px] h-[18px]" />
+        </button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

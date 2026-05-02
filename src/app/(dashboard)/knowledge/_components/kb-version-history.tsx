@@ -106,10 +106,17 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
-        <Button variant="outline" size="sm">
-          <History className="size-4" />
-          История
-        </Button>
+        {/* Top-bar icon button — стиль iedpv (36×36, no border,
+            18px icon, muted → foreground on hover). См. правила
+            в docs/design-system.md § Top bar. */}
+        <button
+          type="button"
+          aria-label="История версий"
+          title="История версий"
+          className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <History className="w-[18px] h-[18px]" />
+        </button>
       </SheetTrigger>
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>

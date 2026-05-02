@@ -55,7 +55,9 @@
     --popover-foreground: 0 0% 98%;
     --primary: 225 72% 48%;            /* keep blue accent in dark */
     --primary-foreground: 214 100% 97%;
-    --brand: 215 89% 51%;              /* #1570EF — same in dark */
+    /* Dark variants chosen to keep contrast on dark surfaces — see
+       sheerly.pen → t6BIlw "Принципы тёмной темы" (rules 3 + 5). */
+    --brand: 217 91% 60%;              /* #3b82f6 — lighter than light brand */
     --brand-foreground: 0 0% 100%;
     --secondary: 240 4% 16%;           /* #27272a */
     --secondary-foreground: 0 0% 98%;
@@ -63,7 +65,7 @@
     --muted-foreground: 240 5% 65%;    /* #a1a1aa */
     --accent: 240 4% 16%;
     --accent-foreground: 0 0% 98%;
-    --destructive: 359 100% 70%;       /* #ff6669 */
+    --destructive: 0 84% 60%;          /* #ef4444 — lighter for dark surfaces */
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 100% / 0.1;         /* #ffffff1a */
     --input: 0 0% 100% / 0.1;

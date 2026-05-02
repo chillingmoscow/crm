@@ -7,6 +7,7 @@ import { ChevronRight, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { createKbPage } from "@/lib/knowledge/pages";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -62,13 +63,17 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
 
   return (
     // Full-height column: search + tree сверху, scrollable; Корзина —
-    // pinned к низу через mt-auto.
-    <div className="flex flex-col h-full p-3 gap-2">
-      <div className="px-1 pt-1 shrink-0">
-        <KbSearchTrigger />
+    // pinned футером с такой же высотой, как у профиль-чипа в дашборд-
+    // сайдбаре (см. AppSidebar SidebarFooter), чтобы border-top
+    // совпадал по горизонтали.
+    <div className="flex flex-col h-full">
+      <div className="flex flex-col gap-2 p-3 pb-2">
+        <div className="px-1 pt-1 shrink-0">
+          <KbSearchTrigger />
+        </div>
+        <KbTreeHeader />
       </div>
-      <KbTreeHeader />
-      <div className="flex-1 overflow-y-auto -mx-3 px-3">
+      <div className="flex-1 overflow-y-auto px-3">
         {nodes.length === 0 ? (
           <KbTreeEmpty />
         ) : (
@@ -88,15 +93,19 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
       </div>
 
       {canSeeTrash && (
-        <Link
-          href="/knowledge/trash"
-          className="mt-auto shrink-0 flex items-center gap-2 rounded-md px-2 py-1.5
-                     text-sm text-muted-foreground hover:bg-sidebar-accent
-                     hover:text-foreground border-t border-sidebar-border/60 pt-3"
-        >
-          <Trash2 className="size-3.5" />
-          Корзина
-        </Link>
+        // Footer mirror профиль-чипа: p-2 + h-12 inner = 64px outer,
+        // border-t совпадает по y c линией над user-chip'ом.
+        <div className="mt-auto p-2 border-t border-sidebar-border">
+          <Link
+            href="/knowledge/trash"
+            className="flex items-center gap-2 rounded-lg p-2 h-12
+                       text-sm text-muted-foreground
+                       hover:bg-sidebar-accent hover:text-foreground transition-colors"
+          >
+            <Trash2 className="size-4 shrink-0" />
+            Корзина
+          </Link>
+        </div>
       )}
     </div>
   );
@@ -123,16 +132,18 @@ function KbTreeHeader() {
                        text-muted-foreground/70">
         Страницы
       </span>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-6"
-        title="Новая страница"
-        onClick={onCreateRoot}
-        disabled={creating}
-      >
-        <Plus className="size-3.5" />
-      </Button>
+      <IconTooltip label="Новая страница">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-6"
+          aria-label="Новая страница"
+          onClick={onCreateRoot}
+          disabled={creating}
+        >
+          <Plus className="size-3.5" />
+        </Button>
+      </IconTooltip>
     </div>
   );
 }
@@ -258,17 +269,19 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
 
         {/* Hover-only "+" to add a child. size-6 чтобы совпадать с
             header-plus (Button size="icon" → size-6). */}
-        <button
-          type="button"
-          onClick={onCreateChild}
-          disabled={creating}
-          title="Добавить подстраницу"
-          className="opacity-0 group-hover:opacity-100 flex size-6 shrink-0 items-center
-                     justify-center rounded text-muted-foreground
-                     hover:bg-sidebar-accent/60 disabled:opacity-50"
-        >
-          <Plus className="size-3.5" />
-        </button>
+        <IconTooltip label="Добавить подстраницу" side="right">
+          <button
+            type="button"
+            onClick={onCreateChild}
+            disabled={creating}
+            aria-label="Добавить подстраницу"
+            className="opacity-0 group-hover:opacity-100 flex size-6 shrink-0 items-center
+                       justify-center rounded text-muted-foreground
+                       hover:bg-sidebar-accent/60 disabled:opacity-50"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </IconTooltip>
       </div>
 
       {hasChildren && isOpen && (

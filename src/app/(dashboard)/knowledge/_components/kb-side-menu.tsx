@@ -67,10 +67,17 @@ function DuplicateBlockItem() {
       className="bn-menu-item"
       icon={<CopyPlus className="size-4" />}
       onClick={() => {
-        // Срезаем id чтобы BlockNote сгенерировал новый при insert.
-        const clone = { ...block } as { id?: string };
-        delete clone.id;
-        editor.insertBlocks([clone as never], block as never, "after");
+        // Передаём только PartialBlock-поля (без id, internal refs).
+        // structuredClone — чтобы content/children/props не разделяли
+        // ссылки с исходным блоком: иначе BlockNote мутирует обе копии
+        // одновременно и side-menu state ловит «двух блоков с одним id».
+        const partial = structuredClone({
+          type: block.type,
+          props: block.props,
+          content: block.content,
+          children: block.children,
+        });
+        editor.insertBlocks([partial as never], block as never, "after");
       }}
     >
       Дублировать

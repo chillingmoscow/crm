@@ -200,16 +200,40 @@ input:-webkit-autofill {
    transition в BlockNote → визуальный «прыжок» при структурных
    изменениях). */
 .bn-sheerly .bn-block-content {
-  padding: 6px 0;
-  line-height: 1.65;
+  padding: 9px 0;
+  line-height: 1.7;
 }
 
 /* Чуть больше воздуха над/под заголовками — H1/H2/H3 в Notion имеют
    свой внутренний ритм. Селектор по data-content-type, чтобы не
    ломать исходный padding для списков/чек-листов. */
 .bn-sheerly .bn-block-content[data-content-type="heading"] {
-  padding-top: 18px;
+  padding-top: 22px;
   padding-bottom: 4px;
+}
+
+/* Side-menu (drag-handle + add-block buttons слева от блока). По
+   умолчанию иконки 16px, плотно прижаты к тексту. Делаем компактнее
+   и сдвигаем чуть левее, чтобы они не «налипали» на буквы. */
+.bn-sheerly .bn-side-menu {
+  gap: 2px;
+  /* Сдвиг влево от текста; точная величина подобрана так, чтобы пара
+     кнопок не перекрывала контент даже на узких viewport'ах. */
+  transform: translateX(-6px);
+}
+.bn-sheerly .bn-side-menu .bn-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+.bn-sheerly .bn-side-menu .bn-button:hover {
+  opacity: 1;
+}
+.bn-sheerly .bn-side-menu svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* BlockNote shadcn-tooltips. Они рендерятся через Radix Portal в body
@@ -225,7 +249,11 @@ input:-webkit-autofill {
   border: 1px solid hsl(var(--border));
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
 }
-[data-slot="tooltip-content"] > svg {
+/* Arrow рендерится как <span> (PopperPrimitive.Arrow → span-обёртка
+   над svg, см. @radix-ui/react-popper), а не svg. BlockNote назначает
+   ему уникальный rotate-45 — матчим именно по этому классу, чтобы не
+   зацепить inline-span'ы внутри текста тултипа. */
+[data-slot="tooltip-content"] .rotate-45 {
   display: none !important;
 }
 

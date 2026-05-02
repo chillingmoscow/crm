@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
 import { listBacklinksTo } from "@/lib/knowledge/pages";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 
 interface KbBacklinksProps {
   pageId: string;
@@ -32,9 +33,7 @@ export async function KbBacklinks({ pageId }: KbBacklinksProps) {
               href={`/knowledge/${row.slug}`}
               className="flex items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-accent"
             >
-              <span className="text-base leading-none">
-                {row.icon ?? "📄"}
-              </span>
+              <KbPageIcon icon={row.icon} color={row.icon_color} size={16} />
               <span className="flex-1 truncate">
                 {row.title || "Без названия"}
               </span>

@@ -175,7 +175,20 @@ input:-webkit-autofill {
   --bn-colors-highlights-gray-background: hsl(var(--muted));
 }
 
-/* Гарантируем border-radius по DS-шкале на основной обёртке редактора. */
+/* Editor surface — прозрачная, без отдельной «карточки».
+   BlockNote default-style рендерит .bn-editor с белой подложкой; в
+   нашем layout страница и редактор должны выглядеть как одно полотно
+   (Notion-style), без ободка и border-radius'а вокруг текста. */
+.bn-sheerly,
+.bn-sheerly .bn-editor,
+.bn-sheerly .bn-container {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* Убираем default-padding редактора — outer-обёртка страницы уже
+   задаёт горизонтальные отступы (px-6 md:px-8). */
 .bn-sheerly .bn-editor {
-  border-radius: var(--radius);
+  padding: 0;
 }

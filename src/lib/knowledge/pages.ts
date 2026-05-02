@@ -98,21 +98,21 @@ export async function listRecentKbPages(limit = 10): Promise<{
 
 /** Backlinks: pages that link TO the given page id. */
 export async function listBacklinksTo(pageId: string): Promise<{
-  rows: Array<Pick<KbPageRow, "id" | "slug" | "title" | "icon">>;
+  rows: Array<Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color">>;
   error: string | null;
 }> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("kb_page_links")
-    .select("from_page:kb_pages!kb_page_links_from_page_id_fkey(id, slug, title, icon)")
+    .select("from_page:kb_pages!kb_page_links_from_page_id_fkey(id, slug, title, icon, icon_color)")
     .eq("to_page_id", pageId);
   if (error) return { rows: [], error: error.message };
 
   // PostgREST returns the embedded `from_page` as an object for single FKs.
-  type Embedded = { from_page: Pick<KbPageRow, "id" | "slug" | "title" | "icon"> | null };
+  type Embedded = { from_page: Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color"> | null };
   const rows = ((data ?? []) as unknown as Embedded[])
     .map((r) => r.from_page)
-    .filter((p): p is Pick<KbPageRow, "id" | "slug" | "title" | "icon"> => p != null);
+    .filter((p): p is Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color"> => p != null);
   return { rows, error: null };
 }
 
@@ -214,6 +214,7 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
     p_id: parsed.data.id,
     p_title: parsed.data.title,
     p_icon: parsed.data.icon ?? null,
+    p_icon_color: parsed.data.icon_color ?? null,
     p_content: parsed.data.content as unknown as never,
     p_plain_text: parsed.data.plain_text,
     p_link_targets: pageIds,

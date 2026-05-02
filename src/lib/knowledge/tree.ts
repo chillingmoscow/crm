@@ -36,6 +36,7 @@ export function assembleTree(rows: KbPageRow[]): KbTreeNode[] {
       parent_id: row.parent_id,
       title: row.title,
       icon: row.icon,
+      icon_color: row.icon_color,
       slug: row.slug,
       position: row.position,
       has_children: false,
@@ -77,7 +78,7 @@ export function assembleTree(rows: KbPageRow[]): KbTreeNode[] {
 export const getKbBreadcrumbs = cache(async (
   pageId: string
 ): Promise<{
-  chain: Array<Pick<KbTreeNode, "id" | "title" | "icon" | "slug">>;
+  chain: Array<Pick<KbTreeNode, "id" | "title" | "icon" | "icon_color" | "slug">>;
   error: string | null;
 }> => {
   const supabase = await createClient();
@@ -89,6 +90,7 @@ export const getKbBreadcrumbs = cache(async (
     id: string;
     title: string;
     icon: string | null;
+    icon_color: string | null;
     slug: string;
   }>;
   return { chain, error: null };

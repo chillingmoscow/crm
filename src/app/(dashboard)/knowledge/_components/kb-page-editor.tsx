@@ -12,6 +12,7 @@ import {
   uploadKbAttachment,
   getKbAttachmentSignedUrl,
 } from "@/lib/knowledge/attachments";
+import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
 // Dynamic-import — KbMentionMenu статически зависит от @blocknote/react.
 // Без этого SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
@@ -62,6 +63,7 @@ interface KbPageEditorProps {
   pageId: string;
   initialTitle: string;
   initialIcon: string | null;
+  initialIconColor: string | null;
   initialContent: KbBlock[];
   canEdit: boolean;
 }
@@ -80,11 +82,13 @@ export function KbPageEditor({
   pageId,
   initialTitle,
   initialIcon,
+  initialIconColor,
   initialContent,
   canEdit,
 }: KbPageEditorProps) {
   const [title, setTitle] = useState(initialTitle);
-  const [icon, setIcon] = useState(initialIcon ?? "");
+  const [icon, setIcon] = useState<string | null>(initialIcon);
+  const [iconColor, setIconColor] = useState<string | null>(initialIconColor);
   const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
 
   // Latest values via refs so the debounced save closure always sees
@@ -92,6 +96,7 @@ export function KbPageEditor({
   // stable handle for the timer callback.
   const titleRef = useRef(title);
   const iconRef = useRef(icon);
+  const iconColorRef = useRef(iconColor);
   const contentRef = useRef<KbBlock[]>(initialContent);
   const plainTextRef = useRef<string>("");
 
@@ -100,7 +105,7 @@ export function KbPageEditor({
   // first loads, and our title/icon inputs don't actually change on
   // mount — we don't want to POST identical content back to the server.
   const lastSavedHashRef = useRef<string>(
-    snapshotHash(initialTitle, initialIcon ?? "", initialContent),
+    snapshotHash(initialTitle, initialIcon, initialIconColor, initialContent),
   );
 
   // BlockNote fires its first onChange while *loading* the initial
@@ -116,6 +121,9 @@ export function KbPageEditor({
   useEffect(() => {
     iconRef.current = icon;
   }, [icon]);
+  useEffect(() => {
+    iconColorRef.current = iconColor;
+  }, [iconColor]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -127,6 +135,7 @@ export function KbPageEditor({
     const newHash = snapshotHash(
       titleRef.current,
       iconRef.current,
+      iconColorRef.current,
       contentRef.current,
     );
     if (newHash === lastSavedHashRef.current) {
@@ -138,7 +147,8 @@ export function KbPageEditor({
     const { error } = await saveKbPage({
       id: pageId,
       title: titleRef.current.trim() || "Без названия",
-      icon: iconRef.current.trim() || null,
+      icon: iconRef.current?.trim() || null,
+      icon_color: iconColorRef.current || null,
       content: contentRef.current,
       plain_text: plainTextRef.current,
     });
@@ -159,6 +169,7 @@ export function KbPageEditor({
     const newHash = snapshotHash(
       titleRef.current,
       iconRef.current,
+      iconColorRef.current,
       contentRef.current,
     );
     if (newHash === lastSavedHashRef.current) return;
@@ -208,24 +219,20 @@ export function KbPageEditor({
 
       {/* Title + icon row */}
       <div className="flex items-start gap-3">
-        <Input
-          aria-label="Иконка"
+        <KbIconPicker
           value={icon}
-          onChange={(e) => {
-            const next = e.target.value;
-            // Sync ref BEFORE scheduleSave so the in-handler hash check
-            // sees the latest value. Without this, scheduleSave's pre-check
-            // reads the old iconRef (updated only by useEffect on next
-            // render) and skips scheduling on the first character.
-            iconRef.current = next;
-            setIcon(next);
+          color={iconColor}
+          disabled={!canEdit}
+          onChange={({ icon: nextIcon, color: nextColor }) => {
+            // Sync refs BEFORE scheduleSave so the in-handler hash check
+            // sees the latest values (refs are otherwise updated only
+            // by useEffect on next render).
+            iconRef.current = nextIcon;
+            iconColorRef.current = nextColor;
+            setIcon(nextIcon);
+            setIconColor(nextColor);
             scheduleSave();
           }}
-          placeholder="📄"
-          maxLength={4}
-          disabled={!canEdit}
-          className="size-12 text-center text-2xl shrink-0 border-transparent
-                     hover:border-border focus-visible:border-border"
         />
         <Input
           aria-label="Заголовок страницы"
@@ -239,10 +246,12 @@ export function KbPageEditor({
           }}
           placeholder="Без названия"
           disabled={!canEdit}
+          // Detail-page H1 per Sheerly DS (yU4hW/RbRH4): 28px / bold /
+          // -0.5 letter-spacing / leading-tight. Так же оформлен h1
+          // в role-detail-page.tsx.
           className="h-12 flex-1 border-transparent bg-transparent px-2
-                     text-3xl font-semibold tracking-tight shadow-none
-                     hover:border-border focus-visible:border-border
-                     md:text-3xl"
+                     text-[28px] font-bold tracking-tight leading-tight shadow-none
+                     hover:border-border focus-visible:border-border"
         />
       </div>
 
@@ -293,6 +302,7 @@ export function KbPageEditor({
             lastSavedHashRef.current = snapshotHash(
               titleRef.current,
               iconRef.current,
+              iconColorRef.current,
               content,
             );
             return;
@@ -369,13 +379,14 @@ function formatTime(d: Date): string {
   });
 }
 
-/** Cheap fingerprint of (title, icon, content) for change detection.
+/** Cheap fingerprint of (title, icon, color, content) for change detection.
  * JSON.stringify is good enough at our doc sizes (≤ ~100 KB jsonb).
  * If a page balloons past that we can swap for a streaming hash. */
 function snapshotHash(
   title: string,
   icon: string | null,
+  iconColor: string | null,
   content: KbBlock[],
 ): string {
-  return JSON.stringify([title, icon ?? "", content]);
+  return JSON.stringify([title, icon ?? "", iconColor ?? "", content]);
 }

@@ -212,7 +212,13 @@ export function KbPageEditor({
           aria-label="Иконка"
           value={icon}
           onChange={(e) => {
-            setIcon(e.target.value);
+            const next = e.target.value;
+            // Sync ref BEFORE scheduleSave so the in-handler hash check
+            // sees the latest value. Without this, scheduleSave's pre-check
+            // reads the old iconRef (updated only by useEffect on next
+            // render) and skips scheduling on the first character.
+            iconRef.current = next;
+            setIcon(next);
             scheduleSave();
           }}
           placeholder="📄"
@@ -225,7 +231,10 @@ export function KbPageEditor({
           aria-label="Заголовок страницы"
           value={title}
           onChange={(e) => {
-            setTitle(e.target.value);
+            const next = e.target.value;
+            // Same sync-ref reasoning as iconRef above.
+            titleRef.current = next;
+            setTitle(next);
             scheduleSave();
           }}
           placeholder="Без названия"

@@ -149,13 +149,25 @@ create policy "kb_page_versions_select"
     )
   );
 
+-- INSERT: edit_any может писать снапшоты для любых страниц активного
+-- аккаунта; edit_own — только для страниц, которые сам же создал.
+-- Без ownership-чека на edit_own любой пользователь с правом редактирования
+-- собственных страниц мог бы forge-ить version history чужих (и эти
+-- версии затем светились в UI / был бы доступен restore).
 create policy "kb_page_versions_insert"
   on public.kb_page_versions for insert
   with check (
     account_id = public.get_active_account_id()
     and (
       public.has_permission('kb.edit_any_page')
-      or public.has_permission('kb.edit_own_pages')
+      or (
+        public.has_permission('kb.edit_own_pages')
+        and exists (
+          select 1 from public.kb_pages p
+          where p.id = kb_page_versions.page_id
+            and p.created_by = auth.uid()
+        )
+      )
     )
   );
 
@@ -176,20 +188,39 @@ create policy "kb_page_links_select"
     and public.has_permission('kb.view_pages')
   );
 
+-- WRITE: edit_any пишет/правит/удаляет любые backlinks активного
+-- аккаунта; edit_own — только если from_page_id принадлежит странице,
+-- которую сам же создал. Без ownership-чека любой edit_own-пользователь
+-- мог бы переписать backlink-граф чужих страниц напрямую через таблицу,
+-- минуя ownership-проверку из kb_save_page RPC.
 create policy "kb_page_links_write"
   on public.kb_page_links for all
   using (
     account_id = public.get_active_account_id()
     and (
       public.has_permission('kb.edit_any_page')
-      or public.has_permission('kb.edit_own_pages')
+      or (
+        public.has_permission('kb.edit_own_pages')
+        and exists (
+          select 1 from public.kb_pages p
+          where p.id = kb_page_links.from_page_id
+            and p.created_by = auth.uid()
+        )
+      )
     )
   )
   with check (
     account_id = public.get_active_account_id()
     and (
       public.has_permission('kb.edit_any_page')
-      or public.has_permission('kb.edit_own_pages')
+      or (
+        public.has_permission('kb.edit_own_pages')
+        and exists (
+          select 1 from public.kb_pages p
+          where p.id = kb_page_links.from_page_id
+            and p.created_by = auth.uid()
+        )
+      )
     )
   );
 

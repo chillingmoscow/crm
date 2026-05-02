@@ -16,6 +16,7 @@ import {
   Users,
   Wallet,
   ArrowLeftRight,
+  BookOpen,
 } from "lucide-react";
 import {
   Sidebar,
@@ -69,6 +70,16 @@ const NAV_SECTIONS = [
       { title: "Счета",       href: "/finance/accounts",       icon: Wallet,                        roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         roles: ["owner", "admin", "accountant", "manager"] },
+    ],
+  },
+  {
+    // База знаний (стадия 8). Видимость по матрице 050: все шесть ролей
+    // имеют kb.view_pages; manage-уровень гейтится на самих экранах.
+    label: "База знаний",
+    roles: ["owner", "admin", "accountant", "manager", "hostess", "waiter"],
+    items: [
+      { title: "База знаний", href: "/knowledge", icon: BookOpen,
+        roles: ["owner", "admin", "accountant", "manager", "hostess", "waiter"] },
     ],
   },
   {

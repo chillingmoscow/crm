@@ -6,6 +6,12 @@ const config: Config = {
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    // src/lib содержит мапы Tailwind-классов (knowledge/icons.ts:
+    // COLOR_DOT_BG/COLOR_TEXT/COLOR_TINT_BG → bg-rose-500 и т.д.).
+    // Без этого пути JIT не видит литералы и не генерирует правила —
+    // в picker'е оставались видны только bg-brand и подобные классы,
+    // которые встречаются в /app или /components.
+    "./src/lib/**/*.{ts,tsx}",
   ],
   theme: {
   	extend: {

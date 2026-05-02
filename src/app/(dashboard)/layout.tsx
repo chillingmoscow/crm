@@ -4,6 +4,7 @@ import {
   SidebarInset,
   SidebarProvider,
 } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/shared/sidebar";
 import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
@@ -93,6 +94,11 @@ export default async function DashboardLayout({
   }
 
   return (
+    // delayDuration=150 — short hover-delay для всех IconTooltip'ов
+    // (DS-style вместо системной задержки native title).
+    // skipDelayDuration=300 — после показа одного tooltip'а соседние
+    // показываются мгновенно при hover'е (типичный pattern toolbar'ов).
+    <TooltipProvider delayDuration={150} skipDelayDuration={300}>
     <SidebarProvider>
       <AppSidebar
         userName={userName}
@@ -113,5 +119,6 @@ export default async function DashboardLayout({
         </PageHeaderActionsProvider>
       </SidebarInset>
     </SidebarProvider>
+    </TooltipProvider>
   );
 }

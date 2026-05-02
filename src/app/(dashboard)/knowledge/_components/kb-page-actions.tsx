@@ -6,6 +6,7 @@ import { Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Dialog,
   DialogContent,
@@ -65,19 +66,20 @@ export function KbPageActions({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {/* Top-bar icon button — стиль iedpv (36×36, no border,
-            18px icon). Hover уезжает в destructive-цвет, чтобы
-            помечать destructive intent. */}
-        <button
-          type="button"
-          aria-label="Удалить страницу"
-          title="Удалить страницу"
-          className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-        >
-          <Trash2 className="w-[18px] h-[18px]" />
-        </button>
-      </DialogTrigger>
+      <IconTooltip label="Удалить страницу">
+        <DialogTrigger asChild>
+          {/* Top-bar icon button — стиль iedpv (36×36, no border,
+              18px icon). Hover уезжает в destructive-цвет, чтобы
+              помечать destructive intent. */}
+          <button
+            type="button"
+            aria-label="Удалить страницу"
+            className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+          >
+            <Trash2 className="w-[18px] h-[18px]" />
+          </button>
+        </DialogTrigger>
+      </IconTooltip>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Удалить страницу?</DialogTitle>

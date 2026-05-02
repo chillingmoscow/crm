@@ -7,6 +7,7 @@ import { ChevronRight, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { createKbPage } from "@/lib/knowledge/pages";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -131,16 +132,18 @@ function KbTreeHeader() {
                        text-muted-foreground/70">
         Страницы
       </span>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-6"
-        title="Новая страница"
-        onClick={onCreateRoot}
-        disabled={creating}
-      >
-        <Plus className="size-3.5" />
-      </Button>
+      <IconTooltip label="Новая страница">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-6"
+          aria-label="Новая страница"
+          onClick={onCreateRoot}
+          disabled={creating}
+        >
+          <Plus className="size-3.5" />
+        </Button>
+      </IconTooltip>
     </div>
   );
 }
@@ -266,17 +269,19 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
 
         {/* Hover-only "+" to add a child. size-6 чтобы совпадать с
             header-plus (Button size="icon" → size-6). */}
-        <button
-          type="button"
-          onClick={onCreateChild}
-          disabled={creating}
-          title="Добавить подстраницу"
-          className="opacity-0 group-hover:opacity-100 flex size-6 shrink-0 items-center
-                     justify-center rounded text-muted-foreground
-                     hover:bg-sidebar-accent/60 disabled:opacity-50"
-        >
-          <Plus className="size-3.5" />
-        </button>
+        <IconTooltip label="Добавить подстраницу" side="right">
+          <button
+            type="button"
+            onClick={onCreateChild}
+            disabled={creating}
+            aria-label="Добавить подстраницу"
+            className="opacity-0 group-hover:opacity-100 flex size-6 shrink-0 items-center
+                       justify-center rounded text-muted-foreground
+                       hover:bg-sidebar-accent/60 disabled:opacity-50"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </IconTooltip>
       </div>
 
       {hasChildren && isOpen && (

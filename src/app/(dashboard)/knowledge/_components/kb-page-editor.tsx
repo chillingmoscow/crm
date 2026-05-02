@@ -2,10 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Loader2, Cloud, CloudOff, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
-import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { saveKbPage } from "@/lib/knowledge/pages";
 import {
@@ -13,6 +11,10 @@ import {
   getKbAttachmentSignedUrl,
 } from "@/lib/knowledge/attachments";
 import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
+import {
+  getKbSaveState,
+  setKbSaveState,
+} from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 // Dynamic-import — оба компонента статически зависят от @blocknote/react.
 // Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
@@ -29,6 +31,7 @@ const KbSideMenuController = dynamic(
     ),
   { ssr: false, loading: () => null },
 );
+import type { BlockNoteEditor as BlockNoteEditorType } from "@blocknote/core";
 import type { KbBlock } from "@/types/knowledge";
 
 // Custom URL scheme used by the BlockNote wrapper to mark uploaded KB
@@ -77,13 +80,6 @@ const KbBlockNoteEditor = dynamic(
 
 const DEBOUNCE_MS = 2000;
 
-type SaveState =
-  | { kind: "idle" }
-  | { kind: "pending" }
-  | { kind: "saving" }
-  | { kind: "saved"; at: Date }
-  | { kind: "error"; message: string };
-
 interface KbPageEditorProps {
   pageId: string;
   initialTitle: string;
@@ -94,14 +90,21 @@ interface KbPageEditorProps {
 }
 
 /**
- * KB page editor: borderless title input + emoji input + BlockNote
- * editor with debounced auto-save (1.5s). Save status is surfaced
- * inline next to the breadcrumbs (mounted by the parent server
- * component via a portal-like sibling — see slug page.tsx).
+ * KB page editor: borderless title input + icon picker + BlockNote
+ * editor with debounced auto-save (2s).
  *
- * Saves go through `saveKbPage` → `kb_save_page` RPC, which atomically
- * updates the row, snapshots a version, and replaces backlinks
- * (migration 052).
+ * Save state живёт в module-level store (см. kb-save-status.tsx) и
+ * рендерится в KB-топбаре (KbSaveStatusBadge). Это ВАЖНО: раньше
+ * saveState был useState внутри этого компонента — каждое обновление
+ * (pending/saving/saved) перерисовывало BlockNoteView и закрывало
+ * формат-toolbar / slash-menu прямо во время выбора. Теперь редактор
+ * не реагирует на save-события на уровне React.
+ *
+ * Saves go through `saveKbPage` → `kb_save_page` RPC, который
+ * атомарно обновляет row, snapshot'ит версию и пересчитывает
+ * backlinks (миграция 052). revalidatePath намеренно не вызывается
+ * (он триггерил RSC-refresh → меняется row.updated_at → key редактора
+ * меняется → BlockNote remount).
  */
 export function KbPageEditor({
   pageId,
@@ -114,7 +117,6 @@ export function KbPageEditor({
   const [title, setTitle] = useState(initialTitle);
   const [icon, setIcon] = useState<string | null>(initialIcon);
   const [iconColor, setIconColor] = useState<string | null>(initialIconColor);
-  const [saveState, setSaveState] = useState<SaveState>({ kind: "idle" });
 
   // Latest values via refs so the debounced save closure always sees
   // them. Mutating refs doesn't trigger re-renders — we just need a
@@ -134,10 +136,9 @@ export function KbPageEditor({
   );
 
   // BlockNote fires its first onChange while *loading* the initial
-  // document — and at that point the document goes through internal
-  // normalization (block IDs assigned, attrs canonicalized), so the
-  // hash of `content` differs from what we put in. We treat that
-  // first onChange as the new baseline instead of as an edit.
+  // document — и в этот момент внутренняя нормализация (block id,
+  // canonicalize attrs) меняет hash относительно того, что мы передали.
+  // Первый onChange принимаем как baseline, не как edit.
   const isFirstEditorEventRef = useRef(true);
 
   useEffect(() => {
@@ -152,6 +153,12 @@ export function KbPageEditor({
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Reset save badge to idle при смене pageId (на случай если
+  // module-store держал «Сохранено» от предыдущей страницы).
+  useEffect(() => {
+    setKbSaveState({ kind: "idle" });
+  }, [pageId]);
+
   const flush = useCallback(async () => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
@@ -165,10 +172,11 @@ export function KbPageEditor({
     );
     if (newHash === lastSavedHashRef.current) {
       // Nothing actually changed — skip the network round-trip.
-      setSaveState((prev) => (prev.kind === "pending" ? { kind: "idle" } : prev));
+      const cur = getKbSaveState();
+      if (cur.kind === "pending") setKbSaveState({ kind: "idle" });
       return;
     }
-    setSaveState({ kind: "saving" });
+    setKbSaveState({ kind: "saving" });
     const { error } = await saveKbPage({
       id: pageId,
       title: titleRef.current.trim() || "Без названия",
@@ -178,12 +186,12 @@ export function KbPageEditor({
       plain_text: plainTextRef.current,
     });
     if (error) {
-      setSaveState({ kind: "error", message: error });
+      setKbSaveState({ kind: "error", message: error });
       toast.error(`Не удалось сохранить: ${error}`);
       return;
     }
     lastSavedHashRef.current = newHash;
-    setSaveState({ kind: "saved", at: new Date() });
+    setKbSaveState({ kind: "saved", at: new Date() });
   }, [pageId]);
 
   const scheduleSave = useCallback(() => {
@@ -199,7 +207,7 @@ export function KbPageEditor({
     );
     if (newHash === lastSavedHashRef.current) return;
 
-    setSaveState({ kind: "pending" });
+    setKbSaveState({ kind: "pending" });
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       void flush();
@@ -211,41 +219,47 @@ export function KbPageEditor({
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
-        // Best-effort sync flush — we can't await in cleanup, but the
-        // server action itself is fire-and-forget from the browser's
-        // perspective once the request leaves.
+        // Best-effort sync flush — мы не можем await в cleanup, но
+        // сам server action — fire-and-forget с точки зрения браузера.
         void flush();
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // beforeunload: warn the user if there are pending edits.
+  // beforeunload: warn the user if there are pending edits. Читаем
+  // state синхронно из module-store — без подписки, чтобы не вызывать
+  // re-render при каждом save-tick'е.
   useEffect(() => {
     if (!canEdit) return;
     const handler = (e: BeforeUnloadEvent) => {
-      if (saveState.kind === "pending" || saveState.kind === "saving") {
+      const k = getKbSaveState().kind;
+      if (k === "pending" || k === "saving") {
         e.preventDefault();
         e.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [canEdit, saveState.kind]);
+  }, [canEdit]);
+
+  // Memoized handler для BlockNoteView children — стабильная identity
+  // помогает избежать лишних reconciliation-циклов в children-цепочке
+  // BlockNoteView (mention/side-menu controller'ы). editor reference
+  // стабилен внутри useCreateBlockNote.
+  const renderExtras = useCallback(
+    (editor: BlockNoteEditorType) => (
+      <>
+        <KbMentionMenu editor={editor} />
+        <KbSideMenuController />
+      </>
+    ),
+    [],
+  );
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Status row — fixed-height slot so its appearance/disappearance
-          doesn't push the editor up/down (avoids visible "screen jump"
-          on every save cycle). */}
-      <div className="h-5">
-        <SaveStatus state={saveState} />
-      </div>
-
-      {/* Notion-style header: icon на отдельной строке (большая, слева),
-          ниже — title крупным шрифтом, ниже — meta-row с мини-аватаром
-          и временем правки. Иконка прижата к левому краю reading-зоны
-          через -ml-2 (компенсирует hover-padding picker'а). */}
+      {/* Notion-style header: icon на отдельной строке, ниже title. */}
       <div className="flex flex-col gap-2">
         <div className="-ml-2">
           <KbIconPicker
@@ -295,12 +309,7 @@ export function KbPageEditor({
         initialContent={initialContent}
         editable={canEdit}
         customSideMenu
-        renderExtras={(editor) => (
-          <>
-            <KbMentionMenu editor={editor} />
-            <KbSideMenuController />
-          </>
-        )}
+        renderExtras={renderExtras}
         uploadFile={async (file) => {
           const result = await uploadKbAttachment({
             pageId,
@@ -359,71 +368,6 @@ export function KbPageEditor({
       />
     </div>
   );
-}
-
-function SaveStatus({ state }: { state: SaveState }) {
-  if (state.kind === "idle") return null;
-
-  if (state.kind === "pending") {
-    return (
-      <Badge tone="muted">
-        <CloudOff className="size-3.5" />
-        Не сохранено
-      </Badge>
-    );
-  }
-
-  if (state.kind === "saving") {
-    return (
-      <Badge tone="muted">
-        <Loader2 className="size-3.5 animate-spin" />
-        Сохраняем…
-      </Badge>
-    );
-  }
-
-  if (state.kind === "saved") {
-    return (
-      <Badge tone="muted">
-        <Cloud className="size-3.5" />
-        Сохранено · {formatTime(state.at)}
-      </Badge>
-    );
-  }
-
-  return (
-    <Badge tone="error">
-      <AlertTriangle className="size-3.5" />
-      Ошибка сохранения
-    </Badge>
-  );
-}
-
-function Badge({
-  tone,
-  children,
-}: {
-  tone: "muted" | "error";
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex w-fit items-center gap-1.5 rounded-md px-2 py-0.5 text-xs",
-        tone === "muted" && "bg-muted text-muted-foreground",
-        tone === "error" && "bg-destructive/10 text-destructive",
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 /** Cheap fingerprint of (title, icon, color, content) for change detection.

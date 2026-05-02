@@ -249,7 +249,11 @@ input:-webkit-autofill {
   border: 1px solid hsl(var(--border));
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
 }
-[data-slot="tooltip-content"] > svg {
+/* Arrow рендерится как <span> (PopperPrimitive.Arrow → span-обёртка
+   над svg, см. @radix-ui/react-popper), а не svg. BlockNote назначает
+   ему уникальный rotate-45 — матчим именно по этому классу, чтобы не
+   зацепить inline-span'ы внутри текста тултипа. */
+[data-slot="tooltip-content"] .rotate-45 {
   display: none !important;
 }
 

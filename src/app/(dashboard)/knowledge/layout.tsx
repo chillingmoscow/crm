@@ -5,6 +5,7 @@ import { getKbTree } from "@/lib/knowledge/tree";
 import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbMobileTreeDrawer } from "@/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer";
+import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -64,6 +65,10 @@ export default async function KnowledgeLayout({
             <SidebarTrigger className="md:hidden" />
             <PageHeaderBreadcrumbSlot />
             <div className="flex-1" />
+            {/* Save-state badge — рядом с History/Delete/Info справа.
+                Подписан на module-store, не зависит от render-цикла
+                редактора → popover'ы редактора больше не дёргаются. */}
+            <KbSaveStatusBadge />
             <PageHeaderActionsSlot />
             <NotificationBell />
           </header>

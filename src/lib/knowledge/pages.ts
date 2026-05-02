@@ -35,28 +35,60 @@ export async function listKbPages(): Promise<{
   return { rows: (data ?? []) as KbPageRow[], error: null };
 }
 
+/** Trash list row — slim проекция KbPageRow (без content/plain_text/
+ *  search_tsv), чтобы не вытаскивать тяжёлый jsonb для каждой
+ *  каскадно-удалённой страницы (см. Codex #32 P2). */
+export type KbDeletedPageRow = Pick<
+  KbPageRow,
+  | "id"
+  | "account_id"
+  | "parent_id"
+  | "position"
+  | "title"
+  | "icon"
+  | "icon_color"
+  | "slug"
+  | "deleted_at"
+  | "deleted_by"
+  | "deleted_root_id"
+  | "created_by"
+  | "created_at"
+  | "updated_at"
+  | "updated_by"
+> & { descendants_count: number };
+
 /** Direct-delete roots в корзине. Каскадно-удалённые потомки
  * (deleted_root_id != id) не показываются — они вернутся вместе
  * с родителем при restore. RLS hides эти строки от пользователей
- * без `kb.delete_pages` (см. миграцию 050 §3). */
+ * без `kb.delete_pages` (см. миграцию 050 §3).
+ *
+ * Перформанс: тянем только метаданные (без content jsonb / plain_text /
+ * search_tsv), а cascade-дочерние строки фетчим отдельным узким
+ * запросом — только колонку deleted_root_id для подсчёта counts.
+ * После большого subtree-delete страница /knowledge/trash раньше
+ * десериализовала весь content каждого hidden descendant'а только
+ * чтобы посчитать одну цифру. */
 export async function listDeletedKbPages(): Promise<{
-  rows: (KbPageRow & { descendants_count: number })[];
+  rows: KbDeletedPageRow[];
   error: string | null;
 }> {
   const supabase = await createClient();
-  // Все soft-deleted строки (root + cascade children) — нужны чтобы
-  // подсчитать сколько потомков уйдёт каскадом при restore.
+  const slim =
+    "id, account_id, parent_id, position, title, icon, icon_color, slug, deleted_at, deleted_by, deleted_root_id, created_by, created_at, updated_at, updated_by";
+
+  // Узкий запрос за всеми soft-deleted мета-строками (без heavy jsonb).
+  // Roots vs cascade-children разруливаем в JS (PostgREST нативно не
+  // умеет «col_a = col_b» в фильтре).
   const { data, error } = await supabase
     .from("kb_pages")
-    .select("*")
+    .select(slim)
     .not("deleted_at", "is", null)
     .order("deleted_at", { ascending: false });
   if (error) return { rows: [], error: error.message };
 
-  const all = (data ?? []) as KbPageRow[];
+  const all = (data ?? []) as KbDeletedPageRow[];
   const cascadeByRoot = new Map<string, number>();
   for (const r of all) {
-    // cascade child = deleted_root_id указывает на другую страницу
     if (r.deleted_root_id && r.deleted_root_id !== r.id) {
       cascadeByRoot.set(
         r.deleted_root_id,

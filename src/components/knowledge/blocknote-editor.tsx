@@ -65,6 +65,9 @@ export type BlockNoteEditorProps = {
    * editor to nested components.
    */
   renderExtras?: (editor: BlockNoteEditor) => ReactNode;
+  /** Если передан кастомный SideMenuController через renderExtras —
+   *  отключаем встроенный, чтобы не было двух одновременно. */
+  customSideMenu?: boolean;
   className?: string;
 };
 
@@ -87,6 +90,7 @@ export function KbBlockNoteEditor({
   uploadFile,
   resolveFileUrl,
   renderExtras,
+  customSideMenu = false,
   className,
 }: BlockNoteEditorProps) {
   const { resolvedTheme } = useTheme();
@@ -190,6 +194,7 @@ export function KbBlockNoteEditor({
       editable={editable}
       theme={resolvedTheme === "dark" ? "dark" : "light"}
       className={cn("bn-sheerly", className)}
+      sideMenu={customSideMenu ? false : undefined}
     >
       {renderExtras?.(editor)}
     </BlockNoteView>

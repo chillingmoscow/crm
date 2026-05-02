@@ -24,8 +24,15 @@ import {
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
   title: string;
-  /** Полный UUID сущности — отображается shortened (первые 8 символов) */
+  /** Полный UUID сущности — по умолчанию отображается shortened
+   *  (первые 8 символов). Можно переопределить через idLabel/idValue. */
   id: string;
+  /** Override label for the «ID» row (e.g. «URL» когда сущность имеет
+   *  человеко-читаемый slug в URL и UUID мало кому что-либо говорит). */
+  idLabel?: string;
+  /** Override value for the «ID» row (e.g. row.slug для KB-страницы).
+   *  Если не задано — используется id.slice(0, 8). */
+  idValue?: string;
   createdAt: string | null;
   createdByName: string | null;
   updatedAt: string | null;
@@ -48,13 +55,15 @@ function formatDate(iso: string | null): string {
 export function EntityInfoPopover({
   title,
   id,
+  idLabel,
+  idValue,
   createdAt,
   createdByName,
   updatedAt,
   updatedByName,
 }: EntityInfoPopoverProps) {
   const rows: { label: string; value: string; isUser?: boolean }[] = [
-    { label: "ID", value: id.slice(0, 8) },
+    { label: idLabel ?? "ID", value: idValue ?? id.slice(0, 8) },
     { label: "Создана", value: formatDate(createdAt) },
     { label: "Создал", value: createdByName ?? "—", isUser: true },
     { label: "Изменена", value: formatDate(updatedAt) },

@@ -112,6 +112,11 @@ export default async function KbPageView({ params }: PageProps) {
         <EntityInfoPopover
           title="О странице"
           id={row.id}
+          // У KB-страниц человекочитаемый slug в URL (`/knowledge/<slug>`),
+          // UUID видно только в БД. Показываем slug, чтобы он совпадал с
+          // тем, что пользователь видит в адресной строке.
+          idLabel="URL"
+          idValue={row.slug}
           createdAt={row.created_at}
           createdByName={createdByName}
           updatedAt={row.updated_at}

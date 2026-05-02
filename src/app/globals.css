@@ -212,6 +212,32 @@ input:-webkit-autofill {
   padding-bottom: 4px;
 }
 
+/* BlockNote shadcn-tooltips. Они рендерятся через Radix Portal в body
+   (вне .bn-sheerly scope), поэтому правила нужны глобальные. По
+   умолчанию у них bg-primary (брендовый акцент) + ромбовидный Arrow,
+   что выглядит шумно. Делаем их «спокойными»: серый popover-фон,
+   стрелку прячем. Селектор data-slot="tooltip-content" уникален именно
+   для BlockNote shadcn-варианта (наш собственный TooltipContent его
+   не выставляет — см. components/ui/tooltip.tsx). */
+[data-slot="tooltip-content"] {
+  background-color: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+}
+[data-slot="tooltip-content"] > svg {
+  display: none !important;
+}
+
+/* Emoji-picker (BlockNote использует web-component `em-emoji-picker`
+   из emoji-mart). Из коробки имеет max-height:100% → раскрывается на
+   всю высоту вьюпорта. Прижимаем к Notion-like compact picker. */
+em-emoji-picker {
+  max-height: 360px !important;
+  min-height: 320px !important;
+  height: 360px !important;
+}
+
 /* Color/highlight picker: shadcn-вариант использует DropdownMenuItem
    с reserved-слотом под check-indicator (галочку). У BlockNote же
    слева идёт «color-icon» (квадратик с цветом A), и стандартный

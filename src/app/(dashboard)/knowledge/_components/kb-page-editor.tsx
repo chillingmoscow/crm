@@ -13,12 +13,19 @@ import {
   getKbAttachmentSignedUrl,
 } from "@/lib/knowledge/attachments";
 import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
-// Dynamic-import — KbMentionMenu статически зависит от @blocknote/react.
-// Без этого SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
+// Dynamic-import — оба компонента статически зависят от @blocknote/react.
+// Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
   () =>
     import("@/app/(dashboard)/knowledge/_components/kb-mention-menu").then(
       (m) => m.KbMentionMenu,
+    ),
+  { ssr: false, loading: () => null },
+);
+const KbSideMenuController = dynamic(
+  () =>
+    import("@/app/(dashboard)/knowledge/_components/kb-side-menu").then(
+      (m) => m.KbSideMenuController,
     ),
   { ssr: false, loading: () => null },
 );
@@ -27,6 +34,24 @@ import type { KbBlock } from "@/types/knowledge";
 // Custom URL scheme used by the BlockNote wrapper to mark uploaded KB
 // files (kept in sync with KB_BLOCKNOTE_FILE_SCHEME).
 const KB_FILE_SCHEME = "kbfile://";
+
+// Module-level signed-URL cache: BlockNote дёргает resolveFileUrl на
+// каждый рендер блока (в т.ч. при resize image). Без кэша мы каждый
+// раз минтим новый signed URL → <img src> меняется → браузер заново
+// фетчит файл → изображение мигает на 1-2 секунды и страница «прыгает».
+// Server signs с TTL 1h (см. DEFAULT_TTL_SECONDS); кэшируем на 50 мин
+// чтобы не подойти близко к expiry.
+const SIGNED_URL_TTL_MS = 50 * 60 * 1000;
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+function getCachedSignedUrl(storagePath: string): string | null {
+  const entry = signedUrlCache.get(storagePath);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) {
+    signedUrlCache.delete(storagePath);
+    return null;
+  }
+  return entry.url;
+}
 
 // BlockNote internally references `window` synchronously inside
 // useCreateBlockNote — even with "use client" the App Router renders
@@ -302,7 +327,13 @@ export function KbPageEditor({
         key={pageId}
         initialContent={initialContent}
         editable={canEdit}
-        renderExtras={(editor) => <KbMentionMenu editor={editor} />}
+        customSideMenu
+        renderExtras={(editor) => (
+          <>
+            <KbMentionMenu editor={editor} />
+            <KbSideMenuController />
+          </>
+        )}
         uploadFile={async (file) => {
           const result = await uploadKbAttachment({
             pageId,
@@ -323,6 +354,11 @@ export function KbPageEditor({
         resolveFileUrl={async (url) => {
           if (!url.startsWith(KB_FILE_SCHEME)) return url;
           const storagePath = url.slice(KB_FILE_SCHEME.length);
+          // Cache hit → отдаём тот же signed URL что и в прошлый раз.
+          // Для <img> это означает identical src → no re-fetch → no flash
+          // при resize/перерендере блока.
+          const cached = getCachedSignedUrl(storagePath);
+          if (cached) return cached;
           const { url: signed, error } = await getKbAttachmentSignedUrl(storagePath);
           if (error || !signed) {
             // Fall back to the kbfile:// URL — browser will show a
@@ -330,6 +366,10 @@ export function KbPageEditor({
             // something went wrong server-side.
             return url;
           }
+          signedUrlCache.set(storagePath, {
+            url: signed,
+            expiresAt: Date.now() + SIGNED_URL_TTL_MS,
+          });
           return signed;
         }}
         onChange={({ content, plainText }) => {

@@ -247,44 +247,28 @@ export function RoleDetailPage({
 
       {/* Page body */}
       <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        {/* Header — Save button rendered always to avoid layout shift between tabs.
-            Disabled outside «Основное» tab; nothing to save on Permissions
-            (toggles persist on click) or Опасная зона. */}
-        <div className="flex items-end justify-between gap-4 flex-wrap">
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
-              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-                {nameValue || role.name}
-              </h1>
-              {role.account_id === null && (
-                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                  <Lock className="w-2.5 h-2.5" />
-                  <span className="text-[10px] font-medium leading-none">
-                    Системная
-                  </span>
+        {/* Header — без CTA. Save живёт в футере формы на табе «Основное»
+            и появляется только когда есть что сохранять. Это убирает
+            «висящую» disabled-кнопку и микро-shift при переключении табов. */}
+        <div className="flex flex-col gap-1.5 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
+            <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+              {nameValue || role.name}
+            </h1>
+            {role.account_id === null && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                <Lock className="w-2.5 h-2.5" />
+                <span className="text-[10px] font-medium leading-none">
+                  Системная
                 </span>
-              )}
-            </div>
-            {(commentValue || role.comment) && (
-              <p className="text-sm text-muted-foreground leading-snug">
-                {commentValue || role.comment}
-              </p>
+              </span>
             )}
           </div>
-          {canEdit && (
-            <Button
-              onClick={handleSave}
-              disabled={
-                isPending ||
-                activeTab !== "main" ||
-                !dirty ||
-                !nameValue.trim()
-              }
-            >
-              {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              Сохранить
-            </Button>
+          {(commentValue || role.comment) && (
+            <p className="text-sm text-muted-foreground leading-snug">
+              {commentValue || role.comment}
+            </p>
           )}
         </div>
 
@@ -494,6 +478,21 @@ export function RoleDetailPage({
                     rows={4}
                   />
                 </div>
+
+                {/* Form footer — Save появляется только когда есть что сохранять
+                    и пользователь имеет право редактировать. Иначе — нет
+                    кнопки вообще, чтобы не висело бесполезное disabled. */}
+                {canEdit && dirty && (
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      onClick={handleSave}
+                      disabled={isPending || !nameValue.trim()}
+                    >
+                      {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Сохранить
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </TabsContent>

@@ -7,19 +7,34 @@ import { kbVersionRestoreSchema } from "@/lib/knowledge/schemas";
 import { saveKbPage } from "@/lib/knowledge/pages";
 import type { KbPageVersionRow } from "@/types/knowledge";
 
-/** All snapshots for a page, newest first. */
+/** Author info embedded into version rows so the UI can show who saved
+ * the snapshot. Mirrors the `profiles` columns we read in get-name. */
+export type KbPageVersionWithAuthor = KbPageVersionRow & {
+  author: { first_name: string | null; last_name: string | null } | null;
+};
+
+/** All snapshots for a page, newest first. Each row carries an embedded
+ * `author` derived from `profiles` via the kb_page_versions_created_by_fkey
+ * relationship. */
 export async function listKbPageVersions(pageId: string): Promise<{
-  rows: KbPageVersionRow[];
+  rows: KbPageVersionWithAuthor[];
   error: string | null;
 }> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("kb_page_versions")
-    .select("*")
+    .select(
+      "*, author:profiles!kb_page_versions_created_by_fkey(first_name, last_name)",
+    )
     .eq("page_id", pageId)
     .order("version_number", { ascending: false });
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as KbPageVersionRow[], error: null };
+
+  // PostgREST embeds single-FK relationships as objects (not arrays).
+  type Embedded = KbPageVersionRow & {
+    author: { first_name: string | null; last_name: string | null } | null;
+  };
+  return { rows: (data ?? []) as unknown as Embedded[], error: null };
 }
 
 export async function getKbPageVersion(

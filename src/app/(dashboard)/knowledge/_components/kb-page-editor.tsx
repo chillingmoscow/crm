@@ -30,7 +30,7 @@ const KbBlockNoteEditor = dynamic(
   },
 );
 
-const DEBOUNCE_MS = 1500;
+const DEBOUNCE_MS = 2000;
 
 type SaveState =
   | { kind: "idle" }
@@ -76,6 +76,14 @@ export function KbPageEditor({
   const contentRef = useRef<KbBlock[]>(initialContent);
   const plainTextRef = useRef<string>("");
 
+  // Hash of the last successfully-saved (or initial) state. Used to
+  // skip no-op saves: BlockNote fires onChange when its document
+  // first loads, and our title/icon inputs don't actually change on
+  // mount — we don't want to POST identical content back to the server.
+  const lastSavedHashRef = useRef<string>(
+    snapshotHash(initialTitle, initialIcon ?? "", initialContent),
+  );
+
   useEffect(() => {
     titleRef.current = title;
   }, [title]);
@@ -90,6 +98,16 @@ export function KbPageEditor({
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    const newHash = snapshotHash(
+      titleRef.current,
+      iconRef.current,
+      contentRef.current,
+    );
+    if (newHash === lastSavedHashRef.current) {
+      // Nothing actually changed — skip the network round-trip.
+      setSaveState((prev) => (prev.kind === "pending" ? { kind: "idle" } : prev));
+      return;
+    }
     setSaveState({ kind: "saving" });
     const { error } = await saveKbPage({
       id: pageId,
@@ -103,11 +121,22 @@ export function KbPageEditor({
       toast.error(`Не удалось сохранить: ${error}`);
       return;
     }
+    lastSavedHashRef.current = newHash;
     setSaveState({ kind: "saved", at: new Date() });
   }, [pageId]);
 
   const scheduleSave = useCallback(() => {
     if (!canEdit) return;
+    // Cheap pre-check: if nothing changed since the last save, don't
+    // even schedule a timer (avoids the «Не сохранено» flash on doc
+    // load when BlockNote fires its initial onChange).
+    const newHash = snapshotHash(
+      titleRef.current,
+      iconRef.current,
+      contentRef.current,
+    );
+    if (newHash === lastSavedHashRef.current) return;
+
     setSaveState({ kind: "pending" });
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
@@ -258,4 +287,15 @@ function formatTime(d: Date): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** Cheap fingerprint of (title, icon, content) for change detection.
+ * JSON.stringify is good enough at our doc sizes (≤ ~100 KB jsonb).
+ * If a page balloons past that we can swap for a streaming hash. */
+function snapshotHash(
+  title: string,
+  icon: string | null,
+  content: KbBlock[],
+): string {
+  return JSON.stringify([title, icon ?? "", content]);
 }

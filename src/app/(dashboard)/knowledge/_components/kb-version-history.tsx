@@ -17,10 +17,13 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { listKbPageVersions } from "@/lib/knowledge/versions";
-import { restoreKbPageVersion } from "@/lib/knowledge/versions";
+import {
+  listKbPageVersions,
+  restoreKbPageVersion,
+  type KbPageVersionWithAuthor,
+} from "@/lib/knowledge/versions";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
-import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
+import type { KbBlock } from "@/types/knowledge";
 
 interface KbVersionHistoryProps {
   pageId: string;
@@ -41,7 +44,7 @@ interface KbVersionHistoryProps {
  */
 export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
   const [open, setOpen] = useState(false);
-  const [rows, setRows] = useState<KbPageVersionRow[] | null>(null);
+  const [rows, setRows] = useState<KbPageVersionWithAuthor[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState<number | null>(null);
   const router = useRouter();
@@ -125,6 +128,12 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
   );
 }
 
+/** Compose first/last name with sane fallback. */
+function authorName(a: { first_name: string | null; last_name: string | null }): string {
+  const parts = [a.first_name, a.last_name].filter(Boolean) as string[];
+  return parts.length > 0 ? parts.join(" ") : "—";
+}
+
 /** Two-line preview of the version's content, derived from BlockNote
  * blocks via the same plain-text walker used for FTS. Truncated by
  * line-clamp; empty content shows nothing instead of an empty box. */
@@ -148,7 +157,7 @@ function VersionRow({
   restoring,
   onRestore,
 }: {
-  row: KbPageVersionRow;
+  row: KbPageVersionWithAuthor;
   isCurrent: boolean;
   canEdit: boolean;
   restoring: boolean;
@@ -171,14 +180,17 @@ function VersionRow({
             </span>
           )}
         </div>
-        <p className="truncate text-sm text-foreground" title={row.title}>
-          {row.title || "Без названия"}
-        </p>
         <ContentSnippet content={row.content as unknown as KbBlock[]} />
         <p className="text-xs text-muted-foreground">
-          {format(created, "d MMMM yyyy, HH:mm", { locale: ru })}{" "}
+          {format(created, "d MMMM yyyy, HH:mm", { locale: ru })}
+          {row.author && (
+            <>
+              {" · "}
+              <span className="text-foreground/80">{authorName(row.author)}</span>
+            </>
+          )}
           <span className="text-muted-foreground/70">
-            ({formatDistanceToNow(created, { addSuffix: true, locale: ru })})
+            {" "}({formatDistanceToNow(created, { addSuffix: true, locale: ru })})
           </span>
         </p>
       </div>

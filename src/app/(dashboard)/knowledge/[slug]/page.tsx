@@ -1,57 +1,74 @@
 import { notFound } from "next/navigation";
-import { formatDistanceToNow } from "date-fns";
-import { ru } from "date-fns/locale";
 
-import { getKbPageBySlug } from "@/lib/knowledge/pages";
+import { createClient } from "@/lib/supabase/server";
+import { getKbPageBySlug, listKbPages } from "@/lib/knowledge/pages";
 import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
 import { KbBreadcrumbs } from "@/app/(dashboard)/knowledge/_components/kb-breadcrumbs";
+import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
+import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
+import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
+import { KbPageActions } from "@/app/(dashboard)/knowledge/_components/kb-page-actions";
+import type { KbBlock } from "@/types/knowledge";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
-/**
- * KB page view. Stage 8.3: layout + breadcrumbs + title + placeholder
- * for the editor. Stage 8.4 will mount KbBlockNoteEditor and wire
- * auto-save through saveKbPage.
- */
 export default async function KbPageView({ params }: PageProps) {
   const { slug } = await params;
   const { row, error } = await getKbPageBySlug(slug);
   if (error || !row) notFound();
 
-  const { chain } = await getKbBreadcrumbs(row.id);
+  // Auth context for permission gating. RLS on the row already ran;
+  // these RPCs are advisory — the editor disables itself when canEdit
+  // is false and the «Удалить» button hides when canDelete is false.
+  const supabase = await createClient();
+  const [
+    { data: user },
+    { data: hasEditAny },
+    { data: hasEditOwn },
+    { data: hasDelete },
+    { rows: allPages },
+    { chain },
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.rpc("has_permission", { permission_code: "kb.edit_any_page" }),
+    supabase.rpc("has_permission", { permission_code: "kb.edit_own_pages" }),
+    supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
+    listKbPages(),
+    getKbBreadcrumbs(row.id),
+  ]);
+
+  const canEdit =
+    Boolean(hasEditAny) ||
+    (Boolean(hasEditOwn) && row.created_by === user.user?.id);
+  const canDelete = Boolean(hasDelete);
+  const childCount = allPages.filter((p) => p.parent_id === row.id).length;
 
   return (
     <article className="flex flex-col gap-6 px-8 py-6 max-w-4xl mx-auto">
-      <KbBreadcrumbs chain={chain} />
-
-      <header className="flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-          {row.icon ? (
-            <span className="text-3xl leading-none">{row.icon}</span>
-          ) : null}
-          <h1 className="text-3xl font-semibold tracking-tight">
-            {row.title || "Без названия"}
-          </h1>
+      <header className="flex items-center justify-between gap-4">
+        <KbBreadcrumbs chain={chain} />
+        <div className="flex items-center gap-2">
+          <KbVersionHistory pageId={row.id} canEdit={canEdit} />
+          <KbPageActions
+            pageId={row.id}
+            pageTitle={row.title}
+            childCount={childCount}
+            canDelete={canDelete}
+          />
         </div>
-        {row.updated_at ? (
-          <p className="text-xs text-muted-foreground">
-            Обновлено{" "}
-            {formatDistanceToNow(new Date(row.updated_at), {
-              addSuffix: true,
-              locale: ru,
-            })}
-          </p>
-        ) : null}
       </header>
 
-      <section
-        aria-label="Содержимое страницы"
-        className="rounded-lg border bg-card p-6 text-sm text-muted-foreground"
-      >
-        Редактор появится в Stage 8.4. Здесь будет BlockNote с автосохранением.
-      </section>
+      <KbPageEditor
+        pageId={row.id}
+        initialTitle={row.title}
+        initialIcon={row.icon}
+        initialContent={(row.content as unknown as KbBlock[]) ?? []}
+        canEdit={canEdit}
+      />
+
+      <KbBacklinks pageId={row.id} />
     </article>
   );
 }

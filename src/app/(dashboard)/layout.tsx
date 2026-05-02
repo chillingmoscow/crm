@@ -70,9 +70,23 @@ export default async function DashboardLayout({
     role_name: string;
   }[];
 
-  // Role code for the currently active venue
-  const activeRoleCode =
-    venueList.find((v) => v.venue_id === activeVenueId)?.role_code ?? null;
+  // Role code + human-readable name for the currently active venue
+  const activeVenue = venueList.find((v) => v.venue_id === activeVenueId);
+  const activeRoleCode = activeVenue?.role_code ?? null;
+  const activeRoleName = activeVenue?.role_name ?? null;
+
+  // Account name for the profile popover subtitle ("<Роль> · <Аккаунт>").
+  // Cheap separate fetch — needed only for the sidebar footer popover.
+  const { data: accountId } = await supabase.rpc("get_active_account_id");
+  let accountName: string | null = null;
+  if (accountId) {
+    const { data: account } = await supabase
+      .from("accounts")
+      .select("name")
+      .eq("id", accountId as string)
+      .maybeSingle();
+    accountName = account?.name ?? null;
+  }
 
   return (
     <SidebarProvider>
@@ -82,6 +96,8 @@ export default async function DashboardLayout({
         venues={venueList}
         activeVenueId={activeVenueId}
         activeRoleCode={activeRoleCode}
+        activeRoleName={activeRoleName}
+        accountName={accountName}
       />
       <SidebarInset>
         <header className="flex h-14 items-center gap-2 px-6 justify-end">

@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useTheme } from "next-themes";
 import {
   User,
   Building2,
@@ -14,8 +15,14 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ChevronsUpDown,
+  ExternalLink,
   FileBadge2,
+  Keyboard,
+  Laptop,
   LayoutDashboard,
+  LifeBuoy,
+  Moon,
+  Sun,
   Tags,
   Users,
   Wallet,
@@ -119,6 +126,9 @@ interface AppSidebarProps {
   venues: Venue[];
   activeVenueId: string | null;
   activeRoleCode: string | null;
+  /** Used in the profile popover subtitle: "<Роль> · <Аккаунт>" */
+  activeRoleName: string | null;
+  accountName: string | null;
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -168,6 +178,8 @@ function SidebarBody({
   venues,
   activeVenueId,
   activeRoleCode,
+  activeRoleName,
+  accountName,
 }: AppSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -276,6 +288,8 @@ function SidebarBody({
             <ProfileMenu
               userName={userName}
               userEmail={userEmail}
+              roleName={activeRoleName}
+              accountName={accountName}
               onSignOut={handleSignOut}
               onClose={() => setUserMenuOpen(false)}
             />
@@ -306,6 +320,8 @@ function SidebarBody({
             <ProfileMenu
               userName={userName}
               userEmail={userEmail}
+              roleName={activeRoleName}
+              accountName={accountName}
               onSignOut={handleSignOut}
               onClose={() => setUserMenuOpen(false)}
             />
@@ -454,57 +470,159 @@ function CollapsedSectionFlyout({
   );
 }
 
-// ── Profile menu popover ────────────────────────────────────────
+// ── Profile menu popover (matches zs57t in sheerly.pen) ─────────
 
 function ProfileMenu({
   userName,
   userEmail,
+  roleName,
+  accountName,
   onSignOut,
   onClose,
 }: {
   userName: string;
   userEmail: string;
+  roleName: string | null;
+  accountName: string | null;
   onSignOut: () => void;
   onClose: () => void;
 }) {
+  const subtitle = [roleName, accountName].filter(Boolean).join(" · ") || userEmail;
+
   return (
     <PopoverContent
       align="start"
       side="top"
       sideOffset={8}
-      className="w-56 p-1.5 rounded-[10px]"
+      className="w-[280px] p-0 rounded-xl overflow-hidden"
     >
-      <div className="px-2 py-2">
-        <div className="text-[13px] font-semibold leading-tight truncate">
-          {userName}
+      {/* User row — brand-tinted avatar + name + role · account */}
+      <div className="flex items-center gap-2.5 px-3 pt-3 pb-2.5">
+        <div className="flex aspect-square size-8 items-center justify-center rounded-full bg-brand text-white text-[12px] font-bold shrink-0">
+          {userName.charAt(0).toUpperCase()}
         </div>
-        {userEmail && (
-          <div className="text-[11px] text-muted-foreground leading-tight truncate mt-0.5">
-            {userEmail}
-          </div>
-        )}
+        <div className="flex flex-col gap-px min-w-0 flex-1">
+          <span className="truncate text-[13px] font-semibold leading-tight">
+            {userName}
+          </span>
+          {subtitle && (
+            <span className="truncate text-[11px] text-muted-foreground leading-tight">
+              {subtitle}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="h-px bg-border my-1" />
-      <Link
-        href="/profile"
-        onClick={onClose}
-        className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] hover:bg-accent transition-colors"
-      >
-        <Settings className="w-4 h-4 text-muted-foreground" />
-        Настройки профиля
-      </Link>
-      <button
-        type="button"
-        onClick={() => {
-          onClose();
-          onSignOut();
-        }}
-        className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors w-full text-left"
-      >
-        <LogOut className="w-4 h-4" />
-        Выйти
-      </button>
+
+      <div className="h-px bg-border" />
+
+      {/* Theme switcher — Light / Dark / System */}
+      <div className="px-3 py-2.5">
+        <ThemeSwitcher />
+      </div>
+
+      <div className="h-px bg-border" />
+
+      {/* Menu items */}
+      <div className="p-1.5 flex flex-col gap-px">
+        <Link
+          href="/profile"
+          onClick={onClose}
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors"
+        >
+          <Settings className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="flex-1">Настройки профиля</span>
+        </Link>
+        <a
+          href="https://sheerly.app/help"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={onClose}
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors"
+        >
+          <LifeBuoy className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="flex-1">Помощь и поддержка</span>
+          <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
+        </a>
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            // TODO: open hotkeys modal — placeholder for now
+            window.dispatchEvent(new CustomEvent("hotkeys:open"));
+          }}
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
+        >
+          <Keyboard className="w-3.5 h-3.5 text-muted-foreground" />
+          <span className="flex-1">Горячие клавиши</span>
+          <kbd className="inline-flex items-center px-1 py-px rounded-[3px] bg-muted border border-border text-[9px] font-semibold text-muted-foreground font-mono">
+            ⌘ ?
+          </kbd>
+        </button>
+      </div>
+
+      <div className="h-px bg-border" />
+
+      {/* Logout */}
+      <div className="px-1.5 pt-1.5 pb-2">
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onSignOut();
+          }}
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-semibold text-destructive hover:bg-destructive/5 transition-colors w-full text-left"
+        >
+          <LogOut className="w-3.5 h-3.5" />
+          Выйти из аккаунта
+        </button>
+      </div>
     </PopoverContent>
+  );
+}
+
+// ── Theme switcher (3-button toggle group) ─────────────────────
+
+function ThemeSwitcher() {
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  // Avoid hydration mismatch — next-themes resolves theme client-side
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  const current = mounted ? theme ?? "system" : "system";
+
+  const options = [
+    { value: "light",  icon: Sun,    label: "Светлая" },
+    { value: "dark",   icon: Moon,   label: "Тёмная" },
+    { value: "system", icon: Laptop, label: "Системная" },
+  ] as const;
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[11px] font-medium text-muted-foreground">Тема</span>
+      <div className="flex items-center gap-px p-0.5 rounded-md bg-muted">
+        {options.map(({ value, icon: Icon, label }) => {
+          const active = current === value;
+          return (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setTheme(value)}
+              aria-label={label}
+              title={label}
+              className={cn(
+                "flex items-center justify-center px-2 py-1 rounded-[5px] transition-colors",
+                active
+                  ? "bg-background text-foreground border border-border shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icon className="w-3 h-3" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

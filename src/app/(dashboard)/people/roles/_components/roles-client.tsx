@@ -13,6 +13,7 @@ import {
   Filter,
 } from "lucide-react";
 import { iconForRole } from "./role-icons";
+import { IconPicker } from "./icon-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -254,6 +255,7 @@ export function RolesClient({
   // Create drawer
   const [sheetOpen, setSheetOpen] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
+  const [newRoleIcon, setNewRoleIcon] = useState<string | null>(null);
   // "" = create from scratch; otherwise = source role id to copy permissions from
   const [copyFromRoleId, setCopyFromRoleId] = useState<string>("");
 
@@ -291,6 +293,7 @@ export function RolesClient({
       const result = await createRole({
         name,
         copyFromRoleId: copyFromRoleId || undefined,
+        icon: newRoleIcon,
       });
       if (result.error) {
         toast.error(result.error);
@@ -312,11 +315,12 @@ export function RolesClient({
             .replace(/[^a-z0-9_]/g, "")
             .substring(0, 40)}`,
           comment: null,
-          icon: null,
+          icon: newRoleIcon,
         };
         setRoles((prev) => [...prev, created]);
         setSheetOpen(false);
         setNewRoleName("");
+        setNewRoleIcon(null);
         setCopyFromRoleId("");
         router.push(`/people/roles/${result.id}`);
       }
@@ -333,9 +337,17 @@ export function RolesClient({
     switch (key) {
       case "name": {
         const desc = role.comment?.trim();
+        const isSystem = role.account_id === null;
         return (
           <div className="min-w-0">
-            <div className="font-medium text-sm truncate">{role.name}</div>
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-medium text-sm truncate">{role.name}</span>
+              {isSystem && (
+                <span className="inline-flex shrink-0 items-center px-1.5 py-px rounded-full text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-secondary border">
+                  Системная
+                </span>
+              )}
+            </div>
             {desc && (
               <div className="text-xs text-muted-foreground truncate mt-0.5">
                 {desc}
@@ -583,6 +595,7 @@ export function RolesClient({
           setSheetOpen(open);
           if (!open) {
             setNewRoleName("");
+            setNewRoleIcon(null);
             setCopyFromRoleId("");
           }
         }}
@@ -602,20 +615,31 @@ export function RolesClient({
           </>
         }
       >
-        <div className="space-y-1.5">
-          <Label htmlFor="new-role-name" className="text-[13px] font-medium">
-            Название <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id="new-role-name"
-            value={newRoleName}
-            onChange={(e) => setNewRoleName(e.target.value)}
-            placeholder="Например: Бармен"
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreate();
-            }}
-          />
+        {/* Icon + Name on one row (icon picker shrunken left, name flex-1) */}
+        <div className="flex items-end gap-3">
+          <div className="space-y-1.5 shrink-0">
+            <Label className="text-[13px] font-medium">Иконка</Label>
+            <IconPicker
+              value={newRoleIcon}
+              roleCode=""
+              onChange={setNewRoleIcon}
+            />
+          </div>
+          <div className="space-y-1.5 flex-1 min-w-0">
+            <Label htmlFor="new-role-name" className="text-[13px] font-medium">
+              Название <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="new-role-name"
+              value={newRoleName}
+              onChange={(e) => setNewRoleName(e.target.value)}
+              placeholder="Например: Бармен"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreate();
+              }}
+            />
+          </div>
         </div>
 
         <div className="space-y-1.5">

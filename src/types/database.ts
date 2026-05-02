@@ -98,6 +98,49 @@ export type Database = {
           },
         ]
       }
+      account_hidden_roles: {
+        Row: {
+          account_id: string
+          hidden_at: string
+          hidden_by: string | null
+          role_id: string
+        }
+        Insert: {
+          account_id: string
+          hidden_at?: string
+          hidden_by?: string | null
+          role_id: string
+        }
+        Update: {
+          account_id?: string
+          hidden_at?: string
+          hidden_by?: string | null
+          role_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_hidden_roles_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_hidden_roles_hidden_by_fkey"
+            columns: ["hidden_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_hidden_roles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       account_role_permissions: {
         Row: {
           account_id: string
@@ -1816,6 +1859,7 @@ export type Database = {
         }[]
       }
       has_permission: { Args: { permission_code: string }; Returns: boolean }
+      hide_system_role: { Args: { p_role_id: string }; Returns: undefined }
       is_account_owner: { Args: { p_account_id: string }; Returns: boolean }
       log_audit: {
         Args: {

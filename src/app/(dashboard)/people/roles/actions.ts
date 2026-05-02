@@ -20,6 +20,8 @@ export async function createRole(input: {
    * can adjust permissions manually.
    */
   copyFromRoleId?: string | null;
+  /** Optional lucide icon name from ICON_REGISTRY. */
+  icon?: string | null;
 }): Promise<{ id: string | null; error: string | null; warning?: string }> {
   const supabase = await createClient();
   const {
@@ -39,7 +41,12 @@ export async function createRole(input: {
 
   const { data, error } = await supabase
     .from("roles")
-    .insert({ account_id: accountId, name: trimmed, code })
+    .insert({
+      account_id: accountId,
+      name: trimmed,
+      code,
+      icon: input.icon && input.icon.trim() ? input.icon : null,
+    })
     .select("id")
     .single();
 
@@ -115,13 +122,35 @@ export async function deleteRole(
   const accountId = await getActiveAccountId();
   if (!accountId) return { error: "Заведение не настроено" };
 
-  const { error } = await supabase
+  // Need to know whether this is a system role (account_id null) or a
+  // custom one — the two have different teardown paths:
+  // - custom role → physical DELETE from public.roles (RLS scoped to account)
+  // - system role → insert into account_hidden_roles (per-account overlay)
+  const { data: role } = await supabase
     .from("roles")
-    .delete()
+    .select("account_id, code")
     .eq("id", roleId)
-    .eq("account_id", accountId);
+    .maybeSingle();
 
-  if (error) return { error: error.message };
+  if (!role) return { error: "Роль не найдена" };
+  if (role.code === "owner")
+    return { error: "Должность Владелец нельзя удалить" };
+
+  if (role.account_id === null) {
+    // System role — per-account hide overlay
+    const { error } = await supabase.rpc("hide_system_role", {
+      p_role_id: roleId,
+    });
+    if (error) return { error: error.message };
+  } else {
+    // Custom role — physical delete (account_id RLS guards cross-tenant)
+    const { error } = await supabase
+      .from("roles")
+      .delete()
+      .eq("id", roleId)
+      .eq("account_id", accountId);
+    if (error) return { error: error.message };
+  }
 
   revalidatePath("/people/roles");
   return { error: null };

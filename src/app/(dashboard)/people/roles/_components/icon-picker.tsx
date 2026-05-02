@@ -2,16 +2,13 @@
 
 import { ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  PICKABLE_ICONS,
-  iconForRole,
-} from "../../_components/role-icons";
+import { PICKABLE_ICONS, iconForRole } from "./role-icons";
 import { cn } from "@/lib/utils";
 
 interface IconPickerProps {
   /** Текущее имя иконки (из ICON_REGISTRY) или null = «по умолчанию» */
   value: string | null;
-  /** Системный код роли — используется для preview дефолтной иконки */
+  /** Системный код роли — для preview дефолтной иконки. Для новой роли передайте "". */
   roleCode: string;
   onChange: (iconName: string | null) => void;
   disabled?: boolean;
@@ -45,7 +42,7 @@ export function IconPicker({ value, roleCode, onChange, disabled }: IconPickerPr
         sideOffset={6}
         className="w-[280px] p-2 rounded-[10px]"
       >
-        <div className="grid grid-cols-6 gap-1">
+        <div className="grid grid-cols-6 gap-1 max-h-[280px] overflow-y-auto pr-1 -mr-1">
           {PICKABLE_ICONS.map(({ name, icon: Icon, label }) => {
             const isActive = value === name;
             return (

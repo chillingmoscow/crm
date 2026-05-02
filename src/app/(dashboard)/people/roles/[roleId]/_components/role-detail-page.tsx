@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { deleteRole, setRolePermission, updateRole } from "../../actions";
 import { metaForModule, sortModuleKeys } from "./permission-modules";
-import { IconPicker } from "./icon-picker";
+import { IconPicker } from "../../_components/icon-picker";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -87,8 +87,11 @@ export function RoleDetailPage({
   const [permQuery, setPermQuery] = useState("");
 
   const isOwner = role.code === "owner";
+  const isSystem = role.account_id === null;
   const canEdit = !isOwner;
-  const canDelete = !isOwner && accountId !== null && role.account_id === accountId;
+  // Any non-owner role can be removed: custom → physical delete, system →
+  // per-account hide overlay (account_hidden_roles).
+  const canDelete = !isOwner && accountId !== null;
 
   // ── Helpers ────────────────────────────────────────────────
 
@@ -169,7 +172,7 @@ export function RoleDetailPage({
         toast.error(result.error);
         return;
       }
-      toast.success("Должность удалена");
+      toast.success(isSystem ? "Должность скрыта" : "Должность удалена");
       router.push("/people/roles");
     });
   }
@@ -233,9 +236,16 @@ export function RoleDetailPage({
         {/* Header */}
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div className="flex flex-col gap-1.5 min-w-0">
-            <h1 className="text-3xl font-bold tracking-tight">
-              {nameValue || role.name}
-            </h1>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-bold tracking-tight">
+                {nameValue || role.name}
+              </h1>
+              {role.account_id === null && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-wider text-muted-foreground bg-secondary border">
+                  Системная
+                </span>
+              )}
+            </div>
             <div className="text-sm text-muted-foreground">
               {staffCount}{" "}
               {staffCount === 1
@@ -407,33 +417,30 @@ export function RoleDetailPage({
           {/* ── Settings ──────────────────────────────────────── */}
           <TabsContent value="settings">
             <div className="max-w-[720px] flex flex-col gap-5">
-              <div className="space-y-1.5">
-                <Label className="text-[13px] font-medium">Иконка</Label>
-                <div className="flex items-center gap-3">
+              {/* Icon + Name on one row */}
+              <div className="flex items-end gap-3">
+                <div className="space-y-1.5 shrink-0">
+                  <Label className="text-[13px] font-medium">Иконка</Label>
                   <IconPicker
                     value={iconValue}
                     roleCode={role.code}
                     onChange={setIconValue}
                     disabled={!canEdit}
                   />
-                  <p className="text-[12px] text-muted-foreground leading-relaxed">
-                    Отображается в списке должностей и в шапке этой страницы.
-                  </p>
                 </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="role-name" className="text-[13px] font-medium">
-                  Название
-                </Label>
-                <Input
-                  id="role-name"
-                  value={nameValue}
-                  onChange={(e) => setNameValue(e.target.value)}
-                  readOnly={!canEdit}
-                  className={!canEdit ? "bg-muted/50" : ""}
-                  placeholder="Название должности"
-                />
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <Label htmlFor="role-name" className="text-[13px] font-medium">
+                    Название
+                  </Label>
+                  <Input
+                    id="role-name"
+                    value={nameValue}
+                    onChange={(e) => setNameValue(e.target.value)}
+                    readOnly={!canEdit}
+                    className={!canEdit ? "bg-muted/50" : ""}
+                    placeholder="Название должности"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1.5">
@@ -462,12 +469,23 @@ export function RoleDetailPage({
               <div className="max-w-[720px] rounded-[14px] border border-destructive/40 bg-card p-6 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <h3 className="text-base font-semibold text-foreground">
-                    Удалить должность
+                    {isSystem ? "Скрыть должность" : "Удалить должность"}
                   </h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    Должность «{nameValue || role.name}» будет удалена
-                    безвозвратно. Сотрудники с этой ролью потеряют доступ —
-                    переназначьте их перед удалением.
+                    {isSystem ? (
+                      <>
+                        Системная должность «{nameValue || role.name}» исчезнет
+                        из списка вашего аккаунта. Сотрудники с этой ролью
+                        потеряют доступ — переназначьте их заранее. Скрытие
+                        можно отменить через системного администратора.
+                      </>
+                    ) : (
+                      <>
+                        Должность «{nameValue || role.name}» будет удалена
+                        безвозвратно. Сотрудники с этой ролью потеряют доступ —
+                        переназначьте их перед удалением.
+                      </>
+                    )}
                   </p>
                 </div>
                 <div>
@@ -477,7 +495,7 @@ export function RoleDetailPage({
                     disabled={isPending}
                   >
                     <Trash2 className="w-4 h-4" />
-                    Удалить должность
+                    {isSystem ? "Скрыть должность" : "Удалить должность"}
                   </Button>
                 </div>
               </div>
@@ -490,10 +508,13 @@ export function RoleDetailPage({
       <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Удалить должность?</DialogTitle>
+            <DialogTitle>
+              {isSystem ? "Скрыть должность?" : "Удалить должность?"}
+            </DialogTitle>
             <DialogDescription>
-              Должность «{nameValue || role.name}» будет удалена. Действие
-              нельзя отменить.
+              {isSystem
+                ? `Системная должность «${nameValue || role.name}» исчезнет из вашего списка. Сотрудники с этой ролью потеряют доступ.`
+                : `Должность «${nameValue || role.name}» будет удалена. Действие нельзя отменить.`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -509,7 +530,7 @@ export function RoleDetailPage({
               disabled={isPending}
             >
               <Trash2 className="w-4 h-4" />
-              Удалить
+              {isSystem ? "Скрыть" : "Удалить"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,14 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { Loader2, Cloud, CloudOff, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { saveKbPage } from "@/lib/knowledge/pages";
-import { KbBlockNoteEditor } from "@/components/knowledge/blocknote-editor";
 import type { KbBlock } from "@/types/knowledge";
+
+// BlockNote internally references `window` synchronously inside
+// useCreateBlockNote — even with "use client" the App Router renders
+// client components on the server first for hydration. Skip SSR
+// entirely for the editor; show a skeleton placeholder instead.
+const KbBlockNoteEditor = dynamic(
+  () =>
+    import("@/components/knowledge/blocknote-editor").then(
+      (m) => m.KbBlockNoteEditor,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        aria-label="Загрузка редактора"
+        className="min-h-[280px] animate-pulse rounded-md border bg-muted/30"
+      />
+    ),
+  },
+);
 
 const DEBOUNCE_MS = 1500;
 

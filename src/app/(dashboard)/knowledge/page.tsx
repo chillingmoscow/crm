@@ -4,6 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
 import { listRecentKbPages } from "@/lib/knowledge/pages";
+import { EmptyState } from "@/components/ui/empty-state";
 import { CreateRootPageButton } from "@/app/(dashboard)/knowledge/_components/create-root-page-button";
 
 /**
@@ -34,29 +35,20 @@ export default async function KnowledgeLandingPage() {
         <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
           Недавнее
         </h2>
-        {rows.length === 0 ? <EmptyState /> : <RecentList rows={rows} />}
+        {rows.length === 0 ? <KbEmptyState /> : <RecentList rows={rows} />}
       </section>
     </div>
   );
 }
 
-function EmptyState() {
+function KbEmptyState() {
   return (
-    // Sheerly empty-state spec (`p2umw`): muted background, p-32, gap-16,
-    // min-height 320, vertically centred. См. sheerly.pen Q4FzoZ §13.
-    <div
-      className="flex min-h-[320px] flex-col items-center justify-center gap-4
-                 rounded-xl border bg-muted/40 p-8 text-center"
-    >
-      <BookOpen className="size-8 text-muted-foreground" />
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">Здесь пока нет страниц</p>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          Создайте первую страницу — например, регламент бара или чек-лист открытия смены.
-        </p>
-      </div>
-      <CreateRootPageButton />
-    </div>
+    <EmptyState
+      icon={BookOpen}
+      title="Здесь пока нет страниц"
+      description="Создайте первую страницу — например, регламент бара или чек-лист открытия смены."
+      action={<CreateRootPageButton />}
+    />
   );
 }
 

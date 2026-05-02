@@ -1,5 +1,5 @@
 -- ============================================================
--- 053_kb_search_prefix.sql
+-- 058_kb_search_prefix.sql
 -- Stage 8.5 follow-up — prefix search в kb_search.
 --
 -- Было: websearch_to_tsquery → ищет только целые слова через
@@ -89,6 +89,6 @@ $$;
 
 comment on function public.kb_search(text, integer) is
   'Full-text search по KB активного account с prefix-match (term:*) '
-  'и ts_headline-снипетами. Заменяет websearch_to_tsquery из 052.';
+  'и ts_headline-снипетами. Заменяет websearch_to_tsquery из 057.';
 
 grant execute on function public.kb_search(text, integer) to authenticated;

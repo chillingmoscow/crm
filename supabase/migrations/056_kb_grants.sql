@@ -1,5 +1,5 @@
 -- ============================================================
--- 051_kb_grants.sql
+-- 056_kb_grants.sql
 -- Stage 8.0 — Knowledge Base: backfill table-level GRANTs.
 --
 -- Тот же gotcha, что описан в 047: ALTER DEFAULT PRIVILEGES — per-role,

@@ -31,10 +31,10 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     supabase.rpc("get_active_venue_id"),
   ]);
 
-  const [rolesResult, permissionsResult] = await Promise.all([
+  const [rolesResult, permissionsResult, hiddenResult] = await Promise.all([
     supabase
       .from("roles")
-      .select("id, account_id, name, code")
+      .select("id, account_id, name, code, comment, icon")
       .or(
         accountId
           ? `account_id.is.null,account_id.eq.${accountId}`
@@ -47,9 +47,22 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       .select("id, code, description, module")
       .order("module")
       .order("code"),
+    accountId
+      ? supabase
+          .from("account_hidden_roles")
+          .select("role_id")
+          .eq("account_id", accountId as string)
+      : Promise.resolve({ data: [] as { role_id: string }[] }),
   ]);
 
-  const roles = rolesResult.data ?? [];
+  const hiddenRoleIds = new Set(
+    ((hiddenResult.data as { role_id: string }[] | null) ?? []).map(
+      (r) => r.role_id,
+    ),
+  );
+  const roles = (rolesResult.data ?? []).filter(
+    (r) => !hiddenRoleIds.has(r.id),
+  );
   const permissions = permissionsResult.data ?? [];
   const roleIds = roles.map((r) => r.id);
 

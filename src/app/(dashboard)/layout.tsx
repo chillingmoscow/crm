@@ -1,8 +1,17 @@
 import { redirect } from "next/navigation";
 import { getCachedUser, createClient } from "@/lib/supabase/server";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/shared/sidebar";
 import { NotificationBell } from "@/components/shared/notification-bell";
+import {
+  PageHeaderActionsProvider,
+  PageHeaderActionsSlot,
+  PageHeaderBreadcrumbSlot,
+} from "@/components/shared/page-header-actions";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function DashboardLayout({
@@ -65,29 +74,55 @@ export default async function DashboardLayout({
   const venueList = (venues ?? []) as {
     venue_id: string;
     venue_name: string;
+    venue_type: string | null;
     role_code: string;
     role_name: string;
   }[];
 
-  // Role code for the currently active venue
-  const activeRoleCode =
-    venueList.find((v) => v.venue_id === activeVenueId)?.role_code ?? null;
+  // Role code + human-readable name for the currently active venue
+  const activeVenue = venueList.find((v) => v.venue_id === activeVenueId);
+  const activeRoleCode = activeVenue?.role_code ?? null;
+  const activeRoleName = activeVenue?.role_name ?? null;
+
+  // Account name for the profile popover subtitle ("<Роль> · <Аккаунт>").
+  // Cheap separate fetch — needed only for the sidebar footer popover.
+  const { data: accountId } = await supabase.rpc("get_active_account_id");
+  let accountName: string | null = null;
+  if (accountId) {
+    const { data: account } = await supabase
+      .from("accounts")
+      .select("name")
+      .eq("id", accountId as string)
+      .maybeSingle();
+    accountName = account?.name ?? null;
+  }
 
   return (
     <SidebarProvider>
       <AppSidebar
         userName={userName}
+        userEmail={user.email ?? ""}
         venues={venueList}
         activeVenueId={activeVenueId}
         activeRoleCode={activeRoleCode}
+        activeRoleName={activeRoleName}
+        accountName={accountName}
       />
       <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-4">
-          <SidebarTrigger />
-          <div className="flex-1" />
-          <NotificationBell />
-        </header>
-        <main className="flex-1 flex flex-col">{children}</main>
+        <PageHeaderActionsProvider>
+          {/* Top bar: [trigger | breadcrumb] … [actions | bell].
+              Правила в `docs/design-system.md` § Top bar. */}
+          <header className="flex h-14 items-center gap-2 px-6">
+            {/* Mobile-only sidebar trigger (TogglePill живёт внутри
+                свёрнутого sheet на телефонах — отсюда нужна публичная кнопка). */}
+            <SidebarTrigger className="md:hidden" />
+            <PageHeaderBreadcrumbSlot />
+            <div className="flex-1" />
+            <PageHeaderActionsSlot />
+            <NotificationBell />
+          </header>
+          <main className="flex-1 flex flex-col">{children}</main>
+        </PageHeaderActionsProvider>
       </SidebarInset>
     </SidebarProvider>
   );

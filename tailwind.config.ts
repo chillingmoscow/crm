@@ -24,6 +24,10 @@ const config: Config = {
   				DEFAULT: 'hsl(var(--primary))',
   				foreground: 'hsl(var(--primary-foreground))'
   			},
+  			brand: {
+  				DEFAULT: 'hsl(var(--brand))',
+  				foreground: 'hsl(var(--brand-foreground))'
+  			},
   			secondary: {
   				DEFAULT: 'hsl(var(--secondary))',
   				foreground: 'hsl(var(--secondary-foreground))'
@@ -65,6 +69,9 @@ const config: Config = {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
+  		},
+  		fontFamily: {
+  			sans: ['var(--font-inter)', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
   		},
   		fontSize: {
   			'heading-lg':     ['40px', { lineHeight: '48px' }],

@@ -1,5 +1,5 @@
 -- ============================================================
--- 049_kb_versions_and_links.sql
+-- 054_kb_versions_and_links.sql
 -- Stage 8.0 — Knowledge Base: история версий, backlinks, вложения.
 --
 -- См. ~/.claude/plans/imperative-swinging-sparrow.md §2.2.

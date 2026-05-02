@@ -1,6 +1,6 @@
 -- ============================================================
--- 055_fix_storage_name_ambiguity.sql
--- БАГ из миграции 045 (повторённый в 054): в политиках
+-- 060_fix_storage_name_ambiguity.sql
+-- БАГ из миграции 045 (повторённый в 059): в политиках
 -- account_attachments_select / _delete стояло `where af.storage_path = name`.
 -- Postgres связал bare `name` с `account_files.name` (там тоже есть
 -- столбец `name` — оригинальное имя файла), а не с `storage.objects.name`.

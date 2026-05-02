@@ -20,20 +20,20 @@ export function IconPicker({ value, roleCode, onChange, disabled }: IconPickerPr
   return (
     <Popover>
       <PopoverTrigger asChild>
+        {/* Compact 40px trigger per design (S361n / iconTrigger3):
+            input-style border + padding [0,8] + gap 6, current icon (16) + chevron (13). */}
         <button
           type="button"
           disabled={disabled}
           aria-label="Выбрать иконку"
           className={cn(
-            "flex items-center gap-2 rounded-lg border border-input bg-background px-2 py-1.5 transition-colors",
+            "inline-flex items-center justify-center gap-1.5 h-10 rounded-lg border border-input bg-background px-2 transition-colors shrink-0",
             "hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed",
             "data-[state=open]:bg-accent",
           )}
         >
-          <span className="flex items-center justify-center size-8 rounded-md bg-brand/10 text-brand">
-            <CurrentIcon className="w-4 h-4" />
-          </span>
-          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+          <CurrentIcon className="w-4 h-4 text-foreground" />
+          <ChevronDown className="w-3 h-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent

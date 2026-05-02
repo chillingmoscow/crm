@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronLeft, Loader2, Search, Trash2 } from "lucide-react";
+import { ChevronLeft, Loader2, Lock, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -179,17 +179,6 @@ export function RoleDetailPage({
 
   // ── Derived ────────────────────────────────────────────────
 
-  const grantedCount = useMemo(
-    () =>
-      permissions.filter((p) =>
-        rolePermissions.some(
-          (rp) =>
-            rp.role_id === role.id && rp.permission_id === p.id && rp.granted,
-        ),
-      ).length,
-    [permissions, rolePermissions, role.id],
-  );
-
   // Group permissions by module, filtered by search
   const groupedPermissions = useMemo(() => {
     const q = permQuery.toLowerCase().trim();
@@ -237,7 +226,8 @@ export function RoleDetailPage({
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div className="flex flex-col gap-1.5 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-3xl font-bold tracking-tight">
+              {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
+              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
                 {nameValue || role.name}
               </h1>
               {role.account_id === null && (
@@ -253,8 +243,6 @@ export function RoleDetailPage({
                 : staffCount < 5
                 ? "сотрудника"
                 : "сотрудников"}
-              {" · "}
-              {grantedCount} из {permissions.length} прав
             </div>
           </div>
           {activeTab === "settings" && canEdit && (
@@ -422,17 +410,18 @@ export function RoleDetailPage({
           {/* ── Settings ──────────────────────────────────────── */}
           <TabsContent value="settings">
             <div className="max-w-[720px] flex flex-col gap-5">
-              {/* Icon + Name on one row */}
-              <div className="flex items-end gap-3">
-                <div className="space-y-1.5 shrink-0">
-                  <Label className="text-[13px] font-medium">Иконка</Label>
-                  <IconPicker
-                    value={iconValue}
-                    roleCode={role.code}
-                    onChange={setIconValue}
-                    disabled={!canEdit}
-                  />
+              {/* System role notice (matches uhi3K in design) — amber tint */}
+              {isSystem && (
+                <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-200 bg-amber-50 text-amber-800">
+                  <Lock className="w-4 h-4 shrink-0" />
+                  <p className="text-[13px] font-medium leading-snug">
+                    Это системная должность. Некоторые права и название изменить нельзя.
+                  </p>
                 </div>
+              )}
+
+              {/* Name (left, flex-1) + Icon picker (right, compact) — matches J0qwQg */}
+              <div className="flex items-end gap-2">
                 <div className="space-y-1.5 flex-1 min-w-0">
                   <Label htmlFor="role-name" className="text-[13px] font-medium">
                     Название
@@ -446,6 +435,12 @@ export function RoleDetailPage({
                     placeholder="Название должности"
                   />
                 </div>
+                <IconPicker
+                  value={iconValue}
+                  roleCode={role.code}
+                  onChange={setIconValue}
+                  disabled={!canEdit}
+                />
               </div>
 
               <div className="space-y-1.5">

@@ -615,16 +615,9 @@ export function RolesClient({
           </>
         }
       >
-        {/* Icon + Name on one row (icon picker shrunken left, name flex-1) */}
-        <div className="flex items-end gap-3">
-          <div className="space-y-1.5 shrink-0">
-            <Label className="text-[13px] font-medium">Иконка</Label>
-            <IconPicker
-              value={newRoleIcon}
-              roleCode=""
-              onChange={setNewRoleIcon}
-            />
-          </div>
+        {/* Name (left, flex-1) + Icon picker (right, compact) — consistent
+            with detail Settings tab; matches design J0qwQg row pattern. */}
+        <div className="flex items-end gap-2">
           <div className="space-y-1.5 flex-1 min-w-0">
             <Label htmlFor="new-role-name" className="text-[13px] font-medium">
               Название <span className="text-destructive">*</span>
@@ -640,6 +633,11 @@ export function RolesClient({
               }}
             />
           </div>
+          <IconPicker
+            value={newRoleIcon}
+            roleCode=""
+            onChange={setNewRoleIcon}
+          />
         </div>
 
         <div className="space-y-1.5">

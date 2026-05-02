@@ -63,6 +63,13 @@ type NavSection = {
   icon: LucideIcon;
   roles: string[];
   items: NavItem[];
+  /** When set, section renders as a direct top-level link (no toggle,
+   *  no nested items). Use for "leaf" sections with no logical
+   *  children — e.g. /knowledge, where the section IS the destination. */
+  href?: string;
+  /** Match the active state strictly (only exact pathname). Same
+   *  semantic as NavItem.exact. Used together with href. */
+  exact?: boolean;
 };
 
 const NAV_SECTIONS: NavSection[] = [
@@ -104,15 +111,15 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // База знаний (стадия 8). Видимость по матрице kb_*: все шесть ролей
-    // имеют kb.view_pages; manage-уровень гейтится на самих экранах.
+    // База знаний (стадия 8). Flat-section — клик по самому пункту
+    // ведёт на /knowledge, без вложенных подпунктов и chevron'а.
+    // Видимость по матрице kb_*: все шесть ролей имеют kb.view_pages;
+    // manage-уровень гейтится на самих экранах.
     label: "База знаний",
     icon: BookOpen,
+    href: "/knowledge",
     roles: ["owner", "admin", "accountant", "manager", "hostess", "waiter"],
-    items: [
-      { title: "База знаний", href: "/knowledge", icon: BookOpen,
-        roles: ["owner", "admin", "accountant", "manager", "hostess", "waiter"] },
-    ],
+    items: [],
   },
   {
     label: "Настройки",
@@ -219,7 +226,8 @@ function SidebarBody({
             (item) => !activeRoleCode || item.roles.includes(activeRoleCode),
           ),
         }))
-        .filter((s) => s.items.length > 0),
+        // Keep flat sections (`href` set) even if items is empty.
+        .filter((s) => s.href !== undefined || s.items.length > 0),
     [activeRoleCode],
   );
 
@@ -266,8 +274,25 @@ function SidebarBody({
           collapsed && "px-3 gap-1 items-center",
         )}
       >
-        {visibleSections.map((section) =>
-          collapsed ? (
+        {visibleSections.map((section) => {
+          // Flat sections (href set) — render as direct top-level link
+          // in both collapsed and expanded modes.
+          if (section.href) {
+            return collapsed ? (
+              <FlatCollapsedLink
+                key={section.label}
+                section={section}
+                pathname={pathname}
+              />
+            ) : (
+              <FlatExpandedLink
+                key={section.label}
+                section={section}
+                pathname={pathname}
+              />
+            );
+          }
+          return collapsed ? (
             <CollapsedSectionFlyout
               key={section.label}
               section={section}
@@ -281,8 +306,8 @@ function SidebarBody({
               isOpen={openSections.has(section.label)}
               onToggle={() => toggleSection(section.label)}
             />
-          ),
-        )}
+          );
+        })}
       </SidebarContent>
 
       <SidebarFooter className="p-2 border-t border-sidebar-border group-data-[collapsible=icon]:p-3">
@@ -341,6 +366,63 @@ function SidebarBody({
         )}
       </SidebarFooter>
     </>
+  );
+}
+
+// ── Flat sections (no nested items) — direct top-level link ────
+
+function FlatExpandedLink({
+  section,
+  pathname,
+}: {
+  section: NavSection;
+  pathname: string;
+}) {
+  const Icon = section.icon;
+  const href = section.href!;
+  const isActive = section.exact
+    ? pathname === href
+    : pathname === href || pathname.startsWith(`${href}/`);
+  return (
+    <Link
+      href={href}
+      className={cn(
+        // Match ExpandedSection trigger geometry so flat + nested
+        // sections sit on the same baseline.
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+        isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+      )}
+    >
+      <Icon className="w-[18px] h-[18px] shrink-0" />
+      <span className="flex-1 text-left">{section.label}</span>
+    </Link>
+  );
+}
+
+function FlatCollapsedLink({
+  section,
+  pathname,
+}: {
+  section: NavSection;
+  pathname: string;
+}) {
+  const Icon = section.icon;
+  const href = section.href!;
+  const isActive = section.exact
+    ? pathname === href
+    : pathname === href || pathname.startsWith(`${href}/`);
+  return (
+    <Link
+      href={href}
+      aria-label={section.label}
+      title={section.label}
+      className={cn(
+        "flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+        isActive && "bg-sidebar-accent",
+      )}
+    >
+      <Icon className="w-[18px] h-[18px]" />
+    </Link>
   );
 }
 

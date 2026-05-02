@@ -1370,25 +1370,37 @@ export type Database = {
           account_id: string | null
           code: string
           comment: string | null
+          created_at: string
+          created_by: string | null
           icon: string | null
           id: string
           name: string
+          updated_at: string
+          updated_by: string | null
         }
         Insert: {
           account_id?: string | null
           code: string
           comment?: string | null
+          created_at?: string
+          created_by?: string | null
           icon?: string | null
           id?: string
           name: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Update: {
           account_id?: string | null
           code?: string
           comment?: string | null
+          created_at?: string
+          created_by?: string | null
           icon?: string | null
           id?: string
           name?: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Relationships: [
           {
@@ -1396,6 +1408,20 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roles_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roles_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -2098,10 +2124,6 @@ export const Constants = {
 
 
 // ─── Hand-added enum aliases ─────────────────────────────────────────────────
-// `pnpm supabase gen types` doesn't emit named enum aliases — only the
-// nested `Database["public"]["Enums"]["..."]` chain. These re-exports
-// keep the call-sites readable. Re-add after every regen.
-
 export type VenueType        = Database["public"]["Enums"]["venue_type"]
 export type InvitationStatus = Database["public"]["Enums"]["invitation_status"]
 export type LegalForm        = Database["public"]["Enums"]["legal_form_enum"]

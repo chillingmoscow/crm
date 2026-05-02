@@ -33,6 +33,10 @@ type Role = {
   code: string;
   comment: string | null;
   icon: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
 };
 
 type Permission = {
@@ -55,9 +59,12 @@ type Props = {
   accountId: string | null;
   staffCount: number;
   importedFromQuickResto: boolean;
+  /** Display name «Имя Ф.» of role.created_by (null if unavailable) */
+  createdByName: string | null;
+  updatedByName: string | null;
 };
 
-type TabKey = "permissions" | "compensation" | "settings" | "danger";
+type TabKey = "main" | "permissions" | "compensation" | "danger";
 
 // ── Component ────────────────────────────────────────────────
 
@@ -67,10 +74,13 @@ export function RoleDetailPage({
   rolePermissions: initialRolePerms,
   accountId,
   staffCount,
+  createdByName,
+  updatedByName,
 }: Props) {
   const router = useRouter();
   const [rolePermissions, setRolePerms] = useState(initialRolePerms);
-  const [activeTab, setActiveTab] = useState<TabKey>("permissions");
+  // «Основное» — first tab + default by design RbRH4.
+  const [activeTab, setActiveTab] = useState<TabKey>("main");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -241,16 +251,14 @@ export function RoleDetailPage({
                 </span>
               )}
             </div>
-            <div className="text-sm text-muted-foreground">
-              {staffCount}{" "}
-              {staffCount === 1
-                ? "сотрудник"
-                : staffCount < 5
-                ? "сотрудника"
-                : "сотрудников"}
-            </div>
+            {/* Subtitle = role description (was staff count — now lives in info card) */}
+            {(commentValue || role.comment) && (
+              <p className="text-sm text-muted-foreground leading-snug">
+                {commentValue || role.comment}
+              </p>
+            )}
           </div>
-          {activeTab === "settings" && canEdit && (
+          {activeTab === "main" && canEdit && (
             <Button onClick={handleSave} disabled={isPending || !dirty || !nameValue.trim()}>
               {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               Сохранить
@@ -258,15 +266,15 @@ export function RoleDetailPage({
           )}
         </div>
 
-        {/* Tabs */}
+        {/* Tabs — «Основное» first per design RbRH4 */}
         <Tabs
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as TabKey)}
         >
           <TabsList>
+            <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="permissions">Права доступа</TabsTrigger>
             <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
-            <TabsTrigger value="settings">Настройки</TabsTrigger>
             {canDelete && (
               <TabsTrigger
                 value="danger"
@@ -412,59 +420,67 @@ export function RoleDetailPage({
             </div>
           </TabsContent>
 
-          {/* ── Settings ──────────────────────────────────────── */}
-          <TabsContent value="settings">
-            <div className="max-w-[720px] flex flex-col gap-5">
-              {/* System role notice (matches uhi3K in design) — amber tint */}
-              {isSystem && (
-                <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-200 bg-amber-50 text-amber-800">
-                  <Lock className="w-4 h-4 shrink-0" />
-                  <p className="text-[13px] font-medium leading-snug">
-                    Это системная должность. Некоторые права и название изменить нельзя.
-                  </p>
-                </div>
-              )}
+          {/* ── Main (Основное) — left form + right info card ─── */}
+          <TabsContent value="main">
+            <div className="flex flex-col lg:flex-row gap-8 items-start">
+              {/* Left: form (was Settings tab) */}
+              <div className="flex-1 max-w-[720px] flex flex-col gap-5 min-w-0">
+                {isSystem && (
+                  <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-200 bg-amber-50 text-amber-800">
+                    <Lock className="w-4 h-4 shrink-0" />
+                    <p className="text-[13px] font-medium leading-snug">
+                      Это системная должность. Некоторые права и название изменить нельзя.
+                    </p>
+                  </div>
+                )}
 
-              {/* Name (left, flex-1) + Icon picker (right, compact) — matches J0qwQg */}
-              <div className="flex items-end gap-2">
-                <div className="space-y-1.5 flex-1 min-w-0">
-                  <Label htmlFor="role-name" className="text-[13px] font-medium">
-                    Название
-                  </Label>
-                  <Input
-                    id="role-name"
-                    value={nameValue}
-                    onChange={(e) => setNameValue(e.target.value)}
-                    readOnly={!canEdit}
-                    className={!canEdit ? "bg-muted/50" : ""}
-                    placeholder="Название должности"
+                {/* Name (left, flex-1) + Icon picker (right, compact) — matches J0qwQg */}
+                <div className="flex items-end gap-2">
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <Label htmlFor="role-name" className="text-[13px] font-medium">
+                      Название
+                    </Label>
+                    <Input
+                      id="role-name"
+                      value={nameValue}
+                      onChange={(e) => setNameValue(e.target.value)}
+                      readOnly={!canEdit}
+                      className={!canEdit ? "bg-muted/50" : ""}
+                      placeholder="Название должности"
+                    />
+                  </div>
+                  <IconPicker
+                    value={iconValue}
+                    roleCode={role.code}
+                    onChange={setIconValue}
+                    disabled={!canEdit}
                   />
                 </div>
-                <IconPicker
-                  value={iconValue}
-                  roleCode={role.code}
-                  onChange={setIconValue}
-                  disabled={!canEdit}
-                />
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="role-comment" className="text-[13px] font-medium">
+                    Описание
+                  </Label>
+                  <Textarea
+                    id="role-comment"
+                    value={commentValue}
+                    onChange={(e) => setCommentValue(e.target.value)}
+                    readOnly={!canEdit}
+                    className={!canEdit ? "bg-muted/50" : ""}
+                    placeholder="Для чего используется роль, кому назначается…"
+                    rows={4}
+                  />
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label
-                  htmlFor="role-comment"
-                  className="text-[13px] font-medium"
-                >
-                  Описание
-                </Label>
-                <Textarea
-                  id="role-comment"
-                  value={commentValue}
-                  onChange={(e) => setCommentValue(e.target.value)}
-                  readOnly={!canEdit}
-                  className={!canEdit ? "bg-muted/50" : ""}
-                  placeholder="Для чего используется роль, кому назначается…"
-                  rows={4}
-                />
-              </div>
+              {/* Right: info card («О должности») */}
+              <RoleInfoCard
+                role={role}
+                isSystem={isSystem}
+                staffCount={staffCount}
+                createdByName={createdByName}
+                updatedByName={updatedByName}
+              />
             </div>
           </TabsContent>
 
@@ -541,5 +557,65 @@ export function RoleDetailPage({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// ── Info card («О должности») ───────────────────────────────────
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+function RoleInfoCard({
+  role,
+  isSystem,
+  staffCount,
+  createdByName,
+  updatedByName,
+}: {
+  role: Role;
+  isSystem: boolean;
+  staffCount: number;
+  createdByName: string | null;
+  updatedByName: string | null;
+}) {
+  const rows: { label: string; value: React.ReactNode }[] = [
+    {
+      label: "Тип",
+      value: (
+        <span className={isSystem ? "text-brand font-medium" : "font-medium"}>
+          {isSystem ? "Системная" : "Кастомная"}
+        </span>
+      ),
+    },
+    { label: "ID", value: role.id.slice(0, 8) },
+    { label: "Сотрудников", value: String(staffCount) },
+    { label: "Создана", value: formatDate(role.created_at) },
+    { label: "Изменена", value: formatDate(role.updated_at) },
+  ];
+  if (createdByName) rows.push({ label: "Создал", value: createdByName });
+  if (updatedByName) rows.push({ label: "Изменил", value: updatedByName });
+
+  return (
+    <aside className="w-full lg:w-[320px] shrink-0 rounded-[14px] border bg-card p-5">
+      <h2 className="text-[15px] font-semibold mb-4">О должности</h2>
+      <dl className="flex flex-col gap-2.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center justify-between gap-3 text-[13px]">
+            <dt className="text-muted-foreground">{r.label}</dt>
+            <dd className="font-medium text-foreground">{r.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </aside>
   );
 }

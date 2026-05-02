@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getKbTree } from "@/lib/knowledge/tree";
 import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
+import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 
 /**
  * Knowledge Base shell. Gates the entire /knowledge/* tree on
@@ -30,15 +31,17 @@ export default async function KnowledgeLayout({
   const { nodes } = await getKbTree();
 
   return (
-    <div className="flex w-full min-h-[calc(100vh-3rem)]">
-      <aside
-        aria-label="Дерево страниц"
-        className="hidden md:flex sticky top-12 h-[calc(100vh-3rem)] w-72 shrink-0
-                   flex-col border-r bg-sidebar overflow-y-auto"
-      >
-        <KbTreeNav nodes={nodes} />
-      </aside>
-      <main className="flex-1 min-w-0">{children}</main>
-    </div>
+    <KbSearchProvider>
+      <div className="flex w-full min-h-[calc(100vh-3rem)]">
+        <aside
+          aria-label="Дерево страниц"
+          className="hidden md:flex sticky top-12 h-[calc(100vh-3rem)] w-72 shrink-0
+                     flex-col border-r bg-sidebar overflow-y-auto"
+        >
+          <KbTreeNav nodes={nodes} />
+        </aside>
+        <main className="flex-1 min-w-0">{children}</main>
+      </div>
+    </KbSearchProvider>
   );
 }

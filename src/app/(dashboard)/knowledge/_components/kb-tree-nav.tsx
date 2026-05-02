@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { createKbPage } from "@/lib/knowledge/pages";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import type { KbTreeNode } from "@/types/knowledge";
 
 interface KbTreeNavProps {
@@ -55,7 +56,10 @@ export function KbTreeNav({ nodes }: KbTreeNavProps) {
   }, [activeSlug, nodes]);
 
   return (
-    <div className="flex flex-col gap-1 p-3">
+    <div className="flex flex-col gap-2 p-3">
+      <div className="px-1 pt-1">
+        <KbSearchTrigger />
+      </div>
       <KbTreeHeader />
       {nodes.length === 0 ? (
         <KbTreeEmpty />

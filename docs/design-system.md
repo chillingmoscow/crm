@@ -236,6 +236,7 @@ import { Button } from "@/components/ui/button";
 | **Filled** | то же что Default, текст `text-foreground` |
 | **Focused** | `border-brand` (1px) + мягкий halo через `ring-2 ring-brand/30`. **Не offset-ring**, не двойная обводка. (`.pen` показывает `spread:3 / 40%` — в браузере это получается резче, поэтому подбираем визуальный эквивалент.) |
 | **Error** | `border-destructive` + сообщение под полем 12px destructive |
+| **ReadOnly** | то же что Default. Поле фокусируемо для скринридеров, но **focus halo не показывается** — у юзера не должно складываться впечатление, что значение можно поменять. (Реализовано через `read-only:focus-visible:ring-0`.) Если поле read-only и при этом фон выделен `bg-muted/50` — это сигнал «не редактируется». |
 | **Disabled** | opacity 50%, cursor not-allowed |
 
 В Tailwind: `focus-visible:outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/30`.

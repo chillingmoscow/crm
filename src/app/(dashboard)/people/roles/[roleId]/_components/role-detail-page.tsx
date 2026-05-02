@@ -275,7 +275,12 @@ export function RoleDetailPage({
             <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
             <TabsTrigger value="settings">Настройки</TabsTrigger>
             {canDelete && (
-              <TabsTrigger value="danger">Опасная зона</TabsTrigger>
+              <TabsTrigger
+                value="danger"
+                className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
+              >
+                Опасная зона
+              </TabsTrigger>
             )}
           </TabsList>
 
@@ -466,7 +471,7 @@ export function RoleDetailPage({
           {/* ── Danger zone ───────────────────────────────────── */}
           {canDelete && (
             <TabsContent value="danger">
-              <div className="max-w-[720px] rounded-[14px] border border-destructive/40 bg-card p-6 flex flex-col gap-4">
+              <div className="max-w-[720px] rounded-[14px] border bg-card p-6 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <h3 className="text-base font-semibold text-foreground">
                     {isSystem ? "Скрыть должность" : "Удалить должность"}

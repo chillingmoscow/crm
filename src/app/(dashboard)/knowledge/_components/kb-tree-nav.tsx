@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ChevronRight, FileText, Plus } from "lucide-react";
+import { ChevronRight, FileText, Plus, Trash2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,10 @@ import type { KbTreeNode } from "@/types/knowledge";
 
 interface KbTreeNavProps {
   nodes: KbTreeNode[];
+  /** Whether to show the «Корзина» link at the bottom of the tree.
+   *  Driven by `kb.delete_pages` permission, gated server-side in
+   *  the layout. The trash route itself also re-checks. */
+  canSeeTrash?: boolean;
 }
 
 /**
@@ -29,7 +33,7 @@ interface KbTreeNavProps {
  * tree component does NOT remount on slug navigation (it lives in
  * the layout), so we can't rely on initial state alone.
  */
-export function KbTreeNav({ nodes }: KbTreeNavProps) {
+export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
 
@@ -76,6 +80,18 @@ export function KbTreeNav({ nodes }: KbTreeNavProps) {
             />
           ))}
         </ul>
+      )}
+
+      {canSeeTrash && (
+        <Link
+          href="/knowledge/trash"
+          className="mt-2 flex items-center gap-2 rounded-md px-2 py-1.5
+                     text-sm text-muted-foreground hover:bg-sidebar-accent
+                     hover:text-foreground"
+        >
+          <Trash2 className="size-3.5" />
+          Корзина
+        </Link>
       )}
     </div>
   );

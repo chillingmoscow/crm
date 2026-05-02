@@ -3,6 +3,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { getFileSignedUrl } from "@/lib/files/signed-urls";
 
+export { getFileSignedUrl };
+
 /**
  * Storage path шаблон тот же, что у Finance — bucket account-attachments,
  * первая папка = account_id (см. миграции 045 / 054 storage policies).
@@ -24,15 +26,16 @@ export type UploadKbAttachmentArgs = {
 };
 
 export type UploadKbAttachmentResult =
-  | { url: string; file_id: string; storage_path: string; error: null }
-  | { url: null; file_id: null; storage_path: null; error: string };
+  | { file_id: string; storage_path: string; error: null }
+  | { file_id: null; storage_path: null; error: string };
 
 /**
- * Upload бинарника в `account-attachments`, создание строки `account_files`,
- * привязка к странице через `kb_page_attachments`, и возврат **signed
- * URL** (TTL 1 час), готового для рендера в BlockNote-блоке.
+ * Upload бинарника в `account-attachments`, создание строки `account_files`
+ * и привязка к странице через `kb_page_attachments`. Возвращает file_id +
+ * storage_path — signed URL мы НЕ генерируем здесь (BlockNote вызовет
+ * resolveFileUrl на каждом рендере, который подпишет URL на 1 час).
  *
- * Авторизация: `kb.manage_attachments` (storage RLS из 054 +
+ * Авторизация: `kb.manage_attachments` (storage RLS из 054/055 +
  * account_files INSERT из 050 + kb_page_attachments INSERT из 050).
  *
  * Откат: если пивот не удалось вставить, удаляем и storage-объект,
@@ -46,7 +49,7 @@ export async function uploadKbAttachment(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return { url: null, file_id: null, storage_path: null, error: "Не авторизован" };
+    return { file_id: null, storage_path: null, error: "Не авторизован" };
   }
 
   const { data: accountId, error: accErr } = await supabase.rpc(
@@ -54,7 +57,6 @@ export async function uploadKbAttachment(
   );
   if (accErr || !accountId) {
     return {
-      url: null,
       file_id: null,
       storage_path: null,
       error: "Не удалось определить активный аккаунт",
@@ -68,7 +70,7 @@ export async function uploadKbAttachment(
     .from("account-attachments")
     .upload(storagePath, args.file, { contentType: args.mime_type, upsert: false });
   if (upErr) {
-    return { url: null, file_id: null, storage_path: null, error: upErr.message };
+    return { file_id: null, storage_path: null, error: upErr.message };
   }
 
   // 2. account_files row.
@@ -87,7 +89,6 @@ export async function uploadKbAttachment(
   if (fileErr || !fileRow) {
     await supabase.storage.from("account-attachments").remove([storagePath]);
     return {
-      url: null,
       file_id: null,
       storage_path: null,
       error: fileErr?.message ?? "Не удалось создать запись о файле",
@@ -106,25 +107,13 @@ export async function uploadKbAttachment(
     await supabase.from("account_files").delete().eq("id", fileRow.id);
     await supabase.storage.from("account-attachments").remove([storagePath]);
     return {
-      url: null,
       file_id: null,
       storage_path: null,
       error: pivotErr.message,
     };
   }
 
-  // 4. Signed URL — для немедленного рендера в редакторе.
-  const { url, error: urlErr } = await getFileSignedUrl(fileRow.id);
-  if (urlErr || !url) {
-    return {
-      url: null,
-      file_id: null,
-      storage_path: null,
-      error: urlErr ?? "Не удалось получить ссылку на файл",
-    };
-  }
-
-  return { url, file_id: fileRow.id, storage_path: storagePath, error: null };
+  return { file_id: fileRow.id, storage_path: storagePath, error: null };
 }
 
 /** Получить (refreshed) signed URL по storage_path — нужно при загрузке

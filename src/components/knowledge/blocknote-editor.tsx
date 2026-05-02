@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useTheme } from "next-themes";
 import { BlockNoteEditor } from "@blocknote/core";
+import { ru as ruLocale } from "@blocknote/core/locales";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { cn } from "@/lib/utils";
@@ -129,10 +130,29 @@ export function KbBlockNoteEditor({
     };
   }, [hasResolve]);
 
+  // Customise placeholders to match Sheerly tone-of-voice
+  // (русский, без иностранных «type / for commands»). Patches the
+  // built-in `ru` dictionary in-place — cheap because it's just a
+  // shallow object spread.
+  const dictionary = useMemo(() => {
+    return {
+      ...ruLocale,
+      placeholders: {
+        ...ruLocale.placeholders,
+        default: 'Введите текст или нажмите "/" для команд',
+        emptyDocument: 'Начните печатать или нажмите "/" для команд',
+        new_comment: "Напишите комментарий…",
+        edit_comment: "Редактировать комментарий…",
+        comment_reply: "Ответить…",
+      },
+    };
+  }, []);
+
   const editor = useCreateBlockNote({
     initialContent: initial as never,
     uploadFile: stableUploadFile,
     resolveFileUrl: stableResolveFileUrl,
+    dictionary,
   });
 
   // Subscribe to document changes; surface as { content, plainText }.

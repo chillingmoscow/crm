@@ -27,6 +27,7 @@ import {
   Users,
   Wallet,
   ArrowLeftRight,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -100,6 +101,17 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Счета",       href: "/finance/accounts",       icon: Wallet,                        roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          roles: ["owner", "admin", "accountant", "manager"] },
       { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         roles: ["owner", "admin", "accountant", "manager"] },
+    ],
+  },
+  {
+    // База знаний (стадия 8). Видимость по матрице kb_*: все шесть ролей
+    // имеют kb.view_pages; manage-уровень гейтится на самих экранах.
+    label: "База знаний",
+    icon: BookOpen,
+    roles: ["owner", "admin", "accountant", "manager", "hostess", "waiter"],
+    items: [
+      { title: "База знаний", href: "/knowledge", icon: BookOpen,
+        roles: ["owner", "admin", "accountant", "manager", "hostess", "waiter"] },
     ],
   },
   {

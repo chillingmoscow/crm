@@ -52,9 +52,9 @@ export default async function KbPageView({ params }: PageProps) {
     profileIds.length > 0
       ? supabase
           .from("profiles")
-          .select("id, first_name, last_name")
+          .select("id, first_name, last_name, avatar_url")
           .in("id", profileIds)
-      : Promise.resolve({ data: [] as { id: string; first_name: string | null; last_name: string | null }[] }),
+      : Promise.resolve({ data: [] as { id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }[] }),
   ]);
 
   const canEdit =
@@ -74,19 +74,25 @@ export default async function KbPageView({ params }: PageProps) {
     : "База знаний";
 
   // Profile lookup for info-popover audit fields.
-  const profilesById = new Map<string, string>();
+  type ProfileEntry = { name: string; avatarUrl: string | null };
+  const profilesById = new Map<string, ProfileEntry>();
   for (const p of profiles ?? []) {
     const parts = [p.first_name, p.last_name].filter(Boolean) as string[];
-    profilesById.set(p.id, parts.length > 0 ? parts.join(" ") : "—");
+    profilesById.set(p.id, {
+      name: parts.length > 0 ? parts.join(" ") : "—",
+      avatarUrl: p.avatar_url ?? null,
+    });
   }
   const createdByName = row.created_by
-    ? profilesById.get(row.created_by) ?? null
+    ? profilesById.get(row.created_by)?.name ?? null
     : null;
-  const updatedByName = row.updated_by
+  const updatedByEntry = row.updated_by
     ? profilesById.get(row.updated_by) ?? null
     : lastEditorId
       ? profilesById.get(lastEditorId) ?? null
       : null;
+  const updatedByName = updatedByEntry?.name ?? null;
+  const updatedByAvatarUrl = updatedByEntry?.avatarUrl ?? null;
 
   return (
     <div className="flex-1 flex flex-col">
@@ -140,6 +146,9 @@ export default async function KbPageView({ params }: PageProps) {
             initialIcon={row.icon}
             initialIconColor={row.icon_color}
             initialContent={(row.content as unknown as KbBlock[]) ?? []}
+            initialUpdatedAt={row.updated_at}
+            initialUpdatedByName={updatedByName}
+            initialUpdatedByAvatarUrl={updatedByAvatarUrl}
             canEdit={canEdit}
           />
 

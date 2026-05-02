@@ -240,8 +240,12 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   } as never);
   if (error) return { version_number: null, error: error.message };
 
-  revalidatePath("/knowledge");
-  revalidatePath(`/knowledge/${parsed.data.id}`);
+  // Намеренно НЕ вызываем revalidatePath: server-action call из
+  // клиента триггерит RSC-refresh текущего route'а, что в свою очередь
+  // меняет row.updated_at → key={id-updated_at} в slug-page → BlockNote
+  // remount → закрывается slash-меню прямо во время выбора. Локальный
+  // state редактора уже актуальный; дерево/landing подхватят новый
+  // title на следующей навигации (приемлемый trade-off для авто-save).
   return { version_number: (data as number | null) ?? null, error: null };
 }
 

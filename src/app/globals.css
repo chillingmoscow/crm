@@ -192,3 +192,43 @@ input:-webkit-autofill {
 .bn-sheerly .bn-editor {
   padding: 0;
 }
+
+/* Воздух между блоками — Notion-like reading rhythm. BlockNote-default
+   .bn-block-content имеет padding:3px 0 + line-height:1.5; этого мало
+   для типографики Sheerly (paragraph base = 16px, ~24px line). Бьём
+   через padding на контент, не через margin на outer (margin триггерит
+   transition в BlockNote → визуальный «прыжок» при структурных
+   изменениях). */
+.bn-sheerly .bn-block-content {
+  padding: 6px 0;
+  line-height: 1.65;
+}
+
+/* Чуть больше воздуха над/под заголовками — H1/H2/H3 в Notion имеют
+   свой внутренний ритм. Селектор по data-content-type, чтобы не
+   ломать исходный padding для списков/чек-листов. */
+.bn-sheerly .bn-block-content[data-content-type="heading"] {
+  padding-top: 18px;
+  padding-bottom: 4px;
+}
+
+/* Color/highlight picker: shadcn-вариант использует DropdownMenuItem
+   с reserved-слотом под check-indicator (галочку). У BlockNote же
+   слева идёт «color-icon» (квадратик с цветом A), и стандартный
+   checkmark Radix'а ложится прямо поверх него + сдвигает остальные
+   айтемы. Прячем встроенный indicator и подсвечиваем выбранный
+   вариант через bn-color-icon::after (рамка вокруг квадратика). */
+.bn-sheerly .bn-color-picker-dropdown [role="menuitem"],
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemcheckbox"],
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemradio"] {
+  padding-left: 8px;
+}
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemcheckbox"] > span:first-child:not(.bn-color-icon),
+.bn-sheerly .bn-color-picker-dropdown [role="menuitemradio"] > span:first-child:not(.bn-color-icon) {
+  display: none;
+}
+.bn-sheerly .bn-color-picker-dropdown [data-state="checked"] .bn-color-icon,
+.bn-sheerly .bn-color-picker-dropdown [aria-selected="true"] .bn-color-icon {
+  outline: 2px solid hsl(var(--brand) / 0.6);
+  outline-offset: 1px;
+}

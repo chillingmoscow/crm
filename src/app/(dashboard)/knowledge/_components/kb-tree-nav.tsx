@@ -205,34 +205,47 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
     >
       <div
         className={cn(
-          "group flex items-center gap-1 rounded-md px-1 py-1 text-sm",
+          "group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm",
           "hover:bg-sidebar-accent",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
         )}
-        style={{ paddingLeft: `${depth * 12 + 4}px` }}
+        // depth-сдвиг только для вложенности; на depth=0 левый край
+        // совпадает с «Страницы»/Корзина (тоже px-2). Плюс справа
+        // выравнивается с header «+» т.к. оба rendered внутри
+        // parent с одинаковым px-2.
+        style={{ paddingLeft: `${depth * 14 + 8}px` }}
       >
-        {/* Chevron / spacer */}
-        {hasChildren ? (
-          <button
-            type="button"
-            onClick={toggle}
-            className="flex size-5 items-center justify-center rounded
-                       text-muted-foreground hover:bg-sidebar-accent/60"
-            aria-label={isOpen ? "Свернуть" : "Развернуть"}
-          >
-            <ChevronRight
-              className={cn(
-                "size-3.5 transition-transform",
-                isOpen && "rotate-90",
-              )}
-            />
-          </button>
-        ) : (
-          <span className="size-5 shrink-0" />
-        )}
-
-        {/* Icon */}
-        <KbPageIcon icon={node.icon} color={node.icon_color} size={14} className="mx-0.5" />
+        {/* Иконка/chevron — занимают одну и ту же позицию.
+            Notion-style: иконка по умолчанию, chevron появляется
+            на hover родительского блока (если есть дети). */}
+        <span className="relative size-5 shrink-0 inline-flex items-center justify-center">
+          <KbPageIcon
+            icon={node.icon}
+            color={node.icon_color}
+            size={14}
+            className={cn(
+              "transition-opacity",
+              hasChildren && "group-hover:opacity-0",
+            )}
+          />
+          {hasChildren && (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-label={isOpen ? "Свернуть" : "Развернуть"}
+              className="absolute inset-0 flex items-center justify-center rounded
+                         opacity-0 group-hover:opacity-100
+                         text-muted-foreground hover:bg-sidebar-accent/60"
+            >
+              <ChevronRight
+                className={cn(
+                  "size-3.5 transition-transform",
+                  isOpen && "rotate-90",
+                )}
+              />
+            </button>
+          )}
+        </span>
 
         {/* Title (link) */}
         <Link
@@ -243,13 +256,14 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
           {node.title || "Без названия"}
         </Link>
 
-        {/* Hover-only "+" to add a child */}
+        {/* Hover-only "+" to add a child. size-6 чтобы совпадать с
+            header-plus (Button size="icon" → size-6). */}
         <button
           type="button"
           onClick={onCreateChild}
           disabled={creating}
           title="Добавить подстраницу"
-          className="opacity-0 group-hover:opacity-100 flex size-5 items-center
+          className="opacity-0 group-hover:opacity-100 flex size-6 shrink-0 items-center
                      justify-center rounded text-muted-foreground
                      hover:bg-sidebar-accent/60 disabled:opacity-50"
         >

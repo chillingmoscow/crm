@@ -13,7 +13,12 @@ import type { KbBlock } from "@/types/knowledge";
 // BlockNote internally references `window` synchronously inside
 // useCreateBlockNote — even with "use client" the App Router renders
 // client components on the server first for hydration. Skip SSR
-// entirely for the editor; show a skeleton placeholder instead.
+// entirely for the editor.
+//
+// Loading placeholder: an invisible spacer reserving roughly the
+// editor's first-paint height so the title above doesn't visibly
+// snap when the BlockNote chunk arrives. No border / fill / pulse —
+// users shouldn't see a "ghost card" on every page load.
 const KbBlockNoteEditor = dynamic(
   () =>
     import("@/components/knowledge/blocknote-editor").then(
@@ -22,10 +27,7 @@ const KbBlockNoteEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div
-        aria-label="Загрузка редактора"
-        className="min-h-[280px] animate-pulse rounded-md border bg-muted/30"
-      />
+      <div aria-hidden="true" className="min-h-[120px]" />
     ),
   },
 );

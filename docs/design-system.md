@@ -235,10 +235,11 @@ import { Button } from "@/components/ui/button";
    md:hidden       slot                       slot               постоянно
 ```
 
-**Кнопки в топбаре** (info / bell / опционально help) — единый стиль:
-36×36 (`size-9`), `rounded-lg` (8px), `border border-border`, `bg-background`,
-`text-foreground`, hover `bg-accent`. Иконка 18px (`w-[18px] h-[18px]`).
-Если есть индикатор — точка `bg-brand` 8×8 в правом-верхнем углу.
+**Кнопки в топбаре** (info / bell / опционально help) — единый стиль
+по `iedpv`: 36×36 (`size-9`), `rounded-lg` (8px), **без border**,
+`bg-background`, иконка 18px в `text-muted-foreground`. На hover —
+`bg-accent` + `text-foreground`. Если есть индикатор — точка
+`bg-brand` 8×8 в правом-верхнем углу с `ring-2 ring-background`.
 
 #### Когда что показывать
 

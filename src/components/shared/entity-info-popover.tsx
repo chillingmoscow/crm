@@ -64,10 +64,12 @@ export function EntityInfoPopover({
   return (
     <Popover>
       <PopoverTrigger asChild>
+        {/* Top-bar button per DS iedpv: 36×36, no border, bg-background,
+            muted icon → foreground on hover. */}
         <button
           type="button"
           aria-label={title}
-          className="inline-flex items-center justify-center size-9 rounded-lg border border-border bg-background text-foreground hover:bg-accent transition-colors"
+          className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
         >
           <Info className="w-[18px] h-[18px]" />
         </button>

@@ -6,6 +6,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import { cn } from "@/lib/utils";
+import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -101,40 +102,3 @@ export function KbBlockNoteEditor({
   );
 }
 
-/**
- * Cheap BlockNote → plain-text projection for FTS. Recursively walks
- * blocks and inline runs, concatenating `text` content with newlines
- * between blocks. Loses formatting and exotic block types — that's
- * the point: tsvector only cares about words.
- */
-function blocksToPlainText(blocks: KbBlock[]): string {
-  const out: string[] = [];
-  walk(blocks, out);
-  return out.join("\n").trim();
-}
-
-function walk(blocks: KbBlock[], out: string[]): void {
-  for (const block of blocks) {
-    if (typeof block.content === "string") {
-      out.push(block.content);
-    } else if (Array.isArray(block.content)) {
-      const line: string[] = [];
-      collectInline(block.content, line);
-      if (line.length > 0) out.push(line.join(""));
-    }
-    if (Array.isArray(block.children) && block.children.length > 0) {
-      walk(block.children, out);
-    }
-  }
-}
-
-function collectInline(items: unknown[], out: string[]): void {
-  for (const raw of items) {
-    const item = raw as { type?: string; text?: string; content?: unknown[] };
-    if (item.type === "text" && typeof item.text === "string") {
-      out.push(item.text);
-    } else if (Array.isArray(item.content)) {
-      collectInline(item.content, out);
-    }
-  }
-}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ChevronRight, FileText, Plus } from "lucide-react";
@@ -22,17 +22,37 @@ interface KbTreeNavProps {
  *  ─ active state when the URL slug matches
  *  ─ "+" button on hover to create a child page
  *
- * State is per-component (which nodes are expanded). Persisting across
- * navigations would need localStorage; deferred. The active page's
- * ancestors are auto-expanded on mount via initial state derivation.
+ * Expansion state lives in the parent so toggles use functional
+ * setState (no stale closures). Ancestors of the active page are
+ * auto-added to the expanded set whenever activeSlug changes — the
+ * tree component does NOT remount on slug navigation (it lives in
+ * the layout), so we can't rely on initial state alone.
  */
 export function KbTreeNav({ nodes }: KbTreeNavProps) {
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
 
-  // Compute the set of ancestors of the active page so they expand on mount.
-  const initialExpanded = expandAncestors(nodes, activeSlug);
-  const [expanded, setExpanded] = useState<Set<string>>(initialExpanded);
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => expandAncestors(nodes, activeSlug),
+  );
+
+  // Auto-expand ancestors of the active page whenever the URL changes
+  // OR the tree gets a new node added (e.g. just-created child).
+  useEffect(() => {
+    const ancestors = expandAncestors(nodes, activeSlug);
+    if (ancestors.size === 0) return;
+    setExpanded((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of ancestors) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [activeSlug, nodes]);
 
   return (
     <div className="flex flex-col gap-1 p-3">
@@ -105,7 +125,7 @@ interface KbTreeItemProps {
   node: KbTreeNode;
   depth: number;
   expanded: Set<string>;
-  setExpanded: (s: Set<string>) => void;
+  setExpanded: Dispatch<SetStateAction<Set<string>>>;
   activeSlug?: string;
 }
 
@@ -116,12 +136,21 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
   const hasChildren = node.children.length > 0;
   const [creating, setCreating] = useState(false);
 
-  const toggle = () => {
-    const next = new Set(expanded);
-    if (next.has(node.id)) next.delete(node.id);
-    else next.add(node.id);
-    setExpanded(next);
-  };
+  // Functional setState — bullet-proof against stale closures during
+  // parallel toggles or quick re-renders after server actions.
+  const toggle = useCallback(
+    (e?: React.MouseEvent) => {
+      e?.preventDefault();
+      e?.stopPropagation();
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        if (next.has(node.id)) next.delete(node.id);
+        else next.add(node.id);
+        return next;
+      });
+    },
+    [node.id, setExpanded],
+  );
 
   const onCreateChild = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -134,11 +163,12 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
       return;
     }
     // Auto-expand the parent so the new child is visible after navigation.
-    if (!expanded.has(node.id)) {
-      const next = new Set(expanded);
+    setExpanded((prev) => {
+      if (prev.has(node.id)) return prev;
+      const next = new Set(prev);
       next.add(node.id);
-      setExpanded(next);
-    }
+      return next;
+    });
     router.push(`/knowledge/${slug}`);
   };
 

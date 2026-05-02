@@ -60,7 +60,15 @@ export default async function KbPageView({ params }: PageProps) {
         </div>
       </header>
 
+      {/*
+        Key by (id, updated_at). Normal auto-save doesn't bump
+        updated_at in the current view (no router.refresh after save),
+        so the cursor survives typing. Version restore DOES call
+        router.refresh, which re-fetches the row with new updated_at →
+        editor remounts with the restored content.
+      */}
       <KbPageEditor
+        key={`${row.id}-${row.updated_at ?? row.created_at}`}
         pageId={row.id}
         initialTitle={row.title}
         initialIcon={row.icon}

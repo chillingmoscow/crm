@@ -19,7 +19,8 @@ import {
 } from "@/components/ui/sheet";
 import { listKbPageVersions } from "@/lib/knowledge/versions";
 import { restoreKbPageVersion } from "@/lib/knowledge/versions";
-import type { KbPageVersionRow } from "@/types/knowledge";
+import { blocksToPlainText } from "@/lib/knowledge/plain-text";
+import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
 
 interface KbVersionHistoryProps {
   pageId: string;
@@ -124,6 +125,22 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
   );
 }
 
+/** Two-line preview of the version's content, derived from BlockNote
+ * blocks via the same plain-text walker used for FTS. Truncated by
+ * line-clamp; empty content shows nothing instead of an empty box. */
+function ContentSnippet({ content }: { content: KbBlock[] }) {
+  const text = blocksToPlainText(content);
+  if (!text) return null;
+  return (
+    <p
+      className="text-xs text-muted-foreground line-clamp-2"
+      title={text}
+    >
+      {text}
+    </p>
+  );
+}
+
 function VersionRow({
   row,
   isCurrent,
@@ -157,6 +174,7 @@ function VersionRow({
         <p className="truncate text-sm text-foreground" title={row.title}>
           {row.title || "Без названия"}
         </p>
+        <ContentSnippet content={row.content as unknown as KbBlock[]} />
         <p className="text-xs text-muted-foreground">
           {format(created, "d MMMM yyyy, HH:mm", { locale: ru })}{" "}
           <span className="text-muted-foreground/70">

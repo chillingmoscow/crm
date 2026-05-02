@@ -1,9 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { History, RotateCcw, Loader2 } from "lucide-react";
-import { formatDistanceToNow, format } from "date-fns";
+import {
+  History,
+  RotateCcw,
+  Loader2,
+  ChevronRight,
+  Plus,
+  Minus,
+} from "lucide-react";
+import { format, isToday, isYesterday, isThisYear } from "date-fns";
 import { ru } from "date-fns/locale";
 import { toast } from "sonner";
 
@@ -31,17 +38,16 @@ interface KbVersionHistoryProps {
   canEdit: boolean;
 }
 
-/**
- * История версий страницы. Открывается через кнопку «История» в шапке
- * страницы; рендерит side-drawer (Sheet) со списком снапшотов и
- * кнопками отката. Откат — через `restoreKbPageVersion`, который
- * снова идёт через saveKbPage и создаёт новую версию (вместо
- * мутации прошлого).
- *
- * Список тянется лениво при первом открытии — чтобы не нагружать
- * каждую страницу запросом, который пользователь может никогда
- * не сделать.
+/** Versions enriched with derived per-row fields:
+ *  - `delta`: chars added/removed vs previous (older) version. Older
+ *    version is at idx + 1 in the newest-first list, so we precompute
+ *    the diff once per row instead of per-render.
  */
+type EnrichedVersion = KbPageVersionWithAuthor & {
+  textLength: number;
+  delta: number | null;
+};
+
 export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<KbPageVersionWithAuthor[] | null>(null);
@@ -79,6 +85,24 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
     router.refresh();
   };
 
+  // Pre-compute textLength per version + delta vs previous version
+  // (older), then group by day. Newest-first, so the previous version
+  // is at idx + 1.
+  const groups = useMemo(() => {
+    if (!rows) return null;
+    const enriched: EnrichedVersion[] = rows.map((row, idx) => {
+      const text = blocksToPlainText(row.content as unknown as KbBlock[]);
+      const prev = rows[idx + 1];
+      let delta: number | null = null;
+      if (prev) {
+        const prevText = blocksToPlainText(prev.content as unknown as KbBlock[]);
+        delta = text.length - prevText.length;
+      }
+      return { ...row, textLength: text.length, delta };
+    });
+    return groupByDay(enriched);
+  }, [rows]);
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetTrigger asChild>
@@ -96,7 +120,7 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
           </SheetDescription>
         </SheetHeader>
 
-        <div className="flex flex-col gap-2 px-4 pb-6 overflow-y-auto">
+        <div className="flex flex-col gap-4 px-4 pb-6 overflow-y-auto">
           {loading && (
             <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -104,22 +128,23 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
             </div>
           )}
 
-          {!loading && rows !== null && rows.length === 0 && (
+          {!loading && groups !== null && groups.length === 0 && (
             <p className="px-3 py-6 text-sm text-muted-foreground">
               История пуста. Версия запишется при первом сохранении.
             </p>
           )}
 
           {!loading &&
-            rows !== null &&
-            rows.map((v, idx) => (
-              <VersionRow
-                key={v.id}
-                row={v}
-                isCurrent={idx === 0}
+            groups !== null &&
+            groups.map((group, groupIdx) => (
+              <DayGroup
+                key={group.label}
+                group={group}
+                defaultOpen={groupIdx === 0}
                 canEdit={canEdit}
-                restoring={restoring === v.version_number}
-                onRestore={() => onRestore(v.version_number)}
+                restoringVersion={restoring}
+                onRestore={onRestore}
+                currentVersionNumber={rows?.[0]?.version_number ?? null}
               />
             ))}
         </div>
@@ -128,6 +153,88 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
   );
 }
 
+// ─── Day grouping ──────────────────────────────────────────────────────
+
+type DayBucket = {
+  label: string;
+  versions: EnrichedVersion[];
+};
+
+function dayLabel(d: Date): string {
+  if (isToday(d)) return "Сегодня";
+  if (isYesterday(d)) return "Вчера";
+  return format(
+    d,
+    isThisYear(d) ? "d MMMM" : "d MMMM yyyy",
+    { locale: ru },
+  );
+}
+
+function groupByDay(versions: EnrichedVersion[]): DayBucket[] {
+  const buckets = new Map<string, EnrichedVersion[]>();
+  for (const v of versions) {
+    const label = dayLabel(new Date(v.created_at));
+    const arr = buckets.get(label) ?? [];
+    arr.push(v);
+    buckets.set(label, arr);
+  }
+  return Array.from(buckets, ([label, items]) => ({ label, versions: items }));
+}
+
+function DayGroup({
+  group,
+  defaultOpen,
+  canEdit,
+  restoringVersion,
+  onRestore,
+  currentVersionNumber,
+}: {
+  group: DayBucket;
+  defaultOpen: boolean;
+  canEdit: boolean;
+  restoringVersion: number | null;
+  onRestore: (versionNumber: number) => void;
+  currentVersionNumber: number | null;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-1 text-left text-[11px]
+                   font-medium uppercase tracking-wider text-muted-foreground
+                   hover:text-foreground"
+      >
+        <ChevronRight
+          className={cn(
+            "size-3 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+        <span>{group.label}</span>
+        <span className="text-muted-foreground/60">·{" "}{group.versions.length}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-2">
+          {group.versions.map((v) => (
+            <VersionRow
+              key={v.id}
+              row={v}
+              isCurrent={v.version_number === currentVersionNumber}
+              canEdit={canEdit}
+              restoring={restoringVersion === v.version_number}
+              onRestore={() => onRestore(v.version_number)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────
+
 /** Compose first/last name with sane fallback. */
 function authorName(a: { first_name: string | null; last_name: string | null }): string {
   const parts = [a.first_name, a.last_name].filter(Boolean) as string[];
@@ -135,8 +242,7 @@ function authorName(a: { first_name: string | null; last_name: string | null }):
 }
 
 /** Two-line preview of the version's content, derived from BlockNote
- * blocks via the same plain-text walker used for FTS. Truncated by
- * line-clamp; empty content shows nothing instead of an empty box. */
+ * blocks via the same plain-text walker used for FTS. */
 function ContentSnippet({ content }: { content: KbBlock[] }) {
   const text = blocksToPlainText(content);
   if (!text) return null;
@@ -150,6 +256,37 @@ function ContentSnippet({ content }: { content: KbBlock[] }) {
   );
 }
 
+/** «+124» / «−18» / «—» (без изменений по длине). Знак — цветом, не +/−. */
+function DeltaBadge({ delta }: { delta: number | null }) {
+  if (delta === null) {
+    return (
+      <span className="text-[10px] text-muted-foreground/60">первая версия</span>
+    );
+  }
+  if (delta === 0) {
+    return (
+      <span className="text-[10px] text-muted-foreground/70">
+        правки без изменения длины
+      </span>
+    );
+  }
+  const positive = delta > 0;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-sm px-1 py-px text-[10px] font-medium",
+        positive
+          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+          : "bg-rose-500/10 text-rose-700 dark:text-rose-400",
+      )}
+      title={`${positive ? "Добавлено" : "Удалено"} ${Math.abs(delta)} символов`}
+    >
+      {positive ? <Plus className="size-2.5" /> : <Minus className="size-2.5" />}
+      {Math.abs(delta)}
+    </span>
+  );
+}
+
 function VersionRow({
   row,
   isCurrent,
@@ -157,7 +294,7 @@ function VersionRow({
   restoring,
   onRestore,
 }: {
-  row: KbPageVersionWithAuthor;
+  row: EnrichedVersion;
   isCurrent: boolean;
   canEdit: boolean;
   restoring: boolean;
@@ -172,8 +309,9 @@ function VersionRow({
       )}
     >
       <div className="flex flex-col gap-1 min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium">v{row.version_number}</span>
+          <DeltaBadge delta={row.delta} />
           {isCurrent && (
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
               Текущая
@@ -182,16 +320,13 @@ function VersionRow({
         </div>
         <ContentSnippet content={row.content as unknown as KbBlock[]} />
         <p className="text-xs text-muted-foreground">
-          {format(created, "d MMMM yyyy, HH:mm", { locale: ru })}
+          {format(created, "HH:mm", { locale: ru })}
           {row.author && (
             <>
               {" · "}
               <span className="text-foreground/80">{authorName(row.author)}</span>
             </>
           )}
-          <span className="text-muted-foreground/70">
-            {" "}({formatDistanceToNow(created, { addSuffix: true, locale: ru })})
-          </span>
         </p>
       </div>
       {!isCurrent && canEdit && (

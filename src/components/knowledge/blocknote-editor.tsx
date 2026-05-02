@@ -94,30 +94,45 @@ export function KbBlockNoteEditor({
     [],
   );
 
-  // Stable refs for BlockNote callbacks — useCreateBlockNote sees them
-  // only once. Without refs, re-renders would either churn the editor
-  // (if we re-pass the function literal) or capture a stale callback.
+  // Stable refs for BlockNote callbacks — useCreateBlockNote uses the
+  // options object only on first construction. Without refs, re-renders
+  // would either churn the editor (if we re-pass a fresh function
+  // literal) or capture a stale callback.
   const uploadFileRef = useRef(uploadFile);
   uploadFileRef.current = uploadFile;
   const resolveFileUrlRef = useRef(resolveFileUrl);
   resolveFileUrlRef.current = resolveFileUrl;
 
+  // Stable bridge functions — built once per (presence-of-handler).
+  // These are what BlockNote sees in its options dep array; they
+  // forward to the latest ref'd handler. Critical: if these had
+  // changed identity on every render, useCreateBlockNote would tear
+  // down + recreate the editor on every save-state change, closing
+  // the slash menu and losing in-flight UI state.
+  const hasUpload = !!uploadFile;
+  const hasResolve = !!resolveFileUrl;
+
+  const stableUploadFile = useMemo(() => {
+    if (!hasUpload) return undefined;
+    return async (file: File) => {
+      const fn = uploadFileRef.current;
+      if (!fn) throw new Error("uploadFile handler not provided");
+      return fn(file);
+    };
+  }, [hasUpload]);
+
+  const stableResolveFileUrl = useMemo(() => {
+    if (!hasResolve) return undefined;
+    return async (url: string) => {
+      const fn = resolveFileUrlRef.current;
+      return fn ? fn(url) : url;
+    };
+  }, [hasResolve]);
+
   const editor = useCreateBlockNote({
     initialContent: initial as never,
-    uploadFile: uploadFile
-      ? async (file: File) => {
-          const fn = uploadFileRef.current;
-          if (!fn) throw new Error("uploadFile handler not provided");
-          return fn(file);
-        }
-      : undefined,
-    resolveFileUrl: resolveFileUrl
-      ? async (url: string) => {
-          const fn = resolveFileUrlRef.current;
-          if (!fn) return url;
-          return fn(url);
-        }
-      : undefined,
+    uploadFile: stableUploadFile,
+    resolveFileUrl: stableResolveFileUrl,
   });
 
   // Subscribe to document changes; surface as { content, plainText }.

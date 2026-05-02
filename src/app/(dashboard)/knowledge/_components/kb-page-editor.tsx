@@ -12,6 +12,15 @@ import {
   uploadKbAttachment,
   getKbAttachmentSignedUrl,
 } from "@/lib/knowledge/attachments";
+// Dynamic-import — KbMentionMenu статически зависит от @blocknote/react.
+// Без этого SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
+const KbMentionMenu = dynamic(
+  () =>
+    import("@/app/(dashboard)/knowledge/_components/kb-mention-menu").then(
+      (m) => m.KbMentionMenu,
+    ),
+  { ssr: false, loading: () => null },
+);
 import type { KbBlock } from "@/types/knowledge";
 
 // Custom URL scheme used by the BlockNote wrapper to mark uploaded KB
@@ -235,6 +244,7 @@ export function KbPageEditor({
         key={pageId}
         initialContent={initialContent}
         editable={canEdit}
+        renderExtras={(editor) => <KbMentionMenu editor={editor} />}
         uploadFile={async (file) => {
           const result = await uploadKbAttachment({
             pageId,

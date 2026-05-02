@@ -2050,6 +2050,14 @@ export type Database = {
           title: string
         }[]
       }
+      kb_list_account_members: {
+        Args: { p_limit?: number; p_query: string }
+        Returns: {
+          first_name: string
+          id: string
+          last_name: string
+        }[]
+      }
       kb_save_page: {
         Args: {
           p_content: Json

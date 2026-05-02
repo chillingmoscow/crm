@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { BlockNoteEditor } from "@blocknote/core";
 import { ru as ruLocale } from "@blocknote/core/locales";
@@ -58,6 +58,13 @@ export type BlockNoteEditorProps = {
    * mints a fresh signed URL.
    */
   resolveFileUrl?: (url: string) => Promise<string>;
+  /**
+   * Render-prop hook for extra controllers (suggestion menus, etc.)
+   * that need the editor instance. Output is rendered as a child of
+   * BlockNoteView, where BlockNote's React context provides the
+   * editor to nested components.
+   */
+  renderExtras?: (editor: BlockNoteEditor) => ReactNode;
   className?: string;
 };
 
@@ -79,6 +86,7 @@ export function KbBlockNoteEditor({
   onChange,
   uploadFile,
   resolveFileUrl,
+  renderExtras,
   className,
 }: BlockNoteEditorProps) {
   const { resolvedTheme } = useTheme();
@@ -182,7 +190,9 @@ export function KbBlockNoteEditor({
       editable={editable}
       theme={resolvedTheme === "dark" ? "dark" : "light"}
       className={cn("bn-sheerly", className)}
-    />
+    >
+      {renderExtras?.(editor)}
+    </BlockNoteView>
   );
 }
 

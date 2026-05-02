@@ -2,54 +2,39 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
-import { listBankAccounts } from "@/lib/finance/bank-accounts";
-import { listFinanceCategories } from "@/lib/finance/categories";
-import { listCounterparties } from "@/lib/finance/counterparties";
+import { listBankAccounts, listBankAccountGroups } from "@/lib/finance/bank-accounts";
+import {
+  listFinanceCategories,
+  listFinanceCategoryGroups,
+} from "@/lib/finance/categories";
+import {
+  listCounterparties,
+  listCounterpartyGroups,
+} from "@/lib/finance/counterparties";
 import { listTransactions } from "@/lib/finance/transactions";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
-import { TransactionsList } from "./_components/transactions-list";
-import type {
-  TransactionListFilters,
-  TransactionRow,
-} from "@/types/finance";
 
-const DEFAULT_PAGE_SIZE = 50;
-const ALLOWED_PAGE_SIZES = [25, 50, 100, 200];
+import { TransactionsPage } from "./_components/transactions-page";
 
-type SearchParams = {
-  type?: string;
-  legal_entity_id?: string;
-  venue_id?: string;
-  bank_account_id?: string;
-  category_id?: string;
-  counterparty_id?: string;
-  date_from?: string;
-  date_to?: string;
-  amount_min?: string;
-  amount_max?: string;
-  q?: string;
-  /** "1" / "true" — include soft-deleted; gated on canDelete server-side. */
-  include_deleted?: string;
-  page?: string;
-  size?: string;
-};
-
-export default async function TransactionsPage({
-  searchParams,
-}: {
-  searchParams: Promise<SearchParams>;
-}) {
-  const sp = await searchParams;
+/**
+ * Server entry for /finance/transactions.
+ *
+ * Permission contract:
+ * - finance.view_transactions to enter the page (otherwise redirect to /dashboard).
+ * - finance.create_transaction to show the «+ Добавить операцию» button.
+ * - finance.delete_transaction to show the bulk-delete action and the
+ *   delete button inside the edit drawer.
+ * - finance.export to show the export-CSV icon.
+ *
+ * Data is loaded once on the server (initial 200 rows + reference lists)
+ * and handed to a single client component which keeps all UI state —
+ * filters, selection, drawer-form open/close — in memory. Mutations go
+ * through the server actions in src/lib/finance/* and trigger a
+ * router.refresh() to repaint the list with the latest server state.
+ */
+export default async function TransactionsServerPage() {
   const supabase = await createClient();
 
-  // Permission gate up front. canCreate gates the «Создать» button on
-  // the list; the underlying RLS (transactions_insert) is the source
-  // of truth, but we hide guaranteed-failing buttons (PR #9 lesson).
-  // canDelete gates the «Показать удалённые» toggle and the actual
-  // include_deleted filter — RLS migration 046 only relaxes the
-  // SELECT for users with delete_transaction.
-  // canExport gates the «Экспорт CSV» button (matrix: owner / admin /
-  // accountant). The export route also re-checks server-side.
   const [
     { data: canView },
     { data: canCreate },
@@ -61,115 +46,53 @@ export default async function TransactionsPage({
     supabase.rpc("has_permission", { permission_code: "finance.delete_transaction" }),
     supabase.rpc("has_permission", { permission_code: "finance.export" }),
   ]);
+
   if (!canView) redirect("/dashboard");
 
-  const filters = parseFilters(sp, !!canDelete);
-  // parseInt is forgiving (it parses "abc" as NaN), but it accepts
-  // negative numbers and silently treats them as truthy. Manual lower
-  // clamp here; upper bound (page > totalPages) is applied below once
-  // the row count is known.
-  const requestedPage = parseInt(sp.page ?? "1", 10);
-  const lowerClampedPage = Number.isFinite(requestedPage) && requestedPage > 0
-    ? requestedPage
-    : 1;
-  const requestedSize = parseInt(sp.size ?? `${DEFAULT_PAGE_SIZE}`, 10);
-  const pageSize = ALLOWED_PAGE_SIZES.includes(requestedSize)
-    ? requestedSize
-    : DEFAULT_PAGE_SIZE;
-
-  // Honour the LegalEntitySwitcher cookie when no explicit
-  // legal_entity_id filter is present in the URL — the cookie is the
-  // soft default, the URL filter overrides it for this view.
   const cookieLegalEntityId = await getActiveFinanceLegalEntityId();
-  const effectiveFilters: TransactionListFilters = {
-    ...filters,
-    legal_entity_id: filters.legal_entity_id ?? cookieLegalEntityId ?? undefined,
-  };
 
   const [
     txResult,
     { rows: legalEntities },
     { rows: venues },
     { rows: bankAccounts },
+    { rows: bankAccountGroups },
     { rows: categories },
+    { rows: categoryGroups },
     { rows: counterparties },
+    { rows: counterpartyGroups },
   ] = await Promise.all([
-    listTransactions({ filters: effectiveFilters, page: lowerClampedPage, pageSize }),
+    listTransactions({
+      filters: { legal_entity_id: cookieLegalEntityId ?? undefined },
+      page: 1,
+      pageSize: 200,
+    }),
     listLegalEntities(),
     listAccountVenues(),
-    // Filter dropdowns only need active rows. Detail joins below pull
-    // names by id from these arrays — we deliberately don't fetch the
-    // full id→name map server-side because the lists are small.
     listBankAccounts({ include_deleted: false }),
+    listBankAccountGroups(),
     listFinanceCategories({ include_inactive: false }),
+    listFinanceCategoryGroups(),
     listCounterparties({ include_deleted: false }),
+    listCounterpartyGroups(),
   ]);
 
-  // Final page passed to the UI is the one the lib actually used,
-  // bounded above by totalPages — protects against `?page=999` showing
-  // an empty state with a misleading "999 / 1" counter.
-  const totalPages = Math.max(1, Math.ceil(txResult.total / pageSize));
-  const page = Math.min(lowerClampedPage, totalPages);
-
   return (
-    <TransactionsList
-      transactions={txResult.rows}
-      total={txResult.total}
-      page={page}
-      pageSize={pageSize}
-      filters={filters}
+    <TransactionsPage
+      initialTransactions={txResult.rows}
+      initialTotal={txResult.total}
       activeLegalEntityIdFromCookie={cookieLegalEntityId}
       legalEntities={legalEntities}
       venues={venues}
       bankAccounts={bankAccounts}
+      bankAccountGroups={bankAccountGroups}
       categories={categories}
+      categoryGroups={categoryGroups}
       counterparties={counterparties}
+      counterpartyGroups={counterpartyGroups}
       canCreate={!!canCreate}
-      canSeeDeleted={!!canDelete}
+      canDelete={!!canDelete}
       canExport={!!canExport}
     />
   );
-}
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-const ALLOWED_TYPES = new Set<TransactionRow["type"]>(["income", "expense", "transfer"]);
-
-function parseFilters(
-  sp: SearchParams,
-  canSeeDeleted: boolean
-): TransactionListFilters {
-  const f: TransactionListFilters = {};
-
-  // Type — strict whitelist so a stray ?type=foo doesn't slip through.
-  if (sp.type && ALLOWED_TYPES.has(sp.type as TransactionRow["type"])) {
-    f.type = sp.type as TransactionRow["type"];
-  }
-
-  if (sp.legal_entity_id) f.legal_entity_id = sp.legal_entity_id;
-  if (sp.venue_id)        f.venue_id        = sp.venue_id;
-  if (sp.bank_account_id) f.bank_account_id = sp.bank_account_id;
-  if (sp.category_id)     f.category_id     = sp.category_id;
-  if (sp.counterparty_id) f.counterparty_id = sp.counterparty_id;
-  if (sp.date_from)       f.date_from       = sp.date_from;
-  if (sp.date_to)         f.date_to         = sp.date_to;
-
-  if (sp.amount_min) {
-    const n = Number(sp.amount_min);
-    if (Number.isFinite(n)) f.amount_min = n;
-  }
-  if (sp.amount_max) {
-    const n = Number(sp.amount_max);
-    if (Number.isFinite(n)) f.amount_max = n;
-  }
-  if (sp.q && sp.q.trim()) f.q = sp.q.trim();
-
-  // include_deleted is server-gated on canSeeDeleted — without it, RLS
-  // (migration 046) hides soft-deleted rows anyway, but we also drop
-  // the URL param so the toggle UI doesn't think it's active.
-  if (canSeeDeleted && (sp.include_deleted === "1" || sp.include_deleted === "true")) {
-    f.include_deleted = true;
-  }
-
-  return f;
 }

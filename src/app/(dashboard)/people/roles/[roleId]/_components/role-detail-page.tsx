@@ -479,20 +479,32 @@ export function RoleDetailPage({
                   />
                 </div>
 
-                {/* Form footer — Save появляется только когда есть что сохранять
-                    и пользователь имеет право редактировать. Иначе — нет
-                    кнопки вообще, чтобы не висело бесполезное disabled. */}
-                {canEdit && dirty && (
-                  <div className="flex justify-end pt-1">
-                    <Button
-                      onClick={handleSave}
-                      disabled={isPending || !nameValue.trim()}
-                    >
-                      {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                      Сохранить
-                    </Button>
-                  </div>
-                )}
+                {/* Form footer — Save виден всегда, статус меняется:
+                    активен (brand) когда есть что сохранять, иначе secondary
+                    (#f5f5f5) с приглушённым текстом и без hover. */}
+                {(() => {
+                  const isSaveActive =
+                    canEdit && dirty && nameValue.trim().length > 0;
+                  return (
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        onClick={handleSave}
+                        variant={isSaveActive ? "default" : "secondary"}
+                        disabled={!isSaveActive || isPending}
+                        className={
+                          isSaveActive
+                            ? ""
+                            : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
+                        }
+                      >
+                        {isPending && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        )}
+                        Сохранить
+                      </Button>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </TabsContent>

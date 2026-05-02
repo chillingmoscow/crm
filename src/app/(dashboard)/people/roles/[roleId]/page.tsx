@@ -29,10 +29,7 @@ export default async function RoleDetailServerPage({
   });
   if (!canView) redirect("/dashboard");
 
-  const [{ data: accountId }, { data: activeVenueId }] = await Promise.all([
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("get_active_venue_id"),
-  ]);
+  const { data: accountId } = await supabase.rpc("get_active_account_id");
 
   // Fetch the role with audit fields (created_at/updated_at + by) for the
   // info card on the «Основное» tab. See migration 052.
@@ -92,7 +89,7 @@ export default async function RoleDetailServerPage({
     return last ? `${first} ${last.charAt(0)}.`.trim() : first;
   };
 
-  const [permissionsResult, rolePermsResult, venueRolesResult, importedRoleResult] =
+  const [permissionsResult, rolePermsResult, importedRoleResult] =
     await Promise.all([
       supabase
         .from("permissions")
@@ -101,14 +98,6 @@ export default async function RoleDetailServerPage({
         .order("code"),
       supabase
         .rpc("get_effective_role_permissions", { p_role_ids: [roleId] }),
-      activeVenueId
-        ? supabase
-            .from("user_venue_roles")
-            .select("id")
-            .eq("role_id", roleId)
-            .eq("venue_id", activeVenueId as string)
-            .eq("status", "active")
-        : Promise.resolve({ data: [] as { id: string }[] }),
       (db
         .from("external_entity_links")
         .select("id")
@@ -124,7 +113,6 @@ export default async function RoleDetailServerPage({
       permissions={permissionsResult.data ?? []}
       rolePermissions={rolePermsResult.data ?? []}
       accountId={accountId ?? null}
-      staffCount={(venueRolesResult.data ?? []).length}
       importedFromQuickResto={Boolean(importedRoleResult.data?.id)}
       createdByName={formatProfile(role.created_by)}
       updatedByName={formatProfile(role.updated_by)}

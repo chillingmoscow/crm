@@ -23,6 +23,8 @@ import {
 import { deleteRole, setRolePermission, updateRole } from "../../actions";
 import { metaForModule, sortModuleKeys } from "./permission-modules";
 import { IconPicker } from "../../_components/icon-picker";
+import { PageHeaderActions } from "@/components/shared/page-header-actions";
+import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -57,7 +59,6 @@ type Props = {
   permissions: Permission[];
   rolePermissions: RolePermission[];
   accountId: string | null;
-  staffCount: number;
   importedFromQuickResto: boolean;
   /** Display name «Имя Ф.» of role.created_by (null if unavailable) */
   createdByName: string | null;
@@ -73,7 +74,6 @@ export function RoleDetailPage({
   permissions,
   rolePermissions: initialRolePerms,
   accountId,
-  staffCount,
   createdByName,
   updatedByName,
 }: Props) {
@@ -219,6 +219,18 @@ export function RoleDetailPage({
 
   return (
     <div className="flex-1 flex flex-col">
+      {/* Inject info-popover into layout's top header (next to bell) */}
+      <PageHeaderActions>
+        <EntityInfoPopover
+          title="О должности"
+          id={role.id}
+          createdAt={role.created_at}
+          createdByName={createdByName}
+          updatedAt={role.updated_at}
+          updatedByName={updatedByName}
+        />
+      </PageHeaderActions>
+
       {/* Top breadcrumb bar */}
       <div className="flex items-center px-6 md:px-8 pt-4 w-full">
         <Link
@@ -271,7 +283,8 @@ export function RoleDetailPage({
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as TabKey)}
         >
-          <TabsList>
+          {/* Centered tabs per design D6IWjE (justify-content: center) */}
+          <TabsList className="justify-center">
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="permissions">Права доступа</TabsTrigger>
             <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
@@ -420,11 +433,11 @@ export function RoleDetailPage({
             </div>
           </TabsContent>
 
-          {/* ── Main (Основное) — left form + right info card ─── */}
+          {/* ── Main (Основное) — centered form per design c0jKNc.
+                Info card вынесен в popover в header'е (см. PageHeaderActions) */}
           <TabsContent value="main">
-            <div className="flex flex-col lg:flex-row gap-8 items-start">
-              {/* Left: form (was Settings tab) */}
-              <div className="flex-1 max-w-[720px] flex flex-col gap-5 min-w-0">
+            <div className="flex justify-center">
+              <div className="w-full max-w-[720px] flex flex-col gap-5">
                 {isSystem && (
                   <div className="flex items-center gap-2.5 rounded-[10px] px-3.5 py-3 border border-amber-200 bg-amber-50 text-amber-800">
                     <Lock className="w-4 h-4 shrink-0" />
@@ -472,22 +485,13 @@ export function RoleDetailPage({
                   />
                 </div>
               </div>
-
-              {/* Right: info card («О должности») */}
-              <RoleInfoCard
-                role={role}
-                isSystem={isSystem}
-                staffCount={staffCount}
-                createdByName={createdByName}
-                updatedByName={updatedByName}
-              />
             </div>
           </TabsContent>
 
           {/* ── Danger zone ───────────────────────────────────── */}
           {canDelete && (
             <TabsContent value="danger">
-              <div className="max-w-[720px] rounded-[14px] border bg-card p-6 flex flex-col gap-4">
+              <div className="max-w-[720px] mx-auto rounded-[14px] border bg-card p-6 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <h3 className="text-base font-semibold text-foreground">
                     {isSystem ? "Скрыть должность" : "Удалить должность"}
@@ -560,62 +564,5 @@ export function RoleDetailPage({
   );
 }
 
-// ── Info card («О должности») ───────────────────────────────────
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
-  } catch {
-    return "—";
-  }
-}
-
-function RoleInfoCard({
-  role,
-  isSystem,
-  staffCount,
-  createdByName,
-  updatedByName,
-}: {
-  role: Role;
-  isSystem: boolean;
-  staffCount: number;
-  createdByName: string | null;
-  updatedByName: string | null;
-}) {
-  const rows: { label: string; value: React.ReactNode }[] = [
-    {
-      label: "Тип",
-      value: (
-        <span className={isSystem ? "text-brand font-medium" : "font-medium"}>
-          {isSystem ? "Системная" : "Кастомная"}
-        </span>
-      ),
-    },
-    { label: "ID", value: role.id.slice(0, 8) },
-    { label: "Сотрудников", value: String(staffCount) },
-    { label: "Создана", value: formatDate(role.created_at) },
-    { label: "Изменена", value: formatDate(role.updated_at) },
-  ];
-  if (createdByName) rows.push({ label: "Создал", value: createdByName });
-  if (updatedByName) rows.push({ label: "Изменил", value: updatedByName });
-
-  return (
-    <aside className="w-full lg:w-[320px] shrink-0 rounded-[14px] border bg-card p-5">
-      <h2 className="text-[15px] font-semibold mb-4">О должности</h2>
-      <dl className="flex flex-col gap-2.5">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center justify-between gap-3 text-[13px]">
-            <dt className="text-muted-foreground">{r.label}</dt>
-            <dd className="font-medium text-foreground">{r.value}</dd>
-          </div>
-        ))}
-      </dl>
-    </aside>
-  );
-}
+// (RoleInfoCard переехал в общий <EntityInfoPopover> в header — см.
+// PageHeaderActions выше и src/components/shared/entity-info-popover.tsx)

@@ -224,6 +224,44 @@ import { Button } from "@/components/ui/button";
 - Header карточки: `bg-muted px-5 py-3.5` + icon-tile (28×28 brand-tint) + label + count pill «X из Y» + master switch
 - Rows: `flex items-center px-5 py-3 border-b last:border-b-0`, чекбокс/тоггл слева + текст 13px
 
+### Entity detail page (роль / сотрудник / счёт / транзакция / контр-агент / …)
+
+Универсальный паттерн страницы конкретной сущности. Источник: дизайн `r5eX3`.
+
+**Структура:**
+```
+[ ‹ Раздел  breadcrumb-link ]                 [ ⓘ info ] [ 🔔 bell ]   ← header (общий)
+[ h1 Название               ]   [ Сохранить ] ← left: title (28px bold)
+[ subtitle: краткое описание ]                  + опциональный CTA справа
+                  [ Tab1  Tab2  Tab3  ]       ← centered tabs (TabsList justify-center)
+                  ─────────────────────
+              [   centered content (max-w 720) ]
+```
+
+**Info-popover** (i-кнопка справа, рядом с колокольчиком):
+- Использовать `<EntityInfoPopover>` из `src/components/shared/entity-info-popover.tsx`
+- Внутри **5 строк**: ID, Создана, Создал (brand-blue), Изменена, Изменил (brand-blue)
+- Триггер: 36×36 icon-button с `Info` иконкой
+- Инжектится через `<PageHeaderActions>` из
+  `src/components/shared/page-header-actions.tsx`:
+
+```tsx
+<PageHeaderActions>
+  <EntityInfoPopover
+    title="О должности"
+    id={role.id}
+    createdAt={role.created_at}
+    createdByName={createdByName}
+    updatedAt={role.updated_at}
+    updatedByName={updatedByName}
+  />
+</PageHeaderActions>
+```
+
+**Требование к таблицам сущностей в БД:** должны иметь
+`created_at / updated_at / created_by / updated_by` (см. миграцию 052
+для `roles` как референс — таблица + триггеры на auto-set).
+
 ---
 
 ## Form States (`Q4FzoZ` → `CxLzo` / Section/Form States)

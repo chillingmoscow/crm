@@ -8,7 +8,15 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { saveKbPage } from "@/lib/knowledge/pages";
+import {
+  uploadKbAttachment,
+  getKbAttachmentSignedUrl,
+} from "@/lib/knowledge/attachments";
 import type { KbBlock } from "@/types/knowledge";
+
+// Custom URL scheme used by the BlockNote wrapper to mark uploaded KB
+// files (kept in sync with KB_BLOCKNOTE_FILE_SCHEME).
+const KB_FILE_SCHEME = "kbfile://";
 
 // BlockNote internally references `window` synchronously inside
 // useCreateBlockNote — even with "use client" the App Router renders
@@ -227,6 +235,35 @@ export function KbPageEditor({
         key={pageId}
         initialContent={initialContent}
         editable={canEdit}
+        uploadFile={async (file) => {
+          const result = await uploadKbAttachment({
+            pageId,
+            file,
+            name: file.name,
+            mime_type: file.type || "application/octet-stream",
+          });
+          if (result.error || !result.storage_path) {
+            toast.error(`Не удалось загрузить файл: ${result.error}`);
+            // Throwing makes BlockNote show its own upload-failed state.
+            throw new Error(result.error ?? "upload failed");
+          }
+          // Store storage_path inside our custom scheme so it survives
+          // round-trip through jsonb. resolveFileUrl below mints a fresh
+          // signed URL on render.
+          return `${KB_FILE_SCHEME}${result.storage_path}`;
+        }}
+        resolveFileUrl={async (url) => {
+          if (!url.startsWith(KB_FILE_SCHEME)) return url;
+          const storagePath = url.slice(KB_FILE_SCHEME.length);
+          const { url: signed, error } = await getKbAttachmentSignedUrl(storagePath);
+          if (error || !signed) {
+            // Fall back to the kbfile:// URL — browser will show a
+            // broken-image icon, which is the right signal that
+            // something went wrong server-side.
+            return url;
+          }
+          return signed;
+        }}
         onChange={({ content, plainText }) => {
           contentRef.current = content;
           plainTextRef.current = plainText;

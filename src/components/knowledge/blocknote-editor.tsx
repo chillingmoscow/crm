@@ -13,6 +13,14 @@ import "@blocknote/shadcn/style.css";
 
 import type { KbBlock } from "@/types/knowledge";
 
+/** Custom URL scheme used to mark uploaded KB files. The string after
+ *  `kbfile://` is the storage_path inside `account-attachments`.
+ *  resolveFileUrl swaps these for fresh signed URLs at render time —
+ *  signed URLs themselves expire after ~1h and would break inline images
+ *  if stored as-is in the BlockNote document.
+ */
+const KB_FILE_SCHEME = "kbfile://";
+
 export type BlockNoteEditorProps = {
   /**
    * Initial document. `null` / `undefined` → BlockNote opens with an
@@ -34,8 +42,25 @@ export type BlockNoteEditorProps = {
    * the network.
    */
   onChange?: (args: { content: KbBlock[]; plainText: string }) => void;
+  /**
+   * Async upload handler. Receives the dropped/picked File, must
+   * return a string that BlockNote stores in the block. We return
+   * `kbfile://<storage_path>` so it round-trips losslessly through
+   * the jsonb column; resolveFileUrl below swaps it for a fresh
+   * signed URL on every render.
+   */
+  uploadFile?: (file: File) => Promise<string>;
+  /**
+   * Per-render URL transformer. Called with whatever URL was stored
+   * in the block; returns the URL the browser should actually fetch.
+   * For external URLs this is a no-op; for our `kbfile://` scheme it
+   * mints a fresh signed URL.
+   */
+  resolveFileUrl?: (url: string) => Promise<string>;
   className?: string;
 };
+
+export const KB_BLOCKNOTE_FILE_SCHEME = KB_FILE_SCHEME;
 
 /**
  * BlockNote editor wrapped to plug into Sheerly DS. Uses the
@@ -51,6 +76,8 @@ export function KbBlockNoteEditor({
   initialContent,
   editable = true,
   onChange,
+  uploadFile,
+  resolveFileUrl,
   className,
 }: BlockNoteEditorProps) {
   const { resolvedTheme } = useTheme();
@@ -67,8 +94,30 @@ export function KbBlockNoteEditor({
     [],
   );
 
+  // Stable refs for BlockNote callbacks — useCreateBlockNote sees them
+  // only once. Without refs, re-renders would either churn the editor
+  // (if we re-pass the function literal) or capture a stale callback.
+  const uploadFileRef = useRef(uploadFile);
+  uploadFileRef.current = uploadFile;
+  const resolveFileUrlRef = useRef(resolveFileUrl);
+  resolveFileUrlRef.current = resolveFileUrl;
+
   const editor = useCreateBlockNote({
     initialContent: initial as never,
+    uploadFile: uploadFile
+      ? async (file: File) => {
+          const fn = uploadFileRef.current;
+          if (!fn) throw new Error("uploadFile handler not provided");
+          return fn(file);
+        }
+      : undefined,
+    resolveFileUrl: resolveFileUrl
+      ? async (url: string) => {
+          const fn = resolveFileUrlRef.current;
+          if (!fn) return url;
+          return fn(url);
+        }
+      : undefined,
   });
 
   // Subscribe to document changes; surface as { content, plainText }.

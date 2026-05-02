@@ -293,11 +293,13 @@ export function KbPageEditor({
           }}
           placeholder="Без названия"
           disabled={!canEdit}
-          // H1-страницы (Notion-like): 40px / 700 / -0.02em / 1.2.
-          // Без рамок и фона — поле сливается с фоном страницы.
-          className="h-auto py-1 border-transparent bg-transparent px-2 -ml-2
-                     text-[40px] font-bold tracking-tight leading-[1.15] shadow-none
-                     hover:border-border focus-visible:border-border focus-visible:ring-0"
+          // H1-страницы (Notion-like): 48px / 800 / -0.02em / 1.1.
+          // Полностью borderless — никакой рамки даже на hover/focus,
+          // поле сливается с фоном страницы.
+          className="h-auto py-1 border-0 bg-transparent px-2 -ml-2
+                     text-[48px] font-extrabold tracking-tight leading-[1.1] shadow-none
+                     hover:border-0 focus:border-0 focus-visible:border-0
+                     focus-visible:ring-0 focus-visible:outline-none"
         />
         {(updatedDisplay || initialUpdatedByName) && (
           <div className="-ml-0.5 mt-1 flex items-center gap-2 text-[13px] text-muted-foreground">

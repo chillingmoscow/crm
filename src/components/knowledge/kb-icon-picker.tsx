@@ -132,7 +132,14 @@ export function KbIconPicker({
                 <button
                   key={c.name}
                   type="button"
-                  onClick={() => setPendingColor(c.name)}
+                  onClick={() => {
+                    setPendingColor(c.name);
+                    // Если иконка уже выбрана — применяем цвет сразу,
+                    // не дожидаясь повторного клика по иконке. Это то,
+                    // что юзер ожидает увидеть (preview = commit для
+                    // существующей иконки).
+                    if (value) onChange({ icon: value, color: c.name });
+                  }}
                   aria-label={c.label}
                   title={c.label}
                   className={cn(

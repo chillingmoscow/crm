@@ -35,20 +35,39 @@ export async function listKbPages(): Promise<{
   return { rows: (data ?? []) as KbPageRow[], error: null };
 }
 
-/** Soft-deleted pages, for the trash view. RLS hides these from users
- * without `kb.delete_pages` (see migration 050 §3). */
+/** Direct-delete roots в корзине. Каскадно-удалённые потомки
+ * (deleted_root_id != id) не показываются — они вернутся вместе
+ * с родителем при restore. RLS hides эти строки от пользователей
+ * без `kb.delete_pages` (см. миграцию 050 §3). */
 export async function listDeletedKbPages(): Promise<{
-  rows: KbPageRow[];
+  rows: (KbPageRow & { descendants_count: number })[];
   error: string | null;
 }> {
   const supabase = await createClient();
+  // Все soft-deleted строки (root + cascade children) — нужны чтобы
+  // подсчитать сколько потомков уйдёт каскадом при restore.
   const { data, error } = await supabase
     .from("kb_pages")
     .select("*")
     .not("deleted_at", "is", null)
     .order("deleted_at", { ascending: false });
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as KbPageRow[], error: null };
+
+  const all = (data ?? []) as KbPageRow[];
+  const cascadeByRoot = new Map<string, number>();
+  for (const r of all) {
+    // cascade child = deleted_root_id указывает на другую страницу
+    if (r.deleted_root_id && r.deleted_root_id !== r.id) {
+      cascadeByRoot.set(
+        r.deleted_root_id,
+        (cascadeByRoot.get(r.deleted_root_id) ?? 0) + 1,
+      );
+    }
+  }
+  const roots = all
+    .filter((r) => !r.deleted_root_id || r.deleted_root_id === r.id)
+    .map((r) => ({ ...r, descendants_count: cascadeByRoot.get(r.id) ?? 0 }));
+  return { rows: roots, error: null };
 }
 
 export async function getKbPageBySlug(slug: string): Promise<{
@@ -248,38 +267,31 @@ export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: strin
   return { error: null };
 }
 
-/** Soft delete: cascades to descendants via parent_id ON DELETE CASCADE
- * is for hard delete only. We mark only the targeted page; UI shows
- * children as orphaned subtrees. If the user wants cascade-soft-delete,
- * that's a separate iteration. */
-export async function softDeleteKbPage(id: string): Promise<{ error: string | null }> {
+/** Cascade soft-delete: помечает страницу + всех её живых потомков.
+ *  Все они получают одинаковые deleted_at/by + deleted_root_id = id.
+ *  Иерархия parent_id потомков не меняется → restore возвращает дерево
+ *  ровно в той же форме. См. миграцию 063. */
+export async function softDeleteKbPage(
+  id: string,
+): Promise<{ deleted: number; error: string | null }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Не авторизован" };
-
-  const { error } = await supabase
-    .from("kb_pages")
-    .update({
-      deleted_at: new Date().toISOString(),
-      deleted_by: user.id,
-    })
-    .eq("id", id);
-  if (error) return { error: error.message };
+  const { data, error } = await supabase.rpc("kb_soft_delete_cascade", { p_id: id });
+  if (error) return { deleted: 0, error: error.message };
 
   revalidatePath("/knowledge");
-  return { error: null };
+  return { deleted: (data as number | null) ?? 0, error: null };
 }
 
-export async function restoreKbPage(id: string): Promise<{ error: string | null }> {
+/** Cascade restore: возвращает страницу + все строки, удалённые с ней
+ *  каскадом (deleted_root_id = id). Иерархия восстанавливается ровно
+ *  как была. */
+export async function restoreKbPage(
+  id: string,
+): Promise<{ restored: number; error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("kb_pages")
-    .update({ deleted_at: null, deleted_by: null })
-    .eq("id", id);
-  if (error) return { error: error.message };
+  const { data, error } = await supabase.rpc("kb_restore_cascade", { p_id: id });
+  if (error) return { restored: 0, error: error.message };
 
   revalidatePath("/knowledge");
-  return { error: null };
+  return { restored: (data as number | null) ?? 0, error: null };
 }

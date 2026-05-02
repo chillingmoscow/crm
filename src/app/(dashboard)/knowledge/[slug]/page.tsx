@@ -5,16 +5,13 @@ import { ChevronLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getKbPageBySlug, listKbPages } from "@/lib/knowledge/pages";
 import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
-import {
-  PageBreadcrumb,
-  PageHeaderActions,
-} from "@/components/shared/page-header-actions";
+import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
 import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
 import { KbPageActions } from "@/app/(dashboard)/knowledge/_components/kb-page-actions";
-import type { KbBlock } from "@/types/knowledge";
+import type { KbBlock, KbPageRow } from "@/types/knowledge";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -64,7 +61,9 @@ export default async function KbPageView({ params }: PageProps) {
     Boolean(hasEditAny) ||
     (Boolean(hasEditOwn) && row.created_by === user.user?.id);
   const canDelete = Boolean(hasDelete);
-  const childCount = allPages.filter((p) => p.parent_id === row.id).length;
+  // Total descendants — нужно для текста подтверждения удаления
+  // (cascade soft-delete заберёт всю ветку, не только direct children).
+  const descendantsCount = countDescendants(allPages, row.id);
 
   // Resolve back-link target: parent page if any, else /knowledge.
   // chain comes root → leaf, last entry is the current page itself.
@@ -91,27 +90,17 @@ export default async function KbPageView({ params }: PageProps) {
 
   return (
     <div className="flex-1 flex flex-col">
-      {/* Breadcrumb in layout's top bar (left side) — single ← link
-          back to parent page (or /knowledge for root pages). */}
-      <PageBreadcrumb>
-        <Link
-          href={backHref}
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          {backLabel}
-        </Link>
-      </PageBreadcrumb>
-
-      {/* Right-side actions in top bar — history, delete, info popover.
-          History/Delete are KB-specific entity actions; info popover
-          carries createdAt/updatedAt/by audit data per DS convention. */}
+      {/* Right-side top-bar actions: history, delete, info popover.
+          Breadcrumb (back-link) живёт inline в теле — выше заголовка
+          страницы, в той же колонке что контент, чтобы вертикальная
+          граница KB-сайдбара не разрывалась горизонтальной плашкой
+          breadcrumb'а на уровне топбара. */}
       <PageHeaderActions>
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
         <KbPageActions
           pageId={row.id}
           pageTitle={row.title}
-          childCount={childCount}
+          childCount={descendantsCount}
           canDelete={canDelete}
         />
         <EntityInfoPopover
@@ -125,10 +114,18 @@ export default async function KbPageView({ params }: PageProps) {
       </PageHeaderActions>
 
       {/* Page body — full-width container; editor itself is centred
-          to ~720px for Notion-like reading width (DS pattern для
-          entity-detail body, см. docs/design-system.md). */}
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
+          to ~720px for Notion-like reading width. */}
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+          {/* Inline breadcrumb back-link — над заголовком страницы. */}
+          <Link
+            href={backHref}
+            className="inline-flex items-center gap-1 -ml-2 px-2 py-1.5 rounded-md w-fit text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            {backLabel}
+          </Link>
+
           {/*
             Key by (id, updated_at). Normal auto-save doesn't bump
             updated_at in the current view (no router.refresh after save),
@@ -151,4 +148,24 @@ export default async function KbPageView({ params }: PageProps) {
       </div>
     </div>
   );
+}
+
+/** Recursive descendants count via in-memory walk (cheap on KB scale). */
+function countDescendants(allPages: KbPageRow[], rootId: string): number {
+  const childrenByParent = new Map<string, string[]>();
+  for (const p of allPages) {
+    if (!p.parent_id) continue;
+    const arr = childrenByParent.get(p.parent_id) ?? [];
+    arr.push(p.id);
+    childrenByParent.set(p.parent_id, arr);
+  }
+  let count = 0;
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    const kids = childrenByParent.get(id) ?? [];
+    count += kids.length;
+    stack.push(...kids);
+  }
+  return count;
 }

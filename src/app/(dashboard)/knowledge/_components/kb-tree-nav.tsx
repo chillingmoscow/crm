@@ -61,34 +61,38 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
   }, [activeSlug, nodes]);
 
   return (
-    <div className="flex flex-col gap-2 p-3">
-      <div className="px-1 pt-1">
+    // Full-height column: search + tree сверху, scrollable; Корзина —
+    // pinned к низу через mt-auto.
+    <div className="flex flex-col h-full p-3 gap-2">
+      <div className="px-1 pt-1 shrink-0">
         <KbSearchTrigger />
       </div>
       <KbTreeHeader />
-      {nodes.length === 0 ? (
-        <KbTreeEmpty />
-      ) : (
-        <ul className="flex flex-col gap-px" role="tree">
-          {nodes.map((node) => (
-            <KbTreeItem
-              key={node.id}
-              node={node}
-              depth={0}
-              expanded={expanded}
-              setExpanded={setExpanded}
-              activeSlug={activeSlug}
-            />
-          ))}
-        </ul>
-      )}
+      <div className="flex-1 overflow-y-auto -mx-3 px-3">
+        {nodes.length === 0 ? (
+          <KbTreeEmpty />
+        ) : (
+          <ul className="flex flex-col gap-px" role="tree">
+            {nodes.map((node) => (
+              <KbTreeItem
+                key={node.id}
+                node={node}
+                depth={0}
+                expanded={expanded}
+                setExpanded={setExpanded}
+                activeSlug={activeSlug}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
 
       {canSeeTrash && (
         <Link
           href="/knowledge/trash"
-          className="mt-2 flex items-center gap-2 rounded-md px-2 py-1.5
+          className="mt-auto shrink-0 flex items-center gap-2 rounded-md px-2 py-1.5
                      text-sm text-muted-foreground hover:bg-sidebar-accent
-                     hover:text-foreground"
+                     hover:text-foreground border-t border-sidebar-border/60 pt-3"
         >
           <Trash2 className="size-3.5" />
           Корзина

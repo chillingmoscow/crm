@@ -1177,6 +1177,7 @@ export type Database = {
           created_by: string | null
           deleted_at: string | null
           deleted_by: string | null
+          deleted_root_id: string | null
           icon: string | null
           icon_color: string | null
           id: string
@@ -1197,6 +1198,7 @@ export type Database = {
           created_by?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          deleted_root_id?: string | null
           icon?: string | null
           icon_color?: string | null
           id?: string
@@ -1217,6 +1219,7 @@ export type Database = {
           created_by?: string | null
           deleted_at?: string | null
           deleted_by?: string | null
+          deleted_root_id?: string | null
           icon?: string | null
           icon_color?: string | null
           id?: string
@@ -2140,6 +2143,7 @@ export type Database = {
           last_name: string
         }[]
       }
+      kb_restore_cascade: { Args: { p_id: string }; Returns: number }
       kb_save_page: {
         Args: {
           p_content: Json
@@ -2164,6 +2168,7 @@ export type Database = {
           title: string
         }[]
       }
+      kb_soft_delete_cascade: { Args: { p_id: string }; Returns: number }
       log_audit: {
         Args: {
           p_action_code: string

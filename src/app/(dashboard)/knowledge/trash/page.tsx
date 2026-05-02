@@ -66,11 +66,10 @@ export default async function KnowledgeTrashPage() {
               Корзина
             </h1>
           </div>
-          <p className="text-sm text-muted-foreground max-w-[640px]">
-            Удалённые страницы можно восстановить. Подстраницы удалённой
-            родительской страницы при удалении временно становятся корневыми
-            в основном дереве — восстановление родителя их не вернёт обратно
-            в иерархию.
+          <p className="text-sm text-muted-foreground">
+            Удалённые страницы можно восстановить. При удалении родителя
+            все подстраницы удаляются вместе с ним; при восстановлении —
+            возвращаются в той же иерархии.
           </p>
         </header>
 
@@ -89,6 +88,7 @@ export default async function KnowledgeTrashPage() {
                 title={row.title}
                 icon={row.icon}
                 iconColor={row.icon_color}
+                descendantsCount={row.descendants_count}
                 deletedAt={row.deleted_at}
                 deletedByName={
                   row.deleted_by ? profilesById.get(row.deleted_by) ?? null : null

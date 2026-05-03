@@ -247,6 +247,38 @@ input:-webkit-autofill {
   padding-bottom: 4px;
 }
 
+/* Numbered list marker fix.
+ *
+ * BlockNote 0.49 default CSS рендерит номер через CSS-переменную:
+ *
+ *   [data-content-type=numberedListItem] { --index: attr(data-index) }
+ *   .bn-block-content[data-content-type=numberedListItem]:before {
+ *     content: var(--index) ".";
+ *   }
+ *
+ * Проблема: `attr()` ВНЕ `content` (= в --index: ...) — это CSS Values
+ * Level 5, поддерживается только в Chrome 133+ (Feb 2025). В Firefox /
+ * Safari / старых Chrome --index резолвится в пустоту → видна только
+ * точка «.» без цифры.
+ *
+ * Fix: переопределяем `content` напрямую через `attr(data-index)`
+ * INSIDE content — это CSS2-feature, работает везде. attr() читается
+ * с того же элемента (bn-block-content имеет и data-content-type, и
+ * data-index), так что значение корректное.
+ *
+ * `!important` — потому что BlockNote-default selector такой же
+ * специфичности, иначе порядок CSS-import'ов решает побеждающего. */
+.bn-sheerly .bn-block-content[data-content-type="numberedListItem"]::before {
+  content: attr(data-index) "." !important;
+}
+/* NB: transition-state селектор (data-prev-type/data-prev-index во
+ * время drag/edit-анимаций) НЕ переопределяем — там data-prev-index
+ * живёт на bn-block-outer, а ::before на bn-block-content, attr()
+ * не читает с предка. Оригинальный BlockNote-pattern через
+ * var(--prev-index) тоже сломан в браузерах без attr()-в-css-vars,
+ * так что во время ~200ms transition номер может мигнуть. Visual
+ * flicker, не критично. */
+
 /* BlockNote по умолчанию рендерит H1 как 3em (≈48px на 16px base) —
    это совпадает с размером заголовка страницы и визуально перевешивает
    её в теле документа. Уменьшаем под Notion-like ритм:

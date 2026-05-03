@@ -246,15 +246,22 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
   );
 }
 
-/** Заменяет media-блоки (image/file/video/audio) с не-http URL'ами
- *  на текстовый paragraph-placeholder. Markdown из external источников
- *  часто содержит относительные пути типа `./images/foo.jpg` или просто
- *  `foo.jpg` — без сопроводительной загрузки файлов в storage эти
- *  ссылки рендерятся как broken-image иконка с alt-текстом, что
- *  выглядит как мусор.
+/** Заменяет media-блоки (image/file/video/audio) с не-валидными
+ *  URL'ами на текстовый paragraph-placeholder. Markdown из external
+ *  источников часто содержит относительные пути типа `./images/foo.jpg`
+ *  или просто `foo.jpg` — без сопроводительной загрузки файлов в
+ *  storage эти ссылки рендерятся как broken-image иконка с alt-текстом,
+ *  что выглядит как мусор.
  *
- *  Альтернатива (пытаться загрузить файл из storage) требует zip-import
- *  с медиа-приложениями — отдельная фича для будущего.
+ *  Что считаем валидным (НЕ заменяем):
+ *    • `https?://...` — обычные external URLs
+ *    • `kbfile://...` — наши uploaded в storage attachments
+ *    • `data:...` — inline base64-картинки (Notion / Obsidian экспорты
+ *      часто их используют — данные в самой ссылке, ничего загружать
+ *      не нужно). См. Codex #50 P2.
+ *
+ *  Альтернатива (пытаться загрузить relative paths из storage) требует
+ *  zip-import с медиа-приложениями — отдельная фича для будущего.
  *
  *  Рекурсивно обходим children (для nested-блоков типа table). */
 function rewriteBrokenMediaBlocks(blocks: KbBlock[]): KbBlock[] {
@@ -273,7 +280,13 @@ function rewriteBrokenMediaBlocks(blocks: KbBlock[]): KbBlock[] {
       const url = (b.props?.url ?? "").trim();
       const isHttp = /^https?:\/\//i.test(url);
       const isKbFile = url.startsWith("kbfile://");
-      if (!isHttp && !isKbFile) {
+      // data:[<mediatype>][;base64],<data> — RFC 2397 inline data.
+      // Без префикса `data:` browser отрисует это как broken image,
+      // но с ним — это самодостаточный image-payload, никакого
+      // external storage не нужно. Common в .md экспортах из
+      // Notion / Obsidian / Bear (для inline screenshots).
+      const isDataUrl = /^data:/i.test(url);
+      if (!isHttp && !isKbFile && !isDataUrl) {
         const label =
           b.props?.name?.trim() ||
           b.props?.caption?.trim() ||

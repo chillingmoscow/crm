@@ -11,22 +11,29 @@ import { KbAuditEventRow } from "@/app/(dashboard)/knowledge/audit/_components/k
  * Журнал KB-audit-событий. Доступ — `org.view_audit` (та же permission,
  * что для общего audit_logs; миграция 035 §RLS).
  *
- * Pagination — keyset через `?before=<created_at>` (см. KbAuditEventRow
- * footer ссылку «Старее»).
+ * Pagination — keyset через композитный курсор `?before_at=...&before_id=...`
+ * (см. KbAuditEventRow footer ссылку «Старее»). Композит нужен потому
+ * что cascade-операции (delete-cascade) вставляют десятки rows с
+ * одинаковым created_at — простой `lt(created_at)` пропускал бы
+ * остальные events с тем же timestamp на page2. См. Codex #52 P1.
  */
 export default async function KbAuditPage({
   searchParams,
 }: {
-  searchParams: Promise<{ before?: string }>;
+  searchParams: Promise<{ before_at?: string; before_id?: string }>;
 }) {
-  const { before } = await searchParams;
+  const { before_at: beforeCreatedAt, before_id: beforeId } =
+    await searchParams;
   const supabase = await createClient();
   const { data: canView } = await supabase.rpc("has_permission", {
     permission_code: "org.view_audit",
   });
   if (!canView) redirect("/knowledge");
 
-  const { events, hasMore, error } = await listKbAuditEvents({ before });
+  const { events, hasMore, error } = await listKbAuditEvents({
+    beforeCreatedAt,
+    beforeId,
+  });
 
   return (
     <div className="flex-1 flex flex-col">
@@ -54,7 +61,7 @@ export default async function KbAuditPage({
             </div>
           )}
 
-          {!error && events.length === 0 && !before && (
+          {!error && events.length === 0 && !beforeCreatedAt && (
             <EmptyState
               icon={ScrollText}
               title="Пока пусто"
@@ -73,7 +80,7 @@ export default async function KbAuditPage({
           {hasMore && events.length > 0 && (
             <div className="flex justify-center pt-2">
               <a
-                href={`/knowledge/audit?before=${encodeURIComponent(events[events.length - 1].created_at)}`}
+                href={`/knowledge/audit?before_at=${encodeURIComponent(events[events.length - 1].created_at)}&before_id=${encodeURIComponent(events[events.length - 1].id)}`}
                 className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 Показать события старее →

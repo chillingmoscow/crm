@@ -184,6 +184,21 @@ export function KbPageEditor({
     };
   }, [pageId, accountId, userId, canEdit, canComment]);
 
+  // Sprint D Phase 5: thread-store держит Realtime-канал. Без unsubscribe
+  // на unmount канал утекает (и сервер продолжает броадкаст-ить даже
+  // после route-change'а). useEffect с deps на bundle-instance —
+  // когда useMemo пересоздаёт store (смена pageId), cleanup старого
+  // запускается до новой подписки.
+  useEffect(() => {
+    if (!commentsBundle) return;
+    const store = commentsBundle.threadStore;
+    return () => {
+      if (store instanceof SupabaseThreadStore) {
+        store.destroy();
+      }
+    };
+  }, [commentsBundle]);
+
   const [title, setTitle] = useState(initialTitle);
   const [icon, setIcon] = useState<string | null>(initialIcon);
   const [iconColor, setIconColor] = useState<string | null>(initialIconColor);

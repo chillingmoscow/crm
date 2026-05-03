@@ -102,7 +102,7 @@ export default async function KbAnalyticsPage({
                 {PERIOD_LABEL[period]} · топ-{Math.min(topPages.length, 10) || 10}
               </span>
             </div>
-            <KbAnalyticsTopPages rows={topPages} />
+            <KbAnalyticsTopPages rows={topPages} period={period} />
           </section>
 
           <section className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">

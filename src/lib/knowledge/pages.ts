@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
+import { blocksToMarkdown, escapeMdTitle } from "@/lib/knowledge/blocks-to-markdown";
 import {
   kbPageCreateSchema,
   kbPageMoveSchema,
@@ -128,6 +129,47 @@ export async function getKbPageById(id: string): Promise<{
     .maybeSingle();
   if (error) return { row: null, error: error.message };
   return { row: (data as KbPageRow | null) ?? null, error: null };
+}
+
+/** Конвертирует страницу (по id) в Markdown-текст.
+ *
+ *  Гейтинг: помимо стандартного `kb.view_pages` (фильтруется RLS на
+ *  чтении row'а), требует **отдельный permission `kb.export_pages`**
+ *  — рядовые сотрудники (hostess/waiter) не должны иметь возможность
+ *  выгружать интеллектуальную собственность компании наружу. UI уже
+ *  скрывает кнопку, но клиент может вызвать server-action напрямую,
+ *  поэтому проверяем здесь же. См. миграцию 068. */
+export async function exportKbPageAsMarkdown(id: string): Promise<{
+  markdown: string | null;
+  filename: string | null;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data: canExport } = await supabase.rpc("has_permission", {
+    permission_code: "kb.export_pages",
+  });
+  if (!canExport) {
+    return {
+      markdown: null,
+      filename: null,
+      error: "Нет права экспортировать страницы",
+    };
+  }
+
+  const { row, error } = await getKbPageById(id);
+  if (error) return { markdown: null, filename: null, error };
+  if (!row) return { markdown: null, filename: null, error: "Страница не найдена" };
+
+  const blocks = (row.content as unknown as import("@/types/knowledge").KbBlock[]) ?? [];
+  const title = row.title || "Без названия";
+  const body = blocksToMarkdown(blocks);
+  // Заголовок страницы сверху как H1. escapeMdTitle экранирует
+  // markdown-метасимволы и схлопывает переводы строк — без этого
+  // title с `#`, `[`, `]` или `\n` ломал бы heading и структуру файла.
+  const md = `# ${escapeMdTitle(title)}\n\n${body}`;
+
+  // Файлнейм: slug + .md. Slug URL-safe by design (см. lib/knowledge/slug.ts).
+  return { markdown: md, filename: `${row.slug}.md`, error: null };
 }
 
 /** Recently edited pages, for the landing screen. */
@@ -320,6 +362,26 @@ export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: strin
 
   revalidatePath("/knowledge");
   return { error: null };
+}
+
+/** Cascade duplicate: создаёт копию страницы + всего поддерева
+ *  живых потомков. Title корня получает суффикс « (копия)»,
+ *  attachments копируются как pivot-references на те же
+ *  account_files. Версии и backlinks НЕ копируются. См. миграцию 064. */
+export async function duplicateKbPage(
+  id: string,
+): Promise<{ slug: string | null; error: string | null }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .rpc("kb_duplicate_cascade", { p_id: id });
+  if (error) return { slug: null, error: error.message };
+
+  // RPC возвращает table → массив строк. Берём первую (одна по контракту).
+  const row = (data as Array<{ new_id: string; new_slug: string }> | null)?.[0];
+  if (!row) return { slug: null, error: "Не удалось получить slug копии" };
+
+  revalidatePath("/knowledge");
+  return { slug: row.new_slug, error: null };
 }
 
 /** Cascade soft-delete: помечает страницу + всех её живых потомков.

@@ -80,9 +80,13 @@ export default async function DashboardLayout({
   const activeRoleCode = activeVenue?.role_code ?? null;
   const activeRoleName = activeVenue?.role_name ?? null;
 
-  // Account name for the profile popover subtitle ("<Роль> · <Аккаунт>").
-  // Cheap separate fetch — needed only for the sidebar footer popover.
-  const { data: accountId } = await supabase.rpc("get_active_account_id");
+  // Account name + список permission'ов параллельно. Permissions
+  // нужны для permission-based фильтрации sidebar'а (см. AppSidebar
+  // → userPermissions prop).
+  const [{ data: accountId }, { data: userPerms }] = await Promise.all([
+    supabase.rpc("get_active_account_id"),
+    supabase.rpc("list_my_permissions"),
+  ]);
   let accountName: string | null = null;
   if (accountId) {
     const { data: account } = await supabase
@@ -92,6 +96,7 @@ export default async function DashboardLayout({
       .maybeSingle();
     accountName = account?.name ?? null;
   }
+  const userPermissions = (userPerms as string[] | null) ?? [];
 
   return (
     // delayDuration=150 — short hover-delay для всех IconTooltip'ов
@@ -108,6 +113,7 @@ export default async function DashboardLayout({
         activeRoleCode={activeRoleCode}
         activeRoleName={activeRoleName}
         accountName={accountName}
+        userPermissions={userPermissions}
       />
       <SidebarInset>
         <PageHeaderActionsProvider>

@@ -2,12 +2,24 @@
 
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTheme } from "next-themes";
-import { BlockNoteEditor } from "@blocknote/core";
+import {
+  BlockNoteEditor,
+  BlockNoteSchema,
+  defaultBlockSpecs,
+  filterSuggestionItems,
+  insertOrUpdateBlockForSlashMenu,
+} from "@blocknote/core";
 import { ru as ruLocale } from "@blocknote/core/locales";
-import { useCreateBlockNote } from "@blocknote/react";
+import {
+  SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
+  useCreateBlockNote,
+} from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
+import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
+import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -68,10 +80,66 @@ export type BlockNoteEditorProps = {
   /** Если передан кастомный SideMenuController через renderExtras —
    *  отключаем встроенный, чтобы не было двух одновременно. */
   customSideMenu?: boolean;
+  /** Если true — отключаем дефолтный slash-menu и подставляем свой,
+   *  расширенный custom-айтемами (callout-варианты и пр.). Дефолтные
+   *  пункты при этом сохраняются — мы просто комбинируем. */
+  customSlashMenu?: boolean;
   className?: string;
 };
 
 export const KB_BLOCKNOTE_FILE_SCHEME = KB_FILE_SCHEME;
+
+/** 4 slash-menu айтема для callout-вариантов. Группируются под
+ *  «Подсказки», чтобы соседствовать в menu, а не раскидываться.
+ *  Принимает editor wide-типа (any-shape), потому что наш schema
+ *  расширен callout-блоком относительно дефолтного BlockNoteEditor. */
+function getKbCalloutSlashItems(editor: BlockNoteEditor<never, never, never>) {
+  // Используем helper, которым пользуются built-in slash-айтемы
+  // (`@blocknote/core` экспортирует его напрямую). Он делает
+  // updateBlock на текущем пустом параграфе и insertBlocks "after"
+  // только если текущий блок непустой — без него `/` на пустой
+  // строке оставлял бы исходный пустой параграф над callout'ом.
+  const insert = (variant: "info" | "warning" | "success" | "error") => () => {
+    insertOrUpdateBlockForSlashMenu(editor, {
+      type: "callout",
+      props: { variant },
+    } as never);
+  };
+  return [
+    {
+      title: "Подсказка",
+      subtext: "Информационный блок",
+      aliases: ["info", "callout", "podskazka"],
+      group: "Подсказки",
+      icon: <Info className="size-4 text-brand" />,
+      onItemClick: insert("info"),
+    },
+    {
+      title: "Предупреждение",
+      subtext: "Жёлтая плашка с восклицанием",
+      aliases: ["warning", "warn", "preduprezhdenie"],
+      group: "Подсказки",
+      icon: <AlertTriangle className="size-4 text-yellow-700 dark:text-yellow-400" />,
+      onItemClick: insert("warning"),
+    },
+    {
+      title: "Успех",
+      subtext: "Зелёная плашка-галочка",
+      aliases: ["success", "ok", "uspeh"],
+      group: "Подсказки",
+      icon: <CheckCircle2 className="size-4 text-emerald-700 dark:text-emerald-400" />,
+      onItemClick: insert("success"),
+    },
+    {
+      title: "Ошибка",
+      subtext: "Красная плашка-крестик",
+      aliases: ["error", "danger", "oshibka"],
+      group: "Подсказки",
+      icon: <XCircle className="size-4 text-destructive" />,
+      onItemClick: insert("error"),
+    },
+  ];
+}
 
 /**
  * BlockNote editor wrapped to plug into Sheerly DS. Uses the
@@ -91,6 +159,7 @@ export function KbBlockNoteEditor({
   resolveFileUrl,
   renderExtras,
   customSideMenu = false,
+  customSlashMenu = false,
   className,
 }: BlockNoteEditorProps) {
   const { resolvedTheme } = useTheme();
@@ -160,7 +229,22 @@ export function KbBlockNoteEditor({
     };
   }, []);
 
+  // Кастомная schema = default-blocks + наш callout. Создаём один раз
+  // на mount (useMemo с пустыми deps) — пересборка schema'ы пересоздала
+  // бы editor instance, что сломало бы in-flight UI.
+  const schema = useMemo(
+    () =>
+      BlockNoteSchema.create({
+        blockSpecs: {
+          ...defaultBlockSpecs,
+          callout: kbCalloutBlock(),
+        },
+      }),
+    [],
+  );
+
   const editor = useCreateBlockNote({
+    schema,
     initialContent: initial as never,
     uploadFile: stableUploadFile,
     resolveFileUrl: stableResolveFileUrl,
@@ -173,7 +257,10 @@ export function KbBlockNoteEditor({
 
   useEffect(() => {
     if (!onChangeRef.current) return;
-    const unsubscribe = editor.onChange((ed: BlockNoteEditor) => {
+    // Тип `ed` берём как у нашего editor'а (расширенный schema с
+     // callout) — иначе TS ругается на несовместимость дефолтного
+     // BlockNoteEditor<defaultSchema> с нашим типизированным.
+     const unsubscribe = editor.onChange((ed) => {
       const handler = onChangeRef.current;
       if (!handler) return;
       // blocksToMarkdownLossy is async — but for plain_text we just
@@ -195,8 +282,23 @@ export function KbBlockNoteEditor({
       theme={resolvedTheme === "dark" ? "dark" : "light"}
       className={cn("bn-sheerly", className)}
       sideMenu={customSideMenu ? false : undefined}
+      slashMenu={customSlashMenu ? false : undefined}
     >
-      {renderExtras?.(editor)}
+      {customSlashMenu && (
+        <SuggestionMenuController
+          triggerCharacter="/"
+          getItems={async (query) =>
+            filterSuggestionItems(
+              [
+                ...getDefaultReactSlashMenuItems(editor),
+                ...getKbCalloutSlashItems(editor as never),
+              ],
+              query,
+            )
+          }
+        />
+      )}
+      {renderExtras?.(editor as unknown as BlockNoteEditor)}
     </BlockNoteView>
   );
 }

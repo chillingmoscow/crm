@@ -2302,6 +2302,14 @@ export type Database = {
         Returns: { new_id: string; new_slug: string }[]
       }
       kb_generate_slug: { Args: Record<string, never>; Returns: string }
+      kb_move_page: {
+        Args: {
+          p_id: string
+          p_new_parent_id: string | null
+          p_new_sibling_order: string[]
+        }
+        Returns: string
+      }
       kb_reorder_siblings: {
         Args: { p_parent_id: string | null; p_ordered_ids: string[] }
         Returns: number

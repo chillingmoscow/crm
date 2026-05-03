@@ -388,6 +388,51 @@ export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: strin
   return { error: null };
 }
 
+/** Атомарный move-with-reorder через RPC `kb_move_page` (миграция 073).
+ *  Используется UI drag-n-drop — за один RPC меняет parent_id +
+ *  пересчитывает position всех siblings под новым родителем.
+ *
+ *  Преимущество над двумя последовательными RPC (moveKbPage + reorder):
+ *    1. Atomicity — либо вся операция применилась, либо ни одна
+ *       (PG-функция implicit-transaction). Без этого drag со сбоем
+ *       мог оставить страницу с новым parent_id, но старыми
+ *       position'ами → визуальный скачок после reload.
+ *    2. Cycle check на server-side — нельзя сделать ancestor собственным
+ *       потомком. UI-проверка может быть обойдена через crafted
+ *       request, server гарантирует.
+ *
+ *  newSiblingOrder: список ВСЕХ siblings под newParentId, ВКЛЮЧАЯ
+ *  сам id на новой позиции. Caller (UI) вычисляет это локально из
+ *  optimistic-tree-state. */
+export async function moveKbPageInTree(input: {
+  id: string;
+  newParentId: string | null;
+  newSiblingOrder: string[];
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { data: status, error } = await supabase.rpc("kb_move_page", {
+    p_id: input.id,
+    p_new_parent_id: input.newParentId,
+    p_new_sibling_order: input.newSiblingOrder,
+  });
+  if (error) return { error: error.message };
+
+  const result = (status as unknown as string) ?? "unknown";
+  if (result !== "ok") {
+    const messages: Record<string, string> = {
+      cycle: "Нельзя поместить страницу внутрь её же потомка",
+      no_page: "Страница не найдена",
+      no_parent: "Родительская страница не найдена",
+      wrong_account: "Конфликт данных — обновите страницу",
+      forbidden: "Нет права перемещать страницы",
+    };
+    return { error: messages[result] ?? `Move failed: ${result}` };
+  }
+
+  revalidatePath("/knowledge");
+  return { error: null };
+}
+
 /** Cascade duplicate: создаёт копию страницы + всего поддерева
  *  живых потомков. Title корня получает суффикс « (копия)»,
  *  attachments копируются как pivot-references на те же

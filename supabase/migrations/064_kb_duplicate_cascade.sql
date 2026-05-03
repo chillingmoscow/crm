@@ -96,6 +96,19 @@ begin
     from public.kb_pages
    where id = p_id;
 
+  -- Сдвигаем все siblings position >= v_root_pos на +1, чтобы
+  -- освободить «дыру» под копию. Без этого копия делила бы position
+  -- с уже существующим sibling'ом, и assembleTree (sort by
+  -- (position, title)) ставил бы порядок алфавитно, теряя
+  -- «сразу после оригинала» инвариант. is not distinct from —
+  -- корректно обрабатывает root-уровень (parent_id is null).
+  update public.kb_pages
+     set position = position + 1
+   where account_id = v_account_id
+     and parent_id is not distinct from v_root_parent
+     and position >= v_root_pos
+     and deleted_at is null;
+
   -- 1) Собираем поддерево (root + все живые потомки) и присваиваем
   --    каждому row'у новый UUID + новый slug. Это mapping для шага 2.
   --    ON CONFLICT по slug маловероятен (~10^-12), но если случится —
@@ -151,10 +164,15 @@ begin
   from public.kb_pages p
   join _dup_map m on m.old_id = p.id;
 
-  -- 3) Pivot kb_page_attachments — копируем ссылки на те же account_files.
-  --    storage-объекты не дублируются (shared references).
-  insert into public.kb_page_attachments (page_id, file_id)
-  select m.new_id, pa.file_id
+  -- 3) Pivot kb_page_attachments — копируем ссылки на те же account_files
+  --    с полным копированием metadata (caption, attached_by, attached_at).
+  --    Storage-объекты НЕ дублируются (shared references), но caption
+  --    и audit-attribution принадлежат paged-копии — теряются они
+  --    бессмысленно.
+  insert into public.kb_page_attachments (
+    page_id, file_id, caption, attached_by, attached_at
+  )
+  select m.new_id, pa.file_id, pa.caption, pa.attached_by, pa.attached_at
     from public.kb_page_attachments pa
     join _dup_map m on m.old_id = pa.page_id;
 

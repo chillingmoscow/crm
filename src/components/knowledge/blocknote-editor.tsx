@@ -452,6 +452,13 @@ export function KbBlockNoteEditor({
       // commentsBundle (любой включает кастомный controller).
       // См. Codex #54 P2.
       formattingToolbar={aiSlashEnabled || commentsBundle ? false : undefined}
+      // Default LinkToolbar отключаем — рендерим свой
+      // <LinkToolbarController> (ниже), который для KB-links возвращает
+      // null. Без этого флага BlockNote рендерил бы ОБА toolbar'а:
+      // дефолтный (показывает «Изменить ссылку» для всех URL'ов) +
+      // наш кастомный (null для kb-links). Юзер видел overlap. См.
+      // Codex #67 P1.
+      linkToolbar={false}
     >
       {customSlashMenu && (
         <SuggestionMenuController

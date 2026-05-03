@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Sparkles,
-  Scissors,
-  RefreshCw,
-  ArrowRight,
-  Languages,
-  SpellCheck,
-  Heading,
-} from "lucide-react";
+import { Sparkles, ArrowRight, Heading } from "lucide-react";
 import type { ReactNode } from "react";
 import { toast } from "sonner";
 import type { BlockNoteEditor } from "@blocknote/core";
@@ -40,67 +32,31 @@ interface AiCommandSpec {
   insertMode: "replace" | "after" | "heading";
 }
 
+/** В slash-меню остались ТОЛЬКО команды, работающие по контексту
+ *  блока (не по выделению). Команды по selection (Сократить /
+ *  Переформулировать / Исправить опечатки / Перевести EN / Перевести
+ *  RU) переехали в FormattingToolbar — там кнопка появляется ИЗ
+ *  выделения, не сбрасывая его. См. KbAiFormattingButton.
+ *
+ *  Старая попытка собрать selection-команды в slash-меню была сломана
+ *  по UX: чтобы invoke'нуть `/ai-…`, юзер должен нажать `/`, что
+ *  стирает выделение → команда не получает текст. */
 const AI_COMMANDS: AiCommandSpec[] = [
   {
-    id: "shorten",
-    title: "Сократить",
-    subtext: "ИИ сократит выделенный текст",
-    icon: <Scissors className="size-4 text-brand" />,
-    aliases: ["shorten", "short", "sokratit", "сократить"],
-    requiresSelection: true,
-    insertMode: "replace",
-  },
-  {
-    id: "rephrase",
-    title: "Переформулировать",
-    subtext: "Тот же смысл, другие слова",
-    icon: <RefreshCw className="size-4 text-brand" />,
-    aliases: ["rephrase", "pereformulate", "perefraz", "переформулировать"],
-    requiresSelection: true,
-    insertMode: "replace",
-  },
-  {
-    id: "fix_typos",
-    title: "Исправить опечатки",
-    subtext: "Орфография и пунктуация",
-    icon: <SpellCheck className="size-4 text-brand" />,
-    aliases: ["fix", "typos", "spell", "ispravit", "исправить"],
-    requiresSelection: true,
-    insertMode: "replace",
-  },
-  {
-    id: "translate_en",
-    title: "Перевести на английский",
-    subtext: "Текст → English",
-    icon: <Languages className="size-4 text-brand" />,
-    aliases: ["translate", "english", "en", "perevod"],
-    requiresSelection: true,
-    insertMode: "replace",
-  },
-  {
-    id: "translate_ru",
-    title: "Перевести на русский",
-    subtext: "English → Текст",
-    icon: <Languages className="size-4 text-brand" />,
-    aliases: ["translate", "russian", "ru"],
-    requiresSelection: true,
-    insertMode: "replace",
-  },
-  {
     id: "continue_writing",
-    title: "Продолжить",
+    title: "Продолжить (ИИ)",
     subtext: "ИИ напишет продолжение текущего блока",
     icon: <ArrowRight className="size-4 text-brand" />,
-    aliases: ["continue", "write", "prodolzhit", "продолжить"],
+    aliases: ["continue", "write", "prodolzhit", "продолжить", "ai", "ии"],
     requiresSelection: false,
     insertMode: "after",
   },
   {
     id: "generate_heading",
-    title: "Сгенерировать заголовок",
+    title: "Сгенерировать заголовок (ИИ)",
     subtext: "Заголовок для текущего блока",
     icon: <Heading className="size-4 text-brand" />,
-    aliases: ["heading", "title", "zagolovok", "заголовок"],
+    aliases: ["heading", "title", "zagolovok", "заголовок", "ai", "ии"],
     requiresSelection: false,
     insertMode: "heading",
   },

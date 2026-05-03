@@ -106,9 +106,14 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
       const file = files[i];
       try {
         const md = await file.text();
-        const blocks = (await editor.tryParseMarkdownToBlocks(
+        const rawBlocks = (await editor.tryParseMarkdownToBlocks(
           md,
         )) as unknown as KbBlock[];
+        // Заменяем broken-image / file / video / audio блоки (с не-http
+        // URL — обычно `./path.jpg` из локальных markdown-экспортов) на
+        // текстовый placeholder. Без этого юзер видит сломанные картинки
+        // с alt-текстом и иконкой broken-image — UX мусорный.
+        const blocks = rewriteBrokenMediaBlocks(rawBlocks);
         const payload: KbImportFileInput = {
           name: file.name,
           blocks,
@@ -239,4 +244,61 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Заменяет media-блоки (image/file/video/audio) с не-http URL'ами
+ *  на текстовый paragraph-placeholder. Markdown из external источников
+ *  часто содержит относительные пути типа `./images/foo.jpg` или просто
+ *  `foo.jpg` — без сопроводительной загрузки файлов в storage эти
+ *  ссылки рендерятся как broken-image иконка с alt-текстом, что
+ *  выглядит как мусор.
+ *
+ *  Альтернатива (пытаться загрузить файл из storage) требует zip-import
+ *  с медиа-приложениями — отдельная фича для будущего.
+ *
+ *  Рекурсивно обходим children (для nested-блоков типа table). */
+function rewriteBrokenMediaBlocks(blocks: KbBlock[]): KbBlock[] {
+  return blocks.map((block) => {
+    const b = block as unknown as {
+      type?: string;
+      props?: { url?: string; name?: string; caption?: string };
+      children?: unknown[];
+    };
+    const isMedia =
+      b.type === "image" ||
+      b.type === "file" ||
+      b.type === "video" ||
+      b.type === "audio";
+    if (isMedia) {
+      const url = (b.props?.url ?? "").trim();
+      const isHttp = /^https?:\/\//i.test(url);
+      const isKbFile = url.startsWith("kbfile://");
+      if (!isHttp && !isKbFile) {
+        const label =
+          b.props?.name?.trim() ||
+          b.props?.caption?.trim() ||
+          (url ? url.split("/").pop() : null) ||
+          "вложение";
+        return {
+          type: "paragraph",
+          props: {},
+          content: [
+            {
+              type: "text",
+              text: `[Изображение из импорта: ${label}]`,
+              styles: { italic: true },
+            },
+          ],
+          children: [],
+        } as unknown as KbBlock;
+      }
+    }
+    if (Array.isArray(b.children) && b.children.length > 0) {
+      return {
+        ...block,
+        children: rewriteBrokenMediaBlocks(b.children as KbBlock[]),
+      } as KbBlock;
+    }
+    return block;
+  });
 }

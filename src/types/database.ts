@@ -2143,6 +2143,7 @@ export type Database = {
           last_name: string
         }[]
       }
+      list_my_permissions: { Args: Record<string, never>; Returns: string[] }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
       kb_save_page: {
         Args: {

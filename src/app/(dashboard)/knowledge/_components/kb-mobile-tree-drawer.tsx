@@ -22,6 +22,8 @@ interface KbMobileTreeDrawerProps {
   favorites?: KbFavoritePage[];
   canSeeTrash: boolean;
   canImport?: boolean;
+  canCreate?: boolean;
+  canManageTemplates?: boolean;
 }
 
 /**
@@ -32,7 +34,14 @@ interface KbMobileTreeDrawerProps {
  * Sheet закрывается автоматически при смене pathname (т.е. когда
  * пользователь кликнул страницу в дереве).
  */
-export function KbMobileTreeDrawer({ nodes, favorites, canSeeTrash, canImport = false }: KbMobileTreeDrawerProps) {
+export function KbMobileTreeDrawer({
+  nodes,
+  favorites,
+  canSeeTrash,
+  canImport = false,
+  canCreate = false,
+  canManageTemplates = false,
+}: KbMobileTreeDrawerProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -62,7 +71,14 @@ export function KbMobileTreeDrawer({ nodes, favorites, canSeeTrash, canImport = 
           <SheetTitle className="text-sm">База знаний</SheetTitle>
         </SheetHeader>
         <div className="overflow-y-auto h-[calc(100vh-3.25rem)]">
-          <KbTreeNav nodes={nodes} favorites={favorites} canSeeTrash={canSeeTrash} canImport={canImport} />
+          <KbTreeNav
+            nodes={nodes}
+            favorites={favorites}
+            canSeeTrash={canSeeTrash}
+            canImport={canImport}
+            canCreate={canCreate}
+            canManageTemplates={canManageTemplates}
+          />
         </div>
       </SheetContent>
     </Sheet>

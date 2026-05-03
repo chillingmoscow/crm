@@ -1270,6 +1270,76 @@ export type Database = {
           },
         ]
       }
+      kb_templates: {
+        Row: {
+          account_id: string
+          category: string | null
+          content: Json
+          created_at: string
+          created_by: string | null
+          description: string | null
+          icon: string | null
+          icon_color: string | null
+          id: string
+          is_system_default: boolean
+          name: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          category?: string | null
+          content?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          icon?: string | null
+          icon_color?: string | null
+          id?: string
+          is_system_default?: boolean
+          name: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          category?: string | null
+          content?: Json
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          icon?: string | null
+          icon_color?: string | null
+          id?: string
+          is_system_default?: boolean
+          name?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_templates_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_templates_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_templates_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kb_user_favorites: {
         Row: {
           account_id: string

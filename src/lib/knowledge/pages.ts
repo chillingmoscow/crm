@@ -323,6 +323,25 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   return { version_number: (data as number | null) ?? null, error: null };
 }
 
+/** Атомарно перерасставляет position 0..N-1 для всех siblings в
+ *  заданном порядке (drag-drop в дереве). Без этой функции
+ *  одиночный moveKbPage оставлял остальных siblings с их старыми
+ *  position'ами → tree.ts (sort by (position, title)) при reload
+ *  резолвил tie алфавитно, теряя drag-order. См. миграцию 067. */
+export async function reorderKbSiblings(
+  parentId: string | null,
+  orderedIds: string[],
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("kb_reorder_siblings", {
+    p_parent_id: parentId,
+    p_ordered_ids: orderedIds,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/knowledge");
+  return { error: null };
+}
+
 export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: string | null }> {
   const parsed = kbPageMoveSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.message };
@@ -343,6 +362,26 @@ export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: strin
 
   revalidatePath("/knowledge");
   return { error: null };
+}
+
+/** Cascade duplicate: создаёт копию страницы + всего поддерева
+ *  живых потомков. Title корня получает суффикс « (копия)»,
+ *  attachments копируются как pivot-references на те же
+ *  account_files. Версии и backlinks НЕ копируются. См. миграцию 064. */
+export async function duplicateKbPage(
+  id: string,
+): Promise<{ slug: string | null; error: string | null }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .rpc("kb_duplicate_cascade", { p_id: id });
+  if (error) return { slug: null, error: error.message };
+
+  // RPC возвращает table → массив строк. Берём первую (одна по контракту).
+  const row = (data as Array<{ new_id: string; new_slug: string }> | null)?.[0];
+  if (!row) return { slug: null, error: "Не удалось получить slug копии" };
+
+  revalidatePath("/knowledge");
+  return { slug: row.new_slug, error: null };
 }
 
 /** Cascade soft-delete: помечает страницу + всех её живых потомков.

@@ -53,7 +53,14 @@ type NavItem = {
   href: string;
   icon: LucideIcon;
   exact?: boolean;
-  roles: string[];
+  /** Permission code, который нужен для видимости пункта (например
+   *  "kb.view_pages"). Если задан — фильтрация идёт по нему вместо
+   *  `roles`. Чёткое предпочтение: задавать permission, не roles. */
+  permission?: string;
+  /** Legacy: список role-кодов. Используется только если permission
+   *  не задан. Постепенно мигрируем все пункты на permission и потом
+   *  это поле уберём. */
+  roles?: string[];
   /** Optional count badge (e.g. unread, pending invitations). */
   badge?: number | string;
 };
@@ -61,7 +68,11 @@ type NavItem = {
 type NavSection = {
   label: string;
   icon: LucideIcon;
-  roles: string[];
+  /** Section-level permission. Если не задано — секция видна, когда
+   *  виден ХОТЯ БЫ ОДИН item (вычисляется автоматически). */
+  permission?: string;
+  /** Legacy fallback. Не задавать в новых секциях. */
+  roles?: string[];
   items: NavItem[];
   /** When set, section renders as a direct top-level link (no toggle,
    *  no nested items). Use for "leaf" sections with no logical
@@ -72,61 +83,58 @@ type NavSection = {
   exact?: boolean;
 };
 
+// Permission-mapping для каждого пункта. См. supabase/migrations/*
+// для исходного определения кодов; коды должны совпадать 1-в-1.
+// Section-level permission НЕ задаём — section видна когда виден
+// хотя бы один item (вычисляется в isSectionVisible ниже).
 const NAV_SECTIONS: NavSection[] = [
   {
     label: "Люди",
     icon: Users,
-    roles: ["owner", "manager", "admin"],
     items: [
-      { title: "Сотрудники", href: "/people/staff", icon: User,   roles: ["owner", "manager", "admin"] },
-      { title: "Должности",  href: "/people/roles", icon: Shield, roles: ["owner", "admin"] },
+      { title: "Сотрудники", href: "/people/staff", icon: User,   permission: "people.view_staff" },
+      { title: "Должности",  href: "/people/roles", icon: Shield, permission: "people.view_roles" },
     ],
   },
   {
     label: "Организация",
     icon: Building2,
-    roles: ["owner", "admin", "accountant"],
     items: [
-      { title: "Аккаунт",   href: "/org/account",         icon: Settings,    roles: ["owner"] },
-      { title: "Юрлица",    href: "/org/legal-entities",  icon: FileBadge2,  roles: ["owner", "admin", "accountant"] },
-      { title: "Заведения", href: "/org/venues",          icon: Building2,   roles: ["owner"] },
+      { title: "Аккаунт",   href: "/org/account",        icon: Settings,   permission: "org.view_account" },
+      { title: "Юрлица",    href: "/org/legal-entities", icon: FileBadge2, permission: "org.view_legal_entities" },
+      { title: "Заведения", href: "/org/venues",         icon: Building2,  permission: "org.view_venues" },
     ],
   },
   {
-    // Финансы (стадии 4.x). Подпункты добавляются по мере готовности —
-    // /finance/transactions появится в 4.5. Все четыре роли по матрице
-    // 034 имеют view_dashboard / view_categories / view_counterparties /
-    // view_bank_accounts; manage-уровень гейтится на самих страницах.
+    // Финансы (стадии 4.x). Подпункты гейтятся каждый своим
+    // finance.view_*; manage-уровень — на самих страницах.
     label: "Финансы",
     icon: Wallet,
-    roles: ["owner", "admin", "accountant", "manager"],
     items: [
       // exact: чтобы Дашборд не выделялся, когда мы на /finance/categories
       // или другой дочерней странице.
-      { title: "Дашборд",     href: "/finance",                icon: LayoutDashboard, exact: true, roles: ["owner", "admin", "accountant", "manager"] },
-      { title: "Транзакции",  href: "/finance/transactions",   icon: ArrowLeftRight,                roles: ["owner", "admin", "accountant", "manager"] },
-      { title: "Счета",       href: "/finance/accounts",       icon: Wallet,                        roles: ["owner", "admin", "accountant", "manager"] },
-      { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          roles: ["owner", "admin", "accountant", "manager"] },
-      { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         roles: ["owner", "admin", "accountant", "manager"] },
+      { title: "Дашборд",     href: "/finance",                icon: LayoutDashboard, exact: true, permission: "finance.view_dashboard" },
+      { title: "Транзакции",  href: "/finance/transactions",   icon: ArrowLeftRight,                permission: "finance.view_transactions" },
+      { title: "Счета",       href: "/finance/accounts",       icon: Wallet,                        permission: "finance.view_bank_accounts" },
+      { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          permission: "finance.view_categories" },
+      { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         permission: "finance.view_counterparties" },
     ],
   },
   {
     // База знаний (стадия 8). Flat-section — клик по самому пункту
     // ведёт на /knowledge, без вложенных подпунктов и chevron'а.
-    // Видимость по матрице kb_*: все шесть ролей имеют kb.view_pages;
-    // manage-уровень гейтится на самих экранах.
+    // permission — на section-уровне, потому что items пустой.
     label: "База знаний",
     icon: BookOpen,
     href: "/knowledge",
-    roles: ["owner", "admin", "accountant", "manager", "hostess", "waiter"],
+    permission: "kb.view_pages",
     items: [],
   },
   {
     label: "Настройки",
     icon: Settings,
-    roles: ["owner"],
     items: [
-      { title: "Интеграции", href: "/settings/integrations", icon: Settings, roles: ["owner"] },
+      { title: "Интеграции", href: "/settings/integrations", icon: Settings, permission: "settings.manage_integrations" },
     ],
   },
 ];
@@ -148,6 +156,10 @@ interface AppSidebarProps {
   /** Used in the profile popover subtitle: "<Роль> · <Аккаунт>" */
   activeRoleName: string | null;
   accountName: string | null;
+  /** Список permission codes текущего пользователя в активном venue.
+   *  Сайдбар фильтрует пункты по этому списку (вместо hardcoded
+   *  ролей). Передаётся из dashboard layout через RPC list_my_permissions. */
+  userPermissions: string[];
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -199,7 +211,37 @@ function SidebarBody({
   activeRoleCode,
   activeRoleName,
   accountName,
+  userPermissions,
 }: AppSidebarProps) {
+  const userPermissionsSet = useMemo(
+    () => new Set(userPermissions),
+    [userPermissions],
+  );
+
+  // Item visible iff:
+  //  - permission задан И входит в userPermissions, ИЛИ
+  //  - legacy roles задан И activeRoleCode входит в roles, ИЛИ
+  //  - ни permission, ни roles не заданы (показываем всем)
+  const isItemVisible = (item: NavItem): boolean => {
+    if (item.permission) return userPermissionsSet.has(item.permission);
+    if (item.roles) return !activeRoleCode || item.roles.includes(activeRoleCode);
+    return true;
+  };
+
+  // Section visible iff:
+  //  - section.permission задан И входит в userPermissions, ИЛИ
+  //  - есть хотя бы один visible item, ИЛИ
+  //  - flat-section (href есть) И legacy roles fallback пропускает
+  const isSectionVisible = (section: NavSection): boolean => {
+    if (section.permission) return userPermissionsSet.has(section.permission);
+    if (section.items.some((i) => isItemVisible(i))) return true;
+    if (section.href) {
+      // flat-section без items и без permission — fallback на legacy roles
+      if (section.roles) return !activeRoleCode || section.roles.includes(activeRoleCode);
+      return true;
+    }
+    return false;
+  };
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
@@ -219,16 +261,18 @@ function SidebarBody({
 
   const visibleSections = useMemo(
     () =>
-      NAV_SECTIONS.filter((s) => !activeRoleCode || s.roles.includes(activeRoleCode))
-        .map((s) => ({
-          ...s,
-          items: s.items.filter(
-            (item) => !activeRoleCode || item.roles.includes(activeRoleCode),
-          ),
-        }))
-        // Keep flat sections (`href` set) even if items is empty.
+      NAV_SECTIONS.map((s) => ({
+        ...s,
+        items: s.items.filter(isItemVisible),
+      }))
+        .filter(isSectionVisible)
+        // Keep flat sections (href set) even если items пустой.
         .filter((s) => s.href !== undefined || s.items.length > 0),
-    [activeRoleCode],
+    // Зависим от set, не от исходного массива — Set ссылается на тот
+    // же массив, идентичность стабильна между рендерами с одним
+    // userPermissions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userPermissionsSet, activeRoleCode],
   );
 
   const [openSections, setOpenSections] = useState<Set<string>>(() => {

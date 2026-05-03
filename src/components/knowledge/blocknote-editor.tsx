@@ -356,6 +356,61 @@ export function KbBlockNoteEditor({
     },
   });
 
+  // FloatingComposer guard: BlockNote's CommentsExtension автоматически
+  // сбрасывает pendingComment при ЛЮБОМ selection-change в outer
+  // editor'е (см. node_modules/@blocknote/core/dist/comments.js:165 —
+  // `t.onSelectionChange(() => { pendingComment && setState(pendingComment:false) })`).
+  // Когда юзер кликает в FloatingComposer'е (внутренний редактор для
+  // ввода текста коммента), фокус уходит из outer ProseMirror'а →
+  // outer фиксирует «selection changed» → pendingComment=false →
+  // popover моментально закрывается. Мы перехватываем это: подписка
+  // на extension-state'у; если pendingComment упал в false ПОКА
+  // активный элемент находится внутри `.bn-thread` (composer card) —
+  // восстанавливаем pending через startPendingComment().
+  useEffect(() => {
+    if (!commentsBundle) return;
+    const ext = (editor as unknown as {
+      getExtension: (cls: unknown) => unknown;
+    }).getExtension(CommentsExtension);
+    if (!ext) return;
+    const extWithStore = ext as {
+      store?: {
+        state: { pendingComment: boolean };
+        subscribe: (fn: () => void) => () => void;
+      };
+      startPendingComment?: () => void;
+    };
+    const store = extWithStore.store;
+    if (!store || !extWithStore.startPendingComment) return;
+    let lastPending = store.state.pendingComment;
+    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
+    const unsubscribe = store.subscribe(() => {
+      const wasOpen = lastPending;
+      const nowOpen = store.state.pendingComment;
+      lastPending = nowOpen;
+      if (!wasOpen || nowOpen) return;
+      // Pending только что обнулилось. Откладываем проверку на 0ms
+      // чтобы pending focus-shifts успели settle: если фокус ушёл в
+      // composer-карточку (`.bn-thread` / `.bn-comment-editor`) — это
+      // false-trigger blur'а outer-редактора, восстанавливаем pending.
+      // Иначе юзер реально кликнул в outer doc → оставляем закрытым.
+      if (restoreTimer) clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(() => {
+        restoreTimer = null;
+        if (store.state.pendingComment) return;
+        const active = document.activeElement;
+        const insideComposer = !!active?.closest?.(
+          ".bn-thread, .bn-comment-editor",
+        );
+        if (insideComposer) extWithStore.startPendingComment?.();
+      }, 0);
+    });
+    return () => {
+      unsubscribe();
+      if (restoreTimer) clearTimeout(restoreTimer);
+    };
+  }, [editor, commentsBundle]);
+
   // Subscribe to document changes; surface as { content, plainText }.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;

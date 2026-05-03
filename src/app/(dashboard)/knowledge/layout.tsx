@@ -42,6 +42,7 @@ export default async function KnowledgeLayout({
     { data: canCreate },
     { data: canManageTemplates },
     { data: canAskAi },
+    { data: canViewAudit },
     { data: activeAccountId },
   ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "kb.view_pages" }),
@@ -50,6 +51,7 @@ export default async function KnowledgeLayout({
     supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
     supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
+    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
     supabase.rpc("get_active_account_id"),
   ]);
   if (!canView) redirect("/dashboard");
@@ -90,6 +92,7 @@ export default async function KnowledgeLayout({
             nodes={nodes}
             favorites={favorites}
             canSeeTrash={Boolean(canDelete)}
+            canViewAudit={Boolean(canViewAudit)}
             canImport={Boolean(canImport)}
             canCreate={Boolean(canCreate)}
             canManageTemplates={Boolean(canManageTemplates)}
@@ -117,6 +120,7 @@ export default async function KnowledgeLayout({
               nodes={nodes}
               favorites={favorites}
               canSeeTrash={Boolean(canDelete)}
+              canViewAudit={Boolean(canViewAudit)}
               canImport={Boolean(canImport)}
               canCreate={Boolean(canCreate)}
               canManageTemplates={Boolean(canManageTemplates)}

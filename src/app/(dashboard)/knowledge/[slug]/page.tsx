@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getKbPageBySlug, listKbPages } from "@/lib/knowledge/pages";
 import { isKbPageFavorited } from "@/lib/knowledge/favorites";
+import { getKbPageReadStatus } from "@/lib/knowledge/required-reading";
 import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
 import {
   PageBreadcrumb,
@@ -16,6 +17,8 @@ import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-ver
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
 import { KbPageActions } from "@/app/(dashboard)/knowledge/_components/kb-page-actions";
 import { KbUndoRedoButtons } from "@/app/(dashboard)/knowledge/_components/kb-undo-redo-buttons";
+import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
+import { KbRequiredReadingToggle } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-toggle";
 import type { KbBlock, KbPageRow } from "@/types/knowledge";
 
 interface PageProps {
@@ -49,8 +52,10 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasManageTemplates },
     { data: hasUseAi },
     { data: hasComment },
+    { data: hasManageRequiredReading },
     { data: activeAccountId },
     { favorited },
+    readStatus,
     { rows: allPages },
     { chain },
     { data: profiles },
@@ -64,8 +69,10 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
     supabase.rpc("has_permission", { permission_code: "kb.use_ai" }),
     supabase.rpc("has_permission", { permission_code: "kb.comment_pages" }),
+    supabase.rpc("has_permission", { permission_code: "kb.manage_required_reading" }),
     supabase.rpc("get_active_account_id"),
     isKbPageFavorited(row.id),
+    getKbPageReadStatus(row.id),
     listKbPages(),
     getKbBreadcrumbs(row.id),
     profileIds.length > 0
@@ -83,6 +90,7 @@ export default async function KbPageView({ params }: PageProps) {
   const canDuplicate = Boolean(hasCreate);
   const canExport = Boolean(hasExport);
   const canManageTemplates = Boolean(hasManageTemplates);
+  const canManageRequiredReading = Boolean(hasManageRequiredReading);
 
   // AI slash-команды: двойной gate. UI-уровень — чтобы не показывать
   // /ai-айтемы в slash-меню если account отключил AI или у юзера
@@ -146,6 +154,12 @@ export default async function KbPageView({ params }: PageProps) {
       </PageBreadcrumb>
       <PageHeaderActions>
         <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
+        {canManageRequiredReading && (
+          <KbRequiredReadingToggle
+            pageId={row.id}
+            initialRequired={readStatus.required}
+          />
+        )}
         <KbUndoRedoButtons canEdit={canEdit} />
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
         <KbPageActions
@@ -177,6 +191,13 @@ export default async function KbPageView({ params }: PageProps) {
           to ~720px for Notion-like reading width. */}
       <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+          {/* Required-reading баннер (только если флаг включён) или
+              compact-badge «✓ Прочитано» если уже подтверждено. */}
+          <KbRequiredReadingBanner
+            pageId={row.id}
+            required={readStatus.required}
+            initialReadAt={readStatus.myReadAt}
+          />
           {/*
             Key by (id, updated_at). Normal auto-save doesn't bump
             updated_at in the current view (no router.refresh after save),

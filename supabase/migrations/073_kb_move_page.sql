@@ -27,7 +27,7 @@
 --   'no_parent'     — p_new_parent_id указан но не найден / удалён
 --   'wrong_account' — какой-то id из p_new_sibling_order не из
 --                     active account или не sibling нового parent'а
---   'forbidden'     — нет kb.create_pages (proxy для tree-edit)
+--   'forbidden'     — нет права редактировать moved-страницу (см. ниже)
 -- ============================================================
 
 create or replace function public.kb_move_page(
@@ -43,21 +43,37 @@ as $$
 declare
   v_account_id uuid := public.get_active_account_id();
   v_old_parent_id uuid;
+  v_created_by uuid;
+  v_can_edit_any boolean;
+  v_can_edit_own boolean;
   v_cursor uuid;
   v_loop_guard integer := 0;
 begin
-  if not public.has_permission('kb.create_pages') then
-    return 'forbidden';
-  end if;
-
-  -- Verify p_id живёт в active account.
-  select parent_id into v_old_parent_id
+  -- Verify p_id живёт в active account + забираем created_by для
+  -- ownership-check'а ниже.
+  select parent_id, created_by
+    into v_old_parent_id, v_created_by
     from public.kb_pages
    where id = p_id
      and account_id = v_account_id
      and deleted_at is null;
   if not found then
     return 'no_page';
+  end if;
+
+  -- Edit-permission check на moved-страницу. Раньше проверяли только
+  -- kb.create_pages — это позволяло manager/accountant (которые имеют
+  -- create_pages + edit_own_pages, но не edit_any_page) перемещать
+  -- ЧУЖИЕ страницы в обход kb_pages_update RLS-политики.
+  -- Теперь enforced строже: kb.edit_any_page ИЛИ
+  -- (kb.edit_own_pages AND created_by=current_user). См. Codex #51 P1.
+  v_can_edit_any := public.has_permission('kb.edit_any_page');
+  v_can_edit_own := public.has_permission('kb.edit_own_pages');
+  if not (
+    v_can_edit_any
+    or (v_can_edit_own and v_created_by = auth.uid())
+  ) then
+    return 'forbidden';
   end if;
 
   -- Verify p_new_parent_id (если не NULL) живёт в active account.

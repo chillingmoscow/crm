@@ -47,6 +47,8 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasCreate },
     { data: hasExport },
     { data: hasManageTemplates },
+    { data: hasUseAi },
+    { data: activeAccountId },
     { favorited },
     { rows: allPages },
     { chain },
@@ -59,6 +61,8 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.export_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
+    supabase.rpc("has_permission", { permission_code: "kb.use_ai" }),
+    supabase.rpc("get_active_account_id"),
     isKbPageFavorited(row.id),
     listKbPages(),
     getKbBreadcrumbs(row.id),
@@ -77,6 +81,19 @@ export default async function KbPageView({ params }: PageProps) {
   const canDuplicate = Boolean(hasCreate);
   const canExport = Boolean(hasExport);
   const canManageTemplates = Boolean(hasManageTemplates);
+
+  // AI slash-команды: двойной gate. UI-уровень — чтобы не показывать
+  // /ai-айтемы в slash-меню если account отключил AI или у юзера
+  // нет права. Server-action runKbAiCommand перепроверит.
+  let aiSlashEnabled = false;
+  if (Boolean(hasUseAi) && activeAccountId) {
+    const { data: accountRow } = await supabase
+      .from("accounts")
+      .select("ai_enabled")
+      .eq("id", activeAccountId as unknown as string)
+      .maybeSingle();
+    aiSlashEnabled = Boolean(accountRow?.ai_enabled);
+  }
   // Total descendants — нужно для текста подтверждения удаления
   // (cascade soft-delete заберёт всю ветку, не только direct children).
   const descendantsCount = countDescendants(allPages, row.id);
@@ -173,6 +190,7 @@ export default async function KbPageView({ params }: PageProps) {
             initialIconColor={row.icon_color}
             initialContent={(row.content as unknown as KbBlock[]) ?? []}
             canEdit={canEdit}
+            aiSlashEnabled={aiSlashEnabled}
           />
 
           <KbBacklinks pageId={row.id} />

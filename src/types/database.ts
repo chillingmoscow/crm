@@ -176,6 +176,7 @@ export type Database = {
       }
       accounts: {
         Row: {
+          ai_enabled: boolean
           created_at: string
           id: string
           logo_url: string | null
@@ -183,6 +184,7 @@ export type Database = {
           owner_id: string
         }
         Insert: {
+          ai_enabled?: boolean
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -190,6 +192,7 @@ export type Database = {
           owner_id: string
         }
         Update: {
+          ai_enabled?: boolean
           created_at?: string
           id?: string
           logo_url?: string | null

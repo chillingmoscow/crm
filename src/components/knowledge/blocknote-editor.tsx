@@ -353,10 +353,13 @@ export function KbBlockNoteEditor({
       className={cn("bn-sheerly", className)}
       sideMenu={customSideMenu ? false : undefined}
       slashMenu={customSlashMenu ? false : undefined}
-      // AI кнопка живёт во встроенном formatting-toolbar'е (он
-      // всплывает при выделении текста). Отключаем default и рендерим
-      // controller с дополнительной кнопкой ниже.
-      formattingToolbar={aiSlashEnabled ? false : undefined}
+      // Default formatting-toolbar отключаем когда мы добавляем свои
+      // кнопки через FormattingToolbarController (ниже): иначе
+      // BlockNote рендерит ОБА toolbar'а на выделение → дубликат
+      // всех контролов. Триггер кастомизации — aiSlashEnabled ИЛИ
+      // commentsBundle (любой включает кастомный controller).
+      // См. Codex #54 P2.
+      formattingToolbar={aiSlashEnabled || commentsBundle ? false : undefined}
     >
       {customSlashMenu && (
         <SuggestionMenuController

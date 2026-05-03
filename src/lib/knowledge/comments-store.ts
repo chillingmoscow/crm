@@ -271,8 +271,19 @@ export class SupabaseThreadStore extends ThreadStore {
       metadata: commentRow.metadata,
     });
     if (cErr) {
-      // Откатываем thread (CASCADE удалит ничего, т.к. comment не вставился).
-      await this.supabase.from("kb_threads").delete().eq("id", threadId);
+      // Soft-delete rollback вместо hard-delete: миграция 076 НЕ
+      // даёт DELETE policy на kb_threads (table рассчитана на
+      // CASCADE из kb_pages при удалении страницы, не на ручные
+      // delete'ы). .delete() здесь молча отбросит RLS → orphan
+      // thread без comments в БД. UPDATE deleted_at работает —
+      // есть kb_threads_update policy под kb.comment_pages, а
+      // loadInitial фильтрует `.is("deleted_at", null)` так что
+      // orphan не вернётся в кэш и не повлияет на UI. См. Codex
+      // #54 P1.
+      await this.supabase
+        .from("kb_threads")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", threadId);
       this.threadCache.delete(threadId);
       this.notify();
       throw new Error(`Не удалось создать комментарий: ${cErr.message}`);

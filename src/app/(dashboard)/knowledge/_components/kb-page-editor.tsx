@@ -139,16 +139,29 @@ export function KbPageEditor({
   // Recreate если pageId меняется (но key={pageId} в parent уже это
   // делает — вся компонента remount'ится). useMemo с deps на pageId/
   // accountId/userId — на случай если в будущем remount уберут.
+  //
+  // Если у юзера НЕТ `kb.comment_pages` (canComment=false) — bundle
+  // полностью null. CommentsExtension не подключается, BlockNote
+  // не показывает thread-UI / AddCommentButton / ничего comment-related.
+  // Раньше bundle создавался даже без права → DefaultThreadStoreAuth
+  // считал юзера 'editor', UI показывал кнопки → click → RLS reject
+  // в runtime'е, плохой UX. См. Codex #54 P2.
+  //
+  // Для read-only-просмотра уже-existing-thread'ов hostess/waiter'у —
+  // нужна отдельная UX-итерация (рендерить треды БЕЗ ability добавлять).
+  // На MVP — full off.
   const commentsBundle: CommentsBundle | null = useMemo(() => {
     if (!accountId || !userId) return null;
+    if (!canComment) return null;
     return {
       threadStore: new SupabaseThreadStore({
         pageId,
         accountId,
         userId,
-        // 'editor' role — может удалять чужие comments (BlockNote
-        // DefaultThreadStoreAuth canDeleteThread/canDeleteComment).
-        // Для KB editor === тот, кто может править страницу.
+        // 'editor' role в DefaultThreadStoreAuth — может удалять
+        // чужие comments / threads. Для KB editor === тот, кто
+        // может править страницу. Для не-editor (commenter)
+        // canDeleteComment ограничен self-only.
         isEditor: canEdit,
       }),
       resolveUsers: resolveKbUsers,

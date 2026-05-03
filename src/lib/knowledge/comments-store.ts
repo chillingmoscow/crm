@@ -9,7 +9,7 @@ import {
   type ThreadData,
   type User,
 } from "@blocknote/core/comments";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/types/database";
@@ -61,6 +61,18 @@ export class SupabaseThreadStore extends ThreadStore {
   private listeners = new Set<(threads: Map<string, ThreadData>) => void>();
   private loaded = false;
   private loadingPromise: Promise<void> | null = null;
+  /** Realtime-канал из supabase_realtime publication. Sprint D Phase 5
+   *  подписан на INSERT/UPDATE kb_threads/kb_comments — когда другой
+   *  юзер пишет comment в этот же тред, broadcast приходит сюда и мы
+   *  apply'им diff в cache + notify(). null до первого loadInitial(). */
+  private realtimeChannel: RealtimeChannel | null = null;
+  /** Set of comment ids, которые сами вставляли локально (createThread /
+   *  addComment) — игнорим broadcast по ним, т.к. cache уже содержит
+   *  optimistic-row. Без этого получали бы дубль-render и потенциально
+   *  «дрожание» (если broadcast row отличается полями типа updated_at).
+   */
+  private localCommentIds = new Set<string>();
+  private localThreadIds = new Set<string>();
 
   constructor(opts: SupabaseThreadStoreOptions) {
     super(
@@ -73,7 +85,166 @@ export class SupabaseThreadStore extends ThreadStore {
     // Стартуем загрузку немедленно — getThreads() вернёт пустой Map
     // пока не подгрузится; subscribe-callback'и сработают по
     // завершении.
-    void this.loadInitial();
+    void this.loadInitial().then(() => this.setupRealtime());
+  }
+
+  /** Cleanup на unmount. Без unsubscribe канал утекал бы в memory
+   *  и сервер продолжал бы броадкаст-ить даже когда страница закрыта.
+   *  Вызывается из useEffect cleanup в KbPageEditor. */
+  destroy(): void {
+    if (this.realtimeChannel) {
+      void this.supabase.removeChannel(this.realtimeChannel);
+      this.realtimeChannel = null;
+    }
+    this.listeners.clear();
+  }
+
+  /** Подписка на postgres_changes для kb_threads + kb_comments.
+   *  RLS на обеих таблицах фильтрует rows по active account, так что
+   *  кросс-аккаунт-leak невозможен. Sprint D Phase 5 / plan §2.8-E. */
+  private setupRealtime(): void {
+    if (this.realtimeChannel) return;
+    const channelName = `kb-comments-${this.pageId}`;
+    this.realtimeChannel = this.supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "kb_threads",
+          filter: `page_id=eq.${this.pageId}`,
+        },
+        (payload) => this.handleThreadChange(payload.new as ThreadRow, payload.eventType),
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "kb_comments",
+        },
+        (payload) => this.handleCommentChange(payload.new as CommentRow, payload.eventType),
+      )
+      .subscribe();
+  }
+
+  /** Apply incoming thread-row из realtime. Если thread наш-же локальный
+   *  (только что создал) — пропускаем (cache уже актуален). Иначе
+   *  upsert'им и notify'им. */
+  private handleThreadChange(
+    row: ThreadRow | undefined,
+    eventType: "INSERT" | "UPDATE" | "DELETE" | string,
+  ): void {
+    if (!row || !row.id) return;
+    if (eventType === "INSERT" && this.localThreadIds.has(row.id)) {
+      // Self-broadcast — cache уже содержит optimistic-thread.
+      return;
+    }
+    // Обновляем thread, comments берём из существующего cache (real-time
+    // не присылает их вместе с thread-row). Если thread soft-deleted
+    // → удаляем из cache.
+    if (row.deleted_at) {
+      this.threadCache.delete(row.id);
+    } else {
+      const existing = this.threadCache.get(row.id);
+      const existingComments = existing
+        ? this.commentDataToRows(existing.comments)
+        : [];
+      this.threadCache.set(row.id, this.toThreadData(row, existingComments));
+    }
+    this.notify();
+  }
+
+  /** Apply incoming comment-row из realtime. Тред должен жить в
+   *  threadCache (= относится к нашей странице). Если нет — пропускаем
+   *  (другая страница; broadcast прилетел из-за no-filter подписки). */
+  private handleCommentChange(
+    row: CommentRow | undefined,
+    eventType: "INSERT" | "UPDATE" | "DELETE" | string,
+  ): void {
+    if (!row || !row.id) return;
+    if (eventType === "INSERT" && this.localCommentIds.has(row.id)) {
+      return;
+    }
+    const thread = this.threadCache.get(row.thread_id);
+    if (!thread) return;
+
+    const existingComments = this.commentDataToRows(thread.comments);
+    let next: CommentRow[];
+    if (row.deleted_at) {
+      // Soft-delete: помечаем comment как deleted (BlockNote всё равно
+      // показывает «Comment was deleted» placeholder).
+      next = existingComments.map((c) =>
+        c.id === row.id ? { ...c, deleted_at: row.deleted_at, updated_at: row.updated_at } : c,
+      );
+    } else {
+      const idx = existingComments.findIndex((c) => c.id === row.id);
+      if (idx >= 0) {
+        // UPDATE: replace.
+        next = existingComments.slice();
+        next[idx] = row;
+      } else {
+        // INSERT: append, sorted by created_at (matches loadInitial).
+        next = [...existingComments, row].sort((a, b) =>
+          a.created_at.localeCompare(b.created_at),
+        );
+      }
+    }
+    // Re-build thread с обновлённым comments-array.
+    // Используем оригинальный thread-row — для этого нужен row, но в
+    // cache у нас ThreadData. Восстанавливаем фейковый row из ThreadData
+    // (поля совпадают; см. toThreadData).
+    const fakeThreadRow = this.threadDataToRow(thread);
+    this.threadCache.set(row.thread_id, this.toThreadData(fakeThreadRow, next));
+    this.notify();
+  }
+
+  /** Reverse-mapping ThreadData → ThreadRow для re-build при comment
+   *  change'ах. Не идеально (теряем precision на дате), но для
+   *  re-rendering достаточно. */
+  private threadDataToRow(t: ThreadData): ThreadRow {
+    return {
+      id: t.id,
+      page_id: this.pageId,
+      account_id: this.accountId,
+      resolved: Boolean(t.resolved),
+      resolved_at: t.resolvedUpdatedAt?.toISOString() ?? null,
+      resolved_by: t.resolvedBy ?? null,
+      created_at: t.createdAt.toISOString(),
+      updated_at: t.updatedAt.toISOString(),
+      created_by: null, // не используется UI'ем после initial render
+      deleted_at: t.deletedAt?.toISOString() ?? null,
+      metadata: (t.metadata as Database["public"]["Tables"]["kb_threads"]["Row"]["metadata"]) ?? {},
+    };
+  }
+
+  /** Reverse-mapping CommentData[] → CommentRow[] для re-build threads. */
+  private commentDataToRows(comments: ThreadData["comments"]): CommentRow[] {
+    return comments.map((c) => ({
+      id: c.id,
+      thread_id: "", // overwritten by caller
+      account_id: this.accountId,
+      author_id: c.userId,
+      body: (("body" in c ? c.body : null) ?? null) as Database["public"]["Tables"]["kb_comments"]["Row"]["body"],
+      reactions: this.reactionsToJson(c.reactions),
+      created_at: c.createdAt.toISOString(),
+      updated_at: c.updatedAt.toISOString(),
+      deleted_at: "deletedAt" in c && c.deletedAt ? c.deletedAt.toISOString() : null,
+      metadata: (c.metadata as Database["public"]["Tables"]["kb_comments"]["Row"]["metadata"]) ?? {},
+    }));
+  }
+
+  /** CommentReactionData[] → kb_comments.reactions jsonb. Inverse от
+   *  toReactions. Используется только для re-build при realtime UPDATE. */
+  private reactionsToJson(
+    reactions: ThreadData["comments"][number]["reactions"],
+  ): Database["public"]["Tables"]["kb_comments"]["Row"]["reactions"] {
+    const out: Record<string, string[]> = {};
+    for (const r of reactions ?? []) {
+      out[r.emoji] = r.userIds.slice();
+    }
+    return out as Database["public"]["Tables"]["kb_comments"]["Row"]["reactions"];
   }
 
   private async loadInitial(): Promise<void> {
@@ -243,9 +414,13 @@ export class SupabaseThreadStore extends ThreadStore {
       metadata: ((opts.initialComment.metadata as Record<string, unknown>) ?? {}) as never,
     };
 
-    // Optimistic insert into cache.
+    // Optimistic insert into cache + пометить ID'шники как локальные,
+    // чтобы realtime broadcast по ним не дёргал re-render (Sprint D
+    // Phase 5: self-broadcast filter).
     const threadData = this.toThreadData(threadRow, [commentRow]);
     this.threadCache.set(threadId, threadData);
+    this.localThreadIds.add(threadId);
+    this.localCommentIds.add(commentId);
     this.notify();
 
     // Persist. Two sequential INSERTs (FK from comment → thread).
@@ -315,7 +490,8 @@ export class SupabaseThreadStore extends ThreadStore {
 
     const commentData = this.toCommentData(commentRow);
 
-    // Optimistic
+    // Optimistic + self-broadcast filter (Sprint D Phase 5).
+    this.localCommentIds.add(commentId);
     const thread = this.threadCache.get(opts.threadId);
     if (thread) {
       thread.comments = [...thread.comments, commentData];

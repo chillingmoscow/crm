@@ -14,6 +14,7 @@ import {
   getKbSaveState,
   setKbSaveState,
 } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
+import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 // Dynamic-import — оба компонента статически зависят от @blocknote/react.
 // Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
@@ -261,6 +262,7 @@ export function KbPageEditor({
   const renderExtras = useCallback(
     (editor: BlockNoteEditorType) => (
       <>
+        <KbEditorRegistrar editor={editor} />
         <KbMentionMenu editor={editor} />
         <KbSideMenuController />
       </>
@@ -395,6 +397,20 @@ export function KbPageEditor({
       />
     </div>
   );
+}
+
+/** Регистрирует editor instance в module-store на mount + очищает на
+ *  unmount. Без этого Undo/Redo кнопки в KB-топбаре не знают, к какому
+ *  редактору обращаться (топбар рендерится в server-side слоте, далеко
+ *  от editor mount-point). См. kb-editor-store.ts. */
+function KbEditorRegistrar({ editor }: { editor: BlockNoteEditorType }) {
+  useEffect(() => {
+    setKbEditor(editor);
+    return () => {
+      setKbEditor(null);
+    };
+  }, [editor]);
+  return null;
 }
 
 /** Cheap fingerprint of (title, icon, color, content) for change detection.

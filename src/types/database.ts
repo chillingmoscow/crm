@@ -1245,6 +1245,8 @@ export type Database = {
           icon: string | null
           icon_color: string | null
           id: string
+          locked_at: string | null
+          locked_by: string | null
           parent_id: string | null
           plain_text: string
           position: number
@@ -1267,6 +1269,8 @@ export type Database = {
           icon?: string | null
           icon_color?: string | null
           id?: string
+          locked_at?: string | null
+          locked_by?: string | null
           parent_id?: string | null
           plain_text?: string
           position?: number
@@ -1289,6 +1293,8 @@ export type Database = {
           icon?: string | null
           icon_color?: string | null
           id?: string
+          locked_at?: string | null
+          locked_by?: string | null
           parent_id?: string | null
           plain_text?: string
           position?: number
@@ -1481,6 +1487,42 @@ export type Database = {
           },
           {
             foreignKeyName: "kb_page_reads_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kb_page_user_mentions: {
+        Row: {
+          account_id: string
+          first_notified_at: string
+          page_id: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          first_notified_at?: string
+          page_id: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          first_notified_at?: string
+          page_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_user_mentions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_user_mentions_page_id_fkey"
             columns: ["page_id"]
             isOneToOne: false
             referencedRelation: "kb_pages"
@@ -2558,6 +2600,14 @@ export type Database = {
           p_ended_at: string
         }
         Returns: string | null
+      }
+      kb_emit_page_mentions: {
+        Args: { p_page_id: string; p_user_ids: string[] }
+        Returns: undefined
+      }
+      kb_set_page_lock: {
+        Args: { p_page_id: string; p_locked: boolean }
+        Returns: undefined
       }
       kb_replace_page_embeddings: {
         Args: {

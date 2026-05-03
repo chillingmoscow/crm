@@ -1270,6 +1270,42 @@ export type Database = {
           },
         ]
       }
+      kb_user_favorites: {
+        Row: {
+          account_id: string
+          created_at: string
+          page_id: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          page_id: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          page_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_user_favorites_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_user_favorites_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       legal_entities: {
         Row: {
           account_id: string

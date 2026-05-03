@@ -13,10 +13,15 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
+import { Star } from "lucide-react";
 
 interface KbTreeNavProps {
   nodes: KbTreeNode[];
+  /** Список favorited-страниц текущего юзера. Рендерится отдельной
+   *  секцией над «Страницы». Пустой список — секция не показывается. */
+  favorites?: KbFavoritePage[];
   /** Whether to show the «Корзина» link at the bottom of the tree.
    *  Driven by `kb.delete_pages` permission, gated server-side in
    *  the layout. The trash route itself also re-checks. */
@@ -35,7 +40,7 @@ interface KbTreeNavProps {
  * tree component does NOT remount on slug navigation (it lives in
  * the layout), so we can't rely on initial state alone.
  */
-export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
+export function KbTreeNav({ nodes, favorites = [], canSeeTrash = false }: KbTreeNavProps) {
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
 
@@ -71,6 +76,7 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
         <div className="px-1 pt-1 shrink-0">
           <KbSearchTrigger />
         </div>
+        {favorites.length > 0 && <KbFavoritesSection favorites={favorites} activeSlug={activeSlug} />}
         <KbTreeHeader />
       </div>
       <div className="flex-1 overflow-y-auto px-3">
@@ -112,6 +118,43 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
           </Link>
         </div>
       )}
+    </div>
+  );
+}
+
+function KbFavoritesSection({
+  favorites,
+  activeSlug,
+}: {
+  favorites: KbFavoritePage[];
+  activeSlug?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <div className="flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+        <Star className="size-3 fill-current text-yellow-500/70" />
+        Избранное
+      </div>
+      {favorites.map((p) => {
+        const isActive = activeSlug === p.slug;
+        return (
+          <Link
+            key={p.id}
+            href={`/knowledge/${p.slug}`}
+            className={cn(
+              "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
+              "text-sidebar-foreground hover:bg-sidebar-accent",
+              isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+            title={p.title}
+          >
+            <span className="size-5 shrink-0 inline-flex items-center justify-center">
+              <KbPageIcon icon={p.icon} color={p.icon_color} size={14} />
+            </span>
+            <span className="flex-1 truncate">{p.title || "Без названия"}</span>
+          </Link>
+        );
+      })}
     </div>
   );
 }

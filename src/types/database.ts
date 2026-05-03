@@ -2306,6 +2306,14 @@ export type Database = {
         Args: { p_parent_id: string | null; p_ordered_ids: string[] }
         Returns: number
       }
+      kb_replace_page_embeddings: {
+        Args: {
+          p_page_id: string
+          p_expected_updated_at: string | null
+          p_chunks: Json
+        }
+        Returns: string
+      }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
       kb_save_page: {
         Args: {

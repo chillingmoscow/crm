@@ -107,6 +107,12 @@ grant usage, select on sequence public.kb_page_embeddings_id_seq to authenticate
 --
 -- Возвращаем 1 - cosine_distance (= cosine similarity) для удобства,
 -- порядок by similarity desc (топ ↑).
+--
+-- Гейтинг: дополнительные WHERE-фильтры на kb.ask_ai permission и
+-- accounts.ai_enabled. Без этого аутентифицированный юзер мог бы
+-- вызвать RPC напрямую через PostgREST в обход UI/server-action gate
+-- (Codex #47 P2). Если permission/flag отсутствуют — возвращаем
+-- пустой набор (silent deny — это та же семантика что у RLS).
 -- ============================================================
 
 create or replace function public.kb_search_embeddings(
@@ -142,15 +148,111 @@ as $$
     on p.id = e.page_id
    and p.deleted_at is null
   where e.account_id = public.get_active_account_id()
+    and public.has_permission('kb.ask_ai')
+    and exists (
+      select 1 from public.accounts a
+       where a.id = e.account_id and a.ai_enabled = true
+    )
   order by e.embedding <=> p_query_embedding
   limit greatest(1, least(p_limit, 20));
 $$;
 
 comment on function public.kb_search_embeddings(vector, integer) is
   'Top-K cosine-similar chunks из KB в active account. Возвращает '
-  'chunk + page-meta. Используется RAG-action askKbAi.';
+  'chunk + page-meta. Используется RAG-action askKbAi. Внутри RPC '
+  'enforced kb.ask_ai permission + accounts.ai_enabled — direct '
+  'PostgREST вызов без gate'' а вернёт пустой набор.';
 
 grant execute on function public.kb_search_embeddings(vector, integer) to authenticated;
+
+-- ============================================================
+-- 4b. RPC: kb_replace_page_embeddings — атомарный re-embed
+-- ============================================================
+--
+-- Заменяет ВСЕ embedding-chunks страницы одной операцией. PG-функция
+-- неявно транзакционная → DELETE+INSERT либо оба commit'ятся, либо
+-- оба rollback'аются. Решает Codex #47 P1 «Wrap embedding replacement
+-- in one transaction».
+--
+-- Freshness-guard через `p_expected_updated_at`: caller передаёт
+-- updated_at, прочитанный ДО embedding-pipeline (медленный
+-- network-round-trip к SiliconFlow). Если за это время страница была
+-- сохранена снова — текущий updated_at не совпадёт, мы вернём 'stale',
+-- и старая background-job не перезатрёт свежие embeddings из новой
+-- (более быстрой) job'ы. Решает Codex #47 P1 «Serialize re-embed jobs
+-- for the same page».
+--
+-- Возвращаемые значения:
+--   'ok'        — embedding-chunks успешно заменены
+--   'stale'     — страница изменилась, embeddings проигнорированы
+--   'no_page'   — page_id не найден в active account (или deleted)
+--   'forbidden' — нет kb.create_pages
+--
+-- Schema p_chunks (jsonb array):
+--   [{ "chunk_index": int, "content_chunk": text, "embedding": "[1.0,2.0,...]" }]
+-- ============================================================
+
+create or replace function public.kb_replace_page_embeddings(
+  p_page_id uuid,
+  p_expected_updated_at timestamptz,
+  p_chunks jsonb
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_account_id uuid := public.get_active_account_id();
+  v_current_updated_at timestamptz;
+  v_found boolean;
+begin
+  if not public.has_permission('kb.create_pages') then
+    return 'forbidden';
+  end if;
+
+  select updated_at, true into v_current_updated_at, v_found
+    from public.kb_pages
+   where id = p_page_id
+     and account_id = v_account_id
+     and deleted_at is null;
+
+  if not v_found then
+    return 'no_page';
+  end if;
+
+  -- Freshness check. IS DISTINCT FROM correctly compares NULLs
+  -- (страница без edit'ов имеет updated_at = NULL).
+  if v_current_updated_at is distinct from p_expected_updated_at then
+    return 'stale';
+  end if;
+
+  -- Atomic replace.
+  delete from public.kb_page_embeddings where page_id = p_page_id;
+
+  if jsonb_array_length(coalesce(p_chunks, '[]'::jsonb)) > 0 then
+    insert into public.kb_page_embeddings
+      (page_id, account_id, chunk_index, content_chunk, embedding)
+    select
+      p_page_id,
+      v_account_id,
+      (chunk->>'chunk_index')::integer,
+      chunk->>'content_chunk',
+      (chunk->>'embedding')::vector
+    from jsonb_array_elements(p_chunks) as chunk;
+  end if;
+
+  return 'ok';
+end;
+$$;
+
+comment on function public.kb_replace_page_embeddings(uuid, timestamptz, jsonb) is
+  'Атомарно заменяет embedding-chunks страницы. Принимает '
+  'expected_updated_at для freshness-guard (старая background-job '
+  'возвращает stale если страница успела сохраниться снова). Возвращает '
+  '"ok" / "stale" / "no_page" / "forbidden".';
+
+grant execute on function public.kb_replace_page_embeddings(uuid, timestamptz, jsonb) to authenticated;
 
 -- ============================================================
 -- 5. Permission `kb.ask_ai`

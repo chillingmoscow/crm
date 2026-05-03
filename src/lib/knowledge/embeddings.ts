@@ -36,12 +36,19 @@ export async function reembedKbPage(pageId: string): Promise<{
   const supabase = await createClient();
   const { data: page, error: pageErr } = await supabase
     .from("kb_pages")
-    .select("id, account_id, title, plain_text")
+    .select("id, account_id, title, plain_text, updated_at")
     .eq("id", pageId)
     .is("deleted_at", null)
     .maybeSingle();
   if (pageErr) return { chunks_count: 0, error: pageErr.message };
   if (!page) return { chunks_count: 0, error: "Страница не найдена" };
+
+  // Snapshot updated_at ДО embedding-network-trip — потом передаём в
+  // RPC как freshness-token. Если страница изменится за это время,
+  // RPC вернёт 'stale' и не перезатрёт свежие embeddings из новой
+  // (более быстрой) job'ы. Решает Codex #47 P1 «serialize re-embed
+  // jobs for the same page».
+  const snapshotUpdatedAt = page.updated_at;
 
   // Title идёт первым chunk'ом отдельно — даёт буст для запросов
   // вида «найди регламент про X» (title часто = topic).
@@ -49,60 +56,64 @@ export async function reembedKbPage(pageId: string): Promise<{
   const bodyText = (page.plain_text ?? "").trim();
 
   const chunks = chunkText(bodyText);
-  // Если bodyText пустой — embedding'и не нужны (странице нечего
-  // искать в content). Удаляем существующие и выходим.
-  if (chunks.length === 0 && !titleChunk) {
-    await supabase
-      .from("kb_page_embeddings")
-      .delete()
-      .eq("page_id", pageId);
-    return { chunks_count: 0, error: null };
+  const allChunks =
+    chunks.length === 0 && !titleChunk
+      ? []
+      : titleChunk
+        ? [`[Заголовок] ${titleChunk}`, ...chunks]
+        : chunks;
+
+  // Embed только если есть что embed'ить — иначе шлём пустой массив,
+  // RPC очистит существующие chunks (страница опустошена).
+  let embeddings: number[][] = [];
+  if (allChunks.length > 0) {
+    try {
+      embeddings = await embedTexts(allChunks);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "embed error";
+      console.error("[reembedKbPage] embed failed", { pageId, error: msg });
+      return { chunks_count: 0, error: `Embed failed: ${msg}` };
+    }
+    if (embeddings.length !== allChunks.length) {
+      return {
+        chunks_count: 0,
+        error: `Embed count mismatch: expected ${allChunks.length}, got ${embeddings.length}`,
+      };
+    }
   }
 
-  const allChunks = titleChunk
-    ? [`[Заголовок] ${titleChunk}`, ...chunks]
-    : chunks;
-
-  let embeddings: number[][];
-  try {
-    embeddings = await embedTexts(allChunks);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "embed error";
-    console.error("[reembedKbPage] embed failed", { pageId, error: msg });
-    return { chunks_count: 0, error: `Embed failed: ${msg}` };
-  }
-
-  if (embeddings.length !== allChunks.length) {
-    return {
-      chunks_count: 0,
-      error: `Embed count mismatch: expected ${allChunks.length}, got ${embeddings.length}`,
-    };
-  }
-
-  // Atomic replace per-page: delete existing → insert all chunks.
-  // RLS policy kb_page_embeddings_write проверит account+permission.
-  // Embedding-вектор передаётся в pgvector через текстовое
-  // представление [n1,n2,...] — это canonical input format.
-  const { error: delErr } = await supabase
-    .from("kb_page_embeddings")
-    .delete()
-    .eq("page_id", pageId);
-  if (delErr) return { chunks_count: 0, error: delErr.message };
-
-  const rows = allChunks.map((chunk, idx) => ({
-    page_id: pageId,
-    account_id: page.account_id,
+  // Atomic replace + freshness-guard через RPC kb_replace_page_embeddings.
+  // PG-функция неявно транзакционная — DELETE+INSERT либо оба commit,
+  // либо оба rollback (Codex #47 P1 atomicity). p_expected_updated_at =
+  // snapshot ДО embedding-trip (Codex #47 P1 serialization — старая
+  // background-job со stale-content получит 'stale' и тихо пропустит).
+  const chunkPayload = allChunks.map((chunk, idx) => ({
     chunk_index: idx,
     content_chunk: chunk,
     embedding: vectorLiteral(embeddings[idx]),
   }));
 
-  const { error: insErr } = await supabase
-    .from("kb_page_embeddings")
-    .insert(rows as unknown as never);
-  if (insErr) return { chunks_count: 0, error: insErr.message };
+  const { data: result, error: rpcErr } = await supabase.rpc(
+    "kb_replace_page_embeddings",
+    {
+      p_page_id: pageId,
+      p_expected_updated_at: snapshotUpdatedAt as unknown as string,
+      p_chunks: chunkPayload as unknown as never,
+    },
+  );
+  if (rpcErr) return { chunks_count: 0, error: rpcErr.message };
 
-  return { chunks_count: rows.length, error: null };
+  const status = (result as unknown as string) ?? "unknown";
+  if (status === "stale") {
+    // Newer save проехал мимо нас — это ОК, не ошибка. Свежий re-embed
+    // уже запущен или вот-вот запустится из той save'ы.
+    return { chunks_count: 0, error: null };
+  }
+  if (status !== "ok") {
+    return { chunks_count: 0, error: `Replace status: ${status}` };
+  }
+
+  return { chunks_count: chunkPayload.length, error: null };
 }
 
 /** Splits plain-text на chunks ~MAX_CHUNK_CHARS. Стратегия:

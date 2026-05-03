@@ -495,3 +495,35 @@ export async function restoreKbPage(
   revalidatePath("/knowledge");
   return { restored: (data as number | null) ?? 0, error: null };
 }
+
+/** Admin toggle «заблокировать страницу для редактирования» (Notion-
+ *  стиль защиты от случайных правок). Sprint D Phase 3.
+ *
+ *  Backed by RPC `kb_set_page_lock` (миграция 078, security definer).
+ *  Прямой `update kb_pages` не работает: RLS-policy `kb_pages_update`
+ *  (миграция 055) требует `kb.edit_any_page` / `kb.edit_own_pages` /
+ *  `kb.delete_pages`. Manager получает только `kb.lock_pages`, но НЕ
+ *  edit-permission'ы — без RPC он видел бы toggle, а UPDATE реджектился
+ *  бы RLS. См. Codex #59 P1.
+ *
+ *  При locked=true → RPC пишет locked_at=now() + locked_by=auth.uid().
+ *  При locked=false → обнуляет оба. Audit-event `kb_page.locked` /
+ *  `kb_page.unlocked` пишется триггером (миграция 082).
+ *
+ *  RPC kb_save_page (с миграции 078) отвергает save на locked-странице
+ *  если caller не имеет kb.lock_pages — это backend-enforcement поверх
+ *  UI-readonly режима. */
+export async function setKbPageLock(input: {
+  pageId: string;
+  locked: boolean;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("kb_set_page_lock", {
+    p_page_id: input.pageId,
+    p_locked: input.locked,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/knowledge`);
+  return { error: null };
+}

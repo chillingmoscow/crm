@@ -83,24 +83,42 @@ declare
   v_page       record;
   v_link       text;
   v_inserted_user_id uuid;
+  v_can_edit_any boolean := public.has_permission('kb.edit_any_page');
+  v_can_edit_own boolean := public.has_permission('kb.edit_own_pages');
 begin
   if v_uid is null then
-    return; -- silent no-op для unauthorized — caller всё равно
-            -- проверяет permission на save'е выше
+    return; -- silent no-op для unauthorized
   end if;
 
   if p_user_ids is null or array_length(p_user_ids, 1) is null then
     return;
   end if;
 
-  -- Валидируем page: live, в active account.
-  select id, slug, title, account_id into v_page
+  -- Валидируем page: live, в active account. Берём created_by чтобы
+  -- проверить kb.edit_own_pages — без этого проверка edit-доступа
+  -- неполная.
+  select id, slug, title, account_id, created_by into v_page
     from public.kb_pages
    where id = p_page_id
      and account_id = v_account_id
      and deleted_at is null;
   if not found then
     return;
+  end if;
+
+  -- Edit-permission gate (Codex #61 P1 #1). RPC вызывается из
+  -- saveKbPage после успешного save'а — там же проверяется edit-
+  -- доступ. Но grant execute … to authenticated делает RPC
+  -- callable любым залогиненным юзером напрямую через PostgREST,
+  -- что позволяет fabricate notifications для произвольных
+  -- (page, user) комбинаций без edit-permission. Защищаем тем же
+  -- gate'ом, что внутри kb_save_page (миграция 062 / 078):
+  --   kb.edit_any_page  ИЛИ  (kb.edit_own_pages AND created_by = uid).
+  if not (
+    v_can_edit_any
+    or (v_can_edit_own and v_page.created_by = v_uid)
+  ) then
+    return; -- silent no-op для не-edit'оров
   end if;
 
   v_link := '/knowledge/' || v_page.slug;
@@ -178,8 +196,9 @@ begin
     return NEW;
   end if;
 
-  -- Берём thread для author'а + page для link'а.
-  select t.id, t.created_by, t.page_id, p.slug, p.title
+  -- Берём thread + account_id страницы (нужен для фильтра active-
+  -- membership ниже) + slug/title для link'а.
+  select t.id, t.created_by, t.page_id, p.slug, p.title, p.account_id
     into v_thread
     from public.kb_threads t
     join public.kb_pages p on p.id = t.page_id
@@ -192,8 +211,21 @@ begin
 
   v_link := '/knowledge/' || v_thread.slug;
 
-  -- 1. Notify thread author (если не сам commenter и author определён).
-  if v_thread.created_by is not null and v_thread.created_by <> NEW.author_id then
+  -- 1. Notify thread author — только если он ВСЁ ЕЩЁ active-member
+  --    в venue'е этого account'а (Codex #61 P1 #2). Без этой проверки
+  --    отключенному / уволенному юзеру продолжали бы прилетать
+  --    notifications об активности в его старых тредах = leak account-
+  --    activity на off-boarded users.
+  if v_thread.created_by is not null
+     and v_thread.created_by <> NEW.author_id
+     and exists (
+       select 1 from public.user_venue_roles uvr
+       join public.venues v on v.id = uvr.venue_id
+       where uvr.user_id = v_thread.created_by
+         and v.account_id = v_thread.account_id
+         and uvr.status = 'active'
+     )
+  then
     insert into public.notifications (user_id, type, title, body, link)
     values (
       v_thread.created_by,
@@ -204,8 +236,10 @@ begin
     );
   end if;
 
-  -- 2. Notify distinct previous commenters в этом thread'е, исключая
-  --    NEW.author_id и thread.created_by (его уже notify'нули).
+  -- 2. Notify distinct previous commenters — также фильтруем по
+  --    active-member status (Codex #61 P1 #2). Bare exists лоном
+  --    в where делает join подзапросом; для production-объёмов
+  --    (десятки comments в треде) этого достаточно.
   insert into public.notifications (user_id, type, title, body, link)
   select distinct
     c.author_id,
@@ -218,7 +252,14 @@ begin
     and c.id <> NEW.id
     and c.author_id <> NEW.author_id
     and c.author_id is distinct from v_thread.created_by
-    and c.deleted_at is null;
+    and c.deleted_at is null
+    and exists (
+      select 1 from public.user_venue_roles uvr
+      join public.venues v on v.id = uvr.venue_id
+      where uvr.user_id = c.author_id
+        and v.account_id = v_thread.account_id
+        and uvr.status = 'active'
+    );
 
   return NEW;
 end;

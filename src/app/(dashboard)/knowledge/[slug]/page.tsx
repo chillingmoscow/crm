@@ -20,6 +20,8 @@ import { KbUndoRedoButtons } from "@/app/(dashboard)/knowledge/_components/kb-un
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbRequiredReadingToggle } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-toggle";
 import { KbRequiredReadingStatsLink } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-stats-link";
+import { KbPageLockToggle } from "@/app/(dashboard)/knowledge/_components/kb-page-lock-toggle";
+import { KbPageLockBanner } from "@/app/(dashboard)/knowledge/_components/kb-page-lock-banner";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import type { KbBlock, KbPageRow } from "@/types/knowledge";
 
@@ -40,7 +42,9 @@ export default async function KbPageView({ params }: PageProps) {
   const lastEditorId = row.updated_by ?? row.created_by;
   const profileIds = Array.from(
     new Set(
-      [row.created_by, row.updated_by].filter((id): id is string => !!id),
+      [row.created_by, row.updated_by, row.locked_by].filter(
+        (id): id is string => !!id,
+      ),
     ),
   );
 
@@ -55,6 +59,7 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasUseAi },
     { data: hasComment },
     { data: hasManageRequiredReading },
+    { data: hasLockPages },
     { data: activeAccountId },
     { favorited },
     readStatus,
@@ -72,6 +77,7 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.use_ai" }),
     supabase.rpc("has_permission", { permission_code: "kb.comment_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.manage_required_reading" }),
+    supabase.rpc("has_permission", { permission_code: "kb.lock_pages" }),
     supabase.rpc("get_active_account_id"),
     isKbPageFavorited(row.id),
     getKbPageReadStatus(row.id),
@@ -85,7 +91,9 @@ export default async function KbPageView({ params }: PageProps) {
       : Promise.resolve({ data: [] as { id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }[] }),
   ]);
 
-  const canEdit =
+  // Базовая edit-permission. Lock-state ограничивает её отдельно ниже:
+  // canEditEffective = canEdit && (!locked || canLock).
+  const canEditBase =
     Boolean(hasEditAny) ||
     (Boolean(hasEditOwn) && row.created_by === user.user?.id);
   const canDelete = Boolean(hasDelete);
@@ -93,6 +101,14 @@ export default async function KbPageView({ params }: PageProps) {
   const canExport = Boolean(hasExport);
   const canManageTemplates = Boolean(hasManageTemplates);
   const canManageRequiredReading = Boolean(hasManageRequiredReading);
+  const canLock = Boolean(hasLockPages);
+
+  // Effective edit-permission: если страница заблокирована и юзер не
+  // имеет `kb.lock_pages` — editor становится read-only. Backend RPC
+  // kb_save_page (миграция 078) дополнительно отвергает write — это
+  // двойной enforcement.
+  const isLocked = row.locked_at !== null;
+  const canEdit = canEditBase && (!isLocked || canLock);
 
   // AI slash-команды: двойной gate. UI-уровень — чтобы не показывать
   // /ai-айтемы в slash-меню если account отключил AI или у юзера
@@ -144,6 +160,12 @@ export default async function KbPageView({ params }: PageProps) {
   const createdByEntry = row.created_by
     ? profilesById.get(row.created_by) ?? null
     : null;
+
+  // Имя того, кто заблокировал страницу — для banner'а «Заблокировал
+  // <именем>». null если locked_by стёрт каскадом auth.users.delete.
+  const lockedByName = row.locked_by
+    ? profilesById.get(row.locked_by)?.name ?? null
+    : null;
   const createdByAvatarUrl = createdByEntry?.avatarUrl ?? null;
 
   return (
@@ -164,6 +186,9 @@ export default async function KbPageView({ params }: PageProps) {
         )}
         {canManageRequiredReading && readStatus.required && (
           <KbRequiredReadingStatsLink slug={row.slug} />
+        )}
+        {canLock && (
+          <KbPageLockToggle pageId={row.id} initialLocked={isLocked} />
         )}
         <KbUndoRedoButtons canEdit={canEdit} />
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
@@ -196,6 +221,14 @@ export default async function KbPageView({ params }: PageProps) {
           to ~720px for Notion-like reading width. */}
       <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+          {/* Lock-banner — рендерится только когда locked_at != null
+              (Sprint D Phase 3). */}
+          <KbPageLockBanner
+            pageId={row.id}
+            lockedAt={row.locked_at}
+            lockedByName={lockedByName}
+            canUnlock={canLock}
+          />
           {/* Required-reading баннер (только если флаг включён) или
               compact-badge «✓ Прочитано» если уже подтверждено. */}
           <KbRequiredReadingBanner

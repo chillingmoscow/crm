@@ -10,7 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { BarChart3, ChevronRight, GripVertical, Plus, ScrollText, Trash2 } from "lucide-react";
+import { BarChart3, ChevronRight, GripVertical, Lock, Plus, ScrollText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -740,13 +740,21 @@ function KbTreeItem({
           )}
         </span>
 
-        {/* Title (link) */}
+        {/* Title (link). Lock-icon показываем при заблокированной
+            странице — Sprint D Phase 3, чтобы admin'у было видно из
+            дерева, какие страницы «закреплены как готовые». */}
         <Link
           href={`/knowledge/${node.slug}`}
-          className="flex-1 truncate"
-          title={node.title}
+          className="flex-1 truncate inline-flex items-center gap-1.5 min-w-0"
+          title={node.is_locked ? `${node.title} (заблокирована)` : node.title}
         >
-          {node.title || "Без названия"}
+          <span className="truncate">{node.title || "Без названия"}</span>
+          {node.is_locked && (
+            <Lock
+              className="size-3 shrink-0 text-amber-600 dark:text-amber-400"
+              aria-label="Страница заблокирована"
+            />
+          )}
         </Link>
 
         {/* Hover-only "+" to add a child. */}

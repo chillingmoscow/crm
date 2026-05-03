@@ -7,6 +7,7 @@ import {
   BlockNoteSchema,
   defaultBlockSpecs,
   filterSuggestionItems,
+  insertOrUpdateBlockForSlashMenu,
 } from "@blocknote/core";
 import { ru as ruLocale } from "@blocknote/core/locales";
 import {
@@ -93,13 +94,16 @@ export const KB_BLOCKNOTE_FILE_SCHEME = KB_FILE_SCHEME;
  *  Принимает editor wide-типа (any-shape), потому что наш schema
  *  расширен callout-блоком относительно дефолтного BlockNoteEditor. */
 function getKbCalloutSlashItems(editor: BlockNoteEditor<never, never, never>) {
+  // Используем helper, которым пользуются built-in slash-айтемы
+  // (`@blocknote/core` экспортирует его напрямую). Он делает
+  // updateBlock на текущем пустом параграфе и insertBlocks "after"
+  // только если текущий блок непустой — без него `/` на пустой
+  // строке оставлял бы исходный пустой параграф над callout'ом.
   const insert = (variant: "info" | "warning" | "success" | "error") => () => {
-    const cursor = editor.getTextCursorPosition();
-    editor.insertBlocks(
-      [{ type: "callout", props: { variant } } as never],
-      cursor.block,
-      "after",
-    );
+    insertOrUpdateBlockForSlashMenu(editor, {
+      type: "callout",
+      props: { variant },
+    } as never);
   };
   return [
     {

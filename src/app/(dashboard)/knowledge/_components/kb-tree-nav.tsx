@@ -10,7 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronRight, GripVertical, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, GripVertical, Plus, ScrollText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -51,6 +51,9 @@ interface KbTreeNavProps {
    *  Driven by `kb.delete_pages` permission, gated server-side in
    *  the layout. The trash route itself also re-checks. */
   canSeeTrash?: boolean;
+  /** `org.view_audit` permission. Показывает «Журнал» link рядом с
+   *  «Корзина» внизу дерева. Сама страница /knowledge/audit re-check'ает. */
+  canViewAudit?: boolean;
   /** `kb.import_pages` (миграция 069). Показывает Upload-кнопку рядом
    *  с «+ Новая страница». Server-action всё равно проверяет — это
    *  UX-слой. */
@@ -80,6 +83,7 @@ export function KbTreeNav({
   nodes,
   favorites = [],
   canSeeTrash = false,
+  canViewAudit = false,
   canImport = false,
   canCreate = false,
   canManageTemplates = false,
@@ -210,17 +214,30 @@ export function KbTreeNav({
           )}
         </div>
 
-        {canSeeTrash && (
-          <div className="mt-auto h-16 px-2 border-t border-sidebar-border flex items-center">
-            <Link
-              href="/knowledge/trash"
-              className="flex w-full items-center gap-2 rounded-lg p-2
-                         text-sm text-muted-foreground
-                         hover:bg-sidebar-accent hover:text-foreground transition-colors"
-            >
-              <Trash2 className="size-4 shrink-0" />
-              Корзина
-            </Link>
+        {(canSeeTrash || canViewAudit) && (
+          <div className="mt-auto h-16 px-2 border-t border-sidebar-border flex items-center gap-1">
+            {canSeeTrash && (
+              <Link
+                href="/knowledge/trash"
+                className="flex flex-1 items-center gap-2 rounded-lg p-2
+                           text-sm text-muted-foreground
+                           hover:bg-sidebar-accent hover:text-foreground transition-colors"
+              >
+                <Trash2 className="size-4 shrink-0" />
+                Корзина
+              </Link>
+            )}
+            {canViewAudit && (
+              <Link
+                href="/knowledge/audit"
+                className="flex flex-1 items-center gap-2 rounded-lg p-2
+                           text-sm text-muted-foreground
+                           hover:bg-sidebar-accent hover:text-foreground transition-colors"
+              >
+                <ScrollText className="size-4 shrink-0" />
+                Журнал
+              </Link>
+            )}
           </div>
         )}
       </div>

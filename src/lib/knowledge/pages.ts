@@ -281,6 +281,25 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   return { version_number: (data as number | null) ?? null, error: null };
 }
 
+/** Атомарно перерасставляет position 0..N-1 для всех siblings в
+ *  заданном порядке (drag-drop в дереве). Без этой функции
+ *  одиночный moveKbPage оставлял остальных siblings с их старыми
+ *  position'ами → tree.ts (sort by (position, title)) при reload
+ *  резолвил tie алфавитно, теряя drag-order. См. миграцию 067. */
+export async function reorderKbSiblings(
+  parentId: string | null,
+  orderedIds: string[],
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("kb_reorder_siblings", {
+    p_parent_id: parentId,
+    p_ordered_ids: orderedIds,
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/knowledge");
+  return { error: null };
+}
+
 export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: string | null }> {
   const parsed = kbPageMoveSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.message };

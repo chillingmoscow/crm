@@ -33,7 +33,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { createKbPage, moveKbPage } from "@/lib/knowledge/pages";
+import { createKbPage, reorderKbSiblings } from "@/lib/knowledge/pages";
 import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type { KbTreeNode } from "@/types/knowledge";
@@ -127,16 +127,19 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
         applyReorderToParent(prev, activeParent.parentId, reordered),
       );
 
-      void moveKbPage({
-        id: activeId,
-        parent_id: activeParent.parentId,
-        position: newIndex,
-      }).then(({ error }) => {
-        if (error) {
-          toast.error(`Не удалось переместить: ${error}`);
-          setLocalNodes(nodes); // revert
-        }
-      });
+      // Атомарный re-numbering ВСЕХ siblings (а не только moved).
+      // Без этого после reload tree.ts (sort by (position, title))
+      // ловил tie на одинаковых position и резолвил алфавитно,
+      // теряя drag-order. См. миграцию 067.
+      const orderedIds = reordered.map((n) => n.id);
+      void reorderKbSiblings(activeParent.parentId, orderedIds).then(
+        ({ error }) => {
+          if (error) {
+            toast.error(`Не удалось переместить: ${error}`);
+            setLocalNodes(nodes); // revert
+          }
+        },
+      );
     },
     [localNodes, nodes],
   );

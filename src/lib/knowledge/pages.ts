@@ -485,11 +485,15 @@ export async function restoreKbPage(
 /** Admin toggle «заблокировать страницу для редактирования» (Notion-
  *  стиль защиты от случайных правок). Sprint D Phase 3.
  *
- *  Гейт `kb.lock_pages` (миграция 078). Default-матрица: owner / admin
- *  / manager.
+ *  Backed by RPC `kb_set_page_lock` (миграция 078, security definer).
+ *  Прямой `update kb_pages` не работает: RLS-policy `kb_pages_update`
+ *  (миграция 055) требует `kb.edit_any_page` / `kb.edit_own_pages` /
+ *  `kb.delete_pages`. Manager получает только `kb.lock_pages`, но НЕ
+ *  edit-permission'ы — без RPC он видел бы toggle, а UPDATE реджектился
+ *  бы RLS. См. Codex #59 P1.
  *
- *  При locked=true → пишем locked_at=now() + locked_by=auth.uid().
- *  При locked=false → обнуляем оба. Audit-event `kb_page.locked` /
+ *  При locked=true → RPC пишет locked_at=now() + locked_by=auth.uid().
+ *  При locked=false → обнуляет оба. Audit-event `kb_page.locked` /
  *  `kb_page.unlocked` пишется триггером (миграция 082).
  *
  *  RPC kb_save_page (с миграции 078) отвергает save на locked-странице
@@ -500,27 +504,10 @@ export async function setKbPageLock(input: {
   locked: boolean;
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
-
-  const { data: canLock } = await supabase.rpc("has_permission", {
-    permission_code: "kb.lock_pages",
+  const { error } = await supabase.rpc("kb_set_page_lock", {
+    p_page_id: input.pageId,
+    p_locked: input.locked,
   });
-  if (!canLock) {
-    return { error: "Нет права блокировать страницы" };
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Не авторизован" };
-
-  const update: { locked_at: string | null; locked_by: string | null } = input.locked
-    ? { locked_at: new Date().toISOString(), locked_by: user.id }
-    : { locked_at: null, locked_by: null };
-
-  const { error } = await supabase
-    .from("kb_pages")
-    .update(update)
-    .eq("id", input.pageId);
   if (error) return { error: error.message };
 
   revalidatePath(`/knowledge`);

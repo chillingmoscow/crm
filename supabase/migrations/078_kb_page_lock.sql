@@ -197,3 +197,71 @@ comment on function public.kb_save_page(uuid, text, text, text, jsonb, text, uui
 
 grant execute on function public.kb_save_page(uuid, text, text, text, jsonb, text, uuid[])
   to authenticated;
+
+-- ============================================================
+-- 4. RPC kb_set_page_lock — единственный путь toggle'а
+-- ============================================================
+--
+-- Без этой RPC client ходил бы напрямую через `kb_pages.update`,
+-- что упирается в существующую RLS-policy `kb_pages_update`
+-- (миграция 055): UPDATE разрешён только под `kb.edit_any_page` /
+-- `kb.edit_own_pages` / `kb.delete_pages`. Manager в 078 получил
+-- `kb.lock_pages`, но НЕ `kb.edit_any_page` — UI бы показал toggle,
+-- а update реджектился RLS. См. Codex #59 P1.
+--
+-- Решение: security-definer RPC, который check'ает kb.lock_pages
+-- и пишет UPDATE из-под supabase_admin (RLS не применяется к owner'у
+-- таблицы внутри security-definer-функции).
+
+create or replace function public.kb_set_page_lock(
+  p_page_id uuid,
+  p_locked  boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid        uuid := auth.uid();
+  v_account_id uuid := public.get_active_account_id();
+begin
+  if v_uid is null then
+    raise exception 'Authentication required' using errcode = '28000';
+  end if;
+  if not public.has_permission('kb.lock_pages') then
+    raise exception 'kb.lock_pages permission required' using errcode = '42501';
+  end if;
+
+  -- Page обязан жить в active account, иначе cross-tenant trick.
+  if not exists (
+    select 1 from public.kb_pages
+     where id = p_page_id
+       and account_id = v_account_id
+       and deleted_at is null
+  ) then
+    raise exception 'Page not found or not accessible' using errcode = '42704';
+  end if;
+
+  if p_locked then
+    update public.kb_pages
+       set locked_at = now(),
+           locked_by = v_uid
+     where id = p_page_id;
+  else
+    update public.kb_pages
+       set locked_at = null,
+           locked_by = null
+     where id = p_page_id;
+  end if;
+end;
+$$;
+
+comment on function public.kb_set_page_lock(uuid, boolean) is
+  'Toggle lock-state KB-страницы. Security definer — обходит '
+  'kb_pages_update RLS-policy (которая требует edit-any/edit-own/'
+  'delete-pages). Гейт через kb.lock_pages permission + page живёт '
+  'в active account. Audit-event пишется триггером (миграция 082).';
+
+revoke all on function public.kb_set_page_lock(uuid, boolean) from public;
+grant execute on function public.kb_set_page_lock(uuid, boolean) to authenticated;

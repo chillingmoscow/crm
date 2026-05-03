@@ -6,6 +6,7 @@ import { Clock } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveKbPage } from "@/lib/knowledge/pages";
+import { registerPendingSaveFlush } from "@/lib/knowledge/pending-saves";
 import {
   uploadKbAttachment,
   getKbAttachmentSignedUrl,
@@ -323,6 +324,15 @@ export function KbPageEditor({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Register flush в pending-saves registry: lock-toggle / другие
+  // action'ы, которые меняют backend-state атомарно с edit'ами,
+  // вызывают `flushAllPendingSaves()` и ждут пока debounced-save
+  // долетит до сервера. См. Codex #65 P2.
+  useEffect(() => {
+    if (!canEdit) return;
+    return registerPendingSaveFlush(flush);
+  }, [canEdit, flush]);
 
   // beforeunload: warn the user if there are pending edits. Читаем
   // state синхронно из module-store — без подписки, чтобы не вызывать

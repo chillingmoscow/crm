@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { setKbPageLock } from "@/lib/knowledge/pages";
+import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
 
 interface KbPageLockToggleProps {
   pageId: string;
@@ -35,6 +36,19 @@ export function KbPageLockToggle({
     const next = !locked;
     setLocked(next); // optimistic
     setPending(true);
+    // Перед lock'ом — дождаться pending debounced-save'а редактора.
+    // Иначе strict-lock guard в kb_save_page (миграция 086) reject'ит
+    // последний flush на 42501 → unsaved edits теряются. См. Codex #65 P2.
+    if (next) {
+      try {
+        await flushAllPendingSaves();
+      } catch {
+        // Если flush упал — продолжаем с lock'ом. Editor сам покажет
+        // toast.error из своего save-handler'а; lock не блокируем,
+        // потому что причина flush-fail может быть network — а user
+        // явно хочет защитить страницу.
+      }
+    }
     const { error } = await setKbPageLock({ pageId, locked: next });
     setPending(false);
     if (error) {
@@ -42,9 +56,8 @@ export function KbPageLockToggle({
       toast.error(`Не удалось переключить блокировку: ${error}`);
       return;
     }
-    toast.success(
-      next ? "Страница заблокирована для редактирования" : "Блокировка снята",
-    );
+    // Без success-toast'а: banner на странице сам объясняет состояние.
+    // Дублирующее уведомление избыточно.
     router.refresh();
   };
 

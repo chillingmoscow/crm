@@ -48,6 +48,7 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasExport },
     { data: hasManageTemplates },
     { data: hasUseAi },
+    { data: hasComment },
     { data: activeAccountId },
     { favorited },
     { rows: allPages },
@@ -62,6 +63,7 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.export_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
     supabase.rpc("has_permission", { permission_code: "kb.use_ai" }),
+    supabase.rpc("has_permission", { permission_code: "kb.comment_pages" }),
     supabase.rpc("get_active_account_id"),
     isKbPageFavorited(row.id),
     listKbPages(),
@@ -191,6 +193,9 @@ export default async function KbPageView({ params }: PageProps) {
             initialContent={(row.content as unknown as KbBlock[]) ?? []}
             canEdit={canEdit}
             aiSlashEnabled={aiSlashEnabled}
+            canComment={Boolean(hasComment)}
+            accountId={(activeAccountId as unknown as string | null) ?? null}
+            userId={user.user?.id ?? null}
           />
 
           <KbBacklinks pageId={row.id} />

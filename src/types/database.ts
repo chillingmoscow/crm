@@ -1020,6 +1020,67 @@ export type Database = {
           },
         ]
       }
+      kb_comments: {
+        Row: {
+          account_id: string
+          author_id: string
+          body: Json
+          created_at: string
+          deleted_at: string | null
+          id: string
+          metadata: Json
+          reactions: Json
+          thread_id: string
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          author_id: string
+          body: Json
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          metadata?: Json
+          reactions?: Json
+          thread_id: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          author_id?: string
+          body?: Json
+          created_at?: string
+          deleted_at?: string | null
+          id?: string
+          metadata?: Json
+          reactions?: Json
+          thread_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_comments_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_comments_author_id_fkey"
+            columns: ["author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_comments_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "kb_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kb_page_attachments: {
         Row: {
           attached_at: string
@@ -1384,6 +1445,77 @@ export type Database = {
             columns: ["page_id"]
             isOneToOne: false
             referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kb_threads: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          id: string
+          metadata: Json
+          page_id: string
+          resolved: boolean
+          resolved_at: string | null
+          resolved_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          metadata?: Json
+          page_id: string
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          id?: string
+          metadata?: Json
+          page_id?: string
+          resolved?: boolean
+          resolved_at?: string | null
+          resolved_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_threads_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_threads_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_threads_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_threads_resolved_by_fkey"
+            columns: ["resolved_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -2296,6 +2428,14 @@ export type Database = {
           id: string
           last_name: string
         }[]
+      }
+      kb_comment_react: {
+        Args: { p_comment_id: string; p_emoji: string }
+        Returns: undefined
+      }
+      kb_comment_unreact: {
+        Args: { p_comment_id: string; p_emoji: string }
+        Returns: undefined
       }
       kb_duplicate_cascade: {
         Args: { p_id: string }

@@ -314,6 +314,30 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   } as never);
   if (error) return { version_number: null, error: error.message };
 
+  // Fire-and-forget reembedding для RAG. Не блокирует caller'а
+  // (auto-save в редакторе должен возвращаться мгновенно). Если
+  // SiliconFlow упадёт / API_KEY отсутствует — пропускаем тихо;
+  // следующий save попробует ещё раз. Лог в console.error для
+  // debug'а, но без toast'а — embedding background-операция, юзер
+  // не должен про неё знать. См. src/lib/knowledge/embeddings.ts.
+  void (async () => {
+    try {
+      const { reembedKbPage } = await import("@/lib/knowledge/embeddings");
+      const result = await reembedKbPage(parsed.data.id);
+      if (result.error) {
+        console.warn("[kb] reembed skipped", {
+          pageId: parsed.data.id,
+          error: result.error,
+        });
+      }
+    } catch (err) {
+      console.warn("[kb] reembed crashed", {
+        pageId: parsed.data.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  })();
+
   // Намеренно НЕ вызываем revalidatePath: server-action call из
   // клиента триггерит RSC-refresh текущего route'а, что в свою очередь
   // меняет row.updated_at → key={id-updated_at} в slug-page → BlockNote

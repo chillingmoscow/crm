@@ -41,14 +41,30 @@ export default async function KnowledgeLayout({
     { data: canImport },
     { data: canCreate },
     { data: canManageTemplates },
+    { data: canAskAi },
+    { data: activeAccountId },
   ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "kb.view_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.import_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
+    supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
+    supabase.rpc("get_active_account_id"),
   ]);
   if (!canView) redirect("/dashboard");
+
+  // RAG (kb.ask_ai) gate: permission + account.ai_enabled. Если оба
+  // true — KbSearchProvider покажет AI-quick-row в dialog'е.
+  let aiAskEnabled = false;
+  if (Boolean(canAskAi) && activeAccountId) {
+    const { data: accountRow } = await supabase
+      .from("accounts")
+      .select("ai_enabled")
+      .eq("id", activeAccountId as unknown as string)
+      .maybeSingle();
+    aiAskEnabled = Boolean(accountRow?.ai_enabled);
+  }
 
   // Tree + favorites параллельно. KbTreeNav reads from React cache
   // (getKbTree wraps listKbPages с React.cache), no double-fetch.
@@ -58,7 +74,7 @@ export default async function KnowledgeLayout({
   ]);
 
   return (
-    <KbSearchProvider>
+    <KbSearchProvider aiAskEnabled={aiAskEnabled}>
       {/* Полная высота viewport: dashboard topbar скрыт на /knowledge,
           поэтому aside поднят к самому верху. svh (а не vh) — потому
           что SidebarProvider дашборда использует ту же единицу, иначе

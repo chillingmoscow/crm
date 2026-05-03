@@ -19,6 +19,8 @@ import { KbPageActions } from "@/app/(dashboard)/knowledge/_components/kb-page-a
 import { KbUndoRedoButtons } from "@/app/(dashboard)/knowledge/_components/kb-undo-redo-buttons";
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbRequiredReadingToggle } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-toggle";
+import { KbRequiredReadingStatsLink } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-stats-link";
+import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import type { KbBlock, KbPageRow } from "@/types/knowledge";
 
 interface PageProps {
@@ -160,6 +162,9 @@ export default async function KbPageView({ params }: PageProps) {
             initialRequired={readStatus.required}
           />
         )}
+        {canManageRequiredReading && readStatus.required && (
+          <KbRequiredReadingStatsLink slug={row.slug} />
+        )}
         <KbUndoRedoButtons canEdit={canEdit} />
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
         <KbPageActions
@@ -197,6 +202,11 @@ export default async function KbPageView({ params }: PageProps) {
             pageId={row.id}
             required={readStatus.required}
             initialReadAt={readStatus.myReadAt}
+            readingMinutes={
+              row.plain_text && row.plain_text.trim().length > 0
+                ? estimateReadingMinutes(row.plain_text)
+                : null
+            }
           />
           {/*
             Key by (id, updated_at). Normal auto-save doesn't bump
@@ -217,6 +227,11 @@ export default async function KbPageView({ params }: PageProps) {
             canComment={Boolean(hasComment)}
             accountId={(activeAccountId as unknown as string | null) ?? null}
             userId={user.user?.id ?? null}
+            readingMinutes={
+              row.plain_text && row.plain_text.trim().length > 0
+                ? estimateReadingMinutes(row.plain_text)
+                : null
+            }
           />
 
           <KbBacklinks pageId={row.id} />

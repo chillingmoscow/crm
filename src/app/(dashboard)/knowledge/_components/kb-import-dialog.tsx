@@ -127,9 +127,27 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
     // Index image-files по lowercased basename для быстрого match'а с
     // relative-refs из markdown'а («Движение-а.jpg» → File). Используется
     // в loop'е ниже — каждый matched ref → upload + URL-rewrite.
+    //
+    // Коллизии (две картинки с одинаковым basename'ом, например
+    // `./a/logo.png` + `./b/logo.png`) → не имеем способа отличить, на
+    // какой из них ссылается markdown. Заносим первую, остальные
+    // отмечаем в `ambiguousNames` и warn'аем — лучше показать
+    // placeholder, чем подставить «не ту» картинку. См. Codex #66 P2.
     const imagesByName = new Map<string, File>();
+    const ambiguousNames = new Set<string>();
     for (const f of imageFiles) {
-      imagesByName.set(f.name.toLowerCase(), f);
+      const key = f.name.toLowerCase();
+      if (imagesByName.has(key)) {
+        ambiguousNames.add(key);
+        continue;
+      }
+      imagesByName.set(key, f);
+    }
+    if (ambiguousNames.size > 0) {
+      toast.warning(
+        `Несколько картинок с одинаковым именем (${Array.from(ambiguousNames).join(", ")}). ` +
+          `В markdown'е может оказаться неоднозначной ссылка — переименуйте файлы и попробуйте ещё раз.`,
+      );
     }
 
     for (let i = 0; i < files.length; i++) {
@@ -176,9 +194,23 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
         const urlMap = new Map<string, string>();
         const seen = new Set<string>();
         for (const ref of refs) {
-          const basename = ref.split(/[/\\]/).pop()?.toLowerCase();
+          // Decode percent-encoding: markdown часто пишет `My%20Image.png`
+          // вместо `My Image.png`, а `File.name` — уже decoded. Без
+          // decodeURIComponent такие ref'ы никогда не сматчат файл и
+          // оставались бы placeholder'ом. См. Codex #66 P2.
+          const rawBasename = ref.split(/[/\\]/).pop() ?? "";
+          let decoded: string;
+          try {
+            decoded = decodeURIComponent(rawBasename);
+          } catch {
+            decoded = rawBasename; // невалидный escape — fallback
+          }
+          const basename = decoded.toLowerCase();
           if (!basename || seen.has(basename)) continue;
           seen.add(basename);
+          // Ambiguous (несколько image-files с этим basename'ом) →
+          // оставляем placeholder. Юзер получил warning выше.
+          if (ambiguousNames.has(basename)) continue;
           const imgFile = imagesByName.get(basename);
           if (!imgFile) continue;
 

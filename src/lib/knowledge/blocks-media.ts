@@ -133,7 +133,18 @@ export function applyMediaUrlMap(
     if (isMedia) {
       const url = (b.props?.url ?? "").trim();
       if (url && !VALID_MEDIA_URL_RE.test(url)) {
-        const basename = url.split(/[/\\]/).pop()?.toLowerCase();
+        // Decode percent-encoding в basename, чтобы матчиться с
+        // нормализованными ключами `urlMap` (см. kb-import-dialog).
+        // Без этого `My%20Image.png` не сматчится с ключом
+        // `my image.png`. Codex #66 P2.
+        const rawBasename = url.split(/[/\\]/).pop() ?? "";
+        let decoded: string;
+        try {
+          decoded = decodeURIComponent(rawBasename);
+        } catch {
+          decoded = rawBasename;
+        }
+        const basename = decoded.toLowerCase();
         const replacement = basename ? urlMap.get(basename) : undefined;
         if (replacement) {
           return {

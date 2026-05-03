@@ -175,16 +175,38 @@ function escapeMd(s: string): string {
   return s.replace(/([\\`*_{}\[\]()#+\-.!])/g, "\\$1");
 }
 
+/** Escape для использования внутри H1-заголовка. Кроме обычных
+ *  markdown-метасимволов схлопывает любые переводы строк в пробелы —
+ *  иначе title с `\n` обрывает heading и ломает структуру документа. */
+export function escapeMdTitle(s: string): string {
+  return escapeMd(s.replace(/[\r\n]+/g, " ")).trim();
+}
+
 function escapeAlt(s: string): string {
   return s.replace(/[\[\]]/g, "");
 }
 
 function tableToMd(b: BlockLike): string {
-  // BlockNote table content shape: { type: "tableContent", rows: [{cells: [{...inline}, ...]}, ...] }
-  const c = b.content as { type?: string; rows?: { cells?: InlineRun[][] }[] } | undefined;
+  // BlockNote TableContent (см. @blocknote/core/types/.../schema/blocks/types.d.ts):
+  //   rows: { cells: InlineContent[][] | TableCell[] }[]
+  // — cells могут быть либо «лёгким» массивом inline-runs, либо
+  // полноценными TableCell-объектами `{ type: "tableCell", props, content: InlineContent[] }`.
+  // BlockNote 0.49 в живых документах раздаёт второй вариант, и
+  // прежний код `inlineToMd(cell)` на TableCell-объекте возвращал
+  // пустую строку → table в .md экспортировались без данных.
+  type CellLike = InlineRun[] | { content?: InlineRun[] };
+  const c = b.content as { type?: string; rows?: { cells?: CellLike[] }[] } | undefined;
   if (!c?.rows || c.rows.length === 0) return "";
+  const cellRuns = (cell: CellLike): InlineRun[] => {
+    if (Array.isArray(cell)) return cell;
+    return Array.isArray(cell?.content) ? cell.content : [];
+  };
   const rowsMd = c.rows.map((row) =>
-    "| " + (row.cells ?? []).map((cell) => inlineToMd(cell).replace(/\n/g, " ")).join(" | ") + " |",
+    "| " +
+    (row.cells ?? [])
+      .map((cell) => inlineToMd(cellRuns(cell)).replace(/\n/g, " "))
+      .join(" | ") +
+    " |",
   );
   if (rowsMd.length === 0) return "";
   // Markdown требует отделитель после header. Считаем первый row header.

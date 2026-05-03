@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
-import { blocksToMarkdown } from "@/lib/knowledge/blocks-to-markdown";
+import { blocksToMarkdown, escapeMdTitle } from "@/lib/knowledge/blocks-to-markdown";
 import {
   kbPageCreateSchema,
   kbPageMoveSchema,
@@ -131,14 +131,31 @@ export async function getKbPageById(id: string): Promise<{
   return { row: (data as KbPageRow | null) ?? null, error: null };
 }
 
-/** Конвертирует страницу (по id) в Markdown-текст. RLS уже фильтрует
- *  доступ к row'у — экспорт даёт ровно столько, сколько юзер может
- *  прочитать через `kb.view_pages`. */
+/** Конвертирует страницу (по id) в Markdown-текст.
+ *
+ *  Гейтинг: помимо стандартного `kb.view_pages` (фильтруется RLS на
+ *  чтении row'а), требует **отдельный permission `kb.export_pages`**
+ *  — рядовые сотрудники (hostess/waiter) не должны иметь возможность
+ *  выгружать интеллектуальную собственность компании наружу. UI уже
+ *  скрывает кнопку, но клиент может вызвать server-action напрямую,
+ *  поэтому проверяем здесь же. См. миграцию 068. */
 export async function exportKbPageAsMarkdown(id: string): Promise<{
   markdown: string | null;
   filename: string | null;
   error: string | null;
 }> {
+  const supabase = await createClient();
+  const { data: canExport } = await supabase.rpc("has_permission", {
+    permission_code: "kb.export_pages",
+  });
+  if (!canExport) {
+    return {
+      markdown: null,
+      filename: null,
+      error: "Нет права экспортировать страницы",
+    };
+  }
+
   const { row, error } = await getKbPageById(id);
   if (error) return { markdown: null, filename: null, error };
   if (!row) return { markdown: null, filename: null, error: "Страница не найдена" };
@@ -146,8 +163,10 @@ export async function exportKbPageAsMarkdown(id: string): Promise<{
   const blocks = (row.content as unknown as import("@/types/knowledge").KbBlock[]) ?? [];
   const title = row.title || "Без названия";
   const body = blocksToMarkdown(blocks);
-  // Заголовок страницы сверху как H1, потом тело.
-  const md = `# ${title}\n\n${body}`;
+  // Заголовок страницы сверху как H1. escapeMdTitle экранирует
+  // markdown-метасимволы и схлопывает переводы строк — без этого
+  // title с `#`, `[`, `]` или `\n` ломал бы heading и структуру файла.
+  const md = `# ${escapeMdTitle(title)}\n\n${body}`;
 
   // Файлнейм: slug + .md. Slug URL-safe by design (см. lib/knowledge/slug.ts).
   return { markdown: md, filename: `${row.slug}.md`, error: null };

@@ -23,6 +23,9 @@ interface KbPageActionsProps {
   /** Number of direct children — surfaced in the delete confirm. */
   childCount: number;
   canDelete: boolean;
+  /** `kb.export_pages` (миграция 068). Скрывает Download-кнопку. Server-action
+   *  всё равно проверяет permission — это просто UX-слой. */
+  canExport: boolean;
 }
 
 /**
@@ -42,16 +45,12 @@ export function KbPageActions({
   pageTitle,
   childCount,
   canDelete,
+  canExport,
 }: KbPageActionsProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [exporting, setExporting] = useState(false);
-
-  // Export доступен всем у кого `kb.view_pages` (а это любой, кто
-  // вообще видит эту страницу — RLS уже отфильтровала). Поэтому не
-  // делаем дополнительной permission-проверки: если страница рендерится,
-  // юзер вправе её скачать.
 
   const onExport = async () => {
     setExporting(true);
@@ -93,21 +92,23 @@ export function KbPageActions({
 
   return (
     <>
-      <IconTooltip label="Скачать как Markdown">
-        <button
-          type="button"
-          aria-label="Скачать как Markdown"
-          onClick={onExport}
-          disabled={exporting}
-          className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50"
-        >
-          {exporting ? (
-            <Loader2 className="w-[18px] h-[18px] animate-spin" />
-          ) : (
-            <Download className="w-[18px] h-[18px]" />
-          )}
-        </button>
-      </IconTooltip>
+      {canExport && (
+        <IconTooltip label="Скачать как Markdown">
+          <button
+            type="button"
+            aria-label="Скачать как Markdown"
+            onClick={onExport}
+            disabled={exporting}
+            className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            {exporting ? (
+              <Loader2 className="w-[18px] h-[18px] animate-spin" />
+            ) : (
+              <Download className="w-[18px] h-[18px]" />
+            )}
+          </button>
+        </IconTooltip>
+      )}
       {canDelete && (
         <DeleteDialog
           open={open}

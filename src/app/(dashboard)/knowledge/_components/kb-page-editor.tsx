@@ -125,6 +125,9 @@ export function KbPageEditor({
   const iconColorRef = useRef(iconColor);
   const contentRef = useRef<KbBlock[]>(initialContent);
   const plainTextRef = useRef<string>("");
+  // Реф на title-textarea — нужен для авто-высоты на первый рендер
+  // (после mount initialTitle уже занимает >1 строку для длинных).
+  const titleAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Hash of the last successfully-saved (or initial) state. Used to
   // skip no-op saves: BlockNote fires onChange when its document
@@ -156,6 +159,15 @@ export function KbPageEditor({
   // module-store держал «Сохранено» от предыдущей страницы).
   useEffect(() => {
     setKbSaveState({ kind: "idle" });
+  }, [pageId]);
+
+  // Подогнать высоту title-textarea под content на первый рендер
+  // (длинный заголовок занимает 2-3 строки сразу, без мерцания).
+  useEffect(() => {
+    const ta = titleAreaRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
   }, [pageId]);
 
   const flush = useCallback(async () => {
@@ -278,27 +290,39 @@ export function KbPageEditor({
             }}
           />
         </div>
-        {/* Plain <input> намеренно вместо <Input>: shadcn-Input включает
-            md:text-sm в свой базовый class, который переписывает наш
-            text-[48px] на desktop'е (tailwind-merge группирует
-            responsive-варианты отдельно — text-[48px] не «бьёт»
-            md:text-sm). Здесь нам нужен ровно один размер. */}
-        <input
+        {/* <textarea> вместо <input>, чтобы длинные заголовки
+            переносились на новую строку, а не обрезались. Высота
+            растёт под содержимое через onInput → scrollHeight. Enter
+            мы перехватываем и блокируем — title должен быть однострочным
+            смыслово, но визуально может занимать несколько строк. */}
+        <textarea
+          ref={titleAreaRef}
           aria-label="Заголовок страницы"
+          rows={1}
           value={title}
           onChange={(e) => {
             const next = e.target.value;
-            // Same sync-ref reasoning as iconRef above.
             titleRef.current = next;
             setTitle(next);
+            // Авто-высота: сначала сбрасываем, иначе scrollHeight
+            // растёт безостановочно при backspace.
+            const ta = e.currentTarget;
+            ta.style.height = "auto";
+            ta.style.height = `${ta.scrollHeight}px`;
             scheduleSave();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+            }
           }}
           placeholder="Без названия"
           disabled={!canEdit}
-          // H1-страницы (Notion-like): 48px / 800 / -0.02em / 1.1.
-          // Полностью borderless — поле сливается с фоном.
-          className="w-full bg-transparent px-2 -ml-2 py-1 outline-none
-                     text-[48px] font-extrabold tracking-tight leading-[1.1]
+          // H1-страницы: 40px / 800 / -0.02em / 1.15. resize-none чтобы
+          // юзер не таскал ручкой. overflow-hidden + auto-height в
+          // onChange = wrap без скролла.
+          className="w-full bg-transparent px-2 -ml-2 py-1 outline-none resize-none overflow-hidden
+                     text-[40px] font-extrabold tracking-tight leading-[1.15]
                      placeholder:text-muted-foreground/50"
         />
       </div>

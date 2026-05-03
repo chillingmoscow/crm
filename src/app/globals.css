@@ -200,8 +200,11 @@ input:-webkit-autofill {
    пользователь не догадывается, что caption вообще существует.
    Показываем placeholder при наведении на блок ИЛИ когда блок
    selected — без перетягивания на JS. */
-.bn-sheerly [data-file-block]:hover .bn-file-caption:empty::before,
-.bn-sheerly .ProseMirror-selectednode .bn-file-caption:empty::before {
+/* Гейтим placeholder по contenteditable=true: в read-only-просмотрах
+   (trash preview через KbBlockNoteEditor editable={false}) editable
+   UI намеренно отключен и подсказки про edit-actions сбивают с толку. */
+.bn-sheerly .bn-editor[contenteditable="true"] [data-file-block]:hover .bn-file-caption:empty::before,
+.bn-sheerly .bn-editor[contenteditable="true"] .ProseMirror-selectednode .bn-file-caption:empty::before {
   content: "Добавить подпись";
   color: hsl(var(--muted-foreground));
   font-style: italic;

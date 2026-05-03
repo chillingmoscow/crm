@@ -87,6 +87,10 @@ interface KbPageEditorProps {
   initialIconColor: string | null;
   initialContent: KbBlock[];
   canEdit: boolean;
+  /** AI-команды (`/ai*`) в slash-меню. Двойной gate выше: kb.use_ai
+   *  permission + accounts.ai_enabled. Server-action runKbAiCommand
+   *  всё равно перепроверит — это UX-слой. */
+  aiSlashEnabled?: boolean;
 }
 
 /**
@@ -113,6 +117,7 @@ export function KbPageEditor({
   initialIconColor,
   initialContent,
   canEdit,
+  aiSlashEnabled = false,
 }: KbPageEditorProps) {
   const [title, setTitle] = useState(initialTitle);
   const [icon, setIcon] = useState<string | null>(initialIcon);
@@ -338,6 +343,7 @@ export function KbPageEditor({
         editable={canEdit}
         customSideMenu
         customSlashMenu
+        aiSlashEnabled={aiSlashEnabled}
         renderExtras={renderExtras}
         uploadFile={async (file) => {
           const result = await uploadKbAttachment({

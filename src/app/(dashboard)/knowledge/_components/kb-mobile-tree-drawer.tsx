@@ -22,6 +22,7 @@ interface KbMobileTreeDrawerProps {
   favorites?: KbFavoritePage[];
   canSeeTrash: boolean;
   canViewAudit?: boolean;
+  canViewAnalytics?: boolean;
   canImport?: boolean;
   canCreate?: boolean;
   canManageTemplates?: boolean;
@@ -40,6 +41,7 @@ export function KbMobileTreeDrawer({
   favorites,
   canSeeTrash,
   canViewAudit = false,
+  canViewAnalytics = false,
   canImport = false,
   canCreate = false,
   canManageTemplates = false,
@@ -78,6 +80,7 @@ export function KbMobileTreeDrawer({
             favorites={favorites}
             canSeeTrash={canSeeTrash}
             canViewAudit={canViewAudit}
+            canViewAnalytics={canViewAnalytics}
             canImport={canImport}
             canCreate={canCreate}
             canManageTemplates={canManageTemplates}

@@ -1488,6 +1488,54 @@ export type Database = {
           },
         ]
       }
+      kb_page_view_sessions: {
+        Row: {
+          account_id: string
+          created_at: string
+          duration_seconds: number
+          ended_at: string
+          id: string
+          page_id: string
+          started_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          duration_seconds: number
+          ended_at: string
+          id?: string
+          page_id: string
+          started_at: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          duration_seconds?: number
+          ended_at?: string
+          id?: string
+          page_id?: string
+          started_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_view_sessions_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_view_sessions_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kb_threads: {
         Row: {
           account_id: string
@@ -2492,6 +2540,15 @@ export type Database = {
       kb_reorder_siblings: {
         Args: { p_parent_id: string | null; p_ordered_ids: string[] }
         Returns: number
+      }
+      kb_record_page_view: {
+        Args: {
+          p_page_id: string
+          p_started_at: string
+          p_ended_at: string
+          p_duration_seconds: number
+        }
+        Returns: string | null
       }
       kb_replace_page_embeddings: {
         Args: {

@@ -10,7 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronRight, GripVertical, Plus, ScrollText, Trash2 } from "lucide-react";
+import { BarChart3, ChevronRight, GripVertical, Plus, ScrollText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -50,6 +50,10 @@ interface KbTreeNavProps {
   /** `org.view_audit` permission. Показывает «Журнал» link рядом с
    *  «Корзина» внизу дерева. Сама страница /knowledge/audit re-check'ает. */
   canViewAudit?: boolean;
+  /** `kb.view_analytics` permission (миграция 077). Показывает
+   *  «Аналитика» link рядом с «Журнал». Страница /knowledge/analytics
+   *  re-check'ает. */
+  canViewAnalytics?: boolean;
   /** `kb.import_pages` (миграция 069). Показывает Upload-кнопку рядом
    *  с «+ Новая страница». Server-action всё равно проверяет — это
    *  UX-слой. */
@@ -112,6 +116,7 @@ export function KbTreeNav({
   favorites = [],
   canSeeTrash = false,
   canViewAudit = false,
+  canViewAnalytics = false,
   canImport = false,
   canCreate = false,
   canManageTemplates = false,
@@ -351,7 +356,7 @@ export function KbTreeNav({
           )}
         </div>
 
-        {(canSeeTrash || canViewAudit) && (
+        {(canSeeTrash || canViewAudit || canViewAnalytics) && (
           <div className="mt-auto h-16 px-2 border-t border-sidebar-border flex items-center gap-1">
             {canSeeTrash && (
               <Link
@@ -373,6 +378,17 @@ export function KbTreeNav({
               >
                 <ScrollText className="size-4 shrink-0" />
                 Журнал
+              </Link>
+            )}
+            {canViewAnalytics && (
+              <Link
+                href="/knowledge/analytics"
+                className="flex flex-1 items-center gap-2 rounded-lg p-2
+                           text-sm text-muted-foreground
+                           hover:bg-sidebar-accent hover:text-foreground transition-colors"
+              >
+                <BarChart3 className="size-4 shrink-0" />
+                Аналитика
               </Link>
             )}
           </div>

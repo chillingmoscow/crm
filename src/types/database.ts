@@ -2178,6 +2178,7 @@ export type Database = {
         }[]
       }
       kb_soft_delete_cascade: { Args: { p_id: string }; Returns: number }
+      list_my_permissions: { Args: Record<string, never>; Returns: string[] }
       log_audit: {
         Args: {
           p_action_code: string

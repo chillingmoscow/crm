@@ -80,6 +80,90 @@ export function rewriteBrokenMediaBlocks(
   });
 }
 
+/** Достаёт все relative-URL'ы из media-блоков (image/file/video/audio).
+ *  Используется markdown-импортером: после парсинга .md сразу видно,
+ *  какие файлы упоминаются — это даёт возможность сматчить их с
+ *  отдельно загруженными image-файлами и подменить URL на kbfile://
+ *  до того, как блоки уйдут в kb_save_page. См. kb-import-dialog.tsx. */
+export function collectRelativeMediaRefs(blocks: KbBlock[]): string[] {
+  const out: string[] = [];
+  const visit = (bs: KbBlock[]) => {
+    for (const block of bs) {
+      const b = block as unknown as {
+        type?: string;
+        props?: { url?: string };
+        children?: unknown[];
+      };
+      const isMedia =
+        b.type === "image" ||
+        b.type === "file" ||
+        b.type === "video" ||
+        b.type === "audio";
+      if (isMedia) {
+        const url = (b.props?.url ?? "").trim();
+        if (url && !VALID_MEDIA_URL_RE.test(url)) out.push(url);
+      }
+      if (Array.isArray(b.children) && b.children.length > 0) {
+        visit(b.children as KbBlock[]);
+      }
+    }
+  };
+  visit(blocks);
+  return out;
+}
+
+/** Подменяет URL'ы media-блоков по mapping (basename → kbfile://...).
+ *  Применяется ПЕРЕД rewriteBrokenMediaBlocks: сначала рулим matched-
+ *  refs в живые URL'ы, потом placeholder'им то, что не сматчилось. */
+export function applyMediaUrlMap(
+  blocks: KbBlock[],
+  urlMap: Map<string, string>,
+): KbBlock[] {
+  return blocks.map((block) => {
+    const b = block as unknown as {
+      type?: string;
+      props?: { url?: string };
+      children?: unknown[];
+    };
+    const isMedia =
+      b.type === "image" ||
+      b.type === "file" ||
+      b.type === "video" ||
+      b.type === "audio";
+    if (isMedia) {
+      const url = (b.props?.url ?? "").trim();
+      if (url && !VALID_MEDIA_URL_RE.test(url)) {
+        // Decode percent-encoding в basename, чтобы матчиться с
+        // нормализованными ключами `urlMap` (см. kb-import-dialog).
+        // Без этого `My%20Image.png` не сматчится с ключом
+        // `my image.png`. Codex #66 P2.
+        const rawBasename = url.split(/[/\\]/).pop() ?? "";
+        let decoded: string;
+        try {
+          decoded = decodeURIComponent(rawBasename);
+        } catch {
+          decoded = rawBasename;
+        }
+        const basename = decoded.toLowerCase();
+        const replacement = basename ? urlMap.get(basename) : undefined;
+        if (replacement) {
+          return {
+            ...block,
+            props: { ...(b.props ?? {}), url: replacement },
+          } as KbBlock;
+        }
+      }
+    }
+    if (Array.isArray(b.children) && b.children.length > 0) {
+      return {
+        ...block,
+        children: applyMediaUrlMap(b.children as KbBlock[], urlMap),
+      } as KbBlock;
+    }
+    return block;
+  });
+}
+
 /** HTML-уровневая чистка пастящегося контента (Cmd+V из Notion / Word /
  *  Confluence). Заменяет `<img>` с не-валидным `src` на курсивный
  *  paragraph-placeholder ПРЯМО в HTML-строке.

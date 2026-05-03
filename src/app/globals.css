@@ -443,6 +443,19 @@ input:-webkit-autofill {
   max-width: 360px !important;
 }
 
+/* Slash-menu (BlockNote SuggestionMenu, role=listbox class=bn-suggestion-menu).
+   Та же история что и с emoji-picker'ом: shadcn-вариант ставит
+   max-h-(--radix-dropdown-menu-content-available-height) — но эта
+   CSS-переменная set'ится только когда родитель — Radix-Popper. У BN
+   позиционирование своё (Floating UI), переменная не резолвится → max-
+   height не ограничен. Когда юзер открывает меню в нижней части экрана,
+   BN опускает его вниз без flip'а и список вылезает за viewport.
+   Прижимаем по высоте viewport'а вручную. */
+.bn-suggestion-menu {
+  max-height: min(360px, calc(100vh - 24px)) !important;
+  overflow-y: auto !important;
+}
+
 /* Color/highlight picker: shadcn-вариант использует DropdownMenuItem
    с reserved-слотом под check-indicator (галочку). У BlockNote же
    слева идёт «color-icon» (квадратик с цветом A), и стандартный

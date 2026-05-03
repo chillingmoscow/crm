@@ -22,6 +22,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import {
   runKbAiCommand,
   type KbAiCommand,
@@ -231,25 +232,27 @@ export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        {/* Размер matches mantine-toolbar BlockNote'а: 28x28 квадрат,
-            radius=4, hover-bg. Без текста — иконка-only — чтобы стоять
-            в одном ряду с Bold/Italic/Color/Link/Align без перепрыга
-            высоты тулбара. */}
-        <button
+        {/* Используем shadcn `Button variant=ghost size=default` — тот же
+            компонент с теми же размерами, что BlockNote применяет к
+            link/comment/etc через FormattingToolbar.Button (см.
+            blocknote-shadcn dist line 824, Button.Button с variant=ghost
+            size=default). Раньше у нас было `h-7 w-7` raw-button — оно
+            визуально меньше BN-кнопок, и AI оказывалась на 6-8px выше
+            ряда. */}
+        <Button
           type="button"
+          variant="ghost"
+          size="default"
           aria-label="AI-команды"
           title="ИИ"
           disabled={!!pending}
-          className="inline-flex items-center justify-center h-7 w-7 rounded
-                     text-foreground hover:bg-accent hover:text-accent-foreground
-                     transition-colors disabled:opacity-50"
         >
           {pending ? (
-            <Loader2 className="size-4 animate-spin text-brand" />
+            <Loader2 className="animate-spin text-brand" />
           ) : (
-            <Sparkles className="size-4 text-brand" />
+            <Sparkles className="text-brand" />
           )}
-        </button>
+        </Button>
       </PopoverTrigger>
       <PopoverContent
         className="w-[280px] p-1"

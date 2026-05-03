@@ -28,6 +28,11 @@ function NotifIcon({ type }: { type: string }) {
   const cls = "w-4 h-4 shrink-0";
   if (type === "invite")  return <UserPlus      className={`${cls} text-blue-500`} />;
   if (type === "warning") return <AlertTriangle className={`${cls} text-amber-500`} />;
+  // KB-нотификации (Sprint D Phase 4) — все используют warning-цвет,
+  // т.к. это compliance-сигналы («тебе нужно прочесть / на тебя
+  // ссылаются»). Префикс `kb.` отличает от других модулей.
+  if (type.startsWith("kb."))
+    return <AlertTriangle className={`${cls} text-amber-500`} />;
   return <Info className={`${cls} text-muted-foreground`} />;
 }
 

@@ -27,6 +27,8 @@ import {
 import {
   FloatingComposerController,
   FloatingThreadController,
+  LinkToolbar,
+  LinkToolbarController,
 } from "@blocknote/react";
 import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -450,6 +452,13 @@ export function KbBlockNoteEditor({
       // commentsBundle (любой включает кастомный controller).
       // См. Codex #54 P2.
       formattingToolbar={aiSlashEnabled || commentsBundle ? false : undefined}
+      // Default LinkToolbar отключаем — рендерим свой
+      // <LinkToolbarController> (ниже), который для KB-links возвращает
+      // null. Без этого флага BlockNote рендерил бы ОБА toolbar'а:
+      // дефолтный (показывает «Изменить ссылку» для всех URL'ов) +
+      // наш кастомный (null для kb-links). Юзер видел overlap. См.
+      // Codex #67 P1.
+      linkToolbar={false}
     >
       {customSlashMenu && (
         <SuggestionMenuController
@@ -490,6 +499,20 @@ export function KbBlockNoteEditor({
           )}
         />
       )}
+      {/* Custom LinkToolbar: для @-mention'ов на KB-страницы (URL'ы вида
+          `/knowledge/...`) BN-овский toolbar бесполезен — «Изменить
+          ссылку» сломал бы slug-binding @-mention'а, а у нас и так есть
+          богаче KbLinkPreview с заголовком + breadcrumb'ом + reading-time.
+          Два поповера на один линк выглядели грязно (см. user-feedback).
+          Для внешних URL'ов оставляем дефолт BN — там Edit/Open/Unlink
+          реально нужны. */}
+      <LinkToolbarController
+        linkToolbar={(props) =>
+          props.url?.startsWith("/knowledge/") ? null : (
+            <LinkToolbar {...props} />
+          )
+        }
+      />
       {/* Comments controllers — рендерятся только если bundle передан.
           FloatingComposerController — pop-up «нового комментария» при
           клике на AddCommentButton с выделенным текстом.

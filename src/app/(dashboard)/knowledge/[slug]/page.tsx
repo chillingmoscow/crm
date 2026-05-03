@@ -103,12 +103,12 @@ export default async function KbPageView({ params }: PageProps) {
   const canManageRequiredReading = Boolean(hasManageRequiredReading);
   const canLock = Boolean(hasLockPages);
 
-  // Effective edit-permission: если страница заблокирована и юзер не
-  // имеет `kb.lock_pages` — editor становится read-only. Backend RPC
-  // kb_save_page (миграция 078) дополнительно отвергает write — это
-  // двойной enforcement.
+  // Effective edit-permission: если страница заблокирована — editor
+  // read-only ДЛЯ ВСЕХ, включая admin'а с kb.lock_pages. Чтобы edit'ить
+  // надо явно разблокировать через banner-кнопку. Backend RPC
+  // kb_save_page (миграция 086) отвергает любой write на locked-странице.
   const isLocked = row.locked_at !== null;
-  const canEdit = canEditBase && (!isLocked || canLock);
+  const canEdit = canEditBase && !isLocked;
 
   // AI slash-команды: двойной gate. UI-уровень — чтобы не показывать
   // /ai-айтемы в slash-меню если account отключил AI или у юзера

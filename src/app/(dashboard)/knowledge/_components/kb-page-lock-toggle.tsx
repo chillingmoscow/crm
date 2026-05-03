@@ -42,9 +42,8 @@ export function KbPageLockToggle({
       toast.error(`Не удалось переключить блокировку: ${error}`);
       return;
     }
-    toast.success(
-      next ? "Страница заблокирована для редактирования" : "Блокировка снята",
-    );
+    // Без success-toast'а: banner на странице сам объясняет состояние.
+    // Дублирующее уведомление избыточно.
     router.refresh();
   };
 

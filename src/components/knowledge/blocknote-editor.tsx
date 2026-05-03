@@ -25,7 +25,6 @@ import {
   type User as CommentUser,
 } from "@blocknote/core/comments";
 import {
-  AddCommentButton,
   FloatingComposerController,
   FloatingThreadController,
 } from "@blocknote/react";
@@ -424,15 +423,13 @@ export function KbBlockNoteEditor({
         <FormattingToolbarController
           formattingToolbar={() => (
             <FormattingToolbar>
-              {/* Дефолтные кнопки (Bold/Italic/Color/Link/...) — без
-                  изменений. AI-кнопка + AddComment добавлены в конец,
-                  после link/text-align. */}
+              {/* Дефолтные кнопки (Bold/Italic/Color/Link/...) +
+                  AddCommentButton — последний автоматически включается
+                  в getFormattingToolbarItems() когда CommentsExtension
+                  подключён. AI-кнопка добавлена в конец. */}
               {...getFormattingToolbarItems()}
               {aiSlashEnabled && (
                 <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
-              )}
-              {commentsBundle && commentsBundle.canComment && (
-                <AddCommentButton key="add-comment" />
               )}
             </FormattingToolbar>
           )}

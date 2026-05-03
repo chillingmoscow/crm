@@ -481,3 +481,48 @@ export async function restoreKbPage(
   revalidatePath("/knowledge");
   return { restored: (data as number | null) ?? 0, error: null };
 }
+
+/** Admin toggle «заблокировать страницу для редактирования» (Notion-
+ *  стиль защиты от случайных правок). Sprint D Phase 3.
+ *
+ *  Гейт `kb.lock_pages` (миграция 078). Default-матрица: owner / admin
+ *  / manager.
+ *
+ *  При locked=true → пишем locked_at=now() + locked_by=auth.uid().
+ *  При locked=false → обнуляем оба. Audit-event `kb_page.locked` /
+ *  `kb_page.unlocked` пишется триггером (миграция 082).
+ *
+ *  RPC kb_save_page (с миграции 078) отвергает save на locked-странице
+ *  если caller не имеет kb.lock_pages — это backend-enforcement поверх
+ *  UI-readonly режима. */
+export async function setKbPageLock(input: {
+  pageId: string;
+  locked: boolean;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+
+  const { data: canLock } = await supabase.rpc("has_permission", {
+    permission_code: "kb.lock_pages",
+  });
+  if (!canLock) {
+    return { error: "Нет права блокировать страницы" };
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const update: { locked_at: string | null; locked_by: string | null } = input.locked
+    ? { locked_at: new Date().toISOString(), locked_by: user.id }
+    : { locked_at: null, locked_by: null };
+
+  const { error } = await supabase
+    .from("kb_pages")
+    .update(update)
+    .eq("id", input.pageId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/knowledge`);
+  return { error: null };
+}

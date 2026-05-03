@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
+import { extractMentionedUserIds } from "@/lib/knowledge/mention-extract";
 import { blocksToMarkdown, escapeMdTitle } from "@/lib/knowledge/blocks-to-markdown";
 import {
   kbPageCreateSchema,
@@ -313,6 +314,19 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
     p_link_targets: pageIds,
   } as never);
   if (error) return { version_number: null, error: error.message };
+
+  // Fire-and-forget @-mention notifications (Sprint D Phase 4b). RPC
+  // `kb_emit_page_mentions` идемпотентна по (page_id, user_id) через
+  // PK kb_page_user_mentions — повторные save с тем же mention'ом не
+  // спамят. Если упомянутых нет — RPC silent-no-op'ает на пустой
+  // массив, не делаем pre-check на клиенте.
+  const mentionedUserIds = extractMentionedUserIds(parsed.data.content);
+  if (mentionedUserIds.length > 0) {
+    void supabase.rpc("kb_emit_page_mentions", {
+      p_page_id: parsed.data.id,
+      p_user_ids: mentionedUserIds,
+    });
+  }
 
   // Fire-and-forget reembedding для RAG. Не блокирует caller'а
   // (auto-save в редакторе должен возвращаться мгновенно). Если

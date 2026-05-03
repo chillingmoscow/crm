@@ -12,7 +12,10 @@ import {
 import { ru as ruLocale } from "@blocknote/core/locales";
 import {
   SuggestionMenuController,
+  FormattingToolbar,
+  FormattingToolbarController,
   getDefaultReactSlashMenuItems,
+  getFormattingToolbarItems,
   useCreateBlockNote,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
@@ -21,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { getKbAiSlashItems } from "@/app/(dashboard)/knowledge/_components/kb-ai-slash-items";
+import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -305,6 +309,10 @@ export function KbBlockNoteEditor({
       className={cn("bn-sheerly", className)}
       sideMenu={customSideMenu ? false : undefined}
       slashMenu={customSlashMenu ? false : undefined}
+      // AI кнопка живёт во встроенном formatting-toolbar'е (он
+      // всплывает при выделении текста). Отключаем default и рендерим
+      // controller с дополнительной кнопкой ниже.
+      formattingToolbar={aiSlashEnabled ? false : undefined}
     >
       {customSlashMenu && (
         <SuggestionMenuController
@@ -324,6 +332,19 @@ export function KbBlockNoteEditor({
               query,
             )
           }
+        />
+      )}
+      {aiSlashEnabled && (
+        <FormattingToolbarController
+          formattingToolbar={() => (
+            <FormattingToolbar>
+              {/* Дефолтные кнопки (Bold/Italic/Color/Link/...) — без
+                  изменений. AI-кнопка вставлена в конец, после link/
+                  text-align. */}
+              {...getFormattingToolbarItems()}
+              <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
+            </FormattingToolbar>
+          )}
         />
       )}
       {renderExtras?.(editor as unknown as BlockNoteEditor)}

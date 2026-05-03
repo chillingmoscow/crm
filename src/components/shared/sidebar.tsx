@@ -354,7 +354,12 @@ function SidebarBody({
         })}
       </SidebarContent>
 
-      <SidebarFooter className="p-2 border-t border-sidebar-border group-data-[collapsible=icon]:p-3">
+      {/* h-16 (64px) лочим явно — без этого высота footer'а зависит от
+          контента (button + paddings ≈ 64px expanded, ≈ 48px collapsed
+          из-за того что collapsed = только аватар без текста). Любое
+          расхождение видно на стыке с KbTreeNav «Корзина» (тоже h-16),
+          линии border-top перестают совпадать по горизонтали. */}
+      <SidebarFooter className="h-16 p-2 border-t border-sidebar-border flex items-center justify-stretch group-data-[collapsible=icon]:p-3 group-data-[collapsible=icon]:justify-center">
         {collapsed ? (
           <Popover open={userMenuOpen} onOpenChange={setUserMenuOpen}>
             <PopoverTrigger asChild>

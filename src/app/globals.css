@@ -239,6 +239,18 @@ input:-webkit-autofill {
   line-height: 1.7;
 }
 
+/* Списки (bulletListItem / numberedListItem / checkListItem) — отдельное
+   правило с меньшим padding'ом. Базовые 9px между paragraph'ами
+   читабельны для длинных абзацев, но между пунктами одного списка дают
+   визуальный «разрыв» — пункты выглядят несвязанными. Notion-стиль:
+   плотные пункты внутри списка, обычный воздух перед/после самого
+   списка (этого добиваемся padding'ом на соседних paragraph'ах). */
+.bn-sheerly .bn-block-content[data-content-type="bulletListItem"],
+.bn-sheerly .bn-block-content[data-content-type="numberedListItem"],
+.bn-sheerly .bn-block-content[data-content-type="checkListItem"] {
+  padding: 2px 0;
+}
+
 /* Чуть больше воздуха над/под заголовками — H1/H2/H3 в Notion имеют
    свой внутренний ритм. Селектор по data-content-type, чтобы не
    ломать исходный padding для списков/чек-листов. */

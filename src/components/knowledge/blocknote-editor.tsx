@@ -19,6 +19,7 @@ import {
   useCreateBlockNote,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
+import { flip, shift, offset, size } from "@floating-ui/react";
 import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
@@ -332,6 +333,33 @@ export function KbBlockNoteEditor({
               query,
             )
           }
+          // Floating-UI placement с auto-flip + shift + size:
+          //   - placement bottom-start = дефолт BlockNote (под курсором)
+          //   - flip — если внизу нет места, переворачивает наверх
+          //   - shift — сдвигает по горизонтали чтобы влезло в viewport
+          //   - size — ограничивает высоту менюшки до доступного places
+          // Без явных middleware BlockNote использует дефолты, которые
+          // НЕ переключают placement когда курсор у нижнего края экрана —
+          // меню уезжает за viewport и не видно. См. github issues
+          // BlockNote по slash-menu placement.
+          floatingUIOptions={{
+            useFloatingOptions: {
+              placement: "bottom-start",
+              middleware: [
+                offset(8),
+                flip({ padding: 8 }),
+                shift({ padding: 8 }),
+                size({
+                  apply({ availableHeight, elements }) {
+                    Object.assign(elements.floating.style, {
+                      maxHeight: `${Math.max(120, availableHeight - 8)}px`,
+                    });
+                  },
+                  padding: 8,
+                }),
+              ],
+            },
+          }}
         />
       )}
       {aiSlashEnabled && (

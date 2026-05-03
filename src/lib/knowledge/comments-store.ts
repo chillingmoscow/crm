@@ -73,6 +73,13 @@ export class SupabaseThreadStore extends ThreadStore {
    */
   private localCommentIds = new Set<string>();
   private localThreadIds = new Set<string>();
+  /** Set'ится в `destroy()`. Защита от race'а:
+   *  `loadInitial().then(setupRealtime)` — async chain. Если юзер
+   *  ушёл со страницы пока loadInitial pending'ует, destroy() запустится
+   *  с `realtimeChannel=null` (ничего удалять), а потом promise
+   *  резолвнется и setupRealtime создаст orphaned channel, который
+   *  никто никогда не отпишет. См. Codex #62 P1. */
+  private destroyed = false;
 
   constructor(opts: SupabaseThreadStoreOptions) {
     super(
@@ -84,14 +91,19 @@ export class SupabaseThreadStore extends ThreadStore {
     this.userId = opts.userId;
     // Стартуем загрузку немедленно — getThreads() вернёт пустой Map
     // пока не подгрузится; subscribe-callback'и сработают по
-    // завершении.
+    // завершении. setupRealtime() сам проверит destroyed-флаг — если
+    // юзер успел уйти со страницы пока loadInitial pending'ует, мы
+    // НЕ создаём orphaned channel.
     void this.loadInitial().then(() => this.setupRealtime());
   }
 
   /** Cleanup на unmount. Без unsubscribe канал утекал бы в memory
    *  и сервер продолжал бы броадкаст-ить даже когда страница закрыта.
-   *  Вызывается из useEffect cleanup в KbPageEditor. */
+   *  Вызывается из useEffect cleanup в KbPageEditor.
+   *
+   *  Idempotent — повторный вызов безопасен (флаг + null-check). */
   destroy(): void {
+    this.destroyed = true;
     if (this.realtimeChannel) {
       void this.supabase.removeChannel(this.realtimeChannel);
       this.realtimeChannel = null;
@@ -101,8 +113,15 @@ export class SupabaseThreadStore extends ThreadStore {
 
   /** Подписка на postgres_changes для kb_threads + kb_comments.
    *  RLS на обеих таблицах фильтрует rows по active account, так что
-   *  кросс-аккаунт-leak невозможен. Sprint D Phase 5 / plan §2.8-E. */
+   *  кросс-аккаунт-leak невозможен. Sprint D Phase 5 / plan §2.8-E.
+   *
+   *  Guard на `destroyed`: вызывается из then-callback'а после
+   *  loadInitial, а тот может резолвнуться УЖЕ после того как юзер
+   *  ушёл со страницы (slow network / quick route change). Без guard'а
+   *  получали бы fresh subscription без cleanup-сlauses → leaked
+   *  channel. См. Codex #62 P1. */
   private setupRealtime(): void {
+    if (this.destroyed) return;
     if (this.realtimeChannel) return;
     const channelName = `kb-comments-${this.pageId}`;
     this.realtimeChannel = this.supabase

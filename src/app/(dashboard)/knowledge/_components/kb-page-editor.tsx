@@ -19,6 +19,7 @@ import {
   SupabaseThreadStore,
   resolveKbUsers,
 } from "@/lib/knowledge/comments-store";
+import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
 import type { CommentsBundle } from "@/components/knowledge/blocknote-editor";
 // Dynamic-import — оба компонента статически зависят от @blocknote/react.
 // Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
@@ -135,6 +136,12 @@ export function KbPageEditor({
   accountId = null,
   userId = null,
 }: KbPageEditorProps) {
+  // Sprint D / Phase 1: page-view analytics. Запускаем как только
+  // userId известен (= юзер залогинен и в active account). Hook сам
+  // обработает route-change через unmount-cleanup и tab-switch через
+  // visibilitychange. Без `userId` — не пишем (анонимные сессии не
+  // имеют смысла, RPC всё равно требует auth.uid()).
+  useKbPageViewTracker({ pageId, enabled: Boolean(userId) });
   // SupabaseThreadStore + resolveUsers — single instance per page mount.
   // Recreate если pageId меняется (но key={pageId} в parent уже это
   // делает — вся компонента remount'ится). useMemo с deps на pageId/

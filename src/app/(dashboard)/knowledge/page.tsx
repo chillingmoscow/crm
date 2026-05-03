@@ -1,47 +1,130 @@
 import Link from "next/link";
-import { BookOpen } from "lucide-react";
+import { BookOpen, AlertTriangle, Star, Clock, Activity } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
 import { listRecentKbPages } from "@/lib/knowledge/pages";
+import { listMyKbFavorites } from "@/lib/knowledge/favorites";
+import {
+  getKbRequiredUnreadForUser,
+  getMyRecentlyViewedKbPages,
+} from "@/lib/knowledge/landing";
 import { EmptyState } from "@/components/ui/empty-state";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { CreateRootPageButton } from "@/app/(dashboard)/knowledge/_components/create-root-page-button";
+import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
+import { KbLandingSection } from "@/app/(dashboard)/knowledge/_components/kb-landing-section";
 
 /**
- * KB landing screen. Lists the 10 most recently edited pages so the
- * user has something to click into immediately. Search dialog (Cmd+K)
- * lands in Stage 8.5; for now navigation is via the tree on the left
- * and the "недавнее" cards below.
+ * KB landing — Sprint D Phase 6 redesign.
  *
- * Padding 16/32 matches Sheerly's `page` frame primitive (see
- * sheerly.pen `page` nodes — top-12 gap from header, side-32 gutters).
+ * Notion-style набор виджетов:
+ *   1. Header + prominent search trigger (Cmd+K)
+ *   2. «Требуется прочесть» — required_reading=true ∧ моя read_at IS NULL.
+ *      Показывается ТОЛЬКО если есть unread (compliance-сигнал, отвлекать
+ *      на пустую секцию не нужно).
+ *   3. «Избранное» — kb_user_favorites.
+ *   4. «Мои недавние» — из kb_page_view_sessions через
+ *      kb_get_my_recently_viewed RPC (миграция 085). Self-view, без
+ *      time/sessions данных — навигация-helper, не аналитика.
+ *   5. «Недавние изменения в команде» — listRecentKbPages (был
+ *      основным content'ом старого landing'а; теперь fallback secondary).
+ *
+ * Conditional render: каждая из (2)/(3)/(4) скрывается при пустом
+ * списке. (5) — fallback empty-state если вообще ничего нет.
+ *
+ * Padding 16/32 совпадает с Sheerly `page` frame (sheerly.pen) — те
+ * же токены что в существующих strana role/staff-list.
  */
 export default async function KnowledgeLandingPage() {
-  const { rows } = await listRecentKbPages(10);
+  // Все 4 запроса параллельно — данные независимы.
+  const [
+    { rows: recentTeam },
+    { pages: favorites },
+    { rows: requiredUnread },
+    { rows: recentlyViewed },
+  ] = await Promise.all([
+    listRecentKbPages(10),
+    listMyKbFavorites(),
+    getKbRequiredUnreadForUser(),
+    getMyRecentlyViewedKbPages(7),
+  ]);
+
+  const isAllEmpty =
+    recentTeam.length === 0 &&
+    favorites.length === 0 &&
+    requiredUnread.length === 0 &&
+    recentlyViewed.length === 0;
 
   return (
-    // Section/index page — без breadcrumb в топбаре (per DS), title в теле.
-    // Body padding и H1-стилизация по конвенции role/staff list pages.
     <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-      <header className="flex items-end justify-between gap-4">
-        <div className="flex flex-col gap-1.5 min-w-0">
-          <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-            База знаний
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            SOP, регламенты, рецепты, онбординг и внутренние материалы команды.
-          </p>
+      <header className="flex flex-col gap-3">
+        <div className="flex items-end justify-between gap-4">
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+              База знаний
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              SOP, регламенты, рецепты, онбординг и внутренние материалы команды.
+            </p>
+          </div>
+          <CreateRootPageButton />
         </div>
-        <CreateRootPageButton />
+        {/* Prominent search bar — основной entry-point после landing'а.
+            Cmd+K глобальный shortcut уже подвязан в KbSearchProvider. */}
+        <KbSearchTrigger />
       </header>
 
-      <section className="flex flex-col gap-3">
-        <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-          Недавнее
-        </h2>
-        {rows.length === 0 ? <KbEmptyState /> : <RecentList rows={rows} />}
-      </section>
+      {isAllEmpty ? (
+        <KbEmptyState />
+      ) : (
+        <div className="flex flex-col gap-6">
+          <KbLandingSection
+            title="Требуется прочесть"
+            leadingIcon={
+              <AlertTriangle className="size-3 text-yellow-700 dark:text-yellow-400" />
+            }
+            rows={requiredUnread}
+          />
+          <KbLandingSection
+            title="Избранное"
+            leadingIcon={
+              <Star className="size-3 text-amber-500 fill-amber-400" />
+            }
+            rows={favorites}
+          />
+          <KbLandingSection
+            title="Мои недавние"
+            leadingIcon={<Clock className="size-3" />}
+            rows={recentlyViewed}
+            rowTrailing={(row) => {
+              const ts = (row as (typeof recentlyViewed)[number]).last_visit_at;
+              if (!ts) return null;
+              return (
+                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                  {formatDistanceToNow(new Date(ts), {
+                    addSuffix: true,
+                    locale: ru,
+                  })}
+                </span>
+              );
+            }}
+          />
+          <section className="flex flex-col gap-2">
+            <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 inline-flex items-center gap-1.5 px-1">
+              <Activity className="size-3" />
+              Недавние изменения в команде
+            </h2>
+            {recentTeam.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2 px-3">
+                Команда пока ничего не редактировала.
+              </p>
+            ) : (
+              <RecentTeamList rows={recentTeam} />
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -57,7 +140,7 @@ function KbEmptyState() {
   );
 }
 
-function RecentList({
+function RecentTeamList({
   rows,
 }: {
   rows: Array<{
@@ -71,21 +154,24 @@ function RecentList({
   }>;
 }) {
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="flex flex-col gap-px">
       {rows.map((row) => {
         const ts = row.updated_at ?? row.created_at;
         return (
           <li key={row.id}>
             <Link
               href={`/knowledge/${row.slug}`}
-              className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent"
+              className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
             >
               <KbPageIcon icon={row.icon} color={row.icon_color} size={18} />
               <span className="flex-1 truncate text-sm font-medium">
                 {row.title || "Без названия"}
               </span>
-              <span className="text-xs text-muted-foreground">
-                {formatDistanceToNow(new Date(ts), { addSuffix: true, locale: ru })}
+              <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                {formatDistanceToNow(new Date(ts), {
+                  addSuffix: true,
+                  locale: ru,
+                })}
               </span>
             </Link>
           </li>

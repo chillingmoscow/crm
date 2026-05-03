@@ -335,6 +335,7 @@ export function KbPageEditor({
         initialContent={initialContent}
         editable={canEdit}
         customSideMenu
+        customSlashMenu
         renderExtras={renderExtras}
         uploadFile={async (file) => {
           const result = await uploadKbAttachment({

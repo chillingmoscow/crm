@@ -2546,7 +2546,6 @@ export type Database = {
           p_page_id: string
           p_started_at: string
           p_ended_at: string
-          p_duration_seconds: number
         }
         Returns: string | null
       }

@@ -14,8 +14,11 @@ import { createClient } from "@/lib/supabase/server";
 // ============================================================
 
 /** Запись one-shot сессии просмотра. Вызывается из client'а на
- *  visibilitychange='hidden' / pagehide / unmount. Сервер вычисляет
- *  duration сам — клиенту не доверяем.
+ *  visibilitychange='hidden' / pagehide / unmount.
+ *
+ *  Duration считается СЕРВЕРОМ из p_started_at / p_ended_at — клиенту
+ *  не доверяем (Codex #57 P1 #1: caller мог бы послать произвольное
+ *  число и накрутить top-N виджеты).
  *
  *  Возвращает `{ ok }` без id-сессии: client'у не нужен round-trip,
  *  это fire-and-forget. Ошибки игнорируем тихо (analytics — не
@@ -36,13 +39,11 @@ export async function recordKbPageView(args: {
   ) {
     return { ok: false, error: "Invalid timestamps" };
   }
-  const durationSeconds = Math.floor((endMs - startMs) / 1000);
 
   const { error } = await supabase.rpc("kb_record_page_view", {
     p_page_id: args.pageId,
     p_started_at: args.startedAt,
     p_ended_at: args.endedAt,
-    p_duration_seconds: durationSeconds,
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true };

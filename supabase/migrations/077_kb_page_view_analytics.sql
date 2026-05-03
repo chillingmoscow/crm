@@ -101,11 +101,18 @@ grant select on public.kb_page_view_sessions to authenticated;
 -- 2. RPC kb_record_page_view — единственный путь записи
 -- ============================================================
 
+-- Старая 4-арг сигнатура (с `p_duration_seconds`) была caller-trusted
+-- — авторизованный юзер мог послать произвольное число и накрутить
+-- top-N виджеты дашборда. См. Codex #57 P1 #1. DROP'аем явно, чтобы
+-- не оставить privileged callable shadow-функцию.
+drop function if exists public.kb_record_page_view(
+  uuid, timestamptz, timestamptz, integer
+);
+
 create or replace function public.kb_record_page_view(
-  p_page_id          uuid,
-  p_started_at       timestamptz,
-  p_ended_at         timestamptz,
-  p_duration_seconds integer
+  p_page_id    uuid,
+  p_started_at timestamptz,
+  p_ended_at   timestamptz
 )
 returns uuid
 language plpgsql
@@ -113,9 +120,10 @@ security definer
 set search_path = public
 as $$
 declare
-  v_account_id uuid;
-  v_user_id    uuid := auth.uid();
-  v_session_id uuid;
+  v_account_id       uuid;
+  v_user_id          uuid := auth.uid();
+  v_session_id       uuid;
+  v_duration_seconds integer;
 begin
   if v_user_id is null then
     raise exception 'Authentication required'
@@ -143,17 +151,23 @@ begin
       using errcode = '42704';
   end if;
 
-  -- 3. Sanity-check duration: не отрицательное, не аномально длинное
-  -- (защита от bug'а в client'е — больше 30 мин одной сессией нельзя,
-  -- tracker должен резать на чанки).
-  if p_duration_seconds < 0 or p_duration_seconds > 1800 then
-    raise exception 'duration_seconds out of range [0, 1800]'
+  -- 3. Считаем duration на сервере из переданных timestamp'ов. НЕ
+  -- доверяем client'у — caller мог бы послать любое число и накрутить
+  -- top-N (Codex #57 P1 #1).
+  v_duration_seconds := floor(
+    extract(epoch from (p_ended_at - p_started_at))
+  )::integer;
+
+  -- 4. Sanity-check: не отрицательное, не аномально длинное (max 30
+  -- мин одной сессией — client tracker уже режет на чанки).
+  if v_duration_seconds < 0 or v_duration_seconds > 1800 then
+    raise exception 'session duration out of range [0, 1800]'
       using errcode = '22023';
   end if;
 
-  -- 4. Cheap noise filter: < 5 сек = ничего полезного, не пишем.
-  -- Без этого получим миллионы 1-2-секундных сессий (юзер кликнул мимо).
-  if p_duration_seconds < 5 then
+  -- 5. Noise filter: < 5 сек = ничего полезного. Юзер открыл и сразу
+  -- закрыл — не пишем.
+  if v_duration_seconds < 5 then
     return null;
   end if;
 
@@ -162,7 +176,7 @@ begin
     started_at, ended_at, duration_seconds
   ) values (
     v_account_id, p_page_id, v_user_id,
-    p_started_at, p_ended_at, p_duration_seconds
+    p_started_at, p_ended_at, v_duration_seconds
   )
   returning id into v_session_id;
 
@@ -170,15 +184,17 @@ begin
 end;
 $$;
 
-comment on function public.kb_record_page_view(uuid, timestamptz, timestamptz, integer) is
+comment on function public.kb_record_page_view(uuid, timestamptz, timestamptz) is
   'Записывает one-shot сессию просмотра KB-страницы. Вызывается из '
   'client-side useKbPageViewTracker на flush (visibilitychange / unmount '
   '/ beforeunload). Возвращает id вставленной строки или NULL если '
   'duration < 5 сек (noise filter). Security definer + проверка '
-  'kb.view_pages + page в active account (anti cross-tenant).';
+  'kb.view_pages + page в active account (anti cross-tenant). '
+  'Duration считается серверно из p_started_at/p_ended_at — caller-'
+  'provided value игнорируется (Codex #57 P1 #1).';
 
-revoke all on function public.kb_record_page_view(uuid, timestamptz, timestamptz, integer) from public;
-grant execute on function public.kb_record_page_view(uuid, timestamptz, timestamptz, integer) to authenticated;
+revoke all on function public.kb_record_page_view(uuid, timestamptz, timestamptz) from public;
+grant execute on function public.kb_record_page_view(uuid, timestamptz, timestamptz) to authenticated;
 
 -- ============================================================
 -- 3. Permission `kb.view_analytics`

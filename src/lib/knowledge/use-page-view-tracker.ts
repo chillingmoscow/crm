@@ -60,7 +60,17 @@ export function useKbPageViewTracker({
     lastActiveRef.current = Date.now();
 
     const onActivity = () => {
-      lastActiveRef.current = Date.now();
+      const now = Date.now();
+      // Если разрыв активности превысил idle-порог — считаем, что
+      // tracker «спал» (юзер ушёл с вкладки или просто читал не
+      // трогая мышь дольше минуты). Возобновление = новый старт
+      // сессии. Без этого reset'а время БЕЗ activity между
+      // idle-flush'ем (или последней активностью) и first-resume
+      // засчитается в active-time следующей сессии — Codex #57 P1 #2.
+      if (now - lastActiveRef.current > IDLE_TIMEOUT_MS) {
+        sessionStartRef.current = now;
+      }
+      lastActiveRef.current = now;
     };
 
     /** Отправляет накопившуюся сессию на сервер и обнуляет окно. */

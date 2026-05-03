@@ -246,24 +246,27 @@ input:-webkit-autofill {
   /* align-items: flex-start вместо center — иначе у tall-блоков
      (H1/H2 с heading-padding) кнопки центрируются по контейнеру и
      уезжают сильно вверх над текстом. Прижимаем к верху + добавляем
-     padding-top равный heading'у — кнопки оказываются на одной
-     baseline с первой строкой текста. */
+     padding-top равный padding'у блок-content'а — так кнопки
+     оказываются на baseline первой строки текста, а не парят над. */
   align-items: flex-start;
-  gap: 4px;
-  padding-top: 4px;
-  transform: translateX(-12px);
+  gap: 10px;
+  /* Базовый paragraph: bn-block-content padding 9px → даём такое же
+     padding-top, чтобы плюс/drag-handle совпадал с верхом глифов
+     первой строки текста. */
+  padding-top: 9px;
+  transform: translateX(-14px);
 }
-/* H1/H2/H3 имеют свой padding-top (см. правило выше) — синхронизируем
-   side-menu, чтобы плюс/drag-handle стояли НА уровне текста, а не
-   парили над ним. */
+/* H1/H2/H3 имеют heading-padding 22px (см. правило выше) — копируем
+   эту цифру в side-menu, плюс небольшой visual offset чтобы кнопки
+   стояли по центру первой строки заголовка, а не к её верху. */
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="1"] {
-  padding-top: 28px;
+  padding-top: 30px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="2"] {
-  padding-top: 26px;
+  padding-top: 28px;
 }
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="3"] {
-  padding-top: 24px;
+  padding-top: 26px;
 }
 .bn-sheerly .bn-side-menu .bn-button {
   width: 16px;
@@ -336,13 +339,15 @@ input:-webkit-autofill {
   display: none !important;
 }
 
-/* Emoji-picker (BlockNote использует web-component `em-emoji-picker`
-   из emoji-mart). Из коробки имеет max-height:100% → раскрывается на
-   всю высоту вьюпорта. Прижимаем к Notion-like compact picker. */
-em-emoji-picker {
+/* Emoji-picker (BlockNote использует GridSuggestionMenu для эмодзи —
+   это div с class="bn-grid-suggestion-menu"; шадcn-вариант ставит ему
+   max-h-(--radix-dropdown-menu-content-available-height) — на пустой
+   странице эта переменная = высоте viewport, и picker раскрывается
+   во весь экран. Прижимаем явно. Селектор глобальный потому что
+   контейнер живёт в Radix-портале вне .bn-sheerly scope. */
+.bn-grid-suggestion-menu {
   max-height: 360px !important;
-  min-height: 320px !important;
-  height: 360px !important;
+  max-width: 360px !important;
 }
 
 /* Color/highlight picker: shadcn-вариант использует DropdownMenuItem

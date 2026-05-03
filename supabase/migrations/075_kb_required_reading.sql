@@ -75,6 +75,11 @@ create policy "kb_page_reads_insert_own" on public.kb_page_reads
        where kp.id = kb_page_reads.page_id
          and kp.account_id = public.get_active_account_id()
          and kp.deleted_at is null
+         -- required_reading=true обязателен — иначе любой с
+         -- kb.view_pages мог бы pre-mark произвольные страницы как
+         -- прочитанные ДО того как admin поставит required-флаг,
+         -- получив фейковую compliance-историю. См. Codex #53 P1.
+         and kp.required_reading = true
     )
     and public.has_permission('kb.view_pages')
   );

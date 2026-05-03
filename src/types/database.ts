@@ -1245,6 +1245,8 @@ export type Database = {
           icon: string | null
           icon_color: string | null
           id: string
+          locked_at: string | null
+          locked_by: string | null
           parent_id: string | null
           plain_text: string
           position: number
@@ -1267,6 +1269,8 @@ export type Database = {
           icon?: string | null
           icon_color?: string | null
           id?: string
+          locked_at?: string | null
+          locked_by?: string | null
           parent_id?: string | null
           plain_text?: string
           position?: number
@@ -1289,6 +1293,8 @@ export type Database = {
           icon?: string | null
           icon_color?: string | null
           id?: string
+          locked_at?: string | null
+          locked_by?: string | null
           parent_id?: string | null
           plain_text?: string
           position?: number
@@ -2558,6 +2564,10 @@ export type Database = {
           p_ended_at: string
         }
         Returns: string | null
+      }
+      kb_set_page_lock: {
+        Args: { p_page_id: string; p_locked: boolean }
+        Returns: undefined
       }
       kb_replace_page_embeddings: {
         Args: {

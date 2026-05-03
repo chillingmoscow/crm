@@ -40,6 +40,7 @@ export function assembleTree(rows: KbPageRow[]): KbTreeNode[] {
       slug: row.slug,
       position: row.position,
       has_children: false,
+      is_locked: row.locked_at !== null,
       children: [],
     });
   }

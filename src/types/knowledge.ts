@@ -79,6 +79,9 @@ export type KbTreeNode = {
   slug: string;
   position: number;
   has_children: boolean;
+  /** True если страница заблокирована (locked_at != null). Sprint D
+   *  Phase 3 — рисуем lock-icon рядом с заголовком в дереве. */
+  is_locked: boolean;
   children: KbTreeNode[];
 };
 

@@ -2143,7 +2143,10 @@ export type Database = {
           last_name: string
         }[]
       }
-      list_my_permissions: { Args: Record<string, never>; Returns: string[] }
+      kb_reorder_siblings: {
+        Args: { p_parent_id: string | null; p_ordered_ids: string[] }
+        Returns: number
+      }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
       kb_save_page: {
         Args: {
@@ -2170,6 +2173,7 @@ export type Database = {
         }[]
       }
       kb_soft_delete_cascade: { Args: { p_id: string }; Returns: number }
+      list_my_permissions: { Args: Record<string, never>; Returns: string[] }
       log_audit: {
         Args: {
           p_action_code: string

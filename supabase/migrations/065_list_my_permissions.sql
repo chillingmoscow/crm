@@ -7,8 +7,11 @@
 -- Без batch-fetch'а пришлось бы делать ~12 has_permission()
 -- round-trip'ов на каждый рендер layout'а. Один RPC даёт всё за раз.
 --
--- Семантика идентична has_permission(): membership должен быть
--- active, role_permission.granted = true, текущий venue.
+-- Семантика идентична has_permission() из миграции 022: membership
+-- active, текущий venue, и **с учётом account_role_permissions
+-- overrides** — `coalesce(arp.granted, rp.granted) = true`. Без
+-- этого left-join'а account-customised permissions (миграция 022)
+-- игнорировались бы и sidebar расходился с реальной авторизацией.
 -- ============================================================
 
 create or replace function public.list_my_permissions()
@@ -20,12 +23,18 @@ set search_path = public
 as $$
   select coalesce(array_agg(distinct p.code order by p.code), '{}')
     from public.user_venue_roles uvr
+    join public.roles r on r.id = uvr.role_id
     join public.role_permissions rp on rp.role_id = uvr.role_id
     join public.permissions p on p.id = rp.permission_id
+    left join public.account_role_permissions arp
+      on r.account_id is null
+     and arp.account_id = public.get_active_account_id()
+     and arp.role_id = rp.role_id
+     and arp.permission_id = rp.permission_id
    where uvr.user_id = auth.uid()
      and uvr.venue_id = public.get_active_venue_id()
      and uvr.status = 'active'
-     and rp.granted = true;
+     and coalesce(arp.granted, rp.granted) = true;
 $$;
 
 comment on function public.list_my_permissions() is

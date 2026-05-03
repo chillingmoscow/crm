@@ -212,6 +212,33 @@ input:-webkit-autofill {
   padding-bottom: 4px;
 }
 
+/* BlockNote по умолчанию рендерит H1 как 3em (≈48px на 16px base) —
+   это совпадает с размером заголовка страницы и визуально перевешивает
+   её в теле документа. Уменьшаем под Notion-like ритм:
+   H1 1.875em (30px), H2 1.5em (24px), H3 1.25em (20px).
+   Изменение через CSS-переменную --level, которую BlockNote
+   подставляет в font-size; data-level селекторы остаются нативные. */
+.bn-sheerly [data-content-type="heading"] {
+  --level: 1.875em;
+}
+.bn-sheerly [data-content-type="heading"][data-level="2"] {
+  --level: 1.5em;
+}
+.bn-sheerly [data-content-type="heading"][data-level="3"] {
+  --level: 1.25em;
+}
+/* Те же значения для prev-level (BlockNote использует их при
+   определении высоты side-menu и заглушек до загрузки content). */
+.bn-sheerly [data-prev-level="1"] {
+  --prev-level: 1.875em;
+}
+.bn-sheerly [data-prev-level="2"] {
+  --prev-level: 1.5em;
+}
+.bn-sheerly [data-prev-level="3"] {
+  --prev-level: 1.25em;
+}
+
 /* Side-menu (drag-handle + add-block buttons слева от блока). По
    умолчанию иконки 16px, плотно прижаты к тексту. Делаем компактнее
    и сдвигаем чуть левее, чтобы они не «налипали» на буквы. */

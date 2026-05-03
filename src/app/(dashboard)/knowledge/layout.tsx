@@ -47,12 +47,14 @@ export default async function KnowledgeLayout({
   return (
     <KbSearchProvider>
       {/* Полная высота viewport: dashboard topbar скрыт на /knowledge,
-          поэтому aside поднят к самому верху. Содержимое скроллится
-          только внутри KbTreeNav (поиск + дерево) и main (страница). */}
-      <div className="flex w-full min-h-screen">
+          поэтому aside поднят к самому верху. svh (а не vh) — потому
+          что SidebarProvider дашборда использует ту же единицу, иначе
+          на мобильных платформах с динамическим toolbar'ом колонки
+          не совпадают по высоте. */}
+      <div className="flex w-full min-h-svh">
         <aside
           aria-label="Дерево страниц"
-          className="hidden md:flex sticky top-0 h-screen w-72 shrink-0
+          className="hidden md:flex sticky top-0 h-svh w-72 shrink-0
                      flex-col border-r bg-sidebar"
         >
           <KbTreeNav nodes={nodes} canSeeTrash={Boolean(canDelete)} />

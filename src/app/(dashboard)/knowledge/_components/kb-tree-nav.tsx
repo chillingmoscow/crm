@@ -77,7 +77,9 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
         {nodes.length === 0 ? (
           <KbTreeEmpty />
         ) : (
-          <ul className="flex flex-col gap-px" role="tree">
+          // gap-0.5 совпадает с дашборд-сайдбаром (см. AppSidebar →
+          // sub-menu контейнер `flex flex-col gap-0.5`).
+          <ul className="flex flex-col gap-0.5" role="tree">
             {nodes.map((node) => (
               <KbTreeItem
                 key={node.id}
@@ -93,12 +95,15 @@ export function KbTreeNav({ nodes, canSeeTrash = false }: KbTreeNavProps) {
       </div>
 
       {canSeeTrash && (
-        // Footer mirror профиль-чипа: p-2 + h-12 inner = 64px outer,
-        // border-t совпадает по y c линией над user-chip'ом.
-        <div className="mt-auto p-2 border-t border-sidebar-border">
+        // Footer mirror профиль-чипа дашборд-сайдбара: точная фиксация
+        // высоты h-16 (64px) + одинаковый border-t. SidebarFooter в
+        // дашборде = «p-2 + button[h-48px]» → 64px суммарно. Здесь
+        // явно пиним эту высоту, чтобы линия border-t совпадала с
+        // линией над профиль-чипом по y.
+        <div className="mt-auto h-16 px-2 border-t border-sidebar-border flex items-center">
           <Link
             href="/knowledge/trash"
-            className="flex items-center gap-2 rounded-lg p-2 h-12
+            className="flex w-full items-center gap-2 rounded-lg p-2
                        text-sm text-muted-foreground
                        hover:bg-sidebar-accent hover:text-foreground transition-colors"
           >
@@ -216,15 +221,15 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
     >
       <div
         className={cn(
-          "group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm",
-          "hover:bg-sidebar-accent",
-          isActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+          // Размеры под дашборд-sidebar sub-item (см. AppSidebar):
+          // px-2.5 py-1.5 text-[13px] font-medium gap-2 rounded-md.
+          "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
+          "text-sidebar-foreground hover:bg-sidebar-accent",
+          isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
         )}
         // depth-сдвиг только для вложенности; на depth=0 левый край
-        // совпадает с «Страницы»/Корзина (тоже px-2). Плюс справа
-        // выравнивается с header «+» т.к. оба rendered внутри
-        // parent с одинаковым px-2.
-        style={{ paddingLeft: `${depth * 14 + 8}px` }}
+        // совпадает с «Страницы»/Корзина (px-3 родителя + px-2.5 здесь).
+        style={{ paddingLeft: `${depth * 14 + 10}px` }}
       >
         {/* Иконка/chevron — занимают одну и ту же позицию.
             Notion-style: иконка по умолчанию, chevron появляется
@@ -285,7 +290,7 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
       </div>
 
       {hasChildren && isOpen && (
-        <ul className="flex flex-col gap-px" role="group">
+        <ul className="flex flex-col gap-0.5" role="group">
           {node.children.map((child) => (
             <KbTreeItem
               key={child.id}

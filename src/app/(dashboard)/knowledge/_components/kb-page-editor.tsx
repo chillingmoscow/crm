@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 
-import { Input } from "@/components/ui/input";
 import { saveKbPage } from "@/lib/knowledge/pages";
 import {
   uploadKbAttachment,
@@ -279,7 +278,12 @@ export function KbPageEditor({
             }}
           />
         </div>
-        <Input
+        {/* Plain <input> намеренно вместо <Input>: shadcn-Input включает
+            md:text-sm в свой базовый class, который переписывает наш
+            text-[48px] на desktop'е (tailwind-merge группирует
+            responsive-варианты отдельно — text-[48px] не «бьёт»
+            md:text-sm). Здесь нам нужен ровно один размер. */}
+        <input
           aria-label="Заголовок страницы"
           value={title}
           onChange={(e) => {
@@ -292,12 +296,10 @@ export function KbPageEditor({
           placeholder="Без названия"
           disabled={!canEdit}
           // H1-страницы (Notion-like): 48px / 800 / -0.02em / 1.1.
-          // Полностью borderless — никакой рамки даже на hover/focus,
-          // поле сливается с фоном страницы.
-          className="h-auto py-1 border-0 bg-transparent px-2 -ml-2
-                     text-[48px] font-extrabold tracking-tight leading-[1.1] shadow-none
-                     hover:border-0 focus:border-0 focus-visible:border-0
-                     focus-visible:ring-0 focus-visible:outline-none"
+          // Полностью borderless — поле сливается с фоном.
+          className="w-full bg-transparent px-2 -ml-2 py-1 outline-none
+                     text-[48px] font-extrabold tracking-tight leading-[1.1]
+                     placeholder:text-muted-foreground/50"
         />
       </div>
 

@@ -303,6 +303,26 @@ export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: strin
   return { error: null };
 }
 
+/** Cascade duplicate: создаёт копию страницы + всего поддерева
+ *  живых потомков. Title корня получает суффикс « (копия)»,
+ *  attachments копируются как pivot-references на те же
+ *  account_files. Версии и backlinks НЕ копируются. См. миграцию 064. */
+export async function duplicateKbPage(
+  id: string,
+): Promise<{ slug: string | null; error: string | null }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .rpc("kb_duplicate_cascade", { p_id: id });
+  if (error) return { slug: null, error: error.message };
+
+  // RPC возвращает table → массив строк. Берём первую (одна по контракту).
+  const row = (data as Array<{ new_id: string; new_slug: string }> | null)?.[0];
+  if (!row) return { slug: null, error: "Не удалось получить slug копии" };
+
+  revalidatePath("/knowledge");
+  return { slug: row.new_slug, error: null };
+}
+
 /** Cascade soft-delete: помечает страницу + всех её живых потомков.
  *  Все они получают одинаковые deleted_at/by + deleted_root_id = id.
  *  Иерархия parent_id потомков не меняется → restore возвращает дерево

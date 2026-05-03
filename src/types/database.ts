@@ -2143,6 +2143,11 @@ export type Database = {
           last_name: string
         }[]
       }
+      kb_duplicate_cascade: {
+        Args: { p_id: string }
+        Returns: { new_id: string; new_slug: string }[]
+      }
+      kb_generate_slug: { Args: Record<string, never>; Returns: string }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
       kb_save_page: {
         Args: {

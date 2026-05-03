@@ -2605,6 +2605,17 @@ export type Database = {
         Args: { p_page_id: string; p_user_ids: string[] }
         Returns: undefined
       }
+      kb_get_my_recently_viewed: {
+        Args: { p_limit?: number }
+        Returns: {
+          page_id: string
+          slug: string
+          title: string
+          icon: string | null
+          icon_color: string | null
+          last_visit_at: string
+        }[]
+      }
       kb_set_page_lock: {
         Args: { p_page_id: string; p_locked: boolean }
         Returns: undefined

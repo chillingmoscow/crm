@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 
@@ -15,6 +15,11 @@ import {
   setKbSaveState,
 } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
+import {
+  SupabaseThreadStore,
+  resolveKbUsers,
+} from "@/lib/knowledge/comments-store";
+import type { CommentsBundle } from "@/components/knowledge/blocknote-editor";
 // Dynamic-import — оба компонента статически зависят от @blocknote/react.
 // Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
@@ -91,6 +96,14 @@ interface KbPageEditorProps {
    *  permission + accounts.ai_enabled. Server-action runKbAiCommand
    *  всё равно перепроверит — это UX-слой. */
   aiSlashEnabled?: boolean;
+  /** kb.comment_pages permission (миграция 076) — может ли юзер
+   *  создавать новые threads. Без права existing comments всё равно
+   *  видны (read-only). null/undefined для full read-only режима. */
+  canComment?: boolean;
+  /** Active account id + current user id — для SupabaseThreadStore.
+   *  Server-rendered, чтобы не тянуть auth.getUser() с клиента. */
+  accountId?: string | null;
+  userId?: string | null;
 }
 
 /**
@@ -118,7 +131,44 @@ export function KbPageEditor({
   initialContent,
   canEdit,
   aiSlashEnabled = false,
+  canComment = false,
+  accountId = null,
+  userId = null,
 }: KbPageEditorProps) {
+  // SupabaseThreadStore + resolveUsers — single instance per page mount.
+  // Recreate если pageId меняется (но key={pageId} в parent уже это
+  // делает — вся компонента remount'ится). useMemo с deps на pageId/
+  // accountId/userId — на случай если в будущем remount уберут.
+  //
+  // Если у юзера НЕТ `kb.comment_pages` (canComment=false) — bundle
+  // полностью null. CommentsExtension не подключается, BlockNote
+  // не показывает thread-UI / AddCommentButton / ничего comment-related.
+  // Раньше bundle создавался даже без права → DefaultThreadStoreAuth
+  // считал юзера 'editor', UI показывал кнопки → click → RLS reject
+  // в runtime'е, плохой UX. См. Codex #54 P2.
+  //
+  // Для read-only-просмотра уже-existing-thread'ов hostess/waiter'у —
+  // нужна отдельная UX-итерация (рендерить треды БЕЗ ability добавлять).
+  // На MVP — full off.
+  const commentsBundle: CommentsBundle | null = useMemo(() => {
+    if (!accountId || !userId) return null;
+    if (!canComment) return null;
+    return {
+      threadStore: new SupabaseThreadStore({
+        pageId,
+        accountId,
+        userId,
+        // 'editor' role в DefaultThreadStoreAuth — может удалять
+        // чужие comments / threads. Для KB editor === тот, кто
+        // может править страницу. Для не-editor (commenter)
+        // canDeleteComment ограничен self-only.
+        isEditor: canEdit,
+      }),
+      resolveUsers: resolveKbUsers,
+      canComment,
+    };
+  }, [pageId, accountId, userId, canEdit, canComment]);
+
   const [title, setTitle] = useState(initialTitle);
   const [icon, setIcon] = useState<string | null>(initialIcon);
   const [iconColor, setIconColor] = useState<string | null>(initialIconColor);
@@ -344,6 +394,7 @@ export function KbPageEditor({
         customSideMenu
         customSlashMenu
         aiSlashEnabled={aiSlashEnabled}
+        commentsBundle={commentsBundle}
         renderExtras={renderExtras}
         uploadFile={async (file) => {
           const result = await uploadKbAttachment({

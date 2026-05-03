@@ -1,7 +1,12 @@
 import type { KbBlock } from "@/types/knowledge";
 
-/** Заменяет media-блоки (image/file/video/audio) с не-http URL'ами на
- *  текстовый paragraph-placeholder. Используется в двух местах:
+/** URL'ы, которые BlockNote рендерит без обращения в наше storage.
+ *  Всё остальное (`./foo.jpg`, `bar.png`, `file:///…`, и т.п.) — broken,
+ *  заменяем на текстовый placeholder. */
+const VALID_MEDIA_URL_RE = /^(https?:\/\/|data:|blob:|kbfile:\/\/)/i;
+
+/** Заменяет media-блоки (image/file/video/audio) с не-валидными URL'ами
+ *  на текстовый paragraph-placeholder. Используется в двух местах:
  *
  *  1. Markdown-import: external .md часто содержит `![alt](./images/foo.jpg)`
  *     или `![alt](foo.jpg)` — без сопроводительной загрузки файлов в
@@ -9,6 +14,14 @@ import type { KbBlock } from "@/types/knowledge";
  *
  *  2. Cmd+V из Notion / Confluence / Word: пастится HTML с
  *     `<img src="filename.jpg">` — те же broken-image-иконки.
+ *
+ *  Что считаем валидным (НЕ заменяем):
+ *    • `https?://…` — обычные external URLs
+ *    • `kbfile://…` — наши uploaded в storage attachments
+ *    • `data:…` — inline base64 (Notion / Obsidian экспортируют
+ *      screenshots так; всё нужное уже в URL'е, ничего fetch'ить не надо).
+ *      См. Codex #50 P2.
+ *    • `blob:…` — object-URL'ы (на случай интеграций с file-pickers)
  *
  *  Альтернатива (zip-import с media-приложениями ИЛИ удалённый fetch
  *  оригинала по relative path) — отдельная фича. Здесь — defensive
@@ -34,9 +47,7 @@ export function rewriteBrokenMediaBlocks(
       b.type === "audio";
     if (isMedia) {
       const url = (b.props?.url ?? "").trim();
-      const isHttp = /^https?:\/\//i.test(url);
-      const isKbFile = url.startsWith("kbfile://");
-      if (!isHttp && !isKbFile) {
+      if (!VALID_MEDIA_URL_RE.test(url)) {
         const label =
           b.props?.name?.trim() ||
           b.props?.caption?.trim() ||
@@ -67,4 +78,54 @@ export function rewriteBrokenMediaBlocks(
     }
     return block;
   });
+}
+
+/** HTML-уровневая чистка пастящегося контента (Cmd+V из Notion / Word /
+ *  Confluence). Заменяет `<img>` с не-валидным `src` на курсивный
+ *  paragraph-placeholder ПРЯМО в HTML-строке.
+ *
+ *  Зачем строкой, а не через parse → blocks → rewrite: при пасте важно
+ *  сохранить **точку вставки** (caret position и selection-replacement).
+ *  BlockNote'овский `editor.pasteHTML(html)` делает это правильно — но
+ *  только если мы скармливаем ему чистый HTML. Если разворачивать в
+ *  blocks и звать `insertBlocks(…, "after")`, ломаем core-семантику пасты
+ *  (regression flagged Codex'ом на PR #56).
+ *
+ *  `<video>` / `<audio>` в clipboard-HTML практически не встречаются
+ *  (Notion / Word не экспортируют их в clipboard), поэтому обрабатываем
+ *  только `<img>`. Для markdown-импорта остаётся блочный
+ *  `rewriteBrokenMediaBlocks` выше. */
+export function stripBrokenImgInHtml(
+  html: string,
+  labelPrefix = "Изображение из вставки",
+): string {
+  return html.replace(/<img\b[^>]*>/gi, (match) => {
+    const srcMatch = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(match);
+    const src = (srcMatch?.[1] ?? srcMatch?.[2] ?? "").trim();
+    if (!src || VALID_MEDIA_URL_RE.test(src)) return match;
+    const altMatch = /\balt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(match);
+    const alt = (altMatch?.[1] ?? altMatch?.[2] ?? "").trim();
+    const label = alt || src.split("/").pop() || "вложение";
+    // Escape — чтобы alt-текст с символами `<`, `&`, `"` не сломал HTML.
+    const safeLabel = label
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    return `<p><em>[${labelPrefix}: ${safeLabel}]</em></p>`;
+  });
+}
+
+/** Detector — есть ли в HTML хотя бы один `<img>` с невалидным src.
+ *  Cheap pre-filter в pasteHandler, чтобы не запускать строковый replace
+ *  на каждый paste — только на потенциально проблемный. */
+export function htmlHasBrokenImg(html: string): boolean {
+  const imgMatches = html.match(/<img\b[^>]*>/gi);
+  if (!imgMatches) return false;
+  for (const tag of imgMatches) {
+    const srcMatch = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+    const src = (srcMatch?.[1] ?? srcMatch?.[2] ?? "").trim();
+    if (src && !VALID_MEDIA_URL_RE.test(src)) return true;
+  }
+  return false;
 }

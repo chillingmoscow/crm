@@ -19,10 +19,23 @@ import {
   useCreateBlockNote,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
+import {
+  CommentsExtension,
+  type ThreadStore,
+  type User as CommentUser,
+} from "@blocknote/core/comments";
+import {
+  AddCommentButton,
+  FloatingComposerController,
+  FloatingThreadController,
+} from "@blocknote/react";
 import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
-import { rewriteBrokenMediaBlocks } from "@/lib/knowledge/blocks-media";
+import {
+  htmlHasBrokenImg,
+  stripBrokenImgInHtml,
+} from "@/lib/knowledge/blocks-media";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 
@@ -93,8 +106,25 @@ export type BlockNoteEditorProps = {
    *  выше: `kb.use_ai` permission + `accounts.ai_enabled`. Server-action
    *  всё равно повторно проверит — это просто UX-слой. */
   aiSlashEnabled?: boolean;
+  /** Если передан — подключает CommentsExtension с этим thread-store'ом.
+   *  Активирует comment-mark в editor + AddCommentButton в
+   *  formatting-toolbar + FloatingComposer/FloatingThread controllers.
+   *  null/undefined — комментарии отключены (read-only страница ИЛИ нет
+   *  kb.comment_pages). */
+  commentsBundle?: CommentsBundle | null;
   className?: string;
 };
+
+/** Bundle, передаваемый из KbPageEditor в KbBlockNoteEditor чтобы
+ *  CommentsExtension получил всё, что нужно. ThreadStore + resolver
+ *  юзеров (для аватарок в comment-bubble) + флаг canComment (если
+ *  false — отключаем AddCommentButton, но рендерим existing comments
+ *  для просмотра). */
+export interface CommentsBundle {
+  threadStore: ThreadStore;
+  resolveUsers: (userIds: string[]) => Promise<CommentUser[]>;
+  canComment: boolean;
+}
 
 export const KB_BLOCKNOTE_FILE_SCHEME = KB_FILE_SCHEME;
 
@@ -170,6 +200,7 @@ export function KbBlockNoteEditor({
   customSideMenu = false,
   customSlashMenu = false,
   aiSlashEnabled = false,
+  commentsBundle = null,
   className,
 }: BlockNoteEditorProps) {
   const { resolvedTheme } = useTheme();
@@ -253,12 +284,27 @@ export function KbBlockNoteEditor({
     [],
   );
 
+  // CommentsExtension (если commentsBundle передан). Создаётся один
+  // раз при mount'е через useMemo с пустым deps — иначе пересборка
+  // расширения пересоздаст editor instance, что сломает in-flight UI.
+  // Если bundle null/undefined — extensions = []. Эту опцию BlockNote
+  // принимает в useCreateBlockNote.
+  const commentsExtension = useMemo(() => {
+    if (!commentsBundle) return null;
+    return CommentsExtension({
+      threadStore: commentsBundle.threadStore,
+      resolveUsers: commentsBundle.resolveUsers,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const editor = useCreateBlockNote({
     schema,
     initialContent: initial as never,
     uploadFile: stableUploadFile,
     resolveFileUrl: stableResolveFileUrl,
     dictionary,
+    extensions: commentsExtension ? [commentsExtension] : undefined,
     // Advanced Tables (BlockNote 0.49 built-in, без отдельного пакета):
     //   splitCells           — разбить ячейку на N (через context-menu по правому клику)
     //   cellBackgroundColor  — раскрашивать фон ячеек
@@ -275,14 +321,19 @@ export function KbBlockNoteEditor({
       cellTextColor: true,
       headers: true,
     },
-    // Custom pasteHandler — подменяем сломанные image/file/video/audio
-    // блоки на текстовый placeholder ПЕРЕД вставкой. Без этого Cmd+V
-    // из Notion / Word / Confluence (HTML с `<img src="filename.jpg">`)
-    // создавал бы image-блоки с относительными URL'ами, которые браузер
-    // не может загрузить → пользователь видит broken-image иконку с alt-text.
+    // Custom pasteHandler — подменяем сломанные `<img>` тэги на курсивный
+    // text-placeholder ПЕРЕД вставкой. Без этого Cmd+V из Notion / Word /
+    // Confluence (HTML с `<img src="filename.jpg">`) создавал бы image-
+    // блоки с относительными URL'ами → broken-image иконка с alt-text.
     //
     // Real binary clipboard (screenshot, copy from Finder) BlockNote
     // обрабатывает default-handler'ом через uploadFile — туда не лезем.
+    //
+    // Реализация — через **строковый replace + editor.pasteHTML(cleaned)**,
+    // чтобы сохранить core-семантику пасты: вставка в caret-позицию /
+    // замена текущего selection. Старый вариант (parse → rewrite blocks
+    // → insertBlocks(…, "after")) ломал эту семантику, см. Codex P1
+    // на PR #56.
     pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
       const data = event.clipboardData;
       if (!data) return defaultPasteHandler();
@@ -292,32 +343,13 @@ export function KbBlockNoteEditor({
         data.types.includes("Files") && (data.files?.length ?? 0) > 0;
       if (hasFiles) return defaultPasteHandler();
 
-      // HTML с broken-image (src не начинается с http/https/data:/blob:)
-      // — асинхронно парсим, чистим, вставляем. Async-path → событие
-      // надо preventDefault, default-handler отменяем (return true).
       if (data.types.includes("text/html")) {
         const html = data.getData("text/html");
-        const hasBrokenImg =
-          html && /<img\b[^>]*\bsrc\s*=\s*["'](?!https?:\/\/|data:|blob:)/i.test(html);
-        if (hasBrokenImg) {
-          event.preventDefault();
-          void (async () => {
-            try {
-              const parsed = (await ed.tryParseHTMLToBlocks(
-                html,
-              )) as unknown as KbBlock[];
-              const cleaned = rewriteBrokenMediaBlocks(
-                parsed,
-                "Изображение из вставки",
-              );
-              const cursor = ed.getTextCursorPosition();
-              ed.insertBlocks(cleaned as never, cursor.block, "after");
-            } catch {
-              // Если парсинг сломался — отдаём управление дефолту,
-              // чтобы хотя бы plain-text вставился.
-              defaultPasteHandler();
-            }
-          })();
+        if (html && htmlHasBrokenImg(html)) {
+          // BlockNote-paste-extension уже сделал preventDefault до того,
+          // как вызвал нас, так что просто отдаём ему очищенный HTML
+          // и говорим «обработано» (return true).
+          ed.pasteHTML(stripBrokenImgInHtml(html));
           return true;
         }
       }
@@ -357,10 +389,13 @@ export function KbBlockNoteEditor({
       className={cn("bn-sheerly", className)}
       sideMenu={customSideMenu ? false : undefined}
       slashMenu={customSlashMenu ? false : undefined}
-      // AI кнопка живёт во встроенном formatting-toolbar'е (он
-      // всплывает при выделении текста). Отключаем default и рендерим
-      // controller с дополнительной кнопкой ниже.
-      formattingToolbar={aiSlashEnabled ? false : undefined}
+      // Default formatting-toolbar отключаем когда мы добавляем свои
+      // кнопки через FormattingToolbarController (ниже): иначе
+      // BlockNote рендерит ОБА toolbar'а на выделение → дубликат
+      // всех контролов. Триггер кастомизации — aiSlashEnabled ИЛИ
+      // commentsBundle (любой включает кастомный controller).
+      // См. Codex #54 P2.
+      formattingToolbar={aiSlashEnabled || commentsBundle ? false : undefined}
     >
       {customSlashMenu && (
         <SuggestionMenuController
@@ -385,18 +420,35 @@ export function KbBlockNoteEditor({
           }
         />
       )}
-      {aiSlashEnabled && (
+      {(aiSlashEnabled || commentsBundle) && (
         <FormattingToolbarController
           formattingToolbar={() => (
             <FormattingToolbar>
               {/* Дефолтные кнопки (Bold/Italic/Color/Link/...) — без
-                  изменений. AI-кнопка вставлена в конец, после link/
-                  text-align. */}
+                  изменений. AI-кнопка + AddComment добавлены в конец,
+                  после link/text-align. */}
               {...getFormattingToolbarItems()}
-              <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
+              {aiSlashEnabled && (
+                <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
+              )}
+              {commentsBundle && commentsBundle.canComment && (
+                <AddCommentButton key="add-comment" />
+              )}
             </FormattingToolbar>
           )}
         />
+      )}
+      {/* Comments controllers — рендерятся только если bundle передан.
+          FloatingComposerController — pop-up «нового комментария» при
+          клике на AddCommentButton с выделенным текстом.
+          FloatingThreadController — открывает thread при клике по
+          существующему comment-mark'у. Дефолтные UI'и из BlockNote'а
+          подойдут, дальше можно стилизовать. */}
+      {commentsBundle && (
+        <>
+          <FloatingComposerController />
+          <FloatingThreadController />
+        </>
       )}
       {renderExtras?.(editor as unknown as BlockNoteEditor)}
     </BlockNoteView>

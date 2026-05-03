@@ -45,6 +45,7 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasDelete },
     { data: hasCreate },
     { data: hasExport },
+    { data: hasManageTemplates },
     { favorited },
     { rows: allPages },
     { chain },
@@ -56,6 +57,7 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.export_pages" }),
+    supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
     isKbPageFavorited(row.id),
     listKbPages(),
     getKbBreadcrumbs(row.id),
@@ -73,6 +75,7 @@ export default async function KbPageView({ params }: PageProps) {
   const canDelete = Boolean(hasDelete);
   const canDuplicate = Boolean(hasCreate);
   const canExport = Boolean(hasExport);
+  const canManageTemplates = Boolean(hasManageTemplates);
   // Total descendants — нужно для текста подтверждения удаления
   // (cascade soft-delete заберёт всю ветку, не только direct children).
   const descendantsCount = countDescendants(allPages, row.id);
@@ -131,6 +134,7 @@ export default async function KbPageView({ params }: PageProps) {
           canDelete={canDelete}
           canDuplicate={canDuplicate}
           canExport={canExport}
+          canManageTemplates={canManageTemplates}
         />
         <EntityInfoPopover
           title="О странице"

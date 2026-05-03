@@ -20,6 +20,7 @@ import {
   exportKbPageAsMarkdown,
   softDeleteKbPage,
 } from "@/lib/knowledge/pages";
+import { KbSaveAsTemplateDialog } from "@/app/(dashboard)/knowledge/_components/kb-save-as-template-dialog";
 
 interface KbPageActionsProps {
   pageId: string;
@@ -32,6 +33,9 @@ interface KbPageActionsProps {
   /** `kb.export_pages` (миграция 068). Скрывает Download-кнопку.
    *  Server-action всё равно проверяет permission — это просто UX-слой. */
   canExport: boolean;
+  /** `kb.manage_templates` (миграция 070). Скрывает «Сохранить как
+   *  шаблон» кнопку. Server-action в createKbTemplate тоже проверяет. */
+  canManageTemplates: boolean;
 }
 
 /**
@@ -57,6 +61,7 @@ export function KbPageActions({
   canDelete,
   canDuplicate,
   canExport,
+  canManageTemplates,
 }: KbPageActionsProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -64,7 +69,9 @@ export function KbPageActions({
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  if (!canDelete && !canDuplicate && !canExport) return null;
+  if (!canDelete && !canDuplicate && !canExport && !canManageTemplates) {
+    return null;
+  }
 
   const onDelete = async () => {
     setDeletePending(true);
@@ -119,6 +126,9 @@ export function KbPageActions({
 
   return (
     <>
+      {canManageTemplates && (
+        <KbSaveAsTemplateDialog pageId={pageId} pageTitle={pageTitle} />
+      )}
       {canDuplicate && (
         <IconTooltip label="Дублировать страницу">
           <button

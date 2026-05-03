@@ -35,10 +35,18 @@ export default async function KnowledgeLayout({
   children: React.ReactNode;
 }) {
   const supabase = await createClient();
-  const [{ data: canView }, { data: canDelete }, { data: canImport }] = await Promise.all([
+  const [
+    { data: canView },
+    { data: canDelete },
+    { data: canImport },
+    { data: canCreate },
+    { data: canManageTemplates },
+  ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "kb.view_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.import_pages" }),
+    supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
+    supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
   ]);
   if (!canView) redirect("/dashboard");
 
@@ -67,6 +75,8 @@ export default async function KnowledgeLayout({
             favorites={favorites}
             canSeeTrash={Boolean(canDelete)}
             canImport={Boolean(canImport)}
+            canCreate={Boolean(canCreate)}
+            canManageTemplates={Boolean(canManageTemplates)}
           />
         </aside>
         <main className="flex-1 min-w-0 flex flex-col">
@@ -92,6 +102,8 @@ export default async function KnowledgeLayout({
               favorites={favorites}
               canSeeTrash={Boolean(canDelete)}
               canImport={Boolean(canImport)}
+              canCreate={Boolean(canCreate)}
+              canManageTemplates={Boolean(canManageTemplates)}
             />
           </div>
           {children}

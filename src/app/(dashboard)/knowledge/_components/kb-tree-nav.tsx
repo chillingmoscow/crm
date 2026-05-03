@@ -36,6 +36,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { createKbPage, reorderKbSiblings } from "@/lib/knowledge/pages";
 import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
+import { KbTemplatePicker } from "@/app/(dashboard)/knowledge/_components/kb-template-picker";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
@@ -54,6 +55,12 @@ interface KbTreeNavProps {
    *  с «+ Новая страница». Server-action всё равно проверяет — это
    *  UX-слой. */
   canImport?: boolean;
+  /** `kb.create_pages` — могут ли вообще создавать страницы (включая
+   *  из шаблона). Без него picker не показывается. */
+  canCreate?: boolean;
+  /** `kb.manage_templates` — управление шаблонами (delete-кнопка
+   *  внутри picker'а). */
+  canManageTemplates?: boolean;
 }
 
 /**
@@ -74,6 +81,8 @@ export function KbTreeNav({
   favorites = [],
   canSeeTrash = false,
   canImport = false,
+  canCreate = false,
+  canManageTemplates = false,
 }: KbTreeNavProps) {
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
@@ -169,7 +178,11 @@ export function KbTreeNav({
           {favorites.length > 0 && (
             <KbFavoritesSection favorites={favorites} activeSlug={activeSlug} />
           )}
-          <KbTreeHeader canImport={canImport} />
+          <KbTreeHeader
+            canImport={canImport}
+            canCreate={canCreate}
+            canManageTemplates={canManageTemplates}
+          />
         </div>
         <div className="flex-1 overflow-y-auto px-3">
           {localNodes.length === 0 ? (
@@ -252,7 +265,15 @@ function KbFavoritesSection({
   );
 }
 
-function KbTreeHeader({ canImport = false }: { canImport?: boolean }) {
+function KbTreeHeader({
+  canImport = false,
+  canCreate = false,
+  canManageTemplates = false,
+}: {
+  canImport?: boolean;
+  canCreate?: boolean;
+  canManageTemplates?: boolean;
+}) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
 
@@ -274,6 +295,12 @@ function KbTreeHeader({ canImport = false }: { canImport?: boolean }) {
         Страницы
       </span>
       <div className="flex items-center gap-0.5">
+        {canCreate && (
+          <KbTemplatePicker
+            parentId={null}
+            canManageTemplates={canManageTemplates}
+          />
+        )}
         {canImport && <KbImportDialog parentId={null} />}
         <IconTooltip label="Новая страница">
           <Button

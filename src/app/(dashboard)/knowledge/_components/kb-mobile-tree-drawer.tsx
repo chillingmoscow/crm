@@ -21,6 +21,7 @@ interface KbMobileTreeDrawerProps {
   nodes: KbTreeNode[];
   favorites?: KbFavoritePage[];
   canSeeTrash: boolean;
+  canViewAudit?: boolean;
   canImport?: boolean;
   canCreate?: boolean;
   canManageTemplates?: boolean;
@@ -38,6 +39,7 @@ export function KbMobileTreeDrawer({
   nodes,
   favorites,
   canSeeTrash,
+  canViewAudit = false,
   canImport = false,
   canCreate = false,
   canManageTemplates = false,
@@ -75,6 +77,7 @@ export function KbMobileTreeDrawer({
             nodes={nodes}
             favorites={favorites}
             canSeeTrash={canSeeTrash}
+            canViewAudit={canViewAudit}
             canImport={canImport}
             canCreate={canCreate}
             canManageTemplates={canManageTemplates}

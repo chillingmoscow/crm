@@ -249,6 +249,22 @@ export function KbBlockNoteEditor({
     uploadFile: stableUploadFile,
     resolveFileUrl: stableResolveFileUrl,
     dictionary,
+    // Advanced Tables (BlockNote 0.49 built-in, без отдельного пакета):
+    //   splitCells           — разбить ячейку на N (через context-menu по правому клику)
+    //   cellBackgroundColor  — раскрашивать фон ячеек
+    //   cellTextColor        — цвет текста в ячейке
+    //   headers              — отдельный визуальный/семантический header-row
+    //                          (можно тогглить из table-handles)
+    // Сериализация в jsonb остаётся agnostic — kb_save_page (миграция 052)
+    // не парсит структуру. Markdown-export (lib/knowledge/blocks-to-markdown.ts)
+    // уже корректно проходит через cellRuns(cell) после Codex-fix #41 P1,
+    // headers/colors просто не сериализуются в md (lossy by design).
+    tables: {
+      splitCells: true,
+      cellBackgroundColor: true,
+      cellTextColor: true,
+      headers: true,
+    },
   });
 
   // Subscribe to document changes; surface as { content, plainText }.

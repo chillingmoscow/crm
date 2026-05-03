@@ -15,6 +15,7 @@ import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-ed
 import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
 import { KbPageActions } from "@/app/(dashboard)/knowledge/_components/kb-page-actions";
+import { KbUndoRedoButtons } from "@/app/(dashboard)/knowledge/_components/kb-undo-redo-buttons";
 import type { KbBlock, KbPageRow } from "@/types/knowledge";
 
 interface PageProps {
@@ -123,6 +124,7 @@ export default async function KbPageView({ params }: PageProps) {
       </PageBreadcrumb>
       <PageHeaderActions>
         <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
+        <KbUndoRedoButtons canEdit={canEdit} />
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
         <KbPageActions
           pageId={row.id}

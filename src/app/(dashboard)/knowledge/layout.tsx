@@ -35,9 +35,10 @@ export default async function KnowledgeLayout({
   children: React.ReactNode;
 }) {
   const supabase = await createClient();
-  const [{ data: canView }, { data: canDelete }] = await Promise.all([
+  const [{ data: canView }, { data: canDelete }, { data: canImport }] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "kb.view_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
+    supabase.rpc("has_permission", { permission_code: "kb.import_pages" }),
   ]);
   if (!canView) redirect("/dashboard");
 
@@ -65,6 +66,7 @@ export default async function KnowledgeLayout({
             nodes={nodes}
             favorites={favorites}
             canSeeTrash={Boolean(canDelete)}
+            canImport={Boolean(canImport)}
           />
         </aside>
         <main className="flex-1 min-w-0 flex flex-col">
@@ -89,6 +91,7 @@ export default async function KnowledgeLayout({
               nodes={nodes}
               favorites={favorites}
               canSeeTrash={Boolean(canDelete)}
+              canImport={Boolean(canImport)}
             />
           </div>
           {children}

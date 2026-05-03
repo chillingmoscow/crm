@@ -21,6 +21,7 @@ interface KbMobileTreeDrawerProps {
   nodes: KbTreeNode[];
   favorites?: KbFavoritePage[];
   canSeeTrash: boolean;
+  canImport?: boolean;
 }
 
 /**
@@ -31,7 +32,7 @@ interface KbMobileTreeDrawerProps {
  * Sheet закрывается автоматически при смене pathname (т.е. когда
  * пользователь кликнул страницу в дереве).
  */
-export function KbMobileTreeDrawer({ nodes, favorites, canSeeTrash }: KbMobileTreeDrawerProps) {
+export function KbMobileTreeDrawer({ nodes, favorites, canSeeTrash, canImport = false }: KbMobileTreeDrawerProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -61,7 +62,7 @@ export function KbMobileTreeDrawer({ nodes, favorites, canSeeTrash }: KbMobileTr
           <SheetTitle className="text-sm">База знаний</SheetTitle>
         </SheetHeader>
         <div className="overflow-y-auto h-[calc(100vh-3.25rem)]">
-          <KbTreeNav nodes={nodes} favorites={favorites} canSeeTrash={canSeeTrash} />
+          <KbTreeNav nodes={nodes} favorites={favorites} canSeeTrash={canSeeTrash} canImport={canImport} />
         </div>
       </SheetContent>
     </Sheet>

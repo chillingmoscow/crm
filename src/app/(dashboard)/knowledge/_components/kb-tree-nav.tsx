@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { createKbPage, reorderKbSiblings } from "@/lib/knowledge/pages";
 import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
+import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
@@ -49,6 +50,10 @@ interface KbTreeNavProps {
    *  Driven by `kb.delete_pages` permission, gated server-side in
    *  the layout. The trash route itself also re-checks. */
   canSeeTrash?: boolean;
+  /** `kb.import_pages` (миграция 069). Показывает Upload-кнопку рядом
+   *  с «+ Новая страница». Server-action всё равно проверяет — это
+   *  UX-слой. */
+  canImport?: boolean;
 }
 
 /**
@@ -64,7 +69,12 @@ interface KbTreeNavProps {
  * setState (no stale closures). Ancestors of the active page are
  * auto-added to the expanded set whenever activeSlug changes.
  */
-export function KbTreeNav({ nodes, favorites = [], canSeeTrash = false }: KbTreeNavProps) {
+export function KbTreeNav({
+  nodes,
+  favorites = [],
+  canSeeTrash = false,
+  canImport = false,
+}: KbTreeNavProps) {
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
 
@@ -159,7 +169,7 @@ export function KbTreeNav({ nodes, favorites = [], canSeeTrash = false }: KbTree
           {favorites.length > 0 && (
             <KbFavoritesSection favorites={favorites} activeSlug={activeSlug} />
           )}
-          <KbTreeHeader />
+          <KbTreeHeader canImport={canImport} />
         </div>
         <div className="flex-1 overflow-y-auto px-3">
           {localNodes.length === 0 ? (
@@ -242,7 +252,7 @@ function KbFavoritesSection({
   );
 }
 
-function KbTreeHeader() {
+function KbTreeHeader({ canImport = false }: { canImport?: boolean }) {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
 
@@ -263,18 +273,21 @@ function KbTreeHeader() {
                        text-muted-foreground/70">
         Страницы
       </span>
-      <IconTooltip label="Новая страница">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6"
-          aria-label="Новая страница"
-          onClick={onCreateRoot}
-          disabled={creating}
-        >
-          <Plus className="size-3.5" />
-        </Button>
-      </IconTooltip>
+      <div className="flex items-center gap-0.5">
+        {canImport && <KbImportDialog parentId={null} />}
+        <IconTooltip label="Новая страница">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            aria-label="Новая страница"
+            onClick={onCreateRoot}
+            disabled={creating}
+          >
+            <Plus className="size-3.5" />
+          </Button>
+        </IconTooltip>
+      </div>
     </div>
   );
 }

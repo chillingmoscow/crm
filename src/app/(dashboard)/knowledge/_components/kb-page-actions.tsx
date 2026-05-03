@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2 } from "lucide-react";
+import { Trash2, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,10 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogClose,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { softDeleteKbPage } from "@/lib/knowledge/pages";
 
@@ -80,21 +79,44 @@ export function KbPageActions({
           </button>
         </DialogTrigger>
       </IconTooltip>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Удалить страницу?</DialogTitle>
-          <DialogDescription>
-            «{pageTitle || "Без названия"}» переместится в корзину.{" "}
-            {childCount > 0 ? (
-              <>
-                Все подстраницы ({childCount}) удалятся вместе с ней
-                и вернутся в той же иерархии при восстановлении.{" "}
-              </>
-            ) : null}
-            Удалённое можно восстановить из корзины.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
+      {/* Дизайн по sheerly.pen → z8BoQL: 440px, header с иконкой-
+          бэйджем и кастомной close-кнопкой, body-hint, footer с
+          разделителем-сверху. Стандартный shadcn close спрятан
+          через [&>button:last-child]:hidden. */}
+      <DialogContent className="max-w-[440px] p-0 gap-0 [&>button:last-child]:hidden">
+        <div className="flex items-start gap-3.5 px-6 pt-6 pb-4">
+          <span className="inline-flex shrink-0 items-center justify-center size-10 rounded-full bg-destructive/10 text-destructive">
+            <Trash2 className="size-[18px]" />
+          </span>
+          <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+            <DialogTitle className="text-[17px] font-semibold leading-tight tracking-tight text-foreground">
+              Удалить «{pageTitle || "Без названия"}»?
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-snug text-muted-foreground">
+              {childCount > 0 ? (
+                <>
+                  Страница и все её подстраницы ({childCount}) будут
+                  перемещены в корзину.
+                </>
+              ) : (
+                <>Страница будет перемещена в корзину.</>
+              )}
+            </DialogDescription>
+          </div>
+          <DialogClose asChild>
+            <button
+              type="button"
+              aria-label="Закрыть"
+              className="inline-flex shrink-0 items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <X className="size-4" />
+            </button>
+          </DialogClose>
+        </div>
+        <div className="px-6 pb-4 pl-[78px] text-[13px] leading-snug text-muted-foreground">
+          Восстановить из корзины можно в течение 30 дней
+        </div>
+        <div className="flex justify-end gap-2 px-6 py-4 border-t">
           <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
             Отмена
           </Button>
@@ -102,7 +124,7 @@ export function KbPageActions({
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
             Удалить
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

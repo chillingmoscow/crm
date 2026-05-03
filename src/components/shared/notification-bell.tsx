@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Bell, Check, CheckCheck, Info, UserPlus, AlertTriangle } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   getNotifications,
   markNotificationRead,
@@ -86,17 +87,19 @@ export function NotificationBell() {
     <div className="relative" ref={ref}>
       {/* Bell button — стиль топбара DS iedpv: 36×36, без border,
           bg-background, иконка muted-foreground → foreground на hover. */}
-      <button
-        type="button"
-        aria-label="Уведомления"
-        onClick={() => setOpen((v) => !v)}
-        className="relative inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-      >
-        <Bell className="w-[18px] h-[18px]" />
-        {unreadCount > 0 && (
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand ring-2 ring-background" />
-        )}
-      </button>
+      <IconTooltip label="Уведомления">
+        <button
+          type="button"
+          aria-label="Уведомления"
+          onClick={() => setOpen((v) => !v)}
+          className="relative inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <Bell className="w-[18px] h-[18px]" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand ring-2 ring-background" />
+          )}
+        </button>
+      </IconTooltip>
 
       {/* Panel */}
       {open && (

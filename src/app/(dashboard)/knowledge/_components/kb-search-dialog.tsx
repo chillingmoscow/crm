@@ -159,85 +159,115 @@ function KbSearchDialog({ open, onOpenChange }: KbSearchDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0 shadow-lg">
+      {/* Дизайн по sheerly.pen → WFrIM:
+          - 720px wide, rounded-[14px]
+          - Search bar с padding 18/20, border-bottom, ⌘K kbd справа
+          - Result rows с padding 10/20, hover/active fill-muted
+          - Footer с подсказками (border-top, fill-muted)
+          AI-quick row из дизайна намеренно опущен — фича ещё не
+          реализована, рендерить статичный плейсхолдер было бы
+          мисли и сбивало пользователя. */}
+      <DialogContent
+        className="max-w-[720px] p-0 gap-0 rounded-[14px] overflow-hidden shadow-xl
+                   [&>button:last-child]:hidden top-[20%] translate-y-0"
+      >
         {/* Radix requires a DialogTitle for a11y; hide it visually. */}
         <DialogTitle className="sr-only">Поиск по базе знаний</DialogTitle>
         <Command
           shouldFilter={false}
-          className="[&_[cmdk-input-wrapper]_svg]:h-5 [&_[cmdk-input-wrapper]_svg]:w-5
-                     [&_[cmdk-input]]:h-12 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-3
-                     [&_[cmdk-item]_svg]:h-5 [&_[cmdk-item]_svg]:w-5"
+          className="bg-background [&_[cmdk-input-wrapper]]:border-0
+                     [&_[cmdk-input]]:h-auto [&_[cmdk-input]]:py-0
+                     [&_[cmdk-item]]:rounded-none"
         >
-          <CommandInput
-            placeholder="Поиск по базе знаний…"
-            value={query}
-            onValueChange={setQuery}
-          />
-          <CommandList>
-        {query.trim().length === 0 && !loading && (
-          <div className="flex flex-col items-center gap-2 py-8 text-sm text-muted-foreground">
-            <Search className="size-5" />
-            Начните печатать, чтобы искать
+          {/* Search bar */}
+          <div className="flex items-center gap-3 border-b px-5 py-[18px]" cmdk-input-wrapper="">
+            <Search className="size-[18px] shrink-0 text-muted-foreground" />
+            <CommandInput
+              placeholder="Поиск по базе знаний…"
+              value={query}
+              onValueChange={setQuery}
+              className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            <kbd className="inline-flex items-center rounded-[5px] border bg-background px-1.5 py-[3px] text-[11px] font-medium tracking-[0.3px] text-muted-foreground">
+              ⌘K
+            </kbd>
           </div>
-        )}
 
-        {loading && (
-          <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            Ищем…
-          </div>
-        )}
-
-        {!loading && query.trim().length > 0 && hits.length === 0 && (
-          <CommandEmpty>Ничего не найдено</CommandEmpty>
-        )}
-
-        {!loading && hits.length > 0 && (
-          <div className="overflow-hidden p-1">
-            {hits.map((hit) => (
-              <CommandItem
-                key={hit.id}
-                // cmdk uses `value` for matching. We disable filtering,
-                // but `value` still drives keyboard selection — make
-                // it unique per row.
-                value={hit.id}
-                onSelect={() => onSelect(hit.slug)}
-              >
-                <KbPageIcon icon={hit.icon} color={hit.icon_color} size={16} />
-                <div className="flex flex-col gap-0.5 min-w-0">
-                  <span className="truncate text-sm font-medium">
-                    {hit.title || "Без названия"}
-                  </span>
-                  {hit.snippet && (
-                    <span className="line-clamp-1 text-xs text-muted-foreground">
-                      <SnippetMarks raw={hit.snippet} />
-                    </span>
-                  )}
+          <CommandList className="max-h-[400px] overflow-y-auto">
+            {query.trim().length === 0 && !loading && (
+              <>
+                {/* «Недавние» — sticky-style section header */}
+                <div className="px-5 pt-[14px] pb-2 text-[11px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                  Недавние
                 </div>
-              </CommandItem>
-            ))}
-          </div>
-        )}
+                <div className="px-2 pb-1 text-sm text-muted-foreground italic">
+                  <div className="px-3 py-3 text-center">
+                    Начните печатать, чтобы искать
+                  </div>
+                </div>
+              </>
+            )}
 
-        {/* Footer hints — only visible when there's space. */}
-        <div
-          aria-hidden="true"
-          className="flex items-center justify-end gap-3 border-t px-3 py-2 text-[11px] text-muted-foreground"
-        >
-          <span>
-            <kbd className="mr-1 rounded border bg-muted px-1">↑↓</kbd>
-            навигация
-          </span>
-          <span>
-            <kbd className="mr-1 rounded border bg-muted px-1">Enter</kbd>
-            открыть
-          </span>
-          <span>
-            <kbd className="mr-1 rounded border bg-muted px-1">Esc</kbd>
-            закрыть
-          </span>
-        </div>
+            {loading && (
+              <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Ищем…
+              </div>
+            )}
+
+            {!loading && query.trim().length > 0 && hits.length === 0 && (
+              <CommandEmpty className="py-8 text-center text-sm text-muted-foreground">
+                Ничего не найдено
+              </CommandEmpty>
+            )}
+
+            {!loading && hits.length > 0 && (
+              <div className="py-1">
+                {hits.map((hit) => (
+                  <CommandItem
+                    key={hit.id}
+                    // cmdk uses `value` for matching. We disable filtering,
+                    // but `value` still drives keyboard selection — make
+                    // it unique per row.
+                    value={hit.id}
+                    onSelect={() => onSelect(hit.slug)}
+                    className="px-5 py-2.5 gap-3 data-[selected=true]:bg-muted aria-selected:bg-muted"
+                  >
+                    <KbPageIcon icon={hit.icon} color={hit.icon_color} size={16} />
+                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                      <span className="truncate text-sm font-medium text-foreground">
+                        {hit.title || "Без названия"}
+                      </span>
+                      {hit.snippet && (
+                        <span className="line-clamp-1 text-xs text-muted-foreground">
+                          <SnippetMarks raw={hit.snippet} />
+                        </span>
+                      )}
+                    </div>
+                  </CommandItem>
+                ))}
+              </div>
+            )}
           </CommandList>
+
+          {/* Footer hints */}
+          <div
+            aria-hidden="true"
+            className="flex items-center justify-end gap-[18px] border-t bg-muted/40 px-5 py-3 text-[11px] font-medium tracking-[0.2px] text-muted-foreground"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">↑↓</kbd>
+              навигация
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">⏎</kbd>
+              открыть
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">Esc</kbd>
+              закрыть
+            </span>
+          </div>
         </Command>
       </DialogContent>
     </Dialog>

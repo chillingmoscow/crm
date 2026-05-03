@@ -26,8 +26,13 @@ export interface KbImportResultItem {
   title: string;
 }
 
-/** Импорт N markdown-файлов в KB. Каждый становится отдельной
- *  страницей под `parent_id` (NULL = root).
+/** Импорт ОДНОГО markdown-файла как страницы под `parent_id` (NULL = root).
+ *
+ *  Вызывается клиентом в цикле для каждого выбранного файла —
+ *  Next.js Server Actions имеют дефолтный лимит 1MB на body, и пачка
+ *  средних .md файлов в одном вызове его быстро пробивает (codex #43 P1).
+ *  Per-file pattern: типичный .md << 1MB; результат каждого вызова
+ *  агрегируется на клиенте.
  *
  *  Гейтинг — двойной:
  *    - `kb.import_pages` (миграция 069) — отдельное право на импорт
@@ -37,20 +42,19 @@ export interface KbImportResultItem {
  *      (RLS на kb_pages всё равно его проверит, но мы валидируем
  *      раньше для понятной ошибки).
  *
- *  Транзакционности по всей пачке нет (Supabase-JS не даёт BEGIN/COMMIT
- *  через REST), но каждая страница создаётся атомарной парой INSERT
- *  + (если есть link_targets) `kb_save_page` RPC. Если на N-ном файле
- *  что-то падает — возвращаем массив уже-созданных + error-message;
- *  пользователь видит, какие страницы прошли, какие надо повторить. */
-export async function importKbPagesFromMarkdown(input: {
+ *  Position под `parent_id` вычисляется как `max(position) + 1` по
+ *  живым siblings — гонка между параллельными вызовами безопасна
+ *  (collisions безвредны, sort by position+created_at в дереве).
+ */
+export async function importKbPageFromMarkdown(input: {
   parent_id: string | null;
-  files: KbImportFileInput[];
+  file: KbImportFileInput;
 }): Promise<{
-  imported: KbImportResultItem[];
+  imported: KbImportResultItem | null;
   error: string | null;
 }> {
-  if (!Array.isArray(input.files) || input.files.length === 0) {
-    return { imported: [], error: "Не выбрано ни одного файла" };
+  if (!input.file || !Array.isArray(input.file.blocks)) {
+    return { imported: null, error: "Пустой файл" };
   }
 
   const supabase = await createClient();
@@ -60,26 +64,27 @@ export async function importKbPagesFromMarkdown(input: {
     supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
   ]);
   if (!canImport) {
-    return { imported: [], error: "Нет права импортировать страницы" };
+    return { imported: null, error: "Нет права импортировать страницы" };
   }
   if (!canCreate) {
-    return { imported: [], error: "Нет права создавать страницы" };
+    return { imported: null, error: "Нет права создавать страницы" };
   }
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { imported: [], error: "Не авторизован" };
+  if (!user) return { imported: null, error: "Не авторизован" };
 
   const { data: accountId, error: accErr } = await supabase.rpc(
     "get_active_account_id",
   );
   if (accErr || !accountId) {
-    return { imported: [], error: "Не удалось определить активный аккаунт" };
+    return { imported: null, error: "Не удалось определить активный аккаунт" };
   }
 
-  // Position = max(siblings под этим parent) + 1, +n для последующих
-  // файлов в той же пачке. Один SELECT на всю пачку, не на каждый файл.
+  const title = filenameToTitle(input.file.name);
+
+  // Position = max(siblings под этим parent) + 1.
   const { data: maxRow } = await supabase
     .from("kb_pages")
     .select("position")
@@ -89,76 +94,63 @@ export async function importKbPagesFromMarkdown(input: {
     .order("position", { ascending: false })
     .limit(1)
     .maybeSingle();
-  let nextPosition = (maxRow?.position ?? -1) + 1;
+  const nextPosition = (maxRow?.position ?? -1) + 1;
 
-  const imported: KbImportResultItem[] = [];
-
-  for (const file of input.files) {
-    const title = filenameToTitle(file.name);
-
-    // Step 1: создаём страницу с базовыми полями (slug retry на 23505).
-    let pageId: string | null = null;
-    let pageSlug: string | null = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const slug = generateSlug();
-      const { data, error } = await supabase
-        .from("kb_pages")
-        .insert({
-          account_id: accountId as unknown as string,
-          parent_id: input.parent_id,
-          position: nextPosition,
-          title,
-          slug,
-          content: [],
-          plain_text: "",
-          created_by: user.id,
-        })
-        .select("id, slug")
-        .single();
-      if (!error && data) {
-        pageId = data.id;
-        pageSlug = data.slug;
-        break;
-      }
-      if (error && error.code !== "23505") {
-        return {
-          imported,
-          error: `«${title}»: ${error.message}`,
-        };
-      }
+  // Step 1: создаём страницу с базовыми полями (slug retry на 23505).
+  let pageId: string | null = null;
+  let pageSlug: string | null = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const slug = generateSlug();
+    const { data, error } = await supabase
+      .from("kb_pages")
+      .insert({
+        account_id: accountId as unknown as string,
+        parent_id: input.parent_id,
+        position: nextPosition,
+        title,
+        slug,
+        content: [],
+        plain_text: "",
+        created_by: user.id,
+      })
+      .select("id, slug")
+      .single();
+    if (!error && data) {
+      pageId = data.id;
+      pageSlug = data.slug;
+      break;
     }
-    if (!pageId || !pageSlug) {
-      return { imported, error: `«${title}»: не удалось сгенерировать slug` };
+    if (error && error.code !== "23505") {
+      return { imported: null, error: error.message };
     }
+  }
+  if (!pageId || !pageSlug) {
+    return { imported: null, error: "Не удалось сгенерировать уникальный slug" };
+  }
 
-    // Step 2: заливаем контент через kb_save_page RPC. Тот же путь
-    // что у обычного save'а — версионирование, links extraction.
-    const { pageIds: linkTargets } = extractBacklinks(file.blocks);
-    const { error: saveErr } = await supabase.rpc("kb_save_page", {
-      p_id: pageId,
-      p_title: title,
-      p_icon: null,
-      p_icon_color: null,
-      p_content: file.blocks as unknown as never,
-      p_plain_text: file.plainText,
-      p_link_targets: linkTargets,
-    } as never);
-    if (saveErr) {
-      // Страница уже создана как пустая — оставляем её и сообщаем,
-      // что content не залился. Юзер сможет либо дописать вручную,
-      // либо удалить.
-      return {
-        imported: [...imported, { id: pageId, slug: pageSlug, title }],
-        error: `«${title}»: создана, но контент не сохранён — ${saveErr.message}`,
-      };
-    }
-
-    imported.push({ id: pageId, slug: pageSlug, title });
-    nextPosition += 1;
+  // Step 2: заливаем контент через kb_save_page RPC. Тот же путь
+  // что у обычного save'а — версионирование, links extraction.
+  const { pageIds: linkTargets } = extractBacklinks(input.file.blocks);
+  const { error: saveErr } = await supabase.rpc("kb_save_page", {
+    p_id: pageId,
+    p_title: title,
+    p_icon: null,
+    p_icon_color: null,
+    p_content: input.file.blocks as unknown as never,
+    p_plain_text: input.file.plainText,
+    p_link_targets: linkTargets,
+  } as never);
+  if (saveErr) {
+    // Страница уже создана как пустая — оставляем, сообщаем что
+    // контент не залился. Юзер сможет либо дописать вручную, либо удалить.
+    return {
+      imported: { id: pageId, slug: pageSlug, title },
+      error: `создана, но контент не сохранён — ${saveErr.message}`,
+    };
   }
 
   revalidatePath("/knowledge");
-  return { imported, error: null };
+  return { imported: { id: pageId, slug: pageSlug, title }, error: null };
 }
 
 /** «my-doc.md» → «my-doc»; «My File (1).markdown» → «My File (1)». */

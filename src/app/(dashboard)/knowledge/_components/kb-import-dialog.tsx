@@ -24,8 +24,9 @@ import { useCreateBlockNote } from "@blocknote/react";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import {
-  importKbPagesFromMarkdown,
+  importKbPageFromMarkdown,
   type KbImportFileInput,
+  type KbImportResultItem,
 } from "@/lib/knowledge/import";
 import type { KbBlock } from "@/types/knowledge";
 
@@ -53,6 +54,8 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
   const [open, setOpen] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [pending, setPending] = useState(false);
+  /** Прогресс per-file импорта: «N из M». Null → не идёт. */
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Hidden editor для markdown-парсинга. Создаётся один раз на mount,
   // schema идентична `KbBlockNoteEditor` — иначе callout/прочие
@@ -86,45 +89,56 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
   const onImport = async () => {
     if (files.length === 0) return;
     setPending(true);
+    setProgress({ done: 0, total: files.length });
 
-    // Параллельно парсим все markdown'ы. tryParseMarkdownToBlocks
-    // возвращает массив блоков по схеме editor'а.
-    const parsed: KbImportFileInput[] = [];
-    try {
-      const results = await Promise.all(
-        files.map(async (file) => {
-          const md = await file.text();
-          const blocks = (await editor.tryParseMarkdownToBlocks(
-            md,
-          )) as unknown as KbBlock[];
-          return {
-            name: file.name,
-            blocks,
-            plainText: blocksToPlainText(blocks),
-          };
-        }),
-      );
-      parsed.push(...results);
-    } catch (err) {
-      setPending(false);
-      toast.error(
-        `Ошибка парсинга markdown: ${err instanceof Error ? err.message : "неизвестная"}`,
-      );
-      return;
+    // Каждый файл идёт в отдельный server-action — Next.js Server Actions
+    // имеют дефолтный лимит 1MB на body, и пачка средних .md в одном
+    // вызове его пробивает (codex #43 P1). Per-file pattern: типичный
+    // .md << 1MB; результаты агрегируем здесь.
+    //
+    // Парсинг markdown → blocks делаем последовательно, чтобы
+    // редактор не молотил параллельно ProseMirror tx — на больших
+    // пачках это создавало UI-лаг.
+    const imported: KbImportResultItem[] = [];
+    const failures: string[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const md = await file.text();
+        const blocks = (await editor.tryParseMarkdownToBlocks(
+          md,
+        )) as unknown as KbBlock[];
+        const payload: KbImportFileInput = {
+          name: file.name,
+          blocks,
+          plainText: blocksToPlainText(blocks),
+        };
+        const { imported: row, error } = await importKbPageFromMarkdown({
+          parent_id: parentId,
+          file: payload,
+        });
+        if (row) imported.push(row);
+        if (error) failures.push(`«${file.name}»: ${error}`);
+      } catch (err) {
+        failures.push(
+          `«${file.name}»: ${err instanceof Error ? err.message : "неизвестная ошибка"}`,
+        );
+      }
+      setProgress({ done: i + 1, total: files.length });
     }
 
-    const { imported, error } = await importKbPagesFromMarkdown({
-      parent_id: parentId,
-      files: parsed,
-    });
     setPending(false);
+    setProgress(null);
 
-    if (error && imported.length === 0) {
-      toast.error(error);
+    if (imported.length === 0 && failures.length > 0) {
+      toast.error(failures[0]);
       return;
     }
-    if (error) {
-      toast.warning(`Создано ${imported.length} страниц. ${error}`);
+    if (failures.length > 0) {
+      toast.warning(
+        `Импортировано ${imported.length} из ${files.length}. ${failures[0]}`,
+      );
     } else {
       toast.success(
         imported.length === 1
@@ -215,9 +229,11 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
             ) : (
               <Upload className="size-4" />
             )}
-            {files.length > 0
-              ? `Импортировать (${files.length})`
-              : "Импортировать"}
+            {progress
+              ? `Импорт ${progress.done} / ${progress.total}`
+              : files.length > 0
+                ? `Импортировать (${files.length})`
+                : "Импортировать"}
           </Button>
         </div>
       </DialogContent>

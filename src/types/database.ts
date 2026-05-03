@@ -1187,6 +1187,7 @@ export type Database = {
           parent_id: string | null
           plain_text: string
           position: number
+          required_reading: boolean
           search_tsv: unknown
           slug: string
           title: string
@@ -1208,6 +1209,7 @@ export type Database = {
           parent_id?: string | null
           plain_text?: string
           position?: number
+          required_reading?: boolean
           search_tsv?: unknown
           slug: string
           title?: string
@@ -1229,6 +1231,7 @@ export type Database = {
           parent_id?: string | null
           plain_text?: string
           position?: number
+          required_reading?: boolean
           search_tsv?: unknown
           slug?: string
           title?: string
@@ -1381,6 +1384,42 @@ export type Database = {
           },
           {
             foreignKeyName: "kb_page_embeddings_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      kb_page_reads: {
+        Row: {
+          account_id: string
+          page_id: string
+          read_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          page_id: string
+          read_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          page_id?: string
+          read_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_reads_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_reads_page_id_fkey"
             columns: ["page_id"]
             isOneToOne: false
             referencedRelation: "kb_pages"

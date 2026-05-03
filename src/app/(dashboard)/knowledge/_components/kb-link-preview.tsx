@@ -43,6 +43,10 @@ export function KbLinkPreview() {
   const [preview, setPreview] = useState<KbPagePreview | null>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
+  /** Ref на slug, который сейчас «в фокусе» загрузки. loadPreview
+   *  читает его перед setPreview — игнорируем stale resolve, если
+   *  юзер уже ушёл на другой link. См. Codex #63 P2. */
+  const currentSlugRef = useRef<string | null>(null);
 
   useEffect(() => {
     const onOver = (e: MouseEvent) => {
@@ -70,7 +74,16 @@ export function KbLinkPreview() {
       hoverTimer.current = setTimeout(() => {
         const rect = anchor.getBoundingClientRect();
         setActive({ anchor, slug, rect });
-        void loadPreview(slug, setPreview);
+        currentSlugRef.current = slug;
+        void loadPreview(slug, (result) => {
+          // Race-guard: если за время fetch'а юзер ушёл на другой link
+          // (или вообще со страницы), currentSlugRef уже другой —
+          // отбрасываем stale-резолв чтобы не показать чужой preview.
+          // См. Codex #63 P2.
+          if (currentSlugRef.current === slug) {
+            setPreview(result);
+          }
+        });
       }, HOVER_DELAY_MS);
     };
 
@@ -85,6 +98,7 @@ export function KbLinkPreview() {
         clearTimeout(hoverTimer.current);
         hoverTimer.current = null;
       }
+      currentSlugRef.current = null;
       setActive(null);
       setPreview(null);
     }
@@ -176,8 +190,25 @@ async function loadPreview(
     promise = getKbPagePreview(slug).then(({ preview }) => preview);
     inflight.set(slug, promise);
   }
-  const result = await promise;
-  inflight.delete(slug);
-  previewCache.set(slug, result);
-  setPreview(result);
+  // try/finally — на reject (transient network) ОБЯЗАТЕЛЬНО снимаем
+  // promise из inflight, иначе rejected promise остаётся в map'е
+  // навсегда и любой следующий hover на этот slug переиспользует его
+  // → preview никогда не retry'ится до перезагрузки страницы. См.
+  // Codex #63 P2.
+  //
+  // Кэш в `previewCache` пишем ТОЛЬКО на success — иначе следующий
+  // hover вернул бы из cache'а null (без retry'я), маскируя transient-
+  // failure'ы. На reject — silent no-op, hover просто не покажет
+  // preview, и следующий вызов попробует заново.
+  try {
+    const result = await promise;
+    previewCache.set(slug, result);
+    setPreview(result);
+  } catch {
+    // Transient — оставляем previewCache пустым, чтобы next hover
+    // попробовал ещё раз. setPreview не вызываем — UI просто не
+    // покажет tooltip.
+  } finally {
+    inflight.delete(slug);
+  }
 }

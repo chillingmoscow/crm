@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
 
 import {
   Command,
@@ -24,6 +24,7 @@ import {
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { searchKbPages } from "@/lib/knowledge/search";
+import { askKbAi, type KbAiSource } from "@/lib/knowledge/ai-rag";
 import type { KbSearchHit } from "@/types/knowledge";
 
 const DEBOUNCE_MS = 180;
@@ -49,6 +50,9 @@ export function useKbSearch(): SearchCtx {
 
 interface KbSearchProviderProps {
   children: ReactNode;
+  /** kb.ask_ai permission + accounts.ai_enabled. Если true — в search-
+   *  диалоге появляется CTA «Спросить ИИ» сверху. */
+  aiAskEnabled?: boolean;
 }
 
 /**
@@ -67,7 +71,7 @@ interface KbSearchProviderProps {
  *  ─ Debounce 180ms — snappy enough that typing feels live, but
  *    one query per word, not per keystroke.
  */
-export function KbSearchProvider({ children }: KbSearchProviderProps) {
+export function KbSearchProvider({ children, aiAskEnabled = false }: KbSearchProviderProps) {
   const [isOpen, setOpen] = useState(false);
   const open = useCallback(() => setOpen(true), []);
   const close = useCallback(() => setOpen(false), []);
@@ -92,7 +96,7 @@ export function KbSearchProvider({ children }: KbSearchProviderProps) {
   return (
     <KbSearchContext.Provider value={value}>
       {children}
-      <KbSearchDialog open={isOpen} onOpenChange={setOpen} />
+      <KbSearchDialog open={isOpen} onOpenChange={setOpen} aiAskEnabled={aiAskEnabled} />
     </KbSearchContext.Provider>
   );
 }
@@ -102,13 +106,25 @@ export function KbSearchProvider({ children }: KbSearchProviderProps) {
 interface KbSearchDialogProps {
   open: boolean;
   onOpenChange: (next: boolean) => void;
+  aiAskEnabled: boolean;
 }
 
-function KbSearchDialog({ open, onOpenChange }: KbSearchDialogProps) {
+interface KbAiState {
+  question: string;
+  loading: boolean;
+  answer: string | null;
+  sources: KbAiSource[];
+  error: string | null;
+}
+
+function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProps) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<KbSearchHit[]>([]);
   const [loading, setLoading] = useState(false);
+  // AI-mode: когда юзер кликнул «Спросить ИИ», прячем результаты
+  // search'а и показываем answer-panel. Reset на новом query/close.
+  const [ai, setAi] = useState<KbAiState | null>(null);
   // Bumps every time the user types so we can ignore stale responses.
   const requestSeqRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -119,9 +135,16 @@ function KbSearchDialog({ open, onOpenChange }: KbSearchDialogProps) {
       setQuery("");
       setHits([]);
       setLoading(false);
+      setAi(null);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     }
   }, [open]);
+
+  // Сбрасываем AI-mode при изменении query.
+  useEffect(() => {
+    if (ai && ai.question !== query) setAi(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   // Debounced server search.
   useEffect(() => {
@@ -155,6 +178,30 @@ function KbSearchDialog({ open, onOpenChange }: KbSearchDialogProps) {
   const onSelect = (slug: string) => {
     onOpenChange(false);
     router.push(`/knowledge/${slug}`);
+  };
+
+  const onAskAi = async () => {
+    const question = query.trim();
+    if (question.length < 4) return;
+    setAi({
+      question,
+      loading: true,
+      answer: null,
+      sources: [],
+      error: null,
+    });
+    const result = await askKbAi({ question });
+    // Если юзер успел поменять query за время запроса — игнорируем.
+    setAi((prev) => {
+      if (!prev || prev.question !== question) return prev;
+      return {
+        question,
+        loading: false,
+        answer: result.answer,
+        sources: result.sources,
+        error: result.error,
+      };
+    });
   };
 
   return (
@@ -208,20 +255,106 @@ function KbSearchDialog({ open, onOpenChange }: KbSearchDialogProps) {
               </>
             )}
 
-            {loading && (
+            {/* AI quick-row — показывается, когда юзер ввёл достаточно
+                text'а и AI разрешён. В AI-mode прячется (там answer-
+                panel вместо). */}
+            {aiAskEnabled && !ai && query.trim().length >= 4 && (
+              <button
+                type="button"
+                onClick={() => void onAskAi()}
+                className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors
+                           border-b hover:bg-muted/60 focus-visible:outline-none focus-visible:bg-muted"
+              >
+                <Sparkles className="size-[18px] shrink-0 text-brand" />
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    Спросить ИИ о базе знаний
+                  </span>
+                  <span className="block text-xs text-muted-foreground truncate">
+                    «{query.trim()}»
+                  </span>
+                </span>
+                <kbd className="inline-flex items-center rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  ⏎ ИИ
+                </kbd>
+              </button>
+            )}
+
+            {/* AI answer panel */}
+            {ai && (
+              <div className="px-5 py-4 border-b bg-muted/30">
+                <button
+                  type="button"
+                  onClick={() => setAi(null)}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground mb-2"
+                >
+                  <ArrowLeft className="size-3" /> Вернуться к поиску
+                </button>
+                {ai.loading && (
+                  <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    ИИ думает над «{ai.question}»…
+                  </div>
+                )}
+                {!ai.loading && ai.error && (
+                  <div className="py-2 text-sm text-destructive">
+                    {ai.error}
+                  </div>
+                )}
+                {!ai.loading && ai.answer && (
+                  <div className="flex flex-col gap-3">
+                    <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                      {ai.answer}
+                    </div>
+                    {ai.sources.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.6px] text-muted-foreground">
+                          Источники
+                        </div>
+                        <ul className="flex flex-col gap-0.5">
+                          {ai.sources.map((src) => (
+                            <li key={src.page_id}>
+                              <button
+                                type="button"
+                                onClick={() => onSelect(src.page_slug)}
+                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+                              >
+                                <KbPageIcon
+                                  icon={src.page_icon}
+                                  color={src.page_icon_color}
+                                  size={14}
+                                />
+                                <span className="flex-1 truncate text-foreground">
+                                  {src.page_title || "Без названия"}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground tabular-nums">
+                                  {Math.round(src.similarity * 100)}%
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {loading && !ai && (
               <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
                 Ищем…
               </div>
             )}
 
-            {!loading && query.trim().length > 0 && hits.length === 0 && (
+            {!loading && !ai && query.trim().length > 0 && hits.length === 0 && (
               <CommandEmpty className="py-8 text-center text-sm text-muted-foreground">
                 Ничего не найдено
               </CommandEmpty>
             )}
 
-            {!loading && hits.length > 0 && (
+            {!loading && !ai && hits.length > 0 && (
               <div className="py-1">
                 {hits.map((hit) => (
                   <CommandItem

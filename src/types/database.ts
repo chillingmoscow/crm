@@ -176,6 +176,7 @@ export type Database = {
       }
       accounts: {
         Row: {
+          ai_enabled: boolean
           created_at: string
           id: string
           logo_url: string | null
@@ -183,6 +184,7 @@ export type Database = {
           owner_id: string
         }
         Insert: {
+          ai_enabled?: boolean
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -190,6 +192,7 @@ export type Database = {
           owner_id: string
         }
         Update: {
+          ai_enabled?: boolean
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -1340,6 +1343,51 @@ export type Database = {
           },
         ]
       }
+      kb_page_embeddings: {
+        Row: {
+          account_id: string
+          chunk_index: number
+          content_chunk: string
+          created_at: string
+          embedding: string
+          id: number
+          page_id: string
+        }
+        Insert: {
+          account_id: string
+          chunk_index: number
+          content_chunk: string
+          created_at?: string
+          embedding: string
+          id?: number
+          page_id: string
+        }
+        Update: {
+          account_id?: string
+          chunk_index?: number
+          content_chunk?: string
+          created_at?: string
+          embedding?: string
+          id?: number
+          page_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_page_embeddings_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_page_embeddings_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kb_user_favorites: {
         Row: {
           account_id: string
@@ -2281,6 +2329,19 @@ export type Database = {
           slug: string
           snippet: string
           title: string
+        }[]
+      }
+      kb_search_embeddings: {
+        Args: { p_limit?: number; p_query_embedding: string }
+        Returns: {
+          chunk_index: number
+          content_chunk: string
+          page_icon: string | null
+          page_icon_color: string | null
+          page_id: string
+          page_slug: string
+          page_title: string
+          similarity: number
         }[]
       }
       kb_soft_delete_cascade: { Args: { p_id: string }; Returns: number }

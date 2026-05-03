@@ -1,0 +1,195 @@
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+import { embedTexts } from "@/lib/ai/siliconflow-client";
+import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
+
+/**
+ * RAG: «Спросить базу знаний».
+ *
+ * Pipeline:
+ *   1. Permission check (kb.ask_ai) + accounts.ai_enabled.
+ *   2. Embed запроса юзера через SiliconFlow bge-m3.
+ *   3. Top-K cosine search через `kb_search_embeddings` RPC
+ *      (tenant-isolation в самой RPC).
+ *   4. Передаём top-K chunks как context в DeepSeek deepseek-chat
+ *      с инструкцией ответить ТОЛЬКО на основе контекста + указать
+ *      sources.
+ *   5. Возвращаем answer + sources (page metadata для рендера ссылок
+ *      в UI).
+ *
+ * НЕ стримит — для search-style запросов (~500-1000 output tokens,
+ * ~3-8s) одношаговый response норм. Loader на UI покрывает.
+ */
+
+export interface KbAiSource {
+  page_id: string;
+  page_title: string;
+  page_slug: string;
+  page_icon: string | null;
+  page_icon_color: string | null;
+  /** Лучший cosine similarity среди chunks этой страницы. */
+  similarity: number;
+}
+
+const TOP_K = 5;
+
+const SYSTEM_PROMPT =
+  "Ты ассистент для базы знаний ресторана. Отвечай на вопрос " +
+  "пользователя, ОПИРАЯСЬ ТОЛЬКО на предоставленный контекст из " +
+  "внутренних страниц базы. Если контекст не содержит ответа — честно " +
+  "скажи «В базе знаний нет ответа на этот вопрос», не выдумывай. " +
+  "Отвечай кратко (2-5 предложений), на русском, без markdown.";
+
+export async function askKbAi(input: {
+  question: string;
+}): Promise<{
+  answer: string | null;
+  sources: KbAiSource[];
+  error: string | null;
+}> {
+  const question = (input.question ?? "").trim();
+  if (question.length === 0) {
+    return { answer: null, sources: [], error: "Пустой вопрос" };
+  }
+  if (question.length > 500) {
+    // 500 chars — комфортный максимум для search-query, всё что выше
+    // обычно не вопрос а копипаст полтекста.
+    return { answer: null, sources: [], error: "Вопрос слишком длинный (макс 500 символов)" };
+  }
+
+  const supabase = await createClient();
+
+  // Двойной gate: kb.ask_ai permission + accounts.ai_enabled.
+  const [{ data: canAsk }, { data: accountId }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
+    supabase.rpc("get_active_account_id"),
+  ]);
+  if (!canAsk) {
+    return { answer: null, sources: [], error: "Нет права задавать AI-вопросы" };
+  }
+  if (!accountId) {
+    return { answer: null, sources: [], error: "Нет активного account" };
+  }
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("ai_enabled")
+    .eq("id", accountId as unknown as string)
+    .maybeSingle();
+  if (!account?.ai_enabled) {
+    return { answer: null, sources: [], error: "AI отключён для этого аккаунта" };
+  }
+
+  // 1. Embed query.
+  let queryEmbedding: number[];
+  try {
+    const embeddings = await embedTexts([question]);
+    if (!embeddings[0]) {
+      return { answer: null, sources: [], error: "Empty embedding" };
+    }
+    queryEmbedding = embeddings[0];
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "embed error";
+    return { answer: null, sources: [], error: `Embed failed: ${msg}` };
+  }
+
+  // 2. Top-K cosine search через RPC. Передаём вектор через
+  // вспомогательную RPC-обёртку — чтобы pgvector распарсил литерал.
+  const { data: hits, error: searchErr } = await supabase.rpc(
+    "kb_search_embeddings",
+    {
+      p_query_embedding: vectorLiteral(queryEmbedding) as unknown as never,
+      p_limit: TOP_K,
+    },
+  );
+  if (searchErr) {
+    return { answer: null, sources: [], error: `Search failed: ${searchErr.message}` };
+  }
+
+  type Hit = {
+    page_id: string;
+    chunk_index: number;
+    content_chunk: string;
+    page_title: string;
+    page_slug: string;
+    page_icon: string | null;
+    page_icon_color: string | null;
+    similarity: number;
+  };
+  const rows = (hits as unknown as Hit[]) ?? [];
+
+  if (rows.length === 0) {
+    return {
+      answer: "В базе знаний пока нет страниц для ответа.",
+      sources: [],
+      error: null,
+    };
+  }
+
+  // 3. Сборка LLM-context. Дедублицируем по page_id — если у одной
+  // страницы попало несколько chunks, склеиваем.
+  const contextLines: string[] = [];
+  const sourceMap = new Map<string, KbAiSource>();
+
+  for (const hit of rows) {
+    contextLines.push(
+      `### ${hit.page_title}\n${hit.content_chunk}`,
+    );
+    const existing = sourceMap.get(hit.page_id);
+    if (!existing || existing.similarity < hit.similarity) {
+      sourceMap.set(hit.page_id, {
+        page_id: hit.page_id,
+        page_title: hit.page_title,
+        page_slug: hit.page_slug,
+        page_icon: hit.page_icon,
+        page_icon_color: hit.page_icon_color,
+        similarity: hit.similarity,
+      });
+    }
+  }
+
+  const sources = Array.from(sourceMap.values()).sort(
+    (a, b) => b.similarity - a.similarity,
+  );
+
+  const userPrompt = `Контекст из базы знаний:\n\n${contextLines.join("\n\n---\n\n")}\n\nВопрос: ${question}`;
+
+  // 4. Запрос к DeepSeek.
+  let client;
+  try {
+    client = getDeepseekClient();
+  } catch (err) {
+    return {
+      answer: null,
+      sources,
+      error: err instanceof Error ? err.message : "DeepSeek client error",
+    };
+  }
+
+  try {
+    const response = await client.chat.completions.create({
+      model: DEEPSEEK_MODELS.chat,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 800,
+    });
+
+    const answer = response.choices[0]?.message?.content?.trim() ?? "";
+    if (!answer) {
+      return { answer: null, sources, error: "Пустой ответ от AI" };
+    }
+    return { answer, sources, error: null };
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Неизвестная ошибка AI";
+    return { answer: null, sources, error: `AI-запрос упал: ${message}` };
+  }
+}
+
+/** Канонический pgvector text format `[1.0,2.0,...]`. */
+function vectorLiteral(vec: number[]): string {
+  return `[${vec.join(",")}]`;
+}

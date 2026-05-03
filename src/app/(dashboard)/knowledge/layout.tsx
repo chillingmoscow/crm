@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { getKbTree } from "@/lib/knowledge/tree";
+import { listMyKbFavorites } from "@/lib/knowledge/favorites";
 import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbMobileTreeDrawer } from "@/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer";
@@ -40,9 +41,12 @@ export default async function KnowledgeLayout({
   ]);
   if (!canView) redirect("/dashboard");
 
-  // Single fetch — KbTreeNav reads from React cache (getKbTree wraps
-  // listKbPages with React.cache), so we don't double-fetch.
-  const { nodes } = await getKbTree();
+  // Tree + favorites параллельно. KbTreeNav reads from React cache
+  // (getKbTree wraps listKbPages с React.cache), no double-fetch.
+  const [{ nodes }, { pages: favorites }] = await Promise.all([
+    getKbTree(),
+    listMyKbFavorites(),
+  ]);
 
   return (
     <KbSearchProvider>
@@ -57,7 +61,11 @@ export default async function KnowledgeLayout({
           className="hidden md:flex sticky top-0 h-svh w-72 shrink-0
                      flex-col border-r bg-sidebar"
         >
-          <KbTreeNav nodes={nodes} canSeeTrash={Boolean(canDelete)} />
+          <KbTreeNav
+            nodes={nodes}
+            favorites={favorites}
+            canSeeTrash={Boolean(canDelete)}
+          />
         </aside>
         <main className="flex-1 min-w-0 flex flex-col">
           {/* KB-локальный top-bar: breadcrumb слева, actions + bell
@@ -79,6 +87,7 @@ export default async function KnowledgeLayout({
                           px-4 py-2 backdrop-blur">
             <KbMobileTreeDrawer
               nodes={nodes}
+              favorites={favorites}
               canSeeTrash={Boolean(canDelete)}
             />
           </div>

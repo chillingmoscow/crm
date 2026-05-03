@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { getKbPageBySlug, listKbPages } from "@/lib/knowledge/pages";
+import { isKbPageFavorited } from "@/lib/knowledge/favorites";
 import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
 import {
   PageBreadcrumb,
@@ -9,6 +10,7 @@ import {
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbBackLink } from "@/app/(dashboard)/knowledge/_components/kb-back-link";
+import { KbFavoriteToggle } from "@/app/(dashboard)/knowledge/_components/kb-favorite-toggle";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
 import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
@@ -43,6 +45,7 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasDelete },
     { data: hasCreate },
     { data: hasExport },
+    { favorited },
     { rows: allPages },
     { chain },
     { data: profiles },
@@ -53,6 +56,7 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.export_pages" }),
+    isKbPageFavorited(row.id),
     listKbPages(),
     getKbBreadcrumbs(row.id),
     profileIds.length > 0
@@ -118,6 +122,7 @@ export default async function KbPageView({ params }: PageProps) {
         <KbBackLink href={backHref} label={backLabel} />
       </PageBreadcrumb>
       <PageHeaderActions>
+        <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
         <KbPageActions
           pageId={row.id}

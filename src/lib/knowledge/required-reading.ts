@@ -70,6 +70,48 @@ export async function markKbPageAsRead(
   return { error: null };
 }
 
+export interface KbRequiredReadingStatsRow {
+  user_id: string;
+  name: string;
+  avatar_url: string | null;
+  /** ISO-timestamp когда юзер подтвердил прочтение. NULL = ещё не
+   *  прочитал. Записи `kb_page_reads` сохраняются даже если страница
+   *  потом перестала быть required, поэтому row'и могут быть
+   *  и для уже-не-обязательных страниц. */
+  read_at: string | null;
+}
+
+/** Список members active account с их read-status'ом по странице.
+ *  Прочитавшие — первые (по read_at desc); непрочитавшие — алфавитно.
+ *  Гейт `kb.manage_required_reading` — admin-only view; без permission'а
+ *  RPC возвращает 0 rows (UI должен redirect'ить — defense in depth).
+ *
+ *  Sprint D / Phase 2 (план system-reminder-…-moonbeam.md §2.7).
+ *  Backed by RPC `kb_list_required_reading_stats` (миграция 080). */
+export async function getKbRequiredReadingStats(
+  pageId: string,
+): Promise<{
+  rows: KbRequiredReadingStatsRow[];
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(
+    "kb_list_required_reading_stats",
+    { p_page_id: pageId },
+  );
+  if (error) return { rows: [], error: error.message };
+  const rows: KbRequiredReadingStatsRow[] = (data ?? []).map((r) => {
+    const parts = [r.first_name, r.last_name].filter(Boolean) as string[];
+    return {
+      user_id: r.user_id,
+      name: parts.length > 0 ? parts.join(" ") : "—",
+      avatar_url: r.avatar_url,
+      read_at: r.read_at,
+    };
+  });
+  return { rows, error: null };
+}
+
 /** Admin toggle «обязательная к прочтению». Гейтится
  *  `kb.manage_required_reading` (миграция 075). Поверх есть RLS на
  *  kb_pages UPDATE — т.е. требуется ещё edit-permission на саму
@@ -77,11 +119,12 @@ export async function markKbPageAsRead(
  *  выставляет флаг тот, кто может редактировать саму страницу.
  *
  *  При выключении флага — НЕ удаляем существующие read-records
- *  (они полезны для аудита: «кто прочитал когда страница была обязательной»).
+ *  (они полезны для аудита: «кто прочитал когда страница была
+ *  обязательной»).
  *
- *  Audit-trail: kb_pages_audit trigger (миграция 074) сейчас не
- *  отдельно логирует toggle required_reading — это update column'а
- *  но без отдельного event-type. Можно добавить отдельным PR. */
+ *  Audit-trail: с миграции 080 триггер `kb_pages_audit_trigger`
+ *  emit'ит отдельный event `kb_page.required_reading_toggled` на
+ *  каждый toggle. */
 export async function setKbPageRequiredReading(input: {
   pageId: string;
   required: boolean;

@@ -2522,6 +2522,16 @@ export type Database = {
           last_name: string
         }[]
       }
+      kb_list_required_reading_stats: {
+        Args: { p_page_id: string }
+        Returns: {
+          user_id: string
+          first_name: string | null
+          last_name: string | null
+          avatar_url: string | null
+          read_at: string | null
+        }[]
+      }
       kb_comment_react: {
         Args: { p_comment_id: string; p_emoji: string }
         Returns: undefined

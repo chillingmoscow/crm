@@ -20,6 +20,7 @@ import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
+import { getKbAiSlashItems } from "@/app/(dashboard)/knowledge/_components/kb-ai-slash-items";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -84,6 +85,10 @@ export type BlockNoteEditorProps = {
    *  расширенный custom-айтемами (callout-варианты и пр.). Дефолтные
    *  пункты при этом сохраняются — мы просто комбинируем. */
   customSlashMenu?: boolean;
+  /** Если true — добавляем AI-команды (`/ai*`) в slash-меню. Гейтится
+   *  выше: `kb.use_ai` permission + `accounts.ai_enabled`. Server-action
+   *  всё равно повторно проверит — это просто UX-слой. */
+  aiSlashEnabled?: boolean;
   className?: string;
 };
 
@@ -160,6 +165,7 @@ export function KbBlockNoteEditor({
   renderExtras,
   customSideMenu = false,
   customSlashMenu = false,
+  aiSlashEnabled = false,
   className,
 }: BlockNoteEditorProps) {
   const { resolvedTheme } = useTheme();
@@ -304,11 +310,17 @@ export function KbBlockNoteEditor({
         <SuggestionMenuController
           triggerCharacter="/"
           getItems={async (query) =>
+            // Cast to default-suggestion-item shape: callout/AI items
+            // имеют ту же runtime-форму (title, subtext, group, icon,
+            // onItemClick), но TS этого не видит из-за расширенной
+            // schema'ы. SuggestionMenuController generic выводится
+            // только из default-items.
             filterSuggestionItems(
               [
                 ...getDefaultReactSlashMenuItems(editor),
                 ...getKbCalloutSlashItems(editor as never),
-              ],
+                ...getKbAiSlashItems(editor as never, aiSlashEnabled),
+              ] as ReturnType<typeof getDefaultReactSlashMenuItems>,
               query,
             )
           }

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, Loader2, X } from "lucide-react";
+import { Trash2, Loader2, X, Download } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
   DialogClose,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { softDeleteKbPage } from "@/lib/knowledge/pages";
+import { exportKbPageAsMarkdown, softDeleteKbPage } from "@/lib/knowledge/pages";
 
 interface KbPageActionsProps {
   pageId: string;
@@ -46,8 +46,36 @@ export function KbPageActions({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  if (!canDelete) return null;
+  // Export доступен всем у кого `kb.view_pages` (а это любой, кто
+  // вообще видит эту страницу — RLS уже отфильтровала). Поэтому не
+  // делаем дополнительной permission-проверки: если страница рендерится,
+  // юзер вправе её скачать.
+
+  const onExport = async () => {
+    setExporting(true);
+    try {
+      const { markdown, filename, error } = await exportKbPageAsMarkdown(pageId);
+      if (error || !markdown || !filename) {
+        toast.error(`Не удалось экспортировать: ${error ?? "неизвестная ошибка"}`);
+        return;
+      }
+      // Скачивание через Blob + временный <a> — без библиотек,
+      // работает во всех современных браузерах.
+      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const onDelete = async () => {
     setPending(true);
@@ -63,6 +91,47 @@ export function KbPageActions({
     router.refresh();
   };
 
+  return (
+    <>
+      <IconTooltip label="Скачать как Markdown">
+        <button
+          type="button"
+          aria-label="Скачать как Markdown"
+          onClick={onExport}
+          disabled={exporting}
+          className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50"
+        >
+          {exporting ? (
+            <Loader2 className="w-[18px] h-[18px] animate-spin" />
+          ) : (
+            <Download className="w-[18px] h-[18px]" />
+          )}
+        </button>
+      </IconTooltip>
+      {canDelete && (
+        <DeleteDialog
+          open={open}
+          setOpen={setOpen}
+          onDelete={onDelete}
+          pending={pending}
+          pageTitle={pageTitle}
+          childCount={childCount}
+        />
+      )}
+    </>
+  );
+}
+
+interface DeleteDialogProps {
+  open: boolean;
+  setOpen: (v: boolean) => void;
+  onDelete: () => Promise<void> | void;
+  pending: boolean;
+  pageTitle: string;
+  childCount: number;
+}
+
+function DeleteDialog({ open, setOpen, onDelete, pending, pageTitle, childCount }: DeleteDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <IconTooltip label="Удалить страницу">

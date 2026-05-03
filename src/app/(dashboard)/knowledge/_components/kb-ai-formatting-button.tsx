@@ -1,16 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useReducer, useState } from "react";
 import {
   Sparkles,
   Scissors,
   RefreshCw,
   Languages,
   SpellCheck,
+  ArrowRight,
+  Heading,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useBlockNoteEditor } from "@blocknote/react";
+import {
+  useBlockNoteEditor,
+  useEditorSelectionChange,
+} from "@blocknote/react";
 
 import {
   Popover,
@@ -23,92 +28,169 @@ import {
 } from "@/lib/knowledge/ai-commands";
 
 /**
- * AI-кнопка для FormattingToolbar BlockNote-редактора.
+ * AI-кнопка в FormattingToolbar BlockNote'а. Все AI-команды собраны
+ * сюда, slash-меню больше их не показывает: для команд по выделению
+ * `/` сбрасывал бы selection (см. предыдущий fix), а для блочных
+ * команд (Продолжить / Сгенерировать заголовок) пользователю было
+ * непонятно, чем slash-айтемы отличаются от других.
  *
- * Появляется во встроенном formatting-bar'е, который BlockNote сам
- * показывает при выделении текста (рядом с Bold / Italic / etc).
- *
- * Это правильное место для AI-команд по выделению. Раньше они жили
- * в slash-меню, но это было сломанным UX: чтобы invoke'нуть `/ai-…`
- * на selection, юзеру нужно было набрать `/`, что **сбрасывает
- * выделение** → команда никогда не получала текст.
- *
- * Команды через popover (5 шт):
- *   - Сократить
+ * Команды:
+ *   - Продолжить — дописать продолжение текущего блока (after)
+ *   - Сгенерировать заголовок — H2 над текущим блоком (heading)
+ *   - Сократить — заменить выделение в 2-3 раза короче
  *   - Переформулировать
  *   - Исправить опечатки
- *   - Перевести на английский
- *   - Перевести на русский
+ *   - Перевести на английский / русский
  *
- * `continue_writing` и `generate_heading` остаются в slash-меню — они
- * работают по контексту блока, не по выделению.
- *
- * Гейтинг: рендерится только если `aiEnabled` (kb.use_ai +
- * accounts.ai_enabled, проверено на server-side).
+ * Гейтинг по двум осям:
+ *   - aiEnabled (kb.use_ai + accounts.ai_enabled, проверено сервер-сайдом)
+ *   - block-type: для media-блоков (image/video/audio/file) AI бессмысленен
+ *     — кнопка не рендерится, чтобы не засорять image-toolbar.
  */
+
+type InsertMode = "replace" | "after" | "heading";
 
 interface AiCmdSpec {
   id: KbAiCommand;
   label: string;
   description: string;
   icon: React.ReactNode;
+  /** Куда положить ответ модели:
+   *    replace — заменить выделение (требует selection)
+   *    after   — вставить параграф после текущего блока
+   *    heading — вставить H2 перед текущим блоком */
+  mode: InsertMode;
 }
 
 const COMMANDS: AiCmdSpec[] = [
+  {
+    id: "continue_writing",
+    label: "Продолжить",
+    description: "Дописать продолжение блока",
+    icon: <ArrowRight className="size-4 text-brand" />,
+    mode: "after",
+  },
+  {
+    id: "generate_heading",
+    label: "Сгенерировать заголовок",
+    description: "H2 над текущим блоком",
+    icon: <Heading className="size-4 text-brand" />,
+    mode: "heading",
+  },
   {
     id: "shorten",
     label: "Сократить",
     description: "Сжать в 2-3 раза, сохранить смысл",
     icon: <Scissors className="size-4 text-brand" />,
+    mode: "replace",
   },
   {
     id: "rephrase",
     label: "Переформулировать",
     description: "Тот же смысл, другие слова",
     icon: <RefreshCw className="size-4 text-brand" />,
+    mode: "replace",
   },
   {
     id: "fix_typos",
     label: "Исправить опечатки",
     description: "Орфография и пунктуация",
     icon: <SpellCheck className="size-4 text-brand" />,
+    mode: "replace",
   },
   {
     id: "translate_en",
     label: "Перевести на английский",
     description: "RU → EN",
     icon: <Languages className="size-4 text-brand" />,
+    mode: "replace",
   },
   {
     id: "translate_ru",
     label: "Перевести на русский",
     description: "EN → RU",
     icon: <Languages className="size-4 text-brand" />,
+    mode: "replace",
   },
 ];
 
+/** Типы блоков, для которых AI-команды не имеют смысла. Все они
+ *  существуют в дефолтной BlockNote-схеме; `image|video|audio|file`
+ *  не содержат текста, а `codeBlock` пользователь правит руками. */
+const NON_TEXT_BLOCK_TYPES = new Set([
+  "image",
+  "video",
+  "audio",
+  "file",
+  "codeBlock",
+  "table",
+  "divider",
+  "pageBreak",
+]);
+
+/** Cheap извлечение plain-text из inline-content одного блока — для
+ *  блочных команд, которые работают по тексту блока без явного
+ *  выделения. */
+function blockToPlainText(block: unknown): string {
+  const b = block as { content?: unknown };
+  if (!Array.isArray(b.content)) return "";
+  const parts: string[] = [];
+  for (const item of b.content as Array<{ type?: string; text?: string }>) {
+    if (item.type === "text" && typeof item.text === "string") {
+      parts.push(item.text);
+    }
+  }
+  return parts.join("").trim();
+}
+
 export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
-  // useBlockNoteEditor — возвращает текущий editor instance из
-  // BlockNote-React-context. Безопасно вызывать только внутри
-  // BlockNoteView/FormattingToolbar.
+  // useBlockNoteEditor — текущий editor instance из BlockNote-React-context.
+  // Безопасно вызывать только внутри BlockNoteView/FormattingToolbar.
   const editor = useBlockNoteEditor();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<KbAiCommand | null>(null);
 
+  // Принудительный re-render по каждому selection-change, чтобы
+  // блочный gate ниже (NON_TEXT_BLOCK_TYPES) переоценивался при
+  // переходе курсора между блоками. Без этого кнопка могла застрять
+  // видимой над media-блоком, если до того стояли в параграфе.
+  const [, forceTick] = useReducer((x: number) => x + 1, 0);
+  useEditorSelectionChange(forceTick, editor);
+
   if (!aiEnabled) return null;
 
+  // Если курсор стоит на не-текстовом блоке (image / video / file и т.п.),
+  // AI-команды бесполезны — прячем кнопку, чтобы не засорять image-toolbar.
+  const cursor = editor.getTextCursorPosition();
+  if (!cursor || NON_TEXT_BLOCK_TYPES.has(cursor.block.type)) return null;
+
   const onPick = async (cmd: AiCmdSpec) => {
-    const text = editor.getSelectedText().trim();
-    if (!text) {
-      toast.info("Выделите текст для AI-команды");
-      setOpen(false);
-      return;
+    const selected = editor.getSelectedText().trim();
+    const blockText = blockToPlainText(cursor.block);
+
+    let sourceText = "";
+    if (cmd.mode === "replace") {
+      // selection-команды требуют выделение
+      sourceText = selected;
+      if (!sourceText) {
+        toast.info("Выделите текст для AI-команды");
+        setOpen(false);
+        return;
+      }
+    } else {
+      // блочные команды работают по контексту блока (selection — приоритет)
+      sourceText = selected || blockText;
+      if (!sourceText) {
+        toast.info("Текущий блок пустой — нечего обрабатывать");
+        setOpen(false);
+        return;
+      }
     }
 
     setPending(cmd.id);
     const { result, error } = await runKbAiCommand({
       command: cmd.id,
-      text,
+      text: sourceText,
     });
     setPending(null);
 
@@ -117,24 +199,48 @@ export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
       return;
     }
 
-    // insertInlineContent заменит выделение результатом. Plain-text
-    // → принимается напрямую, BlockNote обернёт в text-run.
-    editor.insertInlineContent(result);
+    switch (cmd.mode) {
+      case "replace":
+        // insertInlineContent заменит выделение результатом.
+        editor.insertInlineContent(result);
+        break;
+      case "after":
+        editor.insertBlocks(
+          [{ type: "paragraph", content: result } as never],
+          cursor.block,
+          "after",
+        );
+        break;
+      case "heading":
+        editor.insertBlocks(
+          [
+            {
+              type: "heading",
+              props: { level: 2 },
+              content: result,
+            } as never,
+          ],
+          cursor.block,
+          "before",
+        );
+        break;
+    }
     setOpen(false);
   };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        {/* Стилистика повторяет mantine-toolbar BlockNote'а: square
-            ~28px button, rounded, hover-bg. BlockNote'овская обёртка
-            FormattingToolbar добавляет padding/spacing вокруг детей. */}
+        {/* Размер matches mantine-toolbar BlockNote'а: 28x28 квадрат,
+            radius=4, hover-bg. Без текста — иконка-only — чтобы стоять
+            в одном ряду с Bold/Italic/Color/Link/Align без перепрыга
+            высоты тулбара. */}
         <button
           type="button"
-          aria-label="AI-команды над выделением"
+          aria-label="AI-команды"
           title="ИИ"
           disabled={!!pending}
-          className="inline-flex items-center justify-center gap-1 h-7 px-1.5 rounded
+          className="inline-flex items-center justify-center h-7 w-7 rounded
                      text-foreground hover:bg-accent hover:text-accent-foreground
                      transition-colors disabled:opacity-50"
         >
@@ -143,7 +249,6 @@ export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
           ) : (
             <Sparkles className="size-4 text-brand" />
           )}
-          <span className="text-xs font-medium">ИИ</span>
         </button>
       </PopoverTrigger>
       <PopoverContent

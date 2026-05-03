@@ -19,12 +19,11 @@ import {
   useCreateBlockNote,
 } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
-import { flip, shift, offset, size } from "@floating-ui/react";
 import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
+import { rewriteBrokenMediaBlocks } from "@/lib/knowledge/blocks-media";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
-import { getKbAiSlashItems } from "@/app/(dashboard)/knowledge/_components/kb-ai-slash-items";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 
 import "@blocknote/core/fonts/inter.css";
@@ -276,6 +275,54 @@ export function KbBlockNoteEditor({
       cellTextColor: true,
       headers: true,
     },
+    // Custom pasteHandler — подменяем сломанные image/file/video/audio
+    // блоки на текстовый placeholder ПЕРЕД вставкой. Без этого Cmd+V
+    // из Notion / Word / Confluence (HTML с `<img src="filename.jpg">`)
+    // создавал бы image-блоки с относительными URL'ами, которые браузер
+    // не может загрузить → пользователь видит broken-image иконку с alt-text.
+    //
+    // Real binary clipboard (screenshot, copy from Finder) BlockNote
+    // обрабатывает default-handler'ом через uploadFile — туда не лезем.
+    pasteHandler: ({ event, editor: ed, defaultPasteHandler }) => {
+      const data = event.clipboardData;
+      if (!data) return defaultPasteHandler();
+
+      // Real files в clipboard → default handler вызывает uploadFile.
+      const hasFiles =
+        data.types.includes("Files") && (data.files?.length ?? 0) > 0;
+      if (hasFiles) return defaultPasteHandler();
+
+      // HTML с broken-image (src не начинается с http/https/data:/blob:)
+      // — асинхронно парсим, чистим, вставляем. Async-path → событие
+      // надо preventDefault, default-handler отменяем (return true).
+      if (data.types.includes("text/html")) {
+        const html = data.getData("text/html");
+        const hasBrokenImg =
+          html && /<img\b[^>]*\bsrc\s*=\s*["'](?!https?:\/\/|data:|blob:)/i.test(html);
+        if (hasBrokenImg) {
+          event.preventDefault();
+          void (async () => {
+            try {
+              const parsed = (await ed.tryParseHTMLToBlocks(
+                html,
+              )) as unknown as KbBlock[];
+              const cleaned = rewriteBrokenMediaBlocks(
+                parsed,
+                "Изображение из вставки",
+              );
+              const cursor = ed.getTextCursorPosition();
+              ed.insertBlocks(cleaned as never, cursor.block, "after");
+            } catch {
+              // Если парсинг сломался — отдаём управление дефолту,
+              // чтобы хотя бы plain-text вставился.
+              defaultPasteHandler();
+            }
+          })();
+          return true;
+        }
+      }
+      return defaultPasteHandler();
+    },
   });
 
   // Subscribe to document changes; surface as { content, plainText }.
@@ -319,47 +366,23 @@ export function KbBlockNoteEditor({
         <SuggestionMenuController
           triggerCharacter="/"
           getItems={async (query) =>
-            // Cast to default-suggestion-item shape: callout/AI items
+            // Cast to default-suggestion-item shape: callout-айтемы
             // имеют ту же runtime-форму (title, subtext, group, icon,
             // onItemClick), но TS этого не видит из-за расширенной
             // schema'ы. SuggestionMenuController generic выводится
             // только из default-items.
+            //
+            // AI-команды НЕ дублируются в slash-меню — все AI-команды
+            // (включая блочные «Продолжить» / «Сгенерировать заголовок»)
+            // живут в FormattingToolbar.AI-кнопке (см. KbAiFormattingButton).
             filterSuggestionItems(
               [
                 ...getDefaultReactSlashMenuItems(editor),
                 ...getKbCalloutSlashItems(editor as never),
-                ...getKbAiSlashItems(editor as never, aiSlashEnabled),
               ] as ReturnType<typeof getDefaultReactSlashMenuItems>,
               query,
             )
           }
-          // Floating-UI placement с auto-flip + shift + size:
-          //   - placement bottom-start = дефолт BlockNote (под курсором)
-          //   - flip — если внизу нет места, переворачивает наверх
-          //   - shift — сдвигает по горизонтали чтобы влезло в viewport
-          //   - size — ограничивает высоту менюшки до доступного places
-          // Без явных middleware BlockNote использует дефолты, которые
-          // НЕ переключают placement когда курсор у нижнего края экрана —
-          // меню уезжает за viewport и не видно. См. github issues
-          // BlockNote по slash-menu placement.
-          floatingUIOptions={{
-            useFloatingOptions: {
-              placement: "bottom-start",
-              middleware: [
-                offset(8),
-                flip({ padding: 8 }),
-                shift({ padding: 8 }),
-                size({
-                  apply({ availableHeight, elements }) {
-                    Object.assign(elements.floating.style, {
-                      maxHeight: `${Math.max(120, availableHeight - 8)}px`,
-                    });
-                  },
-                  padding: 8,
-                }),
-              ],
-            },
-          }}
         />
       )}
       {aiSlashEnabled && (

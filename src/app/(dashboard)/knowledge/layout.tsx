@@ -6,6 +6,7 @@ import { listMyKbFavorites } from "@/lib/knowledge/favorites";
 import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbMobileTreeDrawer } from "@/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer";
+import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
 import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -133,6 +134,12 @@ export default async function KnowledgeLayout({
           {children}
         </main>
       </div>
+      {/* Sprint D Phase 7: глобальный inline-preview tooltip для
+          @-mention'ов и kb-links. Один экземпляр на весь layout —
+          listener делегированный, рендер один tooltip-popup.
+          Активируется hover'ом на `<a href="/knowledge/...">` где
+          угодно в KB-секции (страница, комменты, search-results). */}
+      <KbLinkPreview />
     </KbSearchProvider>
   );
 }

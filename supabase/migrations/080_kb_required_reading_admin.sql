@@ -171,15 +171,34 @@ begin
 
   return query
   with members as (
-    -- Все active-юзеры в venue'ах active account'а (= те, кого
-    -- видит @-mention). distinct, потому что юзер может работать
-    -- в нескольких venue'ах одного account'а.
+    -- Active-юзеры active account'а с эффективным правом kb.view_pages.
+    -- БЕЗ permission-фильтра пул раздут: юзеры без `kb.view_pages` всё
+    -- равно появлялись как «не прочитал», но они физически НЕ могут
+    -- подтвердить (RLS на `kb_page_reads.insert` требует kb.view_pages
+    -- — миграция 075). Тогда % прочитанного никогда не достигает 100,
+    -- даже если все реальные читатели confirmed. См. Codex #58 P2.
+    --
+    -- Логика permission-resolution скопирована из `has_permission()`
+    -- (миграция 022): system-role grant через role_permissions,
+    -- account-override через account_role_permissions (только для
+    -- system-ролей где r.account_id IS NULL). Эффективное право =
+    -- coalesce(arp.granted, rp.granted).
     select distinct p.id, p.first_name, p.last_name, p.avatar_url
     from public.profiles p
     join public.user_venue_roles uvr on uvr.user_id = p.id
     join public.venues v on v.id = uvr.venue_id
+    join public.role_permissions rp on rp.role_id = uvr.role_id
+    join public.permissions perm
+      on perm.id = rp.permission_id and perm.code = 'kb.view_pages'
+    join public.roles r on r.id = uvr.role_id
+    left join public.account_role_permissions arp
+      on r.account_id is null
+     and arp.account_id = v_account_id
+     and arp.role_id = rp.role_id
+     and arp.permission_id = rp.permission_id
     where v.account_id = v_account_id
       and uvr.status = 'active'
+      and coalesce(arp.granted, rp.granted) = true
   )
   select
     m.id            as user_id,

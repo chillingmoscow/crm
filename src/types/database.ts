@@ -2179,6 +2179,10 @@ export type Database = {
           last_name: string
         }[]
       }
+      kb_reorder_siblings: {
+        Args: { p_parent_id: string | null; p_ordered_ids: string[] }
+        Returns: number
+      }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
       kb_save_page: {
         Args: {

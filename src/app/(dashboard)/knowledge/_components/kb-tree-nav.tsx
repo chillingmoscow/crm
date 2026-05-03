@@ -1,16 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { ChevronRight, Plus, Trash2 } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { ChevronRight, GripVertical, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import {
+  DndContext,
+  type DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { createKbPage } from "@/lib/knowledge/pages";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { createKbPage, reorderKbSiblings } from "@/lib/knowledge/pages";
 import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
@@ -33,16 +56,22 @@ interface KbTreeNavProps {
  *  ─ chevron expand/collapse for nodes with children
  *  ─ active state when the URL slug matches
  *  ─ "+" button on hover to create a child page
+ *  ─ drag-handle (::: на hover) для reorder siblings внутри одного
+ *    родителя. Cross-parent move (перенос ветки) — следующая итерация
+ *    Sprint A. Для MVP — только sibling reorder через @dnd-kit/sortable.
  *
  * Expansion state lives in the parent so toggles use functional
  * setState (no stale closures). Ancestors of the active page are
- * auto-added to the expanded set whenever activeSlug changes — the
- * tree component does NOT remount on slug navigation (it lives in
- * the layout), so we can't rely on initial state alone.
+ * auto-added to the expanded set whenever activeSlug changes.
  */
 export function KbTreeNav({ nodes, favorites = [], canSeeTrash = false }: KbTreeNavProps) {
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
+
+  // Local mirror of `nodes` для оптимистичного reorder. При успехе
+  // server-data догонит. При ошибке — откатываем к props.nodes.
+  const [localNodes, setLocalNodes] = useState(nodes);
+  useEffect(() => setLocalNodes(nodes), [nodes]);
 
   const [expanded, setExpanded] = useState<Set<string>>(
     () => expandAncestors(nodes, activeSlug),
@@ -66,59 +95,113 @@ export function KbTreeNav({ nodes, favorites = [], canSeeTrash = false }: KbTree
     });
   }, [activeSlug, nodes]);
 
+  // Activation distance 5px — иначе случайные click'и улетают в drag.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const activeId = String(active.id);
+      const overId = String(over.id);
+
+      // Найдём родителей обоих item'ов в текущем tree.
+      const activeParent = findParentChain(localNodes, activeId);
+      const overParent = findParentChain(localNodes, overId);
+      if (!activeParent || !overParent) return;
+
+      // MVP — только sibling reorder. Cross-parent drop игнорируем
+      // (родителей разные → toast hint и выходим).
+      if (activeParent.parentId !== overParent.parentId) {
+        toast.info("Перенос между ветками — в следующей версии");
+        return;
+      }
+
+      const siblings = activeParent.siblings;
+      const oldIndex = siblings.findIndex((s) => s.id === activeId);
+      const newIndex = siblings.findIndex((s) => s.id === overId);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+      const reordered = arrayMove(siblings, oldIndex, newIndex);
+      // Optimistic.
+      setLocalNodes((prev) =>
+        applyReorderToParent(prev, activeParent.parentId, reordered),
+      );
+
+      // Атомарный re-numbering ВСЕХ siblings (а не только moved).
+      // Без этого после reload tree.ts (sort by (position, title))
+      // ловил tie на одинаковых position и резолвил алфавитно,
+      // теряя drag-order. См. миграцию 067.
+      const orderedIds = reordered.map((n) => n.id);
+      void reorderKbSiblings(activeParent.parentId, orderedIds).then(
+        ({ error }) => {
+          if (error) {
+            toast.error(`Не удалось переместить: ${error}`);
+            setLocalNodes(nodes); // revert
+          }
+        },
+      );
+    },
+    [localNodes, nodes],
+  );
+
   return (
-    // Full-height column: search + tree сверху, scrollable; Корзина —
-    // pinned футером с такой же высотой, как у профиль-чипа в дашборд-
-    // сайдбаре (см. AppSidebar SidebarFooter), чтобы border-top
-    // совпадал по горизонтали.
-    <div className="flex flex-col h-full">
-      <div className="flex flex-col gap-2 p-3 pb-2">
-        <div className="px-1 pt-1 shrink-0">
-          <KbSearchTrigger />
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <div className="flex flex-col h-full">
+        <div className="flex flex-col gap-2 p-3 pb-2">
+          <div className="px-1 pt-1 shrink-0">
+            <KbSearchTrigger />
+          </div>
+          {favorites.length > 0 && (
+            <KbFavoritesSection favorites={favorites} activeSlug={activeSlug} />
+          )}
+          <KbTreeHeader />
         </div>
-        {favorites.length > 0 && <KbFavoritesSection favorites={favorites} activeSlug={activeSlug} />}
-        <KbTreeHeader />
-      </div>
-      <div className="flex-1 overflow-y-auto px-3">
-        {nodes.length === 0 ? (
-          <KbTreeEmpty />
-        ) : (
-          // gap-0.5 совпадает с дашборд-сайдбаром (см. AppSidebar →
-          // sub-menu контейнер `flex flex-col gap-0.5`).
-          <ul className="flex flex-col gap-0.5" role="tree">
-            {nodes.map((node) => (
-              <KbTreeItem
-                key={node.id}
-                node={node}
-                depth={0}
-                expanded={expanded}
-                setExpanded={setExpanded}
-                activeSlug={activeSlug}
-              />
-            ))}
-          </ul>
+        <div className="flex-1 overflow-y-auto px-3">
+          {localNodes.length === 0 ? (
+            <KbTreeEmpty />
+          ) : (
+            <SortableContext
+              items={localNodes.map((n) => n.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {/* gap-0.5 совпадает с дашборд-сайдбаром (см. AppSidebar →
+                  sub-menu контейнер `flex flex-col gap-0.5`). */}
+              <ul className="flex flex-col gap-0.5" role="tree">
+                {localNodes.map((node) => (
+                  <KbTreeItem
+                    key={node.id}
+                    node={node}
+                    depth={0}
+                    expanded={expanded}
+                    setExpanded={setExpanded}
+                    activeSlug={activeSlug}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+          )}
+        </div>
+
+        {canSeeTrash && (
+          <div className="mt-auto h-16 px-2 border-t border-sidebar-border flex items-center">
+            <Link
+              href="/knowledge/trash"
+              className="flex w-full items-center gap-2 rounded-lg p-2
+                         text-sm text-muted-foreground
+                         hover:bg-sidebar-accent hover:text-foreground transition-colors"
+            >
+              <Trash2 className="size-4 shrink-0" />
+              Корзина
+            </Link>
+          </div>
         )}
       </div>
-
-      {canSeeTrash && (
-        // Footer mirror профиль-чипа дашборд-сайдбара: точная фиксация
-        // высоты h-16 (64px) + одинаковый border-t. SidebarFooter в
-        // дашборде = «p-2 + button[h-48px]» → 64px суммарно. Здесь
-        // явно пиним эту высоту, чтобы линия border-t совпадала с
-        // линией над профиль-чипом по y.
-        <div className="mt-auto h-16 px-2 border-t border-sidebar-border flex items-center">
-          <Link
-            href="/knowledge/trash"
-            className="flex w-full items-center gap-2 rounded-lg p-2
-                       text-sm text-muted-foreground
-                       hover:bg-sidebar-accent hover:text-foreground transition-colors"
-          >
-            <Trash2 className="size-4 shrink-0" />
-            Корзина
-          </Link>
-        </div>
-      )}
-    </div>
+    </DndContext>
   );
 }
 
@@ -220,6 +303,26 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
   const hasChildren = node.children.length > 0;
   const [creating, setCreating] = useState(false);
 
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: node.id });
+
+  const style = useMemo(
+    () => ({
+      transform: CSS.Transform.toString(transform),
+      transition,
+      // Чтобы dragging-row отображался поверх соседей и не мерцал.
+      zIndex: isDragging ? 10 : undefined,
+      opacity: isDragging ? 0.6 : undefined,
+    }),
+    [transform, transition, isDragging],
+  );
+
   // Functional setState — bullet-proof against stale closures during
   // parallel toggles or quick re-renders after server actions.
   const toggle = useCallback(
@@ -246,7 +349,6 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
       toast.error(error ?? "Не удалось создать подстраницу");
       return;
     }
-    // Auto-expand the parent so the new child is visible after navigation.
     setExpanded((prev) => {
       if (prev.has(node.id)) return prev;
       const next = new Set(prev);
@@ -258,25 +360,38 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
 
   return (
     <li
+      ref={setNodeRef}
+      style={style}
       role="treeitem"
       aria-expanded={hasChildren ? isOpen : undefined}
       aria-selected={isActive}
     >
       <div
         className={cn(
-          // Размеры под дашборд-sidebar sub-item (см. AppSidebar):
-          // px-2.5 py-1.5 text-[13px] font-medium gap-2 rounded-md.
           "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
           "text-sidebar-foreground hover:bg-sidebar-accent",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
         )}
-        // depth-сдвиг только для вложенности; на depth=0 левый край
-        // совпадает с «Страницы»/Корзина (px-3 родителя + px-2.5 здесь).
         style={{ paddingLeft: `${depth * 14 + 10}px` }}
       >
+        {/* Drag-handle ::: появляется на hover, занимает узкую колонку
+            слева от иконки. attributes/listeners — это и есть
+            «активатор» drag для всего li (через setNodeRef выше). */}
+        <button
+          type="button"
+          aria-label="Перетащить страницу"
+          {...attributes}
+          {...listeners}
+          className="flex size-4 shrink-0 items-center justify-center
+                     opacity-0 group-hover:opacity-60 hover:!opacity-100
+                     cursor-grab active:cursor-grabbing
+                     text-muted-foreground"
+        >
+          <GripVertical className="size-3.5" />
+        </button>
+
         {/* Иконка/chevron — занимают одну и ту же позицию.
-            Notion-style: иконка по умолчанию, chevron появляется
-            на hover родительского блока (если есть дети). */}
+            Notion-style: иконка по умолчанию, chevron на hover. */}
         <span className="relative size-5 shrink-0 inline-flex items-center justify-center">
           <KbPageIcon
             icon={node.icon}
@@ -315,8 +430,7 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
           {node.title || "Без названия"}
         </Link>
 
-        {/* Hover-only "+" to add a child. size-6 чтобы совпадать с
-            header-plus (Button size="icon" → size-6). */}
+        {/* Hover-only "+" to add a child. */}
         <IconTooltip label="Добавить подстраницу" side="right">
           <button
             type="button"
@@ -333,18 +447,23 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
       </div>
 
       {hasChildren && isOpen && (
-        <ul className="flex flex-col gap-0.5" role="group">
-          {node.children.map((child) => (
-            <KbTreeItem
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              expanded={expanded}
-              setExpanded={setExpanded}
-              activeSlug={activeSlug}
-            />
-          ))}
-        </ul>
+        <SortableContext
+          items={node.children.map((c) => c.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <ul className="flex flex-col gap-0.5" role="group">
+            {node.children.map((child) => (
+              <KbTreeItem
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                expanded={expanded}
+                setExpanded={setExpanded}
+                activeSlug={activeSlug}
+              />
+            ))}
+          </ul>
+        </SortableContext>
       )}
     </li>
   );
@@ -368,4 +487,56 @@ function expandAncestors(nodes: KbTreeNode[], activeSlug?: string): Set<string> 
   };
   find(nodes, []);
   return acc;
+}
+
+// ─── DnD helpers ──────────────────────────────────────────────────────
+
+type ParentChain = {
+  /** ID родителя, или null для root-уровня. */
+  parentId: string | null;
+  /** Массив siblings (children этого родителя), куда входит target. */
+  siblings: KbTreeNode[];
+};
+
+/** Найти родителя узла + массив siblings. Для root-уровня parentId = null,
+ *  siblings = top-level nodes. */
+function findParentChain(
+  nodes: KbTreeNode[],
+  targetId: string,
+): ParentChain | null {
+  // Сначала проверим root-уровень.
+  if (nodes.some((n) => n.id === targetId)) {
+    return { parentId: null, siblings: nodes };
+  }
+  // Иначе рекурсивно ищем в детях.
+  const walk = (list: KbTreeNode[]): ParentChain | null => {
+    for (const n of list) {
+      if (n.children.some((c) => c.id === targetId)) {
+        return { parentId: n.id, siblings: n.children };
+      }
+      if (n.children.length > 0) {
+        const found = walk(n.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return walk(nodes);
+}
+
+/** Возвращает новое дерево, в котором у узла с id === parentId children
+ *  заменены на reordered. Для parentId === null заменяется top-level. */
+function applyReorderToParent(
+  nodes: KbTreeNode[],
+  parentId: string | null,
+  reordered: KbTreeNode[],
+): KbTreeNode[] {
+  if (parentId === null) return reordered;
+  return nodes.map((n) => {
+    if (n.id === parentId) return { ...n, children: reordered };
+    if (n.children.length > 0) {
+      return { ...n, children: applyReorderToParent(n.children, parentId, reordered) };
+    }
+    return n;
+  });
 }

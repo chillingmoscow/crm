@@ -79,9 +79,18 @@ export function KbTemplatePicker({
       parent_id: parentId,
     });
     setPending(null);
-    if (error || !slug) {
+    // Hard fail: страница вообще не создалась (нет slug). Только тогда
+    // не уходим со списка — иначе дубль-клик создал бы дубль-страницу.
+    if (!slug) {
       toast.error(`Не удалось создать из шаблона: ${error ?? "?"}`);
       return;
+    }
+    // Partial fail: slug есть, но что-то не доехало (например, контент).
+    // Страница уже в БД — редиректим, юзер увидит её и сможет либо
+    // дописать вручную, либо удалить. Без этой ветки клик-retry создал
+    // бы дубль (см. Codex #45 P1).
+    if (error) {
+      toast.warning(`Создана с предупреждением: ${error}`);
     }
     setOpen(false);
     router.push(`/knowledge/${slug}`);

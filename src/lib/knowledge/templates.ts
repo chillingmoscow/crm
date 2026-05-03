@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
-import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { generateKbSlug } from "@/lib/knowledge/slug";
+import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import type { KbBlock } from "@/types/knowledge";
 
 export interface KbTemplateRow {
@@ -130,9 +130,25 @@ export async function deleteKbTemplate(
   return { error: null };
 }
 
-/** Создаёт новую страницу из шаблона. Доступно всем у кого
- *  `kb.create_pages` (RLS на kb_pages это enforces). Возвращает
- *  slug для редиректа на новую страницу. */
+/** Создаёт новую страницу из шаблона.
+ *
+ *  Гейтинг: `kb.create_pages` (RLS на kb_pages.insert это enforces).
+ *  **edit-permissions НЕ требуются** — content + plain_text пишутся
+ *  прямо в INSERT, без двухшагового `kb_save_page` RPC. Это два
+ *  бенефита:
+ *    1. Роли с create_pages, но без edit_own_pages (теоретически
+ *       возможны при кастомных account_role_permissions overrides),
+ *       могут пользоваться шаблонами без partial-creation сценария.
+ *       См. Codex #45 P2.
+ *    2. Один транзакционный шаг → нет состояния «страница создана,
+ *       но контент не залился» (Codex #45 P1 не возникает).
+ *
+ *  Trade-off: первая версия в `kb_page_versions` НЕ создаётся
+ *  (стартует с первого реального edit'а), и `kb_page_links` не
+ *  заполняется до первого save'а — backlinks из новой страницы на
+ *  другие появятся только после edit. Для шаблона приемлемо: версия
+ *  «страница как из шаблона» эквивалентна tmpl.content и доступна
+ *  через сам шаблон. */
 export async function applyKbTemplate(input: {
   template_id: string;
   parent_id: string | null;
@@ -176,12 +192,15 @@ export async function applyKbTemplate(input: {
 
   const title = input.title?.trim() || tmpl.name || "Без названия";
   const content = (tmpl.content as unknown as KbBlock[]) ?? [];
-  const { pageIds: linkTargets } = extractBacklinks(content);
+  // plain_text для FTS считаем здесь же (server-safe: pure walker
+  // по jsonb-блокам, без DOM-зависимостей). Без этого новая
+  // страница не находилась бы поиском до первого edit'а.
+  const plainText = blocksToPlainText(content);
 
-  // Пытаемся вставить с retry на 23505 (slug collision).
+  // Atomic: один INSERT с content + plain_text. RLS на kb_pages
+  // .insert уже проверила kb.create_pages.
   for (let attempt = 0; attempt < 5; attempt++) {
     const slug = generateKbSlug();
-    // Step 1: insert строки страницы.
     const { data: page, error: insErr } = await supabase
       .from("kb_pages")
       .insert({
@@ -192,8 +211,8 @@ export async function applyKbTemplate(input: {
         slug,
         icon: tmpl.icon ?? null,
         icon_color: (tmpl.icon_color as string | null) ?? null,
-        content: [],
-        plain_text: "",
+        content: content as unknown as never,
+        plain_text: plainText,
         created_by: user.id,
       })
       .select("id, slug")
@@ -201,29 +220,6 @@ export async function applyKbTemplate(input: {
     if (insErr) {
       if (insErr.code === "23505") continue;
       return { id: null, slug: null, error: insErr.message };
-    }
-
-    // Step 2: заливаем content через kb_save_page RPC — тот же
-    // путь что у обычного save'а (версионирование, link extraction).
-    // plain_text не заполняем — пересчитается на первом edit'е через
-    // BlockNote'овский blocksToPlainText.
-    const { error: saveErr } = await supabase.rpc("kb_save_page", {
-      p_id: page.id,
-      p_title: title,
-      p_icon: tmpl.icon ?? null,
-      p_icon_color: (tmpl.icon_color as string | null) ?? null,
-      p_content: content as unknown as never,
-      p_plain_text: "",
-      p_link_targets: linkTargets,
-    } as never);
-    if (saveErr) {
-      // Страница уже создана как пустая — возвращаем slug, чтобы
-      // юзер хотя бы увидел её и мог редактировать.
-      return {
-        id: page.id,
-        slug: page.slug,
-        error: `создана пустой: ${saveErr.message}`,
-      };
     }
 
     revalidatePath("/knowledge");

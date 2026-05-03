@@ -14,6 +14,11 @@ interface KbRequiredReadingBannerProps {
   required: boolean;
   /** Когда current user подтвердил прочтение (null если ещё нет). */
   initialReadAt: string | null;
+  /** Примерное время чтения в минутах (Sprint D §2.9). Показываем
+   *  рядом с описанием баннера — снижает порог входа («это всего на
+   *  3 минуты»). null/undefined = не показываем (например в short-
+   *  read-confirmed badge). */
+  readingMinutes?: number | null;
 }
 
 /**
@@ -34,6 +39,7 @@ export function KbRequiredReadingBanner({
   pageId,
   required,
   initialReadAt,
+  readingMinutes = null,
 }: KbRequiredReadingBannerProps) {
   const router = useRouter();
   const [readAt, setReadAt] = useState<string | null>(initialReadAt);
@@ -75,8 +81,16 @@ export function KbRequiredReadingBanner({
         <AlertTriangle className="size-4" />
       </span>
       <div className="flex-1 flex flex-col gap-1 min-w-0">
-        <div className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
+        <div className="flex items-center gap-2 text-sm font-semibold text-yellow-900 dark:text-yellow-100">
           Требуется прочтение
+          {readingMinutes !== null && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+              title={`Примерное время чтения: ${readingMinutes} мин`}
+            >
+              ≈ {readingMinutes} мин
+            </span>
+          )}
         </div>
         <div className="text-[13px] leading-snug text-yellow-800 dark:text-yellow-200">
           Эта страница помечена как обязательная к прочтению. После того как

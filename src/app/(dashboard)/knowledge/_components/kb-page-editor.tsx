@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { Clock } from "lucide-react";
 import { toast } from "sonner";
 
 import { saveKbPage } from "@/lib/knowledge/pages";
@@ -105,6 +106,12 @@ interface KbPageEditorProps {
    *  Server-rendered, чтобы не тянуть auth.getUser() с клиента. */
   accountId?: string | null;
   userId?: string | null;
+  /** Примерное время чтения в минутах (Sprint D Phase 2 §2.9).
+   *  Server-rendered из `kb_pages.plain_text` через
+   *  `estimateReadingMinutes`. Рендерим как badge под title-строкой —
+   *  Notion-style. null = не показываем (например, в version-history
+   *  preview, где badge только засоряет). */
+  readingMinutes?: number | null;
 }
 
 /**
@@ -135,6 +142,7 @@ export function KbPageEditor({
   canComment = false,
   accountId = null,
   userId = null,
+  readingMinutes = null,
 }: KbPageEditorProps) {
   // Sprint D / Phase 1: page-view analytics. Запускаем как только
   // userId известен (= юзер залогинен и в active account). Hook сам
@@ -389,6 +397,21 @@ export function KbPageEditor({
                      text-[40px] font-extrabold tracking-tight leading-[1.15]
                      placeholder:text-muted-foreground/50"
         />
+        {/* Reading-time pill — Notion-style под title. Не показываем
+            если страница пустая (estimateReadingMinutes вернул бы 1
+            на пустом тексте, что вводит в заблуждение — лучше скрыть).
+            Caller проверяет: readingMinutes=null → секцию скипнуть. */}
+        {readingMinutes !== null && readingMinutes !== undefined && (
+          <div className="px-2 -ml-2">
+            <span
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+              title={`Примерное время чтения: ${readingMinutes} мин`}
+            >
+              <Clock className="size-3.5" />
+              <span className="tabular-nums">≈ {readingMinutes} мин чтения</span>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Editor surface */}

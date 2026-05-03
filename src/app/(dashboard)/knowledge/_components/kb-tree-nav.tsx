@@ -14,26 +14,22 @@ import { ChevronRight, GripVertical, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
+  DragOverlay,
   type DragEndEvent,
-  KeyboardSensor,
+  type DragOverEvent,
+  type DragStartEvent,
   PointerSensor,
-  closestCenter,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import {
-  SortableContext,
-  arrayMove,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { createKbPage, reorderKbSiblings } from "@/lib/knowledge/pages";
+import { createKbPage, moveKbPageInTree } from "@/lib/knowledge/pages";
 import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
 import { KbTemplatePicker } from "@/app/(dashboard)/knowledge/_components/kb-template-picker";
@@ -63,14 +59,46 @@ interface KbTreeNavProps {
   canManageTemplates?: boolean;
 }
 
+/** Drop-zone тип, кодируемый в droppable id'шниках:
+ *    `pos:<id>:before`  — sibling-before target'а
+ *    `pos:<id>:child`   — стать ребёнком target'а
+ *    `pos:<id>:after`   — sibling-after target'а
+ *    `root`             — стать root-страницей */
+type DropZone = "before" | "child" | "after";
+
+interface ParsedDropTarget {
+  kind: "item" | "root";
+  /** id целевой страницы — есть только для kind="item" */
+  targetId?: string;
+  /** Для kind="item" */
+  zone?: DropZone;
+}
+
+function parseDropId(id: string | number | null | undefined): ParsedDropTarget | null {
+  if (id == null) return null;
+  const s = String(id);
+  if (s === "root") return { kind: "root" };
+  const m = /^pos:([^:]+):(before|child|after)$/.exec(s);
+  if (!m) return null;
+  return { kind: "item", targetId: m[1], zone: m[2] as DropZone };
+}
+
+function makeDropId(targetId: string, zone: DropZone): string {
+  return `pos:${targetId}:${zone}`;
+}
+
 /**
  * KB tree navigator. Notion-style nested page list with:
  *  ─ chevron expand/collapse for nodes with children
  *  ─ active state when the URL slug matches
  *  ─ "+" button on hover to create a child page
- *  ─ drag-handle (::: на hover) для reorder siblings внутри одного
- *    родителя. Cross-parent move (перенос ветки) — следующая итерация
- *    Sprint A. Для MVP — только sibling reorder через @dnd-kit/sortable.
+ *  ─ drag-handle (::: на hover) для full-tree reorder. Поддерживается:
+ *      • drop в TOP-edge соседнего item'а → sibling-before
+ *      • drop в BOTTOM-edge → sibling-after
+ *      • drop в CENTER row'а → стать его child'ом (cross-parent move)
+ *      • drop в root-area под деревом → стать root-страницей
+ *    Cycle prevention: dragged item + его потомки исключаются из
+ *    droppable. Атомарный move через kb_move_page RPC (миграция 073).
  *
  * Expansion state lives in the parent so toggles use functional
  * setState (no stale closures). Ancestors of the active page are
@@ -117,59 +145,161 @@ export function KbTreeNav({
   // Activation distance 5px — иначе случайные click'и улетают в drag.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
+
+  // ID того, что сейчас тащим (для DragOverlay + filter'а droppables —
+  // dragged item + его потомки выпадают из targets для cycle prevention).
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  // Hovered drop target — для визуального feedback'а (insertion-line /
+  // child-highlight). Парсится из event.over.id в onDragOver.
+  const [overTarget, setOverTarget] = useState<ParsedDropTarget | null>(null);
+
+  // Множество id, которые нельзя droppать на dragged item (он сам +
+  // все его потомки — иначе цикл иерархии).
+  const blockedTargets = useMemo(() => {
+    if (!activeDragId) return null;
+    const node = findNodeById(localNodes, activeDragId);
+    if (!node) return new Set<string>([activeDragId]);
+    return collectDescendantIds(node, true);
+  }, [activeDragId, localNodes]);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    const id = String(event.active.id);
+    setActiveDragId(id);
+    setOverTarget(null);
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    setOverTarget(parseDropId(event.over?.id));
+  }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
+      const target = parseDropId(event.over?.id);
+      const draggedId = String(event.active.id);
+      setActiveDragId(null);
+      setOverTarget(null);
 
-      const activeId = String(active.id);
-      const overId = String(over.id);
-
-      // Найдём родителей обоих item'ов в текущем tree.
-      const activeParent = findParentChain(localNodes, activeId);
-      const overParent = findParentChain(localNodes, overId);
-      if (!activeParent || !overParent) return;
-
-      // MVP — только sibling reorder. Cross-parent drop игнорируем
-      // (родителей разные → toast hint и выходим).
-      if (activeParent.parentId !== overParent.parentId) {
-        toast.info("Перенос между ветками — в следующей версии");
+      if (!target) return;
+      // Cycle protection (двойная — также enforced в RPC).
+      if (target.kind === "item" && blockedTargets?.has(target.targetId!)) {
+        toast.info("Нельзя поместить страницу внутрь её же потомка");
         return;
       }
 
-      const siblings = activeParent.siblings;
-      const oldIndex = siblings.findIndex((s) => s.id === activeId);
-      const newIndex = siblings.findIndex((s) => s.id === overId);
-      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+      // Compute target parent + new sibling order локально (для
+      // optimistic update и для argument'а RPC).
+      const draggedNode = findNodeById(localNodes, draggedId);
+      if (!draggedNode) return;
 
-      const reordered = arrayMove(siblings, oldIndex, newIndex);
-      // Optimistic.
-      setLocalNodes((prev) =>
-        applyReorderToParent(prev, activeParent.parentId, reordered),
-      );
+      let newParentId: string | null;
+      let referenceTargetId: string | null = null;
+      let zone: DropZone | "last" = "last";
 
-      // Атомарный re-numbering ВСЕХ siblings (а не только moved).
-      // Без этого после reload tree.ts (sort by (position, title))
-      // ловил tie на одинаковых position и резолвил алфавитно,
-      // теряя drag-order. См. миграцию 067.
-      const orderedIds = reordered.map((n) => n.id);
-      void reorderKbSiblings(activeParent.parentId, orderedIds).then(
-        ({ error }) => {
-          if (error) {
-            toast.error(`Не удалось переместить: ${error}`);
-            setLocalNodes(nodes); // revert
-          }
-        },
+      if (target.kind === "root") {
+        newParentId = null;
+      } else {
+        const targetId = target.targetId!;
+        zone = target.zone!;
+        if (zone === "child") {
+          newParentId = targetId;
+        } else {
+          // before/after — sibling того же родителя что у target'а.
+          const parentChain = findParentChain(localNodes, targetId);
+          if (!parentChain) return;
+          newParentId = parentChain.parentId;
+          referenceTargetId = targetId;
+        }
+      }
+
+      // Текущие siblings под новым parent'ом (БЕЗ dragged-узла, мы
+      // его как раз вставляем). Для root - top-level узлы.
+      const existingSiblings = (
+        newParentId === null
+          ? localNodes
+          : (findNodeById(localNodes, newParentId)?.children ?? [])
+      ).filter((n) => n.id !== draggedId);
+
+      // Insert position в existingSiblings.
+      let insertIdx: number;
+      if (target.kind === "root" || zone === "child" || zone === "last") {
+        insertIdx = existingSiblings.length;
+      } else {
+        const refIdx = existingSiblings.findIndex((s) => s.id === referenceTargetId);
+        if (refIdx === -1) {
+          insertIdx = existingSiblings.length;
+        } else {
+          insertIdx = zone === "before" ? refIdx : refIdx + 1;
+        }
+      }
+
+      const newSiblings = [
+        ...existingSiblings.slice(0, insertIdx),
+        draggedNode,
+        ...existingSiblings.slice(insertIdx),
+      ];
+
+      // No-op detection: если parent тот же и порядок не изменился —
+      // не дёргаем server.
+      const oldChain = findParentChain(localNodes, draggedId);
+      if (oldChain && oldChain.parentId === newParentId) {
+        const oldOrder = oldChain.siblings.map((s) => s.id).join(",");
+        const newOrder = newSiblings.map((s) => s.id).join(",");
+        if (oldOrder === newOrder) return;
+      }
+
+      // Optimistic apply: remove draggedNode from old parent, set
+      // newSiblings под newParentId. Затем — auto-expand нового
+      // parent'а если был свёрнут (UX: после drop'а юзер видит, что
+      // страница теперь внутри).
+      const next = applyMoveToTree(
+        localNodes,
+        draggedId,
+        newParentId,
+        newSiblings,
       );
+      setLocalNodes(next);
+      if (newParentId !== null) {
+        setExpanded((prev) => {
+          if (prev.has(newParentId!)) return prev;
+          const nextSet = new Set(prev);
+          nextSet.add(newParentId!);
+          return nextSet;
+        });
+      }
+
+      const newSiblingOrder = newSiblings.map((s) => s.id);
+      void moveKbPageInTree({
+        id: draggedId,
+        newParentId,
+        newSiblingOrder,
+      }).then(({ error }) => {
+        if (error) {
+          toast.error(error);
+          setLocalNodes(nodes); // revert на server-truth
+        }
+      });
     },
-    [localNodes, nodes],
+    [blockedTargets, localNodes, nodes, setExpanded],
   );
 
+  // Найти dragged-node для DragOverlay (показывать floating-preview).
+  const draggedNode = activeDragId
+    ? findNodeById(localNodes, activeDragId)
+    : null;
+
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={pointerWithin}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => {
+        setActiveDragId(null);
+        setOverTarget(null);
+      }}
+    >
       <div className="flex flex-col h-full">
         <div className="flex flex-col gap-2 p-3 pb-2">
           <div className="px-1 pt-1 shrink-0">
@@ -188,25 +318,32 @@ export function KbTreeNav({
           {localNodes.length === 0 ? (
             <KbTreeEmpty />
           ) : (
-            <SortableContext
-              items={localNodes.map((n) => n.id)}
-              strategy={verticalListSortingStrategy}
-            >
-              {/* gap-0.5 совпадает с дашборд-сайдбаром (см. AppSidebar →
-                  sub-menu контейнер `flex flex-col gap-0.5`). */}
-              <ul className="flex flex-col gap-0.5" role="tree">
-                {localNodes.map((node) => (
-                  <KbTreeItem
-                    key={node.id}
-                    node={node}
-                    depth={0}
-                    expanded={expanded}
-                    setExpanded={setExpanded}
-                    activeSlug={activeSlug}
-                  />
-                ))}
-              </ul>
-            </SortableContext>
+            <ul className="flex flex-col gap-0.5" role="tree">
+              {localNodes.map((node) => (
+                <KbTreeItem
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  expanded={expanded}
+                  setExpanded={setExpanded}
+                  activeSlug={activeSlug}
+                  blockedTargets={blockedTargets}
+                  overTarget={overTarget}
+                  isDraggingAny={activeDragId !== null}
+                />
+              ))}
+              {/* Root drop-zone — невидимый strip, активируется только
+                  во время drag и только если dragged-page НЕ уже на
+                  root-уровне (иначе drop был бы no-op). */}
+              {activeDragId && (
+                <KbRootDropZone
+                  active={overTarget?.kind === "root"}
+                  enabled={
+                    findParentChain(localNodes, activeDragId)?.parentId !== null
+                  }
+                />
+              )}
+            </ul>
           )}
         </div>
 
@@ -224,7 +361,60 @@ export function KbTreeNav({
           </div>
         )}
       </div>
+
+      {/* Floating cursor-preview под мышкой во время drag'а. */}
+      <DragOverlay dropAnimation={null}>
+        {draggedNode ? (
+          <div
+            className="rounded-md bg-sidebar shadow-md border border-sidebar-border
+                       px-2.5 py-1.5 text-[13px] font-medium text-sidebar-foreground
+                       flex items-center gap-2 max-w-[260px]"
+          >
+            <KbPageIcon
+              icon={draggedNode.icon}
+              color={draggedNode.icon_color}
+              size={14}
+            />
+            <span className="truncate">
+              {draggedNode.title || "Без названия"}
+            </span>
+          </div>
+        ) : null}
+      </DragOverlay>
     </DndContext>
+  );
+}
+
+/** Невидимый strip под последним top-level item'ом — droppable с
+ *  id="root". Превращается в подсвеченную линию когда юзер тащит
+ *  туда курсор. Скрыт, если drag не активен или dragged-page и так
+ *  на root-уровне (drop был бы no-op). */
+function KbRootDropZone({
+  active,
+  enabled,
+}: {
+  active: boolean;
+  enabled: boolean;
+}) {
+  const { setNodeRef } = useDroppable({ id: "root", disabled: !enabled });
+  if (!enabled) return null;
+  return (
+    <li ref={setNodeRef} className="list-none" aria-label="Перенести в root">
+      <div
+        className={cn(
+          "h-10 mx-2 mt-2 rounded-md border-2 border-dashed transition-colors",
+          active
+            ? "border-brand bg-brand/10"
+            : "border-transparent hover:border-sidebar-border",
+        )}
+      >
+        {active && (
+          <div className="h-full flex items-center justify-center text-[11px] font-medium text-brand">
+            Перенести на верхний уровень
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -334,34 +524,65 @@ interface KbTreeItemProps {
   expanded: Set<string>;
   setExpanded: Dispatch<SetStateAction<Set<string>>>;
   activeSlug?: string;
+  /** Set of page-id, которые сейчас «нельзя droppать» (= dragged
+   *  page + её потомки). Disable'ит droppables на этих элементах
+   *  чтобы избежать cycle и no-op self-drop'а. */
+  blockedTargets: Set<string> | null;
+  /** Текущий hovered drop-target (для visual feedback'а). */
+  overTarget: ParsedDropTarget | null;
+  /** Идёт ли drag прямо сейчас (для условной активации drop-zones). */
+  isDraggingAny: boolean;
 }
 
-function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeItemProps) {
+function KbTreeItem({
+  node,
+  depth,
+  expanded,
+  setExpanded,
+  activeSlug,
+  blockedTargets,
+  overTarget,
+  isDraggingAny,
+}: KbTreeItemProps) {
   const router = useRouter();
   const isActive = activeSlug === node.slug;
   const isOpen = expanded.has(node.id);
   const hasChildren = node.children.length > 0;
   const [creating, setCreating] = useState(false);
+  const isBlocked = blockedTargets?.has(node.id) ?? false;
 
+  // Draggable handle (грип). Источник drag'а — кнопка ::: , как
+  // раньше. setActivatorNodeRef нужен чтобы dnd-kit использовал её
+  // для расчёта drag-event'а, а не весь li.
   const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
+    attributes: dragAttributes,
+    listeners: dragListeners,
+    setNodeRef: setDragRef,
+    setActivatorNodeRef,
     isDragging,
-  } = useSortable({ id: node.id });
+  } = useDraggable({ id: node.id });
 
-  const style = useMemo(
-    () => ({
-      transform: CSS.Transform.toString(transform),
-      transition,
-      // Чтобы dragging-row отображался поверх соседей и не мерцал.
-      zIndex: isDragging ? 10 : undefined,
-      opacity: isDragging ? 0.6 : undefined,
-    }),
-    [transform, transition, isDragging],
-  );
+  // 3 droppable strip'а: before/child/after. Disabled если этот item —
+  // dragged-сам (или его потомок). Активны только во время drag'а.
+  const beforeDrop = useDroppable({
+    id: makeDropId(node.id, "before"),
+    disabled: isBlocked || !isDraggingAny,
+  });
+  const childDrop = useDroppable({
+    id: makeDropId(node.id, "child"),
+    disabled: isBlocked || !isDraggingAny,
+  });
+  const afterDrop = useDroppable({
+    id: makeDropId(node.id, "after"),
+    disabled: isBlocked || !isDraggingAny,
+  });
+
+  // Visual: какая zone сейчас hovered (для рендера insertion-line /
+  // child-highlight). Сравниваем по target.id и zone.
+  const hoveredZone =
+    overTarget?.kind === "item" && overTarget.targetId === node.id
+      ? overTarget.zone
+      : null;
 
   // Functional setState — bullet-proof against stale closures during
   // parallel toggles or quick re-renders after server actions.
@@ -400,28 +621,53 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
 
   return (
     <li
-      ref={setNodeRef}
-      style={style}
+      ref={setDragRef}
+      // dragAttributes first, explicit a11y роли переопределяют
+      // role="button" от dnd-kit draggable.
+      {...dragAttributes}
       role="treeitem"
       aria-expanded={hasChildren ? isOpen : undefined}
       aria-selected={isActive}
+      style={{ opacity: isDragging ? 0.4 : undefined }}
+      className="relative"
     >
+      {/* Top-edge drop-strip: insertion-line при hover. 6px достаточно
+          чтобы попасть курсором не попадая в основную row. */}
       <div
+        ref={beforeDrop.setNodeRef}
+        className={cn(
+          "h-1.5 -mb-1.5 rounded relative z-10",
+          hoveredZone === "before" && "bg-transparent",
+        )}
+      >
+        {hoveredZone === "before" && (
+          <div
+            className="absolute left-0 right-2 top-1/2 -translate-y-1/2 h-[2px] bg-brand rounded"
+            style={{ marginLeft: `${depth * 14 + 10}px` }}
+          />
+        )}
+      </div>
+
+      {/* Center drop-zone: при hover подсвечиваем row → стать child'ом */}
+      <div
+        ref={childDrop.setNodeRef}
         className={cn(
           "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
           "text-sidebar-foreground hover:bg-sidebar-accent",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+          hoveredZone === "child" &&
+            "bg-brand/15 ring-1 ring-brand/40 ring-inset",
         )}
         style={{ paddingLeft: `${depth * 14 + 10}px` }}
       >
-        {/* Drag-handle ::: появляется на hover, занимает узкую колонку
-            слева от иконки. attributes/listeners — это и есть
-            «активатор» drag для всего li (через setNodeRef выше). */}
+        {/* Drag-handle ::: появляется на hover. Activator-ref +
+            listeners — это «триггер» drag'а для всего li (drag-ref на
+            li через setDragRef выше). */}
         <button
+          ref={setActivatorNodeRef}
           type="button"
           aria-label="Перетащить страницу"
-          {...attributes}
-          {...listeners}
+          {...dragListeners}
           className="flex size-4 shrink-0 items-center justify-center
                      opacity-0 group-hover:opacity-60 hover:!opacity-100
                      cursor-grab active:cursor-grabbing
@@ -486,24 +732,38 @@ function KbTreeItem({ node, depth, expanded, setExpanded, activeSlug }: KbTreeIt
         </IconTooltip>
       </div>
 
+      {/* Bottom-edge drop-strip — insertion-line под item'ом */}
+      <div
+        ref={afterDrop.setNodeRef}
+        className={cn(
+          "h-1.5 -mt-1.5 rounded relative z-10",
+          hoveredZone === "after" && "bg-transparent",
+        )}
+      >
+        {hoveredZone === "after" && (
+          <div
+            className="absolute left-0 right-2 top-1/2 -translate-y-1/2 h-[2px] bg-brand rounded"
+            style={{ marginLeft: `${depth * 14 + 10}px` }}
+          />
+        )}
+      </div>
+
       {hasChildren && isOpen && (
-        <SortableContext
-          items={node.children.map((c) => c.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <ul className="flex flex-col gap-0.5" role="group">
-            {node.children.map((child) => (
-              <KbTreeItem
-                key={child.id}
-                node={child}
-                depth={depth + 1}
-                expanded={expanded}
-                setExpanded={setExpanded}
-                activeSlug={activeSlug}
-              />
-            ))}
-          </ul>
-        </SortableContext>
+        <ul className="flex flex-col gap-0.5" role="group">
+          {node.children.map((child) => (
+            <KbTreeItem
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              expanded={expanded}
+              setExpanded={setExpanded}
+              activeSlug={activeSlug}
+              blockedTargets={blockedTargets}
+              overTarget={overTarget}
+              isDraggingAny={isDraggingAny}
+            />
+          ))}
+        </ul>
       )}
     </li>
   );
@@ -579,4 +839,61 @@ function applyReorderToParent(
     }
     return n;
   });
+}
+
+/** Найти узел в tree по id (DFS). null если не найден. */
+function findNodeById(nodes: KbTreeNode[], id: string): KbTreeNode | null {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    if (n.children.length > 0) {
+      const found = findNodeById(n.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/** Все id этого узла + рекурсивно всех его потомков. С `includeSelf=true`
+ *  включает сам узел (обычно нужно для blockedTargets — drop на себя
+ *  тоже бессмысленен). */
+function collectDescendantIds(node: KbTreeNode, includeSelf: boolean): Set<string> {
+  const acc = new Set<string>();
+  if (includeSelf) acc.add(node.id);
+  const walk = (list: KbTreeNode[]) => {
+    for (const n of list) {
+      acc.add(n.id);
+      if (n.children.length > 0) walk(n.children);
+    }
+  };
+  walk(node.children);
+  return acc;
+}
+
+/** Optimistic apply move: убрать draggedId из старого parent'а и
+ *  поставить newSiblings (включая draggedNode на новой позиции) под
+ *  newParentId.
+ *
+ *  Возвращает новое immutable-дерево. */
+function applyMoveToTree(
+  nodes: KbTreeNode[],
+  draggedId: string,
+  newParentId: string | null,
+  newSiblings: KbTreeNode[],
+): KbTreeNode[] {
+  // Step 1: removed dragged-node из старого места (везде кроме нового
+  // parent'а — там он будет переустановлен через newSiblings).
+  const removed = removeNodeById(nodes, draggedId);
+  // Step 2: заменить children у newParentId на newSiblings (или
+  // top-level если newParentId === null).
+  return applyReorderToParent(removed, newParentId, newSiblings);
+}
+
+function removeNodeById(nodes: KbTreeNode[], id: string): KbTreeNode[] {
+  return nodes
+    .filter((n) => n.id !== id)
+    .map((n) =>
+      n.children.length > 0
+        ? { ...n, children: removeNodeById(n.children, id) }
+        : n,
+    );
 }

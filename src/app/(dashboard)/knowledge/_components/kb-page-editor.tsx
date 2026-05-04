@@ -39,6 +39,13 @@ const KbSideMenuController = dynamic(
     ),
   { ssr: false, loading: () => null },
 );
+const KbThreadGutterIndicators = dynamic(
+  () =>
+    import("@/components/knowledge/blocks/kb-thread-gutter").then(
+      (m) => m.KbThreadGutterIndicators,
+    ),
+  { ssr: false, loading: () => null },
+);
 import type { BlockNoteEditor as BlockNoteEditorType } from "@blocknote/core";
 import type { KbBlock } from "@/types/knowledge";
 
@@ -415,15 +422,20 @@ export function KbPageEditor({
   // помогает избежать лишних reconciliation-циклов в children-цепочке
   // BlockNoteView (mention/side-menu controller'ы). editor reference
   // стабилен внутри useCreateBlockNote.
+  // commentsBundle is used by gutter indicator only — render conditionally
+  // so the hooks inside (useExtension(CommentsExtension)) don't fire on
+  // pages where comments aren't loaded.
+  const hasComments = commentsBundle !== null;
   const renderExtras = useCallback(
     (editor: BlockNoteEditorType) => (
       <>
         <KbEditorRegistrar editor={editor} />
         <KbMentionMenu editor={editor} />
         <KbSideMenuController />
+        {hasComments && <KbThreadGutterIndicators />}
       </>
     ),
-    [],
+    [hasComments],
   );
 
   return (

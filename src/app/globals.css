@@ -277,28 +277,10 @@ input:-webkit-autofill {
   background-color: hsl(38 92% 50% / 0.32);
 }
 
-/* Gutter-индикатор: иконка-облачко в правой колонке на уровне блока,
-   у которого есть thread-mark. Пользователь видит сразу, в каких
-   абзацах есть комментарии, не наводя на текст.
-   `:has()` поддержан во всех актуальных браузерах (с 2023). */
-.bn-sheerly .bn-block-content:has(.bn-thread-mark:not([data-orphan="true"])) {
-  position: relative;
-}
-.bn-sheerly
-  .bn-block-content:has(.bn-thread-mark:not([data-orphan="true"]))::after {
-  content: "";
-  position: absolute;
-  right: -28px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 16px;
-  height: 16px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a16207' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/></svg>");
-  background-size: contain;
-  background-repeat: no-repeat;
-  pointer-events: none;
-  opacity: 0.7;
-}
+/* Gutter-индикатор рендерится через React (KbThreadGutterIndicators
+   в kb-thread-gutter.tsx) — пиктограмма + счётчик + клик для открытия
+   треда. CSS-only :has()-вариант умел только показывать иконку без
+   счётчика и без обработки клика. */
 
 /* Воздух между блоками — Notion-like reading rhythm. BlockNote-default
    .bn-block-content имеет padding:3px 0 + line-height:1.5; этого мало

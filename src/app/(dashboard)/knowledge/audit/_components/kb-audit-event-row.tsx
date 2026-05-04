@@ -5,6 +5,7 @@ import {
   ArrowRightFromLine,
   Trash2,
   RotateCcw,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -96,6 +97,23 @@ const SPECS: Record<string, EventSpec> = {
         из корзины
       </>
     ),
+  },
+  "kb_page.required_reading_toggled": {
+    icon: BookOpen,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildLabel: (e) => {
+      const newValue = Boolean(e.details.new_value);
+      return (
+        <>
+          {newValue
+            ? "пометил(а) страницу как обязательную к прочтению"
+            : "снял(а) флаг обязательного прочтения со страницы"}{" "}
+          <strong className="font-medium">
+            «{(e.details.title as string) || "Без названия"}»
+          </strong>
+        </>
+      );
+    },
   },
 };
 

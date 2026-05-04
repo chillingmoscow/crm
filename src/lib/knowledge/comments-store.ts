@@ -1088,23 +1088,44 @@ export class SupabaseThreadStore extends ThreadStore {
 }
 
 /** Resolve user info для CommentsExtension `resolveUsers` callback.
- *  BlockNote передаёт массив userIds — возвращаем User[] с avatar. */
+ *  BlockNote передаёт массив userIds — возвращаем User[] с avatar.
+ *
+ *  Использует account-scoped path через `kb_list_account_members` RPC
+ *  (тот же что mention-picker). Profiles RLS venue-scoped — в multi-
+ *  venue аккаунтах прямой fetch profiles не находил юзеров вне
+ *  active venue caller'а (resolver треда из другого venue, etc) →
+ *  ThreadsSidebar падал «User X resolved thread Y, but their data
+ *  could not be found».
+ *
+ *  Placeholder для missing IDs: BN ожидает entry для КАЖДОГО userId
+ *  в request'е (внутренняя `useUsers` Map-lookup). Если юзер удалён
+ *  / вне аккаунта / RPC не находит — возвращаем placeholder
+ *  («Удалённый пользователь») вместо null'а, чтобы BN не крашился. */
 export async function resolveKbUsers(userIds: string[]): Promise<User[]> {
   if (userIds.length === 0) return [];
   const supabase = createClient();
-  const { data } = await supabase
-    .from("profiles")
-    .select("id, first_name, last_name, avatar_url")
-    .in("id", userIds);
-  if (!data) return [];
-  return data.map((p) => {
+  const { data: members } = await supabase.rpc(
+    "kb_list_account_members",
+    { p_query: "", p_limit: 200 },
+  );
+  const found = new Map<string, User>();
+  for (const m of members ?? []) {
     const fullName =
-      [p.first_name, p.last_name].filter(Boolean).join(" ").trim() ||
+      [m.first_name, m.last_name].filter(Boolean).join(" ").trim() ||
       "Без имени";
-    return {
-      id: p.id,
+    found.set(m.id, {
+      id: m.id,
       username: fullName,
-      avatarUrl: p.avatar_url ?? "",
-    };
-  });
+      avatarUrl: m.avatar_url ?? "",
+    });
+  }
+  // Возвращаем entry для каждого requested ID — found или placeholder.
+  return userIds.map(
+    (id): User =>
+      found.get(id) ?? {
+        id,
+        username: "Удалённый пользователь",
+        avatarUrl: "",
+      },
+  );
 }

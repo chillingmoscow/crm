@@ -43,6 +43,7 @@ import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-pag
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
 import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-composer";
 import { KbFloatingThread } from "@/components/knowledge/blocks/kb-floating-thread";
+import { KbThreadsSidebar } from "@/components/knowledge/blocks/kb-threads-sidebar";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 
 import "@blocknote/core/fonts/inter.css";
@@ -709,6 +710,9 @@ export function KbBlockNoteEditor({
               />
             )}
           />
+          {/* Notion-style «Show All Comments» pane. Видимость управляется
+              kb-threads-sidebar-store — toggle живёт в page-header. */}
+          <KbThreadsSidebar />
         </>
       )}
       {renderExtras?.(editor as unknown as BlockNoteEditor)}

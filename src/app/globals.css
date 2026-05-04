@@ -228,6 +228,25 @@ input:-webkit-autofill {
   transition: background-color 120ms ease;
 }
 
+/* @-mention chip'ы (kbPageMention / kbStaffMention) — атомарные inline-
+   content'ы (см. kb-page-mention.tsx, kb-staff-mention.tsx). Рендерятся
+   как <a>, и shadcn-вариант BN выставляет `.bn-editor a { color: revert }`
+   (в node_modules/@blocknote/shadcn/dist/style.css), что возвращает
+   браузерный default purple/blue. Перебиваем — chip должен выглядеть
+   как обычный bold текст с иконкой. Hover — лёгкий accent-bg. */
+.bn-sheerly .bn-editor a[data-kb-page-mention],
+.bn-sheerly .bn-editor a[data-kb-staff-mention] {
+  color: hsl(var(--foreground));
+  text-decoration: none !important;
+  -webkit-text-decoration: none !important;
+  font-weight: 600;
+}
+.bn-sheerly .bn-editor a[data-kb-page-mention]:hover,
+.bn-sheerly .bn-editor a[data-kb-staff-mention]:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
 /* Воздух между блоками — Notion-like reading rhythm. BlockNote-default
    .bn-block-content имеет padding:3px 0 + line-height:1.5; этого мало
    для типографики Sheerly (paragraph base = 16px, ~24px line). Бьём

@@ -18,8 +18,11 @@ import { useKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-s
  * Состояние enabled/disabled берётся из ProseMirror history-плагина
  * (`undoDepth(state) > 0`) — пересчитывается на каждый `editor.onChange`.
  *
- * Не рендерит ничего, если страница read-only (`canEdit=false`) или
- * если editor ещё не зарегистрирован в store (mount race).
+ * На locked-странице (`canEdit=false`) кнопки остаются ВИДНЫ, но
+ * disabled — иначе после блокировки toolbar «прыгает» (две кнопки
+ * пропадают), а юзеру всё ещё полезно видеть, что undo/redo концептуально
+ * существуют. Render возвращает null только пока editor не зарегистрирован
+ * в store (mount race до маунта BN-инстанса).
  */
 export function KbUndoRedoButtons({ canEdit }: { canEdit: boolean }) {
   const editor = useKbEditor();
@@ -34,34 +37,38 @@ export function KbUndoRedoButtons({ canEdit }: { canEdit: boolean }) {
     return unsubscribe;
   }, [editor]);
 
-  if (!canEdit || !editor) return null;
+  if (!editor) return null;
 
   // `_tiptapEditor.state` — ProseMirror EditorState. `undoDepth`/
   // `redoDepth` — из прямой dep `prosemirror-history` (BlockNote'овский
   // HistoryExtension работает поверх неё же).
   const state = editor._tiptapEditor.state;
-  const canUndo = undoDepth(state) > 0;
-  const canRedo = redoDepth(state) > 0;
+  const undoEnabled = canEdit && undoDepth(state) > 0;
+  const redoEnabled = canEdit && redoDepth(state) > 0;
 
   return (
     <>
-      <IconTooltip label="Отменить (Ctrl+Z)">
+      <IconTooltip
+        label={canEdit ? "Отменить (Ctrl+Z)" : "Отмена недоступна на заблокированной странице"}
+      >
         <button
           type="button"
           aria-label="Отменить"
           onClick={() => editor.undo()}
-          disabled={!canUndo}
+          disabled={!undoEnabled}
           className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:text-muted-foreground"
         >
           <Undo2 className="w-[18px] h-[18px]" />
         </button>
       </IconTooltip>
-      <IconTooltip label="Вернуть (Ctrl+Shift+Z)">
+      <IconTooltip
+        label={canEdit ? "Вернуть (Ctrl+Shift+Z)" : "Повтор недоступен на заблокированной странице"}
+      >
         <button
           type="button"
           aria-label="Вернуть"
           onClick={() => editor.redo()}
-          disabled={!canRedo}
+          disabled={!redoEnabled}
           className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-background disabled:hover:text-muted-foreground"
         >
           <Redo2 className="w-[18px] h-[18px]" />

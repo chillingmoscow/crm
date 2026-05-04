@@ -175,8 +175,8 @@ function inlineToMd(items: InlineRun[]): string {
           typeof it.props?.fullName === "string" && it.props.fullName.length > 0
             ? it.props.fullName
             : "Без имени";
-        if (!userId) return escapeMd(`@${fullName}`);
-        return `[@${escapeMd(fullName)}](/people/staff/${userId})`;
+        if (!userId) return escapeMd(fullName);
+        return `[${escapeMd(fullName)}](/people/staff/${userId})`;
       }
       // прочие custom inline — fallback на inner text.
       if (Array.isArray(it.content)) return inlineToMd(it.content);

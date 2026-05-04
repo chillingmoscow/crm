@@ -48,7 +48,7 @@ export const kbStaffMentionInlineContent = createReactInlineContentSpec(
               {initials}
             </span>
           )}
-          <span>@{props.fullName || "Без имени"}</span>
+          <span>{props.fullName || "Без имени"}</span>
         </a>
       );
     },
@@ -59,7 +59,7 @@ export const kbStaffMentionInlineContent = createReactInlineContentSpec(
       };
       return (
         <a href={`/people/staff/${props.userId}`}>
-          @{props.fullName || "Без имени"}
+          {props.fullName || "Без имени"}
         </a>
       );
     },

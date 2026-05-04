@@ -147,3 +147,39 @@ export async function archiveAllRead(): Promise<void> {
     .eq("read", true)
     .is("archived_at", null);
 }
+
+export interface NotificationActor {
+  id: string;
+  full_name: string;
+  avatar_url: string | null;
+}
+
+/** Batch-fetch профилей actor'ов для bell-render'а. Принимает
+ *  список user_id'ов из `notifications.actor_user_id` → возвращает
+ *  массив { id, full_name, avatar_url }.
+ *
+ *  Использует account-scoped path через `kb_list_account_members`
+ *  RPC — не зависит от profiles RLS, работает в multi-venue
+ *  аккаунтах (тот же подход, что mention-picker / staff-preview). */
+export async function getNotificationActors(
+  userIds: string[],
+): Promise<NotificationActor[]> {
+  if (userIds.length === 0) return [];
+  const supabase = await createClient();
+  const { data: members, error } = await supabase.rpc(
+    "kb_list_account_members",
+    { p_query: "", p_limit: 200 },
+  );
+  if (error) return [];
+  const set = new Set(userIds);
+  return (members ?? [])
+    .filter((m) => set.has(m.id))
+    .map((m) => {
+      const parts = [m.first_name, m.last_name].filter(Boolean) as string[];
+      return {
+        id: m.id,
+        full_name: parts.length > 0 ? parts.join(" ") : "Без имени",
+        avatar_url: m.avatar_url,
+      };
+    });
+}

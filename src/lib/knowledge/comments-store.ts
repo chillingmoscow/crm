@@ -919,9 +919,30 @@ export class SupabaseThreadStore extends ThreadStore {
       // Drift detected — persist new position.
       await this.persistThreadPosition(threadId, pos.from, pos.to);
     }
+
+    // Threads с metadata.position, но БЕЗ соответствующего mark'а в
+    // doc'е — их marked-text был удалён. Без этой ветки stale position
+    // оставался в metadata, и applyAllMarksToEditor на reload'е
+    // re-apply'ил их к ЧУЖОМУ тексту по тем же координатам. Codex #80 P1.
+    for (const thread of this.threadCache.values()) {
+      const meta = thread.metadata as { position?: { from?: number; to?: number } } | null;
+      const prev = meta?.position;
+      if (!prev) continue;
+      if (positions.has(thread.id)) continue; // Mark есть — позиция уже закаптурена выше.
+      if (thread.deletedAt || thread.resolved) continue; // Этим thread'ам всё равно не applyMarks.
+      // Mark исчез — clear position. Тред становится orphan'ом, popover
+      // открывать только из ThreadsSidebar или per-thread навигации.
+      await this.clearThreadPosition(thread.id);
+    }
   }
 
-  /** Records `metadata.position={from, to}` в БД + локальном кэше. */
+  /** Records `metadata.position={from, to}` в БД + локальном кэше.
+   *  КРИТИЧНО: DB update FIRST, mutation cache ТОЛЬКО на success.
+   *  Если порядок обратный, transient DB-fail оставляет cache с
+   *  «новой» позицией, и captureCommentMarkPositions на следующем
+   *  save'е сравнивает свежий drift с этой fake-prev → пропускает
+   *  retry → позиция не доезжает до БД и теряется на reload'е.
+   *  Codex #80 P2. */
   private async persistThreadPosition(
     threadId: string,
     from: number,
@@ -932,10 +953,6 @@ export class SupabaseThreadStore extends ThreadStore {
       ...((thread?.metadata as Record<string, unknown>) ?? {}),
       position: { from, to },
     };
-    if (thread) {
-      thread.metadata = newMetadata;
-      this.notify();
-    }
     const { error } = await this.supabase
       .from("kb_threads")
       .update({ metadata: newMetadata as never, updated_at: new Date().toISOString() })
@@ -945,7 +962,36 @@ export class SupabaseThreadStore extends ThreadStore {
         threadId,
         error: error.message,
       });
+      return; // Cache untouched — next save retries.
     }
+    if (thread) {
+      thread.metadata = newMetadata;
+      this.notify();
+    }
+  }
+
+  /** Очищает `metadata.position` (и в БД, и в кэше). Используется когда
+   *  marked text был удалён — stale position не должна re-apply'иться. */
+  private async clearThreadPosition(threadId: string): Promise<void> {
+    const thread = this.threadCache.get(threadId);
+    if (!thread) return;
+    const cur = (thread.metadata as Record<string, unknown> | null) ?? {};
+    if (!("position" in cur)) return;
+    const { position: _omit, ...rest } = cur;
+    void _omit;
+    const { error } = await this.supabase
+      .from("kb_threads")
+      .update({ metadata: rest as never, updated_at: new Date().toISOString() })
+      .eq("id", threadId);
+    if (error) {
+      console.warn("[kb-comments] clear position failed", {
+        threadId,
+        error: error.message,
+      });
+      return;
+    }
+    thread.metadata = rest;
+    this.notify();
   }
 }
 

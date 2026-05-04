@@ -42,6 +42,7 @@ import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
 import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-composer";
+import { KbFloatingThread } from "@/components/knowledge/blocks/kb-floating-thread";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 
 import "@blocknote/core/fonts/inter.css";
@@ -611,7 +612,14 @@ export function KbBlockNoteEditor({
               />
             )}
           />
-          <FloatingThreadController />
+          <FloatingThreadController
+            floatingThread={(props) => (
+              <KbFloatingThread
+                thread={props.thread}
+                selected={props.selected ?? false}
+              />
+            )}
+          />
         </>
       )}
       {renderExtras?.(editor as unknown as BlockNoteEditor)}

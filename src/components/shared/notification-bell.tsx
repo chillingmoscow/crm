@@ -72,6 +72,14 @@ export function NotificationBell() {
 
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  /** In-flight guard для load-more: scroll-handler срабатывает на
+   *  каждый scroll-event пока юзер у нижнего края → без guard'а
+   *  multiple overlapping fetch'и с одним cursor'ом → дубликаты
+   *  rows в state'е (Codex #91 P1). */
+  const loadingMoreRef = useRef<{ active: boolean; archived: boolean }>({
+    active: false,
+    archived: false,
+  });
 
   const supabase = useMemo(() => createClient(), []);
 
@@ -112,18 +120,27 @@ export function NotificationBell() {
 
   const loadMore = useCallback(
     async (s: Scope) => {
+      // In-flight guard (Codex #91 P1): один scroll-event может
+      // стрельнуть несколько раз пока fetch pending'ует. Без этого
+      // флага получаем дубль pages в state'е.
+      if (loadingMoreRef.current[s]) return;
       const list = s === "active" ? activeNotifs : archiveNotifs;
       if (list.length === 0) return;
       const oldest = list[list.length - 1];
-      const data = await getNotifications({
-        scope: s,
-        before: oldest.created_at,
-        limit: PAGE_SIZE,
-      });
-      if (s === "active") setActiveNotifs((prev) => [...prev, ...data]);
-      else setArchiveNotifs((prev) => [...prev, ...data]);
-      setHasMore((prev) => ({ ...prev, [s]: data.length === PAGE_SIZE }));
-      void ensureActorsForList(data);
+      loadingMoreRef.current[s] = true;
+      try {
+        const data = await getNotifications({
+          scope: s,
+          before: oldest.created_at,
+          limit: PAGE_SIZE,
+        });
+        if (s === "active") setActiveNotifs((prev) => [...prev, ...data]);
+        else setArchiveNotifs((prev) => [...prev, ...data]);
+        setHasMore((prev) => ({ ...prev, [s]: data.length === PAGE_SIZE }));
+        void ensureActorsForList(data);
+      } finally {
+        loadingMoreRef.current[s] = false;
+      }
     },
     [activeNotifs, archiveNotifs, ensureActorsForList],
   );
@@ -238,15 +255,30 @@ export function NotificationBell() {
   };
 
   const handleArchiveOne = (id: string) => {
-    setActiveNotifs((prev) => prev.filter((n) => n.id !== id));
+    // Move row из active state'а в archive state — оптимистично + без
+    // refetch'а. Codex #91 P2 fix: refetch'ить limit:1 из archived'а
+    // некорректно — sorted by created_at, в первой странице обычно
+    // самые свежие архивы, наша только что архивированная (но
+    // старая по дате) могла туда не попасть → silent disappearance.
+    let moved: Notification | null = null;
+    setActiveNotifs((prev) => {
+      const found = prev.find((n) => n.id === id);
+      if (found) {
+        moved = { ...found, archived_at: new Date().toISOString() };
+      }
+      return prev.filter((n) => n.id !== id);
+    });
+    if (moved && loaded.archived) {
+      // Insert в archive state'е по created_at-desc позиции.
+      setArchiveNotifs((prev) => {
+        const next = [...prev, moved!].sort((a, b) =>
+          a.created_at < b.created_at ? 1 : -1,
+        );
+        return next;
+      });
+    }
     startTransition(async () => {
       await archiveNotification(id);
-      // Если archive scope уже загружен — добавить в его state'е.
-      if (loaded.archived) {
-        const data = await getNotifications({ scope: "archived", limit: 1 });
-        const just = data.find((n) => n.id === id);
-        if (just) setArchiveNotifs((prev) => [just, ...prev]);
-      }
     });
   };
 

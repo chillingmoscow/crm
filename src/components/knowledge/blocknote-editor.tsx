@@ -360,15 +360,21 @@ export function KbBlockNoteEditor({
 
   // FloatingComposer guard: BlockNote's CommentsExtension автоматически
   // сбрасывает pendingComment при ЛЮБОМ selection-change в outer
-  // editor'е (см. node_modules/@blocknote/core/dist/comments.js:165 —
-  // `t.onSelectionChange(() => { pendingComment && setState(pendingComment:false) })`).
-  // Когда юзер кликает в FloatingComposer'е (внутренний редактор для
-  // ввода текста коммента), фокус уходит из outer ProseMirror'а →
-  // outer фиксирует «selection changed» → pendingComment=false →
-  // popover моментально закрывается. Мы перехватываем это: подписка
-  // на extension-state'у; если pendingComment упал в false ПОКА
-  // активный элемент находится внутри `.bn-thread` (composer card) —
-  // восстанавливаем pending через startPendingComment().
+  // editor'е (node_modules/@blocknote/core/dist/comments.js:165 —
+  // `t.onSelectionChange(() => { pendingComment && setState(false) })`).
+  // Когда юзер кликает или autoFocus'ится в FloatingComposer'е (внутренний
+  // редактор для ввода коммента), focus уходит из outer ProseMirror'а →
+  // outer фиксирует selection-change → pendingComment=false → composer
+  // unmount'ится прежде чем юзер что-то ввёл.
+  //
+  // Workaround: monkey-patch'им `store.setState` extension'а так, чтобы
+  // он БЛОКИРОВАЛ переход pendingComment true→false когда:
+  //   • focus сейчас внутри `.bn-thread` (composer card),
+  //   • И не было recent click'а на кнопку внутри composer'а (Save),
+  //   • И не было recent Escape (закрытие через клавиатуру).
+  // Закрытие через Save / Escape / click outside — пропускаем как и
+  // раньше. Spurious blur'ы — в null. Никакого flicker'а / re-mount'а
+  // FloatingComposer'а: clear не доходит до listeners в принципе.
   useEffect(() => {
     if (!commentsBundle) return;
     const ext = (editor as unknown as {
@@ -378,38 +384,75 @@ export function KbBlockNoteEditor({
     const extWithStore = ext as {
       store?: {
         state: { pendingComment: boolean };
-        subscribe: (fn: () => void) => () => void;
+        setState: (
+          updater:
+            | Partial<{ pendingComment: boolean }>
+            | ((s: { pendingComment: boolean }) => Partial<{
+                pendingComment: boolean;
+              }>),
+        ) => void;
       };
-      startPendingComment?: () => void;
     };
     const store = extWithStore.store;
-    if (!store || !extWithStore.startPendingComment) return;
-    let lastPending = store.state.pendingComment;
-    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = store.subscribe(() => {
-      const wasOpen = lastPending;
-      const nowOpen = store.state.pendingComment;
-      lastPending = nowOpen;
-      if (!wasOpen || nowOpen) return;
-      // Pending только что обнулилось. Откладываем проверку на 0ms
-      // чтобы pending focus-shifts успели settle: если фокус ушёл в
-      // composer-карточку (`.bn-thread` / `.bn-comment-editor`) — это
-      // false-trigger blur'а outer-редактора, восстанавливаем pending.
-      // Иначе юзер реально кликнул в outer doc → оставляем закрытым.
-      if (restoreTimer) clearTimeout(restoreTimer);
-      restoreTimer = setTimeout(() => {
-        restoreTimer = null;
-        if (store.state.pendingComment) return;
-        const active = document.activeElement;
-        const insideComposer = !!active?.closest?.(
-          ".bn-thread, .bn-comment-editor",
-        );
-        if (insideComposer) extWithStore.startPendingComment?.();
-      }, 0);
-    });
+    if (!store) return;
+
+    let lastButtonClick = 0;
+    let lastEscape = 0;
+    const markButtonClick = (e: Event) => {
+      const target = e.target as Element | null;
+      if (
+        target?.closest?.('.bn-thread button, .bn-thread [role="button"]')
+      ) {
+        lastButtonClick = Date.now();
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") lastEscape = Date.now();
+    };
+    document.addEventListener("pointerdown", markButtonClick, true);
+    document.addEventListener("click", markButtonClick, true);
+    document.addEventListener("keydown", onKeyDown, true);
+
+    // Сохраняем оригинальный setState и подменяем. tanstack-store
+    // экспортирует setState как arrow-function field на инстансе,
+    // т.е. свойство object'а — присваивание возможно.
+    const originalSetState = store.setState;
+    const isCloseAllowed = () => {
+      const recentBtn = Date.now() - lastButtonClick < 500;
+      const recentEsc = Date.now() - lastEscape < 500;
+      if (recentBtn || recentEsc) return true;
+      const active = document.activeElement;
+      const insideComposer = !!active?.closest?.(
+        ".bn-thread, .bn-comment-editor",
+      );
+      // Фокус внутри composer'а + нет recent intentional action =
+      // spurious blur. Блокируем.
+      return !insideComposer;
+    };
+    store.setState = ((updater: unknown) => {
+      const prev = store.state;
+      const next =
+        typeof updater === "function"
+          ? (
+              updater as (s: { pendingComment: boolean }) => Partial<{
+                pendingComment: boolean;
+              }>
+            )(prev)
+          : (updater as Partial<{ pendingComment: boolean }>);
+      const closing =
+        next?.pendingComment === false && prev.pendingComment === true;
+      if (closing && !isCloseAllowed()) return;
+      originalSetState.call(
+        store,
+        updater as Parameters<typeof originalSetState>[0],
+      );
+    }) as typeof store.setState;
+
     return () => {
-      unsubscribe();
-      if (restoreTimer) clearTimeout(restoreTimer);
+      store.setState = originalSetState;
+      document.removeEventListener("pointerdown", markButtonClick, true);
+      document.removeEventListener("click", markButtonClick, true);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [editor, commentsBundle]);
 

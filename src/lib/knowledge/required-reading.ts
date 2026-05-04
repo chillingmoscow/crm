@@ -7,45 +7,78 @@ import { createClient } from "@/lib/supabase/server";
 export interface KbReadStatus {
   /** Помечена ли страница как обязательная к прочтению. */
   required: boolean;
-  /** Когда current user подтвердил прочтение (null если не подтверждал). */
+  /** Когда current user подтвердил прочтение ТЕКУЩЕЙ версии (null если
+   *  не подтверждал ИЛИ прочёл устаревшую версию). */
   myReadAt: string | null;
+  /** True если юзер раньше подтверждал ЭТУ страницу, но на старой
+   *  версии — а сейчас нужно прочитать заново. UI рендерит другой
+   *  банер «Страница обновлена с момента вашего прочтения». */
+  needsReread: boolean;
 }
 
 /** Read-status текущей страницы для current user. Используется
  *  на /knowledge/[slug] чтобы решить, рендерить ли баннер
- *  «Требуется прочтение» или badge «✓ Прочитано». */
+ *  «Требуется прочтение» / «Обновлено, нужно перечитать» / badge
+ *  «✓ Прочитано».
+ *
+ *  Под versioning (миграция 097): myReadAt отражает прочтение
+ *  ТЕКУЩЕЙ версии (read_version >= current version_number). Если
+ *  юзер прочёл старую версию — myReadAt=null, needsReread=true. */
 export async function getKbPageReadStatus(
   pageId: string,
 ): Promise<KbReadStatus> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { required: false, myReadAt: null };
+  if (!user) return { required: false, myReadAt: null, needsReread: false };
 
-  // Параллельно: required-flag со страницы + моя запись о прочтении.
-  const [{ data: page }, { data: myRead }] = await Promise.all([
-    supabase
-      .from("kb_pages")
-      .select("required_reading")
-      .eq("id", pageId)
-      .maybeSingle(),
-    supabase
-      .from("kb_page_reads")
-      .select("read_at")
-      .eq("page_id", pageId)
-      .eq("user_id", user.id)
-      .maybeSingle(),
-  ]);
+  // Параллельно: required-flag, current version, моя latest-read row.
+  const [{ data: page }, { data: latestVersion }, { data: myRead }] =
+    await Promise.all([
+      supabase
+        .from("kb_pages")
+        .select("required_reading")
+        .eq("id", pageId)
+        .maybeSingle(),
+      supabase
+        .from("kb_page_versions")
+        .select("version_number")
+        .eq("page_id", pageId)
+        .order("version_number", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("kb_page_reads")
+        .select("read_at, read_version")
+        .eq("page_id", pageId)
+        .eq("user_id", user.id)
+        .order("read_version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+  const currentVersion = latestVersion?.version_number ?? 1;
+  const myReadVersion = (myRead?.read_version as number | null) ?? null;
+  const myReadAt = (myRead?.read_at as string | null) ?? null;
+
+  // Юзер actually прочитал текущую версию только если его read_version
+  // >= current. Иначе — needsReread (старая версия) или ещё не читал.
+  const isReadCurrent =
+    myReadVersion !== null && myReadVersion >= currentVersion;
+  const needsReread =
+    myReadVersion !== null && myReadVersion < currentVersion;
 
   return {
     required: Boolean(page?.required_reading),
-    myReadAt: (myRead?.read_at as string | null) ?? null,
+    myReadAt: isReadCurrent ? myReadAt : null,
+    needsReread,
   };
 }
 
-/** User подтверждает прочтение страницы. INSERT в kb_page_reads.
- *  Идемпотентно — повторный mark тихо игнорируется (PK conflict 23505).
- *  RLS enforces user_id = auth.uid() + kb.view_pages + page живёт в
- *  active account. */
+/** User подтверждает прочтение страницы. INSERT в kb_page_reads с
+ *  read_version = current latest version_number из kb_page_versions.
+ *  Если строка для (user, page, version) уже есть — идемпотентно ОК
+ *  (PK conflict 23505). RLS enforces user_id = auth.uid() +
+ *  kb.view_pages + page живёт в active account. */
 export async function markKbPageAsRead(
   pageId: string,
 ): Promise<{ error: string | null }> {
@@ -56,12 +89,26 @@ export async function markKbPageAsRead(
   const { data: accountId } = await supabase.rpc("get_active_account_id");
   if (!accountId) return { error: "Нет активного account" };
 
+  // Резолвим current version. Если ни одной версии ещё нет (страница
+  // без save'ов — теоретически возможно для свежесозданной) — fallback
+  // на 1, тот же default что в migration 097.
+  const { data: latestVersion } = await supabase
+    .from("kb_page_versions")
+    .select("version_number")
+    .eq("page_id", pageId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const readVersion =
+    (latestVersion?.version_number as number | null) ?? 1;
+
   const { error } = await supabase.from("kb_page_reads").insert({
     user_id: user.id,
     page_id: pageId,
     account_id: accountId as unknown as string,
+    read_version: readVersion,
   });
-  // 23505 = unique_violation: already-marked, идемпотентно ОК.
+  // 23505 = unique_violation: already-marked этой версии, идемпотентно.
   if (error && error.code !== "23505") {
     return { error: error.message };
   }

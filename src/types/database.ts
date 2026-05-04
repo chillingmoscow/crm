@@ -1463,18 +1463,21 @@ export type Database = {
           account_id: string
           page_id: string
           read_at: string
+          read_version: number
           user_id: string
         }
         Insert: {
           account_id: string
           page_id: string
           read_at?: string
+          read_version?: number
           user_id: string
         }
         Update: {
           account_id?: string
           page_id?: string
           read_at?: string
+          read_version?: number
           user_id?: string
         }
         Relationships: [

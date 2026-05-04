@@ -53,6 +53,7 @@ export function KbFloatingComposer({
   };
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const sendButtonRef = useRef<HTMLButtonElement | null>(null);
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -95,21 +96,27 @@ export function KbFloatingComposer({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Cmd/Ctrl+Enter → submit (Notion-style).
+      // Cmd/Ctrl+Enter → submit. КРИТИЧНО синтетически кликнуть по
+      // send-button'у, а не звать handleSubmit напрямую: guard в
+      // blocknote-editor.tsx маркирует intentional-close флаг при
+      // pointerdown/click внутри `.bn-thread button`. Если позвать
+      // submit без этого, stopPendingComment блокируется guard'ом,
+      // composer остаётся открытым с submitting=true. См. Codex #73 P1.
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        void handleSubmit();
+        sendButtonRef.current?.click();
         return;
       }
-      // Escape → close без save. Не stopPropagation — пусть outer-
-      // FloatingComposer-controller тоже услышит, если что.
+      // Escape — guard сам слушает keydown в capture phase и
+      // устанавливает intentionalClose, поэтому stopPendingComment
+      // отработает корректно.
       if (e.key === "Escape") {
         e.preventDefault();
         ext.stopPendingComment();
         (editor as unknown as { focus: () => void }).focus();
       }
     },
-    [handleSubmit, ext, editor],
+    [ext, editor],
   );
 
   const trimmed = text.trim();
@@ -158,6 +165,7 @@ export function KbFloatingComposer({
           />
           <div className="flex items-center justify-end gap-1">
             <button
+              ref={sendButtonRef}
               type="button"
               aria-label="Отправить"
               title="Отправить (⌘↵)"

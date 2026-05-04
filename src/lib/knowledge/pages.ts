@@ -318,12 +318,11 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
     // Lock-guard в kb_save_page (миграция 086) reject'ит save на
     // заблокированной странице с errcode 42501. Если caller имеет
     // kb.comment_pages, фоллбэчимся на kb_save_page_comment_only
-    // (миграция 091): он валидирует plain_text-неизменность и
-    // позволяет сохранить ТОЛЬКО comment-mark'и. Так комментарии
-    // работают на locked-странице, а реальные edit'ы остаются
-    // запрещены. Детектим lock-error по error.code + по подстроке
-    // в сообщении (более явно чем просто code: другие 42501 у нас
-    // тоже могут возникнуть из общих RLS).
+    // (миграция 092): он валидирует НЕИЗМЕННОСТЬ title/icon/
+    // icon_color/plain_text — разрешает сохранять ТОЛЬКО content
+    // (= новые comment-mark'и). Если эти поля изменились, RPC
+    // reject'ит, юзер получит понятную lock-error, а silent-drop
+    // редактур больше не возможен (Codex #79 P1).
     const isLockError =
       error.code === "42501" &&
       typeof error.message === "string" &&
@@ -337,6 +336,9 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
         p_id: parsed.data.id,
         p_content: parsed.data.content as unknown as never,
         p_plain_text: parsed.data.plain_text,
+        p_title: parsed.data.title,
+        p_icon: parsed.data.icon ?? null,
+        p_icon_color: parsed.data.icon_color ?? null,
       } as never,
     );
     if (e2) return { version_number: null, error: e2.message };

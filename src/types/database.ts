@@ -2649,8 +2649,11 @@ export type Database = {
       kb_save_page_comment_only: {
         Args: {
           p_content: Json
+          p_icon: string
+          p_icon_color: string
           p_id: string
           p_plain_text: string
+          p_title: string
         }
         Returns: number
       }

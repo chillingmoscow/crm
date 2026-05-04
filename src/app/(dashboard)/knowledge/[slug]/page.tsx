@@ -183,16 +183,17 @@ export default async function KbPageView({ params }: PageProps) {
         <KbBackLink href={backHref} label={backLabel} />
       </PageBreadcrumb>
       <PageHeaderActions>
-        {/* key={row.id} на всех client-toggles: иначе при навигации между
-            страницами (page A required=true → page B required=false)
-            компонент остаётся примонтированным, useState(initialXxx)
-            не реинициализируется новым prop'ом, и иконка показывает
-            старое состояние. С key='${row.id}' React unmount'ит и
-            заново монтирует — useState видит свежий initial prop. */}
-        <KbFavoriteToggle key={row.id} pageId={row.id} initialFavorited={favorited} />
+        {/* Toggle'ы синхронизируют свой useState с initialXxx prop'ом
+            через useEffect — это альтернатива key-remount'у. key-фикс
+            ломал PageHeaderActions slot (cumulative набор иконок при
+            навигации), потому что Slot держит ReactNode в context
+            state'е, а keyed remount при концентрации действий через
+            context провоцировал reconciliation двух вариантов одного
+            slot'а. Prop-sync в самих компонентах решает проблему без
+            remount'а. */}
+        <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
         {canManageRequiredReading && (
           <KbRequiredReadingToggle
-            key={row.id}
             pageId={row.id}
             initialRequired={readStatus.required}
           />
@@ -201,7 +202,7 @@ export default async function KbPageView({ params }: PageProps) {
           <KbRequiredReadingStatsLink slug={row.slug} />
         )}
         {canLock && (
-          <KbPageLockToggle key={row.id} pageId={row.id} initialLocked={isLocked} />
+          <KbPageLockToggle pageId={row.id} initialLocked={isLocked} />
         )}
         {canViewAnalytics && <KbPageAnalyticsLink slug={row.slug} />}
         <KbUndoRedoButtons canEdit={canEdit} />

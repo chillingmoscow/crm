@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Unlock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,6 +31,15 @@ export function KbPageLockToggle({
   const router = useRouter();
   const [locked, setLocked] = useState(initialLocked);
   const [pending, setPending] = useState(false);
+
+  // Sync с server-prop'ом при навигации между страницами (компонент
+  // живёт в PageHeaderActions slot'е через context, без remount'а).
+  // pageId в deps (Codex #86 P1): без него если оптимистично
+  // переключили на A, а у B initialLocked такой же как стал на A —
+  // sync не сработает, state stale'ится.
+  useEffect(() => {
+    setLocked(initialLocked);
+  }, [initialLocked, pageId]);
 
   const onToggle = async () => {
     const next = !locked;

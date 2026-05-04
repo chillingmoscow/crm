@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Star } from "lucide-react";
 import { toast } from "sonner";
@@ -25,6 +25,17 @@ export function KbFavoriteToggle({
   const router = useRouter();
   const [favorited, setFavorited] = useState(initialFavorited);
   const [, startTransition] = useTransition();
+
+  // Sync с server-prop'ом при навигации между страницами (компонент
+  // живёт в PageHeaderActions slot'е через context, без remount'а).
+  // pageId в deps нужен (Codex #86 P1): иначе если на page A юзер
+  // оптимистично переключил state, а у page B initialFavorited такой
+  // же как стал на A после toggle'а — useEffect не fires, state
+  // stale'ится. С pageId каждое page-transition детерминированно
+  // сбрасывает state.
+  useEffect(() => {
+    setFavorited(initialFavorited);
+  }, [initialFavorited, pageId]);
 
   const onToggle = () => {
     const next = !favorited;

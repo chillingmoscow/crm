@@ -85,22 +85,34 @@ export function KbFloatingComposer({
     ];
     try {
       await ext.createThread({ initialComment: { body } });
-      // КРИТИЧНО: createThread ВНУТРИ TipTap'а добавляет comment-mark
-      // на selection через editor.transact → editor.onChange
-      // → scheduleSave (debounce 2s). Если юзер reload'ит страницу
-      // в течение этих 2 секунд, mark'а в kb_pages.content нет, и
-      // на след. загрузке тред становится «orphan» (BN рисует его
-      // как `data-orphan="true"`, gutter-индикатор скрывает,
-      // popover не открыть). Force-flush снимает гонку — save
-      // улетает синхронно сразу после создания thread'а.
-      await flushAllPendingSaves();
-      ext.stopPendingComment();
-      // Возвращаем focus в outer editor — иначе он остаётся на нашем
-      // (уже unmount'ed) textarea и keyboard input уходит в body.
-      (editor as unknown as { focus: () => void }).focus();
     } catch (err) {
       console.error("[kb-comment] createThread failed", err);
       setSubmitting(false);
+      return;
+    }
+    // Thread persisted — composer должен закрыться, даже если flush
+    // ниже упадёт. Иначе юзер может сабмитнуть заново и получить
+    // duplicate thread на intermittent network'е (Codex #78 P1).
+    ext.stopPendingComment();
+    (editor as unknown as { focus: () => void }).focus();
+
+    // КРИТИЧНО: createThread ВНУТРИ TipTap'а добавил comment-mark на
+    // selection через editor.transact → editor.onChange → scheduleSave
+    // (debounce 2s). Если юзер reload'ит страницу в течение этих 2
+    // секунд, mark'а в kb_pages.content нет, и на след. загрузке тред
+    // становится «orphan» (BN рисует `data-orphan="true"`, gutter-
+    // индикатор скрывает, popover не открыть). Force-flush снимает
+    // гонку. Best-effort: фейл здесь оставляет debounced-save в работе
+    // на 2 сек — worst case потеря mark'а только если юзер мгновенно
+    // перезагрузил страницу при упавшей сети, но composer всё равно
+    // закрыт и тред в БД.
+    try {
+      await flushAllPendingSaves();
+    } catch (err) {
+      console.warn(
+        "[kb-comment] post-create flush failed (mark may be lost on immediate reload)",
+        err,
+      );
     }
   }, [text, submitting, ext, editor]);
 

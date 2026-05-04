@@ -531,6 +531,15 @@ export function KbBlockNoteEditor({
       // наш кастомный (null для kb-links). Юзер видел overlap. См.
       // Codex #67 P1.
       linkToolbar={false}
+      // Default Comments UI (FloatingComposer + FloatingThread от BN)
+      // отключаем когда есть commentsBundle — мы рендерим свой
+      // <FloatingComposerController floatingComposer={KbFloatingComposer}>
+      // ниже. Без этого флага BN'овский DefaultUI ВСЁ РАВНО монтирует
+      // свой default-FloatingComposerController параллельно нашему
+      // → юзер видел два composer'а одновременно (мой Notion-style
+      // сверху + дефолтный BN с «Save» снизу), что фрагментировало
+      // фокус и закрывало кастомный popover.
+      comments={commentsBundle ? false : undefined}
     >
       {customSlashMenu && (
         <SuggestionMenuController

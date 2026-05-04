@@ -5,6 +5,9 @@ import type { KbBlock, KbInlineContent } from "@/types/knowledge";
 const STAFF_HREF_RE =
   /^\/people\/staff\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Извлекает уникальные user_id всех @-упомянутых сотрудников из
  *  BlockNote-документа. Walks blocks recursively (вкл. children для
  *  toggle / list-nesting) и inline-content рекурсивно (link.content
@@ -41,12 +44,19 @@ function walkInline(items: unknown, out: Set<string>): void {
       type?: string;
       href?: string;
       content?: unknown;
+      props?: { userId?: unknown };
     };
     if (it.type === "link" && typeof it.href === "string") {
       const m = STAFF_HREF_RE.exec(it.href);
       if (m) out.add(m[1]);
       // link'и могут оборачивать вложенный inline-content — тоже walk.
       walkInline(it.content, out);
+    }
+    // Atomic kbStaffMention chip — userId в props напрямую. Без этой
+    // ветки notification-trigger пропускал бы новые chip-style mention'ы.
+    if (it.type === "kbStaffMention" && typeof it.props?.userId === "string") {
+      const uid = it.props.userId;
+      if (UUID_RE.test(uid)) out.add(uid);
     }
   }
 }

@@ -47,6 +47,11 @@ function collectInline(items: unknown[], out: string[]): void {
       // props.title. Кладём в plain-text чтобы FTS-индекс находил
       // страницы по mention'у.
       if (typeof item.props?.title === "string") out.push(item.props.title);
+    } else if (item.type === "kbStaffMention") {
+      // То же для @-mention'ов сотрудников — fullName в plain-text.
+      const props = (item as unknown as { props?: { fullName?: string } })
+        .props;
+      if (typeof props?.fullName === "string") out.push(`@${props.fullName}`);
     } else if (Array.isArray(item.content)) {
       collectInline(item.content, out);
     }

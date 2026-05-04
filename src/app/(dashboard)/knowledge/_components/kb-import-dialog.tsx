@@ -24,6 +24,7 @@ import { useCreateBlockNote } from "@blocknote/react";
 
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
+import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import {
   applyMediaUrlMap,
@@ -107,6 +108,7 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
         inlineContentSpecs: {
           ...defaultInlineContentSpecs,
           kbPageMention: kbPageMentionInlineContent,
+          kbStaffMention: kbStaffMentionInlineContent,
         },
       }),
     [],

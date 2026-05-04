@@ -69,18 +69,31 @@ function buildItem(it: KbMention, editor: BlockNoteEditor) {
     };
   }
 
-  // Person
+  // Person — атомарный chip с мини-аватаркой (или инициалами как
+  // fallback). См. kb-staff-mention.tsx.
   const label = it.full_name;
   return {
     title: label,
     subtext: "Сотрудник",
-    icon: <User className="size-4" />,
+    icon: it.avatar_url ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={it.avatar_url}
+        alt=""
+        className="size-4 rounded-full object-cover bg-muted shrink-0"
+      />
+    ) : (
+      <User className="size-4" />
+    ),
     onItemClick: () => {
       editor.insertInlineContent([
         {
-          type: "link",
-          href: `/people/staff/${it.id}`,
-          content: [{ type: "text", text: `@${label}`, styles: {} }],
+          type: "kbStaffMention",
+          props: {
+            userId: it.id,
+            fullName: label,
+            avatarUrl: it.avatar_url ?? "",
+          },
         } as never,
         " ",
       ] as never);

@@ -31,6 +31,14 @@ export function KbThreadsSidebar() {
   const open = useKbThreadsSidebarOpen();
   const ref = useRef<HTMLDivElement | null>(null);
 
+  // Reset sidebar-open state при unmount (= editor unmount = page
+  // change). Без этого module-singleton isOpen «протекает» между
+  // страницами: открыл sidebar на A → перешёл на B → у B уже открыт,
+  // хотя юзер не toggle'ил. См. Codex #87 P2.
+  useEffect(() => {
+    return () => setKbThreadsSidebarOpen(false);
+  }, []);
+
   // Esc — закрыть. Listener живёт всегда — при closed просто no-op.
   useEffect(() => {
     if (!open) return;

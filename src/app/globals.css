@@ -247,6 +247,59 @@ input:-webkit-autofill {
   color: hsl(var(--foreground));
 }
 
+/* ──────────────────────────────────────────────────────────────────
+ * Comment thread mark — Notion-style highlight + underline + gutter
+ * indicator.
+ *
+ * Дефолт BN: `.bn-thread-mark { background: #ffc80026 }` — почти
+ * идентичный yellow text-highlight'у (`data-background-color=yellow`
+ * = #fbf3db), визуально не отличить «я выделил жёлтым» от «здесь
+ * комментарий». Перебиваем: amber-orange tint + bottom underline
+ * амбером — это и distinct color, и явный сигнал «здесь thread».
+ *
+ * Селекторы со специфичностью `.bn-sheerly .bn-editor` побеждают
+ * BN'овские (которые не используют scope).
+ * ──────────────────────────────────────────────────────────────── */
+.bn-sheerly .bn-editor .bn-thread-mark:not([data-orphan="true"]) {
+  background-color: hsl(38 92% 50% / 0.18);
+  text-decoration: underline;
+  text-decoration-color: hsl(38 92% 50%);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-skip-ink: none;
+  border-radius: 2px;
+  padding: 1px 2px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.bn-sheerly .bn-editor .bn-thread-mark:not([data-orphan="true"]):hover,
+.bn-sheerly .bn-editor .bn-thread-mark.bn-thread-mark-selected {
+  background-color: hsl(38 92% 50% / 0.32);
+}
+
+/* Gutter-индикатор: иконка-облачко в правой колонке на уровне блока,
+   у которого есть thread-mark. Пользователь видит сразу, в каких
+   абзацах есть комментарии, не наводя на текст.
+   `:has()` поддержан во всех актуальных браузерах (с 2023). */
+.bn-sheerly .bn-block-content:has(.bn-thread-mark:not([data-orphan="true"])) {
+  position: relative;
+}
+.bn-sheerly
+  .bn-block-content:has(.bn-thread-mark:not([data-orphan="true"]))::after {
+  content: "";
+  position: absolute;
+  right: -28px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a16207' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'/></svg>");
+  background-size: contain;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  opacity: 0.7;
+}
+
 /* Воздух между блоками — Notion-like reading rhythm. BlockNote-default
    .bn-block-content имеет padding:3px 0 + line-height:1.5; этого мало
    для типографики Sheerly (paragraph base = 16px, ~24px line). Бьём

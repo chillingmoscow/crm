@@ -11,6 +11,10 @@ import { CommentsExtension } from "@blocknote/core/comments";
 
 import { cn } from "@/lib/utils";
 import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
+import {
+  buildCommentBodyFromText,
+  useCommentMentionDropdown,
+} from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 
 /**
  * Custom Notion-style floating composer для KB-комментариев. Заменяет
@@ -58,6 +62,15 @@ export function KbFloatingComposer({
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // @-mention dropdown: на `@` после whitespace показывает popup со
+  // списком сотрудников; на выбор вставляет `@FullName ` в text и
+  // регистрирует mention. На submit'е buildCommentBodyFromText
+  // конвертирует это в BN body с kbStaffMention chip'ами →
+  // extractMentionedUserIds находит их → comments-store вызывает
+  // kb_emit_comment_mentions → notif улетает упомянутому.
+  const { mentions, dropdown, handleKeyDown: handleMentionKeyDown } =
+    useCommentMentionDropdown({ textareaRef, text, setText });
+
   // Auto-focus + auto-grow.
   useEffect(() => {
     textareaRef.current?.focus();
@@ -73,16 +86,12 @@ export function KbFloatingComposer({
     const trimmed = text.trim();
     if (!trimmed || submitting) return;
     setSubmitting(true);
-    // BN-блок: один paragraph с inline text-run'ом. Совпадает по
-    // shape с тем, что генерирует BN'овский useCreateBlockNote с
-    // одним абзацем — SupabaseThreadStore хранит как jsonb, рендер
-    // на чтении использует BN'овский Comment-component.
-    const body = [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text: trimmed, styles: {} }],
-      },
-    ];
+    // BN-формат: один paragraph; inline-content собирается из text +
+    // mentions через buildCommentBodyFromText. Где встречаем
+    // `@FullName` — вставляем kbStaffMention chip; остальное —
+    // обычный text-run. На сервере эта структура попадает в
+    // extractMentionedUserIds → kb_emit_comment_mentions.
+    const body = buildCommentBodyFromText(trimmed, mentions);
     // На locked-странице editor.editable=false. BN'овский default
     // addThreadToDocument'е использует `commands.setMark`, а TipTap
     // commands silently no-op'ают на editable=false. Без временного
@@ -133,10 +142,14 @@ export function KbFloatingComposer({
         err,
       );
     }
-  }, [text, submitting, ext, editor]);
+  }, [text, mentions, submitting, ext, editor]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Если открыт mention-dropdown и он перехватил клавишу
+      // (↑ ↓ Enter Tab Esc внутри dropdown'а) — пропускаем outer
+      // handler'ы. handleMentionKeyDown сам делает preventDefault.
+      if (handleMentionKeyDown(e)) return;
       // Cmd/Ctrl+Enter → submit. КРИТИЧНО синтетически кликнуть по
       // send-button'у, а не звать handleSubmit напрямую: guard в
       // blocknote-editor.tsx маркирует intentional-close флаг при
@@ -157,7 +170,7 @@ export function KbFloatingComposer({
         (editor as unknown as { focus: () => void }).focus();
       }
     },
-    [ext, editor],
+    [ext, editor, handleMentionKeyDown],
   );
 
   const trimmed = text.trim();
@@ -225,6 +238,7 @@ export function KbFloatingComposer({
           </div>
         </div>
       </div>
+      {dropdown}
     </div>
   );
 }

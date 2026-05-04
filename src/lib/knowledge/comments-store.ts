@@ -665,6 +665,13 @@ export class SupabaseThreadStore extends ThreadStore {
       throw new Error(`Не удалось обновить комментарий: ${error.message}`);
     }
 
+    // Re-emit @-mention notifs если в edit'е появились новые упоминания.
+    // PK kb_comment_user_mentions(comment_id, user_id) защищает старых
+    // mention'ов от повторов — RPC silent-no-op'ит на уже-known users.
+    // Новые user_ids получают свежий notif. Без этого юзер мог бы
+    // добавить @-mention edit'ом и получатель ничего не узнал бы.
+    this.emitCommentMentions(opts.commentId, opts.comment.body);
+
     const thread = this.threadCache.get(opts.threadId);
     if (thread) {
       const idx = thread.comments.findIndex((c) => c.id === opts.commentId);

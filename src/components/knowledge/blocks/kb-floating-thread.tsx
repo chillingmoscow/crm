@@ -33,6 +33,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  buildCommentBodyFromText,
+  extractMentionsFromCommentBody,
+  useCommentMentionDropdown,
+} from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
 
 /**
  * Custom Notion-style thread popover с поддержкой:
@@ -471,6 +476,23 @@ function EditCommentRow({
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const saveButtonRef = useRef<HTMLButtonElement | null>(null);
 
+  // @-mention dropdown — то же поведение, что в новом-comment'е
+  // (kb-floating-composer.tsx). На submit'е buildCommentBodyFromText
+  // конвертирует text+mentions в BN body с kbStaffMention chip'ами.
+  // Pre-seed существующими mention'ами из original body — чтобы
+  // edit без новых @-mention'ов не drop'ал старые chip'ы.
+  const initialMentions = useMemo(
+    () => extractMentionsFromCommentBody(comment.body),
+    [comment.body],
+  );
+  const { mentions, dropdown, handleKeyDown: handleMentionKeyDown } =
+    useCommentMentionDropdown({
+      textareaRef: taRef,
+      text,
+      setText,
+      initialMentions,
+    });
+
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -498,12 +520,7 @@ function EditCommentRow({
       return;
     }
     setSaving(true);
-    const body = [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text: trimmed, styles: {} }],
-      },
-    ];
+    const body = buildCommentBodyFromText(trimmed, mentions);
     try {
       await store.updateComment({
         commentId: comment.id,
@@ -515,9 +532,10 @@ function EditCommentRow({
       console.error("[kb-comment] updateComment failed", err);
       setSaving(false);
     }
-  }, [text, saving, initialText, store, comment.id, threadId, onDone]);
+  }, [text, mentions, saving, initialText, store, comment.id, threadId, onDone]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMentionKeyDown(e)) return;
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       saveButtonRef.current?.click();
@@ -585,6 +603,7 @@ function EditCommentRow({
           </button>
         </div>
       </div>
+      {dropdown}
     </div>
   );
 }
@@ -601,6 +620,17 @@ function ReplyInput({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const sendButtonRef = useRef<HTMLButtonElement | null>(null);
 
+  // @-mention dropdown — то же поведение, что в kb-floating-composer.
+  // На submit'е buildCommentBodyFromText конвертирует text+mentions в
+  // BN body с kbStaffMention chip'ами; comments-store вызывает
+  // kb_emit_comment_mentions → notif улетает упомянутому.
+  const {
+    mentions,
+    dropdown,
+    handleKeyDown: handleMentionKeyDown,
+    resetMentions,
+  } = useCommentMentionDropdown({ textareaRef, text, setText });
+
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -612,33 +642,30 @@ function ReplyInput({
     const trimmed = text.trim();
     if (!trimmed || submitting) return;
     setSubmitting(true);
-    const body = [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text: trimmed, styles: {} }],
-      },
-    ];
+    const body = buildCommentBodyFromText(trimmed, mentions);
     try {
       await store.addComment({
         threadId,
         comment: { body },
       });
       setText("");
+      resetMentions();
     } catch (err) {
       console.error("[kb-comment] addComment failed", err);
     } finally {
       setSubmitting(false);
     }
-  }, [text, submitting, store, threadId]);
+  }, [text, mentions, submitting, store, threadId, resetMentions]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (handleMentionKeyDown(e)) return;
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         sendButtonRef.current?.click();
       }
     },
-    [],
+    [handleMentionKeyDown],
   );
 
   const trimmed = text.trim();
@@ -684,6 +711,7 @@ function ReplyInput({
           )}
         </button>
       </div>
+      {dropdown}
     </div>
   );
 }
@@ -740,9 +768,21 @@ function extractCommentText(body: unknown): string {
     const parts: string[] = [];
     for (const item of b.content) {
       if (!item || typeof item !== "object") continue;
-      const it = item as { type?: string; text?: string };
+      const it = item as {
+        type?: string;
+        text?: string;
+        props?: { fullName?: string };
+      };
       if (it.type === "text" && typeof it.text === "string") {
         parts.push(it.text);
+      } else if (
+        it.type === "kbStaffMention" &&
+        typeof it.props?.fullName === "string"
+      ) {
+        // Mention chip — рендерим как `@FullName` в plain-text view'е.
+        // Так и edit-форма (initialText) увидит mention'ы и сможет
+        // их пересохранить, и preview-text'е они читаются естественно.
+        parts.push(`@${it.props.fullName}`);
       }
     }
     if (parts.length > 0) lines.push(parts.join(""));

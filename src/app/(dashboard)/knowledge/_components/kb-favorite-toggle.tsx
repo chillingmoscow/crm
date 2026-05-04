@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Star } from "lucide-react";
 import { toast } from "sonner";
@@ -25,6 +25,12 @@ export function KbFavoriteToggle({
   const router = useRouter();
   const [favorited, setFavorited] = useState(initialFavorited);
   const [, startTransition] = useTransition();
+
+  // Sync с server-prop'ом при навигации между страницами (компонент
+  // живёт в PageHeaderActions slot'е через context, без remount'а).
+  useEffect(() => {
+    setFavorited(initialFavorited);
+  }, [initialFavorited]);
 
   const onToggle = () => {
     const next = !favorited;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +29,15 @@ export function KbRequiredReadingToggle({
   const router = useRouter();
   const [required, setRequired] = useState(initialRequired);
   const [pending, setPending] = useState(false);
+
+  // Sync с server-prop'ом: при навигации между страницами компонент
+  // не remount'ится (он живёт в PageHeaderActions slot'е через
+  // context), поэтому useState без явной синхронизации залипает на
+  // первом значении. Effect перезаписывает state когда initialRequired
+  // приходит другой — например, на page A было true, на page B false.
+  useEffect(() => {
+    setRequired(initialRequired);
+  }, [initialRequired]);
 
   const onToggle = async () => {
     const next = !required;

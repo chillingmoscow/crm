@@ -2580,6 +2580,15 @@ export type Database = {
           last_name: string
         }[]
       }
+      kb_resolve_users_by_ids: {
+        Args: { p_user_ids: string[] }
+        Returns: {
+          id: string
+          first_name: string | null
+          last_name: string | null
+          avatar_url: string | null
+        }[]
+      }
       kb_list_required_reading_stats: {
         Args: { p_page_id: string }
         Returns: {

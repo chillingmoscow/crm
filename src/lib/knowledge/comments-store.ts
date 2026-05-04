@@ -1090,26 +1090,24 @@ export class SupabaseThreadStore extends ThreadStore {
 /** Resolve user info для CommentsExtension `resolveUsers` callback.
  *  BlockNote передаёт массив userIds — возвращаем User[] с avatar.
  *
- *  Использует account-scoped path через `kb_list_account_members` RPC
- *  (тот же что mention-picker). Profiles RLS venue-scoped — в multi-
- *  venue аккаунтах прямой fetch profiles не находил юзеров вне
- *  active venue caller'а (resolver треда из другого venue, etc) →
- *  ThreadsSidebar падал «User X resolved thread Y, but their data
- *  could not be found».
+ *  Использует account-scoped RPC `kb_resolve_users_by_ids` (миграция
+ *  101) — точечный fetch по запрошенному списку без 25-лимита из
+ *  `kb_list_account_members`. Codex #92 P1 fix: для аккаунтов с >25
+ *  members часть юзеров silently не возвращалась и попадала под
+ *  placeholder «Удалённый пользователь».
  *
- *  Placeholder для missing IDs: BN ожидает entry для КАЖДОГО userId
- *  в request'е (внутренняя `useUsers` Map-lookup). Если юзер удалён
- *  / вне аккаунта / RPC не находит — возвращаем placeholder
- *  («Удалённый пользователь») вместо null'а, чтобы BN не крашился. */
+ *  Placeholder остаётся для missing IDs: BN ожидает entry для
+ *  КАЖДОГО userId в request'е (internal useUsers Map-lookup). Если
+ *  юзер удалён / off-boarded / выбыл из аккаунта — placeholder
+ *  гарантирует, что BN не падает. */
 export async function resolveKbUsers(userIds: string[]): Promise<User[]> {
   if (userIds.length === 0) return [];
   const supabase = createClient();
-  const { data: members } = await supabase.rpc(
-    "kb_list_account_members",
-    { p_query: "", p_limit: 200 },
-  );
+  const { data } = await supabase.rpc("kb_resolve_users_by_ids", {
+    p_user_ids: userIds,
+  });
   const found = new Map<string, User>();
-  for (const m of members ?? []) {
+  for (const m of data ?? []) {
     const fullName =
       [m.first_name, m.last_name].filter(Boolean).join(" ").trim() ||
       "Без имени";
@@ -1119,7 +1117,6 @@ export async function resolveKbUsers(userIds: string[]): Promise<User[]> {
       avatarUrl: m.avatar_url ?? "",
     });
   }
-  // Возвращаем entry для каждого requested ID — found или placeholder.
   return userIds.map(
     (id): User =>
       found.get(id) ?? {

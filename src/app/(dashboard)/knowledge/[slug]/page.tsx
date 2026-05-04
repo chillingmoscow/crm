@@ -247,6 +247,7 @@ export default async function KbPageView({ params }: PageProps) {
             pageId={row.id}
             required={readStatus.required}
             initialReadAt={readStatus.myReadAt}
+            needsReread={readStatus.needsReread}
             readingMinutes={
               row.plain_text && row.plain_text.trim().length > 0
                 ? estimateReadingMinutes(row.plain_text)

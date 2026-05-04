@@ -305,11 +305,18 @@ export function KbBlockNoteEditor({
   // расширения пересоздаст editor instance, что сломает in-flight UI.
   // Если bundle null/undefined — extensions = []. Эту опцию BlockNote
   // принимает в useCreateBlockNote.
+  //
+  // ВАЖНО: schema передаётся в CommentsExtension, чтобы внутренний
+  // comment-editor (используется ThreadsSidebar и default-FloatingThread
+  // при рендере body) знал про наш kbStaffMention. Без этого опции
+  // ThreadsSidebar падает с «node type kbStaffMention not found in
+  // schema» при рендере коммента с @-mention chip'ом.
   const commentsExtension = useMemo(() => {
     if (!commentsBundle) return null;
     return CommentsExtension({
       threadStore: commentsBundle.threadStore,
       resolveUsers: commentsBundle.resolveUsers,
+      schema: schema as never,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

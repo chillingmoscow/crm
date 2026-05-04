@@ -313,7 +313,37 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
     p_plain_text: parsed.data.plain_text,
     p_link_targets: pageIds,
   } as never);
-  if (error) return { version_number: null, error: error.message };
+  let savedVersion: number | null = (data as number | null) ?? null;
+  if (error) {
+    // Lock-guard в kb_save_page (миграция 086) reject'ит save на
+    // заблокированной странице с errcode 42501. Если caller имеет
+    // kb.comment_pages, фоллбэчимся на kb_save_page_comment_only
+    // (миграция 092): он валидирует НЕИЗМЕННОСТЬ title/icon/
+    // icon_color/plain_text — разрешает сохранять ТОЛЬКО content
+    // (= новые comment-mark'и). Если эти поля изменились, RPC
+    // reject'ит, юзер получит понятную lock-error, а silent-drop
+    // редактур больше не возможен (Codex #79 P1).
+    const isLockError =
+      error.code === "42501" &&
+      typeof error.message === "string" &&
+      error.message.includes("заблокирована");
+    if (!isLockError) {
+      return { version_number: null, error: error.message };
+    }
+    const { data: d2, error: e2 } = await supabase.rpc(
+      "kb_save_page_comment_only",
+      {
+        p_id: parsed.data.id,
+        p_content: parsed.data.content as unknown as never,
+        p_plain_text: parsed.data.plain_text,
+        p_title: parsed.data.title,
+        p_icon: parsed.data.icon ?? null,
+        p_icon_color: parsed.data.icon_color ?? null,
+      } as never,
+    );
+    if (e2) return { version_number: null, error: e2.message };
+    savedVersion = (d2 as number | null) ?? null;
+  }
 
   // Fire-and-forget @-mention notifications (Sprint D Phase 4b). RPC
   // `kb_emit_page_mentions` идемпотентна по (page_id, user_id) через
@@ -358,7 +388,7 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   // remount → закрывается slash-меню прямо во время выбора. Локальный
   // state редактора уже актуальный; дерево/landing подхватят новый
   // title на следующей навигации (приемлемый trade-off для авто-save).
-  return { version_number: (data as number | null) ?? null, error: null };
+  return { version_number: savedVersion, error: null };
 }
 
 /** Атомарно перерасставляет position 0..N-1 для всех siblings в

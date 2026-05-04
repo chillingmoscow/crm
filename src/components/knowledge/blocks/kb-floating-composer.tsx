@@ -83,8 +83,27 @@ export function KbFloatingComposer({
         content: [{ type: "text", text: trimmed, styles: {} }],
       },
     ];
+    // На locked-странице editor.editable=false. BN'овский default
+    // addThreadToDocument'е использует `commands.setMark`, а TipTap
+    // commands silently no-op'ают на editable=false. Без временного
+    // flip'а mark не вставляется → тред в БД создаётся, но в
+    // документе у него нет якоря → orphan на следующей загрузке.
+    // Flip обратно в `finally`, чтобы restore случился даже при
+    // ошибке. setEditable — TipTap API, доступно через _tiptapEditor.
+    const tiptap = (editor as unknown as {
+      _tiptapEditor?: {
+        isEditable: boolean;
+        setEditable: (v: boolean) => void;
+      };
+    })._tiptapEditor;
+    const wasEditable = tiptap?.isEditable ?? true;
     try {
-      await ext.createThread({ initialComment: { body } });
+      if (tiptap && !wasEditable) tiptap.setEditable(true);
+      try {
+        await ext.createThread({ initialComment: { body } });
+      } finally {
+        if (tiptap && !wasEditable) tiptap.setEditable(false);
+      }
     } catch (err) {
       console.error("[kb-comment] createThread failed", err);
       setSubmitting(false);

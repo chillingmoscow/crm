@@ -360,8 +360,13 @@ export function KbPageEditor({
     setKbSaveState({ kind: "saved", at: new Date() });
   }, [pageId]);
 
+  // Allow scheduleSave когда:
+  //   • canEdit (обычный editable-режим), либо
+  //   • canComment (locked-страница, на которой comment-mark всё ещё
+  //     можно добавить — saveKbPage routes на kb_save_page_comment_only).
+  const canSave = canEdit || canComment;
   const scheduleSave = useCallback(() => {
-    if (!canEdit) return;
+    if (!canSave) return;
     // Cheap pre-check: if nothing changed since the last save, don't
     // even schedule a timer (avoids the «Не сохранено» flash on doc
     // load when BlockNote fires its initial onChange).
@@ -378,7 +383,7 @@ export function KbPageEditor({
     timerRef.current = setTimeout(() => {
       void flush();
     }, DEBOUNCE_MS);
-  }, [canEdit, flush]);
+  }, [canSave, flush]);
 
   // Flush on unmount so unsaved edits don't get lost on navigation.
   useEffect(() => {
@@ -398,9 +403,9 @@ export function KbPageEditor({
   // вызывают `flushAllPendingSaves()` и ждут пока debounced-save
   // долетит до сервера. См. Codex #65 P2.
   useEffect(() => {
-    if (!canEdit) return;
+    if (!canSave) return;
     return registerPendingSaveFlush(flush);
-  }, [canEdit, flush]);
+  }, [canSave, flush]);
 
   // beforeunload: warn the user if there are pending edits. Читаем
   // state синхронно из module-store — без подписки, чтобы не вызывать

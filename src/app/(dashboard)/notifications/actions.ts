@@ -158,28 +158,25 @@ export interface NotificationActor {
  *  список user_id'ов из `notifications.actor_user_id` → возвращает
  *  массив { id, full_name, avatar_url }.
  *
- *  Использует account-scoped path через `kb_list_account_members`
- *  RPC — не зависит от profiles RLS, работает в multi-venue
- *  аккаунтах (тот же подход, что mention-picker / staff-preview). */
+ *  Использует RPC `kb_resolve_users_by_ids` (миграция 101) — точечный
+ *  account-scoped fetch без 25-лимита из `kb_list_account_members`.
+ *  Без этого в аккаунтах с >25 active members часть actor'ов
+ *  silently не возвращалась → bell рендерил «без actor'а». */
 export async function getNotificationActors(
   userIds: string[],
 ): Promise<NotificationActor[]> {
   if (userIds.length === 0) return [];
   const supabase = await createClient();
-  const { data: members, error } = await supabase.rpc(
-    "kb_list_account_members",
-    { p_query: "", p_limit: 200 },
-  );
+  const { data, error } = await supabase.rpc("kb_resolve_users_by_ids", {
+    p_user_ids: userIds,
+  });
   if (error) return [];
-  const set = new Set(userIds);
-  return (members ?? [])
-    .filter((m) => set.has(m.id))
-    .map((m) => {
-      const parts = [m.first_name, m.last_name].filter(Boolean) as string[];
-      return {
-        id: m.id,
-        full_name: parts.length > 0 ? parts.join(" ") : "Без имени",
-        avatar_url: m.avatar_url,
-      };
-    });
+  return (data ?? []).map((m) => {
+    const parts = [m.first_name, m.last_name].filter(Boolean) as string[];
+    return {
+      id: m.id,
+      full_name: parts.length > 0 ? parts.join(" ") : "Без имени",
+      avatar_url: m.avatar_url,
+    };
+  });
 }

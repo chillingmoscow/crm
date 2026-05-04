@@ -69,6 +69,12 @@ export function KbNotificationRow({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
+        // Ignore bubbled keypresses из nested buttons (archive,
+        // inline-actions). Без этого Enter/Space на child-button'е
+        // ловится тут И в самом button-handler'е → юзер случайно
+        // mark'ает read и открывает link, пытаясь выполнить child
+        // action. См. Codex #91 P1.
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen(notification);

@@ -109,13 +109,54 @@ export async function getKbPageBySlug(slug: string): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
+  // `deleted_at IS NULL` фильтр обязателен: RLS-policy для kb_pages
+  // (миграция 050 §3) скрывает soft-deleted строки от рядовых юзеров,
+  // но админ с `kb.delete_pages` видит их же из-за trash-routes. Без
+  // фильтра /knowledge/<slug> для такого админа отрендерил бы
+  // полноценный editor над страницей, лежащей в корзине. Trash-route
+  // использует getKbPageById (по id), поэтому здесь ограничиваемся
+  // только живыми страницами.
   const { data, error } = await supabase
     .from("kb_pages")
     .select("*")
     .eq("slug", slug)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) return { row: null, error: error.message };
   return { row: (data as KbPageRow | null) ?? null, error: null };
+}
+
+/** Возвращает подмножество переданных slug'ов, которые соответствуют
+ *  ЖИВЫМ (не soft-deleted) страницам внутри текущего account'а. Нужен
+ *  для render-time проверки kbPageMention chip'ов: если slug отсутствует
+ *  в результате — chip рендерится в disabled-варианте с подсказкой
+ *  «Страница недоступна» (см. kb-page-mention.tsx).
+ *
+ *  RLS уже отфильтрует deleted_at IS NOT NULL для рядовых юзеров; для
+ *  админов с kb.delete_pages — фильтруем явно. Также сюда попадают
+ *  «никогда не существовавшие» slug'и (slug в content, но row удалён
+ *  hard-delete'ом или imported из чужого аккаунта) — их тоже считаем
+ *  недоступными, что корректно: chip → disabled.
+ *
+ *  Pустой `slugs` → пустой Set без RPC; sub-200ms на типичной странице
+ *  (лимит 100 mention'ов в KB-документе на практике не превышается). */
+export async function resolveLiveKbSlugs(
+  slugs: string[],
+): Promise<Set<string>> {
+  const unique = Array.from(new Set(slugs.filter((s) => s && s.length > 0)));
+  if (unique.length === 0) return new Set<string>();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("kb_pages")
+    .select("slug")
+    .in("slug", unique)
+    .is("deleted_at", null);
+  if (error) return new Set<string>();
+  const result = new Set<string>();
+  for (const row of (data ?? []) as Array<{ slug: string }>) {
+    if (row.slug) result.add(row.slug);
+  }
+  return result;
 }
 
 export async function getKbPageById(id: string): Promise<{

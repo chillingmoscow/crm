@@ -1,7 +1,8 @@
 import { notFound } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { getKbPageBySlug, listKbPages } from "@/lib/knowledge/pages";
+import { getKbPageBySlug, listKbPages, resolveLiveKbSlugs } from "@/lib/knowledge/pages";
+import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { isKbPageFavorited } from "@/lib/knowledge/favorites";
 import { getKbPageReadStatus } from "@/lib/knowledge/required-reading";
 import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
@@ -131,6 +132,19 @@ export default async function KbPageView({ params }: PageProps) {
   // Total descendants — нужно для текста подтверждения удаления
   // (cascade soft-delete заберёт всю ветку, не только direct children).
   const descendantsCount = countDescendants(allPages, row.id);
+
+  // Резолвим, какие kbPageMention chip'ы в текущем content ведут на
+  // ЖИВЫЕ страницы. Те, что не в результате — рендерятся в редакторе
+  // как disabled chip'ы (страница в корзине / удалена / hard-delete /
+  // импорт из чужого аккаунта). Без этого admin'ы с kb.delete_pages
+  // могли клик'нуть на chip и попасть в notFound() (после фильтра
+  // deleted_at в getKbPageBySlug). Ниже рантайм-резолвинг по slug'ам:
+  // single SQL-IN-запрос, ≤ 100 mention'ов на странице на практике.
+  const contentBlocks =
+    (row.content as unknown as KbBlock[]) ?? [];
+  const { slugs: mentionSlugs } = extractBacklinks(contentBlocks);
+  const liveMentionSlugsSet = await resolveLiveKbSlugs(mentionSlugs);
+  const liveMentionSlugs = Array.from(liveMentionSlugsSet);
 
   // Resolve back-link target: parent page if any, else /knowledge.
   // chain comes root → leaf, last entry is the current page itself.
@@ -262,7 +276,8 @@ export default async function KbPageView({ params }: PageProps) {
             initialTitle={row.title}
             initialIcon={row.icon}
             initialIconColor={row.icon_color}
-            initialContent={(row.content as unknown as KbBlock[]) ?? []}
+            initialContent={contentBlocks}
+            liveMentionSlugs={liveMentionSlugs}
             canEdit={canEdit}
             aiSlashEnabled={aiSlashEnabled}
             canComment={Boolean(hasComment)}

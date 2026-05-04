@@ -2607,8 +2607,12 @@ export type Database = {
         Returns: undefined
       }
       kb_emit_page_mentions: {
-        Args: { p_page_id: string; p_user_ids: string[] }
-        Returns: undefined
+        Args: {
+          p_page_id: string
+          p_user_ids: string[]
+          p_version_number?: number | null
+        }
+        Returns: number
       }
       kb_get_my_recently_viewed: {
         Args: { p_limit?: number }

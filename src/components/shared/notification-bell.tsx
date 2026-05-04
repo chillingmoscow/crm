@@ -93,6 +93,10 @@ export function NotificationBell() {
             filter: `user_id=eq.${user.id}`,
           },
           (payload) => {
+            console.info("[bell] realtime INSERT received", {
+              id: (payload.new as { id?: string }).id,
+              type: (payload.new as { type?: string }).type,
+            });
             const row = payload.new as {
               id: string;
               type: string;
@@ -110,7 +114,13 @@ export function NotificationBell() {
             );
           },
         )
-        .subscribe();
+        .subscribe((status, err) => {
+          // Status'ы из Supabase Realtime: SUBSCRIBED / CHANNEL_ERROR /
+          // TIMED_OUT / CLOSED. Логируем чтобы при F12 на боевой странице
+          // юзер видел "[bell] subscribed" — если не видит, значит RLS
+          // или publication поломаны и notifs не доедут до этого канала.
+          console.info("[bell] subscribe status", { status, userId: user.id, error: err?.message });
+        });
     })();
 
     return () => {

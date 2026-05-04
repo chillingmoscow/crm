@@ -345,17 +345,44 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
     savedVersion = (d2 as number | null) ?? null;
   }
 
-  // Fire-and-forget @-mention notifications (Sprint D Phase 4b). RPC
-  // `kb_emit_page_mentions` идемпотентна по (page_id, user_id) через
-  // PK kb_page_user_mentions — повторные save с тем же mention'ом не
-  // спамят. Если упомянутых нет — RPC silent-no-op'ает на пустой
-  // массив, не делаем pre-check на клиенте.
+  // Fire-and-forget @-mention notifications (Sprint D Phase 4b).
+  // Idempotency теперь per-version (миграция 093): каждый новый
+  // kb_page_versions row → может породить свежие notifs тем же
+  // упомянутым. Внутри одной версии (= debounced auto-save с тем же
+  // содержимым) RPC всё ещё silent-no-op'ит через ON CONFLICT.
+  //
+  // Логируем count emit'нутых notifs для диагностики на проде —
+  // если 0, проверяем active-membership / self-mention / edit-perm.
   const mentionedUserIds = extractMentionedUserIds(parsed.data.content);
   if (mentionedUserIds.length > 0) {
-    void supabase.rpc("kb_emit_page_mentions", {
-      p_page_id: parsed.data.id,
-      p_user_ids: mentionedUserIds,
-    });
+    const { data: emittedCount, error: emitErr } = await supabase.rpc(
+      "kb_emit_page_mentions",
+      {
+        p_page_id: parsed.data.id,
+        p_user_ids: mentionedUserIds,
+        p_version_number: savedVersion,
+      },
+    );
+    if (emitErr) {
+      console.warn("[kb-mentions] emit RPC failed", {
+        pageId: parsed.data.id,
+        userIds: mentionedUserIds,
+        version: savedVersion,
+        error: emitErr.message,
+      });
+    } else if (typeof emittedCount === "number" && emittedCount === 0) {
+      console.info("[kb-mentions] no notifs emitted (filtered by self/membership/already-sent)", {
+        pageId: parsed.data.id,
+        candidateCount: mentionedUserIds.length,
+        version: savedVersion,
+      });
+    } else {
+      console.info("[kb-mentions] emitted", {
+        pageId: parsed.data.id,
+        count: emittedCount,
+        version: savedVersion,
+      });
+    }
   }
 
   // Fire-and-forget reembedding для RAG. Не блокирует caller'а

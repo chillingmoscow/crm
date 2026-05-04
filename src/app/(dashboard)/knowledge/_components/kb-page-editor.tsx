@@ -50,18 +50,61 @@ const KB_FILE_SCHEME = "kbfile://";
 // каждый рендер блока (в т.ч. при resize image). Без кэша мы каждый
 // раз минтим новый signed URL → <img src> меняется → браузер заново
 // фетчит файл → изображение мигает на 1-2 секунды и страница «прыгает».
+//
+// Кэш двух-уровневый:
+//   1. Memory Map (горячий, в пределах текущей mount'а).
+//   2. localStorage (выживает page-reload). Без него reload страницы
+//      минтит свежий signed URL → src меняется → браузер не находит в
+//      cache → re-fetch → image «мигает» при каждом перезагрузе. С
+//      localStorage URL стабилен в пределах TTL → 304/disk-cache hit.
+//
 // Server signs с TTL 1h (см. DEFAULT_TTL_SECONDS); кэшируем на 50 мин
 // чтобы не подойти близко к expiry.
 const SIGNED_URL_TTL_MS = 50 * 60 * 1000;
+const SIGNED_URL_LS_PREFIX = "kb-signed-url:";
 const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
 function getCachedSignedUrl(storagePath: string): string | null {
   const entry = signedUrlCache.get(storagePath);
-  if (!entry) return null;
-  if (entry.expiresAt < Date.now()) {
-    signedUrlCache.delete(storagePath);
+  if (entry && entry.expiresAt > Date.now()) return entry.url;
+  if (entry) signedUrlCache.delete(storagePath);
+
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SIGNED_URL_LS_PREFIX + storagePath);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { url?: string; expiresAt?: number };
+    if (
+      typeof parsed.url !== "string" ||
+      typeof parsed.expiresAt !== "number" ||
+      parsed.expiresAt < Date.now()
+    ) {
+      window.localStorage.removeItem(SIGNED_URL_LS_PREFIX + storagePath);
+      return null;
+    }
+    // Промоутим в memory чтобы следующий вызов не дёргал localStorage.
+    signedUrlCache.set(storagePath, {
+      url: parsed.url,
+      expiresAt: parsed.expiresAt,
+    });
+    return parsed.url;
+  } catch {
     return null;
   }
-  return entry.url;
+}
+
+function setCachedSignedUrl(storagePath: string, url: string): void {
+  const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
+  signedUrlCache.set(storagePath, { url, expiresAt });
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      SIGNED_URL_LS_PREFIX + storagePath,
+      JSON.stringify({ url, expiresAt }),
+    );
+  } catch {
+    // QuotaExceeded / private mode — tolerable, memory cache remains.
+  }
 }
 
 // BlockNote internally references `window` synchronously inside
@@ -483,10 +526,7 @@ export function KbPageEditor({
             // something went wrong server-side.
             return url;
           }
-          signedUrlCache.set(storagePath, {
-            url: signed,
-            expiresAt: Date.now() + SIGNED_URL_TTL_MS,
-          });
+          setCachedSignedUrl(storagePath, signed);
           return signed;
         }}
         onChange={({ content, plainText }) => {

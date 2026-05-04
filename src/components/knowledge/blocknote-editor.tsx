@@ -41,6 +41,7 @@ import {
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
+import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-composer";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 
 import "@blocknote/core/fonts/inter.css";
@@ -128,6 +129,10 @@ export interface CommentsBundle {
   threadStore: ThreadStore;
   resolveUsers: (userIds: string[]) => Promise<CommentUser[]>;
   canComment: boolean;
+  /** Current user — для рендера аватарки + initials в кастомном
+   *  floating-композере (Notion-style chip). null если не залогинен. */
+  currentUserName: string | null;
+  currentUserAvatarUrl: string | null;
 }
 
 export const KB_BLOCKNOTE_FILE_SCHEME = KB_FILE_SCHEME;
@@ -582,13 +587,21 @@ export function KbBlockNoteEditor({
       />
       {/* Comments controllers — рендерятся только если bundle передан.
           FloatingComposerController — pop-up «нового комментария» при
-          клике на AddCommentButton с выделенным текстом.
+          клике на AddCommentButton. Дефолтный composer — голый
+          textarea с Save-кнопкой, заменяем на Notion-style карточку
+          с avatar + send-button (см. kb-floating-composer.tsx).
           FloatingThreadController — открывает thread при клике по
-          существующему comment-mark'у. Дефолтные UI'и из BlockNote'а
-          подойдут, дальше можно стилизовать. */}
+          существующему comment-mark'у; пока default. */}
       {commentsBundle && (
         <>
-          <FloatingComposerController />
+          <FloatingComposerController
+            floatingComposer={() => (
+              <KbFloatingComposer
+                currentUserName={commentsBundle.currentUserName}
+                currentUserAvatarUrl={commentsBundle.currentUserAvatarUrl}
+              />
+            )}
+          />
           <FloatingThreadController />
         </>
       )}

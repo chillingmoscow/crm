@@ -6,14 +6,19 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54
 const supabaseHostname = new URL(supabaseUrl).hostname;
 
 const nextConfig: NextConfig = {
-  // NB: `output: "standalone"` намеренно НЕ выставлен. Coolify запускает
-  // приложение через `pnpm start` (= `next start`), а в стандaлон-режиме
-  // Next.js явно warning'ует «does not work with output: standalone» —
-  // нужен `node .next/standalone/server.js` с ручным копированием
-  // .next/static и public/. Это давало разный chunk-resolution на
-  // каждый request (наблюдалось ReferenceError: window is not defined
-  // в server-чанках при некоторых route'ах). Убрали standalone — теперь
-  // обычный `.next/` build, который полностью совместим с `next start`.
+  // Skip type-check + ESLint во время `next build`. Оба гоняем
+  // локально перед push'ем (`pnpm exec tsc --noEmit`, `pnpm lint`).
+  // На прод-build они второй раз — а Coolify-контейнер ограничен
+  // по памяти и tsc часто OOM-килится (видно в build-логе: build
+  // умирает через ~10 сек после `Linting and checking validity of
+  // types...`). Без этих флагов deploy неустойчиво ронялся 2-3 раза
+  // подряд. Качество кода контролируем pre-push.
+  typescript: {
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
   images: {
     remotePatterns: [
       // Self-hosted Supabase storage (production)

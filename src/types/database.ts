@@ -2602,6 +2602,10 @@ export type Database = {
         }
         Returns: string | null
       }
+      kb_emit_comment_mentions: {
+        Args: { p_comment_id: string; p_user_ids: string[] }
+        Returns: undefined
+      }
       kb_emit_page_mentions: {
         Args: { p_page_id: string; p_user_ids: string[] }
         Returns: undefined

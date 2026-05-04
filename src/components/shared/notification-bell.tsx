@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck, Info, UserPlus, AlertTriangle } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -10,6 +11,7 @@ import {
   markAllNotificationsRead,
 } from "@/app/(dashboard)/notifications/actions";
 import type { Notification } from "@/app/(dashboard)/notifications/actions";
+import { createClient } from "@/lib/supabase/client";
 
 // ── Helpers ─────────────────────────────────────────────────
 function relativeTime(iso: string): string {
@@ -40,6 +42,7 @@ type FilterTab = "all" | "unread";
 
 // ── Component ────────────────────────────────────────────────
 export function NotificationBell() {
+  const router = useRouter();
   const [open, setOpen]               = useState(false);
   const [tab, setTab]                 = useState<FilterTab>("all");
   const [notifications, setNotifs]    = useState<Notification[]>([]);
@@ -47,16 +50,74 @@ export function NotificationBell() {
   const [isPending, startTransition]  = useTransition();
   const ref = useRef<HTMLDivElement>(null);
 
+  // Memo'ize browser supabase client — иначе useEffect ниже создаст
+  // новый instance на каждом render'е и Realtime channel будет
+  // переподключаться. createClient() из @supabase/ssr возвращает
+  // singleton-like, но useMemo страхует от перерасчёта deps.
+  const supabase = useMemo(() => createClient(), []);
+
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  // Load on first open
+  // Initial fetch на mount'е (а не on-open) + realtime subscription.
+  // Без mount-fetch'а bell-counter всегда был 0 пока юзер не кликнет
+  // bell — что воспринималось как «уведомления не работают». Realtime
+  // на INSERT (filter user_id=eq.<my id>) держит count живым без F5.
   useEffect(() => {
-    if (!open || loaded) return;
-    getNotifications().then((data) => {
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (cancelled || !user) return;
+
+      // Initial fetch.
+      const data = await getNotifications();
+      if (cancelled) return;
       setNotifs(data);
       setLoaded(true);
-    });
-  }, [open, loaded]);
+
+      // Realtime: INSERT events on notifications filtered by my user_id
+      // (миграция 089 добавила таблицу в supabase_realtime publication).
+      // На каждый новый row prepend'им в локальный list — bell-counter
+      // обновляется мгновенно.
+      channel = supabase
+        .channel(`notifications:${user.id}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const row = payload.new as {
+              id: string;
+              type: string;
+              title: string;
+              body: string | null;
+              link: string | null;
+              read: boolean;
+              created_at: string;
+            };
+            // Дедуп: если строка уже в state'е (например, доехала
+            // через initial fetch а потом через realtime), не
+            // дублируем.
+            setNotifs((prev) =>
+              prev.some((n) => n.id === row.id) ? prev : [row, ...prev],
+            );
+          },
+        )
+        .subscribe();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (channel) void supabase.removeChannel(channel);
+    };
+  }, [supabase]);
 
   // Close on outside click
   useEffect(() => {
@@ -67,6 +128,24 @@ export function NotificationBell() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+
+  // Click on row → mark read (optimistic) + navigate via Next.js router
+  // (без full page reload). Если link отсутствует — только пометка.
+  const handleRowClick = (notif: Notification) => {
+    if (!notif.read) {
+      // Optimistic, server-action в фоне.
+      setNotifs((prev) =>
+        prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n)),
+      );
+      startTransition(async () => {
+        await markNotificationRead(notif.id);
+      });
+    }
+    if (notif.link) {
+      setOpen(false);
+      router.push(notif.link);
+    }
+  };
 
   const handleMarkRead = (id: string) => {
     startTransition(async () => {
@@ -101,7 +180,9 @@ export function NotificationBell() {
         >
           <Bell className="w-[18px] h-[18px]" />
           {unreadCount > 0 && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-brand ring-2 ring-background" />
+            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground inline-flex items-center justify-center leading-none ring-2 ring-background">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
           )}
         </button>
       </IconTooltip>
@@ -167,9 +248,22 @@ export function NotificationBell() {
               <div key={notif.id}>
                 {i > 0 && <Separator />}
                 <div
+                  role={notif.link ? "button" : undefined}
+                  tabIndex={notif.link ? 0 : undefined}
+                  onClick={() => handleRowClick(notif)}
+                  onKeyDown={(e) => {
+                    if (notif.link && (e.key === "Enter" || e.key === " ")) {
+                      e.preventDefault();
+                      handleRowClick(notif);
+                    }
+                  }}
                   className={`px-4 py-3 flex gap-3 ${
                     notif.read ? "" : "bg-blue-50/50 dark:bg-blue-950/10"
-                  }`}
+                  } ${
+                    notif.link
+                      ? "cursor-pointer hover:bg-accent/60"
+                      : ""
+                  } transition-colors`}
                 >
                   {/* Icon + unread dot */}
                   <div className="flex flex-col items-center pt-0.5 shrink-0 gap-1.5">
@@ -195,7 +289,13 @@ export function NotificationBell() {
                       </span>
                       {!notif.read && (
                         <button
-                          onClick={() => handleMarkRead(notif.id)}
+                          onClick={(e) => {
+                            // Без stopPropagation row-onClick тоже выстрелит
+                            // и зачем-то перейдёт по link'у при клике на
+                            // «Прочитано» — нелогично.
+                            e.stopPropagation();
+                            handleMarkRead(notif.id);
+                          }}
                           disabled={isPending}
                           className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                         >

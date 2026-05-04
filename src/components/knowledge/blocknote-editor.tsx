@@ -360,15 +360,21 @@ export function KbBlockNoteEditor({
 
   // FloatingComposer guard: BlockNote's CommentsExtension автоматически
   // сбрасывает pendingComment при ЛЮБОМ selection-change в outer
-  // editor'е (см. node_modules/@blocknote/core/dist/comments.js:165 —
-  // `t.onSelectionChange(() => { pendingComment && setState(pendingComment:false) })`).
-  // Когда юзер кликает в FloatingComposer'е (внутренний редактор для
-  // ввода текста коммента), фокус уходит из outer ProseMirror'а →
-  // outer фиксирует «selection changed» → pendingComment=false →
-  // popover моментально закрывается. Мы перехватываем это: подписка
-  // на extension-state'у; если pendingComment упал в false ПОКА
-  // активный элемент находится внутри `.bn-thread` (composer card) —
-  // восстанавливаем pending через startPendingComment().
+  // editor'е (node_modules/@blocknote/core/dist/comments.js:165 —
+  // `t.onSelectionChange(() => { pendingComment && setState(false) })`).
+  // Когда юзер кликает или autoFocus'ится в FloatingComposer'е (внутренний
+  // редактор для ввода коммента), focus уходит из outer ProseMirror'а →
+  // outer фиксирует selection-change → pendingComment=false → composer
+  // unmount'ится прежде чем юзер что-то ввёл.
+  //
+  // Workaround: monkey-patch'им `store.setState` extension'а так, чтобы
+  // он БЛОКИРОВАЛ переход pendingComment true→false когда:
+  //   • focus сейчас внутри `.bn-thread` (composer card),
+  //   • И не было recent click'а на кнопку внутри composer'а (Save),
+  //   • И не было recent Escape (закрытие через клавиатуру).
+  // Закрытие через Save / Escape / click outside — пропускаем как и
+  // раньше. Spurious blur'ы — в null. Никакого flicker'а / re-mount'а
+  // FloatingComposer'а: clear не доходит до listeners в принципе.
   useEffect(() => {
     if (!commentsBundle) return;
     const ext = (editor as unknown as {
@@ -378,38 +384,91 @@ export function KbBlockNoteEditor({
     const extWithStore = ext as {
       store?: {
         state: { pendingComment: boolean };
-        subscribe: (fn: () => void) => () => void;
+        setState: (
+          updater:
+            | Partial<{ pendingComment: boolean }>
+            | ((s: { pendingComment: boolean }) => Partial<{
+                pendingComment: boolean;
+              }>),
+        ) => void;
       };
-      startPendingComment?: () => void;
     };
     const store = extWithStore.store;
-    if (!store || !extWithStore.startPendingComment) return;
-    let lastPending = store.state.pendingComment;
-    let restoreTimer: ReturnType<typeof setTimeout> | null = null;
-    const unsubscribe = store.subscribe(() => {
-      const wasOpen = lastPending;
-      const nowOpen = store.state.pendingComment;
-      lastPending = nowOpen;
-      if (!wasOpen || nowOpen) return;
-      // Pending только что обнулилось. Откладываем проверку на 0ms
-      // чтобы pending focus-shifts успели settle: если фокус ушёл в
-      // composer-карточку (`.bn-thread` / `.bn-comment-editor`) — это
-      // false-trigger blur'а outer-редактора, восстанавливаем pending.
-      // Иначе юзер реально кликнул в outer doc → оставляем закрытым.
-      if (restoreTimer) clearTimeout(restoreTimer);
-      restoreTimer = setTimeout(() => {
-        restoreTimer = null;
-        if (store.state.pendingComment) return;
-        const active = document.activeElement;
-        const insideComposer = !!active?.closest?.(
-          ".bn-thread, .bn-comment-editor",
-        );
-        if (insideComposer) extWithStore.startPendingComment?.();
-      }, 0);
-    });
+    if (!store) return;
+
+    // Sticky-флаг: «юзер запросил закрытие composer'а» (Save / Escape /
+    // click outside). Без time-window — Save'у в SupabaseThreadStore
+    // нужно дождаться 2-х sequential INSERT'ов (см. comments-store.ts:
+    // createThread), что на медленной сети может уйти за 500мс. К моменту
+    // когда `stopPendingComment()` наконец дойдёт до setState, гипотетический
+    // time-gate уже истёк бы, и мы бы заблокировали legitimate close. См.
+    // Codex #68 P1.
+    //
+    // Логика: флаг ставится сразу на pointerdown/click button-в-composer'е
+    // или Escape, держится до next pendingComment-transition (любого) и
+    // сбрасывается там. На re-open (false→true) тоже сбрасываем — на
+    // случай если предыдущий close был заблокирован, чтобы не остался
+    // «протухший» intent.
+    let intentionalClose = false;
+    const markIntentionalClose = (e: Event) => {
+      const target = e.target as Element | null;
+      if (
+        target?.closest?.('.bn-thread button, .bn-thread [role="button"]')
+      ) {
+        intentionalClose = true;
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") intentionalClose = true;
+    };
+    document.addEventListener("pointerdown", markIntentionalClose, true);
+    document.addEventListener("click", markIntentionalClose, true);
+    document.addEventListener("keydown", onKeyDown, true);
+
+    const originalSetState = store.setState;
+    store.setState = ((updater: unknown) => {
+      const prev = store.state;
+      const next =
+        typeof updater === "function"
+          ? (
+              updater as (s: { pendingComment: boolean }) => Partial<{
+                pendingComment: boolean;
+              }>
+            )(prev)
+          : (updater as Partial<{ pendingComment: boolean }>);
+      const closing =
+        next?.pendingComment === false && prev.pendingComment === true;
+      const opening =
+        next?.pendingComment === true && prev.pendingComment === false;
+
+      if (closing) {
+        if (intentionalClose) {
+          intentionalClose = false; // consumed
+        } else {
+          const active = document.activeElement;
+          const insideComposer = !!active?.closest?.(
+            ".bn-thread, .bn-comment-editor",
+          );
+          // Фокус внутри composer'а + нет intentional-флага = spurious
+          // blur от outer-editor'а. Блокируем close, состояние не меняется.
+          if (insideComposer) return;
+        }
+      } else if (opening) {
+        // Новый цикл — сбрасываем lingering intent (если предыдущий
+        // close был заблокирован, флаг мог остаться).
+        intentionalClose = false;
+      }
+      originalSetState.call(
+        store,
+        updater as Parameters<typeof originalSetState>[0],
+      );
+    }) as typeof store.setState;
+
     return () => {
-      unsubscribe();
-      if (restoreTimer) clearTimeout(restoreTimer);
+      store.setState = originalSetState;
+      document.removeEventListener("pointerdown", markIntentionalClose, true);
+      document.removeEventListener("click", markIntentionalClose, true);
+      document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [editor, commentsBundle]);
 

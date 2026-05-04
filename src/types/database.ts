@@ -1853,10 +1853,16 @@ export type Database = {
       }
       notifications: {
         Row: {
+          actor_user_id: string | null
+          archived_at: string | null
           body: string | null
+          category: string
           created_at: string
+          entity_id: string | null
+          entity_type: string | null
           id: string
           link: string | null
+          payload: Json
           read: boolean
           title: string
           type: string
@@ -1864,10 +1870,16 @@ export type Database = {
           venue_id: string | null
         }
         Insert: {
+          actor_user_id?: string | null
+          archived_at?: string | null
           body?: string | null
+          category?: string
           created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
           id?: string
           link?: string | null
+          payload?: Json
           read?: boolean
           title: string
           type?: string
@@ -1875,10 +1887,16 @@ export type Database = {
           venue_id?: string | null
         }
         Update: {
+          actor_user_id?: string | null
+          archived_at?: string | null
           body?: string | null
+          category?: string
           created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
           id?: string
           link?: string | null
+          payload?: Json
           read?: boolean
           title?: string
           type?: string

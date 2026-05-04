@@ -20,7 +20,10 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from "@/app/(dashboard)/notifications/actions";
-import type { Notification } from "@/app/(dashboard)/notifications/actions";
+import type {
+  Notification,
+  NotificationPayload,
+} from "@/app/(dashboard)/notifications/actions";
 import { createClient } from "@/lib/supabase/client";
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -114,14 +117,26 @@ export function NotificationBell() {
               id: (payload.new as { id?: string }).id,
               type: (payload.new as { type?: string }).type,
             });
-            const row = payload.new as {
-              id: string;
-              type: string;
-              title: string;
-              body: string | null;
-              link: string | null;
-              read: boolean;
-              created_at: string;
+            const raw = payload.new as Record<string, unknown>;
+            // Coerce realtime row → Notification shape, заполняя
+            // дефолты для полей которые могут отсутствовать у legacy
+            // rows / разных эмиттеров (category и payload получили
+            // default'ы в миграции 098, но coerce страхует от
+            // serialization edge-case'ов).
+            const row: Notification = {
+              id:           raw.id as string,
+              type:         (raw.type as string) ?? "system",
+              category:     (raw.category as string) ?? "system",
+              title:        (raw.title as string) ?? "",
+              body:         (raw.body as string | null) ?? null,
+              link:         (raw.link as string | null) ?? null,
+              read:         Boolean(raw.read),
+              archived_at:  (raw.archived_at as string | null) ?? null,
+              actor_user_id: (raw.actor_user_id as string | null) ?? null,
+              entity_type:  (raw.entity_type as string | null) ?? null,
+              entity_id:    (raw.entity_id as string | null) ?? null,
+              payload:      (raw.payload as NotificationPayload) ?? {},
+              created_at:   raw.created_at as string,
             };
             // Дедуп: если строка уже в state'е (например, доехала
             // через initial fetch а потом через realtime), не

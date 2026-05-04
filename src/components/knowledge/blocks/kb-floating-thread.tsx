@@ -236,12 +236,15 @@ function CommentRow({
 
   return (
     <div className="group flex items-start gap-2.5 px-3 py-2.5 relative">
-      <Avatar user={user} />
+      <Avatar user={user} userId={comment.userId} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold text-foreground truncate">
+          <a
+            href={`/people/staff/${comment.userId}`}
+            className="text-sm font-semibold text-foreground truncate hover:underline"
+          >
             {user?.username ?? "..."}
-          </span>
+          </a>
           <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">
             {formatRelative(comment.createdAt)}
             {comment.updatedAt &&
@@ -526,12 +529,15 @@ function EditCommentRow({
 
   return (
     <div className="flex items-start gap-2.5 px-3 py-2.5 bg-accent/30">
-      <Avatar user={user} />
+      <Avatar user={user} userId={comment.userId} />
       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold text-foreground truncate">
+          <a
+            href={`/people/staff/${comment.userId}`}
+            className="text-sm font-semibold text-foreground truncate hover:underline"
+          >
             {user?.username ?? "..."}
-          </span>
+          </a>
           <span className="text-[11px] text-muted-foreground">
             редактирование
           </span>
@@ -682,24 +688,39 @@ function ReplyInput({
   );
 }
 
-function Avatar({ user }: { user: CommentUser | undefined }) {
+function Avatar({
+  user,
+  userId,
+}: {
+  user: CommentUser | undefined;
+  /** Если передан — оборачиваем в `<a>` со ссылкой на профиль. */
+  userId?: string;
+}) {
   const name = user?.username ?? "";
   const initials = getInitials(name);
-  if (user?.avatarUrl) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={user.avatarUrl}
-        alt=""
-        className="size-7 rounded-full object-cover bg-muted shrink-0"
-      />
-    );
-  }
-  return (
+  const inner = user?.avatarUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={user.avatarUrl}
+      alt=""
+      className="size-7 rounded-full object-cover bg-muted shrink-0"
+    />
+  ) : (
     <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
       {initials}
     </span>
   );
+  if (userId) {
+    return (
+      <a
+        href={`/people/staff/${userId}`}
+        className="shrink-0 hover:opacity-90 transition-opacity"
+      >
+        {inner}
+      </a>
+    );
+  }
+  return inner;
 }
 
 function getInitials(name: string): string {

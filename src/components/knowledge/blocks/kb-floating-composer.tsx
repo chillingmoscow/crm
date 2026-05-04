@@ -10,6 +10,7 @@ import {
 import { CommentsExtension } from "@blocknote/core/comments";
 
 import { cn } from "@/lib/utils";
+import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
 
 /**
  * Custom Notion-style floating composer для KB-комментариев. Заменяет
@@ -84,6 +85,15 @@ export function KbFloatingComposer({
     ];
     try {
       await ext.createThread({ initialComment: { body } });
+      // КРИТИЧНО: createThread ВНУТРИ TipTap'а добавляет comment-mark
+      // на selection через editor.transact → editor.onChange
+      // → scheduleSave (debounce 2s). Если юзер reload'ит страницу
+      // в течение этих 2 секунд, mark'а в kb_pages.content нет, и
+      // на след. загрузке тред становится «orphan» (BN рисует его
+      // как `data-orphan="true"`, gutter-индикатор скрывает,
+      // popover не открыть). Force-flush снимает гонку — save
+      // улетает синхронно сразу после создания thread'а.
+      await flushAllPendingSaves();
       ext.stopPendingComment();
       // Возвращаем focus в outer editor — иначе он остаётся на нашем
       // (уже unmount'ed) textarea и keyboard input уходит в body.

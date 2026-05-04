@@ -2460,6 +2460,10 @@ export type Database = {
         Args: { p_invitation_id: string }
         Returns: undefined
       }
+      auto_archive_old_notifications: {
+        Args: Record<string, never>
+        Returns: number
+      }
       apply_transaction_balance_delta: {
         Args: { p_bank_account_id: string; p_delta: number }
         Returns: undefined

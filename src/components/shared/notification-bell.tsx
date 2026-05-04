@@ -2,7 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Check, CheckCheck, Info, UserPlus, AlertTriangle } from "lucide-react";
+import {
+  AlertTriangle,
+  AtSign,
+  Bell,
+  BookOpen,
+  Check,
+  CheckCheck,
+  Info,
+  MessageCircle,
+  UserPlus,
+} from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
@@ -30,9 +40,16 @@ function NotifIcon({ type }: { type: string }) {
   const cls = "w-4 h-4 shrink-0";
   if (type === "invite")  return <UserPlus      className={`${cls} text-blue-500`} />;
   if (type === "warning") return <AlertTriangle className={`${cls} text-amber-500`} />;
-  // KB-нотификации (Sprint D Phase 4) — все используют warning-цвет,
-  // т.к. это compliance-сигналы («тебе нужно прочесть / на тебя
-  // ссылаются»). Префикс `kb.` отличает от других модулей.
+  // KB-нотификации (Sprint D Phase 4) — разные иконки per-type, чтобы
+  // в bell'е визуально отличать «упомянули» от «обязательно прочесть»
+  // от «новый ответ в треде».
+  if (type === "kb.mention_in_page" || type === "kb.mention_in_comment")
+    return <AtSign className={`${cls} text-blue-500`} />;
+  if (type === "kb.required_reading_assigned")
+    return <BookOpen className={`${cls} text-amber-500`} />;
+  if (type === "kb.comment_replied")
+    return <MessageCircle className={`${cls} text-emerald-500`} />;
+  // Fallback для неизвестных kb.* — общий warning.
   if (type.startsWith("kb."))
     return <AlertTriangle className={`${cls} text-amber-500`} />;
   return <Info className={`${cls} text-muted-foreground`} />;

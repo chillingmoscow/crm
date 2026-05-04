@@ -183,9 +183,16 @@ export default async function KbPageView({ params }: PageProps) {
         <KbBackLink href={backHref} label={backLabel} />
       </PageBreadcrumb>
       <PageHeaderActions>
-        <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
+        {/* key={row.id} на всех client-toggles: иначе при навигации между
+            страницами (page A required=true → page B required=false)
+            компонент остаётся примонтированным, useState(initialXxx)
+            не реинициализируется новым prop'ом, и иконка показывает
+            старое состояние. С key='${row.id}' React unmount'ит и
+            заново монтирует — useState видит свежий initial prop. */}
+        <KbFavoriteToggle key={row.id} pageId={row.id} initialFavorited={favorited} />
         {canManageRequiredReading && (
           <KbRequiredReadingToggle
+            key={row.id}
             pageId={row.id}
             initialRequired={readStatus.required}
           />
@@ -194,7 +201,7 @@ export default async function KbPageView({ params }: PageProps) {
           <KbRequiredReadingStatsLink slug={row.slug} />
         )}
         {canLock && (
-          <KbPageLockToggle pageId={row.id} initialLocked={isLocked} />
+          <KbPageLockToggle key={row.id} pageId={row.id} initialLocked={isLocked} />
         )}
         {canViewAnalytics && <KbPageAnalyticsLink slug={row.slug} />}
         <KbUndoRedoButtons canEdit={canEdit} />

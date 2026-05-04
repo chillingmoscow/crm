@@ -33,11 +33,12 @@ export function KbRequiredReadingToggle({
   // Sync с server-prop'ом: при навигации между страницами компонент
   // не remount'ится (он живёт в PageHeaderActions slot'е через
   // context), поэтому useState без явной синхронизации залипает на
-  // первом значении. Effect перезаписывает state когда initialRequired
-  // приходит другой — например, на page A было true, на page B false.
+  // первом значении. pageId в deps (Codex #86 P1): без него если
+  // оптимистично переключили на A, а у B initialRequired такой же
+  // как стал на A — sync не сработает, state stale'ится.
   useEffect(() => {
     setRequired(initialRequired);
-  }, [initialRequired]);
+  }, [initialRequired, pageId]);
 
   const onToggle = async () => {
     const next = !required;

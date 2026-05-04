@@ -34,9 +34,12 @@ export function KbPageLockToggle({
 
   // Sync с server-prop'ом при навигации между страницами (компонент
   // живёт в PageHeaderActions slot'е через context, без remount'а).
+  // pageId в deps (Codex #86 P1): без него если оптимистично
+  // переключили на A, а у B initialLocked такой же как стал на A —
+  // sync не сработает, state stale'ится.
   useEffect(() => {
     setLocked(initialLocked);
-  }, [initialLocked]);
+  }, [initialLocked, pageId]);
 
   const onToggle = async () => {
     const next = !locked;

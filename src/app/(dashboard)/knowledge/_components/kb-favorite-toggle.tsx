@@ -28,9 +28,14 @@ export function KbFavoriteToggle({
 
   // Sync с server-prop'ом при навигации между страницами (компонент
   // живёт в PageHeaderActions slot'е через context, без remount'а).
+  // pageId в deps нужен (Codex #86 P1): иначе если на page A юзер
+  // оптимистично переключил state, а у page B initialFavorited такой
+  // же как стал на A после toggle'а — useEffect не fires, state
+  // stale'ится. С pageId каждое page-transition детерминированно
+  // сбрасывает state.
   useEffect(() => {
     setFavorited(initialFavorited);
-  }, [initialFavorited]);
+  }, [initialFavorited, pageId]);
 
   const onToggle = () => {
     const next = !favorited;

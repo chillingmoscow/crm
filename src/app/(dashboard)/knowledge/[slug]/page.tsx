@@ -22,7 +22,6 @@ import { KbRequiredReadingToggle } from "@/app/(dashboard)/knowledge/_components
 import { KbRequiredReadingStatsLink } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-stats-link";
 import { KbPageAnalyticsLink } from "@/app/(dashboard)/knowledge/_components/kb-page-analytics-link";
 import { KbPageLockToggle } from "@/app/(dashboard)/knowledge/_components/kb-page-lock-toggle";
-import { KbThreadsSidebarToggle } from "@/app/(dashboard)/knowledge/_components/kb-threads-sidebar-toggle";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import type { KbBlock, KbPageRow } from "@/types/knowledge";
 
@@ -206,10 +205,6 @@ export default async function KbPageView({ params }: PageProps) {
           <KbPageLockToggle pageId={row.id} initialLocked={isLocked} />
         )}
         {canViewAnalytics && <KbPageAnalyticsLink slug={row.slug} />}
-        {/* Toggle «Все обсуждения» — видна только если юзер может видеть
-            комментарии (то же gate'а, что включает comments-bundle ниже).
-            Открывает Notion-style sidebar со списком тредов. */}
-        {Boolean(hasComment) && <KbThreadsSidebarToggle />}
         <KbUndoRedoButtons canEdit={canEdit} />
         <KbVersionHistory pageId={row.id} canEdit={canEdit} />
         <KbPageActions

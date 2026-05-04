@@ -355,34 +355,40 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   // если 0, проверяем active-membership / self-mention / edit-perm.
   const mentionedUserIds = extractMentionedUserIds(parsed.data.content);
   if (mentionedUserIds.length > 0) {
-    const { data: emittedCount, error: emitErr } = await supabase.rpc(
-      "kb_emit_page_mentions",
-      {
+    // Fire-and-forget: НЕ ждём RPC чтобы не блокировать debounced
+    // 2-сек auto-save (Codex #82 P2). Логи приходят асинхронно через
+    // .then() — ничего блокирующего не остаётся на критическом пути.
+    void supabase
+      .rpc("kb_emit_page_mentions", {
         p_page_id: parsed.data.id,
         p_user_ids: mentionedUserIds,
         p_version_number: savedVersion,
-      },
-    );
-    if (emitErr) {
-      console.warn("[kb-mentions] emit RPC failed", {
-        pageId: parsed.data.id,
-        userIds: mentionedUserIds,
-        version: savedVersion,
-        error: emitErr.message,
+      })
+      .then(({ data: emittedCount, error: emitErr }) => {
+        if (emitErr) {
+          console.warn("[kb-mentions] emit RPC failed", {
+            pageId: parsed.data.id,
+            userIds: mentionedUserIds,
+            version: savedVersion,
+            error: emitErr.message,
+          });
+        } else if (typeof emittedCount === "number" && emittedCount === 0) {
+          console.info(
+            "[kb-mentions] no notifs emitted (filtered by self/membership/already-sent)",
+            {
+              pageId: parsed.data.id,
+              candidateCount: mentionedUserIds.length,
+              version: savedVersion,
+            },
+          );
+        } else {
+          console.info("[kb-mentions] emitted", {
+            pageId: parsed.data.id,
+            count: emittedCount,
+            version: savedVersion,
+          });
+        }
       });
-    } else if (typeof emittedCount === "number" && emittedCount === 0) {
-      console.info("[kb-mentions] no notifs emitted (filtered by self/membership/already-sent)", {
-        pageId: parsed.data.id,
-        candidateCount: mentionedUserIds.length,
-        version: savedVersion,
-      });
-    } else {
-      console.info("[kb-mentions] emitted", {
-        pageId: parsed.data.id,
-        count: emittedCount,
-        version: savedVersion,
-      });
-    }
   }
 
   // Fire-and-forget reembedding для RAG. Не блокирует caller'а

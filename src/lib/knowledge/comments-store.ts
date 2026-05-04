@@ -12,7 +12,9 @@ import {
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/client";
+import { extractMentionedUserIds } from "@/lib/knowledge/mention-extract";
 import type { Database } from "@/types/database";
+import type { KbBlock } from "@/types/knowledge";
 
 /**
  * SupabaseThreadStore — реализация BlockNote `ThreadStore` поверх
@@ -464,6 +466,14 @@ export class SupabaseThreadStore extends ThreadStore {
       author_id: commentRow.author_id,
       metadata: commentRow.metadata,
     });
+    // Fire-and-forget @-mention notifications для упомянутых сотрудников.
+    // Server-RPC `kb_emit_comment_mentions` (миграция 090) идемпотентен
+    // через PK kb_comment_user_mentions — повторный вызов с теми же
+    // user_ids не пушит дубликаты. Никогда не блокируем save'е (если
+    // упадёт — потеряли уведомление, но не save).
+    if (!cErr) {
+      this.emitCommentMentions(commentRow.id, opts.initialComment.body);
+    }
     if (cErr) {
       // Soft-delete rollback вместо hard-delete: миграция 076 НЕ
       // даёт DELETE policy на kb_threads (table рассчитана на
@@ -534,7 +544,32 @@ export class SupabaseThreadStore extends ThreadStore {
       throw new Error(`Не удалось добавить комментарий: ${error.message}`);
     }
 
+    // Fire-and-forget @-mention notifications.
+    this.emitCommentMentions(commentRow.id, opts.comment.body);
+
     return commentData;
+  }
+
+  /** Извлекает @-mention'ы из BlockNote-body коммента и пушит RPC.
+   *  Не throw'ит — если RPC упадёт, save коммента уже состоялся, а
+   *  notification — best-effort. */
+  private emitCommentMentions(commentId: string, body: CommentBody): void {
+    const blocks = (Array.isArray(body) ? body : []) as KbBlock[];
+    const userIds = extractMentionedUserIds(blocks);
+    if (userIds.length === 0) return;
+    void this.supabase
+      .rpc("kb_emit_comment_mentions", {
+        p_comment_id: commentId,
+        p_user_ids: userIds,
+      })
+      .then(({ error }) => {
+        if (error) {
+          console.warn("[kb-comment] emit mentions failed", {
+            commentId,
+            error: error.message,
+          });
+        }
+      });
   }
 
   async updateComment(opts: {

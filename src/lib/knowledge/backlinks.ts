@@ -30,6 +30,14 @@ export function extractBacklinks(content: KbBlock[]): {
           const slug = parseKnowledgeHref(href);
           if (slug) slugs.add(slug);
         }
+        // Custom inline-content kbPageMention хранит slug в props
+        // напрямую — атомарный chip (см. kb-page-mention.tsx).
+        if (inline.type === "kbPageMention") {
+          const props = (inline as { props?: { slug?: unknown } }).props;
+          if (typeof props?.slug === "string" && props.slug.length > 0) {
+            slugs.add(props.slug);
+          }
+        }
       });
     }
   });

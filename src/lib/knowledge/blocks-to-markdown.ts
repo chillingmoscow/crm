@@ -23,6 +23,8 @@ interface InlineRun {
   href?: string;
   content?: InlineRun[];
   styles?: Record<string, boolean | string>;
+  /** Custom inline-content props (kbPageMention, kbStaffMention). */
+  props?: Record<string, unknown>;
 }
 
 interface BlockLike {
@@ -153,7 +155,30 @@ function inlineToMd(items: InlineRun[]): string {
       if (it.type === "link" && Array.isArray(it.content)) {
         return `[${inlineToMd(it.content)}](${it.href ?? ""})`;
       }
-      // mention или прочие custom inline — fallback на inner text.
+      // Atomic KB-page mention (см. kb-page-mention.tsx). content: "none",
+      // текст живёт в props.title. Рендерим как обычный markdown-link
+      // на slug — тот же формат, который parser восстанавливает в plain
+      // link'и при обратном импорте.
+      if (it.type === "kbPageMention") {
+        const slug = typeof it.props?.slug === "string" ? it.props.slug : "";
+        const title =
+          typeof it.props?.title === "string" && it.props.title.length > 0
+            ? it.props.title
+            : "Без названия";
+        if (!slug) return escapeMd(title);
+        return `[${escapeMd(title)}](/knowledge/${slug})`;
+      }
+      if (it.type === "kbStaffMention") {
+        const userId =
+          typeof it.props?.userId === "string" ? it.props.userId : "";
+        const fullName =
+          typeof it.props?.fullName === "string" && it.props.fullName.length > 0
+            ? it.props.fullName
+            : "Без имени";
+        if (!userId) return escapeMd(`@${fullName}`);
+        return `[@${escapeMd(fullName)}](/people/staff/${userId})`;
+      }
+      // прочие custom inline — fallback на inner text.
       if (Array.isArray(it.content)) return inlineToMd(it.content);
       if (typeof it.text === "string") return escapeMd(it.text);
       return "";

@@ -15,6 +15,7 @@ export type KbMentionPerson = {
   kind: "person";
   id: string;
   full_name: string;
+  avatar_url: string | null;
 };
 
 export type KbMention = KbMentionPage | KbMentionPerson;
@@ -73,12 +74,14 @@ export async function searchKbMentions(
     id: string;
     first_name: string | null;
     last_name: string | null;
+    avatar_url: string | null;
   }>).map((u) => {
     const parts = [u.first_name, u.last_name].filter(Boolean) as string[];
     return {
       kind: "person" as const,
       id: u.id,
       full_name: parts.length > 0 ? parts.join(" ") : "Без имени",
+      avatar_url: u.avatar_url,
     };
   });
 

@@ -43,22 +43,25 @@ export function KbMentionMenu({ editor }: KbMentionMenuProps) {
 function buildItem(it: KbMention, editor: BlockNoteEditor) {
   if (it.kind === "page") {
     const label = it.title || "Без названия";
-    // Inline-link тексту не нужен иконочный prefix для Lucide-иконок
-    // (рендерятся отдельно перед текстом в menu, и в самой статье
-    // достаточно текста-ссылки). Для emoji оставляем prefix — они
-    // часть «иконки страницы» в восприятии Notion.
-    const isEmoji = it.icon && it.icon.length <= 4 && !/^[a-z][a-z0-9-]*$/.test(it.icon);
-    const display = isEmoji ? `${it.icon} ${label}` : label;
     return {
       title: label,
       subtext: "Страница",
       icon: <KbPageIcon icon={it.icon} color={it.icon_color} size={16} />,
       onItemClick: () => {
+        // Кастомный inline-content (kbPageMention) — атомарный chip
+        // с иконкой + bold-заголовком. Backspace удаляет mention
+        // целиком (Notion-style), частичная правка невозможна. Стиль
+        // не link-ovsky, текст обычного цвета. См.
+        // src/components/knowledge/blocks/kb-page-mention.tsx.
         editor.insertInlineContent([
           {
-            type: "link",
-            href: `/knowledge/${it.slug}`,
-            content: [{ type: "text", text: display, styles: {} }],
+            type: "kbPageMention",
+            props: {
+              slug: it.slug,
+              title: label,
+              icon: it.icon ?? "",
+              iconColor: it.icon_color ?? "",
+            },
           } as never,
           " ",
         ] as never);
@@ -66,18 +69,31 @@ function buildItem(it: KbMention, editor: BlockNoteEditor) {
     };
   }
 
-  // Person
+  // Person — атомарный chip с мини-аватаркой (или инициалами как
+  // fallback). См. kb-staff-mention.tsx.
   const label = it.full_name;
   return {
     title: label,
     subtext: "Сотрудник",
-    icon: <User className="size-4" />,
+    icon: it.avatar_url ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={it.avatar_url}
+        alt=""
+        className="size-4 rounded-full object-cover bg-muted shrink-0"
+      />
+    ) : (
+      <User className="size-4" />
+    ),
     onItemClick: () => {
       editor.insertInlineContent([
         {
-          type: "link",
-          href: `/people/staff/${it.id}`,
-          content: [{ type: "text", text: `@${label}`, styles: {} }],
+          type: "kbStaffMention",
+          props: {
+            userId: it.id,
+            fullName: label,
+            avatarUrl: it.avatar_url ?? "",
+          },
         } as never,
         " ",
       ] as never);

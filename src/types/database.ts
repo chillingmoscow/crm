@@ -2553,6 +2553,7 @@ export type Database = {
       kb_list_account_members: {
         Args: { p_limit?: number; p_query: string }
         Returns: {
+          avatar_url: string | null
           first_name: string
           id: string
           last_name: string

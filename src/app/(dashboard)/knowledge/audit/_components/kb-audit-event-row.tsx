@@ -5,6 +5,7 @@ import {
   ArrowRightFromLine,
   Trash2,
   RotateCcw,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -96,6 +97,29 @@ const SPECS: Record<string, EventSpec> = {
         из корзины
       </>
     ),
+  },
+  "kb_page.required_reading_toggled": {
+    icon: BookOpen,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildLabel: (e) => {
+      // Legacy events (миграция 087) использовали payload key `enabled`,
+      // новые (миграция 096) — `new_value`. Fallback нужен чтобы не
+      // рендерить старые «отметил» как «снял» (Codex #85 P1).
+      const newValue = Boolean(
+        (e.details as { new_value?: boolean; enabled?: boolean }).new_value ??
+          (e.details as { enabled?: boolean }).enabled,
+      );
+      return (
+        <>
+          {newValue
+            ? "пометил(а) страницу как обязательную к прочтению"
+            : "снял(а) флаг обязательного прочтения со страницы"}{" "}
+          <strong className="font-medium">
+            «{(e.details.title as string) || "Без названия"}»
+          </strong>
+        </>
+      );
+    },
   },
 };
 

@@ -258,9 +258,7 @@ function CommentRow({
           </span>
         </div>
         <div className="text-sm text-foreground leading-snug whitespace-pre-wrap break-words mt-0.5">
-          {text || (
-            <span className="italic text-muted-foreground">пусто</span>
-          )}
+          <CommentBodyRenderer body={comment.body} />
         </div>
         <Reactions comment={comment} store={store} threadId={threadId} />
       </div>
@@ -753,6 +751,90 @@ function Avatar({
 
 function getInitials(name: string): string {
   if (!name) return "?";
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  if (parts.length === 0) return "?";
+  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
+}
+
+/**
+ * Рендер comment body с инлайновыми kbStaffMention chip'ами.
+ *
+ * Comment body — BN-документ (массив paragraph-блоков с inline-content).
+ * extractCommentText flattens до строки для поиска / preview, но в UI
+ * thread'а нужен rich-render: text-run'ы плюс styled-chip'ы для
+ * упомянутых сотрудников. Стиль chip'а matches `kbStaffMention`'у
+ * в editor'е (Notion-style).
+ *
+ * Для других inline-types (link, formatted styles) пока degradation —
+ * рендер как plain text, расширим если понадобится.
+ */
+function CommentBodyRenderer({ body }: { body: unknown }) {
+  if (!Array.isArray(body) || body.length === 0) {
+    return <span className="italic text-muted-foreground">пусто</span>;
+  }
+  return (
+    <>
+      {body.map((block, blockIdx) => {
+        if (!block || typeof block !== "object") return null;
+        const b = block as { content?: unknown };
+        if (!Array.isArray(b.content) || b.content.length === 0) {
+          return blockIdx > 0 ? <br key={blockIdx} /> : null;
+        }
+        return (
+          <span key={blockIdx} className="block">
+            {b.content.map((item, i) => {
+              if (!item || typeof item !== "object") return null;
+              const it = item as {
+                type?: string;
+                text?: string;
+                props?: {
+                  userId?: string;
+                  fullName?: string;
+                  avatarUrl?: string;
+                };
+              };
+              if (it.type === "text" && typeof it.text === "string") {
+                return <span key={i}>{it.text}</span>;
+              }
+              if (
+                it.type === "kbStaffMention" &&
+                typeof it.props?.userId === "string"
+              ) {
+                const fullName = it.props.fullName ?? "Без имени";
+                const avatarUrl = it.props.avatarUrl ?? "";
+                const initials = getInitialsForChip(fullName);
+                return (
+                  <a
+                    key={i}
+                    href={`/people/staff/${it.props.userId}`}
+                    className="inline-flex items-center gap-1 px-1 py-0.5 mx-px rounded text-foreground font-semibold no-underline hover:bg-accent transition-colors align-baseline"
+                  >
+                    {avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={avatarUrl}
+                        alt=""
+                        className="size-[14px] rounded-full object-cover bg-muted shrink-0"
+                      />
+                    ) : (
+                      <span className="size-[14px] rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[8px] font-semibold shrink-0">
+                        {initials}
+                      </span>
+                    )}
+                    <span>{fullName}</span>
+                  </a>
+                );
+              }
+              return null;
+            })}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function getInitialsForChip(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
   if (parts.length === 0) return "?";
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";

@@ -6,7 +6,14 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54
 const supabaseHostname = new URL(supabaseUrl).hostname;
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // NB: `output: "standalone"` намеренно НЕ выставлен. Coolify запускает
+  // приложение через `pnpm start` (= `next start`), а в стандaлон-режиме
+  // Next.js явно warning'ует «does not work with output: standalone» —
+  // нужен `node .next/standalone/server.js` с ручным копированием
+  // .next/static и public/. Это давало разный chunk-resolution на
+  // каждый request (наблюдалось ReferenceError: window is not defined
+  // в server-чанках при некоторых route'ах). Убрали standalone — теперь
+  // обычный `.next/` build, который полностью совместим с `next start`.
   images: {
     remotePatterns: [
       // Self-hosted Supabase storage (production)

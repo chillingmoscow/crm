@@ -76,10 +76,11 @@ export interface KbStaffPreview {
 
 /** Preview сотрудника для inline-mention tooltip'а (`/people/staff/<id>`).
  *
- *  RLS на user_venue_roles + profiles фильтрует по active-account
- *  (kb-mention picker уже использует тот же pool через
- *  kb_list_account_members). Фетчим profile + active membership
- *  одним подзапросом.
+ *  Использует тот же account-scoped path что и mention-picker
+ *  (`kb_list_account_members` RPC) — иначе в multi-venue аккаунтах
+ *  mention резолвится в picker'е, но preview возвращает null для
+ *  сотрудников ВНЕ active venue'а (RLS на profiles venue-scoped).
+ *  См. Codex #85 P2.
  *
  *  Sprint D Phase 7 / inline-preview tooltip — staff-вариант.
  *  Кэшируется на client-side per-userId (как и page-preview). */
@@ -87,28 +88,30 @@ export async function getKbStaffPreview(
   userId: string,
 ): Promise<{ preview: KbStaffPreview | null; error: string | null }> {
   const supabase = await createClient();
-  // profile + первое active-membership с role-name. Фильтруем по
-  // current account через user_venue_roles + venues — если у юзера
-  // нет ролей в текущем аккаунте, role_name возвращается null
-  // (не падаем — chip всё равно рендерится с именем).
-  const { data: profile, error: profErr } = await supabase
-    .from("profiles")
-    .select("id, first_name, last_name, avatar_url")
-    .eq("id", userId)
-    .maybeSingle();
-  if (profErr) return { preview: null, error: profErr.message };
-  if (!profile) return { preview: null, error: null };
+  // kb_list_account_members account-scoped через RPC's body — RLS на
+  // profiles не мешает. Без query / с пустым — отдаст всех members
+  // до лимита; ищем нужного userId среди них. На реальных аккаунтах
+  // (десятки members) лимит 200 покрывает с запасом; client-side
+  // cache в KbLinkPreview предотвращает повторные запросы.
+  const { data: members, error: rpcErr } = await supabase.rpc(
+    "kb_list_account_members",
+    { p_query: "", p_limit: 200 },
+  );
+  if (rpcErr) return { preview: null, error: rpcErr.message };
+
+  const member = (members ?? []).find((m) => m.id === userId);
+  if (!member) return { preview: null, error: null };
 
   const fullName =
-    [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
+    [member.first_name, member.last_name].filter(Boolean).join(" ") ||
     "Без имени";
 
-  // Active role в текущем аккаунте — берём первую попавшуюся (юзер
-  // может быть в нескольких venue'ах с разными ролями, но для
-  // tooltip'а одной достаточно).
+  // Active role в active venue caller'а. user_venue_roles RLS пускает
+  // active members своих venue'ов; если упомянутый юзер не в active
+  // venue caller'а — role_name просто null (chip рендерится без role'а).
   const { data: roleRow } = await supabase
     .from("user_venue_roles")
-    .select("roles(name), venues!inner(account_id)")
+    .select("roles(name)")
     .eq("user_id", userId)
     .eq("status", "active")
     .limit(1)
@@ -118,9 +121,9 @@ export async function getKbStaffPreview(
 
   return {
     preview: {
-      user_id: profile.id,
+      user_id: member.id,
       full_name: fullName,
-      avatar_url: profile.avatar_url,
+      avatar_url: member.avatar_url,
       role_name: roleName,
     },
     error: null,

@@ -547,9 +547,13 @@ function computeCaretCoords(
   const offsetLeft = sentinel.offsetLeft;
   document.body.removeChild(mirror);
   // Position dropdown ниже caret-line (line-height + small gap).
+  // Dropdown рендерится через `position: fixed`, поэтому coords —
+  // в координатах VIEWPORT'а, не document'а. window.scrollY/X
+  // ДОБАВЛЯТЬ НЕ НАДО — иначе при scrolled-странице dropdown
+  // улетает вниз за viewport на величину scroll'а.
   const lineHeight = parseFloat(cs.lineHeight || "20") || 20;
   return {
-    top: taRect.top + window.scrollY + offsetTop + lineHeight + 4 - ta.scrollTop,
-    left: taRect.left + window.scrollX + offsetLeft - ta.scrollLeft,
+    top: taRect.top + offsetTop + lineHeight + 4 - ta.scrollTop,
+    left: taRect.left + offsetLeft - ta.scrollLeft,
   };
 }

@@ -149,6 +149,14 @@ export class SupabaseThreadStore extends ThreadStore {
    *  «автор треда может resolve / delete независимо от editor-роли». */
   private threadCreators = new Map<string, string | null>();
 
+  /** ID последнего треда, созданного через `createThread()`. Composer
+   *  читает после await'а чтобы открыть thread popover (selectThread)
+   *  на свежесозданном треде — UX «сразу видишь что комментарий
+   *  опубликовался».
+   *
+   *  Read-only снаружи, set'им только в createThread. */
+  public lastCreatedThreadId: string | null = null;
+
   constructor(opts: SupabaseThreadStoreOptions) {
     const auth = new KbThreadStoreAuth({
       userId: opts.userId,
@@ -518,6 +526,7 @@ export class SupabaseThreadStore extends ThreadStore {
     this.threadCache.set(threadId, threadData);
     this.localThreadIds.add(threadId);
     this.localCommentIds.add(commentId);
+    this.lastCreatedThreadId = threadId;
     this.notify();
 
     // Persist. Two sequential INSERTs (FK from comment → thread).

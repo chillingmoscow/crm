@@ -102,7 +102,13 @@ const SPECS: Record<string, EventSpec> = {
     icon: BookOpen,
     iconClass: "text-amber-600 bg-amber-50",
     buildLabel: (e) => {
-      const newValue = Boolean(e.details.new_value);
+      // Legacy events (миграция 087) использовали payload key `enabled`,
+      // новые (миграция 096) — `new_value`. Fallback нужен чтобы не
+      // рендерить старые «отметил» как «снял» (Codex #85 P1).
+      const newValue = Boolean(
+        (e.details as { new_value?: boolean; enabled?: boolean }).new_value ??
+          (e.details as { enabled?: boolean }).enabled,
+      );
       return (
         <>
           {newValue

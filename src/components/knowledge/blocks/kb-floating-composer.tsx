@@ -55,6 +55,8 @@ export function KbFloatingComposer({
       initialComment: { body: unknown };
     }) => Promise<unknown>;
     stopPendingComment: () => void;
+    selectThread: (threadId: string | undefined, scrollToThread?: boolean) => void;
+    threadStore: { lastCreatedThreadId: string | null };
   };
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -123,6 +125,15 @@ export function KbFloatingComposer({
     // duplicate thread на intermittent network'е (Codex #78 P1).
     ext.stopPendingComment();
     (editor as unknown as { focus: () => void }).focus();
+
+    // Открыть thread-popover свежесозданного треда — юзер сразу видит
+    // свой только что опубликованный комментарий (вместо «исчезающего»
+    // composer'а без обратной связи). lastCreatedThreadId сохраняется
+    // в SupabaseThreadStore при createThread'е.
+    const newThreadId = ext.threadStore?.lastCreatedThreadId;
+    if (newThreadId) {
+      ext.selectThread(newThreadId, false);
+    }
 
     // КРИТИЧНО: createThread ВНУТРИ TipTap'а добавил comment-mark на
     // selection через editor.transact → editor.onChange → scheduleSave

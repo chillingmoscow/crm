@@ -396,39 +396,36 @@ export function KbBlockNoteEditor({
     const store = extWithStore.store;
     if (!store) return;
 
-    let lastButtonClick = 0;
-    let lastEscape = 0;
-    const markButtonClick = (e: Event) => {
+    // Sticky-флаг: «юзер запросил закрытие composer'а» (Save / Escape /
+    // click outside). Без time-window — Save'у в SupabaseThreadStore
+    // нужно дождаться 2-х sequential INSERT'ов (см. comments-store.ts:
+    // createThread), что на медленной сети может уйти за 500мс. К моменту
+    // когда `stopPendingComment()` наконец дойдёт до setState, гипотетический
+    // time-gate уже истёк бы, и мы бы заблокировали legitimate close. См.
+    // Codex #68 P1.
+    //
+    // Логика: флаг ставится сразу на pointerdown/click button-в-composer'е
+    // или Escape, держится до next pendingComment-transition (любого) и
+    // сбрасывается там. На re-open (false→true) тоже сбрасываем — на
+    // случай если предыдущий close был заблокирован, чтобы не остался
+    // «протухший» intent.
+    let intentionalClose = false;
+    const markIntentionalClose = (e: Event) => {
       const target = e.target as Element | null;
       if (
         target?.closest?.('.bn-thread button, .bn-thread [role="button"]')
       ) {
-        lastButtonClick = Date.now();
+        intentionalClose = true;
       }
     };
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") lastEscape = Date.now();
+      if (e.key === "Escape") intentionalClose = true;
     };
-    document.addEventListener("pointerdown", markButtonClick, true);
-    document.addEventListener("click", markButtonClick, true);
+    document.addEventListener("pointerdown", markIntentionalClose, true);
+    document.addEventListener("click", markIntentionalClose, true);
     document.addEventListener("keydown", onKeyDown, true);
 
-    // Сохраняем оригинальный setState и подменяем. tanstack-store
-    // экспортирует setState как arrow-function field на инстансе,
-    // т.е. свойство object'а — присваивание возможно.
     const originalSetState = store.setState;
-    const isCloseAllowed = () => {
-      const recentBtn = Date.now() - lastButtonClick < 500;
-      const recentEsc = Date.now() - lastEscape < 500;
-      if (recentBtn || recentEsc) return true;
-      const active = document.activeElement;
-      const insideComposer = !!active?.closest?.(
-        ".bn-thread, .bn-comment-editor",
-      );
-      // Фокус внутри composer'а + нет recent intentional action =
-      // spurious blur. Блокируем.
-      return !insideComposer;
-    };
     store.setState = ((updater: unknown) => {
       const prev = store.state;
       const next =
@@ -441,7 +438,26 @@ export function KbBlockNoteEditor({
           : (updater as Partial<{ pendingComment: boolean }>);
       const closing =
         next?.pendingComment === false && prev.pendingComment === true;
-      if (closing && !isCloseAllowed()) return;
+      const opening =
+        next?.pendingComment === true && prev.pendingComment === false;
+
+      if (closing) {
+        if (intentionalClose) {
+          intentionalClose = false; // consumed
+        } else {
+          const active = document.activeElement;
+          const insideComposer = !!active?.closest?.(
+            ".bn-thread, .bn-comment-editor",
+          );
+          // Фокус внутри composer'а + нет intentional-флага = spurious
+          // blur от outer-editor'а. Блокируем close, состояние не меняется.
+          if (insideComposer) return;
+        }
+      } else if (opening) {
+        // Новый цикл — сбрасываем lingering intent (если предыдущий
+        // close был заблокирован, флаг мог остаться).
+        intentionalClose = false;
+      }
       originalSetState.call(
         store,
         updater as Parameters<typeof originalSetState>[0],
@@ -450,8 +466,8 @@ export function KbBlockNoteEditor({
 
     return () => {
       store.setState = originalSetState;
-      document.removeEventListener("pointerdown", markButtonClick, true);
-      document.removeEventListener("click", markButtonClick, true);
+      document.removeEventListener("pointerdown", markIntentionalClose, true);
+      document.removeEventListener("click", markIntentionalClose, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
   }, [editor, commentsBundle]);

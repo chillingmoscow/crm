@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { ThreadsSidebar } from "@blocknote/react";
+import { useEffect, useRef, useState } from "react";
+import { ThreadsSidebar, useExtension } from "@blocknote/react";
+import { CommentsExtension } from "@blocknote/core/comments";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -30,6 +31,29 @@ import {
 export function KbThreadsSidebar() {
   const open = useKbThreadsSidebarOpen();
   const ref = useRef<HTMLDivElement | null>(null);
+  const ext = useExtension(CommentsExtension) as unknown as {
+    threadStore: {
+      getThreads: () => Map<string, {
+        comments: { userId: string; deletedAt?: Date }[];
+        resolvedBy?: string;
+      }>;
+      subscribe: (cb: () => void) => () => void;
+    };
+    userStore: {
+      loadUsers: (ids: string[]) => Promise<void>;
+    };
+  };
+  // Pre-warm guard: BN'овский ThreadsSidebar / Thread рендерит
+  // RESOLVED-треды и в render-функции делает синхронный
+  // `useUsers([resolvedBy]).get(resolvedBy) ?? throw` — если userStore
+  // ещё не загрузил этого юзера, page крашится. resolveKbUsers
+  // вызывается через async useEffect в BN UserStore, который не
+  // успевает за первый render.
+  //
+  // Решение: pre-warm всех author + resolvedBy ID'шников ДО того
+  // как ThreadsSidebar смонтируется. Открываем sidebar только
+  // после того как userStore.loadUsers() завершится.
+  const [usersReady, setUsersReady] = useState(false);
 
   // Reset sidebar-open state при unmount (= editor unmount = page
   // change). Без этого module-singleton isOpen «протекает» между
@@ -38,6 +62,40 @@ export function KbThreadsSidebar() {
   useEffect(() => {
     return () => setKbThreadsSidebarOpen(false);
   }, []);
+
+  // Pre-warm UserStore при открытии sidebar'а. Подписка на threadStore
+  // обновляется когда realtime приносит новые треды/комменты — мы
+  // догружаем новых участников.
+  useEffect(() => {
+    if (!open) {
+      setUsersReady(false);
+      return;
+    }
+    let cancelled = false;
+    const collectAndLoad = async () => {
+      const threads = ext.threadStore.getThreads();
+      const ids = new Set<string>();
+      for (const thread of threads.values()) {
+        if (thread.resolvedBy) ids.add(thread.resolvedBy);
+        for (const c of thread.comments) {
+          if (!c.deletedAt) ids.add(c.userId);
+        }
+      }
+      if (ids.size > 0) {
+        await ext.userStore.loadUsers(Array.from(ids));
+      }
+      if (!cancelled) setUsersReady(true);
+    };
+    void collectAndLoad();
+    // Re-warm на каждый thread-store update (realtime, optimistic).
+    const unsub = ext.threadStore.subscribe(() => {
+      void collectAndLoad();
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [open, ext]);
 
   // Esc — закрыть. Listener живёт всегда — при closed просто no-op.
   useEffect(() => {
@@ -76,11 +134,17 @@ export function KbThreadsSidebar() {
         </button>
       </header>
       <div className="flex-1 overflow-y-auto bn-sheerly">
-        {/* BN-овский ThreadsSidebar — сортировка по позиции в документе
-            (matches Notion: первый коммент — тот, что выше в тексте),
-            показываем все треды (open + resolved), filter-tabs внутри
-            BN-компонента сам рендерит. */}
-        <ThreadsSidebar filter="all" sort="position" />
+        {/* Render BN-овский ThreadsSidebar только после pre-warm'а
+            UserStore (см. usersReady выше). Иначе BN'овский thread-
+            renderer крашится на resolved-thread'ах синхронным throw'ом
+            при пустом userCache. */}
+        {usersReady ? (
+          <ThreadsSidebar filter="all" sort="position" />
+        ) : (
+          <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+            Загрузка…
+          </div>
+        )}
       </div>
     </aside>
   );

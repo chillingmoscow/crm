@@ -252,6 +252,12 @@ export function NotificationBell() {
                   tabIndex={notif.link ? 0 : undefined}
                   onClick={() => handleRowClick(notif)}
                   onKeyDown={(e) => {
+                    // Игнорируем bubbled events от вложенных интерактивов
+                    // (например, Enter/Space на «Прочитано»-кнопке внутри
+                    // строки): иначе row-handler утащит юзера на link
+                    // вместо того чтобы просто пометить как прочитанное.
+                    // Codex #77 P2.
+                    if (e.target !== e.currentTarget) return;
                     if (notif.link && (e.key === "Enter" || e.key === " ")) {
                       e.preventDefault();
                       handleRowClick(notif);

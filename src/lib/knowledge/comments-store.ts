@@ -2,7 +2,7 @@
 
 import {
   ThreadStore,
-  DefaultThreadStoreAuth,
+  ThreadStoreAuth,
   type CommentBody,
   type CommentData,
   type CommentReactionData,
@@ -54,6 +54,67 @@ interface SupabaseThreadStoreOptions {
   isEditor: boolean;
 }
 
+/** Кастомная auth-политика для KB:
+ *   • create / addComment / addReaction — true (доступ к комментам уже
+ *     gate'нут на mount'е через canComment).
+ *   • update comment — только автор.
+ *   • delete comment — автор ИЛИ editor.
+ *   • resolve / unresolve / delete thread — автор треда ИЛИ editor.
+ *
+ * BN-default (`DefaultThreadStoreAuth`) пускал ВСЕХ резолвить тред и
+ * блокировал автора, если он не editor. Это противоречит ожиданиям
+ * юзера: «решить может либо автор, либо должность с правами». */
+class KbThreadStoreAuth extends ThreadStoreAuth {
+  private userId: string;
+  private isEditor: boolean;
+  private isThreadCreator: (threadId: string) => boolean;
+
+  constructor(opts: {
+    userId: string;
+    isEditor: boolean;
+    isThreadCreator: (threadId: string) => boolean;
+  }) {
+    super();
+    this.userId = opts.userId;
+    this.isEditor = opts.isEditor;
+    this.isThreadCreator = opts.isThreadCreator;
+  }
+
+  canCreateThread(): boolean {
+    return true;
+  }
+  canAddComment(): boolean {
+    return true;
+  }
+  canUpdateComment(comment: CommentData): boolean {
+    return comment.userId === this.userId;
+  }
+  canDeleteComment(comment: CommentData): boolean {
+    return comment.userId === this.userId || this.isEditor;
+  }
+  canDeleteThread(thread: ThreadData): boolean {
+    return this.isThreadCreator(thread.id) || this.isEditor;
+  }
+  canResolveThread(thread: ThreadData): boolean {
+    return this.isThreadCreator(thread.id) || this.isEditor;
+  }
+  canUnresolveThread(thread: ThreadData): boolean {
+    return this.isThreadCreator(thread.id) || this.isEditor;
+  }
+  canAddReaction(comment: CommentData, emoji?: string): boolean {
+    if (!emoji) return true;
+    const r = (comment.reactions ?? []).find((x) => x.emoji === emoji);
+    if (!r) return true;
+    return !r.userIds.includes(this.userId);
+  }
+  canDeleteReaction(comment: CommentData, emoji?: string): boolean {
+    if (!emoji) return true;
+    const r = (comment.reactions ?? []).find((x) => x.emoji === emoji);
+    if (!r) return false;
+    return r.userIds.includes(this.userId);
+  }
+}
+
 export class SupabaseThreadStore extends ThreadStore {
   private supabase: SupabaseClient<Database>;
   private pageId: string;
@@ -83,10 +144,19 @@ export class SupabaseThreadStore extends ThreadStore {
    *  никто никогда не отпишет. См. Codex #62 P1. */
   private destroyed = false;
 
+  /** threadId → kb_threads.created_by. Заполняется в loadInitial /
+   *  realtime updates. Используется KbThreadStoreAuth для проверки
+   *  «автор треда может resolve / delete независимо от editor-роли». */
+  private threadCreators = new Map<string, string | null>();
+
   constructor(opts: SupabaseThreadStoreOptions) {
-    super(
-      new DefaultThreadStoreAuth(opts.userId, opts.isEditor ? "editor" : "comment"),
-    );
+    const auth = new KbThreadStoreAuth({
+      userId: opts.userId,
+      isEditor: opts.isEditor,
+      isThreadCreator: (threadId: string) =>
+        this.threadCreators.get(threadId) === opts.userId,
+    });
+    super(auth);
     this.supabase = createClient();
     this.pageId = opts.pageId;
     this.accountId = opts.accountId;
@@ -234,7 +304,9 @@ export class SupabaseThreadStore extends ThreadStore {
       resolved_by: t.resolvedBy ?? null,
       created_at: t.createdAt.toISOString(),
       updated_at: t.updatedAt.toISOString(),
-      created_by: null, // не используется UI'ем после initial render
+      // KbThreadStoreAuth смотрит в this.threadCreators, поэтому
+      // re-build при realtime UPDATE'е должен сохранять автора (не null).
+      created_by: this.threadCreators.get(t.id) ?? null,
       deleted_at: t.deletedAt?.toISOString() ?? null,
       metadata: (t.metadata as Database["public"]["Tables"]["kb_threads"]["Row"]["metadata"]) ?? {},
     };
@@ -310,6 +382,10 @@ export class SupabaseThreadStore extends ThreadStore {
   }
 
   private toThreadData(row: ThreadRow, comments: CommentRow[]): ThreadData {
+    // Запоминаем автора треда — KbThreadStoreAuth.canResolveThread
+    // и canDeleteThread смотрят сюда чтобы пускать автора независимо
+    // от editor-роли.
+    this.threadCreators.set(row.id, row.created_by ?? null);
     return {
       type: "thread",
       id: row.id,

@@ -26,7 +26,6 @@ import {
   type User as CommentUser,
 } from "@blocknote/core/comments";
 import {
-  AddCommentButton,
   FloatingComposerController,
   FloatingThreadController,
   LinkToolbar,
@@ -406,19 +405,20 @@ export function KbBlockNoteEditor({
     if (typeof store.setEditor === "function") {
       store.setEditor(editor);
     }
-    // Apply marks ПОСЛЕ initial-load'а тредов. SupabaseThreadStore
-    // notify'ит листенеров когда initial-load завершается; мы
-    // подписываемся через subscribe чтобы дёрнуть applyAllMarks
-    // в нужный момент. Однократно (после первой нотификации).
+    // Apply marks на КАЖДЫЙ notify: initial-load + любой realtime
+    // INSERT/UPDATE треда (когда другой юзер создаёт comment, через
+    // postgres_changes broadcast прилетает в threadCache → notify).
+    // Без re-apply на каждом notify тред у юзера-получателя сидит в
+    // cache, но mark в редакторе не появляется — комментарий «невидимый»
+    // до F5. addMark идемпотентен: повторное применение на уже
+    // помеченном диапазоне — no-op.
     const subscribable = commentsBundle.threadStore as unknown as {
       subscribe?: (cb: () => void) => () => void;
     };
-    let applied = false;
     const unsub = subscribable.subscribe?.(() => {
-      if (applied) return;
-      applied = true;
       // micro-delay чтобы PM успел dispatch initial-content
-      // transactions (первая загрузка doc'а).
+      // transactions при первой загрузке doc'а; на последующих
+      // notify'ях тоже безвреден.
       setTimeout(() => {
         store.applyAllMarksToEditor?.();
       }, 0);
@@ -427,6 +427,45 @@ export function KbBlockNoteEditor({
       unsub?.();
     };
   }, [editor, commentsBundle]);
+
+  // Locked-страница + юзер может комментировать: на любое выделение
+  // непустого диапазона текста сразу открываем composer (Notion-style),
+  // минуя formatting-toolbar bubble. Раньше юзеру приходилось:
+  // select → видеть toolbar → click AddCommentButton. Теперь:
+  // select → composer открыт. Также чинит баг «второй коммент не
+  // открывается»: при каждом новом выделении проверяем pendingComment
+  // и стартуем заново, если оно false (после save / escape).
+  useEffect(() => {
+    if (!commentsBundle?.canComment) return;
+    if (editable) return;
+    const tiptap = (editor as unknown as {
+      _tiptapEditor?: {
+        on: (event: string, cb: () => void) => void;
+        off: (event: string, cb: () => void) => void;
+        state: { selection: { empty: boolean; from: number; to: number } };
+      };
+    })._tiptapEditor;
+    if (!tiptap) return;
+    const ext = (editor as unknown as {
+      getExtension: (cls: unknown) => unknown;
+    }).getExtension(CommentsExtension) as
+      | {
+          startPendingComment?: () => void;
+          store?: { state: { pendingComment: boolean } };
+        }
+      | null;
+    if (!ext) return;
+    const handler = () => {
+      const sel = tiptap.state.selection;
+      if (sel.empty || sel.from === sel.to) return;
+      if (ext.store?.state.pendingComment) return;
+      ext.startPendingComment?.();
+    };
+    tiptap.on("selectionUpdate", handler);
+    return () => {
+      tiptap.off("selectionUpdate", handler);
+    };
+  }, [editor, editable, commentsBundle]);
 
   useEffect(() => {
     if (!commentsBundle) return;
@@ -606,31 +645,29 @@ export function KbBlockNoteEditor({
       )}
       {(aiSlashEnabled || commentsBundle) && (
         <FormattingToolbarController
-          formattingToolbar={() => (
-            <FormattingToolbar>
-              {editable ? (
-                <>
-                  {/* Editable: дефолтные кнопки (Bold/Italic/Color/Link/...)
-                      + AddCommentButton (включается в getFormattingToolbarItems
-                      когда CommentsExtension подключён). AI — в конец. */}
-                  {...getFormattingToolbarItems()}
-                  {aiSlashEnabled && (
-                    <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
-                  )}
-                </>
-              ) : commentsBundle?.canComment ? (
-                <>
-                  {/* Locked-page (editable=false), но юзер может комментировать:
-                      минимальный toolbar только с AddCommentButton. AI скрыт
-                      (на read-only нет смысла менять текст). Mark вставится
-                      через editor.transact (программные tx работают на
-                      editable=false), сохранится через kb_save_page_comment_only
-                      (миграция 091). */}
-                  <AddCommentButton key="comment-only" />
-                </>
-              ) : null}
-            </FormattingToolbar>
-          )}
+          formattingToolbar={() => {
+            // Locked-страница + юзер может комментировать:
+            // toolbar НЕ показываем — composer открывается сам по
+            // выделению (см. selectionUpdate-effect выше). Раньше тут
+            // была кнопка AddCommentButton, юзеру неудобно: select →
+            // видеть toolbar → клик. Теперь Notion-style: select → composer.
+            if (!editable && commentsBundle?.canComment) return null;
+            return (
+              <FormattingToolbar>
+                {editable ? (
+                  <>
+                    {/* Editable: дефолтные кнопки (Bold/Italic/Color/Link/...)
+                        + AddCommentButton (включается в getFormattingToolbarItems
+                        когда CommentsExtension подключён). AI — в конец. */}
+                    {...getFormattingToolbarItems()}
+                    {aiSlashEnabled && (
+                      <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
+                    )}
+                  </>
+                ) : null}
+              </FormattingToolbar>
+            );
+          }}
         />
       )}
       {/* Custom LinkToolbar: для @-mention'ов на KB-страницы (URL'ы вида

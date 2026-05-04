@@ -1,9 +1,10 @@
 "use client";
 
-import { Archive, ArchiveRestore, ExternalLink } from "lucide-react";
+import { Archive, ArchiveRestore } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { getNotificationTypeSpec } from "@/lib/notifications/registry";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type {
   Notification,
   NotificationActor,
@@ -108,13 +109,13 @@ export function KbNotificationRow({
       </div>
 
       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-        {/* Title row */}
+        {/* Title row: actor + verb + entity-chip. */}
         <div className="text-sm leading-snug text-foreground">
           {useStructuredTitle ? (
             <>
               <span className="font-medium">{actor!.full_name}</span>{" "}
               <span className="text-muted-foreground">{spec.verb}</span>{" "}
-              <span className="font-medium">«{stripActorPrefix(notification.title, actor!.full_name)}»</span>
+              <EntityChip notification={notification} />
             </>
           ) : (
             <span className="font-medium">{notification.title}</span>
@@ -130,19 +131,19 @@ export function KbNotificationRow({
           </div>
         )}
 
-        {/* Time + body row */}
-        <div className="text-[11px] text-muted-foreground tabular-nums">
-          {relativeTime(notification.created_at)}
-        </div>
-
-        {/* Inline-actions (payload.actions[]) — пока не используются
-            эмиттерами; reserved для finance/schedule. Дефолтная
-            «Открыть» рендерится только если нет custom-actions и есть
-            link. */}
+        {/* Inline custom-actions (payload.actions[]) — пока не
+            используются KB-эмиттерами; reserved для будущих finance/
+            schedule с Approve/Deny. Default «Открыть» убрана: click
+            на row уже открывает link (Codex feedback). */}
         <NotificationActions
           notification={notification}
           onOpen={() => onOpen(notification)}
         />
+
+        {/* Time row */}
+        <div className="text-[11px] text-muted-foreground tabular-nums">
+          {relativeTime(notification.created_at)}
+        </div>
       </div>
 
       {/* Hover-archive button (right-aligned). Только в active-scope'е
@@ -188,47 +189,64 @@ function NotificationActions({
   const customActions =
     (notification.payload as { actions?: Array<{ label: string }> })?.actions ?? [];
 
-  if (customActions.length > 0) {
-    return (
-      <div className="flex items-center gap-1.5 mt-0.5">
-        {customActions.map((action, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              // TODO future: dispatch via action-registry. Для MVP
-              // просто открываем link (если есть).
-              onOpen();
-            }}
-            className="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-border bg-background hover:bg-accent text-[11px] font-medium transition-colors"
-          >
-            {action.label}
-          </button>
-        ))}
-      </div>
-    );
-  }
+  if (customActions.length === 0) return null;
 
-  // Дефолтная «Открыть» если есть link (90% kb-emit'ов).
-  if (notification.link) {
-    return (
-      <div className="flex items-center gap-1.5 mt-0.5">
+  return (
+    <div className="flex items-center gap-1.5 mt-0.5">
+      {customActions.map((action, i) => (
         <button
+          key={i}
           type="button"
           onClick={(e) => {
             e.stopPropagation();
+            // TODO future: dispatch via action-registry. Для MVP
+            // просто открываем link (если есть).
             onOpen();
           }}
           className="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-border bg-background hover:bg-accent text-[11px] font-medium transition-colors"
         >
-          <ExternalLink className="size-3" />
-          Открыть
+          {action.label}
         </button>
-      </div>
-    );
-  }
-  return null;
+      ))}
+    </div>
+  );
+}
+
+/** Entity-chip — кликабельная ссылка с иконкой страницы (или дефолтным
+ *  FileText для не-page entity). Inline в title-row, по стилю как
+ *  KbPageMention в editor'е.
+ *
+ *  Title извлекается из payload.page_title (заполняется эмиттерами в
+ *  миграции 100) или fallback'ится на parsing notification.title после
+ *  «: ». slug извлекается из notification.link (`/knowledge/<slug>`).
+ *
+ *  Click пробрасывается row'у через bubbling — link не вызывается
+ *  напрямую, чтобы row отметил read и сделал router.push. */
+function EntityChip({ notification }: { notification: Notification }) {
+  const payload = notification.payload as {
+    page_title?: string;
+    page_icon?: string | null;
+    page_icon_color?: string | null;
+  };
+  const title = payload.page_title ?? extractEntityTitle(notification.title);
+  return (
+    <span className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-foreground font-medium hover:bg-accent transition-colors">
+      <KbPageIcon
+        icon={payload.page_icon ?? null}
+        color={payload.page_icon_color ?? null}
+        size={14}
+      />
+      <span className="truncate">{title}</span>
+    </span>
+  );
+}
+
+/** Если title в формате «<prefix>: <entity>», возвращает <entity>.
+ *  Используется для legacy-notif'ов где payload.page_title отсутствует. */
+function extractEntityTitle(title: string): string {
+  const idx = title.indexOf(": ");
+  if (idx > 0 && idx < 80) return title.slice(idx + 2);
+  return title;
 }
 
 function relativeTime(iso: string): string {
@@ -254,18 +272,3 @@ function getInitials(name?: string | null): string {
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
-/** Если title начинается с «Actor: ...» (legacy формат), strip
- *  actor-prefix чтобы entity был чистым. Иначе возвращаем оригинал.
- *  Для notif'ов без structured-title не вызываем. */
-function stripActorPrefix(title: string, actorName: string): string {
-  // Текущие эмиттеры (миграция 100) ставят title вроде
-  // «Вас упомянули: Регламент кассы». Извлекаем часть после ': ' —
-  // обычно это название entity. Fallback на raw title.
-  const idx = title.indexOf(": ");
-  if (idx > 0 && idx < 80) {
-    return title.slice(idx + 2);
-  }
-  // Если actor.full_name не в title — оставляем как есть.
-  if (!title.includes(actorName)) return title;
-  return title;
-}

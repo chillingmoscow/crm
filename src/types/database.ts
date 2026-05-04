@@ -2646,6 +2646,14 @@ export type Database = {
         }
         Returns: number
       }
+      kb_save_page_comment_only: {
+        Args: {
+          p_content: Json
+          p_id: string
+          p_plain_text: string
+        }
+        Returns: number
+      }
       kb_search: {
         Args: { p_limit?: number; p_query: string }
         Returns: {

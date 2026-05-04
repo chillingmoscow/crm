@@ -26,6 +26,7 @@ import {
   type User as CommentUser,
 } from "@blocknote/core/comments";
 import {
+  AddCommentButton,
   FloatingComposerController,
   FloatingThreadController,
   LinkToolbar,
@@ -569,14 +570,27 @@ export function KbBlockNoteEditor({
         <FormattingToolbarController
           formattingToolbar={() => (
             <FormattingToolbar>
-              {/* Дефолтные кнопки (Bold/Italic/Color/Link/...) +
-                  AddCommentButton — последний автоматически включается
-                  в getFormattingToolbarItems() когда CommentsExtension
-                  подключён. AI-кнопка добавлена в конец. */}
-              {...getFormattingToolbarItems()}
-              {aiSlashEnabled && (
-                <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
-              )}
+              {editable ? (
+                <>
+                  {/* Editable: дефолтные кнопки (Bold/Italic/Color/Link/...)
+                      + AddCommentButton (включается в getFormattingToolbarItems
+                      когда CommentsExtension подключён). AI — в конец. */}
+                  {...getFormattingToolbarItems()}
+                  {aiSlashEnabled && (
+                    <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
+                  )}
+                </>
+              ) : commentsBundle?.canComment ? (
+                <>
+                  {/* Locked-page (editable=false), но юзер может комментировать:
+                      минимальный toolbar только с AddCommentButton. AI скрыт
+                      (на read-only нет смысла менять текст). Mark вставится
+                      через editor.transact (программные tx работают на
+                      editable=false), сохранится через kb_save_page_comment_only
+                      (миграция 091). */}
+                  <AddCommentButton key="comment-only" />
+                </>
+              ) : null}
             </FormattingToolbar>
           )}
         />

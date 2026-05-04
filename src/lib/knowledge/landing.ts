@@ -55,20 +55,49 @@ export async function getKbRequiredUnreadForUser(): Promise<{
   if (pagesError) return { rows: [], error: pagesError.message };
   if (!pages || pages.length === 0) return { rows: [], error: null };
 
-  // Шаг 2: мои read-records для этих страниц. Subselect через
-  // kb_page_reads с `.in("page_id", ids)` дешевле чем left-join
-  // — strait-forward Postgres.
+  // Шаг 2: версионная сверка. После миграции 097 user считается
+  // «прочитавшим» только если его max(read_version) >= max(version_number)
+  // страницы. Иначе (= никогда не читал ИЛИ читал устаревшую версию)
+  // → попадает в unread list. См. Codex #88 P1.
   const pageIds = pages.map((p) => p.id);
-  const { data: reads, error: readsError } = await supabase
-    .from("kb_page_reads")
-    .select("page_id")
-    .eq("user_id", user.id)
-    .in("page_id", pageIds);
-  if (readsError) return { rows: [], error: readsError.message };
+  const [versionsRes, readsRes] = await Promise.all([
+    supabase
+      .from("kb_page_versions")
+      .select("page_id, version_number")
+      .in("page_id", pageIds),
+    supabase
+      .from("kb_page_reads")
+      .select("page_id, read_version")
+      .eq("user_id", user.id)
+      .in("page_id", pageIds),
+  ]);
+  if (versionsRes.error) return { rows: [], error: versionsRes.error.message };
+  if (readsRes.error) return { rows: [], error: readsRes.error.message };
 
-  const readSet = new Set((reads ?? []).map((r) => r.page_id));
+  const maxVersionByPage = new Map<string, number>();
+  for (const v of versionsRes.data ?? []) {
+    const cur = maxVersionByPage.get(v.page_id) ?? 0;
+    if (v.version_number > cur) {
+      maxVersionByPage.set(v.page_id, v.version_number);
+    }
+  }
+  const maxReadByPage = new Map<string, number>();
+  for (const r of readsRes.data ?? []) {
+    const cur = maxReadByPage.get(r.page_id) ?? 0;
+    if (r.read_version > cur) {
+      maxReadByPage.set(r.page_id, r.read_version);
+    }
+  }
+
   const rows: KbRequiredUnreadRow[] = pages
-    .filter((p) => !readSet.has(p.id))
+    .filter((p) => {
+      // Если ни одной версии нет (теоретически, страница без save'ов)
+      // — fallback'ом считаем version=1, тот же что в migration default'е.
+      const currentVersion = maxVersionByPage.get(p.id) ?? 1;
+      const myReadVersion = maxReadByPage.get(p.id) ?? 0;
+      // Юзер прочитал ТЕКУЩУЮ версию ⟺ max(read_version) >= current.
+      return myReadVersion < currentVersion;
+    })
     .map((p) => ({
       id: p.id,
       slug: p.slug,

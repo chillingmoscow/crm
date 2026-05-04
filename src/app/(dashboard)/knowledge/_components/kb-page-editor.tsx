@@ -150,6 +150,12 @@ interface KbPageEditorProps {
    *  Server-rendered, чтобы не тянуть auth.getUser() с клиента. */
   accountId?: string | null;
   userId?: string | null;
+  /** Имя и аватарка current user — для рендера в кастомном
+   *  comment-композере (Notion-style chip с avatar слева). Server-
+   *  rendered из той же `profiles`-выборки, что используется для
+   *  audit-info-popover'а. */
+  currentUserName?: string | null;
+  currentUserAvatarUrl?: string | null;
   /** Примерное время чтения в минутах (Sprint D Phase 2 §2.9).
    *  Server-rendered из `kb_pages.plain_text` через
    *  `estimateReadingMinutes`. Рендерим как badge под title-строкой —
@@ -186,6 +192,8 @@ export function KbPageEditor({
   canComment = false,
   accountId = null,
   userId = null,
+  currentUserName = null,
+  currentUserAvatarUrl = null,
   readingMinutes = null,
 }: KbPageEditorProps) {
   // Sprint D / Phase 1: page-view analytics. Запускаем как только
@@ -225,8 +233,18 @@ export function KbPageEditor({
       }),
       resolveUsers: resolveKbUsers,
       canComment,
+      currentUserName,
+      currentUserAvatarUrl,
     };
-  }, [pageId, accountId, userId, canEdit, canComment]);
+  }, [
+    pageId,
+    accountId,
+    userId,
+    canEdit,
+    canComment,
+    currentUserName,
+    currentUserAvatarUrl,
+  ]);
 
   // Sprint D Phase 5: thread-store держит Realtime-канал. Без unsubscribe
   // на unmount канал утекает (и сервер продолжает броадкаст-ить даже

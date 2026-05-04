@@ -39,17 +39,21 @@ export default async function KbPageView({ params }: PageProps) {
   // is false and the «Удалить» button hides when canDelete is false.
   const supabase = await createClient();
 
+  // Current user — нужен заранее, чтобы включить его id в profileIds
+  // (для аватарки в comment-композере) ещё до основного Promise.all.
+  const { data: currentUserData } = await supabase.auth.getUser();
+  const currentUserId = currentUserData.user?.id ?? null;
+
   const lastEditorId = row.updated_by ?? row.created_by;
   const profileIds = Array.from(
     new Set(
-      [row.created_by, row.updated_by, row.locked_by].filter(
+      [row.created_by, row.updated_by, row.locked_by, currentUserId].filter(
         (id): id is string => !!id,
       ),
     ),
   );
 
   const [
-    { data: user },
     { data: hasEditAny },
     { data: hasEditOwn },
     { data: hasDelete },
@@ -68,7 +72,6 @@ export default async function KbPageView({ params }: PageProps) {
     { chain },
     { data: profiles },
   ] = await Promise.all([
-    supabase.auth.getUser(),
     supabase.rpc("has_permission", { permission_code: "kb.edit_any_page" }),
     supabase.rpc("has_permission", { permission_code: "kb.edit_own_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
@@ -97,7 +100,7 @@ export default async function KbPageView({ params }: PageProps) {
   // canEditEffective = canEdit && (!locked || canLock).
   const canEditBase =
     Boolean(hasEditAny) ||
-    (Boolean(hasEditOwn) && row.created_by === user.user?.id);
+    (Boolean(hasEditOwn) && row.created_by === currentUserId);
   const canDelete = Boolean(hasDelete);
   const canDuplicate = Boolean(hasCreate);
   const canExport = Boolean(hasExport);
@@ -162,6 +165,11 @@ export default async function KbPageView({ params }: PageProps) {
   // в info-popover; имя уже посчитали выше.
   const createdByEntry = row.created_by
     ? profilesById.get(row.created_by) ?? null
+    : null;
+
+  // Current user — для аватарки и имени в comment-композере.
+  const currentUserProfile = currentUserId
+    ? profilesById.get(currentUserId) ?? null
     : null;
 
   const createdByAvatarUrl = createdByEntry?.avatarUrl ?? null;
@@ -250,7 +258,9 @@ export default async function KbPageView({ params }: PageProps) {
             aiSlashEnabled={aiSlashEnabled}
             canComment={Boolean(hasComment)}
             accountId={(activeAccountId as unknown as string | null) ?? null}
-            userId={user.user?.id ?? null}
+            userId={currentUserId}
+            currentUserName={currentUserProfile?.name ?? null}
+            currentUserAvatarUrl={currentUserProfile?.avatarUrl ?? null}
             readingMinutes={
               row.plain_text && row.plain_text.trim().length > 0
                 ? estimateReadingMinutes(row.plain_text)

@@ -390,6 +390,44 @@ export function KbBlockNoteEditor({
   // Закрытие через Save / Escape / click outside — пропускаем как и
   // раньше. Spurious blur'ы — в null. Никакого flicker'а / re-mount'а
   // FloatingComposer'а: clear не доходит до listeners в принципе.
+  // Пробрасываем outer-editor reference в SupabaseThreadStore: он
+  // нужен для (а) addThreadToDocument — apply mark в editor (б)
+  // applyAllMarksToEditor — re-apply mark'ов из metadata.position
+  // после загрузки треда (в) captureCommentMarkPositions —
+  // walk PM-doc на save'е чтобы записать drift в metadata. См.
+  // комментарий в comments-store.ts «Position-persistence для
+  // comment-mark'ов».
+  useEffect(() => {
+    if (!commentsBundle) return;
+    const store = commentsBundle.threadStore as unknown as {
+      setEditor?: (editor: unknown) => void;
+      applyAllMarksToEditor?: () => void;
+    };
+    if (typeof store.setEditor === "function") {
+      store.setEditor(editor);
+    }
+    // Apply marks ПОСЛЕ initial-load'а тредов. SupabaseThreadStore
+    // notify'ит листенеров когда initial-load завершается; мы
+    // подписываемся через subscribe чтобы дёрнуть applyAllMarks
+    // в нужный момент. Однократно (после первой нотификации).
+    const subscribable = commentsBundle.threadStore as unknown as {
+      subscribe?: (cb: () => void) => () => void;
+    };
+    let applied = false;
+    const unsub = subscribable.subscribe?.(() => {
+      if (applied) return;
+      applied = true;
+      // micro-delay чтобы PM успел dispatch initial-content
+      // transactions (первая загрузка doc'а).
+      setTimeout(() => {
+        store.applyAllMarksToEditor?.();
+      }, 0);
+    });
+    return () => {
+      unsub?.();
+    };
+  }, [editor, commentsBundle]);
+
   useEffect(() => {
     if (!commentsBundle) return;
     const ext = (editor as unknown as {

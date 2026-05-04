@@ -745,10 +745,208 @@ export class SupabaseThreadStore extends ThreadStore {
     this.notify();
   }
 
-  // addThreadToDocument — оставляем default behavior (BlockNote сам
-  // создаёт mark в документе через TipTap). Если бы мы хотели
-  // server-side managment позиций — тут была бы реализация.
-  addThreadToDocument = undefined;
+  // ─── Position-persistence для comment-mark'ов ──────────────────
+  //
+  // BlockNote'овский nodeToBlock-сериализатор (blocks-CSfJen16.js:622)
+  // strip'ает comment-mark'и при конверсии PM-doc → BN-blocks, потому
+  // что они помечены `blocknoteIgnore: true` (comments.js:37). BN
+  // полагается на Yjs для cross-session persistence; без Yjs марки
+  // живут только в TipTap state'е и теряются при reload'е (тред
+  // становится orphan).
+  //
+  // Воркэраунд: храним позицию `{from, to}` в `kb_threads.metadata.position`
+  // и re-apply'ем mark при загрузке editor'а через `applyAllMarksToEditor`.
+  // На каждом save-цикле вызываем `captureCommentMarkPositions(editor)` —
+  // это берёт текущие PM-позиции и обновляет metadata, корректируя drift
+  // от последующих edit'ов до маркированного диапазона.
+
+  /** Outer editor reference. Set'ится из KbBlockNoteEditor когда
+   *  editor смонтирован. Используется в addThreadToDocument +
+   *  applyAllMarksToEditor + captureCommentMarkPositions. */
+  private editor: unknown = null;
+
+  setEditor(editor: unknown): void {
+    this.editor = editor;
+  }
+
+  addThreadToDocument = async (opts: {
+    threadId: string;
+    selection: {
+      prosemirror?: { from?: number; to?: number; head?: number; anchor?: number };
+    };
+  }): Promise<void> => {
+    const pmSel = opts.selection?.prosemirror ?? {};
+    const head = typeof pmSel.head === "number" ? pmSel.head : pmSel.from;
+    const anchor = typeof pmSel.anchor === "number" ? pmSel.anchor : pmSel.to;
+    if (typeof head !== "number" || typeof anchor !== "number") return;
+    const from = Math.min(head, anchor);
+    const to = Math.max(head, anchor);
+    if (from === to) return; // empty selection — skip mark
+
+    // 1) Save position в metadata. Без этого reload не восстановит mark.
+    await this.persistThreadPosition(opts.threadId, from, to);
+
+    // 2) Apply mark в editor через PM low-level dispatch (обходит
+    //    TipTap'овский editable-check на locked-страницах).
+    const editor = this.editor as
+      | {
+          _tiptapEditor?: {
+            view?: {
+              state: {
+                schema: { marks: Record<string, unknown> };
+                tr: { addMark: (from: number, to: number, mark: unknown) => unknown };
+              };
+              dispatch: (tr: unknown) => void;
+            };
+          };
+        }
+      | null;
+    const view = editor?._tiptapEditor?.view;
+    if (!view) return;
+    const markType = (
+      view.state.schema.marks as Record<string, { create: (attrs: unknown) => unknown }>
+    ).comment;
+    if (!markType) return;
+    const tr = (
+      view.state.tr as unknown as {
+        addMark: (from: number, to: number, mark: unknown) => unknown;
+      }
+    ).addMark(from, to, markType.create({ orphan: false, threadId: opts.threadId }));
+    view.dispatch(tr);
+  };
+
+  /** Re-apply все comment-mark'и в редактор из сохранённых позиций
+   *  metadata. Вызывается ПОСЛЕ начальной загрузки документа. */
+  applyAllMarksToEditor(): void {
+    const editor = this.editor as
+      | {
+          _tiptapEditor?: {
+            view?: {
+              state: {
+                doc: { content: { size: number }; nodeAt: (pos: number) => unknown };
+                schema: { marks: Record<string, unknown> };
+                tr: unknown;
+              };
+              dispatch: (tr: unknown) => void;
+            };
+          };
+        }
+      | null;
+    const view = editor?._tiptapEditor?.view;
+    if (!view) return;
+    const markType = (
+      view.state.schema.marks as Record<
+        string,
+        { create: (attrs: unknown) => unknown }
+      >
+    ).comment;
+    if (!markType) return;
+
+    const docSize = view.state.doc.content.size;
+    let tr = view.state.tr as unknown as {
+      addMark: (from: number, to: number, mark: unknown) => unknown;
+    };
+    let touched = false;
+    for (const thread of this.threadCache.values()) {
+      if (thread.deletedAt || thread.resolved) continue;
+      const meta = thread.metadata as { position?: { from?: number; to?: number } } | null;
+      const from = meta?.position?.from;
+      const to = meta?.position?.to;
+      if (typeof from !== "number" || typeof to !== "number") continue;
+      // Защита: позиция из metadata может быть «протухшей» если
+      // документ урезали. Clamp к docSize, skip если range пустой.
+      const safeFrom = Math.max(0, Math.min(from, docSize));
+      const safeTo = Math.max(0, Math.min(to, docSize));
+      if (safeFrom >= safeTo) continue;
+      tr = tr.addMark(
+        safeFrom,
+        safeTo,
+        markType.create({ orphan: false, threadId: thread.id }),
+      ) as typeof tr;
+      touched = true;
+    }
+    if (touched) view.dispatch(tr);
+  }
+
+  /** Walks PM doc, находит все comment-mark'и, обновляет
+   *  metadata.position если позиция drift'нула с прошлой записи.
+   *  Вызывается на save-cycle'е чтобы корректировать сдвиги от
+   *  edit'ов окружающего текста. */
+  async captureCommentMarkPositions(): Promise<void> {
+    const editor = this.editor as
+      | { _tiptapEditor?: { view?: { state: { doc: unknown } } } }
+      | null;
+    const view = editor?._tiptapEditor?.view;
+    if (!view) return;
+
+    const positions = new Map<string, { from: number; to: number }>();
+    const doc = view.state.doc as unknown as {
+      descendants: (
+        cb: (
+          node: { marks: Array<{ type: { name: string }; attrs: Record<string, unknown> }>; nodeSize: number },
+          pos: number,
+        ) => void,
+      ) => void;
+    };
+    doc.descendants((node, pos) => {
+      for (const mark of node.marks ?? []) {
+        if (mark.type.name !== "comment") continue;
+        const tid = mark.attrs.threadId as string | undefined;
+        const orphan = mark.attrs.orphan as boolean | undefined;
+        if (!tid || orphan) continue;
+        const from = pos;
+        const to = pos + node.nodeSize;
+        const cur = positions.get(tid);
+        if (!cur) {
+          positions.set(tid, { from, to });
+        } else {
+          // Mark может быть разбит на несколько inline-runs (если
+          // часть текста имела доп. форматирование) — расширяем range.
+          positions.set(tid, {
+            from: Math.min(cur.from, from),
+            to: Math.max(cur.to, to),
+          });
+        }
+      }
+    });
+
+    for (const [threadId, pos] of positions) {
+      const thread = this.threadCache.get(threadId);
+      if (!thread) continue;
+      const meta = thread.metadata as { position?: { from?: number; to?: number } } | null;
+      const prev = meta?.position;
+      if (prev && prev.from === pos.from && prev.to === pos.to) continue;
+      // Drift detected — persist new position.
+      await this.persistThreadPosition(threadId, pos.from, pos.to);
+    }
+  }
+
+  /** Records `metadata.position={from, to}` в БД + локальном кэше. */
+  private async persistThreadPosition(
+    threadId: string,
+    from: number,
+    to: number,
+  ): Promise<void> {
+    const thread = this.threadCache.get(threadId);
+    const newMetadata = {
+      ...((thread?.metadata as Record<string, unknown>) ?? {}),
+      position: { from, to },
+    };
+    if (thread) {
+      thread.metadata = newMetadata;
+      this.notify();
+    }
+    const { error } = await this.supabase
+      .from("kb_threads")
+      .update({ metadata: newMetadata as never, updated_at: new Date().toISOString() })
+      .eq("id", threadId);
+    if (error) {
+      console.warn("[kb-comments] persist position failed", {
+        threadId,
+        error: error.message,
+      });
+    }
+  }
 }
 
 /** Resolve user info для CommentsExtension `resolveUsers` callback.

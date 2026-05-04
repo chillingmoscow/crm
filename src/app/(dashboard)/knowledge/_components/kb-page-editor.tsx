@@ -342,6 +342,24 @@ export function KbPageEditor({
       if (cur.kind === "pending") setKbSaveState({ kind: "idle" });
       return;
     }
+    // Перед save'ом — снимаем актуальные comment-mark позиции из PM-
+    // дока в kb_threads.metadata. BN strip'ает comment-марки при
+    // сериализации в block-content, поэтому позиции — единственный
+    // способ восстановить их при reload'е (см. comments-store.ts
+    // «Position-persistence для comment-mark'ов»). Fire-and-forget:
+    // failures логируются внутри, но не блокируют save.
+    if (commentsBundle) {
+      const store = commentsBundle.threadStore as unknown as {
+        captureCommentMarkPositions?: () => Promise<void>;
+      };
+      if (typeof store.captureCommentMarkPositions === "function") {
+        try {
+          await store.captureCommentMarkPositions();
+        } catch (err) {
+          console.warn("[kb] captureCommentMarkPositions failed", err);
+        }
+      }
+    }
     setKbSaveState({ kind: "saving" });
     const { error } = await saveKbPage({
       id: pageId,
@@ -358,7 +376,7 @@ export function KbPageEditor({
     }
     lastSavedHashRef.current = newHash;
     setKbSaveState({ kind: "saved", at: new Date() });
-  }, [pageId]);
+  }, [pageId, commentsBundle]);
 
   // Allow scheduleSave когда:
   //   • canEdit (обычный editable-режим), либо

@@ -34,9 +34,19 @@ function walk(blocks: KbBlock[], out: string[]): void {
 
 function collectInline(items: unknown[], out: string[]): void {
   for (const raw of items) {
-    const item = raw as { type?: string; text?: string; content?: unknown[] };
+    const item = raw as {
+      type?: string;
+      text?: string;
+      content?: unknown[];
+      props?: { title?: string };
+    };
     if (item.type === "text" && typeof item.text === "string") {
       out.push(item.text);
+    } else if (item.type === "kbPageMention") {
+      // Atomic mention — content="none" в spec'е, текст живёт в
+      // props.title. Кладём в plain-text чтобы FTS-индекс находил
+      // страницы по mention'у.
+      if (typeof item.props?.title === "string") out.push(item.props.title);
     } else if (Array.isArray(item.content)) {
       collectInline(item.content, out);
     }

@@ -6,6 +6,7 @@ import {
   BlockNoteEditor,
   BlockNoteSchema,
   defaultBlockSpecs,
+  defaultInlineContentSpecs,
   filterSuggestionItems,
   insertOrUpdateBlockForSlashMenu,
 } from "@blocknote/core";
@@ -38,6 +39,7 @@ import {
   stripBrokenImgInHtml,
 } from "@/lib/knowledge/blocks-media";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
+import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 
 import "@blocknote/core/fonts/inter.css";
@@ -280,6 +282,10 @@ export function KbBlockNoteEditor({
         blockSpecs: {
           ...defaultBlockSpecs,
           callout: kbCalloutBlock(),
+        },
+        inlineContentSpecs: {
+          ...defaultInlineContentSpecs,
+          kbPageMention: kbPageMentionInlineContent,
         },
       }),
     [],

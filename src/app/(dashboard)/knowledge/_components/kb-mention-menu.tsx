@@ -43,22 +43,25 @@ export function KbMentionMenu({ editor }: KbMentionMenuProps) {
 function buildItem(it: KbMention, editor: BlockNoteEditor) {
   if (it.kind === "page") {
     const label = it.title || "Без названия";
-    // Inline-link тексту не нужен иконочный prefix для Lucide-иконок
-    // (рендерятся отдельно перед текстом в menu, и в самой статье
-    // достаточно текста-ссылки). Для emoji оставляем prefix — они
-    // часть «иконки страницы» в восприятии Notion.
-    const isEmoji = it.icon && it.icon.length <= 4 && !/^[a-z][a-z0-9-]*$/.test(it.icon);
-    const display = isEmoji ? `${it.icon} ${label}` : label;
     return {
       title: label,
       subtext: "Страница",
       icon: <KbPageIcon icon={it.icon} color={it.icon_color} size={16} />,
       onItemClick: () => {
+        // Кастомный inline-content (kbPageMention) — атомарный chip
+        // с иконкой + bold-заголовком. Backspace удаляет mention
+        // целиком (Notion-style), частичная правка невозможна. Стиль
+        // не link-ovsky, текст обычного цвета. См.
+        // src/components/knowledge/blocks/kb-page-mention.tsx.
         editor.insertInlineContent([
           {
-            type: "link",
-            href: `/knowledge/${it.slug}`,
-            content: [{ type: "text", text: display, styles: {} }],
+            type: "kbPageMention",
+            props: {
+              slug: it.slug,
+              title: label,
+              icon: it.icon ?? "",
+              iconColor: it.icon_color ?? "",
+            },
           } as never,
           " ",
         ] as never);

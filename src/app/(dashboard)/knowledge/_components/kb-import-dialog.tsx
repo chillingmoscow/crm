@@ -18,10 +18,12 @@ import {
 import {
   BlockNoteSchema,
   defaultBlockSpecs,
+  defaultInlineContentSpecs,
 } from "@blocknote/core";
 import { useCreateBlockNote } from "@blocknote/react";
 
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
+import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import {
   applyMediaUrlMap,
@@ -101,6 +103,10 @@ export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialog
         blockSpecs: {
           ...defaultBlockSpecs,
           callout: kbCalloutBlock(),
+        },
+        inlineContentSpecs: {
+          ...defaultInlineContentSpecs,
+          kbPageMention: kbPageMentionInlineContent,
         },
       }),
     [],

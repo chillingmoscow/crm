@@ -444,7 +444,13 @@ export function buildCommentBodyFromText(
       from = idx + needle.length;
     }
   }
-  matches.sort((a, b) => a.start - b.start);
+  // Сортируем longer-first при equal start (Codex #83 P1):
+  // если есть mention'ы «Ann» и «Annabelle» одновременно, и в text'е
+  // встречается «@Annabelle», обе строки matches попадают в one и
+  // тот же `start`. Без secondary-sort'а по убыванию end шорт-mention
+  // мог выиграть и сериализоваться как `kbStaffMention(Ann) + "abelle"`
+  // → неверный получатель notif'а.
+  matches.sort((a, b) => a.start - b.start || b.end - a.end);
 
   // Walk text, разбивая на runs: text → kbStaffMention → text → ...
   // Конвертируем целый text в один paragraph с массивом inline-content.

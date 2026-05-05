@@ -75,7 +75,13 @@ export function KbFloatingComposer({
 
   // Auto-focus + auto-grow.
   useEffect(() => {
-    textareaRef.current?.focus();
+    const ta = textareaRef.current;
+    if (!ta) return;
+    try {
+      ta.focus({ preventScroll: true });
+    } catch {
+      ta.focus();
+    }
   }, []);
   useEffect(() => {
     const ta = textareaRef.current;

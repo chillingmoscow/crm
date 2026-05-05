@@ -76,6 +76,32 @@ const kbPropertyColorEnum = z.enum([
   "pink",
 ]);
 
+// Unit (Stage 4) — discriminated union из shared `src/lib/units/`.
+// Здесь дублируем shape-валидацией. Если палитра валют изменится,
+// `currency.code` остаётся `z.string()` — strict-enum'ом не блочим,
+// чтобы не падать после rebuild'а constants. Server trust'ит CURRENCIES
+// list на уровне UI.
+const unitSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("none") }),
+  z.object({
+    kind: z.literal("currency"),
+    code: z.string().trim().min(1).max(8),
+  }),
+  z.object({
+    kind: z.literal("mass"),
+    code: z.enum(["gram", "kg"]),
+  }),
+  z.object({
+    kind: z.literal("volume"),
+    code: z.enum(["ml", "liter"]),
+  }),
+  z.object({ kind: z.literal("piece") }),
+  z.object({
+    kind: z.literal("custom"),
+    label: z.string().trim().min(1).max(8),
+  }),
+]);
+
 export const kbPropertySchema = z.discriminatedUnion("type", [
   z.object({
     ...kbPropertyBase,
@@ -89,6 +115,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     ...kbPropertyBase,
     type: z.literal("number"),
     value: z.number().nullable(),
+    unit: unitSchema.optional(),
   }),
   z.object({
     ...kbPropertyBase,

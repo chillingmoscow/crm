@@ -6,6 +6,7 @@
 // data (server actions / lib modules cast at the boundary).
 
 import type { Tables } from "./database";
+import type { Unit } from "@/lib/units";
 
 // ─── Row shapes (re-exports from generated database.ts) ──────────────────────
 
@@ -111,6 +112,10 @@ export type KbProperty =
       name: string;
       type: "number";
       value: number | null;
+      /** Единица измерения (Stage 4). Default отсутствие = `kind: "none"`
+       *  (просто число). Discriminated union из shared-слоя
+       *  `src/lib/units/`. Хранится в jsonb как-есть. */
+      unit?: Unit;
     } & KbPropertyIconOverride)
   | ({
       id: string;

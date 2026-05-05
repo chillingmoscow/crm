@@ -163,12 +163,9 @@ export default async function KbPageView({ params }: PageProps) {
     ? parent.title || "Без названия"
     : "База знаний";
 
-  // Profile lookup. После переезда EntityInfoPopover в KbPageMenu
-  // footer'ом нужны только два поля: updatedByName (отображается в
-  // меню как «Автор последней правки») + currentUserProfile (для
-  // аватарки в comment-композере). Ранее ещё computed createdByName/
-  // createdByAvatarUrl/updatedByAvatarUrl для info-popover'а — больше
-  // не нужны.
+  // Profile lookup для KbPageMenu — footer + «О странице» dialog
+  // (full audit info: id / created / author / updated / editor) +
+  // currentUserProfile для аватарки в comment-композере.
   type ProfileEntry = { name: string; avatarUrl: string | null };
   const profilesById = new Map<string, ProfileEntry>();
   for (const p of profiles ?? []) {
@@ -178,12 +175,18 @@ export default async function KbPageView({ params }: PageProps) {
       avatarUrl: p.avatar_url ?? null,
     });
   }
+  const createdByEntry = row.created_by
+    ? profilesById.get(row.created_by) ?? null
+    : null;
+  const createdByName = createdByEntry?.name ?? null;
+  const createdByAvatarUrl = createdByEntry?.avatarUrl ?? null;
   const updatedByEntry = row.updated_by
     ? profilesById.get(row.updated_by) ?? null
     : lastEditorId
       ? profilesById.get(lastEditorId) ?? null
       : null;
   const updatedByName = updatedByEntry?.name ?? null;
+  const updatedByAvatarUrl = updatedByEntry?.avatarUrl ?? null;
 
   // Current user — для аватарки и имени в comment-композере.
   const currentUserProfile = currentUserId
@@ -214,6 +217,10 @@ export default async function KbPageView({ params }: PageProps) {
           requiredReadingActive={readStatus.required}
           updatedAt={row.updated_at}
           updatedByName={updatedByName}
+          updatedByAvatarUrl={updatedByAvatarUrl}
+          createdAt={row.created_at}
+          createdByName={createdByName}
+          createdByAvatarUrl={createdByAvatarUrl}
           canEdit={canEdit}
           canDelete={canDelete}
           canDuplicate={canDuplicate}

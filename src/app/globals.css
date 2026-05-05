@@ -710,11 +710,22 @@ input:-webkit-autofill {
   font-weight: 500;
   gap: 10px;
   white-space: nowrap;
+  color: hsl(var(--foreground));
 }
 [data-slot="select-content"] [data-slot="select-item"] svg {
   width: 16px;
   height: 16px;
   stroke-width: 1.75;
+  /* react-icons/ri (RiText / RiH1 / ...) — filled-paths, муто-серые
+   * по дефолту приглушают визуальный вес. На hover/active — foreground.
+   * Selected (data-state=checked) рисует чек-mark иконку справа,
+   * её же приглушаем, но НЕ при focus / hover (дальше). */
+  color: hsl(var(--muted-foreground));
+}
+[data-slot="select-content"] [data-slot="select-item"]:hover svg,
+[data-slot="select-content"] [data-slot="select-item"][data-state="checked"] svg,
+[data-slot="select-content"] [data-slot="select-item"][data-highlighted] svg {
+  color: hsl(var(--foreground));
 }
 
 /* ── Formatting toolbar (frame 05 · sJEjP) ─────────────────────────
@@ -949,4 +960,114 @@ input:-webkit-autofill {
 .bn-formatting-toolbar [data-block-type="image"] svg {
   width: 18px;
   height: 18px;
+}
+
+/* ── KB FilePanel (frame 13 / 13b · JXSyX / rNEwo) ─────────────────
+ * Кастомный popover для добавления видео / картинки / файла. Рендерит
+ * `KbFilePanel` (kb-file-panel.tsx). Default-`FilePanel` BN отключён в
+ * blocknote-editor.tsx — наш заменяет полностью. */
+.kb-file-panel {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow:
+    0 12px 24px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Tabs row — segmented control (как frame 13). Muted-bg, padding 4,
+ * radius 8; активная вкладка — card-bg + лёгкая тень. */
+.kb-file-panel-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 4px;
+  background-color: hsl(var(--muted));
+  border-radius: 8px;
+}
+.kb-file-panel-tab {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 100ms ease, background-color 100ms ease;
+}
+.kb-file-panel-tab:hover {
+  color: hsl(var(--foreground));
+}
+.kb-file-panel-tab[data-active] {
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--card));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+.kb-file-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Drop-zone — accent-bg прямоугольник с border 2px (dashed-эффект),
+ * cloud icon по центру, title + sub. Hover/dragover усиливают borders. */
+.kb-file-panel-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 24px;
+  background-color: hsl(var(--accent));
+  border: 2px solid hsl(var(--border));
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.kb-file-panel-dropzone:hover,
+.kb-file-panel-dropzone.is-dragover {
+  border-color: hsl(var(--brand) / 0.4);
+  background-color: hsl(var(--brand) / 0.06);
+}
+.kb-file-panel-dropzone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.kb-file-panel-dropzone-sub {
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.kb-file-panel-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+.kb-file-panel-hint-multiline {
+  line-height: 1.5;
+}
+.kb-file-panel-error {
+  font-size: 12px;
+  color: hsl(var(--destructive));
+}
+
+/* sr-only — визуально скрытый file-input (open'им через wrapper-click) */
+.kb-file-panel input.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }

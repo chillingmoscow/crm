@@ -914,7 +914,20 @@ export class SupabaseThreadStore extends ThreadStore {
   };
 
   /** Re-apply все comment-mark'и в редактор из сохранённых позиций
-   *  metadata. Вызывается ПОСЛЕ начальной загрузки документа. */
+   *  metadata. Вызывается ПОСЛЕ начальной загрузки документа И на
+   *  каждом threadStore-notify (realtime INSERT/UPDATE из других
+   *  юзеров).
+   *
+   *  ВАЖНО: сначала removeMark для каждого treadId, ПОТОМ addMark —
+   *  metadata.position должна быть единственным источником правды.
+   *  Раньше применяли только addMark; PM addMark на уже-помеченном
+   *  диапазоне идемпотентен ТОЛЬКО когда mark с тем же attrs полностью
+   *  лежит в новом range. Если по какой-то причине существующий mark
+   *  оказался шире (BN keepOnSplit, manual mark-edit, baggage от
+   *  предыдущей версии и т.п.), повторный addMark не сужал range, и
+   *  каждый цикл reload + apply раздувал highlight ещё на ε. Юзер
+   *  видел постепенное «расползание» комментариев. Remove+add
+   *  гарантирует exact-match с metadata. */
   applyAllMarksToEditor(): void {
     const editor = this.editor as
       | {
@@ -935,18 +948,39 @@ export class SupabaseThreadStore extends ThreadStore {
     const markType = (
       view.state.schema.marks as Record<
         string,
-        { create: (attrs: unknown) => unknown }
+        { create: (attrs: unknown) => unknown; name: string }
       >
-    ).comment;
+    ).comment as
+      | { create: (attrs: unknown) => unknown; name: string }
+      | undefined;
     if (!markType) return;
 
     const docSize = view.state.doc.content.size;
     let tr = view.state.tr as unknown as {
       addMark: (from: number, to: number, mark: unknown) => unknown;
+      removeMark: (
+        from: number,
+        to: number,
+        mark: { type: { name: string } } | unknown,
+      ) => unknown;
     };
-    let touched = false;
+    // Снимаем все существующие comment-марки на всём документе.
+    // PM-сигнатура `removeMark(from, to, MarkType)` очищает все марки
+    // данного типа в диапазоне. Полный сброс перед re-apply — самый
+    // дешёвый способ обеспечить metadata-as-source-of-truth.
+    tr = tr.removeMark(0, docSize, markType as unknown) as typeof tr;
+
+    // Re-apply'им марки для всех тредов с position в metadata. Важно
+    // включать и resolved/deleted-threads с orphan=true, иначе после
+    // removeMark выше они бы полностью исчезли из UI. BN-plugin сам
+    // потом синхронизирует orphan-flag, но для повторного запуска
+    // applyAllMarksToEditor нам нужно чтобы исходное состояние было
+    // правильное.
     for (const thread of this.threadCache.values()) {
-      if (thread.deletedAt || thread.resolved) continue;
+      // Hard-deleted threads (deletedAt set, и DB row помечена) —
+      // не должны иметь mark'а вообще: BN-логика всё равно показала
+      // бы их как orphan, но тред сам удалён → нечего показывать.
+      if (thread.deletedAt) continue;
       const meta = thread.metadata as { position?: { from?: number; to?: number } } | null;
       const from = meta?.position?.from;
       const to = meta?.position?.to;
@@ -959,11 +993,13 @@ export class SupabaseThreadStore extends ThreadStore {
       tr = tr.addMark(
         safeFrom,
         safeTo,
-        markType.create({ orphan: false, threadId: thread.id }),
+        markType.create({
+          orphan: Boolean(thread.resolved),
+          threadId: thread.id,
+        }),
       ) as typeof tr;
-      touched = true;
     }
-    if (touched) view.dispatch(tr);
+    view.dispatch(tr);
   }
 
   /** Walks PM doc, находит все comment-mark'и, обновляет
@@ -981,12 +1017,26 @@ export class SupabaseThreadStore extends ThreadStore {
     const doc = view.state.doc as unknown as {
       descendants: (
         cb: (
-          node: { marks: Array<{ type: { name: string }; attrs: Record<string, unknown> }>; nodeSize: number },
+          node: {
+            isText: boolean;
+            marks: Array<{ type: { name: string }; attrs: Record<string, unknown> }>;
+            nodeSize: number;
+          },
           pos: number,
         ) => void,
       ) => void;
     };
     doc.descendants((node, pos) => {
+      // Comment — inline mark; живёт ТОЛЬКО на текстовых нод'ах. Если
+      // в PM-doc'е оказался блок-уровневый узел (paragraph/heading/
+      // blockContainer) с этим маркой (теоретически возможно при
+      // schema-quirk'ах или импортах), его `nodeSize` включает open/
+      // close-токены + всё содержимое — captured-range получился бы
+      // намного шире фактически выделенного текста. Это и был
+      // источник «расширяющихся» highlight'ов после перезагрузок:
+      // широкий range писался в metadata → applyAllMarksToEditor
+      // повторно применял его → mark разрастался каждый цикл.
+      if (!node.isText) return;
       for (const mark of node.marks ?? []) {
         if (mark.type.name !== "comment") continue;
         const tid = mark.attrs.threadId as string | undefined;

@@ -327,6 +327,24 @@ export function KbPageEditor({
     snapshotHash(initialTitle, initialIcon, initialIconColor, initialContent),
   );
 
+  // Snapshot значений, которые видны в KB-tree (sidebar): title + icon
+  // + iconColor. После успешного save'а сравниваем с текущими — если
+  // изменились, дёргаем router.refresh() чтобы layout.tsx перетянул
+  // getKbTree() и tree отрисовался с новой иконкой/названием. Без
+  // этого юзер видит старую иконку до hard-reload'а. Content в tree
+  // не показывается, поэтому changes-of-content не триггерят refresh
+  // — иначе на каждый автосейв (~2с при наборе) шёл бы лишний
+  // RSC-roundtrip.
+  const lastTreeSnapshotRef = useRef<{
+    title: string;
+    icon: string;
+    iconColor: string;
+  }>({
+    title: initialTitle,
+    icon: initialIcon ?? "",
+    iconColor: initialIconColor ?? "",
+  });
+
   // BlockNote fires its first onChange while *loading* the initial
   // document — и в этот момент внутренняя нормализация (block id,
   // canonicalize attrs) меняет hash относительно того, что мы передали.
@@ -409,8 +427,29 @@ export function KbPageEditor({
       return;
     }
     lastSavedHashRef.current = newHash;
+
+    // Tree-relevant fields (title/icon/iconColor) изменились → дёргаем
+    // RSC-refresh чтобы layout.tsx пересобрал KbTreeNav со свежими
+    // данными. router.refresh() не remount'ит editor: key={pageId}
+    // стабилен, initialContent зафризжен в useMemo'ах внутри
+    // KbBlockNoteEditor — RSC-prop'ы пересчитаются, но React не
+    // re-init'ит state.
+    const prevTree = lastTreeSnapshotRef.current;
+    const treeChanged =
+      prevTree.title !== titleRef.current ||
+      prevTree.icon !== (iconRef.current ?? "") ||
+      prevTree.iconColor !== (iconColorRef.current ?? "");
+    if (treeChanged) {
+      lastTreeSnapshotRef.current = {
+        title: titleRef.current,
+        icon: iconRef.current ?? "",
+        iconColor: iconColorRef.current ?? "",
+      };
+      router.refresh();
+    }
+
     setKbSaveState({ kind: "saved", at: new Date() });
-  }, [pageId, commentsBundle]);
+  }, [pageId, commentsBundle, router]);
 
   // Allow scheduleSave когда:
   //   • canEdit (обычный editable-режим), либо
@@ -505,14 +544,19 @@ export function KbPageEditor({
             disabled={!canEdit}
             triggerSize={64}
             onChange={({ icon: nextIcon, color: nextColor }) => {
-              // Sync refs BEFORE scheduleSave so the in-handler hash check
-              // sees the latest values (refs are otherwise updated only
-              // by useEffect on next render).
+              // Sync refs BEFORE flush so the in-handler hash check
+              // sees the latest values (refs are otherwise updated только
+              // useEffect'ом на следующем render'е).
               iconRef.current = nextIcon;
               iconColorRef.current = nextColor;
               setIcon(nextIcon);
               setIconColor(nextColor);
-              scheduleSave();
+              // Icon — single-click action, юзер ждёт мгновенной
+              // персистентности (и обновления tree-иконки в sidebar).
+              // Bypass'им 2-сек debounce и flush'им сразу. flush сам
+              // выставит "saving" → "saved" и сам дёрнет
+              // router.refresh() для tree-relevant полей.
+              void flush();
             }}
           />
         </div>

@@ -85,7 +85,13 @@ function KbAudioPreviewWithMenu(
       <AudioPreview {...previewProps} />
       <button
         type="button"
-        className="kb-video-menu-btn"
+        // Отдельный CSS-class от kb-video-menu-btn: для аудио кнопка
+        // НЕ оверлеем поверх плеера (юзер: «кнопка нашего меню
+        // заслоняет настройки самого проигрывателя — speed control'ы
+        // и т.п.»), а сидит inline-flex-сиблингом справа от audio-
+        // элемента. Native-controls остаются полностью в распоряжении
+        // плеера, наш «⋯» не перекрывает ни один контрол.
+        className="kb-audio-menu-btn"
         aria-label="Открыть меню аудио"
         title="Открыть меню аудио"
         onClick={onSelect}

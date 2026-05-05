@@ -56,14 +56,12 @@ export function KbFileReplaceButton() {
 
   if (!Components || !block) return null;
 
-  const tooltip = TOOLTIP[block.type] ?? TOOLTIP.file;
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Components.FormattingToolbar.Button
-          mainTooltip={tooltip}
-          label={tooltip}
+          mainTooltip="Заменить"
+          label="Заменить"
           icon={<RefreshCw className="size-4" strokeWidth={1.75} />}
           onClick={() => setOpen((v) => !v)}
         />
@@ -78,10 +76,3 @@ export function KbFileReplaceButton() {
     </Popover>
   );
 }
-
-const TOOLTIP: Record<string, string> = {
-  video: "Заменить видео",
-  image: "Заменить изображение",
-  audio: "Заменить аудио",
-  file: "Заменить файл",
-};

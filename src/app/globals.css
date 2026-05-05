@@ -1267,7 +1267,6 @@ input:-webkit-autofill {
 }
 .bn-sheerly .kb-video-embed:hover .kb-video-menu-btn,
 .bn-sheerly .kb-video-native:hover .kb-video-menu-btn,
-.bn-sheerly .kb-audio-native:hover .kb-video-menu-btn,
 .bn-sheerly .ProseMirror-selectednode .kb-video-menu-btn,
 .bn-sheerly .kb-video-menu-btn:focus-visible {
   opacity: 1;
@@ -1276,13 +1275,45 @@ input:-webkit-autofill {
   background-color: rgb(0 0 0 / 0.75);
 }
 
-/* Аудио-плеер: position-relative для абсолютного позиционирования
- * «⋯»-кнопки в углу. На hover показываем меню. Native audio-controls
- * остаются полностью функциональными (кнопка занимает 28×28 в углу). */
+/* Аудио-плеер: flex-row — audio растягивается на всю доступную
+ * ширину, наш «⋯»-меню сидит справа от него inline-flex'ом. БЕЗ
+ * overlap'а на native audio-controls (раньше absolute-позиционирование
+ * top-right накрывало browser-кнопку настроек / playback-rate /
+ * download'а — юзер пожаловался что не может ими пользоваться). */
 .bn-sheerly .kb-audio-native {
-  position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   width: 100%;
+}
+.bn-sheerly .kb-audio-native > audio {
+  flex: 1;
+  min-width: 0;
+}
+.bn-sheerly .kb-audio-menu-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease,
+    color 120ms ease;
+}
+.bn-sheerly .kb-audio-native:hover .kb-audio-menu-btn,
+.bn-sheerly .ProseMirror-selectednode .kb-audio-menu-btn,
+.bn-sheerly .kb-audio-menu-btn:focus-visible {
+  opacity: 1;
+}
+.bn-sheerly .kb-audio-menu-btn:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--foreground));
 }
 /* Direct video element — по дефолту растягивался произвольно. Даём
  * максимум 640px при отсутствии previewWidth, чтобы видеоплеер не

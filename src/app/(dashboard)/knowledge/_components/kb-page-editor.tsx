@@ -19,6 +19,7 @@ import {
   setKbSaveState,
 } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
+import { setKbTreeOverride } from "@/app/(dashboard)/knowledge/_components/kb-tree-overrides-store";
 import {
   SupabaseThreadStore,
   resolveKbUsers,
@@ -329,12 +330,13 @@ export function KbPageEditor({
 
   // Snapshot значений, которые видны в KB-tree (sidebar): title + icon
   // + iconColor. После успешного save'а сравниваем с текущими — если
-  // изменились, дёргаем router.refresh() чтобы layout.tsx перетянул
-  // getKbTree() и tree отрисовался с новой иконкой/названием. Без
-  // этого юзер видит старую иконку до hard-reload'а. Content в tree
-  // не показывается, поэтому changes-of-content не триггерят refresh
-  // — иначе на каждый автосейв (~2с при наборе) шёл бы лишний
-  // RSC-roundtrip.
+  // изменились, push'им оверрайд в client-side `kb-tree-overrides-store`,
+  // чтобы KbTreeNav сразу нарисовал новую иконку/название без
+  // RSC-refresh'а. Раньше тут был `router.refresh()` — он работал, но
+  // визуально перезагружал страницу (топбар мигал, editor получал
+  // свежие props). Client-side override даёт мгновенный update без
+  // network-roundtrip'а; на следующей навигации server-данные уже
+  // содержат свежее значение, override становится no-op.
   const lastTreeSnapshotRef = useRef<{
     title: string;
     icon: string;
@@ -428,12 +430,11 @@ export function KbPageEditor({
     }
     lastSavedHashRef.current = newHash;
 
-    // Tree-relevant fields (title/icon/iconColor) изменились → дёргаем
-    // RSC-refresh чтобы layout.tsx пересобрал KbTreeNav со свежими
-    // данными. router.refresh() не remount'ит editor: key={pageId}
-    // стабилен, initialContent зафризжен в useMemo'ах внутри
-    // KbBlockNoteEditor — RSC-prop'ы пересчитаются, но React не
-    // re-init'ит state.
+    // Tree-relevant fields (title/icon/iconColor) изменились → push'им
+    // оверрайд в client-side store. KbTreeNav читает оверрайд поверх
+    // server-данных и сразу рендерит новую иконку. Никакого RSC-refresh'а
+    // — страница не «прыгает». На следующей навигации server-getKbTree()
+    // вернёт уже свежие значения, override станет no-op.
     const prevTree = lastTreeSnapshotRef.current;
     const treeChanged =
       prevTree.title !== titleRef.current ||
@@ -445,11 +446,15 @@ export function KbPageEditor({
         icon: iconRef.current ?? "",
         iconColor: iconColorRef.current ?? "",
       };
-      router.refresh();
+      setKbTreeOverride(pageId, {
+        title: titleRef.current,
+        icon: iconRef.current ?? null,
+        iconColor: iconColorRef.current ?? null,
+      });
     }
 
     setKbSaveState({ kind: "saved", at: new Date() });
-  }, [pageId, commentsBundle, router]);
+  }, [pageId, commentsBundle]);
 
   // Allow scheduleSave когда:
   //   • canEdit (обычный editable-режим), либо

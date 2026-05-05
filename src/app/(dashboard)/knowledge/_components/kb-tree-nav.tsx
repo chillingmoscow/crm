@@ -34,6 +34,7 @@ import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-sear
 import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
 import { KbTemplatePicker } from "@/app/(dashboard)/knowledge/_components/kb-template-picker";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { useKbTreeOverride } from "@/app/(dashboard)/knowledge/_components/kb-tree-overrides-store";
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
 import { Star } from "lucide-react";
@@ -576,6 +577,16 @@ function KbTreeItem({
   isDraggingAny,
 }: KbTreeItemProps) {
   const router = useRouter();
+  // Client-side override (icon / iconColor / title) — пишется
+  // KbPageEditor'ом сразу после save'а tree-relevant полей. Если есть
+  // — fallback'ом перебивает server-данные node'а до next navigation
+  // (когда server отдаст уже свежие). Без оверрайда юзеру пришлось бы
+  // делать router.refresh() и перезагружать пол-страницы.
+  const override = useKbTreeOverride(node.id);
+  const displayIcon = override?.icon !== undefined ? override.icon : node.icon;
+  const displayIconColor =
+    override?.iconColor !== undefined ? override.iconColor : node.icon_color;
+  const displayTitle = override?.title ?? node.title;
   const isActive = activeSlug === node.slug;
   const isOpen = expanded.has(node.id);
   const hasChildren = node.children.length > 0;
@@ -711,8 +722,8 @@ function KbTreeItem({
             Notion-style: иконка по умолчанию, chevron на hover. */}
         <span className="relative size-5 shrink-0 inline-flex items-center justify-center">
           <KbPageIcon
-            icon={node.icon}
-            color={node.icon_color}
+            icon={displayIcon}
+            color={displayIconColor}
             size={14}
             className={cn(
               "transition-opacity",
@@ -744,9 +755,9 @@ function KbTreeItem({
         <Link
           href={`/knowledge/${node.slug}`}
           className="flex-1 truncate inline-flex items-center gap-1.5 min-w-0"
-          title={node.is_locked ? `${node.title} (заблокирована)` : node.title}
+          title={node.is_locked ? `${displayTitle} (заблокирована)` : displayTitle}
         >
-          <span className="truncate">{node.title || "Без названия"}</span>
+          <span className="truncate">{displayTitle || "Без названия"}</span>
           {node.is_locked && (
             <Lock
               className="size-3 shrink-0 text-amber-600 dark:text-amber-400"

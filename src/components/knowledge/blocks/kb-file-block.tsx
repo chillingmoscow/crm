@@ -39,6 +39,7 @@ function KbFileBlock(
       <KbMediaChip
         icon={<FileIcon size={18} strokeWidth={1.75} />}
         label={props.block.props.name || url}
+        caption={props.block.props.caption}
         variant="card"
       />
     );

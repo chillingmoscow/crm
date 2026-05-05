@@ -195,7 +195,6 @@ export default async function KbPageView({ params }: PageProps) {
       ? profilesById.get(lastEditorId) ?? null
       : null;
   const updatedByName = updatedByEntry?.name ?? null;
-  const updatedByAvatarUrl = updatedByEntry?.avatarUrl ?? null;
 
   // Current user — для аватарки и имени в comment-композере.
   const currentUserProfile = currentUserId
@@ -226,10 +225,6 @@ export default async function KbPageView({ params }: PageProps) {
           requiredReadingActive={readStatus.required}
           updatedAt={row.updated_at}
           updatedByName={updatedByName}
-          updatedByAvatarUrl={updatedByAvatarUrl}
-          createdAt={row.created_at}
-          createdByName={createdByName}
-          createdByAvatarUrl={createdByAvatarUrl}
           canEdit={canEdit}
           canDelete={canDelete}
           canDuplicate={canDuplicate}
@@ -283,6 +278,8 @@ export default async function KbPageView({ params }: PageProps) {
             userId={currentUserId}
             currentUserName={currentUserProfile?.name ?? null}
             currentUserAvatarUrl={currentUserProfile?.avatarUrl ?? null}
+            authorName={createdByName}
+            authorAvatarUrl={createdByAvatarUrl}
             readingMinutes={
               row.plain_text && row.plain_text.trim().length > 0
                 ? estimateReadingMinutes(row.plain_text)

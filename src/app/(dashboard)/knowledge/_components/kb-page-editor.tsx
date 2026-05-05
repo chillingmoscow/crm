@@ -186,6 +186,12 @@ interface KbPageEditorProps {
    *  между title и content через `<KbPageProperties>`. Save-цикл —
    *  отдельный (saveKbPageProperties), не идёт через scheduleSave. */
   initialProperties?: KbProperty[];
+  /** Имя/аватарка автора создания страницы — рендерится chip'ом под
+   *  title рядом с reading-time. Заменяет «О странице» dialog,
+   *  который был после переезда в ⋯-меню (PR #115). Изменения и
+   *  редактор и так есть в footer'е ⋯-меню. */
+  authorName?: string | null;
+  authorAvatarUrl?: string | null;
 }
 
 /**
@@ -222,6 +228,8 @@ export function KbPageEditor({
   checkedMentionSlugs = null,
   deletedMentionSlugs = null,
   initialProperties = [],
+  authorName = null,
+  authorAvatarUrl = null,
 }: KbPageEditorProps) {
   // Sprint D / Phase 1: page-view analytics. Запускаем как только
   // userId известен (= юзер залогинен и в active account). Hook сам
@@ -538,21 +546,48 @@ export function KbPageEditor({
                      text-[40px] font-extrabold tracking-tight leading-[1.15]
                      placeholder:text-muted-foreground/50"
         />
-        {/* Reading-time pill — Notion-style под title. Не показываем
-            если страница пустая (estimateReadingMinutes вернул бы 1
-            на пустом тексте, что вводит в заблуждение — лучше скрыть).
-            Caller проверяет: readingMinutes=null → секцию скипнуть. */}
-        {readingMinutes !== null && readingMinutes !== undefined && (
-          <div className="px-2 -ml-2">
-            <span
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground"
-              title={`Примерное время чтения: ${readingMinutes} мин`}
-            >
-              <Clock className="size-3.5" />
-              <span className="tabular-nums">≈ {readingMinutes} мин чтения</span>
-            </span>
+        {/* Header-meta line: автор + reading-time. Notion-style: тонкая
+            строка под title с компактными chip'ами. authorName/
+            authorAvatarUrl приходят с server-render'а, пустые →
+            chip скрывается. readingMinutes тоже опционален. */}
+        {(readingMinutes !== null && readingMinutes !== undefined) ||
+        authorName ? (
+          <div className="px-2 -ml-2 flex items-center gap-3 flex-wrap">
+            {authorName && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                {authorAvatarUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={authorAvatarUrl}
+                    alt=""
+                    className="size-4 rounded-full object-cover bg-muted shrink-0"
+                  />
+                ) : (
+                  <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[8px] font-semibold shrink-0">
+                    {authorName
+                      .split(" ")
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map((p) => p[0]?.toUpperCase() ?? "")
+                      .join("") || "?"}
+                  </span>
+                )}
+                <span>{authorName}</span>
+              </span>
+            )}
+            {readingMinutes !== null && readingMinutes !== undefined && (
+              <span
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+                title={`Примерное время чтения: ${readingMinutes} мин`}
+              >
+                <Clock className="size-3.5" />
+                <span className="tabular-nums">
+                  ≈ {readingMinutes} мин чтения
+                </span>
+              </span>
+            )}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Properties panel — Notion-style key-value fields, рендерится

@@ -1071,3 +1071,61 @@ input:-webkit-autofill {
   white-space: nowrap;
   border-width: 0;
 }
+
+/* ── Video block — embed iframe + tweaks ───────────────────────────
+ * `kb-video-embed` — обёртка вокруг `<iframe>` для YouTube/Vimeo/Loom.
+ * 16:9 aspect-ratio, фикс ширины делает ResizableFileBlockWrapper
+ * (выставляет style.width на родителе .bn-visual-media-wrapper).
+ * Iframe заполняет всё доступное пространство. */
+.bn-sheerly .bn-visual-media-wrapper {
+  /* Базовый видео-блок без указанной ширины — даём разумный default
+   * 640px (а не растягиваться full-width как было). При наличии
+   * previewWidth ResizableFileBlockWrapper сам выставит inline-style. */
+  max-width: 100%;
+}
+.bn-sheerly .kb-video-embed {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #000;
+}
+.bn-sheerly .kb-video-embed iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+/* Direct video element — по дефолту растягивался произвольно. Даём
+ * максимум 640px при отсутствии previewWidth, чтобы видеоплеер не
+ * занимал full-width при первом drop'е. */
+.bn-sheerly video.bn-visual-media {
+  max-width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+/* Resize-handles — BN-default рендерит вертикальные «pipe» полоски на
+ * левом/правом краях. Без стилизации они выглядят как голые серые
+ * линии, налипшие на видео. Делаем их компактнее и видимыми только
+ * на hover/focus блока. */
+.bn-sheerly .bn-resize-handle {
+  width: 6px;
+  height: 36px;
+  background-color: hsl(var(--foreground) / 0.3);
+  border-radius: 3px;
+  border: 1.5px solid hsl(var(--background));
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0;
+  transition: opacity 120ms ease, background-color 120ms ease;
+  cursor: ew-resize;
+}
+.bn-sheerly .bn-visual-media-wrapper:hover .bn-resize-handle,
+.bn-sheerly .ProseMirror-selectednode .bn-resize-handle {
+  opacity: 1;
+  display: block !important;
+}
+.bn-sheerly .bn-resize-handle:hover {
+  background-color: hsl(var(--brand) / 0.7);
+}

@@ -435,19 +435,27 @@ export function KbPageEditor({
     // server-данных и сразу рендерит новую иконку. Никакого RSC-refresh'а
     // — страница не «прыгает». На следующей навигации server-getKbTree()
     // вернёт уже свежие значения, override станет no-op.
+    // Normalized title — то же, что persists `saveKbPage` выше
+    // (`titleRef.current.trim() || "Без названия"`). Codex P2 на PR
+    // #134: раньше override писал raw-textarea-значение (с trailing-
+    // spaces или пустой строкой), а server сохранял normalized-форму
+    // → tree-сайдбар показывал «Без названия» по-разному с editor'ом
+    // до next reload'а. Используем одинаковую нормализацию в обеих
+    // ветках, чтобы override всегда matched persisted-значение.
+    const normalizedTitle = titleRef.current.trim() || "Без названия";
     const prevTree = lastTreeSnapshotRef.current;
     const treeChanged =
-      prevTree.title !== titleRef.current ||
+      prevTree.title !== normalizedTitle ||
       prevTree.icon !== (iconRef.current ?? "") ||
       prevTree.iconColor !== (iconColorRef.current ?? "");
     if (treeChanged) {
       lastTreeSnapshotRef.current = {
-        title: titleRef.current,
+        title: normalizedTitle,
         icon: iconRef.current ?? "",
         iconColor: iconColorRef.current ?? "",
       };
       setKbTreeOverride(pageId, {
-        title: titleRef.current,
+        title: normalizedTitle,
         icon: iconRef.current ?? null,
         iconColor: iconColorRef.current ?? null,
       });

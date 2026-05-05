@@ -23,6 +23,7 @@ import {
   GripVertical,
   Palette,
   Check,
+  ListChecks,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -62,6 +63,18 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  KB_ICONS,
+  KB_ICON_COLORS,
+  colorTextClass,
+  type KbIconColor,
+} from "@/lib/knowledge/icons";
+import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import {
   saveKbPageProperties,
   saveKbTemplateProperties,
 } from "@/lib/knowledge/properties";
@@ -86,6 +99,7 @@ const TYPE_ICONS: Record<KbPropertyType, React.ComponentType<{ className?: strin
   date: CalendarIcon,
   checkbox: CheckSquare,
   select: ChevronDown,
+  "multi-select": ListChecks,
 };
 
 const TYPE_LABELS: Record<KbPropertyType, string> = {
@@ -94,6 +108,7 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   date: "Дата",
   checkbox: "Чекбокс",
   select: "Выбор",
+  "multi-select": "Мультивыбор",
 };
 
 // Notion-style пастельная палитра. Хранятся имена в jsonb (см.
@@ -199,6 +214,14 @@ function makeProperty(type: KbPropertyType, name?: string): KbProperty {
       return { id, name: baseName, type: "checkbox", value: false };
     case "select":
       return { id, name: baseName, type: "select", value: null, options: [] };
+    case "multi-select":
+      return {
+        id,
+        name: baseName,
+        type: "multi-select",
+        value: [],
+        options: [],
+      };
   }
 }
 
@@ -284,15 +307,77 @@ export function KbPageProperties({
   };
 
   // Меняет тип property: id и name сохраняются, value сбрасывается на
-  // дефолт нового типа, options стираются (если был select). Конверсия
-  // value между типами сложная и lossy — проще явно reset.
+  // дефолт нового типа. Options/optionColors сохраняются при переходе
+  // select ↔ multi-select (shape совместим). Icon override сохраняется
+  // всегда — он визуальный, не привязан к типу.
   const changePropertyType = (id: string, newType: KbPropertyType) => {
     setProperties((prev) => {
       const next = prev.map((p) => {
         if (p.id !== id) return p;
         if (p.type === newType) return p;
         const fresh = makeProperty(newType, p.name);
-        return { ...fresh, id: p.id };
+        // Перенос icon override из старого property.
+        const carriedIcon = {
+          ...(p.icon !== undefined ? { icon: p.icon } : {}),
+          ...(p.iconColor !== undefined ? { iconColor: p.iconColor } : {}),
+        };
+        // Перенос options/optionColors при select ↔ multi-select.
+        const isCurrentOption =
+          p.type === "select" || p.type === "multi-select";
+        const isNewOption =
+          newType === "select" || newType === "multi-select";
+        if (isCurrentOption && isNewOption) {
+          const optionProp = p as
+            | Extract<KbProperty, { type: "select" }>
+            | Extract<KbProperty, { type: "multi-select" }>;
+          // Конвертируем value: select string|null ↔ multi-select string[].
+          let nextValue: string | null | string[];
+          if (newType === "multi-select") {
+            // string|null → string[] (пустой если null).
+            const cur = optionProp.value;
+            nextValue = typeof cur === "string" && cur ? [cur] : [];
+          } else {
+            // string[] → string|null (берём первый элемент или null).
+            const cur = optionProp.value as string[];
+            nextValue = cur[0] ?? null;
+          }
+          return {
+            ...fresh,
+            id: p.id,
+            ...carriedIcon,
+            value: nextValue,
+            options: optionProp.options,
+            ...(optionProp.optionColors
+              ? { optionColors: optionProp.optionColors }
+              : {}),
+          } as KbProperty;
+        }
+        return { ...fresh, id: p.id, ...carriedIcon } as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  // Меняет icon override property. value=null/undefined для обоих
+  // полей = «без override» (рендерим default TYPE_ICONS[type]).
+  const changePropertyIcon = (
+    id: string,
+    icon: string | null,
+    iconColor: string | null,
+  ) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id) return p;
+        const updated = { ...p } as KbProperty & {
+          icon?: string;
+          iconColor?: string;
+        };
+        if (icon === null) delete updated.icon;
+        else updated.icon = icon;
+        if (iconColor === null) delete updated.iconColor;
+        else updated.iconColor = iconColor;
+        return updated as KbProperty;
       });
       scheduleSave(next);
       return next;
@@ -348,17 +433,25 @@ export function KbPageProperties({
                     updateProperty(prop.id, { value } as Partial<KbProperty>)
                   }
                   onChangeOptions={(options) => {
-                    // При удалении опций select'а — также чистим
+                    // При удалении опций select / multi-select — чистим
                     // соответствующие записи из optionColors (висячие
                     // колоры безвредны, но платят лишние байты при
-                    // сохранении).
-                    if (prop.type === "select") {
-                      const currColors = prop.optionColors;
+                    // сохранении). Plus для multi-select убираем
+                    // удалённые опции из value-массива.
+                    const isOptionType =
+                      prop.type === "select" ||
+                      prop.type === "multi-select";
+                    if (isOptionType) {
+                      const currColors = (
+                        prop as
+                          | Extract<KbProperty, { type: "select" }>
+                          | Extract<KbProperty, { type: "multi-select" }>
+                      ).optionColors;
                       let nextColors:
                         | Partial<Record<string, KbPropertyColor>>
                         | undefined = currColors;
+                      const allowed = new Set(options);
                       if (currColors) {
-                        const allowed = new Set(options);
                         const filtered = Object.fromEntries(
                           Object.entries(currColors).filter(([k]) =>
                             allowed.has(k),
@@ -369,10 +462,18 @@ export function KbPageProperties({
                             ? filtered
                             : undefined;
                       }
-                      updateProperty(prop.id, {
+                      // Для multi-select также чистим value от удалённых.
+                      const patch: Partial<KbProperty> = {
                         options,
                         optionColors: nextColors,
-                      } as Partial<KbProperty>);
+                      } as Partial<KbProperty>;
+                      if (prop.type === "multi-select") {
+                        const filteredValue = (prop.value as string[]).filter(
+                          (v) => allowed.has(v),
+                        );
+                        (patch as { value?: string[] }).value = filteredValue;
+                      }
+                      updateProperty(prop.id, patch);
                     } else {
                       updateProperty(prop.id, { options } as Partial<KbProperty>);
                     }
@@ -381,6 +482,9 @@ export function KbPageProperties({
                     updateProperty(prop.id, {
                       optionColors,
                     } as Partial<KbProperty>)
+                  }
+                  onChangeIcon={(icon, iconColor) =>
+                    changePropertyIcon(prop.id, icon, iconColor)
                   }
                   onRemove={() => removeProperty(prop.id)}
                   onDuplicate={() => duplicateProperty(prop.id)}
@@ -431,6 +535,7 @@ interface PropertyRowProps {
   onChangeOptionColors: (
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
+  onChangeIcon: (icon: string | null, iconColor: string | null) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -443,11 +548,11 @@ function PropertyRow({
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
+  onChangeIcon,
   onRemove,
   onDuplicate,
   onChangeType,
 }: PropertyRowProps) {
-  const Icon = TYPE_ICONS[property.type];
   const [name, setName] = useState(property.name);
   // Sync external rename (e.g., другой клиент) на случай контролируемой
   // mutation сверху.
@@ -500,7 +605,11 @@ function PropertyRow({
         // съезжал при переключении canEdit.
         <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
       )}
-      <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
+      <PropertyIconButton
+        property={property}
+        canEdit={canEdit}
+        onChangeIcon={onChangeIcon}
+      />
       {canEdit ? (
         <input
           type="text"
@@ -654,6 +763,14 @@ function PropertyValueControl({
       );
     case "select":
       return <SelectControl
+        property={property}
+        canEdit={canEdit}
+        onChangeValue={onChangeValue}
+        onChangeOptions={onChangeOptions}
+        onChangeOptionColors={onChangeOptionColors}
+      />;
+    case "multi-select":
+      return <MultiSelectControl
         property={property}
         canEdit={canEdit}
         onChangeValue={onChangeValue}
@@ -911,6 +1028,431 @@ function SelectControl({
           className="h-7 w-[140px] text-[13px]"
         />
       )}
+    </div>
+  );
+}
+
+/** Inline icon-trigger перед именем property. По дефолту показывает
+ *  TYPE_ICONS[type] (default behavior до Stage 2). Если у property
+ *  есть `icon` override — рендерится оно (Lucide-name из KB_ICONS) с
+ *  опциональным `iconColor` тинтом. Click открывает Popover-picker:
+ *  10 цветов + grid KB_ICONS + «По умолчанию» (сбросить override).
+ *
+ *  Read-only режим (`!canEdit`): trigger некликабельный, выглядит как
+ *  обычная иконка без интерактивности.
+ *
+ *  Намеренно НЕ переиспользуем `<KbIconPicker>` напрямую: его дефолтный
+ *  fallback (FileText из KbPageIcon при `icon=null`) не подходит для
+ *  property — мы хотим показать TYPE_ICONS[type] до override'а. */
+function PropertyIconButton({
+  property,
+  canEdit,
+  onChangeIcon,
+}: {
+  property: KbProperty;
+  canEdit: boolean;
+  onChangeIcon: (icon: string | null, iconColor: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pendingColor, setPendingColor] = useState<KbIconColor | null>(
+    (property.iconColor as KbIconColor | null) ?? null,
+  );
+
+  // Sync pendingColor при открытии — на случай rename'а извне.
+  useEffect(() => {
+    if (open) {
+      setPendingColor((property.iconColor as KbIconColor | null) ?? null);
+    }
+  }, [open, property.iconColor]);
+
+  const TypeFallback = TYPE_ICONS[property.type];
+  const hasOverride = Boolean(property.icon);
+
+  // Render-helper: если override есть — KbPageIcon (рендерит из KB_ICONS
+  // с тинтом). Иначе TYPE_ICONS[type] (Lucide дефолт).
+  const renderIcon = (size: number) =>
+    hasOverride ? (
+      <KbPageIcon
+        icon={property.icon ?? null}
+        color={property.iconColor ?? null}
+        size={size}
+      />
+    ) : (
+      <TypeFallback className="size-3.5 text-muted-foreground/70" />
+    );
+
+  if (!canEdit) {
+    return <span className="size-4 shrink-0 inline-flex items-center justify-center">{renderIcon(14)}</span>;
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label="Изменить иконку свойства"
+          title="Иконка"
+          className="size-5 shrink-0 inline-flex items-center justify-center rounded
+                     hover:bg-accent transition-colors"
+        >
+          {renderIcon(14)}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        className="w-[320px] p-0 rounded-[10px]"
+      >
+        <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2 border-b">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+            Цвет
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setPendingColor(null);
+              onChangeIcon(null, null);
+              setOpen(false);
+            }}
+            disabled={!hasOverride && !property.iconColor}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
+          >
+            <X className="size-3" />
+            По умолчанию
+          </button>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap px-3 py-2 border-b">
+          {KB_ICON_COLORS.map((c) => {
+            const isActive = pendingColor === c.name;
+            return (
+              <button
+                key={c.name}
+                type="button"
+                onClick={() => {
+                  setPendingColor(c.name);
+                  // Если icon уже set — apply сразу (preview = commit).
+                  if (property.icon) {
+                    onChangeIcon(property.icon, c.name);
+                  }
+                }}
+                title={c.label}
+                className={cn(
+                  "size-5 rounded-full border transition-all",
+                  isActive
+                    ? "border-foreground/60 ring-1 ring-foreground/20"
+                    : "border-border hover:border-foreground/30",
+                )}
+              >
+                <span
+                  className={cn(
+                    "block size-full rounded-full",
+                    colorTextClass(c.name),
+                  )}
+                  aria-hidden="true"
+                  style={{ backgroundColor: "currentColor" }}
+                />
+              </button>
+            );
+          })}
+        </div>
+        <div className="grid grid-cols-9 gap-0.5 px-2 py-2 max-h-[280px] overflow-y-auto">
+          {KB_ICONS.map((entry) => {
+            const isCurrent = property.icon === entry.name;
+            const Icon = entry.icon;
+            return (
+              <button
+                key={entry.name}
+                type="button"
+                onClick={() => {
+                  onChangeIcon(entry.name, pendingColor ?? null);
+                  setOpen(false);
+                }}
+                title={entry.label}
+                className={cn(
+                  "size-7 rounded inline-flex items-center justify-center transition-colors",
+                  isCurrent
+                    ? "bg-accent text-foreground"
+                    : "hover:bg-accent",
+                  pendingColor && colorTextClass(pendingColor),
+                )}
+              >
+                <Icon className="size-4" />
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** Multi-select value-control: chips inline (выбранные значения) +
+ *  trigger для открытия dropdown'а с checkbox-списком. Полностью
+ *  параллелен SelectControl, но value — string[] вместо string|null.
+ *  Cleanup options/optionColors происходит выше в onChangeOptions. */
+function MultiSelectControl({
+  property,
+  canEdit,
+  onChangeValue,
+  onChangeOptions,
+  onChangeOptionColors,
+}: {
+  property: Extract<KbProperty, { type: "multi-select" }>;
+  canEdit: boolean;
+  onChangeValue: (value: string[]) => void;
+  onChangeOptions: (options: string[]) => void;
+  onChangeOptionColors: (
+    optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
+  ) => void;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const selectedSet = useMemo(() => new Set(property.value), [property.value]);
+
+  const toggleValue = (option: string) => {
+    if (selectedSet.has(option)) {
+      onChangeValue(property.value.filter((v) => v !== option));
+    } else {
+      onChangeValue([...property.value, option]);
+    }
+  };
+
+  const removeChip = (option: string) => {
+    onChangeValue(property.value.filter((v) => v !== option));
+  };
+
+  const commitAdd = () => {
+    const v = draft.trim();
+    if (!v) {
+      setAdding(false);
+      setDraft("");
+      return;
+    }
+    if (property.options.includes(v)) {
+      toast.warning("Такая опция уже есть");
+      return;
+    }
+    onChangeOptions([...property.options, v]);
+    onChangeValue([...property.value, v]);
+    setDraft("");
+    setAdding(false);
+  };
+
+  const setOptionColor = (option: string, color: KbPropertyColor | null) => {
+    const next: Partial<Record<string, KbPropertyColor>> = {
+      ...(property.optionColors ?? {}),
+    };
+    if (color === null) delete next[option];
+    else next[option] = color;
+    onChangeOptionColors(Object.keys(next).length > 0 ? next : undefined);
+  };
+
+  if (!canEdit) {
+    return property.value.length > 0 ? (
+      <div className="flex flex-wrap gap-1">
+        {property.value.map((v) => (
+          <OptionChip
+            key={v}
+            value={v}
+            explicit={property.optionColors?.[v]}
+          />
+        ))}
+      </div>
+    ) : (
+      <span className="text-[13px] text-muted-foreground/50">—</span>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="min-h-7 min-w-[100px] max-w-full inline-flex items-center gap-1 flex-wrap
+                       text-[13px] border border-transparent rounded px-1
+                       hover:border-input data-[state=open]:border-input transition-colors
+                       text-left"
+          >
+            {property.value.length > 0 ? (
+              property.value.map((v) => (
+                <OptionChip
+                  key={v}
+                  value={v}
+                  explicit={property.optionColors?.[v]}
+                />
+              ))
+            ) : (
+              <span className="text-muted-foreground/50">—</span>
+            )}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          side="bottom"
+          sideOffset={4}
+          className="w-[260px] p-0 rounded-md"
+        >
+          <ul className="flex flex-col py-1 max-h-[260px] overflow-y-auto">
+            {property.options.map((o) => {
+              const checked = selectedSet.has(o);
+              return (
+                <li key={o}>
+                  <button
+                    type="button"
+                    onClick={() => toggleValue(o)}
+                    className="w-full flex items-center gap-2 px-2 py-1 hover:bg-accent text-left"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      tabIndex={-1}
+                      className="pointer-events-none"
+                    />
+                    <OptionChip
+                      value={o}
+                      explicit={property.optionColors?.[o]}
+                      className="flex-1 min-w-0"
+                    />
+                  </button>
+                </li>
+              );
+            })}
+            {property.options.length === 0 && (
+              <li className="px-2 py-2 text-[12px] text-muted-foreground">
+                Опций пока нет
+              </li>
+            )}
+          </ul>
+        </PopoverContent>
+      </Popover>
+
+      {/* Кнопка «опции» — то же что у SelectControl, с палитрой. */}
+      {property.options.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-[11px] text-muted-foreground/70 hover:text-foreground"
+              aria-label="Управление опциями"
+            >
+              опции ({property.options.length})
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[260px]">
+            {property.options.map((o) => (
+              <div
+                key={o}
+                className="group/opt flex items-center gap-1 px-1.5 py-1 rounded-sm hover:bg-accent"
+              >
+                <OptionChip
+                  value={o}
+                  explicit={property.optionColors?.[o]}
+                  className="flex-1 min-w-0"
+                />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="px-1 [&>svg:last-child]:hidden">
+                    <Palette className="size-3.5 text-muted-foreground/70" />
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="min-w-[180px]">
+                    <DropdownMenuItem
+                      onSelect={() => setOptionColor(o, null)}
+                      className="text-muted-foreground"
+                    >
+                      <span className="size-3.5 shrink-0 rounded-full border border-dashed border-muted-foreground/40" />
+                      По умолчанию
+                      {!property.optionColors?.[o] && (
+                        <Check className="ml-auto size-3.5" />
+                      )}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {OPTION_COLOR_NAMES.map((c) => {
+                      const isCurrent = property.optionColors?.[o] === c;
+                      return (
+                        <DropdownMenuItem
+                          key={c}
+                          onSelect={() => setOptionColor(o, c)}
+                        >
+                          <span
+                            className={cn(
+                              "size-3.5 shrink-0 rounded-full",
+                              OPTION_COLOR_CLASSES[c],
+                            )}
+                          />
+                          {OPTION_COLOR_LABELS[c]}
+                          {isCurrent && (
+                            <Check className="ml-auto size-3.5" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <button
+                  type="button"
+                  aria-label={`Удалить опцию «${o}»`}
+                  onClick={() => {
+                    const next = property.options.filter((x) => x !== o);
+                    onChangeOptions(next);
+                  }}
+                  className="size-6 flex items-center justify-center rounded-sm
+                             text-muted-foreground/50 hover:text-destructive
+                             hover:bg-destructive/10"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setAdding(true);
+              }}
+            >
+              <Plus className="size-3.5" /> добавить опцию
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+      {(adding || property.options.length === 0) && (
+        <Input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitAdd}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitAdd();
+            } else if (e.key === "Escape") {
+              setAdding(false);
+              setDraft("");
+            }
+          }}
+          placeholder="новая опция"
+          className="h-7 w-[140px] text-[13px]"
+        />
+      )}
+      {/* Inline X-кнопки на чипсах для быстрого снятия */}
+      {property.value.length > 0 && (
+        <span className="sr-only">
+          Выбрано: {property.value.join(", ")}
+        </span>
+      )}
+      {property.value.map((v) => (
+        <button
+          key={`remove-${v}`}
+          type="button"
+          aria-label={`Снять выбор «${v}»`}
+          onClick={() => removeChip(v)}
+          className="hidden"
+        />
+      ))}
     </div>
   );
 }

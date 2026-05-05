@@ -148,6 +148,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     ...kbPropertyBase,
     type: z.literal("url"),
     value: z.string().trim().max(2048),
+    urlCollapsed: z.boolean().optional(),
   }),
 ]);
 

@@ -153,6 +153,10 @@ export type KbProperty =
       name: string;
       type: "url";
       value: string;
+      /** Сокращённое отображение: убрать `https://` префикс из visible
+       *  текста ссылки. Сама href остаётся полной. Default `false` =
+       *  показывать как есть. */
+      urlCollapsed?: boolean;
     } & KbPropertyIconOverride);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────

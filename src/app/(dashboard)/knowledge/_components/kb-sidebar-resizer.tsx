@@ -3,47 +3,60 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-const STORAGE_KEY = "kb-sidebar-width";
+const COOKIE_KEY = "kb_sidebar_width";
+const LEGACY_STORAGE_KEY = "kb-sidebar-width";
 const DEFAULT_WIDTH = 288; // соответствует w-72 (текущий default)
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 год
 
 /**
  * Wrapper для KB-сайдбара с возможностью drag-resize правой границы.
  *
- * Ширина сохраняется в localStorage (per-user, без серверного state'а
- * — это чисто UI-предпочтение). На SSR'е всегда рендерится с
- * default-значением 288px; после mount'а гидрируется реальной
- * шириной без CLS — `style.width` ставим только когда оно отличается
- * от дефолта.
+ * Ширина сохраняется в cookie `kb_sidebar_width` (per-user, без
+ * серверного state'а — это чисто UI-предпочтение). Сервер читает
+ * cookie в knowledge/layout.tsx и пробрасывает `initialWidth` сюда:
+ * первый рендер уже идёт на сохранённой ширине → 0 layout-shift'а
+ * после hydration'а. (Раньше использовался localStorage, но он
+ * недоступен на сервере — отсюда «прыжок» 288 → savedWidth при
+ * reload'е.)
  *
  * Drag-handle — невидимая 4px полоска у правого края, hover делает её
  * слегка видимой (brand-тёплый акцент). Pointer-капчура на mousedown,
  * `body { cursor: ew-resize }` на время drag'а чтобы курсор не
  * прыгал когда мышь уходит за пределы handle'а.
  */
-export function KbSidebarResizer({ children }: { children: ReactNode }) {
-  const [width, setWidth] = useState<number>(DEFAULT_WIDTH);
-  const [hydrated, setHydrated] = useState(false);
+export function KbSidebarResizer({
+  children,
+  initialWidth,
+}: {
+  children: ReactNode;
+  /** SSR-полученная ширина из cookie (через knowledge/layout.tsx).
+   *  Нужна для рендера до гидратации без CLS — fallback'ом DEFAULT_WIDTH. */
+  initialWidth?: number;
+}) {
+  const startWidth = clamp(initialWidth ?? DEFAULT_WIDTH);
+  const [width, setWidth] = useState<number>(startWidth);
   const draggingRef = useRef(false);
   const startXRef = useRef(0);
-  const startWidthRef = useRef(DEFAULT_WIDTH);
+  const startWidthRef = useRef(startWidth);
 
-  // Hydrate from localStorage один раз на mount.
+  // One-time миграция legacy-localStorage → cookie. На последующих
+  // mount'ах no-op (раз стёрли — больше нет).
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = parseInt(raw, 10);
-        if (!Number.isNaN(parsed)) {
-          setWidth(clamp(parsed));
-        }
+      const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = parseInt(raw, 10);
+      if (!Number.isNaN(parsed) && !readCookie(COOKIE_KEY)) {
+        const w = clamp(parsed);
+        writeCookie(COOKIE_KEY, String(w));
+        setWidth(w);
       }
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
-      // localStorage недоступен (private mode и т.п.) — остаёмся с
-      // default-шириной.
+      // localStorage недоступен (private mode) — пропускаем.
     }
-    setHydrated(true);
   }, []);
 
   /** Body-styles, выставляемые на время drag'а. Гарантированный
@@ -86,13 +99,10 @@ export function KbSidebarResizer({ children }: { children: ReactNode }) {
     } catch {
       // pointer уже отпущен в каких-то корнер-кейсах
     }
-    // Persist финальную ширину после release'а — пишем в localStorage
-    // ОДИН раз, не на каждое pointermove.
-    try {
-      window.localStorage.setItem(STORAGE_KEY, String(width));
-    } catch {
-      // ignore
-    }
+    // Persist финальную ширину после release'а — пишем в cookie
+    // ОДИН раз, не на каждое pointermove. Cookie не httpOnly: пишется
+    // прямо из клиента, читается на сервере в knowledge/layout.tsx.
+    writeCookie(COOKIE_KEY, String(width));
   };
 
   // lostPointerCapture: capture может прерваться извне (другой элемент
@@ -112,19 +122,13 @@ export function KbSidebarResizer({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Default-width всегда inline-style'ом, чтобы avoid CLS. После
-  // hydration'а switch'аемся на пользовательскую ширину из
-  // localStorage (если отличается — minor layout shift в момент
-  // hydration'а; для большинства юзеров с default-шириной flash'а нет).
-  const style = { width: hydrated ? width : DEFAULT_WIDTH };
-
   return (
     <div
       // Replace'ом w-72 (288px) на explicit-width управляемую state'ом.
       // Сохраняем все остальные классы из <aside> наружу — обёртка
       // лежит ВНУТРИ <aside>, без re-position'а layout'а.
       className="relative h-full"
-      style={style}
+      style={{ width }}
     >
       {children}
       <div
@@ -151,4 +155,20 @@ export function KbSidebarResizer({ children }: { children: ReactNode }) {
 
 function clamp(n: number): number {
   return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, n));
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(
+    new RegExp(
+      "(?:^|; )" + name.replace(/[.$?*|{}()[\]\\/+^]/g, "\\$&") + "=([^;]*)",
+    ),
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function writeCookie(name: string, value: string) {
+  if (typeof document === "undefined") return;
+  document.cookie =
+    `${name}=${encodeURIComponent(value)}; path=/; max-age=${COOKIE_MAX_AGE}; samesite=lax`;
 }

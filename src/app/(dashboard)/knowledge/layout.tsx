@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 
 import { createClient } from "@/lib/supabase/server";
 import { getKbTree } from "@/lib/knowledge/tree";
@@ -74,6 +75,16 @@ export default async function KnowledgeLayout({
     listMyKbFavorites(),
   ]);
 
+  // SSR-чтение сохранённой ширины KB-сайдбара из cookie. Без этого
+  // после reload'а KbSidebarResizer рендерился с дефолтом 288px и
+  // потом «прыгал» на saved-width при гидратации (прежняя реализация
+  // на localStorage недоступна на сервере). Cookie пишется самим
+  // resizer'ом на pointerUp.
+  const sidebarWidthCookie = (await cookies()).get("kb_sidebar_width")?.value;
+  const sidebarInitialWidth = sidebarWidthCookie
+    ? Number.parseInt(sidebarWidthCookie, 10)
+    : undefined;
+
   return (
     <KbSearchProvider aiAskEnabled={aiAskEnabled}>
       {/* Полная высота viewport: dashboard topbar скрыт на /knowledge,
@@ -87,7 +98,13 @@ export default async function KnowledgeLayout({
           className="hidden md:flex sticky top-0 h-svh shrink-0
                      flex-col border-r bg-sidebar"
         >
-          <KbSidebarResizer>
+          <KbSidebarResizer
+            initialWidth={
+              sidebarInitialWidth && !Number.isNaN(sidebarInitialWidth)
+                ? sidebarInitialWidth
+                : undefined
+            }
+          >
             <KbTreeNav
               nodes={nodes}
               favorites={favorites}

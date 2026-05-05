@@ -82,6 +82,7 @@ import { KbFloatingThread } from "@/components/knowledge/blocks/kb-floating-thre
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 import { KbSlashMenu } from "@/app/(dashboard)/knowledge/_components/kb-slash-menu";
 import { KbFilePanel } from "@/app/(dashboard)/knowledge/_components/kb-file-panel";
+import { KbFileReplaceButton } from "@/app/(dashboard)/knowledge/_components/kb-file-replace-button";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -343,6 +344,26 @@ function filterToolbarItemsForBlock(
   return items.filter(
     (it) =>
       it.key !== "addCommentButton" && it.key !== "addTiptapCommentButton",
+  );
+}
+
+/** Заменяет дефолтный BN-овский `replaceFileButton` на наш
+ *  `KbFileReplaceButton`. Дефолтная кнопка рендерит свой Popover с
+ *  BN-default'ным `<FilePanel>` (нативный `<input type="file">` +
+ *  URL-input), который НЕ подхватывает наш `<FilePanelController
+ *  filePanel={KbFilePanel}>` — controller перехватывает только
+ *  initial-add-block flow. Наша кнопка использует тот же KbFilePanel
+ *  что и initial-add → юзер видит идентичный UI при добавлении и
+ *  замене. */
+function swapFileReplaceButton(
+  items: ReturnType<typeof getFormattingToolbarItems>,
+): ReturnType<typeof getFormattingToolbarItems> {
+  return items.map((it) =>
+    it.key === "replaceFileButton" ? (
+      <KbFileReplaceButton key="replaceFileButton" />
+    ) : (
+      it
+    ),
   );
 }
 
@@ -910,9 +931,11 @@ export function KbBlockNoteEditor({
                      *  Чтобы юзер не получал «мёртвую» кнопку, выпиливаем
                      *  её на этих типах блоков. */}
                     {filterToolbarItemsForBlock(
-                      getFormattingToolbarItems(
-                        getKbBlockTypeSelectItems(
-                          defaultBlockTypeSelectItems(editor.dictionary),
+                      swapFileReplaceButton(
+                        getFormattingToolbarItems(
+                          getKbBlockTypeSelectItems(
+                            defaultBlockTypeSelectItems(editor.dictionary),
+                          ),
                         ),
                       ),
                       editor,

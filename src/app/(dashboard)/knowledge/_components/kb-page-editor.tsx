@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Clock } from "lucide-react";
 import { toast } from "sonner";
 
-import { saveKbPage } from "@/lib/knowledge/pages";
+import { createKbPage, saveKbPage } from "@/lib/knowledge/pages";
 import { registerPendingSaveFlush } from "@/lib/knowledge/pending-saves";
+import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import {
   uploadKbAttachment,
   getKbAttachmentSignedUrl,
@@ -147,6 +149,10 @@ interface KbPageEditorProps {
   initialIconColor: string | null;
   initialContent: KbBlock[];
   canEdit: boolean;
+  /** `kb.create_pages` permission. Если true — slash-меню «/» содержит
+   *  пункт «Новая страница», который создаёт вложенный kb_page и
+   *  переводит юзера на него. */
+  canCreate?: boolean;
   /** AI-команды (`/ai*`) в slash-меню. Двойной gate выше: kb.use_ai
    *  permission + accounts.ai_enabled. Server-action runKbAiCommand
    *  всё равно перепроверит — это UX-слой. */
@@ -218,6 +224,7 @@ export function KbPageEditor({
   initialIconColor,
   initialContent,
   canEdit,
+  canCreate = false,
   aiSlashEnabled = false,
   canComment = false,
   accountId = null,
@@ -231,6 +238,7 @@ export function KbPageEditor({
   authorName = null,
   authorAvatarUrl = null,
 }: KbPageEditorProps) {
+  const router = useRouter();
   // Sprint D / Phase 1: page-view analytics. Запускаем как только
   // userId известен (= юзер залогинен и в active account). Hook сам
   // обработает route-change через unmount-cleanup и tab-switch через
@@ -307,7 +315,6 @@ export function KbPageEditor({
   const iconRef = useRef(icon);
   const iconColorRef = useRef(iconColor);
   const contentRef = useRef<KbBlock[]>(initialContent);
-  const plainTextRef = useRef<string>("");
   // Реф на title-textarea — нужен для авто-высоты на первый рендер
   // (после mount initialTitle уже занимает >1 строку для длинных).
   const titleAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -381,13 +388,12 @@ export function KbPageEditor({
         captureCommentMarkPositions?: () => Promise<void>;
       };
       if (typeof store.captureCommentMarkPositions === "function") {
-        try {
-          await store.captureCommentMarkPositions();
-        } catch (err) {
+        void store.captureCommentMarkPositions().catch((err) => {
           console.warn("[kb] captureCommentMarkPositions failed", err);
-        }
+        });
       }
     }
+    const plainText = blocksToPlainText(contentRef.current);
     setKbSaveState({ kind: "saving" });
     const { error } = await saveKbPage({
       id: pageId,
@@ -395,7 +401,7 @@ export function KbPageEditor({
       icon: iconRef.current?.trim() || null,
       icon_color: iconColorRef.current || null,
       content: contentRef.current,
-      plain_text: plainTextRef.current,
+      plain_text: plainText,
     });
     if (error) {
       setKbSaveState({ kind: "error", message: error });
@@ -413,23 +419,22 @@ export function KbPageEditor({
   const canSave = canEdit || canComment;
   const scheduleSave = useCallback(() => {
     if (!canSave) return;
-    // Cheap pre-check: if nothing changed since the last save, don't
-    // even schedule a timer (avoids the «Не сохранено» flash on doc
-    // load when BlockNote fires its initial onChange).
-    const newHash = snapshotHash(
-      titleRef.current,
-      iconRef.current,
-      iconColorRef.current,
-      contentRef.current,
-    );
-    if (newHash === lastSavedHashRef.current) return;
-
     setKbSaveState({ kind: "pending" });
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       void flush();
     }, DEBOUNCE_MS);
   }, [canSave, flush]);
+
+  const createNestedPage = useCallback(async () => {
+    if (!canCreate) return;
+    const { slug, error } = await createKbPage({ parent_id: pageId });
+    if (error || !slug) {
+      toast.error(error ?? "Не удалось создать подстраницу");
+      return;
+    }
+    router.push(`/knowledge/${slug}`);
+  }, [canCreate, pageId, router]);
 
   // Flush on unmount so unsaved edits don't get lost on navigation.
   useEffect(() => {
@@ -621,6 +626,7 @@ export function KbPageEditor({
         customSideMenu
         customSlashMenu
         aiSlashEnabled={aiSlashEnabled}
+        onCreateNestedPage={canCreate ? createNestedPage : undefined}
         commentsBundle={commentsBundle}
         renderExtras={renderExtras}
         uploadFile={async (file) => {
@@ -658,9 +664,8 @@ export function KbPageEditor({
           setCachedSignedUrl(storagePath, signed);
           return signed;
         }}
-        onChange={({ content, plainText }) => {
+        onChange={({ content }) => {
           contentRef.current = content;
-          plainTextRef.current = plainText;
           if (isFirstEditorEventRef.current) {
             // BlockNote's normalization pass — adopt the result as our
             // baseline so subsequent diffs are honest.

@@ -2,14 +2,14 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import type { KbPageRow } from "@/types/knowledge";
+import type { KbPageTreeRow } from "@/types/knowledge";
 
 interface KbChildrenListProps {
   /** Текущая страница, чьих children показываем. */
   pageId: string;
   /** Уже загруженный snapshot всех живых страниц (тот же что в `[slug]/page.tsx`
    *  для `countDescendants`) — чтобы не делать второй запрос в БД. */
-  allPages: KbPageRow[];
+  allPages: KbPageTreeRow[];
 }
 
 /**

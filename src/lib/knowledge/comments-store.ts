@@ -222,6 +222,7 @@ export class SupabaseThreadStore extends ThreadStore {
           event: "*",
           schema: "public",
           table: "kb_comments",
+          filter: `page_id=eq.${this.pageId}`,
         },
         (payload) => this.handleCommentChange(payload.new as CommentRow, payload.eventType),
       )
@@ -325,6 +326,7 @@ export class SupabaseThreadStore extends ThreadStore {
     return comments.map((c) => ({
       id: c.id,
       thread_id: "", // overwritten by caller
+      page_id: this.pageId,
       account_id: this.accountId,
       author_id: c.userId,
       body: (("body" in c ? c.body : null) ?? null) as Database["public"]["Tables"]["kb_comments"]["Row"]["body"],
@@ -509,6 +511,7 @@ export class SupabaseThreadStore extends ThreadStore {
     const commentRow: CommentRow = {
       id: commentId,
       thread_id: threadId,
+      page_id: this.pageId,
       account_id: this.accountId,
       body: opts.initialComment.body as never,
       author_id: this.userId,
@@ -546,6 +549,7 @@ export class SupabaseThreadStore extends ThreadStore {
     const { error: cErr } = await this.supabase.from("kb_comments").insert({
       id: commentRow.id,
       thread_id: commentRow.thread_id,
+      page_id: commentRow.page_id,
       account_id: commentRow.account_id,
       body: commentRow.body,
       author_id: commentRow.author_id,
@@ -592,6 +596,7 @@ export class SupabaseThreadStore extends ThreadStore {
     const commentRow: CommentRow = {
       id: commentId,
       thread_id: opts.threadId,
+      page_id: this.pageId,
       account_id: this.accountId,
       body: opts.comment.body as never,
       author_id: this.userId,
@@ -616,6 +621,7 @@ export class SupabaseThreadStore extends ThreadStore {
     const { error } = await this.supabase.from("kb_comments").insert({
       id: commentRow.id,
       thread_id: commentRow.thread_id,
+      page_id: commentRow.page_id,
       account_id: commentRow.account_id,
       body: commentRow.body,
       author_id: commentRow.author_id,
@@ -1002,6 +1008,7 @@ export class SupabaseThreadStore extends ThreadStore {
       }
     });
 
+    const writes: Array<Promise<void>> = [];
     for (const [threadId, pos] of positions) {
       const thread = this.threadCache.get(threadId);
       if (!thread) continue;
@@ -1009,7 +1016,7 @@ export class SupabaseThreadStore extends ThreadStore {
       const prev = meta?.position;
       if (prev && prev.from === pos.from && prev.to === pos.to) continue;
       // Drift detected — persist new position.
-      await this.persistThreadPosition(threadId, pos.from, pos.to);
+      writes.push(this.persistThreadPosition(threadId, pos.from, pos.to));
     }
 
     // Threads с metadata.position, но БЕЗ соответствующего mark'а в
@@ -1024,8 +1031,9 @@ export class SupabaseThreadStore extends ThreadStore {
       if (thread.deletedAt || thread.resolved) continue; // Этим thread'ам всё равно не applyMarks.
       // Mark исчез — clear position. Тред становится orphan'ом, popover
       // открывать только из ThreadsSidebar или per-thread навигации.
-      await this.clearThreadPosition(thread.id);
+      writes.push(this.clearThreadPosition(thread.id));
     }
+    await Promise.all(writes);
   }
 
   /** Records `metadata.position={from, to}` в БД + локальном кэше.

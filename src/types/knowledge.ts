@@ -14,6 +14,18 @@ export type KbPageVersionRow    = Tables<"kb_page_versions">;
 export type KbPageLinkRow       = Tables<"kb_page_links">;
 export type KbPageAttachmentRow = Tables<"kb_page_attachments">;
 
+export type KbPageTreeRow = Pick<
+  KbPageRow,
+  | "id"
+  | "parent_id"
+  | "position"
+  | "title"
+  | "icon"
+  | "icon_color"
+  | "slug"
+  | "locked_at"
+>;
+
 // ─── BlockNote content (loosely typed) ───────────────────────────────────────
 // The `content` jsonb column is `Json` in the generated types. We don't
 // pull the full @blocknote/core types into the server bundle. The shape

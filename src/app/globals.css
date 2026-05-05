@@ -351,8 +351,13 @@ input:-webkit-autofill {
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
   text-decoration-skip-ink: none;
-  border-radius: 2px;
-  padding: 1px 2px;
+  /* Раньше тут было `border-radius: 2px; padding: 1px 2px;` — pill-look.
+     Проблема: PM рендерит соседние text-узлы с одинаковой comment-маркой
+     отдельными `<span>`-ами, если эти узлы РАЗНЫЕ (например, часть слова
+     имеет другой mark — italic / textColor / mention split — невидимо
+     для глаза). Padding 2px по горизонтали даёт зазор между ними →
+     визуально mark «разрывается» посреди слова. Без padding границы
+     adjacent-spans слипаются и подсветка читается как одна полоса. */
   cursor: pointer;
   transition: background-color 120ms ease;
 }

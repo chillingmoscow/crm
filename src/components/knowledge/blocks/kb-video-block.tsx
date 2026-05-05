@@ -12,7 +12,7 @@
  * src/components/knowledge/blocknote-editor.tsx).
  */
 import { createVideoBlockConfig, videoParse } from "@blocknote/core";
-import { Video as VideoIcon } from "lucide-react";
+import { MoreHorizontal, Video as VideoIcon } from "lucide-react";
 import {
   createReactBlockSpec,
   type ReactCustomBlockRenderProps,
@@ -120,30 +120,63 @@ function VideoPreview(
   // схеме на нашей стороне). Embed-URL'ы трогать не надо.
   const resolved = useResolveUrl(url);
 
-  // Дискаверабилити-overlay поверх видео. По default'у video и iframe
-  // съедают клик (плеер начинает играть / переходит в YouTube), поэтому
-  // BN-FormattingToolbar никогда не появляется — выделение блока не
-  // случается. Чтобы юзер мог попасть в toolbar (align / replace /
-  // delete + AI / тоже что для image работает), перехватываем ПЕРВЫЙ
-  // click overlay'ем: select-block через `editor.setSelection`. Второй
-  // click уже пропускается (overlay заскрывается через `data-selected`
-  // CSS-класс на родителе в ResizableFileBlockWrapper).
+  // Кнопка меню в углу видео (Notion-style). Видна на hover, click →
+  // node-selection блока через ProseMirror tr → BN-FormattingToolbar
+  // показывается. НЕ overlay'ем поверх всего видео (это блокировало
+  // нативные `<video controls>` и iframe — юзер не мог играть/
+  // ресайзить). Кнопка сама занимает 24×24 в углу, остальная
+  // площадь видео доступна для plyer-controls.
   const onSelect = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     e.stopPropagation();
     try {
-      // BN-API: выделяет диапазон от blockId до blockId — для одиночного
-      // блока это эквивалент NodeSelection.
-      props.editor.setSelection(props.block.id, props.block.id);
+      // Node-selection через raw PM (BN-овский setSelection делает
+      // text-range, что для leaf-блоков — `<video>` / `<iframe>` —
+      // некорректно). Находим pos блока по его id в doc.descendants.
+      const editor = props.editor as unknown as {
+        _tiptapEditor?: {
+          view: {
+            state: { doc: { descendants: (cb: (n: { type: { name: string }; attrs: { id?: string } }, pos: number) => boolean | void) => void; resolve: (p: number) => unknown; }; tr: { setSelection: (s: unknown) => unknown; }; };
+            dispatch: (tr: unknown) => void;
+          };
+          commands: { setNodeSelection: (pos: number) => boolean };
+        };
+      };
+      const tiptap = editor._tiptapEditor;
+      if (!tiptap) return;
+      let blockPos: number | null = null;
+      tiptap.view.state.doc.descendants((n, pos) => {
+        if (
+          n.type.name === "blockContainer" &&
+          n.attrs.id === props.block.id
+        ) {
+          blockPos = pos;
+          return false;
+        }
+        return undefined;
+      });
+      if (blockPos === null) return;
+      tiptap.commands.setNodeSelection(blockPos);
     } catch {
-      // ignore — block может быть уже unmounted к моменту click'а
+      // Если что-то пошло не так — silently ignore. Resize-handles
+      // и контролы всё равно работают независимо.
     }
   };
 
+  const menuButton = (
+    <button
+      type="button"
+      className="kb-video-menu-btn"
+      aria-label="Открыть меню видео"
+      title="Открыть меню видео"
+      onClick={onSelect}
+      onMouseDown={(e) => e.preventDefault()}
+    >
+      <MoreHorizontal className="size-4" strokeWidth={2.25} />
+    </button>
+  );
+
   if (embed) {
-    // 16:9 aspect-ratio контейнер, iframe растягивается на всю
-    // ширину/высоту wrapper'а. Width-resize реализован
-    // ResizableFileBlockWrapper'ом сверху.
     return (
       <div
         className="bn-visual-media kb-video-embed"
@@ -156,12 +189,7 @@ function VideoPreview(
           allowFullScreen
           frameBorder={0}
         />
-        <button
-          type="button"
-          className="kb-video-overlay"
-          aria-label="Открыть меню видео"
-          onClick={onSelect}
-        />
+        {menuButton}
       </div>
     );
   }
@@ -179,12 +207,7 @@ function VideoPreview(
         contentEditable={false}
         draggable={false}
       />
-      <button
-        type="button"
-        className="kb-video-overlay"
-        aria-label="Открыть меню видео"
-        onClick={onSelect}
-      />
+      {menuButton}
     </div>
   );
 }

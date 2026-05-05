@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/ui/sidebar";
@@ -9,6 +9,7 @@ import {
   cancelPeekClose,
   initKbSidebarHidden,
   schedulePeekClose,
+  setKbSidebarPeek,
   useKbSidebarVisibility,
 } from "@/app/(dashboard)/knowledge/_components/kb-sidebar-visibility-store";
 
@@ -43,23 +44,45 @@ export function KbSidebarShell({
   sidebarInitialWidth?: number;
   children: ReactNode;
 }) {
-  const { hidden, peeking } = useKbSidebarVisibility();
+  const visibility = useKbSidebarVisibility();
   // Берём текущее состояние main-сайдбара чтобы offset overlay'я был
   // корректным: collapsed = icon-width (~3rem), expanded = full-width.
   const { state: mainSidebarState, isMobile } = useSidebar();
 
+  // SSR-mirror (Codex P2 на PR #129): пока не отрабатает hydration-effect,
+  // module-store ещё не получил `initialHidden` из cookie — getSnapshot()
+  // возвращает дефолт `{hidden:false}`. Если cookie на самом деле
+  // `kb_sidebar_hidden=true`, SSR-HTML и первый CSR-рендер показали бы
+  // visible-сайдбар, и только потом overlay/null прятал бы его — flicker.
+  // Поэтому до hydration'а читаем `initialHidden` напрямую (он правильный,
+  // т.к. сервер прочитал cookie в knowledge/layout); ПОСЛЕ — переходим на
+  // store, где живут toggle и peek.
+  const [hydrated, setHydrated] = useState(false);
+
   // Push initial state в store ОДИН раз. После этого sidebar.tsx (иконка)
   // и сам shell читают одинаковое значение через useKbSidebarVisibility.
+  // Параллельно поднимаем `hydrated` чтобы рендер переключился со
+  // SSR-mirror'а на store.
   useEffect(() => {
     initKbSidebarHidden(initialHidden);
+    setHydrated(true);
   }, [initialHidden]);
 
-  // Cleanup grace-таймер на unmount, чтобы не задержался setTimeout
-  // если юзер ушёл со страницы прямо во время peek'а. Таймер общий
-  // с иконкой через store — здесь просто гасим, чтобы он не выстрелил
-  // уже после демонтажа этого shell'а.
+  const hidden = hydrated ? visibility.hidden : initialHidden;
+  const peeking = hydrated ? visibility.peeking : false;
+
+  // Cleanup на unmount — ВАЖНО сбросить peek-state'а, не только таймер
+  // (Codex P1 на PR #129). Module-store переживает route-changes, и если
+  // юзер уходит с /knowledge во время открытого overlay'я (peeking=true)
+  // и таймер ещё не выстрелил, при возврате на /knowledge KbSidebarShell
+  // снова смонтируется со state'ом `hidden=true && peeking=true` → overlay
+  // вылезет без какого-либо hover'а. Сначала отменяем pending-таймер,
+  // потом явно тушим peek.
   useEffect(() => {
-    return cancelPeekClose;
+    return () => {
+      cancelPeekClose();
+      setKbSidebarPeek(false);
+    };
   }, []);
 
   // Inline visible — стандартный sticky aside. Стили совпадают с тем,

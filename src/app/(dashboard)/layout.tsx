@@ -107,6 +107,14 @@ export default async function DashboardLayout({
   const sidebarStateCookie = cookieStore.get("sidebar_state")?.value;
   const sidebarDefaultOpen = sidebarStateCookie !== "false";
 
+  // KB-сайдбар скрыт/виден — состояние пишется кликом на иконку «База
+  // знаний» в main-сайдбаре когда юзер уже на /knowledge (см.
+  // KbNavLink + kb-sidebar-visibility-store). Читаем его и здесь
+  // (помимо knowledge/layout), чтобы main-сайдбар на любом маршруте
+  // мог отрендерить иконку в правильном цвете без post-hydration
+  // flicker'а (Codex P2 на PR #129).
+  const kbSidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
+
   return (
     // delayDuration=150 — short hover-delay для всех IconTooltip'ов
     // (DS-style вместо системной задержки native title).
@@ -123,6 +131,7 @@ export default async function DashboardLayout({
         activeRoleName={activeRoleName}
         accountName={accountName}
         userPermissions={userPermissions}
+        kbSidebarHidden={kbSidebarHidden}
       />
       <SidebarInset>
         <PageHeaderActionsProvider>

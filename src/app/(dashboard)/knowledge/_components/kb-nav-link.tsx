@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpen } from "lucide-react";
@@ -35,9 +36,29 @@ import {
  *     спрятан, но мы тут)
  *   • Не на /knowledge → стандартный sidebar-foreground
  */
-export function KbNavLink({ collapsed }: { collapsed: boolean }) {
+export function KbNavLink({
+  collapsed,
+  initialHidden = false,
+}: {
+  collapsed: boolean;
+  /** SSR-полученное значение из cookie `kb_sidebar_hidden` (читает
+   *  dashboard/layout.tsx). Используется до hydration'а чтобы цвет
+   *  иконки на первом рендере уже соответствовал реальному состоянию
+   *  (Codex P2 на PR #129). */
+  initialHidden?: boolean;
+}) {
   const pathname = usePathname();
-  const { hidden } = useKbSidebarVisibility();
+  const visibility = useKbSidebarVisibility();
+  // SSR-mirror — пока не отрабатает hydration-effect в KbSidebarShell,
+  // module-store ещё не получил cookie. Читаем `initialHidden` напрямую,
+  // потом переключаемся на store. Без этого иконка на первом рендере
+  // показывала бы default-state (visible/active) даже если cookie =
+  // hidden — minor flicker'а цвета.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
+  const hidden = hydrated ? visibility.hidden : initialHidden;
   const isOnKb = pathname === "/knowledge" || pathname.startsWith("/knowledge/");
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {

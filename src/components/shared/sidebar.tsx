@@ -161,6 +161,12 @@ interface AppSidebarProps {
    *  Сайдбар фильтрует пункты по этому списку (вместо hardcoded
    *  ролей). Передаётся из dashboard layout через RPC list_my_permissions. */
   userPermissions: string[];
+  /** SSR-полученное состояние KB-сайдбара из cookie `kb_sidebar_hidden`.
+   *  Прокидывается дальше в `KbNavLink` как `initialHidden`, чтобы первый
+   *  рендер иконки «База знаний» использовал правильный цвет (muted vs
+   *  active) до того как hydration-effect поднимет module-store
+   *  (Codex P2 на PR #129). */
+  kbSidebarHidden?: boolean;
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -213,6 +219,7 @@ function SidebarBody({
   activeRoleName,
   accountName,
   userPermissions,
+  kbSidebarHidden = false,
 }: AppSidebarProps) {
   const userPermissionsSet = useMemo(
     () => new Set(userPermissions),
@@ -329,7 +336,11 @@ function SidebarBody({
             // секции остаются на дефолтных Flat[Expanded|Collapsed]Link.
             if (section.href === "/knowledge") {
               return (
-                <KbNavLink key={section.label} collapsed={collapsed} />
+                <KbNavLink
+                  key={section.label}
+                  collapsed={collapsed}
+                  initialHidden={kbSidebarHidden}
+                />
               );
             }
             return collapsed ? (

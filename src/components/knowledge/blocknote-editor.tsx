@@ -26,6 +26,7 @@ import {
   type User as CommentUser,
 } from "@blocknote/core/comments";
 import {
+  FilePanelController,
   FloatingComposerController,
   FloatingThreadController,
   LinkToolbar,
@@ -45,6 +46,7 @@ import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-co
 import { KbFloatingThread } from "@/components/knowledge/blocks/kb-floating-thread";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 import { KbSlashMenu } from "@/app/(dashboard)/knowledge/_components/kb-slash-menu";
+import { KbFilePanel } from "@/app/(dashboard)/knowledge/_components/kb-file-panel";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -655,28 +657,65 @@ export function KbBlockNoteEditor({
       // сверху + дефолтный BN с «Save» снизу), что фрагментировало
       // фокус и закрывало кастомный popover.
       comments={commentsBundle ? false : undefined}
+      // Default FilePanel отключаем — рендерим свой `KbFilePanel`
+      // через `FilePanelController` ниже (Notion-style drop-zone +
+      // URL-tab под дизайн sheerly.pen frame 13 / 13b).
+      filePanel={false}
     >
+      <FilePanelController filePanel={KbFilePanel} />
       {customSlashMenu && (
         <SuggestionMenuController
           triggerCharacter="/"
-          getItems={async (query) =>
-            // Cast to default-suggestion-item shape: callout-айтемы
-            // имеют ту же runtime-форму (title, subtext, group, icon,
-            // onItemClick), но TS этого не видит из-за расширенной
-            // schema'ы. SuggestionMenuController generic выводится
-            // только из default-items.
-            //
-            // AI-команды НЕ дублируются в slash-меню — все AI-команды
-            // (включая блочные «Продолжить» / «Сгенерировать заголовок»)
-            // живут в FormattingToolbar.AI-кнопке (см. KbAiFormattingButton).
-            filterSuggestionItems(
-              [
-                ...getDefaultReactSlashMenuItems(editor),
-                ...getKbCalloutSlashItems(editor as never),
-              ] as ReturnType<typeof getDefaultReactSlashMenuItems>,
+          getItems={async (query) => {
+            // Кастомный порядок групп под дизайн (sheerly.pen):
+            //   Заголовки → Подзаголовки → Базовые блоки → Подсказки →
+            //   Медиа → Прочее.
+            // BN-default'ы дают «Продвинутый» (только Таблица) — мы её
+            // переносим в «Прочее» и группу ликвидируем целиком (Codex
+            // user-feedback: «раздел "Продвинутый" можно убрать»).
+            // AI-команды НЕ дублируются в slash-меню — они живут в
+            // KbAiFormattingButton.
+            const defaults = getDefaultReactSlashMenuItems(editor);
+            const callouts = getKbCalloutSlashItems(editor as never);
+            const byGroup = (...names: string[]) =>
+              defaults.filter((it) =>
+                names.includes((it as { group?: string }).group ?? ""),
+              );
+            const remap = (
+              items: ReturnType<typeof getDefaultReactSlashMenuItems>,
+              from: string,
+              to: string,
+            ) =>
+              items.map((it) => {
+                const cur = (it as { group?: string }).group;
+                return cur === from
+                  ? ({ ...it, group: to } as typeof it)
+                  : it;
+              });
+            const headings = byGroup("Заголовки");
+            const subheadings = byGroup("Подзаголовки");
+            const basics = byGroup("Базовые блоки", "Основные блоки");
+            const media = byGroup("Медиа");
+            // «Продвинутый» сейчас содержит только Таблицу — переименуем
+            // её группу в «Прочее» и склеим с эмодзи.
+            const others = remap(
+              byGroup("Прочее", "Продвинутый"),
+              "Продвинутый",
+              "Прочее",
+            );
+            const ordered = [
+              ...headings,
+              ...subheadings,
+              ...basics,
+              ...callouts,
+              ...media,
+              ...others,
+            ];
+            return filterSuggestionItems(
+              ordered as ReturnType<typeof getDefaultReactSlashMenuItems>,
               query,
-            )
-          }
+            );
+          }}
           // Custom render — KbSlashMenu добавляет hover-hold tooltip
           // (1.2 sec) с описанием пункта + скрывает subtext в основном
           // списке через wrapper-класс `.kb-slash-menu`. `@`-меню

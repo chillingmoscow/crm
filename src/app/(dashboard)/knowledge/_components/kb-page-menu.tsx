@@ -51,6 +51,7 @@ import { KbDeletePageDialog } from "@/app/(dashboard)/knowledge/_components/kb-d
 import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbSaveAsTemplateDialog } from "@/app/(dashboard)/knowledge/_components/kb-save-as-template-dialog";
 import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
+import { KbPageInfoDialog } from "@/app/(dashboard)/knowledge/_components/kb-page-info-dialog";
 
 interface KbPageMenuProps {
   pageId: string;
@@ -66,9 +67,15 @@ interface KbPageMenuProps {
   /** Текущая required-reading отметка для отображения "Кто прочитал"
    *  пункта (имеет смысл только когда required=true). */
   requiredReadingActive: boolean;
-  /** Дата последнего изменения + автор — для footer-блока меню. */
+  /** Дата последнего изменения + автор — для footer-блока меню и
+   *  пункта «О странице». */
   updatedAt: string | null;
   updatedByName: string | null;
+  /** Аватарка/имя автора создания — для пункта «О странице». */
+  createdAt: string | null;
+  createdByName: string | null;
+  createdByAvatarUrl?: string | null;
+  updatedByAvatarUrl?: string | null;
   // ── permissions / capability gating ──
   canEdit: boolean;
   canDelete: boolean;
@@ -144,6 +151,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const [templateOpen, setTemplateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const [requiredPending, setRequiredPending] = useState(false);
   const [lockPending, setLockPending] = useState(false);
@@ -488,6 +496,13 @@ export function KbPageMenu(props: KbPageMenuProps) {
             <History className="size-4 shrink-0" />
             <span className="flex-1">История версий</span>
           </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => setInfoOpen(true)}
+            className="px-2.5 py-2 rounded-md text-[13px] gap-2.5"
+          >
+            <Info className="size-4 shrink-0" />
+            <span className="flex-1">О странице</span>
+          </DropdownMenuItem>
 
           {showLastSeparator && <DropdownMenuSeparator />}
 
@@ -545,6 +560,17 @@ export function KbPageMenu(props: KbPageMenuProps) {
           onOpenChange={setDeleteOpen}
         />
       )}
+      <KbPageInfoDialog
+        pageId={props.pageId}
+        createdAt={props.createdAt}
+        createdByName={props.createdByName}
+        createdByAvatarUrl={props.createdByAvatarUrl ?? null}
+        updatedAt={props.updatedAt}
+        updatedByName={props.updatedByName}
+        updatedByAvatarUrl={props.updatedByAvatarUrl ?? null}
+        open={infoOpen}
+        onOpenChange={setInfoOpen}
+      />
     </>
   );
 }
@@ -559,14 +585,11 @@ function FooterMeta({
   if (!updatedAt && !updatedByName) return null;
   const date = updatedAt ? formatDate(updatedAt) : null;
   return (
-    <div className="mt-1 px-2.5 pt-2 pb-0.5 flex flex-col gap-0.5 text-[11px] text-muted-foreground border-t border-border">
+    <div className="mt-1 px-2.5 pt-2 pb-1 flex flex-col gap-0.5 text-[11px] text-muted-foreground border-t border-border">
       {date && <span>Изменено: {date}</span>}
       {updatedByName && (
         <span className="font-medium text-foreground/80">{updatedByName}</span>
       )}
-      <span className="flex items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground/70">
-        <Info className="size-3" />О странице
-      </span>
     </div>
   );
 }

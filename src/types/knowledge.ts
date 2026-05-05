@@ -63,6 +63,22 @@ export type KbInlineContent =
 
 export type KbPropertyType = "text" | "number" | "date" | "checkbox" | "select";
 
+/** 10-цветная палитра для select-options. Имена — а не tailwind-class'ы —
+ *  чтобы хранить в jsonb компактно и стабильно (rename класса в палитре
+ *  не ломает уже сохранённые свойства). Mapping name → tailwind class —
+ *  на стороне UI (см. `kb-page-properties.tsx`). */
+export type KbPropertyColor =
+  | "stone"
+  | "amber"
+  | "orange"
+  | "yellow"
+  | "green"
+  | "teal"
+  | "sky"
+  | "indigo"
+  | "purple"
+  | "pink";
+
 export type KbProperty =
   | { id: string; name: string; type: "text"; value: string }
   | { id: string; name: string; type: "number"; value: number | null }
@@ -74,6 +90,12 @@ export type KbProperty =
       type: "select";
       value: string | null;
       options: string[];
+      /** Per-option override цвета. Map от option string → color name.
+       *  Если опции нет в map'е — fallback на hash-derived цвет.
+       *  Rollback-safe: старый клиент игнорирует поле и читает options
+       *  как раньше; новый клиент чистит «висячие» записи (для удалённых
+       *  options) на каждом save'е. */
+      optionColors?: Partial<Record<string, KbPropertyColor>>;
     };
 
 // ─── Form / server-action input shapes ───────────────────────────────────────

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { nanoid } from "nanoid";
 import {
   Plus,
@@ -14,8 +20,26 @@ import {
   Copy,
   Replace,
   X,
+  GripVertical,
+  Palette,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS as DndCSS } from "@dnd-kit/utilities";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -41,7 +65,11 @@ import {
   saveKbPageProperties,
   saveKbTemplateProperties,
 } from "@/lib/knowledge/properties";
-import type { KbProperty, KbPropertyType } from "@/types/knowledge";
+import type {
+  KbProperty,
+  KbPropertyColor,
+  KbPropertyType,
+} from "@/types/knowledge";
 
 interface KbPagePropertiesProps {
   /** Идентификатор страницы или шаблона. */
@@ -68,50 +96,82 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   select: "Выбор",
 };
 
-// Notion-style пастельная палитра для select-options. Цвет назначается
-// per-option детерминированно через хэш строки — стабилен при reorder'е,
-// одна и та же опция всегда красится одинаково. Tailwind class'ы
-// инлайним парами (bg + text), чтобы JIT их подхватил без safelist'а.
-const OPTION_COLOR_CLASSES = [
-  "bg-stone-100 text-stone-700 dark:bg-stone-800/60 dark:text-stone-200",
-  "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
-  "bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-200",
-  "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-200",
-  "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-200",
-  "bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200",
-  "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200",
-  "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200",
-  "bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200",
-  "bg-pink-100 text-pink-800 dark:bg-pink-950/50 dark:text-pink-200",
-];
+// Notion-style пастельная палитра. Хранятся имена в jsonb (см.
+// `KbPropertyColor`); UI мап'ит имя → tailwind-class-pair. Tailwind JIT
+// видит class'ы инлайн, не нужен safelist.
+const OPTION_COLOR_CLASSES: Record<KbPropertyColor, string> = {
+  stone:
+    "bg-stone-100 text-stone-700 dark:bg-stone-800/60 dark:text-stone-200",
+  amber:
+    "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
+  orange:
+    "bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-200",
+  yellow:
+    "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-200",
+  green:
+    "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-200",
+  teal: "bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200",
+  sky: "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200",
+  indigo:
+    "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200",
+  purple:
+    "bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200",
+  pink: "bg-pink-100 text-pink-800 dark:bg-pink-950/50 dark:text-pink-200",
+};
 
-function colorForOption(value: string): string {
-  // FNV-ish 32-bit hash. Стабилен между сессиями и устройствами —
-  // мы не хотим, чтобы один и тот же «Высокий приоритет» красился по-
-  // разному в разных вкладках.
+const OPTION_COLOR_NAMES = Object.keys(
+  OPTION_COLOR_CLASSES,
+) as KbPropertyColor[];
+
+const OPTION_COLOR_LABELS: Record<KbPropertyColor, string> = {
+  stone: "Серый",
+  amber: "Янтарный",
+  orange: "Оранжевый",
+  yellow: "Жёлтый",
+  green: "Зелёный",
+  teal: "Бирюзовый",
+  sky: "Голубой",
+  indigo: "Индиго",
+  purple: "Фиолетовый",
+  pink: "Розовый",
+};
+
+// Дефолтный цвет для опции — детерминированный hash-FNV. Стабилен
+// между сессиями: «Высокий приоритет» всегда красится одинаково везде,
+// где появляется (если юзер не override'ил вручную).
+function colorNameForOption(value: string): KbPropertyColor {
   let h = 2166136261;
   for (let i = 0; i < value.length; i++) {
     h ^= value.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  return OPTION_COLOR_CLASSES[Math.abs(h) % OPTION_COLOR_CLASSES.length];
+  return OPTION_COLOR_NAMES[Math.abs(h) % OPTION_COLOR_NAMES.length];
 }
 
-/** Цветной chip для select-option (как в Notion). Цвет детерминированный
- *  по хэшу `value` — стабилен при reorder и одинаков везде, где опция
- *  появляется (trigger / list / management dropdown). */
+/** Resolve финального цвета: explicit override > hash-fallback. */
+function resolveOptionColor(
+  value: string,
+  explicit?: KbPropertyColor,
+): string {
+  return OPTION_COLOR_CLASSES[explicit ?? colorNameForOption(value)];
+}
+
+/** Цветной chip для select-option. `explicit` — если юзер вручную
+ *  выбрал цвет в палитре; иначе fallback на hash-FNV. */
 function OptionChip({
   value,
+  explicit,
   className,
 }: {
   value: string;
+  explicit?: KbPropertyColor;
   className?: string;
 }) {
   return (
     <span
       className={cn(
         "inline-flex items-center rounded px-1.5 py-0.5 text-[12.5px] font-medium leading-tight max-w-full",
-        colorForOption(value),
+        resolveOptionColor(value, explicit),
         className,
       )}
     >
@@ -180,8 +240,6 @@ export function KbPageProperties({
   useEffect(() => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      // На unmount: если есть несохранённые правки — flush.
-      // (Используем sync ref — properties в closure уже свежие.)
     };
   }, []);
 
@@ -211,7 +269,7 @@ export function KbPageProperties({
     });
   };
 
-  // Дублирует property: новый id + " (копия)" к имени, value/options
+  // Дублирует property: новый id + " (копия)" к имени, value/options/colors
   // копируются 1-в-1. Inserted сразу после оригинала.
   const duplicateProperty = (id: string) => {
     setProperties((prev) => {
@@ -241,6 +299,25 @@ export function KbPageProperties({
     });
   };
 
+  // DnD reorder: arrayMove + scheduleSave. distance=4 — чтобы scroll
+  // на мобиле / случайный микро-drag не запускали реорганизацию.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  );
+  const sortableIds = useMemo(() => properties.map((p) => p.id), [properties]);
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setProperties((prev) => {
+      const fromIdx = prev.findIndex((p) => p.id === active.id);
+      const toIdx = prev.findIndex((p) => p.id === over.id);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = arrayMove(prev, fromIdx, toIdx);
+      scheduleSave(next);
+      return next;
+    });
+  };
+
   // Не рендерим пустую секцию для read-only страниц без свойств — иначе
   // на каждой странице висит пустой блок «Свойства».
   if (!canEdit && properties.length === 0) return null;
@@ -251,25 +328,68 @@ export function KbPageProperties({
       className="flex flex-col gap-1.5 px-2 -ml-2"
     >
       {properties.length > 0 && (
-        <ul className="flex flex-col gap-1">
-          {properties.map((prop) => (
-            <PropertyRow
-              key={prop.id}
-              property={prop}
-              canEdit={canEdit}
-              onRename={(name) => updateProperty(prop.id, { name })}
-              onChangeValue={(value) =>
-                updateProperty(prop.id, { value } as Partial<KbProperty>)
-              }
-              onChangeOptions={(options) =>
-                updateProperty(prop.id, { options } as Partial<KbProperty>)
-              }
-              onRemove={() => removeProperty(prop.id)}
-              onDuplicate={() => duplicateProperty(prop.id)}
-              onChangeType={(t) => changePropertyType(prop.id, t)}
-            />
-          ))}
-        </ul>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={sortableIds}
+            strategy={verticalListSortingStrategy}
+          >
+            <ul className="flex flex-col gap-0.5">
+              {properties.map((prop) => (
+                <PropertyRow
+                  key={prop.id}
+                  property={prop}
+                  canEdit={canEdit}
+                  onRename={(name) => updateProperty(prop.id, { name })}
+                  onChangeValue={(value) =>
+                    updateProperty(prop.id, { value } as Partial<KbProperty>)
+                  }
+                  onChangeOptions={(options) => {
+                    // При удалении опций select'а — также чистим
+                    // соответствующие записи из optionColors (висячие
+                    // колоры безвредны, но платят лишние байты при
+                    // сохранении).
+                    if (prop.type === "select") {
+                      const currColors = prop.optionColors;
+                      let nextColors:
+                        | Partial<Record<string, KbPropertyColor>>
+                        | undefined = currColors;
+                      if (currColors) {
+                        const allowed = new Set(options);
+                        const filtered = Object.fromEntries(
+                          Object.entries(currColors).filter(([k]) =>
+                            allowed.has(k),
+                          ),
+                        );
+                        nextColors =
+                          Object.keys(filtered).length > 0
+                            ? filtered
+                            : undefined;
+                      }
+                      updateProperty(prop.id, {
+                        options,
+                        optionColors: nextColors,
+                      } as Partial<KbProperty>);
+                    } else {
+                      updateProperty(prop.id, { options } as Partial<KbProperty>);
+                    }
+                  }}
+                  onChangeOptionColors={(optionColors) =>
+                    updateProperty(prop.id, {
+                      optionColors,
+                    } as Partial<KbProperty>)
+                  }
+                  onRemove={() => removeProperty(prop.id)}
+                  onDuplicate={() => duplicateProperty(prop.id)}
+                  onChangeType={(t) => changePropertyType(prop.id, t)}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </DndContext>
       )}
       {canEdit && (
         <div className="flex items-center gap-2 pt-1">
@@ -308,6 +428,9 @@ interface PropertyRowProps {
   onRename: (name: string) => void;
   onChangeValue: (value: KbProperty["value"]) => void;
   onChangeOptions: (options: string[]) => void;
+  onChangeOptionColors: (
+    optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
+  ) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -319,6 +442,7 @@ function PropertyRow({
   onRename,
   onChangeValue,
   onChangeOptions,
+  onChangeOptionColors,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -329,8 +453,53 @@ function PropertyRow({
   // mutation сверху.
   useEffect(() => setName(property.name), [property.name]);
 
+  // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
+  // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
+  // триггерил бы drag и ломал inline-edit.
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: property.id, disabled: !canEdit });
+
+  const dragStyle: CSSProperties = {
+    transform: DndCSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 10 : undefined,
+    opacity: isDragging ? 0.85 : undefined,
+  };
+
   return (
-    <li className="group/row flex items-center gap-2 min-h-[28px]">
+    <li
+      ref={setNodeRef}
+      style={dragStyle}
+      className={cn(
+        "group/row flex items-center gap-1.5 min-h-[28px] -mx-2 px-2 py-0.5 rounded-md",
+        "hover:bg-muted/40 transition-colors",
+        isDragging && "bg-muted/60 shadow-sm",
+      )}
+    >
+      {canEdit ? (
+        <button
+          type="button"
+          aria-label="Перетащить свойство"
+          className="size-5 -ml-1 flex items-center justify-center text-muted-foreground/40
+                     cursor-grab active:cursor-grabbing
+                     opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
+                     hover:text-foreground transition-opacity"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-3.5" />
+        </button>
+      ) : (
+        // Read-only: тот же spacer что и у grip'а, чтобы layout не
+        // съезжал при переключении canEdit.
+        <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
+      )}
       <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
       {canEdit ? (
         <input
@@ -356,6 +525,7 @@ function PropertyRow({
           canEdit={canEdit}
           onChangeValue={onChangeValue}
           onChangeOptions={onChangeOptions}
+          onChangeOptionColors={onChangeOptionColors}
         />
       </div>
       {canEdit && (
@@ -420,11 +590,15 @@ function PropertyValueControl({
   canEdit,
   onChangeValue,
   onChangeOptions,
+  onChangeOptionColors,
 }: {
   property: KbProperty;
   canEdit: boolean;
   onChangeValue: (value: KbProperty["value"]) => void;
   onChangeOptions: (options: string[]) => void;
+  onChangeOptionColors: (
+    optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
+  ) => void;
 }) {
   switch (property.type) {
     case "text":
@@ -484,15 +658,12 @@ function PropertyValueControl({
         canEdit={canEdit}
         onChangeValue={onChangeValue}
         onChangeOptions={onChangeOptions}
+        onChangeOptionColors={onChangeOptionColors}
       />;
   }
 }
 
-/** Текстовое значение property: textarea, растущая по содержимому
- *  (как title в KbPageEditor). Enter не блокируем — длинные значения
- *  могут содержать переносы. Без border / bg по дефолту, чтобы плавно
- *  жить рядом с другими value-control'ами; рамка появляется на hover/
- *  focus. */
+/** Текстовое значение property: textarea, растущая по содержимому. */
 function TextValueControl({
   value,
   onChange,
@@ -537,11 +708,15 @@ function SelectControl({
   canEdit,
   onChangeValue,
   onChangeOptions,
+  onChangeOptionColors,
 }: {
   property: Extract<KbProperty, { type: "select" }>;
   canEdit: boolean;
   onChangeValue: (value: string | null) => void;
   onChangeOptions: (options: string[]) => void;
+  onChangeOptionColors: (
+    optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
+  ) => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -563,9 +738,28 @@ function SelectControl({
     setAdding(false);
   };
 
+  // Patch optionColors map'а: либо устанавливаем явный цвет, либо
+  // удаляем запись (= вернуть к hash-fallback'у).
+  const setOptionColor = (option: string, color: KbPropertyColor | null) => {
+    const next: Partial<Record<string, KbPropertyColor>> = {
+      ...(property.optionColors ?? {}),
+    };
+    if (color === null) {
+      delete next[option];
+    } else {
+      next[option] = color;
+    }
+    onChangeOptionColors(
+      Object.keys(next).length > 0 ? next : undefined,
+    );
+  };
+
   if (!canEdit) {
     return property.value ? (
-      <OptionChip value={property.value} />
+      <OptionChip
+        value={property.value}
+        explicit={property.optionColors?.[property.value]}
+      />
     ) : (
       <span className="text-[13px] text-muted-foreground/50">—</span>
     );
@@ -583,7 +777,10 @@ function SelectControl({
                      [&>svg]:opacity-50 hover:[&>svg]:opacity-100"
         >
           {property.value ? (
-            <OptionChip value={property.value} />
+            <OptionChip
+              value={property.value}
+              explicit={property.optionColors?.[property.value]}
+            />
           ) : (
             <span className="text-muted-foreground/50">—</span>
           )}
@@ -594,7 +791,10 @@ function SelectControl({
           </SelectItem>
           {property.options.map((o) => (
             <SelectItem key={o} value={o} className="py-1.5">
-              <OptionChip value={o} />
+              <OptionChip
+                value={o}
+                explicit={property.optionColors?.[o]}
+              />
             </SelectItem>
           ))}
         </SelectContent>
@@ -612,21 +812,73 @@ function SelectControl({
               опции ({property.options.length})
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-[220px]">
+          <DropdownMenuContent align="start" className="min-w-[260px]">
             {property.options.map((o) => (
-              <DropdownMenuItem
+              <div
                 key={o}
-                onSelect={(e) => {
-                  e.preventDefault();
-                  const next = property.options.filter((x) => x !== o);
-                  onChangeOptions(next);
-                  if (property.value === o) onChangeValue(null);
-                }}
-                className="group/opt gap-2"
+                className="group/opt flex items-center gap-1 px-1.5 py-1 rounded-sm hover:bg-accent"
               >
-                <OptionChip value={o} className="flex-1" />
-                <X className="size-3 shrink-0 text-muted-foreground/50 group-hover/opt:text-destructive" />
-              </DropdownMenuItem>
+                <OptionChip
+                  value={o}
+                  explicit={property.optionColors?.[o]}
+                  className="flex-1 min-w-0"
+                />
+                {/* Submenu с палитрой — Notion-style. Кнопка-палитра
+                 *  открывает выбор цвета для этой опции; «По умолчанию»
+                 *  = убрать override. */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="px-1 [&>svg:last-child]:hidden">
+                    <Palette className="size-3.5 text-muted-foreground/70" />
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="min-w-[180px]">
+                    <DropdownMenuItem
+                      onSelect={() => setOptionColor(o, null)}
+                      className="text-muted-foreground"
+                    >
+                      <span className="size-3.5 shrink-0 rounded-full border border-dashed border-muted-foreground/40" />
+                      По умолчанию
+                      {!property.optionColors?.[o] && (
+                        <Check className="ml-auto size-3.5" />
+                      )}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    {OPTION_COLOR_NAMES.map((c) => {
+                      const isCurrent = property.optionColors?.[o] === c;
+                      return (
+                        <DropdownMenuItem
+                          key={c}
+                          onSelect={() => setOptionColor(o, c)}
+                        >
+                          <span
+                            className={cn(
+                              "size-3.5 shrink-0 rounded-full",
+                              OPTION_COLOR_CLASSES[c],
+                            )}
+                          />
+                          {OPTION_COLOR_LABELS[c]}
+                          {isCurrent && (
+                            <Check className="ml-auto size-3.5" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <button
+                  type="button"
+                  aria-label={`Удалить опцию «${o}»`}
+                  onClick={() => {
+                    const next = property.options.filter((x) => x !== o);
+                    onChangeOptions(next);
+                    if (property.value === o) onChangeValue(null);
+                  }}
+                  className="size-6 flex items-center justify-center rounded-sm
+                             text-muted-foreground/50 hover:text-destructive
+                             hover:bg-destructive/10"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
             ))}
             <DropdownMenuSeparator />
             <DropdownMenuItem
@@ -662,4 +914,3 @@ function SelectControl({
     </div>
   );
 }
-

@@ -87,6 +87,25 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     type: z.literal("select"),
     value: z.string().max(200).nullable(),
     options: z.array(z.string().trim().min(1).max(200)).max(50),
+    // Per-option override цвета (Stage 1 polish). Map должен быть
+    // подмножеством options — UI чистит «висячие» записи на save'е.
+    optionColors: z
+      .record(
+        z.string(),
+        z.enum([
+          "stone",
+          "amber",
+          "orange",
+          "yellow",
+          "green",
+          "teal",
+          "sky",
+          "indigo",
+          "purple",
+          "pink",
+        ]),
+      )
+      .optional(),
   }),
 ]);
 

@@ -1045,29 +1045,80 @@ export class SupabaseThreadStore extends ThreadStore {
           const map = ensureCharMap();
           const flat = map.flat;
           // Заменяем "\n" в storedText на "" для матча против flat
-          // (где block-separator = "" из buildDocCharMap'а — он не
-          // вносит block-separator вообще, идёт только text-content).
-          // Если storedText содержит "\n" (multi-block selection) —
-          // пытаемся matched substring без них.
+          // (где block-separator не вносится — buildDocCharMap идёт
+          // только по text-content). Если storedText содержит "\n"
+          // (multi-block selection) — пытаемся matched substring без них,
+          // НО затем верифицируем: textBetween(found.from, found.to,
+          // "\n") должен совпадать с оригинальным storedText (с
+          // newline'ами). Иначе re-anchor мог match'нуть single-block
+          // "foobar" для оригинального "foo\nbar" — Codex P1 #2 на
+          // PR #139.
           const needle = storedText.replace(/\n/g, "");
           if (needle.length > 0) {
-            const idx = flat.indexOf(needle);
-            if (idx >= 0 && idx + needle.length <= map.pmPositions.length) {
-              const newFrom = map.pmPositions[idx];
-              // End = pos последнего char'а + 1 (т.к. PM-позиции —
-              // это позиции МЕЖДУ char'ами).
-              const newTo = map.pmPositions[idx + needle.length - 1] + 1;
+            // Codex P1 #1 на PR #139: первый global indexOf может
+            // привязаться к чужому occurrence'у текста (если "Hello"
+            // встречается дважды и thread был на втором — мы бы
+            // переякорились на первый, и потом persist'нули wrong-
+            // position навсегда). Перебираем ВСЕ совпадения и берём
+            // ближайшее по PM-position'у к storedFrom — sane default,
+            // т.к. drift обычно небольшой относительно оригинала.
+            let bestIdx = -1;
+            let bestDistance = Infinity;
+            let searchFrom = 0;
+            while (searchFrom <= flat.length - needle.length) {
+              const idx = flat.indexOf(needle, searchFrom);
+              if (idx < 0) break;
+              const candidatePm = map.pmPositions[idx];
+              const distance = Math.abs(candidatePm - storedFrom);
+              if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIdx = idx;
+              }
+              searchFrom = idx + 1;
+            }
+
+            if (
+              bestIdx >= 0 &&
+              bestIdx + needle.length <= map.pmPositions.length
+            ) {
+              const newFrom = map.pmPositions[bestIdx];
+              // End = pos последнего char'а + 1 (PM-позиции — это
+              // позиции МЕЖДУ char'ами).
+              const newTo = map.pmPositions[bestIdx + needle.length - 1] + 1;
               if (newFrom < newTo && newTo <= docSize) {
-                safeFrom = newFrom;
-                safeTo = newTo;
-                // Сохраним для последующей persistence — чтобы next save
-                // обновил metadata.position на актуальную, а не каждый
-                // раз пере-anchor'ил.
-                correctedPositions.set(thread.id, {
-                  from: newFrom,
-                  to: newTo,
-                  text: storedText,
-                });
+                // Verify: textBetween по найденным PM-позициям должен
+                // ровно совпадать с оригинальным storedText (включая
+                // "\n" между блоками). Это отлавливает случаи когда
+                // multi-block storedText "foo\nbar" попал в single-
+                // block "foobar" или наоборот — без verify мы бы
+                // persist'нули wrong position и переходили в loop
+                // mismatch → re-anchor → mismatch на каждом apply'е.
+                let verifiedText = "";
+                try {
+                  verifiedText = (
+                    view.state.doc as unknown as {
+                      textBetween: (
+                        from: number,
+                        to: number,
+                        blockSeparator?: string,
+                        leafText?: string,
+                      ) => string;
+                    }
+                  ).textBetween(newFrom, newTo, "\n", "");
+                } catch {
+                  verifiedText = "";
+                }
+                if (verifiedText === storedText) {
+                  safeFrom = newFrom;
+                  safeTo = newTo;
+                  // Persist'им скорректированную позицию — next save /
+                  // reload не будут повторять re-anchor.
+                  correctedPositions.set(thread.id, {
+                    from: newFrom,
+                    to: newTo,
+                    text: storedText,
+                  });
+                }
               }
             }
           }

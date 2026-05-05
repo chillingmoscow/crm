@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import {
@@ -32,7 +33,39 @@ import {
   LinkToolbar,
   LinkToolbarController,
 } from "@blocknote/react";
-import { Info, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import {
+  Info,
+  AlertTriangle,
+  CheckCircle2,
+  XCircle,
+  Type,
+  Heading1,
+  Heading2,
+  Heading3,
+  Heading4,
+  Heading5,
+  Heading6,
+  Quote,
+  List,
+  ListOrdered,
+  ListChecks,
+  ListCollapse,
+  type LucideIcon,
+} from "lucide-react";
+import {
+  blockTypeSelectItems as defaultBlockTypeSelectItems,
+  type BlockTypeSelectItem,
+} from "@blocknote/react";
+
+// react-icons IconType — `(props: IconBaseProps) => JSX.Element`. Не
+// импортируем сам `react-icons` (transitive dep BN, не в нашем
+// package.json), описываем минимально совместимо с BN's
+// `BlockTypeSelectItem.icon` shape.
+type IconType = ((props: {
+  size?: number | string;
+  className?: string;
+  color?: string;
+}) => React.ReactElement) & { displayName?: string };
 import { cn } from "@/lib/utils";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import {
@@ -40,6 +73,7 @@ import {
   stripBrokenImgInHtml,
 } from "@/lib/knowledge/blocks-media";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
+import { kbVideoBlockSpec } from "@/components/knowledge/blocks/kb-video-block";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
 import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-composer";
@@ -203,6 +237,95 @@ function getKbCalloutSlashItems(editor: BlockNoteEditor<never, never, never>) {
  * radius, internal palette) live in globals.css under the
  * `.bn-shadcn` scope.
  */
+/** Block-types на которых не нужны comment-кнопки (BN-comments крепятся
+ *  на текстовый Yjs-mark, для leaf-блоков без content создание комментария
+ *  превращается в no-op). Скрываем `addCommentButton` /
+ *  `addTiptapCommentButton` при выделении такого блока. */
+const NON_COMMENTABLE_BLOCK_TYPES = new Set([
+  "image",
+  "video",
+  "audio",
+  "file",
+]);
+
+/** Lucide-иконка как IconType (react-icons-совместимый shape) — BN'ный
+ *  `BlockTypeSelectItem.icon` ждёт react-icons. Default react-icons/ri
+ *  (RiH1 / RiH2 / RiText / ...) — filled-paths и визуально жирные. У
+ *  нас всё остальное в DS — lucide stroke 1.5px, дроп-даун стиля
+ *  выбивается. Подменяем на lucide. */
+const lucideAsIcon = (
+  Comp: LucideIcon,
+  strokeWidth = 1.75,
+): IconType => {
+  const Wrapped: IconType = ({ size, ...rest }) => (
+    <Comp
+      width={size ?? 16}
+      height={size ?? 16}
+      strokeWidth={strokeWidth}
+      {...(rest as Record<string, unknown>)}
+    />
+  );
+  Wrapped.displayName = `LucideIcon(${Comp.displayName ?? Comp.name ?? "Anonymous"})`;
+  return Wrapped;
+};
+
+/** Custom items для BN's BlockTypeSelect — те же типы блоков, что и
+ *  default'ные, но с lucide-иконками. Названия берём из BN-default'а
+ *  (он синхронизирован с нашим slash-меню override). */
+function getKbBlockTypeSelectItems(
+  defaults: BlockTypeSelectItem[],
+): BlockTypeSelectItem[] {
+  const ICON_MAP: Record<string, LucideIcon> = {
+    paragraph: Type,
+    "heading:1:false": Heading1,
+    "heading:2:false": Heading2,
+    "heading:3:false": Heading3,
+    "heading:4:false": Heading4,
+    "heading:5:false": Heading5,
+    "heading:6:false": Heading6,
+    "heading:1:true": ListCollapse,
+    "heading:2:true": ListCollapse,
+    "heading:3:true": ListCollapse,
+    quote: Quote,
+    bulletListItem: List,
+    numberedListItem: ListOrdered,
+    checkListItem: ListChecks,
+    toggleListItem: ListCollapse,
+  };
+  return defaults.map((item) => {
+    const level = item.props?.level;
+    const isToggleable = item.props?.isToggleable;
+    const key =
+      item.type === "heading"
+        ? `heading:${level}:${isToggleable}`
+        : item.type;
+    const lucide = ICON_MAP[key];
+    if (!lucide) return item;
+    return { ...item, icon: lucideAsIcon(lucide) };
+  });
+}
+
+function filterToolbarItemsForBlock(
+  items: ReturnType<typeof getFormattingToolbarItems>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor: BlockNoteEditor<any, any, any>,
+): ReturnType<typeof getFormattingToolbarItems> {
+  let blockType: string | undefined;
+  try {
+    const block = editor.getTextCursorPosition().block;
+    blockType = block?.type;
+  } catch {
+    // No active selection (toolbar showing for other reason) — keep
+    // all items, conservative default.
+    return items;
+  }
+  if (!blockType || !NON_COMMENTABLE_BLOCK_TYPES.has(blockType)) return items;
+  return items.filter(
+    (it) =>
+      it.key !== "addCommentButton" && it.key !== "addTiptapCommentButton",
+  );
+}
+
 export function KbBlockNoteEditor({
   initialContent,
   editable = true,
@@ -320,6 +443,11 @@ export function KbBlockNoteEditor({
         blockSpecs: {
           ...defaultBlockSpecs,
           callout: kbCalloutBlock(),
+          // Custom video block c iframe-fallback'ом для YouTube /
+          // Vimeo / Loom / Vidyard. См. kb-video-block.tsx.
+          // createReactBlockSpec возвращает фабрику (options => spec),
+          // вызываем без options как и для callout-блока.
+          video: kbVideoBlockSpec(),
         },
         inlineContentSpecs: {
           ...defaultInlineContentSpecs,
@@ -740,10 +868,22 @@ export function KbBlockNoteEditor({
               <FormattingToolbar>
                 {editable ? (
                   <>
-                    {/* Editable: дефолтные кнопки (Bold/Italic/Color/Link/...)
-                        + AddCommentButton (включается в getFormattingToolbarItems
-                        когда CommentsExtension подключён). AI — в конец. */}
-                    {...getFormattingToolbarItems()}
+                    {/* Comment-кнопки (`addCommentButton` /
+                     *  `addTiptapCommentButton`) фильтрутся на media-
+                     *  блоках: BN attaches comments к тексту через
+                     *  Yjs-mark, а image / video / audio / file —
+                     *  атомарные leaf-node'ы без inline-content; click
+                     *  ничего не делает кроме рендера empty composer'а.
+                     *  Чтобы юзер не получал «мёртвую» кнопку, выпиливаем
+                     *  её на этих типах блоков. */}
+                    {filterToolbarItemsForBlock(
+                      getFormattingToolbarItems(
+                        getKbBlockTypeSelectItems(
+                          defaultBlockTypeSelectItems(editor.dictionary),
+                        ),
+                      ),
+                      editor,
+                    )}
                     {aiSlashEnabled && (
                       <KbAiFormattingButton aiEnabled={aiSlashEnabled} />
                     )}

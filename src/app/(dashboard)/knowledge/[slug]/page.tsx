@@ -53,6 +53,7 @@ export default async function KbPageView({ params }: PageProps) {
     { data: hasDelete },
     { data: hasCreate },
     { data: hasExport },
+    { data: hasImportPages },
     { data: hasManageTemplates },
     { data: hasUseAi },
     { data: hasComment },
@@ -71,6 +72,7 @@ export default async function KbPageView({ params }: PageProps) {
     supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.export_pages" }),
+    supabase.rpc("has_permission", { permission_code: "kb.import_pages" }),
     supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
     supabase.rpc("has_permission", { permission_code: "kb.use_ai" }),
     supabase.rpc("has_permission", { permission_code: "kb.comment_pages" }),
@@ -98,6 +100,13 @@ export default async function KbPageView({ params }: PageProps) {
   const canDelete = Boolean(hasDelete);
   const canDuplicate = Boolean(hasCreate);
   const canExport = Boolean(hasExport);
+  // KB-import — отдельный permission `kb.import_pages` (миграция 069),
+  // НЕ совпадает с create_pages: в дефолтной матрице у hostess/waiter
+  // есть create, но НЕ import (см. import.ts gate, kb-tree-nav.tsx —
+  // там Import тоже скрывается отдельно). Без отдельного gate'а юзер
+  // видел бы пункт «Импорт» в меню и упирался бы только в server-error
+  // (Codex P2 на PR #111).
+  const canImport = Boolean(hasImportPages);
   const canManageTemplates = Boolean(hasManageTemplates);
   const canManageRequiredReading = Boolean(hasManageRequiredReading);
   const canLock = Boolean(hasLockPages);
@@ -209,7 +218,7 @@ export default async function KbPageView({ params }: PageProps) {
           canDelete={canDelete}
           canDuplicate={canDuplicate}
           canExport={canExport}
-          canImport={canDuplicate /* kb.create_pages — те же права */}
+          canImport={canImport}
           canManageTemplates={canManageTemplates}
           canManageRequiredReading={canManageRequiredReading}
           canLock={canLock}

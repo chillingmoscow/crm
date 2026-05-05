@@ -33,6 +33,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type Modifier,
 } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -403,6 +404,33 @@ export function KbPageProperties({
     });
   };
 
+  // Modifiers — inline (не подключаем `@dnd-kit/modifiers`, лишний dep
+  // ради двух functions). Оба применяются вместе:
+  //   - `RESTRICT_TO_VERTICAL_AXIS` — обнуляет горизонтальное смещение,
+  //     юзер не может «увести» property вбок (визуальный шум).
+  //   - `RESTRICT_TO_PARENT_ELEMENT` — clamp'ит вертикальное смещение
+  //     по bounding-box'у `<ul>` (containerNodeRect). Без этого item
+  //     при drag за пределы списка деформируется (flex-shrink под
+  //     parent'а), а юзеру неприятно: «потерял» property вверх/вниз.
+  const dndModifiers = useMemo<Modifier[]>(
+    () => [
+      ({ transform }) => ({ ...transform, x: 0 }),
+      ({ transform, draggingNodeRect, containerNodeRect }) => {
+        if (!draggingNodeRect || !containerNodeRect) return transform;
+        const next = { ...transform };
+        const top = draggingNodeRect.top + transform.y;
+        const bottom = draggingNodeRect.bottom + transform.y;
+        if (top < containerNodeRect.top) {
+          next.y = containerNodeRect.top - draggingNodeRect.top;
+        } else if (bottom > containerNodeRect.bottom) {
+          next.y = containerNodeRect.bottom - draggingNodeRect.bottom;
+        }
+        return next;
+      },
+    ],
+    [],
+  );
+
   // Не рендерим пустую секцию для read-only страниц без свойств — иначе
   // на каждой странице висит пустой блок «Свойства».
   if (!canEdit && properties.length === 0) return null;
@@ -416,6 +444,7 @@ export function KbPageProperties({
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
+          modifiers={dndModifiers}
           onDragEnd={handleDragEnd}
         >
           <SortableContext
@@ -582,8 +611,10 @@ function PropertyRow({
       ref={setNodeRef}
       style={dragStyle}
       className={cn(
-        "group/row flex items-center gap-1.5 min-h-[28px] -mx-2 px-2 py-0.5 rounded-md",
-        "hover:bg-muted/40 transition-colors",
+        "group/row flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md",
+        // Subtle background ТОЛЬКО на active-drag (визуальный feedback
+        // reorder'а). Фоновая подсветка всего ряда специально НЕ
+        // ставим — только label с именем (просьба юзера, см. ниже).
         isDragging && "bg-muted/60 shadow-sm",
       )}
     >
@@ -605,29 +636,36 @@ function PropertyRow({
         // съезжал при переключении canEdit.
         <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
       )}
-      <PropertyIconButton
-        property={property}
-        canEdit={canEdit}
-        onChangeIcon={onChangeIcon}
-      />
-      {canEdit ? (
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => {
-            const trimmed = name.trim();
-            if (trimmed && trimmed !== property.name) onRename(trimmed);
-            else setName(property.name);
-          }}
-          className="w-[140px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
-          aria-label="Имя свойства"
+      {/* Label area: icon + name. Hover-bg ТОЛЬКО здесь (Notion-style —
+       *  юзер хочет подсветку имени, не всего ряда). */}
+      <div
+        className="flex items-center gap-1.5 px-1 -mx-1 rounded-md
+                   hover:bg-muted/50 transition-colors"
+      >
+        <PropertyIconButton
+          property={property}
+          canEdit={canEdit}
+          onChangeIcon={onChangeIcon}
         />
-      ) : (
-        <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
-          {property.name}
-        </span>
-      )}
+        {canEdit ? (
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => {
+              const trimmed = name.trim();
+              if (trimmed && trimmed !== property.name) onRename(trimmed);
+              else setName(property.name);
+            }}
+            className="w-[140px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
+            aria-label="Имя свойства"
+          />
+        ) : (
+          <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
+            {property.name}
+          </span>
+        )}
+      </div>
       <div className="flex-1 min-w-0">
         <PropertyValueControl
           property={property}

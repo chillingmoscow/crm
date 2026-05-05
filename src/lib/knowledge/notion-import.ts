@@ -132,8 +132,6 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     const uuid = extractNotionUuidFromName(name);
     const segments = path.split("/").filter(Boolean);
     const depth = segments.length - 1;
-    const parentSegment = segments.length >= 2 ? segments[segments.length - 2] : null;
-    const parentUuid = parentSegment ? extractNotionUuidFromName(parentSegment) : null;
     // Notion часто дублирует страницу: и `Parent <uuid>.md` (на уровень
     // выше), и `Parent <uuid>/Parent <uuid>.md` (в собственной папке для
     // attachments). Это одна и та же страница — дедуплицируем по UUID,
@@ -142,10 +140,23 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
       const existing = nodesByUuid.get(uuid)!;
       if (existing.zipPath.length <= path.length) continue;
     }
-    // Self-ref: parent-сегмент имеет тот же UUID что сама страница
-    // (Notion's `Page <uuid>/Page <uuid>.md`). Считаем такую страницу
-    // top-level (parentUuid → null), иначе она зависает в DFS-цикле.
-    const effectiveParentUuid = parentUuid === uuid ? null : parentUuid;
+    // Идём ВВЕРХ по сегментам пути до первого с UUID, пропуская
+    // не-UUID-папки. Покрывает два кейса:
+    //   1. Notion-database export: папка БД (`Лог @ Генеральные уборки/`)
+    //      называется без UUID, но `.csv`-сосед имеет его. Записи БД
+    //      должны прикрепиться к странице, СОДЕРЖАЩЕЙ БД (т.е. на 2
+    //      сегмента выше), а не повисать в top-level.
+    //   2. Self-ref `Page <uuid>/Page <uuid>.md` (Notion attachment-folder
+    //      pattern): пропускаем сегмент со своим uuid и идём дальше — иначе
+    //      страница висит в DFS-цикле сама на себе.
+    let effectiveParentUuid: string | null = null;
+    for (let s = segments.length - 2; s >= 0; s--) {
+      const u = extractNotionUuidFromName(segments[s]);
+      if (u && u !== uuid) {
+        effectiveParentUuid = u;
+        break;
+      }
+    }
     // hadOriginalParent отражает ИСХОДНУЮ zip-структуру (до второго
     // прохода нормализации ниже). Pass 3 implicit-hierarchy использует
     // его вместо `parentUuid`, чтобы не реparent'ить через mention'ы

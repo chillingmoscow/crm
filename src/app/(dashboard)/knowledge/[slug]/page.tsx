@@ -10,20 +10,12 @@ import {
   PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
-import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { KbBackLink } from "@/app/(dashboard)/knowledge/_components/kb-back-link";
-import { KbFavoriteToggle } from "@/app/(dashboard)/knowledge/_components/kb-favorite-toggle";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
-import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
 import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-children-list";
-import { KbPageActions } from "@/app/(dashboard)/knowledge/_components/kb-page-actions";
-import { KbUndoRedoButtons } from "@/app/(dashboard)/knowledge/_components/kb-undo-redo-buttons";
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
-import { KbRequiredReadingToggle } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-toggle";
-import { KbRequiredReadingStatsLink } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-stats-link";
-import { KbPageAnalyticsLink } from "@/app/(dashboard)/knowledge/_components/kb-page-analytics-link";
-import { KbPageLockToggle } from "@/app/(dashboard)/knowledge/_components/kb-page-lock-toggle";
+import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import type { KbBlock, KbPageRow } from "@/types/knowledge";
 
@@ -162,7 +154,12 @@ export default async function KbPageView({ params }: PageProps) {
     ? parent.title || "Без названия"
     : "База знаний";
 
-  // Profile lookup for info-popover audit fields.
+  // Profile lookup. После переезда EntityInfoPopover в KbPageMenu
+  // footer'ом нужны только два поля: updatedByName (отображается в
+  // меню как «Автор последней правки») + currentUserProfile (для
+  // аватарки в comment-композере). Ранее ещё computed createdByName/
+  // createdByAvatarUrl/updatedByAvatarUrl для info-popover'а — больше
+  // не нужны.
   type ProfileEntry = { name: string; avatarUrl: string | null };
   const profilesById = new Map<string, ProfileEntry>();
   for (const p of profiles ?? []) {
@@ -172,29 +169,17 @@ export default async function KbPageView({ params }: PageProps) {
       avatarUrl: p.avatar_url ?? null,
     });
   }
-  const createdByName = row.created_by
-    ? profilesById.get(row.created_by)?.name ?? null
-    : null;
   const updatedByEntry = row.updated_by
     ? profilesById.get(row.updated_by) ?? null
     : lastEditorId
       ? profilesById.get(lastEditorId) ?? null
       : null;
   const updatedByName = updatedByEntry?.name ?? null;
-  const updatedByAvatarUrl = updatedByEntry?.avatarUrl ?? null;
-
-  // Profile lookup for the author (Создал) — нужен только для аватарки
-  // в info-popover; имя уже посчитали выше.
-  const createdByEntry = row.created_by
-    ? profilesById.get(row.created_by) ?? null
-    : null;
 
   // Current user — для аватарки и имени в comment-композере.
   const currentUserProfile = currentUserId
     ? profilesById.get(currentUserId) ?? null
     : null;
-
-  const createdByAvatarUrl = createdByEntry?.avatarUrl ?? null;
 
   return (
     <div className="flex-1 flex flex-col">
@@ -205,52 +190,30 @@ export default async function KbPageView({ params }: PageProps) {
         <KbBackLink href={backHref} label={backLabel} />
       </PageBreadcrumb>
       <PageHeaderActions>
-        {/* Toggle'ы синхронизируют свой useState с initialXxx prop'ом
-            через useEffect — это альтернатива key-remount'у. key-фикс
-            ломал PageHeaderActions slot (cumulative набор иконок при
-            навигации), потому что Slot держит ReactNode в context
-            state'е, а keyed remount при концентрации действий через
-            context провоцировал reconciliation двух вариантов одного
-            slot'а. Prop-sync в самих компонентах решает проблему без
-            remount'а. */}
-        <KbFavoriteToggle pageId={row.id} initialFavorited={favorited} />
-        {canManageRequiredReading && (
-          <KbRequiredReadingToggle
-            pageId={row.id}
-            initialRequired={readStatus.required}
-          />
-        )}
-        {canManageRequiredReading && readStatus.required && (
-          <KbRequiredReadingStatsLink slug={row.slug} />
-        )}
-        {canLock && (
-          <KbPageLockToggle pageId={row.id} initialLocked={isLocked} />
-        )}
-        {canViewAnalytics && <KbPageAnalyticsLink slug={row.slug} />}
-        <KbUndoRedoButtons canEdit={canEdit} />
-        <KbVersionHistory pageId={row.id} canEdit={canEdit} />
-        <KbPageActions
+        {/* Notion-style ⋯-меню: все page-level действия (избранное,
+         *  required-reading, lock, undo/redo, дублировать, экспорт,
+         *  импорт, аналитика, история версий, удалить) свернуты в один
+         *  dropdown. Дизайн: sheerly.pen frame 09 · DOgqX. */}
+        <KbPageMenu
           pageId={row.id}
+          pageSlug={row.slug}
           pageTitle={row.title}
           childCount={descendantsCount}
+          initialFavorited={favorited}
+          initialRequiredReading={readStatus.required}
+          initialLocked={isLocked}
+          requiredReadingActive={readStatus.required}
+          updatedAt={row.updated_at}
+          updatedByName={updatedByName}
+          canEdit={canEdit}
           canDelete={canDelete}
           canDuplicate={canDuplicate}
           canExport={canExport}
+          canImport={canDuplicate /* kb.create_pages — те же права */}
           canManageTemplates={canManageTemplates}
-        />
-        <EntityInfoPopover
-          title="О странице"
-          id={row.id}
-          createdAt={row.created_at}
-          createdByName={createdByName}
-          createdByAvatarUrl={createdByAvatarUrl}
-          createdByLabel="Автор"
-          updatedAt={row.updated_at}
-          updatedByName={updatedByName}
-          updatedByAvatarUrl={updatedByAvatarUrl}
-          updatedByLabel="Редактор"
-          showTime
-          relativeUpdatedAt
+          canManageRequiredReading={canManageRequiredReading}
+          canLock={canLock}
+          canViewAnalytics={canViewAnalytics}
         />
       </PageHeaderActions>
 

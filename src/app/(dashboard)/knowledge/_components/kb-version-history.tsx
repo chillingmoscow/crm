@@ -37,6 +37,10 @@ interface KbVersionHistoryProps {
   pageId: string;
   /** Per-role gate. Disables the restore action when false. */
   canEdit: boolean;
+  /** Controlled-mode: caller владеет open-state'ом и сам рендерит
+   *  триггер. Если оба переданы — default-icon-trigger не рендерится. */
+  open?: boolean;
+  onOpenChange?: (next: boolean) => void;
 }
 
 /** Versions enriched with derived per-row fields:
@@ -49,8 +53,16 @@ type EnrichedVersion = KbPageVersionWithAuthor & {
   delta: number | null;
 };
 
-export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
-  const [open, setOpen] = useState(false);
+export function KbVersionHistory({
+  pageId,
+  canEdit,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
+}: KbVersionHistoryProps) {
+  const [openInternal, setOpenInternal] = useState(false);
+  const isControlled = openProp !== undefined && onOpenChangeProp !== undefined;
+  const open = isControlled ? openProp : openInternal;
+  const setOpen = isControlled ? onOpenChangeProp : setOpenInternal;
   const [rows, setRows] = useState<KbPageVersionWithAuthor[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState<number | null>(null);
@@ -106,20 +118,22 @@ export function KbVersionHistory({ pageId, canEdit }: KbVersionHistoryProps) {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <IconTooltip label="История версий">
-        <SheetTrigger asChild>
-          {/* Top-bar icon button — стиль iedpv (36×36, no border,
-              18px icon, muted → foreground on hover). См. правила
-              в docs/design-system.md § Top bar. */}
-          <button
-            type="button"
-            aria-label="История версий"
-            className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <History className="w-[18px] h-[18px]" />
-          </button>
-        </SheetTrigger>
-      </IconTooltip>
+      {!isControlled && (
+        <IconTooltip label="История версий">
+          <SheetTrigger asChild>
+            {/* Top-bar icon button — стиль iedpv (36×36, no border,
+                18px icon, muted → foreground on hover). См. правила
+                в docs/design-system.md § Top bar. */}
+            <button
+              type="button"
+              aria-label="История версий"
+              className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <History className="w-[18px] h-[18px]" />
+            </button>
+          </SheetTrigger>
+        </IconTooltip>
+      )}
       <SheetContent side="right" className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle>История версий</SheetTitle>

@@ -541,6 +541,45 @@ export function relinkNotionMentions(
   return { blocks: visit(blocks), replacements };
 }
 
+/** Собирает pageId'ы импортированных страниц, на которые ссылается данная
+ *  страница через inline link'и `[Title](.../<uuid>.md)`. Используется
+ *  Pass 3 импорта (implicit hierarchy) — если родитель X mention'ит
+ *  целевой Y, входящий в этот же импорт, то Y становится child'ом X.
+ *
+ *  Walk по тем же inline-link'ам, что и `relinkNotionMentions`, но без
+ *  мутации блоков и без zamены на kbPageMention. Возвращает уникальные
+ *  pageId'ы в порядке появления в content (нужно для детерминированного
+ *  tie-break'а в Pass 3). */
+export function collectImportedMentionTargets(
+  blocks: KbBlock[],
+  uuidMap: Map<string, UuidToPageInfo>,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const visit = (bs: KbBlock[]) => {
+    for (const block of bs) {
+      if (Array.isArray(block.content)) {
+        for (const run of block.content) {
+          if (run.type !== "link") continue;
+          const link = run as { href: string };
+          const uuid = extractNotionUuidFromHref(link.href);
+          if (!uuid) continue;
+          const target = uuidMap.get(uuid);
+          if (!target) continue;
+          if (seen.has(target.pageId)) continue;
+          seen.add(target.pageId);
+          out.push(target.pageId);
+        }
+      }
+      if (Array.isArray(block.children) && block.children.length > 0) {
+        visit(block.children);
+      }
+    }
+  };
+  visit(blocks);
+  return out;
+}
+
 // ─── 5. Notion callouts (blockquote с emoji) ───────────────────────────────
 
 /** Magic-маркер: paragraph c таким префиксом → callout-блок (см. ниже).

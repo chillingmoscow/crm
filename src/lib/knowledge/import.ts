@@ -12,8 +12,12 @@ import type { KbBlock } from "@/types/knowledge";
  *  DOM, server-side не работает). Сервер только гейтит permission и
  *  создаёт строки. */
 export interface KbImportFileInput {
-  /** Имя файла (без расширения превратится в title). */
+  /** Имя файла (без расширения превратится в title — если `title` не задан). */
   name: string;
+  /** Готовый title — если клиент уже почистил (Notion-импорт срезает
+   *  трейлящий `<32-hex>` UUID). Когда задан — используется как есть,
+   *  `name` идёт только в логи. */
+  title?: string;
   /** Распарсенные BlockNote-блоки. */
   blocks: KbBlock[];
   /** plain-text projection (FTS-индекс). */
@@ -82,7 +86,7 @@ export async function importKbPageFromMarkdown(input: {
     return { imported: null, error: "Не удалось определить активный аккаунт" };
   }
 
-  const title = filenameToTitle(input.file.name);
+  const title = input.file.title?.trim() || filenameToTitle(input.file.name);
 
   // Position = max(siblings под этим parent) + 1.
   const { data: maxRow } = await supabase
@@ -127,6 +131,18 @@ export async function importKbPageFromMarkdown(input: {
   if (!pageId || !pageSlug) {
     return { imported: null, error: "Не удалось сгенерировать уникальный slug" };
   }
+
+  // Defensive: гарантируем что свежесозданная страница НЕ заблокирована.
+  // Прецедент с импортом Notion-zip'а: импортированные страницы массово
+  // получали locked_at != null (root cause не локализован — возможно
+  // legacy trigger в чьей-то prod-БД), и kb_save_page (086 strict lock)
+  // отвергал любые правки. INSERT по умолчанию должен оставлять
+  // locked_at=null, но прямой UPDATE гарантирует это инвариант на любом
+  // окружении.
+  await supabase
+    .from("kb_pages")
+    .update({ locked_at: null, locked_by: null })
+    .eq("id", pageId);
 
   // Step 2: заливаем контент через kb_save_page RPC. Тот же путь
   // что у обычного save'а — версионирование, links extraction.

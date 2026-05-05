@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   History,
@@ -68,9 +68,15 @@ export function KbVersionHistory({
   const [restoring, setRestoring] = useState<number | null>(null);
   const router = useRouter();
 
+  useEffect(() => {
+    setRows(null);
+    setLoading(false);
+    setRestoring(null);
+  }, [pageId]);
+
   const onOpenChange = async (next: boolean) => {
     setOpen(next);
-    if (next && rows === null) {
+    if (next) {
       setLoading(true);
       const { rows, error } = await listKbPageVersions(pageId);
       setLoading(false);

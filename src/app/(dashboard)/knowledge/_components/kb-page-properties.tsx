@@ -11,9 +11,13 @@ import {
   Calendar as CalendarIcon,
   CheckSquare,
   ChevronDown,
+  Copy,
+  Replace,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -22,13 +26,15 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -61,6 +67,58 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   checkbox: "Чекбокс",
   select: "Выбор",
 };
+
+// Notion-style пастельная палитра для select-options. Цвет назначается
+// per-option детерминированно через хэш строки — стабилен при reorder'е,
+// одна и та же опция всегда красится одинаково. Tailwind class'ы
+// инлайним парами (bg + text), чтобы JIT их подхватил без safelist'а.
+const OPTION_COLOR_CLASSES = [
+  "bg-stone-100 text-stone-700 dark:bg-stone-800/60 dark:text-stone-200",
+  "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
+  "bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-200",
+  "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-200",
+  "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-200",
+  "bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200",
+  "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200",
+  "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200",
+  "bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200",
+  "bg-pink-100 text-pink-800 dark:bg-pink-950/50 dark:text-pink-200",
+];
+
+function colorForOption(value: string): string {
+  // FNV-ish 32-bit hash. Стабилен между сессиями и устройствами —
+  // мы не хотим, чтобы один и тот же «Высокий приоритет» красился по-
+  // разному в разных вкладках.
+  let h = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return OPTION_COLOR_CLASSES[Math.abs(h) % OPTION_COLOR_CLASSES.length];
+}
+
+/** Цветной chip для select-option (как в Notion). Цвет детерминированный
+ *  по хэшу `value` — стабилен при reorder и одинаков везде, где опция
+ *  появляется (trigger / list / management dropdown). */
+function OptionChip({
+  value,
+  className,
+}: {
+  value: string;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded px-1.5 py-0.5 text-[12.5px] font-medium leading-tight max-w-full",
+        colorForOption(value),
+        className,
+      )}
+    >
+      <span className="truncate">{value}</span>
+    </span>
+  );
+}
 
 const SAVE_DEBOUNCE_MS = 1500;
 
@@ -153,6 +211,36 @@ export function KbPageProperties({
     });
   };
 
+  // Дублирует property: новый id + " (копия)" к имени, value/options
+  // копируются 1-в-1. Inserted сразу после оригинала.
+  const duplicateProperty = (id: string) => {
+    setProperties((prev) => {
+      const idx = prev.findIndex((p) => p.id === id);
+      if (idx === -1) return prev;
+      const orig = prev[idx];
+      const copy = { ...orig, id: nanoid(8), name: `${orig.name} (копия)` };
+      const next = [...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)];
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  // Меняет тип property: id и name сохраняются, value сбрасывается на
+  // дефолт нового типа, options стираются (если был select). Конверсия
+  // value между типами сложная и lossy — проще явно reset.
+  const changePropertyType = (id: string, newType: KbPropertyType) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id) return p;
+        if (p.type === newType) return p;
+        const fresh = makeProperty(newType, p.name);
+        return { ...fresh, id: p.id };
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
   // Не рендерим пустую секцию для read-only страниц без свойств — иначе
   // на каждой странице висит пустой блок «Свойства».
   if (!canEdit && properties.length === 0) return null;
@@ -177,6 +265,8 @@ export function KbPageProperties({
                 updateProperty(prop.id, { options } as Partial<KbProperty>)
               }
               onRemove={() => removeProperty(prop.id)}
+              onDuplicate={() => duplicateProperty(prop.id)}
+              onChangeType={(t) => changePropertyType(prop.id, t)}
             />
           ))}
         </ul>
@@ -219,6 +309,8 @@ interface PropertyRowProps {
   onChangeValue: (value: KbProperty["value"]) => void;
   onChangeOptions: (options: string[]) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
+  onChangeType: (type: KbPropertyType) => void;
 }
 
 function PropertyRow({
@@ -228,6 +320,8 @@ function PropertyRow({
   onChangeValue,
   onChangeOptions,
   onRemove,
+  onDuplicate,
+  onChangeType,
 }: PropertyRowProps) {
   const Icon = TYPE_ICONS[property.type];
   const [name, setName] = useState(property.name);
@@ -277,7 +371,39 @@ function PropertyRow({
               <MoreHorizontal className="size-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[160px]">
+          <DropdownMenuContent align="end" className="min-w-[180px]">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Replace className="size-3.5 text-muted-foreground" />
+                Изменить тип
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="min-w-[160px]">
+                {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
+                  const TIcon = TYPE_ICONS[t];
+                  const isCurrent = t === property.type;
+                  return (
+                    <DropdownMenuItem
+                      key={t}
+                      disabled={isCurrent}
+                      onSelect={() => onChangeType(t)}
+                    >
+                      <TIcon className="size-3.5 text-muted-foreground" />
+                      {TYPE_LABELS[t]}
+                      {isCurrent && (
+                        <span className="ml-auto text-[11px] text-muted-foreground/60">
+                          текущий
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuItem onSelect={onDuplicate}>
+              <Copy className="size-3.5 text-muted-foreground" />
+              Дублировать
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onRemove}>
               <Trash2 className="size-3.5 text-destructive" />
               <span className="text-destructive">Удалить</span>
@@ -438,10 +564,10 @@ function SelectControl({
   };
 
   if (!canEdit) {
-    return (
-      <span className="text-[13px]">
-        {property.value ?? "—"}
-      </span>
+    return property.value ? (
+      <OptionChip value={property.value} />
+    ) : (
+      <span className="text-[13px] text-muted-foreground/50">—</span>
     );
   }
 
@@ -451,16 +577,24 @@ function SelectControl({
         value={property.value ?? ""}
         onValueChange={(v) => onChangeValue(v === "__none__" ? null : v)}
       >
-        <SelectTrigger className="h-7 w-auto min-w-[100px] max-w-[280px] text-[13px] border-transparent bg-transparent px-1 hover:border-input focus:border-input">
-          <SelectValue placeholder="—" />
+        <SelectTrigger
+          className="h-7 w-auto min-w-[100px] max-w-[280px] text-[13px] border-transparent bg-transparent px-1
+                     hover:border-input focus:border-input
+                     [&>svg]:opacity-50 hover:[&>svg]:opacity-100"
+        >
+          {property.value ? (
+            <OptionChip value={property.value} />
+          ) : (
+            <span className="text-muted-foreground/50">—</span>
+          )}
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="max-w-[320px]">
           <SelectItem value="__none__" className="text-muted-foreground">
             (не задано)
           </SelectItem>
           {property.options.map((o) => (
-            <SelectItem key={o} value={o}>
-              {o}
+            <SelectItem key={o} value={o} className="py-1.5">
+              <OptionChip value={o} />
             </SelectItem>
           ))}
         </SelectContent>
@@ -478,7 +612,7 @@ function SelectControl({
               опции ({property.options.length})
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-[200px]">
+          <DropdownMenuContent align="start" className="min-w-[220px]">
             {property.options.map((o) => (
               <DropdownMenuItem
                 key={o}
@@ -488,9 +622,10 @@ function SelectControl({
                   onChangeOptions(next);
                   if (property.value === o) onChangeValue(null);
                 }}
+                className="group/opt gap-2"
               >
-                <Trash2 className="size-3 text-destructive" />
-                <span className="flex-1">{o}</span>
+                <OptionChip value={o} className="flex-1" />
+                <X className="size-3 shrink-0 text-muted-foreground/50 group-hover/opt:text-destructive" />
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />

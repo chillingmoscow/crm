@@ -17,6 +17,7 @@ import type {
   KbPageMoveInput,
   KbPageRow,
   KbPageSaveInput,
+  KbPageTreeRow,
 } from "@/types/knowledge";
 
 // ─── Reads ───────────────────────────────────────────────────────────────────
@@ -35,6 +36,23 @@ export async function listKbPages(): Promise<{
     .order("position", { ascending: true });
   if (error) return { rows: [], error: error.message };
   return { rows: (data ?? []) as KbPageRow[], error: null };
+}
+
+/** Slim projection for tree/sidebar/children/count use-cases. Avoids
+ * pulling `content` jsonb and `plain_text` for every page in the account. */
+export async function listKbPageTreeRows(): Promise<{
+  rows: KbPageTreeRow[];
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("kb_pages")
+    .select("id, parent_id, position, title, icon, icon_color, slug, locked_at")
+    .is("deleted_at", null)
+    .order("parent_id", { ascending: true, nullsFirst: true })
+    .order("position", { ascending: true });
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data ?? []) as KbPageTreeRow[], error: null };
 }
 
 /** Trash list row — slim проекция KbPageRow (без content/plain_text/

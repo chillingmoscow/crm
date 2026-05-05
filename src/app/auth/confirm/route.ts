@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeAuthRedirectPath } from "@/lib/auth/redirects";
 import type { EmailOtpType } from "@supabase/supabase-js";
 
 /**
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
   const type = searchParams.get("type") as EmailOtpType | null;
   const rawNext = searchParams.get("next") ?? "/dashboard";
   // Only allow relative redirects to prevent open-redirect attacks
-  const next = rawNext.startsWith("/") ? rawNext : "/dashboard";
+  const next = safeAuthRedirectPath(rawNext);
 
   // Resolve the public-facing base URL (same logic as /auth/callback)
   const publicSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");

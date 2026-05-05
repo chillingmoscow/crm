@@ -1029,6 +1029,7 @@ export type Database = {
           deleted_at: string | null
           id: string
           metadata: Json
+          page_id: string
           reactions: Json
           thread_id: string
           updated_at: string
@@ -1041,6 +1042,7 @@ export type Database = {
           deleted_at?: string | null
           id?: string
           metadata?: Json
+          page_id?: string
           reactions?: Json
           thread_id: string
           updated_at?: string
@@ -1053,6 +1055,7 @@ export type Database = {
           deleted_at?: string | null
           id?: string
           metadata?: Json
+          page_id?: string
           reactions?: Json
           thread_id?: string
           updated_at?: string
@@ -1070,6 +1073,13 @@ export type Database = {
             columns: ["author_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_comments_page_id_fkey"
+            columns: ["page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
             referencedColumns: ["id"]
           },
           {
@@ -2510,6 +2520,14 @@ export type Database = {
       copy_role_permissions: {
         Args: { p_source_role_id: string; p_target_role_id: string }
         Returns: undefined
+      }
+      finance_restore_transaction: {
+        Args: { p_id: string }
+        Returns: number
+      }
+      finance_soft_delete_transaction: {
+        Args: { p_id: string }
+        Returns: number
       }
       get_active_account_id: { Args: never; Returns: string }
       get_active_legal_entity_id: { Args: never; Returns: string }

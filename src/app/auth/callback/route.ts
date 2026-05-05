@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeAuthRedirectPath } from "@/lib/auth/redirects";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const { searchParams, origin } = requestUrl;
   const code = searchParams.get("code");
   const rawNext = searchParams.get("next") ?? "/dashboard";
-  const next = rawNext.startsWith("/") ? rawNext : "/dashboard";
+  const next = safeAuthRedirectPath(rawNext);
 
   // Behind reverse proxies request.url can contain internal host (e.g. localhost:3000).
   // Prefer explicit public site URL for stable redirects from email links.

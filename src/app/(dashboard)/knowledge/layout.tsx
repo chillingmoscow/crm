@@ -38,26 +38,21 @@ export default async function KnowledgeLayout({
 }) {
   const supabase = await createClient();
   const [
-    { data: canView },
-    { data: canDelete },
-    { data: canImport },
-    { data: canCreate },
-    { data: canManageTemplates },
-    { data: canAskAi },
-    { data: canViewAudit },
-    { data: canViewAnalytics },
+    { data: permissionCodes },
     { data: activeAccountId },
   ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "kb.view_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.import_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
-    supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
-    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
-    supabase.rpc("has_permission", { permission_code: "kb.view_analytics" }),
+    supabase.rpc("list_my_permissions", {}),
     supabase.rpc("get_active_account_id"),
   ]);
+  const permissions = new Set(permissionCodes ?? []);
+  const canView = permissions.has("kb.view_pages");
+  const canDelete = permissions.has("kb.delete_pages");
+  const canImport = permissions.has("kb.import_pages");
+  const canCreate = permissions.has("kb.create_pages");
+  const canManageTemplates = permissions.has("kb.manage_templates");
+  const canAskAi = permissions.has("kb.ask_ai");
+  const canViewAudit = permissions.has("org.view_audit");
+  const canViewAnalytics = permissions.has("kb.view_analytics");
   if (!canView) redirect("/dashboard");
 
   // RAG (kb.ask_ai) gate: permission + account.ai_enabled. Если оба

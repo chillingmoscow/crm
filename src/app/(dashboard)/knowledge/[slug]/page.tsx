@@ -1,11 +1,11 @@
 import { notFound } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { getKbPageBySlug, listKbPages, resolveKbMentionTargets } from "@/lib/knowledge/pages";
+import { getKbPageBySlug, resolveKbMentionTargets } from "@/lib/knowledge/pages";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { isKbPageFavorited } from "@/lib/knowledge/favorites";
 import { getKbPageReadStatus } from "@/lib/knowledge/required-reading";
-import { getKbBreadcrumbs } from "@/lib/knowledge/tree";
+import { getKbBreadcrumbs, getKbTreeRows } from "@/lib/knowledge/tree";
 import {
   PageBreadcrumb,
   PageHeaderActions,
@@ -18,7 +18,7 @@ import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
-import type { KbBlock, KbPageRow, KbProperty } from "@/types/knowledge";
+import type { KbBlock, KbPageTreeRow, KbProperty } from "@/types/knowledge";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -49,18 +49,7 @@ export default async function KbPageView({ params }: PageProps) {
   );
 
   const [
-    { data: hasEditAny },
-    { data: hasEditOwn },
-    { data: hasDelete },
-    { data: hasCreate },
-    { data: hasExport },
-    { data: hasImportPages },
-    { data: hasManageTemplates },
-    { data: hasUseAi },
-    { data: hasComment },
-    { data: hasManageRequiredReading },
-    { data: hasLockPages },
-    { data: hasViewAnalytics },
+    { data: permissionCodes },
     { data: activeAccountId },
     { favorited },
     readStatus,
@@ -68,22 +57,11 @@ export default async function KbPageView({ params }: PageProps) {
     { chain },
     { data: profiles },
   ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "kb.edit_any_page" }),
-    supabase.rpc("has_permission", { permission_code: "kb.edit_own_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.export_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.import_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.manage_templates" }),
-    supabase.rpc("has_permission", { permission_code: "kb.use_ai" }),
-    supabase.rpc("has_permission", { permission_code: "kb.comment_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.manage_required_reading" }),
-    supabase.rpc("has_permission", { permission_code: "kb.lock_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.view_analytics" }),
+    supabase.rpc("list_my_permissions", {}),
     supabase.rpc("get_active_account_id"),
     isKbPageFavorited(row.id),
     getKbPageReadStatus(row.id),
-    listKbPages(),
+    getKbTreeRows(),
     getKbBreadcrumbs(row.id),
     profileIds.length > 0
       ? supabase
@@ -92,26 +70,39 @@ export default async function KbPageView({ params }: PageProps) {
           .in("id", profileIds)
       : Promise.resolve({ data: [] as { id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }[] }),
   ]);
+  const permissions = new Set(permissionCodes ?? []);
+  const hasEditAny = permissions.has("kb.edit_any_page");
+  const hasEditOwn = permissions.has("kb.edit_own_pages");
+  const hasDelete = permissions.has("kb.delete_pages");
+  const hasCreate = permissions.has("kb.create_pages");
+  const hasExport = permissions.has("kb.export_pages");
+  const hasImportPages = permissions.has("kb.import_pages");
+  const hasManageTemplates = permissions.has("kb.manage_templates");
+  const hasUseAi = permissions.has("kb.use_ai");
+  const hasComment = permissions.has("kb.comment_pages");
+  const hasManageRequiredReading = permissions.has("kb.manage_required_reading");
+  const hasLockPages = permissions.has("kb.lock_pages");
+  const hasViewAnalytics = permissions.has("kb.view_analytics");
 
   // Базовая edit-permission. Lock-state ограничивает её отдельно ниже:
   // canEditEffective = canEdit && (!locked || canLock).
   const canEditBase =
-    Boolean(hasEditAny) ||
-    (Boolean(hasEditOwn) && row.created_by === currentUserId);
-  const canDelete = Boolean(hasDelete);
-  const canDuplicate = Boolean(hasCreate);
-  const canExport = Boolean(hasExport);
+    hasEditAny ||
+    (hasEditOwn && row.created_by === currentUserId);
+  const canDelete = hasDelete;
+  const canDuplicate = hasCreate;
+  const canExport = hasExport;
   // KB-import — отдельный permission `kb.import_pages` (миграция 069),
   // НЕ совпадает с create_pages: в дефолтной матрице у hostess/waiter
   // есть create, но НЕ import (см. import.ts gate, kb-tree-nav.tsx —
   // там Import тоже скрывается отдельно). Без отдельного gate'а юзер
   // видел бы пункт «Импорт» в меню и упирался бы только в server-error
   // (Codex P2 на PR #111).
-  const canImport = Boolean(hasImportPages);
-  const canManageTemplates = Boolean(hasManageTemplates);
-  const canManageRequiredReading = Boolean(hasManageRequiredReading);
-  const canLock = Boolean(hasLockPages);
-  const canViewAnalytics = Boolean(hasViewAnalytics);
+  const canImport = hasImportPages;
+  const canManageTemplates = hasManageTemplates;
+  const canManageRequiredReading = hasManageRequiredReading;
+  const canLock = hasLockPages;
+  const canViewAnalytics = hasViewAnalytics;
 
   // Effective edit-permission: если страница заблокирована — editor
   // read-only ДЛЯ ВСЕХ, включая admin'а с kb.lock_pages. Чтобы edit'ить
@@ -124,7 +115,7 @@ export default async function KbPageView({ params }: PageProps) {
   // /ai-айтемы в slash-меню если account отключил AI или у юзера
   // нет права. Server-action runKbAiCommand перепроверит.
   let aiSlashEnabled = false;
-  if (Boolean(hasUseAi) && activeAccountId) {
+  if (hasUseAi && activeAccountId) {
     const { data: accountRow } = await supabase
       .from("accounts")
       .select("ai_enabled")
@@ -272,8 +263,9 @@ export default async function KbPageView({ params }: PageProps) {
             checkedMentionSlugs={checkedMentionSlugs}
             deletedMentionSlugs={deletedMentionSlugs}
             canEdit={canEdit}
+            canCreate={hasCreate}
             aiSlashEnabled={aiSlashEnabled}
-            canComment={Boolean(hasComment)}
+            canComment={hasComment}
             accountId={(activeAccountId as unknown as string | null) ?? null}
             userId={currentUserId}
             currentUserName={currentUserProfile?.name ?? null}
@@ -296,7 +288,7 @@ export default async function KbPageView({ params }: PageProps) {
 }
 
 /** Recursive descendants count via in-memory walk (cheap on KB scale). */
-function countDescendants(allPages: KbPageRow[], rootId: string): number {
+function countDescendants(allPages: KbPageTreeRow[], rootId: string): number {
   const childrenByParent = new Map<string, string[]>();
   for (const p of allPages) {
     if (!p.parent_id) continue;

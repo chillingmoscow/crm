@@ -286,18 +286,9 @@ export async function softDeleteTransaction(
   id: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Не авторизован" };
-
-  const { error } = await supabase
-    .from("transactions")
-    .update({
-      deleted_at: new Date().toISOString(),
-      deleted_by: user.id,
-    })
-    .eq("id", id);
+  const { error } = await supabase.rpc("finance_soft_delete_transaction", {
+    p_id: id,
+  });
   if (error) return { error: error.message };
   revalidatePath("/finance/transactions");
   revalidatePath("/finance/accounts");
@@ -309,10 +300,9 @@ export async function restoreTransaction(
   id: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("transactions")
-    .update({ deleted_at: null, deleted_by: null })
-    .eq("id", id);
+  const { error } = await supabase.rpc("finance_restore_transaction", {
+    p_id: id,
+  });
   if (error) return { error: error.message };
   revalidatePath("/finance/transactions");
   revalidatePath("/finance/accounts");

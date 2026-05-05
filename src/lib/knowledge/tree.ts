@@ -1,8 +1,8 @@
 import { cache } from "react";
 
 import { createClient } from "@/lib/supabase/server";
-import { listKbPages } from "@/lib/knowledge/pages";
-import type { KbPageRow, KbTreeNode } from "@/types/knowledge";
+import { listKbPageTreeRows } from "@/lib/knowledge/pages";
+import type { KbPageTreeRow, KbTreeNode } from "@/types/knowledge";
 
 /**
  * Build the full KB tree for the active account.
@@ -20,14 +20,19 @@ export const getKbTree = cache(async (): Promise<{
   nodes: KbTreeNode[];
   error: string | null;
 }> => {
-  const { rows, error } = await listKbPages();
+  const { rows, error } = await getKbTreeRows();
   if (error) return { nodes: [], error };
   return { nodes: assembleTree(rows), error: null };
 });
 
+export const getKbTreeRows = cache(async (): Promise<{
+  rows: KbPageTreeRow[];
+  error: string | null;
+}> => listKbPageTreeRows());
+
 /** Used by callers that already have the rows (e.g. the same RSC has
  * other queries on kb_pages and wants to reuse the data). Pure. */
-export function assembleTree(rows: KbPageRow[]): KbTreeNode[] {
+export function assembleTree(rows: KbPageTreeRow[]): KbTreeNode[] {
   const byId = new Map<string, KbTreeNode>();
 
   for (const row of rows) {

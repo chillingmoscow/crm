@@ -50,6 +50,7 @@ import {
   ListOrdered,
   ListChecks,
   ListCollapse,
+  FilePlus,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -67,7 +68,6 @@ type IconType = ((props: {
   color?: string;
 }) => React.ReactElement) & { displayName?: string };
 import { cn } from "@/lib/utils";
-import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import {
   htmlHasBrokenImg,
   stripBrokenImgInHtml,
@@ -108,15 +108,11 @@ export type BlockNoteEditorProps = {
    */
   editable?: boolean;
   /**
-   * Fires on every editor change (after a brief BlockNote-internal
-   * debounce). Receives the BlockNote document and a synchronously-
-   * computed plain-text projection — pass both into the savePage
-   * server action.
-   *
-   * Caller is responsible for outer debouncing (~1.5s) before hitting
-   * the network.
+   * Fires on every editor change. Keep this callback cheap: callers
+   * should debounce any full-document projections before hitting the
+   * network.
    */
-  onChange?: (args: { content: KbBlock[]; plainText: string }) => void;
+  onChange?: (args: { content: KbBlock[] }) => void;
   /**
    * Async upload handler. Receives the dropped/picked File, must
    * return a string that BlockNote stores in the block. We return
@@ -146,6 +142,13 @@ export type BlockNoteEditorProps = {
    *  расширенный custom-айтемами (callout-варианты и пр.). Дефолтные
    *  пункты при этом сохраняются — мы просто комбинируем. */
   customSlashMenu?: boolean;
+  /** Если передан — в slash-меню в начало группы «Базовые блоки»
+   *  добавляется пункт «Новая страница». Колбэк запускается при выборе
+   *  и должен сам создать вложенную страницу + перевести юзера на неё.
+   *  Хост (`KbPageEditor`) знает текущий pageId + имеет router. Если
+   *  не передан (например, у юзера нет `kb.create_pages`) — пункт
+   *  не показывается. */
+  onCreateNestedPage?: () => void;
   /** Если true — добавляем AI-команды (`/ai*`) в slash-меню. Гейтится
    *  выше: `kb.use_ai` permission + `accounts.ai_enabled`. Server-action
    *  всё равно повторно проверит — это просто UX-слой. */
@@ -226,6 +229,22 @@ function getKbCalloutSlashItems(editor: BlockNoteEditor<never, never, never>) {
       onItemClick: insert("error"),
     },
   ];
+}
+
+/** Slash-item «Новая страница» — первая позиция в группе «Базовые блоки».
+ *  Хост создаёт kb_page и переходит на неё. Никаких изменений в content
+ *  текущей страницы не делаем (BN сам затирает `/новая` префикс при
+ *  выборе пункта); в худшем случае на исходной странице остаётся пустой
+ *  параграф — это нормально для UX «команда исполнилась — навигация». */
+function getKbNewPageSlashItem(onCreate: () => void) {
+  return {
+    title: "Новая страница",
+    subtext: "Создать вложенную страницу и открыть её",
+    aliases: ["page", "new", "novaya", "stranitsa", "новая", "страница"],
+    group: "Базовые блоки",
+    icon: <FilePlus className="size-4 text-brand" />,
+    onItemClick: onCreate,
+  };
 }
 
 /**
@@ -337,6 +356,7 @@ export function KbBlockNoteEditor({
   customSideMenu = false,
   customSlashMenu = false,
   aiSlashEnabled = false,
+  onCreateNestedPage,
   commentsBundle = null,
   className,
 }: BlockNoteEditorProps) {
@@ -493,7 +513,7 @@ export function KbBlockNoteEditor({
     // та же). `as never` — стандартный приём здесь, как делает BN
     // в кастомных extension'ах.
     extensions: [
-      KbHeadingEnterExtension as never,
+      KbHeadingEnterExtension,
       ...(commentsExtension ? [commentsExtension] : []),
     ],
     // Advanced Tables (BlockNote 0.49 built-in, без отдельного пакета):
@@ -740,7 +760,8 @@ export function KbBlockNoteEditor({
     };
   }, [editor, commentsBundle]);
 
-  // Subscribe to document changes; surface as { content, plainText }.
+  // Subscribe to document changes; surface only the document. Full-text
+  // projection is intentionally deferred to the debounced save boundary.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -749,16 +770,11 @@ export function KbBlockNoteEditor({
     // Тип `ed` берём как у нашего editor'а (расширенный schema с
      // callout) — иначе TS ругается на несовместимость дефолтного
      // BlockNoteEditor<defaultSchema> с нашим типизированным.
-     const unsubscribe = editor.onChange((ed) => {
+    const unsubscribe = editor.onChange((ed) => {
       const handler = onChangeRef.current;
       if (!handler) return;
-      // blocksToMarkdownLossy is async — but for plain_text we just
-      // want a search-index projection, not perfect Markdown. Walk
-      // the document in-place (cheap, ~µs even for huge docs).
-      const plainText = blocksToPlainText(ed.document as unknown as KbBlock[]);
       handler({
         content: ed.document as unknown as KbBlock[],
-        plainText,
       });
     });
     return unsubscribe;
@@ -815,6 +831,11 @@ export function KbBlockNoteEditor({
             // KbAiFormattingButton.
             const defaults = getDefaultReactSlashMenuItems(editor);
             const callouts = getKbCalloutSlashItems(editor as never);
+            // «Новая страница» — первая в группе «Базовые блоки», если
+            // хост передал колбэк (= юзер имеет `kb.create_pages`).
+            const newPageItem = onCreateNestedPage
+              ? [getKbNewPageSlashItem(onCreateNestedPage)]
+              : [];
             const byGroup = (...names: string[]) =>
               defaults.filter((it) =>
                 names.includes((it as { group?: string }).group ?? ""),
@@ -841,10 +862,12 @@ export function KbBlockNoteEditor({
               "Продвинутый",
               "Прочее",
             );
-            // Order: Заголовки → Базовые блоки → Подсказки →
-            // Подзаголовки → Медиа → Прочее (по запросу пользователя).
+            // Order: Заголовки → Базовые блоки (с «Новая страница»
+            // первой) → Подсказки → Подзаголовки → Медиа → Прочее
+            // (по запросу пользователя).
             const ordered = [
               ...headings,
+              ...newPageItem,
               ...basics,
               ...callouts,
               ...subheadings,
@@ -949,4 +972,3 @@ export function KbBlockNoteEditor({
     </BlockNoteView>
   );
 }
-

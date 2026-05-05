@@ -20,11 +20,21 @@
  * вставляем перед / после текущего контейнера (не как сиблинг
  * heading'а внутри контейнера, иначе Transformation Error). UniqueID
  * extension сам выставит id новому блоку в appendTransaction.
+ *
+ * РЕГИСТРАЦИЯ: BN-editor через `extensions` ждёт `ExtensionFactoryInstance`
+ * (BN-shape с `key`/`tiptapExtensions`/...), а НЕ raw-tiptap-extension.
+ * Если передать tiptap-extension напрямую (через `as never`), BN добавит
+ * его в `this.extensions[]`, но в `getTiptapExtensions()` он смотрит
+ * только `extension.tiptapExtensions` и `extension.prosemirrorPlugins`
+ * — наш `addKeyboardShortcuts` не подхватывается, Enter уходит в
+ * дефолтный split. Поэтому оборачиваем tiptap-extension в
+ * `createExtension({ key, tiptapExtensions: [...] })`.
  */
 import { Extension } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
+import { createExtension } from "@blocknote/core";
 
-export const KbHeadingEnterExtension = Extension.create({
+const KbHeadingEnterTiptap = Extension.create({
   name: "kbHeadingEnter",
 
   // Higher than BN's KeyboardShortcutsExtension (50) — наш handler
@@ -102,4 +112,17 @@ export const KbHeadingEnterExtension = Extension.create({
       },
     };
   },
+});
+
+/**
+ * BN-extension wrapper. `extensions` опция BlockNoteEditor'а ждёт
+ * `ExtensionFactoryInstance` ((ctx) => BNExtension), а не raw-tiptap-
+ * extension. `createExtension({ key, tiptapExtensions: [...] })` создаёт
+ * BN-extension с tiptap-extension'ом внутри — BN при инициализации
+ * правильно проброcит его в getTiptapExtensions() и keymap
+ * зарегистрируется в ProseMirror'е.
+ */
+export const KbHeadingEnterExtension = createExtension({
+  key: "kbHeadingEnter",
+  tiptapExtensions: [KbHeadingEnterTiptap],
 });

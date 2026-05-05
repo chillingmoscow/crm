@@ -56,16 +56,35 @@ export function KbThreadGutterIndicators() {
      // Альтернатива (position:absolute от .bn-editor) сложнее, потому
      // что у BN-обёрток нет надёжного positioned-предка в нашей DOM-
      // иерархии — пришлось бы добавлять wrapper.
+    let rafId: number | null = null;
+    let lastSignature = "";
+
+    const publishItems = (next: IndicatorPos[]) => {
+      const signature = next
+        .map((it) => `${it.key}:${Math.round(it.top)}:${Math.round(it.left)}:${it.count}`)
+        .join("|");
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+      setItems(next);
+    };
+
     function recompute() {
+      rafId = null;
       const editorEl = (editor as unknown as { domElement?: HTMLElement })
         .domElement;
       if (!editorEl) return;
+      const activeThreads = [...threads].filter(([, thread]) => (
+        !thread.resolved && !thread.deletedAt
+      ));
+      if (activeThreads.length === 0) {
+        publishItems([]);
+        return;
+      }
       const blockMap = new Map<
         HTMLElement,
         { count: number; firstThreadId: string }
       >();
-      threads.forEach((thread, id) => {
-        if (thread.resolved || thread.deletedAt) return;
+      activeThreads.forEach(([id]) => {
         const mark = editorEl.querySelector(
           `[data-bn-thread-id="${cssEscape(id)}"]:not([data-orphan="true"])`,
         );
@@ -88,16 +107,21 @@ export function KbThreadGutterIndicators() {
           firstThreadId: info.firstThreadId,
         });
       });
-      setItems(next);
+      publishItems(next);
     }
 
-    recompute();
+    function scheduleRecompute() {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(recompute);
+    }
+
+    scheduleRecompute();
 
     const editorEl = (editor as unknown as { domElement?: HTMLElement })
       .domElement;
     if (!editorEl) return;
 
-    const observer = new MutationObserver(recompute);
+    const observer = new MutationObserver(scheduleRecompute);
     observer.observe(editorEl, {
       childList: true,
       subtree: true,
@@ -106,7 +130,7 @@ export function KbThreadGutterIndicators() {
     });
 
     // Scroll/resize меняют позицию блоков — пересчитываем.
-    const onLayout = () => recompute();
+    const onLayout = () => scheduleRecompute();
     window.addEventListener("scroll", onLayout, true);
     window.addEventListener("resize", onLayout);
     // Editor change — выправляет, когда content layout пересчитан
@@ -119,7 +143,7 @@ export function KbThreadGutterIndicators() {
         onChange: (fn: () => void) => () => void;
       }
     ).onChange(() => {
-      requestAnimationFrame(recompute);
+      scheduleRecompute();
     });
 
     // ResizeObserver — главное для image/video-resize'а. Resize-handle
@@ -129,7 +153,7 @@ export function KbThreadGutterIndicators() {
     // на сам editor-root ловит ВСЕ изменения layout-размеров его
     // descendants → пересчёт позиций индикаторов синхронно с resize'ом.
     const ro = new ResizeObserver(() => {
-      requestAnimationFrame(recompute);
+      scheduleRecompute();
     });
     ro.observe(editorEl);
     // Дополнительно — все resizable-wrapper'ы (image / video / file).
@@ -154,6 +178,7 @@ export function KbThreadGutterIndicators() {
     mediaWatcher.observe(editorEl, { childList: true, subtree: true });
 
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       observer.disconnect();
       mediaWatcher.disconnect();
       ro.disconnect();

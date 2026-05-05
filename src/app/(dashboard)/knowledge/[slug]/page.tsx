@@ -16,6 +16,7 @@ import { KbFavoriteToggle } from "@/app/(dashboard)/knowledge/_components/kb-fav
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
 import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
+import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-children-list";
 import { KbPageActions } from "@/app/(dashboard)/knowledge/_components/kb-page-actions";
 import { KbUndoRedoButtons } from "@/app/(dashboard)/knowledge/_components/kb-undo-redo-buttons";
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
@@ -300,6 +301,7 @@ export default async function KbPageView({ params }: PageProps) {
             }
           />
 
+          <KbChildrenList pageId={row.id} allPages={allPages} />
           <KbBacklinks pageId={row.id} />
         </div>
       </div>

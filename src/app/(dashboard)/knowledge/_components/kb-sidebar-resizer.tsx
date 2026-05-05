@@ -46,6 +46,18 @@ export function KbSidebarResizer({ children }: { children: ReactNode }) {
     setHydrated(true);
   }, []);
 
+  /** Body-styles, выставляемые на время drag'а. Гарантированный
+   *  cleanup — отдельная ф-ция, чтобы вызывать из всех путей выхода
+   *  из drag-state'а: pointerUp, pointerCancel, lostPointerCapture,
+   *  unmount-effect (Codex P2 на PR #121: при interrupted drag /
+   *  navigation body раньше залипал в `cursor: ew-resize` до reload'а). */
+  const stopDrag = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     draggingRef.current = true;
@@ -68,9 +80,7 @@ export function KbSidebarResizer({ children }: { children: ReactNode }) {
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!draggingRef.current) return;
-    draggingRef.current = false;
-    document.body.style.cursor = "";
-    document.body.style.userSelect = "";
+    stopDrag();
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
@@ -84,6 +94,23 @@ export function KbSidebarResizer({ children }: { children: ReactNode }) {
       // ignore
     }
   };
+
+  // lostPointerCapture: capture может прерваться извне (другой элемент
+  // забрал capture, browser-tab swap, OS-event). Если drag активен —
+  // снимаем body-styles, иначе застрянет «ew-resize» (Codex P2).
+  const onLostPointerCapture = () => {
+    stopDrag();
+  };
+
+  // Cleanup на unmount: если компонент unmount'ится во время drag'а
+  // (route-навигация и т.п.), pointerUp может не вызваться вообще.
+  // Гарантированно сбрасываем глобальные body-styles.
+  useEffect(
+    () => () => {
+      stopDrag();
+    },
+    [],
+  );
 
   // Default-width всегда inline-style'ом, чтобы avoid CLS. После
   // hydration'а switch'аемся на пользовательскую ширину из
@@ -108,6 +135,7 @@ export function KbSidebarResizer({ children }: { children: ReactNode }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onLostPointerCapture={onLostPointerCapture}
         className={cn(
           "absolute top-0 right-0 h-full w-1 cursor-ew-resize",
           // Hover-индикатор + active-состояние через ::before

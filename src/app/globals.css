@@ -530,3 +530,227 @@ input:-webkit-autofill {
   outline: 2px solid hsl(var(--brand) / 0.6);
   outline-offset: 1px;
 }
+
+/* ──────────────────────────────────────────────────────────────────
+ * Sheerly DS: KB editor floating UI alignment
+ *
+ * Источник: sheerly.pen / Q4FzoZ + frame'ы 04c (MIEVl) / 06 (jMZQR) /
+ * 05 (sJEjP) / 07 (W8wDJ) / 08 (GkjMx). Все размеры/радиусы/цвета —
+ * из дизайн-системы; правки только CSS, без замены React-компонентов
+ * BlockNote'а (рендер остаётся за shadcn-вариантом BN).
+ *
+ * Радиусы — DS scale {6,8,10,12}. Тени — popover-уровень (md). Шрифт —
+ * Inter (наследуется через --bn-font-family).
+ * ────────────────────────────────────────────────────────────────── */
+
+/* ── Slash-меню (frame 04c · MIEVl) ────────────────────────────────
+ * Notion-style вертикальный список вставки блоков. Дизайн упрощённый:
+ * у каждого пункта — только icon-chip + title. Description/shortcut
+ * рендерятся BN-default'ом, прячем их в основном списке. (Hover-hold
+ * tooltip с полным описанием — отдельный follow-up: требует custom
+ * suggestionMenuComponent.) */
+.bn-suggestion-menu {
+  width: 320px !important;
+  padding: 6px !important;
+  gap: 2px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  border-radius: 12px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  background-color: hsl(var(--popover)) !important;
+  box-shadow:
+    0 12px 32px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.05) !important;
+}
+
+/* Group label («Заголовки», «Базовые блоки», ...): uppercase 11/600
+ * с lettespacing 0.6 и горизонтальными padding'ами 8 — соответствует
+ * `g1H/g2H/...` в дизайне. */
+.bn-suggestion-menu .bn-suggestion-menu-label {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground)) !important;
+  padding: 8px 8px 4px 8px !important;
+}
+
+/* Item: упрощённая компоновка (icon-chip 22×22 + title 13/500 в одну
+ * строку, без subtext'а в основном списке). Subtext всё ещё в DOM —
+ * скрываем display:none, чтобы будущий hover-hold tooltip мог его
+ * вытащить, не меняя BN-render. */
+.bn-suggestion-menu .bn-suggestion-menu-item {
+  padding: 4px 8px !important;
+  gap: 10px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+}
+.bn-suggestion-menu .bn-suggestion-menu-item > div[data-position="left"] {
+  width: 22px !important;
+  height: 22px !important;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  background-color: hsl(var(--muted));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.bn-suggestion-menu .bn-suggestion-menu-item > div[data-position="left"] svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+/* Title row внутри `.flex-1` — оставляем text-base override на 13px. */
+.bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:first-child {
+  font-size: 13px !important;
+  font-weight: 500;
+  line-height: 1.3;
+}
+/* Subtext / description прячем в основном списке (раскроем в tooltip
+ * на hover-hold отдельным follow-up'ом). */
+.bn-suggestion-menu .bn-suggestion-menu-item > .flex-1 > div:nth-child(2) {
+  display: none !important;
+}
+
+/* ── BlockTypeSelect dropdown (frame 06 · jMZQR) ────────────────────
+ * BN рендерит выбор стиля (paragraph / H1..H6 / quote) через shadcn
+ * Select. Targeting через data-slot="select-content" — нативный для
+ * @blocknote/shadcn. Наш собственный <Select> в src/components/ui/
+ * НЕ использует data-slot, так что побочных эффектов нет. */
+.bn-sheerly [data-slot="select-trigger"] {
+  border-radius: 8px;
+  padding: 8px 12px;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  height: auto;
+}
+[data-slot="select-content"] {
+  width: var(--radix-select-trigger-width, auto);
+  min-width: 240px;
+  border-radius: 10px !important;
+  padding: 6px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow:
+    0 12px 24px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.05) !important;
+}
+[data-slot="select-content"] [data-slot="select-item"] {
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  gap: 10px;
+}
+
+/* ── Formatting toolbar (frame 05 · sJEjP) ─────────────────────────
+ * BN рендерит floating toolbar при выделении. Базовые классы у BN —
+ * `.bn-toolbar.bn-formatting-toolbar`. Подгоняем геометрию (padding,
+ * gap, cornerRadius, тень) под frame 05. Дивайдеры между группами
+ * BN не делает сам — оставляем groupping'ом через gap. */
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar,
+.bn-formatting-toolbar {
+  padding: 6px 8px !important;
+  gap: 4px !important;
+  border-radius: 10px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  background-color: hsl(var(--popover)) !important;
+  box-shadow:
+    0 8px 24px rgb(0 0 0 / 0.10),
+    0 2px 6px rgb(0 0 0 / 0.05) !important;
+}
+/* Кнопки внутри toolbar'а: компактнее (стандартный shadcn Button
+ * default = h-9, велик для toolbar'а). */
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar button,
+.bn-formatting-toolbar button {
+  height: 28px;
+  min-width: 28px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar button svg,
+.bn-formatting-toolbar button svg {
+  width: 16px;
+  height: 16px;
+}
+/* BlockTypeSelect внутри toolbar'а — у trigger'а в BN's ToolbarSelect
+ * `border-none`, оставляем но даём compact-padding. */
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar [data-slot="select-trigger"],
+.bn-formatting-toolbar [data-slot="select-trigger"] {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ── Block menu / Drag-handle menu (frame 07 · W8wDJ) ──────────────
+ * BN's `.bn-menu-dropdown.bn-drag-handle-menu` — shadcn DropdownMenu.
+ * Дизайн: 220px ширина, padding 6, gap 1, items padding [8,10] gap 10. */
+.bn-menu-dropdown.bn-drag-handle-menu {
+  min-width: 220px !important;
+  padding: 6px !important;
+  border-radius: 10px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow:
+    0 12px 24px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.05) !important;
+}
+.bn-menu-dropdown.bn-drag-handle-menu .bn-menu-item,
+.bn-menu-dropdown.bn-drag-handle-menu [role="menuitem"] {
+  padding: 8px 10px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  gap: 10px !important;
+}
+.bn-menu-dropdown.bn-drag-handle-menu [role="menuitem"] svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+/* ── Color picker submenu (frame 08 · GkjMx) ───────────────────────
+ * BN's BlockColorsItem открывает submenu с label'ами «Текст» / «Фон»
+ * + по 10 пунктов с ColorIcon. Дизайн: section labels uppercase
+ * 11/600/letterspacing 0.6, swatches остаются вертикальным списком
+ * (горизонтальная сетка потребовала бы override ColorPicker'а на
+ * React-уровне — отдельный follow-up). */
+.bn-sheerly .bn-color-picker-dropdown,
+.bn-color-picker-dropdown {
+  min-width: 220px !important;
+  padding: 6px !important;
+  border-radius: 10px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  box-shadow:
+    0 12px 24px rgb(0 0 0 / 0.12),
+    0 2px 6px rgb(0 0 0 / 0.05) !important;
+}
+.bn-color-picker-dropdown [data-slot="dropdown-menu-label"],
+.bn-color-picker-dropdown [class*="DropdownMenuLabel"] {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground)) !important;
+  padding: 8px 8px 4px 8px !important;
+}
+.bn-color-picker-dropdown [role="menuitem"],
+.bn-color-picker-dropdown [role="menuitemcheckbox"],
+.bn-color-picker-dropdown [role="menuitemradio"] {
+  padding: 6px 8px !important;
+  border-radius: 6px !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  gap: 10px !important;
+}
+/* ColorIcon (`.bn-color-icon`) — 22×22 chip с буквой A, для background
+ * варианта используется data-background-color, иначе data-text-color. */
+.bn-color-picker-dropdown .bn-color-icon {
+  width: 22px !important;
+  height: 22px !important;
+  border-radius: 4px !important;
+  font-size: 14px !important;
+  line-height: 22px !important;
+  font-weight: 600;
+  flex-shrink: 0;
+}

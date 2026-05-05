@@ -170,13 +170,17 @@ interface KbPageEditorProps {
    *  Notion-style. null = не показываем (например, в version-history
    *  preview, где badge только засоряет). */
   readingMinutes?: number | null;
-  /** Server-resolved список slug'ов, которые в момент рендера ведут на
-   *  ЖИВЫЕ (не soft-deleted) KB-страницы. Внутри редактора любой
-   *  kbPageMention chip с slug'ом ВНЕ этого списка рендерится в
-   *  disabled-варианте (без href, серым, с тултипом). null/undefined →
-   *  резолвер не использовался (legacy-mounts) → все mention'ы остаются
-   *  кликабельными. */
-  liveMentionSlugs?: string[] | null;
+  /** Все slug'и, которые сервер фактически проверил при SSR (собранные
+   *  через `extractBacklinks` из `row.content`). Любой slug, не
+   *  попавший в это множество, считается «свежевставленным» через
+   *  `@`-меню уже после SSR-фетча и рендерится как живой. null =
+   *  резолвер отключён → все chip'ы legacy-active. */
+  checkedMentionSlugs?: string[] | null;
+  /** Подмножество `checkedMentionSlugs`, для которых target-страница
+   *  лежит в корзине / не существует / недоступна по RLS. ТОЛЬКО эти
+   *  chip'ы рендерятся в disabled-варианте (line-through, грей,
+   *  тултип). null = резолвер отключён. */
+  deletedMentionSlugs?: string[] | null;
 }
 
 /**
@@ -210,7 +214,8 @@ export function KbPageEditor({
   currentUserName = null,
   currentUserAvatarUrl = null,
   readingMinutes = null,
-  liveMentionSlugs = null,
+  checkedMentionSlugs = null,
+  deletedMentionSlugs = null,
 }: KbPageEditorProps) {
   // Sprint D / Phase 1: page-view analytics. Запускаем как только
   // userId известен (= юзер залогинен и в active account). Hook сам
@@ -551,7 +556,10 @@ export function KbPageEditor({
           NodeViewRenderer'ом — context propagation работает обычным
           образом, потому что @blocknote/react рендерит inline-views в
           том же React-tree (через NodeViewWrapper). */}
-      <KbMentionResolutionProvider liveSlugs={liveMentionSlugs}>
+      <KbMentionResolutionProvider
+        checkedSlugs={checkedMentionSlugs}
+        deletedSlugs={deletedMentionSlugs}
+      >
       <KbBlockNoteEditor
         // Remount on page change so BlockNote loads the new doc.
         // (Otherwise its internal state stays anchored to the first mount.)

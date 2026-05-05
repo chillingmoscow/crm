@@ -126,37 +126,56 @@ export async function getKbPageBySlug(slug: string): Promise<{
   return { row: (data as KbPageRow | null) ?? null, error: null };
 }
 
-/** Возвращает подмножество переданных slug'ов, которые соответствуют
- *  ЖИВЫМ (не soft-deleted) страницам внутри текущего account'а. Нужен
- *  для render-time проверки kbPageMention chip'ов: если slug отсутствует
- *  в результате — chip рендерится в disabled-варианте с подсказкой
- *  «Страница недоступна» (см. kb-page-mention.tsx).
+/** Резолвит mention-slug'и из kb_pages content на server-side: для
+ *  каждого slug'а возвращает, ведёт ли он на живую страницу.
  *
- *  RLS уже отфильтрует deleted_at IS NOT NULL для рядовых юзеров; для
- *  админов с kb.delete_pages — фильтруем явно. Также сюда попадают
- *  «никогда не существовавшие» slug'и (slug в content, но row удалён
- *  hard-delete'ом или imported из чужого аккаунта) — их тоже считаем
- *  недоступными, что корректно: chip → disabled.
+ *  Возвращает оба множества (`checked` + `deleted`), а не только
+ *  «живых», потому что render chip'а должен отличать
+ *    «явно проверен и удалён»            → disabled chip
+ *  от
+ *    «не проверен (свежевставленный)»    → active chip (default).
  *
- *  Pустой `slugs` → пустой Set без RPC; sub-200ms на типичной странице
- *  (лимит 100 mention'ов в KB-документе на практике не превышается). */
-export async function resolveLiveKbSlugs(
+ *  Без этого разделения свежий chip, добавленный через `@`-меню после
+ *  SSR-фетча, моментально рендерится disabled — он отсутствует в
+ *  собранном из row.content множестве (которое было пустым на момент
+ *  fetch'а row'а). Чтобы сохранить fix для soft-deleted target'ов и
+ *  при этом не ломать только что вставленные chip'ы, render-логика
+ *  отрицательная: «disabled, только если резолвер положил в
+ *  deletedSlugs». См. `useIsKbSlugAvailable` в kb-mention-context.tsx.
+ *
+ *  Реализация: один SELECT по `slug IN (...)` без `deleted_at`-фильтра,
+ *  затем разделяем результат локально. Тот же IN-запрос, цена прежняя.
+ *  RLS для рядового юзера прячет soft-deleted строки → они выпадают из
+ *  result-set'а и попадают в `deleted` (что корректно — для них
+ *  страница действительно недоступна). Админ с `kb.delete_pages` видит
+ *  их и распределение идёт чисто по `deleted_at`-колонке. */
+export async function resolveKbMentionTargets(
   slugs: string[],
-): Promise<Set<string>> {
+): Promise<{
+  checked: string[];
+  deleted: string[];
+}> {
   const unique = Array.from(new Set(slugs.filter((s) => s && s.length > 0)));
-  if (unique.length === 0) return new Set<string>();
+  if (unique.length === 0) return { checked: [], deleted: [] };
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("kb_pages")
-    .select("slug")
-    .in("slug", unique)
-    .is("deleted_at", null);
-  if (error) return new Set<string>();
-  const result = new Set<string>();
-  for (const row of (data ?? []) as Array<{ slug: string }>) {
-    if (row.slug) result.add(row.slug);
+    .select("slug, deleted_at")
+    .in("slug", unique);
+  if (error) {
+    // На ошибке возвращаем «ничего не проверили» — chip'ы остаются
+    // активными (failure-open), это безопаснее, чем ложно их перечёркивать.
+    return { checked: [], deleted: [] };
   }
-  return result;
+  const liveSet = new Set<string>();
+  for (const row of (data ?? []) as Array<{
+    slug: string;
+    deleted_at: string | null;
+  }>) {
+    if (row.slug && row.deleted_at === null) liveSet.add(row.slug);
+  }
+  const deleted = unique.filter((s) => !liveSet.has(s));
+  return { checked: unique, deleted };
 }
 
 export async function getKbPageById(id: string): Promise<{

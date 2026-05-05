@@ -7,13 +7,6 @@
  *    Это совпадает с Word / Notion / Google Docs UX-конвенцией: над
  *    заголовком обычно идёт body-текст.
  *
- * Реализация: на keypress Enter проверяем, что:
- *   1. курсор в начале текущей ноды (`$from.parentOffset === 0`),
- *   2. нода — heading.
- * Если оба true: вставляем пустой `paragraph`-node ПЕРЕД текущей и
- * откатываем default-Enter (которое бы split'нуло heading на две
- * heading-половинки).
- *
  * Подключается через `extensions: [...]` на `useCreateBlockNote`.
  */
 import { Extension } from "@tiptap/core";
@@ -32,16 +25,40 @@ export const KbHeadingEnterExtension = Extension.create({
         const node = $from.parent;
         if (node.type.name !== "heading") return false;
 
-        // Создаём пустой paragraph и вставляем его ПЕРЕД текущим
-        // heading'ом. Cursor остаётся в heading'е (после вставки выше
-        // позиция heading'а сдвигается, $from.before() указывает на
-        // место ДО оригинального heading'а — вот туда и кладём).
+        // BN PM-schema: `blockContainer { content: "blockContent
+        // blockGroup?" }` — внутри одного container'а ровно один
+        // blockContent + опциональный blockGroup. Вставка paragraph'а
+        // как сиблинга heading'а ВНУТРИ контейнера ломает схему и
+        // кидает Transformation Error на tr.insert (Codex P1 на PR
+        // #119).
+        //
+        // Правильно: создать НОВЫЙ blockContainer (с paragraph внутри)
+        // и вставить его ПЕРЕД текущим контейнером — на уровень выше.
+        // ID нового блока auto-генерится BN-овской UniqueID-extension'ой
+        // в appendTransaction.
+        const blockContainerType = state.schema.nodes.blockContainer;
         const paragraphType = state.schema.nodes.paragraph;
-        if (!paragraphType) return false;
-        const paragraph = paragraphType.create();
-        const insertPos = $from.before();
-        const tr = state.tr.insert(insertPos, paragraph);
-        view.dispatch(tr);
+        if (!blockContainerType || !paragraphType) return false;
+
+        // $from.depth — глубина heading-content; depth - 1 — глубина
+        // blockContainer'а. Если меньше 2 ($from.parent — top-level
+        // node) — пропускаем, не наша ситуация.
+        if ($from.depth < 2) return false;
+
+        const newBlock = blockContainerType.create(
+          null,
+          paragraphType.create(),
+        );
+        const insertPos = $from.before($from.depth - 1);
+        try {
+          const tr = state.tr.insert(insertPos, newBlock);
+          view.dispatch(tr);
+        } catch {
+          // Fail-safe: если по какой-то причине схема не приняла
+          // вставку — пропускаем default-Enter (`return false`),
+          // чтобы юзер не оказался в состоянии «Enter не работает».
+          return false;
+        }
         return true;
       },
     };

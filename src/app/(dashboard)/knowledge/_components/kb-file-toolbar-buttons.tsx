@@ -213,30 +213,41 @@ export function KbFileDeleteButton() {
 // ── Download ───────────────────────────────────────────────────────
 
 export function KbFileDownloadButton() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editor = useBlockNoteEditor<any, any, any>();
   const block = useSelectedFileBlock();
 
   if (!block) return null;
   const url = typeof block.props?.url === "string" ? block.props.url : "";
   if (!url) return null;
-  const name = typeof block.props?.name === "string" ? block.props.name : "";
   const label = `Скачать ${TYPE_LABEL[block.type] ?? "файл"}`;
 
-  // <a download> вместо click-handler'а — браузер сам решает: для
-  // same-origin / kbfile:// resolved-URL'ов скачает; для cross-origin
-  // (YouTube embed и т.п.) откроет в новой вкладке. BN'ный download
-  // делает то же через programmatic anchor.
+  const handleClick = async () => {
+    // Codex P1 на PR #130: previous version рендерила `<a href={url}
+    // download>` напрямую. Для uploaded-файлов мы храним url'ы как
+    // `kbfile://<storage_path>` (см. blocknote-editor.tsx) — это не
+    // fetchable URL, browser молча игнорирует click. Resolve через
+    // editor.resolveFileUrl (как делает BN-default FileDownloadButton)
+    // конвертит в свежую signed-Supabase-URL'у. Для cross-origin'ов
+    // (YouTube/Vimeo/external https://) resolveFileUrl no-op'ит и
+    // возвращает оригинал.
+    const resolved = editor.resolveFileUrl
+      ? await editor.resolveFileUrl(url)
+      : url;
+    window.open(resolved, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <Button
-      asChild
+      type="button"
       variant="ghost"
       size="default"
       aria-label={label}
       title={label}
+      onClick={handleClick}
       onMouseDown={(e) => e.preventDefault()}
     >
-      <a href={url} download={name || true}>
-        <Download className="size-4" strokeWidth={1.75} />
-      </a>
+      <Download className="size-4" strokeWidth={1.75} />
     </Button>
   );
 }

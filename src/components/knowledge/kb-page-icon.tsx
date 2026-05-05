@@ -1,4 +1,4 @@
-import { FileText } from "lucide-react";
+import { File } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -14,8 +14,10 @@ interface KbPageIconProps {
   size?: number;
   /** Optional class on the outer span (для align/margin внутри строк). */
   className?: string;
-  /** Fallback Lucide icon when `icon` пустое. По умолчанию FileText. */
-  fallback?: typeof FileText;
+  /** Fallback Lucide icon when `icon` пустое. По умолчанию `File` —
+   *  чистый листок со сложенным углом, без полос. (Раньше был
+   *  `FileText`, юзер просил заменить — выглядел перегружено.) */
+  fallback?: typeof File;
 }
 
 /**
@@ -66,7 +68,7 @@ export function KbPageIcon({
     );
   }
 
-  const Fallback = fallback ?? FileText;
+  const Fallback = fallback ?? File;
   return (
     <span
       className={cn(

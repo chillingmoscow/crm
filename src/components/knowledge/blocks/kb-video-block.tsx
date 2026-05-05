@@ -120,6 +120,26 @@ function VideoPreview(
   // схеме на нашей стороне). Embed-URL'ы трогать не надо.
   const resolved = useResolveUrl(url);
 
+  // Дискаверабилити-overlay поверх видео. По default'у video и iframe
+  // съедают клик (плеер начинает играть / переходит в YouTube), поэтому
+  // BN-FormattingToolbar никогда не появляется — выделение блока не
+  // случается. Чтобы юзер мог попасть в toolbar (align / replace /
+  // delete + AI / тоже что для image работает), перехватываем ПЕРВЫЙ
+  // click overlay'ем: select-block через `editor.setSelection`. Второй
+  // click уже пропускается (overlay заскрывается через `data-selected`
+  // CSS-класс на родителе в ResizableFileBlockWrapper).
+  const onSelect = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      // BN-API: выделяет диапазон от blockId до blockId — для одиночного
+      // блока это эквивалент NodeSelection.
+      props.editor.setSelection(props.block.id, props.block.id);
+    } catch {
+      // ignore — block может быть уже unmounted к моменту click'а
+    }
+  };
+
   if (embed) {
     // 16:9 aspect-ratio контейнер, iframe растягивается на всю
     // ширину/высоту wrapper'а. Width-resize реализован
@@ -136,22 +156,36 @@ function VideoPreview(
           allowFullScreen
           frameBorder={0}
         />
+        <button
+          type="button"
+          className="kb-video-overlay"
+          aria-label="Открыть меню видео"
+          onClick={onSelect}
+        />
       </div>
     );
   }
 
   return (
-    <video
-      className="bn-visual-media"
-      src={
-        resolved.loadingState === "loading"
-          ? props.block.props.url
-          : resolved.downloadUrl
-      }
-      controls
-      contentEditable={false}
-      draggable={false}
-    />
+    <div className="kb-video-native" contentEditable={false}>
+      <video
+        className="bn-visual-media"
+        src={
+          resolved.loadingState === "loading"
+            ? props.block.props.url
+            : resolved.downloadUrl
+        }
+        controls
+        contentEditable={false}
+        draggable={false}
+      />
+      <button
+        type="button"
+        className="kb-video-overlay"
+        aria-label="Открыть меню видео"
+        onClick={onSelect}
+      />
+    </div>
   );
 }
 

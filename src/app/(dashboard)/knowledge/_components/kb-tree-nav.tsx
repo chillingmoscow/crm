@@ -311,9 +311,6 @@ export function KbTreeNav({
     >
       <div className="flex flex-col h-full">
         <div className="flex flex-col gap-2 p-3 pb-2">
-          <div className="px-1 pt-1 shrink-0">
-            <KbSearchTrigger />
-          </div>
           {favorites.length > 0 && (
             <KbFavoritesSection favorites={favorites} activeSlug={activeSlug} />
           )}
@@ -518,6 +515,7 @@ function KbTreeHeader({
         Страницы
       </span>
       <div className="flex items-center gap-0.5">
+        <KbSearchTrigger />
         {canCreate && (
           <KbTemplatePicker
             parentId={null}

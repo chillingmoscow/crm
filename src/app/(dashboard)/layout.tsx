@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { getCachedUser, createClient } from "@/lib/supabase/server";
 import {
   SidebarInset,
@@ -98,13 +99,21 @@ export default async function DashboardLayout({
   }
   const userPermissions = (userPerms as string[] | null) ?? [];
 
+  // Восстановим состояние main-сайдбара (открыт/свёрнут) из cookie
+  // `sidebar_state`, который SidebarProvider пишет на каждый toggle.
+  // Без SSR-чтения после reload'а сайдбар каждый раз возвращался в
+  // expanded (default), даже если юзер свернул его.
+  const cookieStore = await cookies();
+  const sidebarStateCookie = cookieStore.get("sidebar_state")?.value;
+  const sidebarDefaultOpen = sidebarStateCookie !== "false";
+
   return (
     // delayDuration=150 — short hover-delay для всех IconTooltip'ов
     // (DS-style вместо системной задержки native title).
     // skipDelayDuration=300 — после показа одного tooltip'а соседние
     // показываются мгновенно при hover'е (типичный pattern toolbar'ов).
     <TooltipProvider delayDuration={150} skipDelayDuration={300}>
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={sidebarDefaultOpen}>
       <AppSidebar
         userName={userName}
         userEmail={user.email ?? ""}

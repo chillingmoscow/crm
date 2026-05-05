@@ -61,7 +61,13 @@ export type KbInlineContent =
 // applyKbTemplate регенерирует `id` чтобы instance был независим от
 // template'а.
 
-export type KbPropertyType = "text" | "number" | "date" | "checkbox" | "select";
+export type KbPropertyType =
+  | "text"
+  | "number"
+  | "date"
+  | "checkbox"
+  | "select"
+  | "multi-select";
 
 /** 10-цветная палитра для select-options. Имена — а не tailwind-class'ы —
  *  чтобы хранить в jsonb компактно и стабильно (rename класса в палитре
@@ -79,24 +85,55 @@ export type KbPropertyColor =
   | "purple"
   | "pink";
 
+/** Icon override на уровне property. Lucide-name (см. `KB_ICONS`
+ *  в src/lib/knowledge/icons.ts). Если не задан — UI рендерит default
+ *  TYPE_ICONS[type]. Optional `iconColor` тинтит Lucide-иконку именем
+ *  цвета из KB_ICON_COLORS (тот же color-name, что у kb_pages.icon_color
+ *  — для консистентности). Rollback-safe: старый клиент игнорирует. */
+interface KbPropertyIconOverride {
+  icon?: string;
+  iconColor?: string;
+}
+
 export type KbProperty =
-  | { id: string; name: string; type: "text"; value: string }
-  | { id: string; name: string; type: "number"; value: number | null }
-  | { id: string; name: string; type: "date"; value: string | null } // ISO yyyy-mm-dd
-  | { id: string; name: string; type: "checkbox"; value: boolean }
-  | {
+  | ({ id: string; name: string; type: "text"; value: string } & KbPropertyIconOverride)
+  | ({
+      id: string;
+      name: string;
+      type: "number";
+      value: number | null;
+    } & KbPropertyIconOverride)
+  | ({
+      id: string;
+      name: string;
+      type: "date";
+      value: string | null; // ISO yyyy-mm-dd
+    } & KbPropertyIconOverride)
+  | ({
+      id: string;
+      name: string;
+      type: "checkbox";
+      value: boolean;
+    } & KbPropertyIconOverride)
+  | ({
       id: string;
       name: string;
       type: "select";
       value: string | null;
       options: string[];
       /** Per-option override цвета. Map от option string → color name.
-       *  Если опции нет в map'е — fallback на hash-derived цвет.
-       *  Rollback-safe: старый клиент игнорирует поле и читает options
-       *  как раньше; новый клиент чистит «висячие» записи (для удалённых
-       *  options) на каждом save'е. */
+       *  Если опции нет в map'е — fallback на hash-derived цвет. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
-    };
+    } & KbPropertyIconOverride)
+  | ({
+      id: string;
+      name: string;
+      type: "multi-select";
+      value: string[];
+      options: string[];
+      /** Тот же mapping что у select, переиспользуется. */
+      optionColors?: Partial<Record<string, KbPropertyColor>>;
+    } & KbPropertyIconOverride);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────
 

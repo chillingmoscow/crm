@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { File, Film, Music4, PaintbrushVertical } from "lucide-react";
+import { useState } from "react";
+import { RefreshCw } from "lucide-react";
 import {
   useBlockNoteEditor,
   useComponentsContext,
@@ -57,7 +57,6 @@ export function KbFileReplaceButton() {
   if (!Components || !block) return null;
 
   const tooltip = TOOLTIP[block.type] ?? TOOLTIP.file;
-  const icon = ICON_BY_TYPE[block.type] ?? ICON_BY_TYPE.file;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -65,7 +64,7 @@ export function KbFileReplaceButton() {
         <Components.FormattingToolbar.Button
           mainTooltip={tooltip}
           label={tooltip}
-          icon={icon}
+          icon={<RefreshCw className="size-4" strokeWidth={1.75} />}
           onClick={() => setOpen((v) => !v)}
         />
       </PopoverTrigger>
@@ -85,16 +84,4 @@ const TOOLTIP: Record<string, string> = {
   image: "Заменить изображение",
   audio: "Заменить аудио",
   file: "Заменить файл",
-};
-
-// Type-specific replace-иконки. Юзер просил differentiate замену
-// по типу медиа: для видео — film-strip (раскадровка), для
-// изображения — кисть (paintbrush-vertical), для аудио — нота
-// (music-4), для файла — page (file). Раньше ImagePlus был для всех
-// → визуально неинформативно.
-const ICON_BY_TYPE: Record<string, ReactNode> = {
-  video: <Film className="size-4" strokeWidth={1.75} />,
-  image: <PaintbrushVertical className="size-4" strokeWidth={1.75} />,
-  audio: <Music4 className="size-4" strokeWidth={1.75} />,
-  file: <File className="size-4" strokeWidth={1.75} />,
 };

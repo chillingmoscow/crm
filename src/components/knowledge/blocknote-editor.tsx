@@ -90,7 +90,6 @@ import {
   KbFileCaptionButton,
   KbFileDeleteButton,
   KbFileDownloadButton,
-  KbFilePreviewButton,
   KbFileRenameButton,
 } from "@/app/(dashboard)/knowledge/_components/kb-file-toolbar-buttons";
 
@@ -368,24 +367,33 @@ function filterToolbarItemsForBlock(
 function swapFileToolbarButtons(
   items: ReturnType<typeof getFormattingToolbarItems>,
 ): ReturnType<typeof getFormattingToolbarItems> {
-  return items.map((it) => {
-    switch (it.key) {
-      case "fileCaptionButton":
-        return <KbFileCaptionButton key={it.key} />;
-      case "replaceFileButton":
-        return <KbFileReplaceButton key={it.key} />;
-      case "fileRenameButton":
-        return <KbFileRenameButton key={it.key} />;
-      case "fileDeleteButton":
-        return <KbFileDeleteButton key={it.key} />;
-      case "fileDownloadButton":
-        return <KbFileDownloadButton key={it.key} />;
-      case "filePreviewButton":
-        return <KbFilePreviewButton key={it.key} />;
-      default:
-        return it;
-    }
-  });
+  return items
+    .filter((it) => {
+      // BN-default `filePreviewButton` toggle'ит showPreview prop
+      // у image/video/audio (chip ↔ inline-preview). Юзер просил
+      // убрать эту функцию — медиа всегда в preview-режиме. Совсем
+      // выкидываем кнопку из toolbar'а; legacy-блоки с
+      // `showPreview=false` всё равно рендерятся через KbMediaChip
+      // (см. kb-video/audio/image-block.tsx) — обратной совместимости
+      // ради, но новые блоки toggle уже не получат.
+      return it.key !== "filePreviewButton";
+    })
+    .map((it) => {
+      switch (it.key) {
+        case "fileCaptionButton":
+          return <KbFileCaptionButton key={it.key} />;
+        case "replaceFileButton":
+          return <KbFileReplaceButton key={it.key} />;
+        case "fileRenameButton":
+          return <KbFileRenameButton key={it.key} />;
+        case "fileDeleteButton":
+          return <KbFileDeleteButton key={it.key} />;
+        case "fileDownloadButton":
+          return <KbFileDownloadButton key={it.key} />;
+        default:
+          return it;
+      }
+    });
 }
 
 export function KbBlockNoteEditor({

@@ -74,6 +74,9 @@ import {
 } from "@/lib/knowledge/blocks-media";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { kbVideoBlockSpec } from "@/components/knowledge/blocks/kb-video-block";
+import { kbAudioBlockSpec } from "@/components/knowledge/blocks/kb-audio-block";
+import { kbFileBlockSpec } from "@/components/knowledge/blocks/kb-file-block";
+import { kbImageBlockSpec } from "@/components/knowledge/blocks/kb-image-block";
 import { KbHeadingEnterExtension } from "@/components/knowledge/blocks/kb-heading-enter-extension";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
@@ -83,6 +86,13 @@ import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb
 import { KbSlashMenu } from "@/app/(dashboard)/knowledge/_components/kb-slash-menu";
 import { KbFilePanel } from "@/app/(dashboard)/knowledge/_components/kb-file-panel";
 import { KbFileReplaceButton } from "@/app/(dashboard)/knowledge/_components/kb-file-replace-button";
+import {
+  KbFileCaptionButton,
+  KbFileDeleteButton,
+  KbFileDownloadButton,
+  KbFilePreviewButton,
+  KbFileRenameButton,
+} from "@/app/(dashboard)/knowledge/_components/kb-file-toolbar-buttons";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -347,24 +357,35 @@ function filterToolbarItemsForBlock(
   );
 }
 
-/** Заменяет дефолтный BN-овский `replaceFileButton` на наш
- *  `KbFileReplaceButton`. Дефолтная кнопка рендерит свой Popover с
- *  BN-default'ным `<FilePanel>` (нативный `<input type="file">` +
- *  URL-input), который НЕ подхватывает наш `<FilePanelController
- *  filePanel={KbFilePanel}>` — controller перехватывает только
- *  initial-add-block flow. Наша кнопка использует тот же KbFilePanel
- *  что и initial-add → юзер видит идентичный UI при добавлении и
- *  замене. */
-function swapFileReplaceButton(
+/** Заменяет все file-toolbar кнопки (caption / replace / rename /
+ *  delete / download / preview) на наши версии с lucide-иконками
+ *  + shadcn Popover'ами. BN-default'ные используют react-icons (Ri*)
+ *  и `Generic.Form.TextInput` — оба элемента не совпадают с нашим DS.
+ *  Особенно важно для `replaceFileButton` — его popover рендерит свой
+ *  default-FilePanel вместо нашего `KbFilePanel` (controller хукается
+ *  только в initial-add-block flow). См. kb-file-toolbar-buttons.tsx
+ *  + kb-file-replace-button.tsx. */
+function swapFileToolbarButtons(
   items: ReturnType<typeof getFormattingToolbarItems>,
 ): ReturnType<typeof getFormattingToolbarItems> {
-  return items.map((it) =>
-    it.key === "replaceFileButton" ? (
-      <KbFileReplaceButton key="replaceFileButton" />
-    ) : (
-      it
-    ),
-  );
+  return items.map((it) => {
+    switch (it.key) {
+      case "fileCaptionButton":
+        return <KbFileCaptionButton key={it.key} />;
+      case "replaceFileButton":
+        return <KbFileReplaceButton key={it.key} />;
+      case "fileRenameButton":
+        return <KbFileRenameButton key={it.key} />;
+      case "fileDeleteButton":
+        return <KbFileDeleteButton key={it.key} />;
+      case "fileDownloadButton":
+        return <KbFileDownloadButton key={it.key} />;
+      case "filePreviewButton":
+        return <KbFilePreviewButton key={it.key} />;
+      default:
+        return it;
+    }
+  });
 }
 
 export function KbBlockNoteEditor({
@@ -490,6 +511,14 @@ export function KbBlockNoteEditor({
           // createReactBlockSpec возвращает фабрику (options => spec),
           // вызываем без options как и для callout-блока.
           video: kbVideoBlockSpec(),
+          // Custom audio/file/image — единственное отличие от
+          // дефолтных: empty-state CTA («Добавить аудио / файл /
+          // изображение») рендерит lucide-иконку вместо react-icons
+          // RiVolumeUpFill / RiFile2Line / RiImage2Fill. Логика
+          // upload / preview / parse — BN-default'ная.
+          audio: kbAudioBlockSpec(),
+          file: kbFileBlockSpec(),
+          image: kbImageBlockSpec(),
         },
         inlineContentSpecs: {
           ...defaultInlineContentSpecs,
@@ -931,7 +960,7 @@ export function KbBlockNoteEditor({
                      *  Чтобы юзер не получал «мёртвую» кнопку, выпиливаем
                      *  её на этих типах блоков. */}
                     {filterToolbarItemsForBlock(
-                      swapFileReplaceButton(
+                      swapFileToolbarButtons(
                         getFormattingToolbarItems(
                           getKbBlockTypeSelectItems(
                             defaultBlockTypeSelectItems(editor.dictionary),

@@ -5,8 +5,6 @@ import {
   ClipboardType,
   Download,
   ExternalLink,
-  ImageMinus,
-  ImagePlus,
   Pencil,
   Trash2,
 } from "lucide-react";
@@ -270,41 +268,8 @@ export function KbFileDownloadButton() {
   );
 }
 
-// ── Preview toggle ─────────────────────────────────────────────────
-
-export function KbFilePreviewButton() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const editor = useBlockNoteEditor<any, any, any>();
-  const Components = useComponentsContext();
-  const block = useSelectedFileBlock();
-
-  if (!Components || !block) return null;
-  // BN'ный FilePreview-button toggle'ит showPreview prop у image/video/
-  // audio (показывать inline `<img>`/`<video>` или ссылку chip'ом).
-  // Кнопка появляется только у блоков с `showPreview` в propSchema —
-  // тип `file` его не имеет, для него BN кнопку скрывает. Дублируем
-  // — если у блока нет prop'а, рендерим null.
-  const showPreview = block.props?.showPreview;
-  if (typeof showPreview !== "boolean") return null;
-
-  const label = showPreview ? "Скрыть превью" : "Показать превью";
-
-  return (
-    <Components.FormattingToolbar.Button
-      mainTooltip={label}
-      label={label}
-      icon={
-        showPreview ? (
-          <ImageMinus className="size-4" strokeWidth={1.75} />
-        ) : (
-          <ImagePlus className="size-4" strokeWidth={1.75} />
-        )
-      }
-      onClick={() => {
-        editor.updateBlock(block.id, {
-          props: { showPreview: !showPreview },
-        });
-      }}
-    />
-  );
-}
+// Preview toggle снят по фидбеку юзера: media (image/video/audio)
+// должны быть всегда в preview-режиме, без UI-toggle'а chip ↔ inline.
+// Legacy-блоки с `showPreview=false` всё ещё рендерятся как chip
+// (см. KbVideoBlock / KbAudioBlock / KbImageBlock — обратная
+// совместимость), но новые user-action toggle'и больше не доступны.

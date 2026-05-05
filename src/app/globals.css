@@ -286,6 +286,16 @@ input:-webkit-autofill {
      • `minimal` — без border'а / bg, для свернутых video/audio/image
        (юзер обычно скоро раскроет назад, pill в обычном тексте
        перегружал ряд). */
+/* Wrapper — column-flex чтобы chip + caption были вертикально
+   стэкнуты. Без него родитель `.bn-block-content` (display:flex row)
+   делал chip и `<p>` сиблингами в одной строке, и caption уезжал
+   вправо от файла. */
+.bn-sheerly .kb-media-chip-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 4px;
+}
 .bn-sheerly .kb-media-chip {
   display: inline-flex;
   align-items: center;
@@ -314,6 +324,15 @@ input:-webkit-autofill {
   line-height: 1.3;
   color: hsl(var(--foreground));
   word-break: break-all;
+}
+/* Сбоку label'а — file-extension / size badge. Тонкий muted text. */
+.bn-sheerly .kb-media-chip__meta {
+  font-size: 12px;
+  line-height: 1.3;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
 }
 
 /* Card-variant — для file-блоков (всегда схлопнут). Pill в стиле DS:
@@ -1248,12 +1267,22 @@ input:-webkit-autofill {
 }
 .bn-sheerly .kb-video-embed:hover .kb-video-menu-btn,
 .bn-sheerly .kb-video-native:hover .kb-video-menu-btn,
+.bn-sheerly .kb-audio-native:hover .kb-video-menu-btn,
 .bn-sheerly .ProseMirror-selectednode .kb-video-menu-btn,
 .bn-sheerly .kb-video-menu-btn:focus-visible {
   opacity: 1;
 }
 .bn-sheerly .kb-video-menu-btn:hover {
   background-color: rgb(0 0 0 / 0.75);
+}
+
+/* Аудио-плеер: position-relative для абсолютного позиционирования
+ * «⋯»-кнопки в углу. На hover показываем меню. Native audio-controls
+ * остаются полностью функциональными (кнопка занимает 28×28 в углу). */
+.bn-sheerly .kb-audio-native {
+  position: relative;
+  display: block;
+  width: 100%;
 }
 /* Direct video element — по дефолту растягивался произвольно. Даём
  * максимум 640px при отсутствии previewWidth, чтобы видеоплеер не

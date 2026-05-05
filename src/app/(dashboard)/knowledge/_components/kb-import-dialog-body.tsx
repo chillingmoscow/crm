@@ -352,6 +352,16 @@ export default function KbImportDialogBody({
           node.parentUuid && uuidMap.has(node.parentUuid)
             ? uuidMap.get(node.parentUuid)!.pageId
             : parentId;
+        console.debug("[kb-import] page", {
+          title: node.title,
+          zipPath: node.zipPath,
+          uuid: node.uuid,
+          parentUuid: node.parentUuid,
+          hadOriginalParent: node.hadOriginalParent,
+          depth: node.depth,
+          resolved_parent_id: parent_id,
+          parentInUuidMap: node.parentUuid ? uuidMap.has(node.parentUuid) : null,
+        });
 
         const cleanedNoImagesNoLinks = rewriteBrokenMediaBlocks(propsStripped);
         const initialPayload: KbImportFileInput = {

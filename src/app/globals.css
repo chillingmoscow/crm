@@ -662,6 +662,17 @@ input:-webkit-autofill {
   from { opacity: 0; transform: translateX(-2px); }
   to   { opacity: 1; transform: translateX(0); }
 }
+/* Wrapper вокруг каждого slash-item'а (KbSlashMenu → KbSlashItem).
+ * Раньше тут был `display: contents` — он убирал box wrapper'а из
+ * layout'а, и getBoundingClientRect() возвращал {0,0,0,0} → tooltip
+ * уезжал в верхний левый угол viewport'а (Codex P2 на PR #109).
+ * Block-level + width:100% сохраняют корректный flex-column-layout
+ * родительского `Components.SuggestionMenu.Root` и при этом дают
+ * wrapper'у настоящий bounding-box. */
+.kb-slash-item-wrap {
+  display: block;
+  width: 100%;
+}
 
 /* ── BlockTypeSelect dropdown (frame 06 · jMZQR) ────────────────────
  * BN рендерит выбор стиля (paragraph / H1..H6 / quote) через shadcn
@@ -722,51 +733,72 @@ input:-webkit-autofill {
     0 8px 24px rgb(0 0 0 / 0.10),
     0 2px 6px rgb(0 0 0 / 0.05) !important;
 }
-/* Кнопки: компактнее + чуть больше иконки чтобы матчить дизайн. */
+/* Кнопки: компактнее, иконки приглушены (foreground при hover/active).
+ *
+ * BN-default использует react-icons/ri (RiBold, RiH1 и т.д.) — это
+ * filled-paths, на них `stroke-width` не влияет. Зато influence на
+ * визуальный вес даёт `color` (через currentColor у SVG fill'а).
+ * Дефолтная яркая «жирность» уходит, если выкрасить иконку в
+ * `text-muted-foreground` для idle и `text-foreground` для hover/
+ * active. Пользователь явно просил «никаких жирных иконок» — это
+ * именно про visual weight, не про stroke. */
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button,
 .bn-formatting-toolbar button {
   height: 28px;
   min-width: 28px;
-  padding: 0 4px;
+  padding: 0 5px;
   border-radius: 6px;
+  color: hsl(var(--muted-foreground));
+}
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar button:hover,
+.bn-formatting-toolbar button:hover,
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="on"],
+.bn-formatting-toolbar button[data-state="on"],
+.bn-sheerly .bn-toolbar.bn-formatting-toolbar button[data-state="open"],
+.bn-formatting-toolbar button[data-state="open"] {
+  color: hsl(var(--foreground));
 }
 .bn-sheerly .bn-toolbar.bn-formatting-toolbar button svg,
 .bn-formatting-toolbar button svg {
-  width: 18px;
-  height: 18px;
-  stroke-width: 1.75;
+  width: 16px;
+  height: 16px;
 }
 /* Дивайдеры между группами (frame 05 · sJEjP). BN ставит все кнопки
- * как flat children, без separator-нод. Эмулируем через `::before`
- * перед aria-label-ями, открывающими новую группу: bold (текстовые
- * стили), text-align-left (выравнивание), color, nest (отступы),
- * link. Селектор по aria-label стабилен — не зависит от order'а
- * кнопок (когда BN скрывает file-buttons на не-image блоке). */
+ * как flat-children без separator'ов. Имитируем через `::before` перед
+ * первой кнопкой каждой группы, селектор по русскому tooltip-aria-label
+ * (BN-shadcn ToolbarButton выставляет `aria-label={label}` — наш
+ * dictionary ru locale переводит). Без зависимости от nth-child —
+ * порядок кнопок сдвигается когда BN скрывает file-buttons на
+ * не-image блоке. */
 .bn-formatting-toolbar
-  button[aria-label="Bold"],
+  button[aria-label="Жирный"],
 .bn-formatting-toolbar
-  button[aria-label="Align text left"],
+  button[aria-label="Текст по левому краю"],
 .bn-formatting-toolbar
-  button[aria-label="Colors"],
+  button[aria-label="Цвета"],
 .bn-formatting-toolbar
-  button[aria-label="Nest block"],
+  button[aria-label="Сдвинуть вправо"],
 .bn-formatting-toolbar
-  button[aria-label="Create link"] {
-  margin-left: 6px;
+  button[aria-label="Создать ссылку"],
+.bn-formatting-toolbar
+  button[aria-label="Добавить комментарий"] {
+  margin-left: 8px;
   position: relative;
 }
-.bn-formatting-toolbar button[aria-label="Bold"]::before,
-.bn-formatting-toolbar button[aria-label="Align text left"]::before,
-.bn-formatting-toolbar button[aria-label="Colors"]::before,
-.bn-formatting-toolbar button[aria-label="Nest block"]::before,
-.bn-formatting-toolbar button[aria-label="Create link"]::before {
+.bn-formatting-toolbar button[aria-label="Жирный"]::before,
+.bn-formatting-toolbar button[aria-label="Текст по левому краю"]::before,
+.bn-formatting-toolbar button[aria-label="Цвета"]::before,
+.bn-formatting-toolbar button[aria-label="Сдвинуть вправо"]::before,
+.bn-formatting-toolbar button[aria-label="Создать ссылку"]::before,
+.bn-formatting-toolbar button[aria-label="Добавить комментарий"]::before {
   content: "";
   position: absolute;
-  left: -3px;
+  left: -4px;
   top: 4px;
   bottom: 4px;
   width: 1px;
   background-color: hsl(var(--border));
+  pointer-events: none;
 }
 /* BlockTypeSelect внутри toolbar'а — у trigger'а в BN's ToolbarSelect
  * `border-none`, оставляем но даём compact-padding. */
@@ -818,26 +850,13 @@ input:-webkit-autofill {
 }
 
 /* ── Color picker submenu (frame 08 · GkjMx) ───────────────────────
- * BN's BlockColorsItem открывает submenu с label'ами «Текст» / «Фон»
- * + по 10 пунктов с ColorIcon. Дизайн: section labels uppercase, ниже
- * — горизонтальный ряд из 8 swatches (без подписи, только сама буква
- * A в нужном цвете для текста; квадратная плитка для фона).
- *
- * Layout — CSS Grid: 8 колонок, label занимает все 8 (`grid-column:
- * 1/-1`). Сами menu-item'ы превращаем в square-chip'ы 28×28: убираем
- * padding, скрываем text-children и check-indicator span (имеется
- * рамка вокруг bn-color-icon — см. ниже).
- *
- * BN передаёт 10 пунктов на каждую секцию (default, gray, brown, red,
- * orange, yellow, green, blue, purple, pink) — два ряда по 5 при
- * grid-template-columns: repeat(5, ...). 5 колонок — компактнее и
- * влезает по ширине popover'а. */
-.bn-sheerly .bn-color-picker-dropdown,
-.bn-color-picker-dropdown {
-  display: grid !important;
-  grid-template-columns: repeat(5, 28px);
-  column-gap: 6px;
-  row-gap: 4px;
+ * Контент рендерит наш собственный `KbColorPickerItem` —
+ * Generic.Menu.Dropdown превращается в `.bn-color-picker-dropdown
+ * .kb-color-picker`, внутри которого `.kb-color-picker-grid` (CSS
+ * Grid 5 колонок) с label-стрингой и chip-кнопками. BN-default'ный
+ * `BlockColorsItem` мы больше не используем — он рендерил
+ * vertical-list, плохо ложащийся на горизонтальную сетку дизайна. */
+.bn-color-picker-dropdown.kb-color-picker {
   width: max-content !important;
   min-width: 0 !important;
   padding: 8px !important;
@@ -847,56 +866,52 @@ input:-webkit-autofill {
     0 12px 24px rgb(0 0 0 / 0.12),
     0 2px 6px rgb(0 0 0 / 0.05) !important;
 }
-.bn-color-picker-dropdown [data-slot="dropdown-menu-label"],
-.bn-color-picker-dropdown [class*="DropdownMenuLabel"] {
+.kb-color-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 28px);
+  column-gap: 6px;
+  row-gap: 4px;
+}
+.kb-color-picker-label {
   grid-column: 1 / -1;
-  font-size: 11px !important;
-  font-weight: 600 !important;
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: hsl(var(--muted-foreground)) !important;
-  padding: 6px 4px 2px 4px !important;
+  color: hsl(var(--muted-foreground));
+  padding: 6px 4px 2px 4px;
 }
-.bn-color-picker-dropdown [role="menuitem"],
-.bn-color-picker-dropdown [role="menuitemcheckbox"],
-.bn-color-picker-dropdown [role="menuitemradio"] {
+.kb-color-picker-label:first-child {
+  padding-top: 2px;
+}
+.kb-color-chip {
   width: 28px;
   height: 28px;
-  padding: 0 !important;
-  margin: 0 !important;
-  border-radius: 6px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0 !important;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 100ms ease;
 }
-/* Скрываем подпись цвета (например «Серый») — в grid-варианте
- * остаётся только сам chip с буквой A. Selector ловит все children
- * НЕ являющиеся .bn-color-icon (текст-нода + индикатор check'а). */
-.bn-color-picker-dropdown [role="menuitem"] > *:not(.bn-color-icon),
-.bn-color-picker-dropdown [role="menuitemcheckbox"] > *:not(.bn-color-icon),
-.bn-color-picker-dropdown [role="menuitemradio"] > *:not(.bn-color-icon) {
-  display: none !important;
+.kb-color-chip:hover {
+  background-color: hsl(var(--accent));
 }
-/* ColorIcon (`.bn-color-icon`) — буква A в нужном цвете. По дизайну:
- * 22×22, font 18/600, без визуального фона (фоновый-цвет уже
- * рендерится BN-классами data-background-color / data-text-color). */
-.bn-color-picker-dropdown .bn-color-icon {
+.kb-color-chip[data-active] .bn-color-icon {
+  outline: 2px solid hsl(var(--brand) / 0.6);
+  outline-offset: 1px;
+}
+.kb-color-picker .bn-color-icon {
   width: 22px !important;
   height: 22px !important;
   border-radius: 4px !important;
-  font-size: 18px !important;
+  font-size: 16px !important;
   line-height: 22px !important;
   font-weight: 600;
   flex-shrink: 0;
-}
-.bn-color-picker-dropdown [data-state="checked"] .bn-color-icon,
-.bn-color-picker-dropdown [aria-selected="true"] .bn-color-icon,
-.bn-color-picker-dropdown [role="menuitem"]:hover .bn-color-icon,
-.bn-color-picker-dropdown [role="menuitemcheckbox"]:hover .bn-color-icon,
-.bn-color-picker-dropdown [role="menuitemradio"]:hover .bn-color-icon {
-  outline: 2px solid hsl(var(--brand) / 0.6);
-  outline-offset: 1px;
 }
 
 /* ── Image toolbar (frame 12 · thIwM) ──────────────────────────────

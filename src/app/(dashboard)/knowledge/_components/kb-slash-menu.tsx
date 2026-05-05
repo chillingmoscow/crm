@@ -123,9 +123,19 @@ function KbSlashItem({
   const handleEnter = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
+      // На wrapperRef форсим block-layout (см. style ниже), чтобы у
+      // div-а был свой bounding-box по ширине Item'а. Раньше тут было
+      // `display: contents` — он убирал box из layout'а, и
+      // getBoundingClientRect возвращал {0,0,0,0}, а tooltip уезжал
+      // в верхний левый угол viewport'а (Codex P2 на PR #109).
       const rect = wrapperRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setTipPos({ left: rect.right + 8, top: rect.top });
+      if (!rect || rect.width === 0) return;
+      // Если справа места < ширины tooltip'а (260px из CSS) — кладём
+      // слева от пункта. Базовый offset 8px между item'ом и tip'ом.
+      const TIP_W = 260;
+      const overflowsRight = rect.right + 8 + TIP_W > window.innerWidth;
+      const left = overflowsRight ? rect.left - TIP_W - 8 : rect.right + 8;
+      setTipPos({ left, top: rect.top });
     }, HOVER_HOLD_MS);
   };
 
@@ -137,15 +147,15 @@ function KbSlashItem({
     setTipPos(null);
   };
 
+  // Wrapper — обычный block-element. Чтобы flex-column на Root'е
+  // не ломался, он растягивается на полную ширину parent'а; visual-
+  // layout пункта определяет сам Item внутри.
   return (
     <div
       ref={wrapperRef}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
-      // display:contents чтобы wrapper не ломал flex-column-layout
-      // BN-shadcn'овского `Components.SuggestionMenu.Root`. Item внутри
-      // ведёт себя как direct child Root'а.
-      style={{ display: "contents" }}
+      className="kb-slash-item-wrap"
     >
       <ItemComponent
         className="bn-suggestion-menu-item"

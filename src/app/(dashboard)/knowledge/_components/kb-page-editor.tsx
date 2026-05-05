@@ -23,6 +23,7 @@ import {
 } from "@/lib/knowledge/comments-store";
 import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
 import type { CommentsBundle } from "@/components/knowledge/blocknote-editor";
+import { KbMentionResolutionProvider } from "@/components/knowledge/blocks/kb-mention-context";
 // Dynamic-import — оба компонента статически зависят от @blocknote/react.
 // Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
@@ -169,6 +170,13 @@ interface KbPageEditorProps {
    *  Notion-style. null = не показываем (например, в version-history
    *  preview, где badge только засоряет). */
   readingMinutes?: number | null;
+  /** Server-resolved список slug'ов, которые в момент рендера ведут на
+   *  ЖИВЫЕ (не soft-deleted) KB-страницы. Внутри редактора любой
+   *  kbPageMention chip с slug'ом ВНЕ этого списка рендерится в
+   *  disabled-варианте (без href, серым, с тултипом). null/undefined →
+   *  резолвер не использовался (legacy-mounts) → все mention'ы остаются
+   *  кликабельными. */
+  liveMentionSlugs?: string[] | null;
 }
 
 /**
@@ -202,6 +210,7 @@ export function KbPageEditor({
   currentUserName = null,
   currentUserAvatarUrl = null,
   readingMinutes = null,
+  liveMentionSlugs = null,
 }: KbPageEditorProps) {
   // Sprint D / Phase 1: page-view analytics. Запускаем как только
   // userId известен (= юзер залогинен и в active account). Hook сам
@@ -535,7 +544,14 @@ export function KbPageEditor({
         )}
       </div>
 
-      {/* Editor surface */}
+      {/* Editor surface — обёрнут в KbMentionResolutionProvider, чтобы
+          render kbPageMention chip'а мог отличить slug, ведущий на
+          живую страницу, от slug'а в корзине / удалённого. Provider
+          живёт внутри useContext-чтения, выполняемого Tiptap-React
+          NodeViewRenderer'ом — context propagation работает обычным
+          образом, потому что @blocknote/react рендерит inline-views в
+          том же React-tree (через NodeViewWrapper). */}
+      <KbMentionResolutionProvider liveSlugs={liveMentionSlugs}>
       <KbBlockNoteEditor
         // Remount on page change so BlockNote loads the new doc.
         // (Otherwise its internal state stays anchored to the first mount.)
@@ -600,6 +616,7 @@ export function KbPageEditor({
           scheduleSave();
         }}
       />
+      </KbMentionResolutionProvider>
     </div>
   );
 }

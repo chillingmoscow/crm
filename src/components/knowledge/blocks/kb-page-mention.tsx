@@ -3,6 +3,7 @@
 import { createReactInlineContentSpec } from "@blocknote/react";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { useIsKbSlugAvailable } from "@/components/knowledge/blocks/kb-mention-context";
 
 /**
  * Atomic @-mention KB-страницы. Notion-style: иконка страницы + жирный
@@ -41,24 +42,7 @@ export const kbPageMentionInlineContent = createReactInlineContentSpec(
         icon: string;
         iconColor: string;
       };
-      return (
-        <a
-          href={`/knowledge/${props.slug}`}
-          contentEditable={false}
-          className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-foreground font-semibold no-underline hover:bg-accent transition-colors"
-          // ProseMirror стандартно ставит draggable=true на leaf-node'ы;
-          // нам это не нужно (drag-handle на блоке делает то же).
-          draggable={false}
-          data-kb-page-mention={props.slug}
-        >
-          <KbPageIcon
-            icon={props.icon || null}
-            color={props.iconColor || null}
-            size={14}
-          />
-          <span>{props.title || "Без названия"}</span>
-        </a>
-      );
+      return <KbPageMentionChip {...props} />;
     },
     // toExternalHTML — что попадает в HTML-export (и далее в markdown
     // через turndown). Внутри редактора render() рендерит chip; в
@@ -77,3 +61,62 @@ export const kbPageMentionInlineContent = createReactInlineContentSpec(
     },
   },
 );
+
+/** Render-time компонент chip'а — отделён от inline-spec'а, чтобы
+ *  использовать React-хуки (useContext через useIsKbSlugAvailable).
+ *  Если резолвер слугов сообщает «недоступна» — рендерим обычный
+ *  `<span>` без href, серым цветом, с tooltip'ом. Это сохраняет
+ *  контекст («тут было упоминание X») без активной ссылки на soft-
+ *  deleted target.
+ *
+ *  Резолвер не подключён (legacy-mounts вне KbMentionResolutionProvider)
+ *  → useIsKbSlugAvailable вернёт true → рендерим chip как раньше. */
+function KbPageMentionChip(props: {
+  slug: string;
+  title: string;
+  icon: string;
+  iconColor: string;
+}) {
+  const isAvailable = useIsKbSlugAvailable(props.slug);
+  const label = props.title || "Без названия";
+
+  if (!isAvailable) {
+    return (
+      <span
+        contentEditable={false}
+        className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 cursor-not-allowed"
+        draggable={false}
+        title="Страница недоступна (в корзине или удалена)"
+        aria-disabled="true"
+        data-kb-page-mention={props.slug}
+        data-kb-page-mention-deleted="true"
+      >
+        <KbPageIcon
+          icon={props.icon || null}
+          color={props.iconColor || null}
+          size={14}
+        />
+        <span>{label}</span>
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href={`/knowledge/${props.slug}`}
+      contentEditable={false}
+      className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-foreground font-semibold no-underline hover:bg-accent transition-colors"
+      // ProseMirror стандартно ставит draggable=true на leaf-node'ы;
+      // нам это не нужно (drag-handle на блоке делает то же).
+      draggable={false}
+      data-kb-page-mention={props.slug}
+    >
+      <KbPageIcon
+        icon={props.icon || null}
+        color={props.iconColor || null}
+        size={14}
+      />
+      <span>{label}</span>
+    </a>
+  );
+}

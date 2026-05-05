@@ -35,7 +35,7 @@ import {
   type KbImportResultItem,
 } from "@/lib/knowledge/import";
 import { uploadKbAttachment } from "@/lib/knowledge/attachments";
-import { saveKbPage } from "@/lib/knowledge/pages";
+import { saveKbPage, setKbPageParent } from "@/lib/knowledge/pages";
 import {
   parseNotionZip,
   stripNotionProperties,
@@ -44,6 +44,7 @@ import {
   preprocessNotionCallouts,
   postprocessNotionCallouts,
   collectDescendantPaths,
+  collectImportedMentionTargets,
   resolveZipPath,
   applyNotionMediaUrlMap,
   type NotionZipParseResult,
@@ -98,7 +99,7 @@ export default function KbImportDialogBody({
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState(false);
   const [progress, setProgress] = useState<{
-    phase: "import" | "relink";
+    phase: "import" | "relink" | "hierarchy";
     done: number;
     total: number;
   } | null>(null);
@@ -312,7 +313,16 @@ export default function KbImportDialogBody({
     const imported: KbImportResultItem[] = [];
     const failures: string[] = [];
     const uuidMap = new Map<string, UuidToPageInfo>();
-    const snapshot: { pageId: string; title: string; blocks: KbBlock[] }[] = [];
+    /** Pass 3 input: содержит и зип-родителя для каждого узла. Если
+     *  zipParentId === parentId (selectedRoot) — у Y НЕ было явного
+     *  родителя в zip-структуре, и Pass 3 может выставить ему parent
+     *  по mention'ам в content другой страницы. Иначе — пропускаем. */
+    const snapshot: {
+      pageId: string;
+      title: string;
+      blocks: KbBlock[];
+      zipParentId: string | null;
+    }[] = [];
 
     for (let i = 0; i < pagesToImport.length; i++) {
       const node = pagesToImport[i];
@@ -415,6 +425,7 @@ export default function KbImportDialogBody({
           pageId: row.id,
           title: row.title,
           blocks: blocksWithImages,
+          zipParentId: parent_id,
         });
 
         if (urlMap.size > 0) {
@@ -458,6 +469,36 @@ export default function KbImportDialogBody({
         }
       }
       setProgress({ phase: "relink", done: i + 1, total: snapshot.length });
+    }
+
+    // ── Pass 3 ─ implicit hierarchy ────────────────────────────────
+    // Notion для database-export'а кладёт записи плоско в одной папке,
+    // и иерархии в zip-структуре нет. Но в content родителя обычно есть
+    // mention'ы на subpages — используем их как сигнал: «X mention'ит Y →
+    // Y становится child'ом X». Кандидаты ограничены страницами, у которых
+    // в zip-структуре не было явного родителя (zipParentId === parentId).
+    setProgress({ phase: "hierarchy", done: 0, total: snapshot.length });
+    const adoptedChildren = new Set<string>();
+    const childrenById = new Map<string, (typeof snapshot)[number]>();
+    for (const e of snapshot) childrenById.set(e.pageId, e);
+    for (let i = 0; i < snapshot.length; i++) {
+      const entry = snapshot[i];
+      const targetIds = collectImportedMentionTargets(entry.blocks, uuidMap);
+      for (const childId of targetIds) {
+        if (childId === entry.pageId) continue; // self-link
+        if (adoptedChildren.has(childId)) continue; // first-X-wins
+        const childEntry = childrenById.get(childId);
+        // Если у Y был zip-родитель (zipParentId !== parentId) — не трогаем,
+        // явная zip-структура важнее.
+        if (!childEntry || childEntry.zipParentId !== parentId) continue;
+        const { error: parentErr } = await setKbPageParent({
+          id: childId,
+          parent_id: entry.pageId,
+        });
+        if (parentErr) continue; // cycle / RLS — пропускаем тихо
+        adoptedChildren.add(childId);
+      }
+      setProgress({ phase: "hierarchy", done: i + 1, total: snapshot.length });
     }
 
     setPending(false);
@@ -807,7 +848,7 @@ export default function KbImportDialogBody({
             <Upload className="size-4" />
           )}
           {progress
-            ? `${progress.phase === "import" ? "Импорт" : "Перелинковка"} ${progress.done} / ${progress.total}`
+            ? `${progress.phase === "import" ? "Импорт" : progress.phase === "relink" ? "Перелинковка" : "Иерархия"} ${progress.done} / ${progress.total}`
             : notionResult
               ? `Импортировать (${selectedCount})`
               : files.length > 0

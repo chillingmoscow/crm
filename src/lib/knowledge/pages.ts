@@ -465,6 +465,50 @@ export async function moveKbPage(input: KbPageMoveInput): Promise<{ error: strin
   return { error: null };
 }
 
+/** Установить parent_id страницы с автоматическим вычислением position'а
+ *  (= max(siblings.position) + 1 под новым родителем). Используется
+ *  Notion-импортом для implicit-hierarchy (Pass 3 в `kb-import-dialog-body`):
+ *  после relinking'а mention'ов мы знаем что родитель X mention'ит Y → Y
+ *  становится child'ом X.
+ *
+ *  Cycle-prevention делается триггером kb_pages_check_no_cycle в
+ *  миграции 053 — если установка parent_id создаст цикл, БД выкинет
+ *  ошибку и мы её вернём в caller'е (он эту страницу пропустит).
+ *
+ *  RLS на kb_pages для UPDATE гейтит через kb.edit_any_page или
+ *  kb.edit_own_pages — у юзера, который только что импортировал страницы,
+ *  edit_own право на свои свежесозданные страницы есть. */
+export async function setKbPageParent(input: {
+  id: string;
+  parent_id: string | null;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+
+  // Position = max(siblings под новым parent) + 1.
+  const { data: maxRow } = await supabase
+    .from("kb_pages")
+    .select("position")
+    .is("deleted_at", null)
+    .filter("parent_id", input.parent_id ? "eq" : "is", input.parent_id ?? null)
+    .neq("id", input.id)
+    .order("position", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextPosition = (maxRow?.position ?? -1) + 1;
+
+  const { error } = await supabase
+    .from("kb_pages")
+    .update({
+      parent_id: input.parent_id,
+      position: nextPosition,
+    })
+    .eq("id", input.id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/knowledge");
+  return { error: null };
+}
+
 /** Атомарный move-with-reorder через RPC `kb_move_page` (миграция 073).
  *  Используется UI drag-n-drop — за один RPC меняет parent_id +
  *  пересчитывает position всех siblings под новым родителем.

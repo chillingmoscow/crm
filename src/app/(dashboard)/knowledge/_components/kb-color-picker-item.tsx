@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  type FC,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
+import { type FC, type ReactNode } from "react";
 import { Palette } from "lucide-react";
 import {
   blockHasType,
@@ -24,18 +20,13 @@ import {
  * каждая по 10 chip'ов.
  *
  * Отличия от BN-default:
- *   - Своя layout-сетка вместо вертикального списка menu-item'ов.
- *     Текстовые лейблы цветов (например «Серый», «Коричневый») не
- *     рендерим — chip'ы и так визуально означают цвет, см. дизайн.
- *   - Не использует `Components.Generic.Menu.Item` для каждого цвета
- *     (CSS-override шorel-styles BN'а конфликтовал с grid-layout'ом
- *     поверх shadcn DropdownMenuItem). Вместо этого — обычные
- *     `<button>`'ы с собственным focus/hover стилем.
- *   - Рамка вокруг текущего значения через outline на самом chip'е.
- *
- * Sub-menu container — всё ещё `Components.Generic.Menu.Dropdown`
- * (BN sub-trigger открывает его как Radix DropdownMenuSubContent),
- * чтобы keyboard-nav в parent-меню (drag-handle) работал как раньше.
+ *   - Своя grid-сетка вместо вертикального списка.
+ *   - Текст-подписи цветов не рендерим — сам chip-цвет понятен.
+ *   - Каждый chip — это `Components.Generic.Menu.Item` (= shadcn
+ *     `DropdownMenuCheckboxItem`), чтобы Radix-roving-tabindex и
+ *     Enter-select работали с клавиатуры (Codex P2 на PR #112).
+ *     Padding/check-indicator overrid'им CSS'ом (см. `.kb-color-chip`
+ *     в globals.css).
  */
 const COLORS = [
   "default",
@@ -107,15 +98,6 @@ export const KbColorPickerItem: FC<KbColorPickerItemProps> = ({ children }) => {
     });
   };
 
-  // Stop propagation чтобы клик по chip'у НЕ закрывал
-  // parent-DropdownMenu (Radix close-on-click). Цвет применяется,
-  // но юзер остаётся в меню — может пощёлкать варианты.
-  const stop = (fn: () => void) => (e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    fn();
-  };
-
   return (
     <Components.Generic.Menu.Root position={"right"} sub={true}>
       <Components.Generic.Menu.Trigger sub={true}>
@@ -132,46 +114,46 @@ export const KbColorPickerItem: FC<KbColorPickerItemProps> = ({ children }) => {
         sub
         className="bn-menu-dropdown bn-color-picker-dropdown kb-color-picker"
       >
-        <div className="kb-color-picker-grid">
-          {hasText && (
-            <>
-              <div className="kb-color-picker-label">Текст</div>
-              {COLORS.map((c) => (
-                <button
-                  key={`tc-${c}`}
-                  type="button"
-                  aria-label={`Цвет текста: ${c}`}
-                  data-active={textColor === c || undefined}
-                  onClick={stop(() => setText(c))}
-                  className="kb-color-chip kb-color-chip-text"
-                >
+        {hasText && (
+          <>
+            <Components.Generic.Menu.Label className="kb-color-picker-label">
+              Текст
+            </Components.Generic.Menu.Label>
+            {COLORS.map((c) => (
+              <Components.Generic.Menu.Item
+                key={`tc-${c}`}
+                className="kb-color-chip"
+                checked={textColor === c}
+                icon={
                   <span className="bn-color-icon" data-text-color={c}>
                     A
                   </span>
-                </button>
-              ))}
-            </>
-          )}
-          {hasBackground && (
-            <>
-              <div className="kb-color-picker-label">Задний фон</div>
-              {COLORS.map((c) => (
-                <button
-                  key={`bg-${c}`}
-                  type="button"
-                  aria-label={`Цвет фона: ${c}`}
-                  data-active={bgColor === c || undefined}
-                  onClick={stop(() => setBg(c))}
-                  className="kb-color-chip kb-color-chip-bg"
-                >
+                }
+                onClick={() => setText(c)}
+              />
+            ))}
+          </>
+        )}
+        {hasBackground && (
+          <>
+            <Components.Generic.Menu.Label className="kb-color-picker-label">
+              Задний фон
+            </Components.Generic.Menu.Label>
+            {COLORS.map((c) => (
+              <Components.Generic.Menu.Item
+                key={`bg-${c}`}
+                className="kb-color-chip"
+                checked={bgColor === c}
+                icon={
                   <span className="bn-color-icon" data-background-color={c}>
                     A
                   </span>
-                </button>
-              ))}
-            </>
-          )}
-        </div>
+                }
+                onClick={() => setBg(c)}
+              />
+            ))}
+          </>
+        )}
       </Components.Generic.Menu.Dropdown>
     </Components.Generic.Menu.Root>
   );

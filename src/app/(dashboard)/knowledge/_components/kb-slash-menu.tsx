@@ -130,11 +130,21 @@ function KbSlashItem({
       // в верхний левый угол viewport'а (Codex P2 на PR #109).
       const rect = wrapperRef.current?.getBoundingClientRect();
       if (!rect || rect.width === 0) return;
-      // Если справа места < ширины tooltip'а (260px из CSS) — кладём
-      // слева от пункта. Базовый offset 8px между item'ом и tip'ом.
+      // Tooltip позиционируется справа; если не помещается — слева;
+      // если и слева не помещается (узкий viewport / меню вплотную к
+      // левому краю) — clamp в видимую область с 8px gutter'ом, чтобы
+      // tooltip не уезжал в негативный X (Codex P2 на PR #112).
       const TIP_W = 260;
-      const overflowsRight = rect.right + 8 + TIP_W > window.innerWidth;
-      const left = overflowsRight ? rect.left - TIP_W - 8 : rect.right + 8;
+      const margin = 8;
+      const rightCandidate = rect.right + margin;
+      const fitsRight = rightCandidate + TIP_W <= window.innerWidth - margin;
+      let left: number;
+      if (fitsRight) {
+        left = rightCandidate;
+      } else {
+        const leftCandidate = rect.left - TIP_W - margin;
+        left = Math.max(margin, leftCandidate);
+      }
       setTipPos({ left, top: rect.top });
     }, HOVER_HOLD_MS);
   };

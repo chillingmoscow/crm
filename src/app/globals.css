@@ -850,13 +850,23 @@ input:-webkit-autofill {
 }
 
 /* ── Color picker submenu (frame 08 · GkjMx) ───────────────────────
- * Контент рендерит наш собственный `KbColorPickerItem` —
- * Generic.Menu.Dropdown превращается в `.bn-color-picker-dropdown
- * .kb-color-picker`, внутри которого `.kb-color-picker-grid` (CSS
- * Grid 5 колонок) с label-стрингой и chip-кнопками. BN-default'ный
- * `BlockColorsItem` мы больше не используем — он рендерил
- * vertical-list, плохо ложащийся на горизонтальную сетку дизайна. */
+ * Контент рендерит `KbColorPickerItem`. Sub-menu Dropdown превращается
+ * в CSS-Grid 5 колонок; section-labels занимают весь ряд через
+ * `grid-column: 1/-1`; каждый chip — это `Components.Generic.Menu.Item`
+ * (= shadcn `DropdownMenuCheckboxItem`), сжатый CSS'ом до 28×28
+ * квадратика. Сохранение Menu.Item'ов важно для keyboard-nav: roving
+ * tabindex + Enter-select работают как у нативного Radix-меню (Codex
+ * P2 на PR #112).
+ *
+ * shadcn-default DropdownMenuCheckboxItem имеет absolute-positioned
+ * check-indicator (`<span>` left-2) + `pl-8`. Перебиваем — индикатор
+ * прячем (selected-state показываем outline'ом на bn-color-icon),
+ * padding/dimensions переопределяем под grid-cell. */
 .bn-color-picker-dropdown.kb-color-picker {
+  display: grid !important;
+  grid-template-columns: repeat(5, 28px);
+  column-gap: 6px;
+  row-gap: 4px;
   width: max-content !important;
   min-width: 0 !important;
   padding: 8px !important;
@@ -866,45 +876,59 @@ input:-webkit-autofill {
     0 12px 24px rgb(0 0 0 / 0.12),
     0 2px 6px rgb(0 0 0 / 0.05) !important;
 }
-.kb-color-picker-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 28px);
-  column-gap: 6px;
-  row-gap: 4px;
-}
-.kb-color-picker-label {
+.bn-color-picker-dropdown.kb-color-picker
+  [data-slot="dropdown-menu-label"],
+.bn-color-picker-dropdown.kb-color-picker
+  [class*="DropdownMenuLabel"] {
   grid-column: 1 / -1;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 11px !important;
+  font-weight: 600 !important;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: hsl(var(--muted-foreground));
-  padding: 6px 4px 2px 4px;
+  color: hsl(var(--muted-foreground)) !important;
+  padding: 6px 4px 2px 4px !important;
 }
-.kb-color-picker-label:first-child {
-  padding-top: 2px;
+.bn-color-picker-dropdown.kb-color-picker
+  [data-slot="dropdown-menu-label"]:first-child {
+  padding-top: 2px !important;
 }
-.kb-color-chip {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 0;
-  padding: 0;
+.bn-color-picker-dropdown.kb-color-picker .kb-color-chip {
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 6px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0 !important;
   cursor: pointer;
   transition: background-color 100ms ease;
 }
-.kb-color-chip:hover {
-  background-color: hsl(var(--accent));
+.bn-color-picker-dropdown.kb-color-picker .kb-color-chip:hover,
+.bn-color-picker-dropdown.kb-color-picker .kb-color-chip:focus,
+.bn-color-picker-dropdown.kb-color-picker
+  .kb-color-chip[data-highlighted] {
+  background-color: hsl(var(--accent)) !important;
 }
-.kb-color-chip[data-active] .bn-color-icon {
+/* Прячем стандартный shadcn check-indicator (absolute span слева в
+ * DropdownMenuCheckboxItem) — selected-state передаём через outline
+ * на самом chip'е ниже. */
+.bn-color-picker-dropdown.kb-color-picker
+  .kb-color-chip
+  > span:first-child:not(.bn-color-icon) {
+  display: none !important;
+}
+.bn-color-picker-dropdown.kb-color-picker
+  .kb-color-chip[data-state="checked"]
+  .bn-color-icon,
+.bn-color-picker-dropdown.kb-color-picker
+  .kb-color-chip[aria-checked="true"]
+  .bn-color-icon {
   outline: 2px solid hsl(var(--brand) / 0.6);
   outline-offset: 1px;
 }
-.kb-color-picker .bn-color-icon {
+.bn-color-picker-dropdown.kb-color-picker .bn-color-icon {
   width: 22px !important;
   height: 22px !important;
   border-radius: 4px !important;

@@ -315,11 +315,12 @@ export default function KbImportDialogBody({
     const uuidMap = new Map<string, UuidToPageInfo>();
     /** Pass 3 input. `hadZipParent` фиксирует **исходный intent**
      *  ZIP-структуры — был ли у узла родительский сегмент с UUID в путях
-     *  zip'а (= `node.parentUuid !== null`). Это важнее, чем фактический
-     *  `parent_id` в БД: при partial-import'е (юзер снял чекбокс с
-     *  родителя, но оставил ребёнка) реальный `parent_id` фоллбэчится
-     *  на selectedRoot, и Pass 3 ошибочно решил бы, что у ребёнка не
-     *  было явного zip-родителя, и реparent'ил бы через mention'ы. */
+     *  zip'а (поле `node.hadOriginalParent`, фиксируется до нормализации
+     *  parentUuid). Это важнее, чем фактический `parent_id` в БД: при
+     *  partial-import'е (юзер снял чекбокс с родителя, но оставил
+     *  ребёнка) реальный `parent_id` фоллбэчится на selectedRoot, и
+     *  Pass 3 ошибочно решил бы, что у ребёнка не было явного
+     *  zip-родителя, и реparent'ил бы через mention'ы. */
     const snapshot: {
       pageId: string;
       title: string;
@@ -428,7 +429,7 @@ export default function KbImportDialogBody({
           pageId: row.id,
           title: row.title,
           blocks: blocksWithImages,
-          hadZipParent: node.parentUuid !== null,
+          hadZipParent: node.hadOriginalParent,
         });
 
         if (urlMap.size > 0) {
@@ -480,29 +481,107 @@ export default function KbImportDialogBody({
     // mention'ы на subpages — используем их как сигнал: «X mention'ит Y →
     // Y становится child'ом X». Кандидаты ограничены страницами, у которых
     // в zip-структуре не было явного родителя (`hadZipParent === false`).
+    //
+    // Two-pass logic нужна для глубокой иерархии: Notion-страница A часто
+    // содержит mention'ы на ВСЕХ потомков (B, C — даже если C на самом деле
+    // child of B). Простой first-X-wins поставил бы B и C на один уровень.
+    // Решение: для каждого Y выбрать «самого локального» X — того, кто НЕ
+    // упоминается другими X-кандидатами Y. В случае A→{B,C}, B→{C}: для Y=C
+    // кандидаты {A, B}; A упоминает B — значит B локальнее A; pick B.
     setProgress({ phase: "hierarchy", done: 0, total: snapshot.length });
-    const adoptedChildren = new Set<string>();
     const childrenById = new Map<string, (typeof snapshot)[number]>();
     for (const e of snapshot) childrenById.set(e.pageId, e);
-    for (let i = 0; i < snapshot.length; i++) {
-      const entry = snapshot[i];
-      const targetIds = collectImportedMentionTargets(entry.blocks, uuidMap);
-      for (const childId of targetIds) {
-        if (childId === entry.pageId) continue; // self-link
-        if (adoptedChildren.has(childId)) continue; // first-X-wins
-        const childEntry = childrenById.get(childId);
-        // Если в zip-структуре у Y был указанный parent-сегмент с UUID,
-        // не трогаем — явная zip-иерархия важнее, даже если родитель сам
-        // не попал в импорт (partial selection).
-        if (!childEntry || childEntry.hadZipParent) continue;
-        const { error: parentErr } = await setKbPageParent({
-          id: childId,
-          parent_id: entry.pageId,
-        });
-        if (parentErr) continue; // cycle / RLS — пропускаем тихо
-        adoptedChildren.add(childId);
+
+    // 3a. Build mention-graph: X → Set<Y> (page X mentions page Y).
+    const mentionsBy = new Map<string, Set<string>>();
+    for (const entry of snapshot) {
+      const targets = collectImportedMentionTargets(entry.blocks, uuidMap);
+      const set = new Set<string>();
+      for (const t of targets) {
+        if (t === entry.pageId) continue; // self-link
+        set.add(t);
       }
-      setProgress({ phase: "hierarchy", done: i + 1, total: snapshot.length });
+      mentionsBy.set(entry.pageId, set);
+    }
+
+    // 3b. Inverse: Y → Set<X> (candidates that could parent Y).
+    const candidatesFor = new Map<string, Set<string>>();
+    for (const [x, ys] of mentionsBy) {
+      for (const y of ys) {
+        const childEntry = childrenById.get(y);
+        // Не двигаем тех, у кого в zip была явная иерархия.
+        if (!childEntry || childEntry.hadZipParent) continue;
+        const set = candidatesFor.get(y) ?? new Set<string>();
+        set.add(x);
+        candidatesFor.set(y, set);
+      }
+    }
+
+    // 3c. Для каждого Y выбрать «самого локального» X.
+    //   Notion-семантика: страница содержит ссылки на свои subpages.
+    //   Если X упоминает X' (X → X'), то X' — child of X, значит X' более
+    //   локален (глубже в дереве). Pick X'.
+    //   Mutual-mention (циклы) — tie-break по первой позиции в snapshot
+    //   для детерминированности.
+    const snapshotIndex = new Map<string, number>();
+    for (let i = 0; i < snapshot.length; i++) snapshotIndex.set(snapshot[i].pageId, i);
+    const decisions: { childId: string; parentId: string }[] = [];
+    for (const [childId, candidates] of candidatesFor) {
+      const arr = Array.from(candidates);
+      let best = arr[0];
+      for (const cand of arr) {
+        if (cand === best) continue;
+        const candMentionsBest = mentionsBy.get(cand)?.has(best) ?? false;
+        const bestMentionsCand = mentionsBy.get(best)?.has(cand) ?? false;
+        if (bestMentionsCand && !candMentionsBest) {
+          // best → cand: cand является child of best → cand локальнее.
+          // Pick cand.
+          best = cand;
+        } else if (candMentionsBest && !bestMentionsCand) {
+          // cand → best: best является child of cand → best локальнее.
+          // Оставляем best.
+        } else {
+          // Tie / mutual: берём более ранний по snapshot order.
+          const ix = snapshotIndex.get(cand) ?? Infinity;
+          const ib = snapshotIndex.get(best) ?? Infinity;
+          if (ix < ib) best = cand;
+        }
+      }
+      decisions.push({ childId, parentId: best });
+    }
+
+    // 3d. Apply. Сортируем decisions так, чтобы родитель устанавливался
+    // ПОСЛЕ своего собственного parent'а (если он тоже adopted) — иначе
+    // БД-триггер `kb_pages_check_no_cycle` отвергнет операцию из-за
+    // временного цикла. Простое топологическое: страница, чей parent тоже
+    // в decisions, идёт ПОСЛЕ. Реализуем как DFS с отслеживанием.
+    const adoptedSet = new Set<string>();
+    for (const d of decisions) adoptedSet.add(d.childId);
+    const decisionByChild = new Map<string, string>();
+    for (const d of decisions) decisionByChild.set(d.childId, d.parentId);
+    const ordered: typeof decisions = [];
+    const visited = new Set<string>();
+    const visit = (childId: string) => {
+      if (visited.has(childId)) return;
+      visited.add(childId);
+      const parent = decisionByChild.get(childId);
+      if (parent && adoptedSet.has(parent)) visit(parent);
+      ordered.push({ childId, parentId: decisionByChild.get(childId)! });
+    };
+    for (const d of decisions) visit(d.childId);
+
+    let done = 0;
+    for (const { childId, parentId: newParent } of ordered) {
+      const { error: parentErr } = await setKbPageParent({
+        id: childId,
+        parent_id: newParent,
+      });
+      if (parentErr) {
+        // Cycle / RLS — пропускаем тихо. Триггер БД kb_pages_check_no_cycle
+        // отвергнет циклические перепривязки.
+      }
+      done++;
+      setProgress({ phase: "hierarchy", done, total: ordered.length });
     }
 
     setPending(false);

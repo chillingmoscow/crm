@@ -40,8 +40,15 @@ export interface NotionZipNode {
   zipPath: string;
   /** Глубина в дереве (0 = root). Нужно для DFS-сортировки. */
   depth: number;
-  /** UUID родителя — null если на верхнем уровне. */
+  /** UUID родителя ВНУТРИ импорта. null если parent-сегмента не было,
+   *  ИЛИ если он был, но соответствующий .md в импорт не попал —
+   *  нормализованное значение для DFS pre-order'а в Pass 1. */
   parentUuid: string | null;
+  /** Был ли в zip-структуре parent-сегмент с UUID (до нормализации).
+   *  Pass 3 (implicit hierarchy) использует это вместо `parentUuid`,
+   *  чтобы не реparent'ить страницы с явной zip-иерархией даже когда
+   *  родитель сам не попал в импорт. */
+  hadOriginalParent: boolean;
   /** Конструированный File (ZIP уже извлёк blob). */
   file: File;
 }
@@ -139,6 +146,12 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     // (Notion's `Page <uuid>/Page <uuid>.md`). Считаем такую страницу
     // top-level (parentUuid → null), иначе она зависает в DFS-цикле.
     const effectiveParentUuid = parentUuid === uuid ? null : parentUuid;
+    // hadOriginalParent отражает ИСХОДНУЮ zip-структуру (до второго
+    // прохода нормализации ниже). Pass 3 implicit-hierarchy использует
+    // его вместо `parentUuid`, чтобы не реparent'ить через mention'ы
+    // страницы, у которых явный parent был в zip, даже если он сам не
+    // попал в импорт (partial selection / отсутствует в архиве).
+    const hadOriginalParent = effectiveParentUuid !== null;
     const file = new File([blob], name, { type: "text/markdown" });
     const node: NotionZipNode = {
       uuid,
@@ -146,10 +159,23 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
       zipPath: path,
       depth,
       parentUuid: effectiveParentUuid,
+      hadOriginalParent,
       file,
     };
     if (uuid) nodesByUuid.set(uuid, node);
     else orphanNodes.push(node);
+  }
+
+  // Нормализация parentUuid: если parent-узел не попал в импорт
+  // (parentUuid указывает на UUID, которого нет в nodesByUuid), считаем
+  // такой узел top-level — иначе DFS-обход его не подхватит и страница
+  // попадает в fallback'-блок в insertion-order'е (= Pass 1 импорта
+  // получает child'ов раньше parent'ов и parent_id фоллбэчится на
+  // selectedRoot — иерархия теряется).
+  for (const node of nodesByUuid.values()) {
+    if (node.parentUuid !== null && !nodesByUuid.has(node.parentUuid)) {
+      node.parentUuid = null;
+    }
   }
 
   // DFS pre-order: parent → children. Нужно чтобы при INSERT'е child'а

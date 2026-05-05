@@ -17,7 +17,8 @@ import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-child
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
-import type { KbBlock, KbPageRow } from "@/types/knowledge";
+import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
+import type { KbBlock, KbPageRow, KbProperty } from "@/types/knowledge";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -151,6 +152,14 @@ export default async function KbPageView({ params }: PageProps) {
   // #100-followup).
   const contentBlocks =
     (row.content as unknown as KbBlock[]) ?? [];
+  // properties — zod-валидация чтобы кривые/старые записи не сломали
+  // UI; невалидные просто отдаём как пустой массив.
+  const propertiesParsed = kbPropertiesSchema.safeParse(
+    (row as unknown as { properties?: unknown }).properties ?? [],
+  );
+  const initialProperties: KbProperty[] = propertiesParsed.success
+    ? propertiesParsed.data
+    : [];
   const { slugs: mentionSlugs } = extractBacklinks(contentBlocks);
   const { checked: checkedMentionSlugs, deleted: deletedMentionSlugs } =
     await resolveKbMentionTargets(mentionSlugs);
@@ -264,6 +273,7 @@ export default async function KbPageView({ params }: PageProps) {
             initialIcon={row.icon}
             initialIconColor={row.icon_color}
             initialContent={contentBlocks}
+            initialProperties={initialProperties}
             checkedMentionSlugs={checkedMentionSlugs}
             deletedMentionSlugs={deletedMentionSlugs}
             canEdit={canEdit}

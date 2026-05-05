@@ -40,6 +40,30 @@ export type KbInlineContent =
   | { type: "link"; href: string; content: KbInlineContent[] }
   | { type: string; [key: string]: unknown };
 
+// ─── Page properties (Notion-style typed fields) ─────────────────────────────
+// Discriminated union по `type`. Хранятся в kb_pages.properties и
+// kb_templates.properties (jsonb-массив). Validation формы — в zod-
+// схеме `kbPropertySchema` (см. src/lib/knowledge/schemas.ts).
+//
+// `id` — nanoid(8), стабилен при rename'е (rename меняет только `name`).
+// applyKbTemplate регенерирует `id` чтобы instance был независим от
+// template'а.
+
+export type KbPropertyType = "text" | "number" | "date" | "checkbox" | "select";
+
+export type KbProperty =
+  | { id: string; name: string; type: "text"; value: string }
+  | { id: string; name: string; type: "number"; value: number | null }
+  | { id: string; name: string; type: "date"; value: string | null } // ISO yyyy-mm-dd
+  | { id: string; name: string; type: "checkbox"; value: boolean }
+  | {
+      id: string;
+      name: string;
+      type: "select";
+      value: string | null;
+      options: string[];
+    };
+
 // ─── Form / server-action input shapes ───────────────────────────────────────
 
 export type KbPageCreateInput = {

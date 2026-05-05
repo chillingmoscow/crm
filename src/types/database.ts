@@ -1250,6 +1250,7 @@ export type Database = {
           parent_id: string | null
           plain_text: string
           position: number
+          properties: Json
           required_reading: boolean
           search_tsv: unknown
           slug: string
@@ -1274,6 +1275,7 @@ export type Database = {
           parent_id?: string | null
           plain_text?: string
           position?: number
+          properties?: Json
           required_reading?: boolean
           search_tsv?: unknown
           slug: string
@@ -1298,6 +1300,7 @@ export type Database = {
           parent_id?: string | null
           plain_text?: string
           position?: number
+          properties?: Json
           required_reading?: boolean
           search_tsv?: unknown
           slug?: string
@@ -1356,6 +1359,7 @@ export type Database = {
           id: string
           is_system_default: boolean
           name: string
+          properties: Json
           updated_at: string | null
           updated_by: string | null
         }
@@ -1371,6 +1375,7 @@ export type Database = {
           id?: string
           is_system_default?: boolean
           name: string
+          properties?: Json
           updated_at?: string | null
           updated_by?: string | null
         }
@@ -1386,6 +1391,7 @@ export type Database = {
           id?: string
           is_system_default?: boolean
           name?: string
+          properties?: Json
           updated_at?: string | null
           updated_by?: string | null
         }

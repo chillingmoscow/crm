@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { nanoid } from "nanoid";
 
 import { createClient } from "@/lib/supabase/server";
 import { generateKbSlug } from "@/lib/knowledge/slug";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
-import type { KbBlock } from "@/types/knowledge";
+import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
+import type { KbBlock, KbProperty } from "@/types/knowledge";
 
 export interface KbTemplateRow {
   id: string;
@@ -17,6 +19,7 @@ export interface KbTemplateRow {
   icon_color: string | null;
   category: string | null;
   is_system_default: boolean;
+  properties: KbProperty[];
   created_at: string;
   created_by: string | null;
   updated_at: string | null;
@@ -50,7 +53,8 @@ export async function createKbTemplate(input: {
   icon?: string | null;
   icon_color?: string | null;
   category?: string | null;
-  /** Если задан — копируем content/icon/icon_color из этой страницы. */
+  properties?: KbProperty[];
+  /** Если задан — копируем content/icon/icon_color/properties из этой страницы. */
   source_page_id?: string | null;
 }): Promise<{ id: string | null; error: string | null }> {
   const supabase = await createClient();
@@ -73,13 +77,15 @@ export async function createKbTemplate(input: {
   let content = input.content ?? [];
   let icon = input.icon ?? null;
   let iconColor = input.icon_color ?? null;
+  let properties: KbProperty[] = input.properties ?? [];
 
-  // Source page → копируем content + icon. RLS на kb_pages фильтрует
-  // чужие — если source_page_id из другого account, .single() вернёт null.
+  // Source page → копируем content + icon + properties. RLS на kb_pages
+  // фильтрует чужие — если source_page_id из другого account,
+  // .single() вернёт null.
   if (input.source_page_id) {
     const { data: page, error: pageErr } = await supabase
       .from("kb_pages")
-      .select("content, icon, icon_color")
+      .select("content, icon, icon_color, properties")
       .eq("id", input.source_page_id)
       .is("deleted_at", null)
       .maybeSingle();
@@ -88,6 +94,10 @@ export async function createKbTemplate(input: {
     content = (page.content as unknown as KbBlock[]) ?? [];
     icon = page.icon ?? icon;
     iconColor = (page.icon_color as string | null) ?? iconColor;
+    const parsed = kbPropertiesSchema.safeParse(
+      (page as unknown as { properties?: unknown }).properties ?? [],
+    );
+    if (parsed.success) properties = parsed.data;
   }
 
   const { data, error } = await supabase
@@ -100,6 +110,7 @@ export async function createKbTemplate(input: {
       icon,
       icon_color: iconColor,
       category: input.category?.trim() || null,
+      properties: properties as unknown as never,
       created_by: user.id,
     })
     .select("id")
@@ -170,13 +181,24 @@ export async function applyKbTemplate(input: {
   // Тянем шаблон. RLS на kb_templates select разрешает всем в account.
   const { data: tmpl, error: tmplErr } = await supabase
     .from("kb_templates")
-    .select("name, content, icon, icon_color")
+    .select("name, content, icon, icon_color, properties")
     .eq("id", input.template_id)
     .maybeSingle();
   if (tmplErr) return { id: null, slug: null, error: tmplErr.message };
   if (!tmpl) {
     return { id: null, slug: null, error: "Шаблон не найден" };
   }
+
+  // Properties: zod-валидация (на случай старых записей со схемой,
+  // не соответствующей текущей форме) + регенерация `id`. Регенерация
+  // делает instance независимым от шаблона: rename property в шаблоне
+  // НЕ затронет уже созданные страницы (by design).
+  const parsedProperties = kbPropertiesSchema.safeParse(
+    (tmpl as unknown as { properties?: unknown }).properties ?? [],
+  );
+  const properties: KbProperty[] = parsedProperties.success
+    ? parsedProperties.data.map((p) => ({ ...p, id: nanoid(8) }) as KbProperty)
+    : [];
 
   // Position: max(siblings) + 1 под этим parent_id.
   const { data: maxRow } = await supabase
@@ -213,6 +235,7 @@ export async function applyKbTemplate(input: {
         icon_color: (tmpl.icon_color as string | null) ?? null,
         content: content as unknown as never,
         plain_text: plainText,
+        properties: properties as unknown as never,
         created_by: user.id,
       })
       .select("id, slug")

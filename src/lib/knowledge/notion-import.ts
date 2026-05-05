@@ -126,6 +126,27 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     (e) => extractNotionUuidFromName(e.name) !== null,
   );
 
+  // Pre-pass: построить `folderToUuid` мапу для сопоставления **папок без
+  // UUID в имени** с UUID соответствующего .md-файла. Notion в новом
+  // формате экспорта (наблюдается в Notion 2025+) кладёт UUID **только**
+  // в имена .md-файлов, а контейнер-папку для детей называет просто
+  // «<title>/», без хвостового UUID. Старый формат (UUID и в имени папки)
+  // тоже поддерживаем — extractNotionUuidFromName на сегменте сработает
+  // первым в walk-up'е.
+  //
+  // Логика: для файла `<dir>/<title> <uuid>.md` дочерние страницы лежат
+  // под `<dir>/<title>/`. Записываем `<dir>/<title>` → uuid.
+  const folderToUuid = new Map<string, string>();
+  for (const { path, name } of mdEntries) {
+    const fileUuid = extractNotionUuidFromName(name);
+    if (!fileUuid) continue;
+    const segments = path.split("/").filter(Boolean);
+    if (segments.length === 0) continue;
+    const titleNoUuid = cleanNotionTitle(name);
+    const childrenFolderPath = [...segments.slice(0, -1), titleNoUuid].join("/");
+    folderToUuid.set(childrenFolderPath, fileUuid);
+  }
+
   const nodesByUuid = new Map<string, NotionZipNode>();
   const orphanNodes: NotionZipNode[] = [];
   for (const { path, name, blob } of mdEntries) {
@@ -140,20 +161,27 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
       const existing = nodesByUuid.get(uuid)!;
       if (existing.zipPath.length <= path.length) continue;
     }
-    // Идём ВВЕРХ по сегментам пути до первого с UUID, пропуская
-    // не-UUID-папки. Покрывает два кейса:
-    //   1. Notion-database export: папка БД (`Лог @ Генеральные уборки/`)
-    //      называется без UUID, но `.csv`-сосед имеет его. Записи БД
-    //      должны прикрепиться к странице, СОДЕРЖАЩЕЙ БД (т.е. на 2
-    //      сегмента выше), а не повисать в top-level.
-    //   2. Self-ref `Page <uuid>/Page <uuid>.md` (Notion attachment-folder
-    //      pattern): пропускаем сегмент со своим uuid и идём дальше — иначе
-    //      страница висит в DFS-цикле сама на себе.
+    // Идём ВВЕРХ по сегментам пути до первого, для которого нашёлся
+    // UUID. На каждом уровне пробуем два источника:
+    //   1. Сам сегмент: `<title> <uuid>` (старый формат Notion + новый
+    //      для .md-файлов). Покрывает self-ref guard `Page <uuid>/Page
+    //      <uuid>.md` — пропускаем `u === uuid` и идём выше.
+    //   2. Сопоставление по полному пути сегмента → UUID соседнего .md
+    //      на уровне выше (новый формат: папка-контейнер без UUID в
+    //      имени). Пропускаем папки-БД (`Лог @ Генеральные уборки/`),
+    //      у которых нет соответствующего .md → uuid не найдётся, идём
+    //      дальше вверх к фактической parent-странице.
     let effectiveParentUuid: string | null = null;
     for (let s = segments.length - 2; s >= 0; s--) {
-      const u = extractNotionUuidFromName(segments[s]);
-      if (u && u !== uuid) {
-        effectiveParentUuid = u;
+      const direct = extractNotionUuidFromName(segments[s]);
+      if (direct && direct !== uuid) {
+        effectiveParentUuid = direct;
+        break;
+      }
+      const folderPath = segments.slice(0, s + 1).join("/");
+      const viaFolder = folderToUuid.get(folderPath);
+      if (viaFolder && viaFolder !== uuid) {
+        effectiveParentUuid = viaFolder;
         break;
       }
     }

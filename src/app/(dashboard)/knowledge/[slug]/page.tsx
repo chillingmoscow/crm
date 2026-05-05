@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { getKbPageBySlug, listKbPages, resolveLiveKbSlugs } from "@/lib/knowledge/pages";
+import { getKbPageBySlug, listKbPages, resolveKbMentionTargets } from "@/lib/knowledge/pages";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { isKbPageFavorited } from "@/lib/knowledge/favorites";
 import { getKbPageReadStatus } from "@/lib/knowledge/required-reading";
@@ -134,17 +134,24 @@ export default async function KbPageView({ params }: PageProps) {
   const descendantsCount = countDescendants(allPages, row.id);
 
   // Резолвим, какие kbPageMention chip'ы в текущем content ведут на
-  // ЖИВЫЕ страницы. Те, что не в результате — рендерятся в редакторе
-  // как disabled chip'ы (страница в корзине / удалена / hard-delete /
-  // импорт из чужого аккаунта). Без этого admin'ы с kb.delete_pages
-  // могли клик'нуть на chip и попасть в notFound() (после фильтра
-  // deleted_at в getKbPageBySlug). Ниже рантайм-резолвинг по slug'ам:
-  // single SQL-IN-запрос, ≤ 100 mention'ов на странице на практике.
+  // удалённые страницы — они рендерятся как disabled chip'ы (страница
+  // в корзине / hard-delete / импорт из чужого аккаунта). Без этого
+  // admin'ы с kb.delete_pages могли клик'нуть на chip и попасть в
+  // notFound() (после фильтра deleted_at в getKbPageBySlug).
+  //
+  // Передаём ОБА множества (`checked` + `deleted`), а не просто
+  // «живых». Render-логика негативная: chip перечёркивается ТОЛЬКО
+  // когда его slug есть в `deleted`. Slug, отсутствующий в `checked`
+  // (= свежевставленный пользователем через `@`-меню уже после
+  // SSR-фетча — тогда содержимое row.content его ещё не содержало),
+  // считается доступным по умолчанию. Иначе только что добавленный
+  // mention автоматически рендерился бы как deleted (Codex bug
+  // #100-followup).
   const contentBlocks =
     (row.content as unknown as KbBlock[]) ?? [];
   const { slugs: mentionSlugs } = extractBacklinks(contentBlocks);
-  const liveMentionSlugsSet = await resolveLiveKbSlugs(mentionSlugs);
-  const liveMentionSlugs = Array.from(liveMentionSlugsSet);
+  const { checked: checkedMentionSlugs, deleted: deletedMentionSlugs } =
+    await resolveKbMentionTargets(mentionSlugs);
 
   // Resolve back-link target: parent page if any, else /knowledge.
   // chain comes root → leaf, last entry is the current page itself.
@@ -277,7 +284,8 @@ export default async function KbPageView({ params }: PageProps) {
             initialIcon={row.icon}
             initialIconColor={row.icon_color}
             initialContent={contentBlocks}
-            liveMentionSlugs={liveMentionSlugs}
+            checkedMentionSlugs={checkedMentionSlugs}
+            deletedMentionSlugs={deletedMentionSlugs}
             canEdit={canEdit}
             aiSlashEnabled={aiSlashEnabled}
             canComment={Boolean(hasComment)}

@@ -882,7 +882,12 @@ export class SupabaseThreadStore extends ThreadStore {
     if (from === to) return; // empty selection — skip mark
 
     // 1) Save position в metadata. Без этого reload не восстановит mark.
-    await this.persistThreadPosition(opts.threadId, from, to);
+    //    Берём также text-fingerprint выделения — на reload сверяемся
+    //    что doc.textBetween(from, to) совпадает; если PM-позиции
+    //    drift'нули относительно сохранённых, ищем `text` в doc'е
+    //    и пере-якоримся к актуальной позиции (см. applyAllMarksToEditor).
+    const text = readDocTextBetween(this.editor, from, to);
+    await this.persistThreadPosition(opts.threadId, from, to, text);
 
     // 2) Apply mark в editor через PM low-level dispatch (обходит
     //    TipTap'овский editable-check на locked-страницах).
@@ -970,25 +975,105 @@ export class SupabaseThreadStore extends ThreadStore {
     // дешёвый способ обеспечить metadata-as-source-of-truth.
     tr = tr.removeMark(0, docSize, markType as unknown) as typeof tr;
 
+    // Подготавливаем char-map для drift-correction: если у thread
+    // есть text-fingerprint и текст по сохранённым PM-позициям не
+    // совпадает (drift), ищем `text` в плоской строке doc'а и
+    // пере-якоримся к найденной позиции. Стоимость walk'а — однократно
+    // на apply (O(text-content-size)).
+    let charMap: { flat: string; pmPositions: number[] } | null = null;
+    const ensureCharMap = () => {
+      if (!charMap) {
+        charMap = buildDocCharMap(
+          view.state.doc as unknown as {
+            descendants: (
+              cb: (node: { isText: boolean; text?: string }, pos: number) => void,
+            ) => void;
+          },
+        );
+      }
+      return charMap;
+    };
+
     // Re-apply'им марки для всех тредов с position в metadata. Важно
     // включать и resolved/deleted-threads с orphan=true, иначе после
     // removeMark выше они бы полностью исчезли из UI. BN-plugin сам
     // потом синхронизирует orphan-flag, но для повторного запуска
     // applyAllMarksToEditor нам нужно чтобы исходное состояние было
     // правильное.
+    const correctedPositions = new Map<string, { from: number; to: number; text: string }>();
     for (const thread of this.threadCache.values()) {
       // Hard-deleted threads (deletedAt set, и DB row помечена) —
       // не должны иметь mark'а вообще: BN-логика всё равно показала
       // бы их как orphan, но тред сам удалён → нечего показывать.
       if (thread.deletedAt) continue;
-      const meta = thread.metadata as { position?: { from?: number; to?: number } } | null;
-      const from = meta?.position?.from;
-      const to = meta?.position?.to;
-      if (typeof from !== "number" || typeof to !== "number") continue;
-      // Защита: позиция из metadata может быть «протухшей» если
-      // документ урезали. Clamp к docSize, skip если range пустой.
-      const safeFrom = Math.max(0, Math.min(from, docSize));
-      const safeTo = Math.max(0, Math.min(to, docSize));
+      const meta = thread.metadata as
+        | { position?: { from?: number; to?: number; text?: string } }
+        | null;
+      const storedFrom = meta?.position?.from;
+      const storedTo = meta?.position?.to;
+      const storedText = meta?.position?.text;
+      if (typeof storedFrom !== "number" || typeof storedTo !== "number") continue;
+
+      // Default: numeric positions из metadata, clamp'нутые к docSize.
+      let safeFrom = Math.max(0, Math.min(storedFrom, docSize));
+      let safeTo = Math.max(0, Math.min(storedTo, docSize));
+
+      // Drift-correction: если у нас есть text-fingerprint и текущий
+      // текст по сохранённым PM-позициям отличается, ищем `text` в
+      // doc'е и пере-якоримся. Без этого PM-positions могут уплыть из-
+      // за serialization-roundtrip'а (BN strip'ает comment-марки → JSON
+      // → reload → новый PM-doc, где position-numbering может слегка
+      // отличаться от того, что было сохранено).
+      if (typeof storedText === "string" && storedText.length > 0) {
+        let currentText: string;
+        try {
+          currentText = (
+            view.state.doc as unknown as {
+              textBetween: (
+                from: number,
+                to: number,
+                blockSeparator?: string,
+                leafText?: string,
+              ) => string;
+            }
+          ).textBetween(safeFrom, safeTo, "\n", "");
+        } catch {
+          currentText = "";
+        }
+        if (currentText !== storedText) {
+          // Drift detected — search для re-anchor'а.
+          const map = ensureCharMap();
+          const flat = map.flat;
+          // Заменяем "\n" в storedText на "" для матча против flat
+          // (где block-separator = "" из buildDocCharMap'а — он не
+          // вносит block-separator вообще, идёт только text-content).
+          // Если storedText содержит "\n" (multi-block selection) —
+          // пытаемся matched substring без них.
+          const needle = storedText.replace(/\n/g, "");
+          if (needle.length > 0) {
+            const idx = flat.indexOf(needle);
+            if (idx >= 0 && idx + needle.length <= map.pmPositions.length) {
+              const newFrom = map.pmPositions[idx];
+              // End = pos последнего char'а + 1 (т.к. PM-позиции —
+              // это позиции МЕЖДУ char'ами).
+              const newTo = map.pmPositions[idx + needle.length - 1] + 1;
+              if (newFrom < newTo && newTo <= docSize) {
+                safeFrom = newFrom;
+                safeTo = newTo;
+                // Сохраним для последующей persistence — чтобы next save
+                // обновил metadata.position на актуальную, а не каждый
+                // раз пере-anchor'ил.
+                correctedPositions.set(thread.id, {
+                  from: newFrom,
+                  to: newTo,
+                  text: storedText,
+                });
+              }
+            }
+          }
+        }
+      }
+
       if (safeFrom >= safeTo) continue;
       tr = tr.addMark(
         safeFrom,
@@ -1000,6 +1085,20 @@ export class SupabaseThreadStore extends ThreadStore {
       ) as typeof tr;
     }
     view.dispatch(tr);
+
+    // Fire-and-forget: persist'им скорректированные позиции в DB,
+    // чтобы next save / reload не делали re-anchor (драйфт зафиксирован).
+    // Без этого drift возникал бы повторно при каждом cycle'е.
+    for (const [threadId, p] of correctedPositions) {
+      void this.persistThreadPosition(threadId, p.from, p.to, p.text).catch(
+        (err) => {
+          console.warn("[kb-comments] re-anchor persist failed", {
+            threadId,
+            error: err,
+          });
+        },
+      );
+    }
   }
 
   /** Walks PM doc, находит все comment-mark'и, обновляет
@@ -1062,11 +1161,23 @@ export class SupabaseThreadStore extends ThreadStore {
     for (const [threadId, pos] of positions) {
       const thread = this.threadCache.get(threadId);
       if (!thread) continue;
-      const meta = thread.metadata as { position?: { from?: number; to?: number } } | null;
+      const meta = thread.metadata as
+        | { position?: { from?: number; to?: number; text?: string } }
+        | null;
       const prev = meta?.position;
-      if (prev && prev.from === pos.from && prev.to === pos.to) continue;
-      // Drift detected — persist new position.
-      writes.push(this.persistThreadPosition(threadId, pos.from, pos.to));
+      // Также захватываем text-fingerprint — содержимое текста под
+      // mark'ом. На reload используем для re-anchor'а если PM-позиции
+      // drift'нули (см. applyAllMarksToEditor).
+      const text = readDocTextBetween(this.editor, pos.from, pos.to);
+      if (
+        prev &&
+        prev.from === pos.from &&
+        prev.to === pos.to &&
+        prev.text === text
+      ) {
+        continue;
+      }
+      writes.push(this.persistThreadPosition(threadId, pos.from, pos.to, text));
     }
 
     // Threads с metadata.position, но БЕЗ соответствующего mark'а в
@@ -1097,11 +1208,15 @@ export class SupabaseThreadStore extends ThreadStore {
     threadId: string,
     from: number,
     to: number,
+    text: string | null = null,
   ): Promise<void> {
     const thread = this.threadCache.get(threadId);
     const newMetadata = {
       ...((thread?.metadata as Record<string, unknown>) ?? {}),
-      position: { from, to },
+      // text-fingerprint опционален: legacy-position'ы (без text)
+      // продолжают работать. Новые добавления всегда пишут text для
+      // re-anchor'а на reload'е (drift-correction).
+      position: text ? { from, to, text } : { from, to },
     };
     const { error } = await this.supabase
       .from("kb_threads")
@@ -1143,6 +1258,70 @@ export class SupabaseThreadStore extends ThreadStore {
     thread.metadata = rest;
     this.notify();
   }
+}
+
+/** Читает текст между PM-позициями [from, to] из текущего doc'а.
+ *  Используется для text-fingerprint'а thread.metadata.position —
+ *  храним содержимое выделенного текста чтобы на reload'е сверить /
+ *  пере-якориться если PM-позиции drift'нули.
+ *
+ *  Block-separator = "\n" (если выделение пересекает границу блоков),
+ *  leafText = "" — атомарные leaf-ноды (mention chip и т.п.) не
+ *  считаем char'ами, чтобы fingerprint фокусировался на text-content. */
+function readDocTextBetween(
+  editor: unknown,
+  from: number,
+  to: number,
+): string | null {
+  const view = (editor as
+    | {
+        _tiptapEditor?: {
+          view?: {
+            state: {
+              doc: {
+                content: { size: number };
+                textBetween: (from: number, to: number, blockSeparator?: string, leafText?: string) => string;
+              };
+            };
+          };
+        }
+      } | null)?._tiptapEditor?.view;
+  if (!view) return null;
+  const doc = view.state.doc;
+  const docSize = doc.content.size;
+  if (from < 0 || to > docSize || from >= to) return null;
+  try {
+    return doc.textBetween(from, to, "\n", "");
+  } catch {
+    return null;
+  }
+}
+
+/** Перебирает все text-узлы doc'а и склеивает их в плоскую строку
+ *  с маппингом каждого char'а в абсолютную PM-позицию. Используется
+ *  в applyAllMarksToEditor для re-anchor'а: если metadata.text не
+ *  совпадает с текстом по сохранённым PM-позициям, ищем text в
+ *  плоской строке и пересчитываем PM-позиции для marka.
+ *
+ *  Атомарные leaf-ноды (mentions, attachment-chips) не вносят char'ов
+ *  — flat string содержит ТОЛЬКО реальные text-content символы из
+ *  text-узлов. Это совпадает с поведением `readDocTextBetween` без
+ *  leafText. */
+function buildDocCharMap(doc: {
+  descendants: (
+    cb: (node: { isText: boolean; text?: string }, pos: number) => void,
+  ) => void;
+}): { flat: string; pmPositions: number[] } {
+  const flat: string[] = [];
+  const pmPositions: number[] = [];
+  doc.descendants((node, pos) => {
+    if (!node.isText || typeof node.text !== "string") return;
+    for (let i = 0; i < node.text.length; i++) {
+      flat.push(node.text[i]);
+      pmPositions.push(pos + i);
+    }
+  });
+  return { flat: flat.join(""), pmPositions };
 }
 
 /** Resolve user info для CommentsExtension `resolveUsers` callback.

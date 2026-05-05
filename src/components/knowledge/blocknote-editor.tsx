@@ -44,6 +44,7 @@ import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-st
 import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-composer";
 import { KbFloatingThread } from "@/components/knowledge/blocks/kb-floating-thread";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
+import { KbSlashMenu } from "@/app/(dashboard)/knowledge/_components/kb-slash-menu";
 
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
@@ -676,6 +677,13 @@ export function KbBlockNoteEditor({
               query,
             )
           }
+          // Custom render — KbSlashMenu добавляет hover-hold tooltip
+          // (1.2 sec) с описанием пункта + скрывает subtext в основном
+          // списке через wrapper-класс `.kb-slash-menu`. `@`-меню
+          // (kb-mention-menu.tsx) использует другой
+          // SuggestionMenuController и рендерит дефолтный
+          // SuggestionMenu — там subtext остаётся видимым.
+          suggestionMenuComponent={KbSlashMenu}
         />
       )}
       {(aiSlashEnabled || commentsBundle) && (

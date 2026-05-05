@@ -28,6 +28,7 @@ import {
   Minimize2,
   Maximize2,
   ExternalLink,
+  Ruler,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -79,6 +80,15 @@ import {
   type KbIconColor,
 } from "@/lib/knowledge/icons";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import {
+  formatWithUnit,
+  unitSuffix,
+  UNIT_CURRENCIES,
+  MASS_UNITS,
+  VOLUME_UNITS,
+  PIECE_UNIT,
+  type Unit,
+} from "@/lib/units";
 import {
   saveKbPageProperties,
   saveKbTemplateProperties,
@@ -368,6 +378,25 @@ export function KbPageProperties({
     });
   };
 
+  // Меняет единицу измерения number-property. `null` = убрать unit
+  // (обратно к «без единицы»).
+  const changePropertyUnit = (id: string, unit: Unit | null) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id || p.type !== "number") return p;
+        const updated = { ...p } as Extract<KbProperty, { type: "number" }>;
+        if (unit === null || unit.kind === "none") {
+          delete updated.unit;
+        } else {
+          updated.unit = unit;
+        }
+        return updated as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
   // Toggle сжатого отображения для text-property. По дефолту (нет
   // collapsed) считаем `false` = развёрнуто. Переключаем — записываем
   // явный boolean.
@@ -539,6 +568,7 @@ export function KbPageProperties({
                     changePropertyIcon(prop.id, icon, iconColor)
                   }
                   onToggleCollapse={() => togglePropertyCollapse(prop.id)}
+                  onChangeUnit={(unit) => changePropertyUnit(prop.id, unit)}
                   onRemove={() => removeProperty(prop.id)}
                   onDuplicate={() => duplicateProperty(prop.id)}
                   onChangeType={(t) => changePropertyType(prop.id, t)}
@@ -592,6 +622,8 @@ interface PropertyRowProps {
   /** Toggle для text-property: collapsed (single-line truncate) ↔
    *  expanded (full multi-line). Применимо только к type === "text". */
   onToggleCollapse: () => void;
+  /** Меняет unit на number-property (Stage 4). `null` = «без единицы». */
+  onChangeUnit: (unit: Unit | null) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -606,6 +638,7 @@ function PropertyRow({
   onChangeOptionColors,
   onChangeIcon,
   onToggleCollapse,
+  onChangeUnit,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -761,6 +794,23 @@ function PropertyRow({
                 {property.collapsed ? "Развернуть" : "Свернуть"}
               </DropdownMenuItem>
             )}
+            {/* Единица измерения — только для number (Stage 4).
+             *  Submenu с группами: Без единицы / Валюта (CURRENCIES) /
+             *  Масса / Объём / Штук. */}
+            {property.type === "number" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Ruler className="size-3.5 text-muted-foreground" />
+                  Единица измерения
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[200px] max-h-[360px] overflow-y-auto">
+                  <UnitPickerItems
+                    current={property.unit}
+                    onChange={onChangeUnit}
+                  />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onRemove}>
               <Trash2 className="size-3.5 text-destructive" />
@@ -809,22 +859,12 @@ function PropertyValueControl({
       );
     }
     case "number":
-      return canEdit ? (
-        <Input
-          type="number"
-          inputMode="numeric"
-          value={property.value ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            onChangeValue(v === "" ? null : Number(v));
-          }}
-          placeholder="—"
-          className="h-7 text-[13px] tabular-nums border-transparent bg-transparent px-0 hover:border-input focus:border-input"
+      return (
+        <NumberValueControl
+          property={property}
+          canEdit={canEdit}
+          onChangeValue={(v) => onChangeValue(v)}
         />
-      ) : (
-        <span className="text-[13px] tabular-nums">
-          {property.value ?? "—"}
-        </span>
       );
     case "date":
       return canEdit ? (
@@ -1665,5 +1705,150 @@ function MultiSelectControl({
         />
       ))}
     </div>
+  );
+}
+
+/** Number value-control с поддержкой опциональной единицы измерения
+ *  (Stage 4). Edit-mode: input + suffix-label справа (≈ Notion). Read-
+ *  only: форматированная строка через formatWithUnit. Управление
+ *  единицей вынесено в ⋯ menu (UnitPickerItems). */
+function NumberValueControl({
+  property,
+  canEdit,
+  onChangeValue,
+}: {
+  property: Extract<KbProperty, { type: "number" }>;
+  canEdit: boolean;
+  onChangeValue: (value: number | null) => void;
+}) {
+  const unit: Unit = property.unit ?? { kind: "none" };
+  const suffix = unitSuffix(unit);
+
+  if (!canEdit) {
+    return (
+      <span className="text-[13px] tabular-nums">
+        {property.value === null
+          ? "—"
+          : formatWithUnit(property.value, unit)}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 w-full">
+      <Input
+        type="number"
+        inputMode="numeric"
+        value={property.value ?? ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChangeValue(v === "" ? null : Number(v));
+        }}
+        placeholder="—"
+        className="h-7 text-[13px] tabular-nums border-transparent bg-transparent px-0 hover:border-input focus:border-input"
+      />
+      {suffix && (
+        <span
+          className="text-[12px] text-muted-foreground/70 shrink-0 select-none"
+          title="Единица измерения (изменить — через ⋯ меню)"
+        >
+          {suffix}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Items для submenu «Единица измерения» в ⋯ меню. Группы: «Без
+ *  единицы» / Валюта / Масса / Объём / Штук. Текущая единица помечена
+ *  галочкой. Click → onChange(unit). Click «Без единицы» → onChange(null)
+ *  (= delete unit поля из property). */
+function UnitPickerItems({
+  current,
+  onChange,
+}: {
+  current: Unit | undefined;
+  onChange: (unit: Unit | null) => void;
+}) {
+  const isNone = !current || current.kind === "none";
+  const isCurrency = (code: string) =>
+    current?.kind === "currency" && current.code === code;
+  const isMass = (code: string) =>
+    current?.kind === "mass" && current.code === code;
+  const isVolume = (code: string) =>
+    current?.kind === "volume" && current.code === code;
+  const isPiece = current?.kind === "piece";
+
+  return (
+    <>
+      <DropdownMenuItem
+        onSelect={() => onChange(null)}
+        className="text-muted-foreground"
+      >
+        <span className="size-3.5 shrink-0 rounded-full border border-dashed border-muted-foreground/40" />
+        Без единицы
+        {isNone && <Check className="ml-auto size-3.5" />}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Валюта
+      </div>
+      {UNIT_CURRENCIES.map((c) => (
+        <DropdownMenuItem
+          key={c.value}
+          onSelect={() => onChange({ kind: "currency", code: c.value })}
+        >
+          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
+            {c.label.split(" ")[0]}
+          </span>
+          <span className="flex-1 truncate">
+            {c.label.replace(/^\S+\s+/, "")}
+          </span>
+          {isCurrency(c.value) && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Масса
+      </div>
+      {MASS_UNITS.map((m) => (
+        <DropdownMenuItem
+          key={m.code}
+          onSelect={() => onChange({ kind: "mass", code: m.code })}
+        >
+          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
+            {m.label}
+          </span>
+          <span className="flex-1 truncate">{m.longLabel}</span>
+          {isMass(m.code) && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Объём
+      </div>
+      {VOLUME_UNITS.map((v) => (
+        <DropdownMenuItem
+          key={v.code}
+          onSelect={() => onChange({ kind: "volume", code: v.code })}
+        >
+          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
+            {v.label}
+          </span>
+          <span className="flex-1 truncate">{v.longLabel}</span>
+          {isVolume(v.code) && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        onSelect={() => onChange({ kind: "piece" })}
+      >
+        <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
+          {PIECE_UNIT.label}
+        </span>
+        <span className="flex-1 truncate">{PIECE_UNIT.longLabel}</span>
+        {isPiece && <Check className="ml-auto size-3.5" />}
+      </DropdownMenuItem>
+    </>
   );
 }

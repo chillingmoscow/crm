@@ -313,15 +313,18 @@ export default function KbImportDialogBody({
     const imported: KbImportResultItem[] = [];
     const failures: string[] = [];
     const uuidMap = new Map<string, UuidToPageInfo>();
-    /** Pass 3 input: содержит и зип-родителя для каждого узла. Если
-     *  zipParentId === parentId (selectedRoot) — у Y НЕ было явного
-     *  родителя в zip-структуре, и Pass 3 может выставить ему parent
-     *  по mention'ам в content другой страницы. Иначе — пропускаем. */
+    /** Pass 3 input. `hadZipParent` фиксирует **исходный intent**
+     *  ZIP-структуры — был ли у узла родительский сегмент с UUID в путях
+     *  zip'а (= `node.parentUuid !== null`). Это важнее, чем фактический
+     *  `parent_id` в БД: при partial-import'е (юзер снял чекбокс с
+     *  родителя, но оставил ребёнка) реальный `parent_id` фоллбэчится
+     *  на selectedRoot, и Pass 3 ошибочно решил бы, что у ребёнка не
+     *  было явного zip-родителя, и реparent'ил бы через mention'ы. */
     const snapshot: {
       pageId: string;
       title: string;
       blocks: KbBlock[];
-      zipParentId: string | null;
+      hadZipParent: boolean;
     }[] = [];
 
     for (let i = 0; i < pagesToImport.length; i++) {
@@ -425,7 +428,7 @@ export default function KbImportDialogBody({
           pageId: row.id,
           title: row.title,
           blocks: blocksWithImages,
-          zipParentId: parent_id,
+          hadZipParent: node.parentUuid !== null,
         });
 
         if (urlMap.size > 0) {
@@ -476,7 +479,7 @@ export default function KbImportDialogBody({
     // и иерархии в zip-структуре нет. Но в content родителя обычно есть
     // mention'ы на subpages — используем их как сигнал: «X mention'ит Y →
     // Y становится child'ом X». Кандидаты ограничены страницами, у которых
-    // в zip-структуре не было явного родителя (zipParentId === parentId).
+    // в zip-структуре не было явного родителя (`hadZipParent === false`).
     setProgress({ phase: "hierarchy", done: 0, total: snapshot.length });
     const adoptedChildren = new Set<string>();
     const childrenById = new Map<string, (typeof snapshot)[number]>();
@@ -488,9 +491,10 @@ export default function KbImportDialogBody({
         if (childId === entry.pageId) continue; // self-link
         if (adoptedChildren.has(childId)) continue; // first-X-wins
         const childEntry = childrenById.get(childId);
-        // Если у Y был zip-родитель (zipParentId !== parentId) — не трогаем,
-        // явная zip-структура важнее.
-        if (!childEntry || childEntry.zipParentId !== parentId) continue;
+        // Если в zip-структуре у Y был указанный parent-сегмент с UUID,
+        // не трогаем — явная zip-иерархия важнее, даже если родитель сам
+        // не попал в импорт (partial selection).
+        if (!childEntry || childEntry.hadZipParent) continue;
         const { error: parentErr } = await setKbPageParent({
           id: childId,
           parent_id: entry.pageId,

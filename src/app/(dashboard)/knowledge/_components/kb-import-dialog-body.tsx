@@ -262,14 +262,6 @@ export default function KbImportDialogBody({
     }
   };
 
-  const resetAll = () => {
-    setFiles([]);
-    setImageFiles([]);
-    setNotionResult(null);
-    setSelectedPaths(new Set());
-    setExpectedRefs([]);
-  };
-
   /** Toggle одной страницы. При снятии родителя — снимаем всё поддерево
    *  (иначе у потомков теряется parent_id и они «всплывают» в root). */
   const toggleSelected = (zipPath: string, checked: boolean) => {
@@ -739,9 +731,16 @@ export default function KbImportDialogBody({
           : `Импортировано страниц: ${imported.length}`,
       );
     }
-    onClose();
-    resetAll();
+    // Сначала refresh (фоновый RSC-fetch, sidebar обновится), потом
+    // close — отложенный в микротаск. Если делать в обратном порядке или
+    // синхронно, `onClose()` сносит body из дерева через `{open && <Body/>}`,
+    // а параллельно `router.refresh()` ре-рендерит соседнее RSC-поддерево
+    // и Radix-портал DialogContent не успевает отдетачиться чисто →
+    // `removeChild on null` в commitDeletion. `resetAll()` тут больше не
+    // нужен — body конструируется заново при следующем open'е через
+    // conditional mount, локальный useState стартует с чистого листа.
     router.refresh();
+    queueMicrotask(onClose);
   };
 
   const missingCount = expectedRefs.filter((r) => !r.matched).length;

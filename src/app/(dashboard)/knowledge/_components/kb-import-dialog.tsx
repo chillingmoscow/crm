@@ -20,24 +20,38 @@ const KbImportDialogBody = dynamic(
 interface KbImportDialogProps {
   parentId?: string | null;
   triggerLabel?: string;
+  /** Controlled-mode: caller владеет open-state'ом, default-trigger
+   *  не рендерится. */
+  open?: boolean;
+  onOpenChange?: (next: boolean) => void;
 }
 
-export function KbImportDialog({ parentId = null, triggerLabel }: KbImportDialogProps) {
-  const [open, setOpen] = useState(false);
+export function KbImportDialog({
+  parentId = null,
+  triggerLabel,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
+}: KbImportDialogProps) {
+  const [openInternal, setOpenInternal] = useState(false);
+  const isControlled = openProp !== undefined && onOpenChangeProp !== undefined;
+  const open = isControlled ? openProp : openInternal;
+  const setOpen = isControlled ? onOpenChangeProp : setOpenInternal;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <IconTooltip label={triggerLabel ?? "Импорт из Markdown / Notion"}>
-        <DialogTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="Импорт"
-          >
-            <Upload className="size-3.5" />
-          </Button>
-        </DialogTrigger>
-      </IconTooltip>
+      {!isControlled && (
+        <IconTooltip label={triggerLabel ?? "Импорт из Markdown / Notion"}>
+          <DialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label="Импорт"
+            >
+              <Upload className="size-3.5" />
+            </Button>
+          </DialogTrigger>
+        </IconTooltip>
+      )}
       {open && (
         <KbImportDialogBody parentId={parentId} onClose={() => setOpen(false)} />
       )}

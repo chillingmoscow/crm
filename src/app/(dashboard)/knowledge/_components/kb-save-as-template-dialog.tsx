@@ -21,22 +21,35 @@ import { createKbTemplate } from "@/lib/knowledge/templates";
 interface KbSaveAsTemplateDialogProps {
   pageId: string;
   pageTitle: string;
+  /** Controlled-mode: caller владеет open-state'ом и сам рендерит
+   *  триггер (например, пункт DropdownMenu). Если оба переданы —
+   *  default-icon-trigger не рендерится. */
+  open?: boolean;
+  onOpenChange?: (next: boolean) => void;
 }
 
 /**
- * «Сохранить страницу как шаблон» — кнопка в KbPageActions для
- * пользователей с `kb.manage_templates`. Без этого права кнопка
- * не рендерится.
+ * «Сохранить страницу как шаблон» — диалог с полями имя/описание/
+ * категория, по submit'у создаёт kb_template из текущей страницы.
+ * Доступен только пользователям с `kb.manage_templates`.
  *
- * Диалог: name (по дефолту = page.title) + опциональные description /
- * category. Submit → createKbTemplate(source_page_id=pageId).
- * После успеха — toast «Шаблон сохранён».
+ * Поддерживает 2 режима:
+ *   1. **Standalone** (default) — рендерит icon-button-триггер 36×36,
+ *      открывающий диалог. Используется если нужен отдельный topbar-action.
+ *   2. **Controlled** — `open` + `onOpenChange` пробрасываются caller'ом,
+ *      icon-button скрыт. Так включаем триггер из dropdown-меню
+ *      (`KbPageMenu`).
  */
 export function KbSaveAsTemplateDialog({
   pageId,
   pageTitle,
+  open: openProp,
+  onOpenChange: onOpenChangeProp,
 }: KbSaveAsTemplateDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [openInternal, setOpenInternal] = useState(false);
+  const isControlled = openProp !== undefined && onOpenChangeProp !== undefined;
+  const open = isControlled ? openProp : openInternal;
+  const setOpen = isControlled ? onOpenChangeProp : setOpenInternal;
   const [name, setName] = useState(pageTitle || "Без названия");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
@@ -70,17 +83,19 @@ export function KbSaveAsTemplateDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <IconTooltip label="Сохранить как шаблон">
-        <DialogTrigger asChild>
-          <button
-            type="button"
-            aria-label="Сохранить как шаблон"
-            className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <BookmarkPlus className="w-[18px] h-[18px]" />
-          </button>
-        </DialogTrigger>
-      </IconTooltip>
+      {!isControlled && (
+        <IconTooltip label="Сохранить как шаблон">
+          <DialogTrigger asChild>
+            <button
+              type="button"
+              aria-label="Сохранить как шаблон"
+              className="inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            >
+              <BookmarkPlus className="w-[18px] h-[18px]" />
+            </button>
+          </DialogTrigger>
+        </IconTooltip>
+      )}
       <DialogContent className="max-w-[440px] p-0 gap-0 [&>button:last-child]:hidden">
         <form onSubmit={onSubmit}>
           <div className="flex items-start gap-3.5 px-6 pt-6 pb-4">

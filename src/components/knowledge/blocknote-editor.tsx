@@ -267,6 +267,13 @@ export function KbBlockNoteEditor({
   // built-in `ru` dictionary in-place — cheap because it's just a
   // shallow object spread.
   const dictionary = useMemo(() => {
+    // Slash-menu / BlockTypeSelect titles в default ru locale записаны
+    // длинно («Заголовок 1 уровня», «Сворачиваемый заголовок 1 уровня»)
+    // — в дроп-дауне стилей это вызывает перенос строки. По дизайну
+    // sheerly.pen (frame 06 · jMZQR) пункт = «Заголовок 1». Перебиваем
+    // только title (subtext / aliases / group остаются как у BN —
+    // search по ним продолжает работать с длинными формами).
+    const slash = ruLocale.slash_menu;
     return {
       ...ruLocale,
       placeholders: {
@@ -276,6 +283,27 @@ export function KbBlockNoteEditor({
         new_comment: "Напишите комментарий…",
         edit_comment: "Редактировать комментарий…",
         comment_reply: "Ответить…",
+      },
+      slash_menu: {
+        ...slash,
+        heading: { ...slash.heading, title: "Заголовок 1" },
+        heading_2: { ...slash.heading_2, title: "Заголовок 2" },
+        heading_3: { ...slash.heading_3, title: "Заголовок 3" },
+        heading_4: { ...slash.heading_4, title: "Заголовок 4" },
+        heading_5: { ...slash.heading_5, title: "Заголовок 5" },
+        heading_6: { ...slash.heading_6, title: "Заголовок 6" },
+        toggle_heading: {
+          ...slash.toggle_heading,
+          title: "Сворачиваемый заголовок 1",
+        },
+        toggle_heading_2: {
+          ...slash.toggle_heading_2,
+          title: "Сворачиваемый заголовок 2",
+        },
+        toggle_heading_3: {
+          ...slash.toggle_heading_3,
+          title: "Сворачиваемый заголовок 3",
+        },
       },
     };
   }, []);

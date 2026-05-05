@@ -74,14 +74,22 @@ export const KbHeadingEnterExtension = Extension.create({
           } else {
             // Enter в конце heading'а: paragraph ниже, cursor
             // переходит в начало paragraph'а.
+            //
+            // Codex P1 на PR #123: tr.mapping.map(pos) с дефолтным
+            // assoc=1 после insert'а возвращает позицию ПОСЛЕ
+            // вставленного блока (mapped == insertPos + nodeSize),
+            // соответственно `mapped + 2` указывал в СЛЕДУЮЩИЙ блок
+            // (или за границу doc'а если heading был последним) —
+            // setSelection кидал, fail-safe попадал в default-split.
+            //
+            // Корректно: после insert'а исходный `insertPos` всё ещё
+            // указывает на ту же абсолютную позицию ПЕРЕД вставленным
+            // blockContainer'ом. Cursor нужен ВНУТРИ нового paragraph'а:
+            //   insertPos + 1 — внутрь blockContainer'а
+            //   insertPos + 2 — внутрь paragraph'а (на старт content'а)
             const insertPos = $from.after(containerDepth);
             const tr = state.tr.insert(insertPos, newBlock);
-            // cursor → внутрь нового paragraph'а. Position: insertPos
-            // + 1 (входим в blockContainer) + 1 (входим в paragraph)
-            // = insertPos + 2. Mapping через tr нужен потому что мы
-            // только что modify'или doc.
-            const mapped = tr.mapping.map(insertPos);
-            const cursorPos = mapped + 2;
+            const cursorPos = insertPos + 2;
             tr.setSelection(TextSelection.create(tr.doc, cursorPos));
             tr.scrollIntoView();
             view.dispatch(tr);

@@ -48,7 +48,8 @@ const KbThreadGutterIndicators = dynamic(
   { ssr: false, loading: () => null },
 );
 import type { BlockNoteEditor as BlockNoteEditorType } from "@blocknote/core";
-import type { KbBlock } from "@/types/knowledge";
+import type { KbBlock, KbProperty } from "@/types/knowledge";
+import { KbPageProperties } from "@/app/(dashboard)/knowledge/_components/kb-page-properties";
 
 // Custom URL scheme used by the BlockNote wrapper to mark uploaded KB
 // files (kept in sync with KB_BLOCKNOTE_FILE_SCHEME).
@@ -181,6 +182,10 @@ interface KbPageEditorProps {
    *  chip'ы рендерятся в disabled-варианте (line-through, грей,
    *  тултип). null = резолвер отключён. */
   deletedMentionSlugs?: string[] | null;
+  /** Structured page properties — Notion-style typed fields. Рендерятся
+   *  между title и content через `<KbPageProperties>`. Save-цикл —
+   *  отдельный (saveKbPageProperties), не идёт через scheduleSave. */
+  initialProperties?: KbProperty[];
 }
 
 /**
@@ -216,6 +221,7 @@ export function KbPageEditor({
   readingMinutes = null,
   checkedMentionSlugs = null,
   deletedMentionSlugs = null,
+  initialProperties = [],
 }: KbPageEditorProps) {
   // Sprint D / Phase 1: page-view analytics. Запускаем как только
   // userId известен (= юзер залогинен и в active account). Hook сам
@@ -548,6 +554,17 @@ export function KbPageEditor({
           </div>
         )}
       </div>
+
+      {/* Properties panel — Notion-style key-value fields, рендерится
+          между title и content. Свой save-цикл (saveKbPageProperties),
+          не идёт через scheduleSave editor'а — независимый UPDATE
+          колонки `properties`. */}
+      <KbPageProperties
+        targetId={pageId}
+        mode="page"
+        initialProperties={initialProperties}
+        canEdit={canEdit}
+      />
 
       {/* Editor surface — обёрнут в KbMentionResolutionProvider, чтобы
           render kbPageMention chip'а мог отличить slug, ведущий на

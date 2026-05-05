@@ -48,6 +48,62 @@ export const kbSearchSchema = z.object({
   limit: z.number().int().min(1).max(50).optional(),
 });
 
+// ─── KB property schemas ─────────────────────────────────────────────────────
+// Discriminated union по `type`. Используется server action'ами
+// saveKbPageProperties / saveKbTemplateProperties и при apply'е шаблона.
+// Каждая property хранит `id` (nanoid(8), стабилен при rename'е).
+
+const kbPropertyBase = {
+  id: z.string().min(1).max(32),
+  name: z.string().trim().min(1).max(80),
+};
+
+export const kbPropertySchema = z.discriminatedUnion("type", [
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("text"),
+    value: z.string().max(2000),
+  }),
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("number"),
+    value: z.number().nullable(),
+  }),
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("date"),
+    value: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, "Ожидается ISO дата YYYY-MM-DD")
+      .nullable(),
+  }),
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("checkbox"),
+    value: z.boolean(),
+  }),
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("select"),
+    value: z.string().max(200).nullable(),
+    options: z.array(z.string().trim().min(1).max(200)).max(50),
+  }),
+]);
+
+// Cap на массив — sanity, не функциональное ограничение. На странице
+// больше 30 properties — антипаттерн.
+export const kbPropertiesSchema = z.array(kbPropertySchema).max(30);
+
+export const kbSavePagePropertiesSchema = z.object({
+  pageId: z.string().uuid(),
+  properties: kbPropertiesSchema,
+});
+
+export const kbSaveTemplatePropertiesSchema = z.object({
+  templateId: z.string().uuid(),
+  properties: kbPropertiesSchema,
+});
+
 export type KbPageCreateParsed = z.infer<typeof kbPageCreateSchema>;
 export type KbPageSaveParsed = z.infer<typeof kbPageSaveSchema>;
 export type KbPageMoveParsed = z.infer<typeof kbPageMoveSchema>;

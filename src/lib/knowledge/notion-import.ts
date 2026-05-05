@@ -185,6 +185,83 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
   return { pages, imagesByPath, isNotionExport };
 }
 
+/** Резолвит relative-path внутри ZIP относительно директории страницы.
+ *  `pageDir` — путь до .md в zip'е (с trailing slash) или "" для root'а.
+ *  Нормализует `..` и `./`. */
+export function resolveZipPath(pageDir: string, relPath: string): string {
+  if (relPath.startsWith("/")) relPath = relPath.slice(1);
+  const segments = (pageDir + relPath).split("/").filter(Boolean);
+  const out: string[] = [];
+  for (const s of segments) {
+    if (s === "." || s === "") continue;
+    if (s === "..") out.pop();
+    else out.push(s);
+  }
+  return out.join("/");
+}
+
+/** Подменяет URL'ы media-блоков (image/file/video/audio) по mapping'у,
+ *  где ключи — **полные resolved-пути внутри ZIP'а** (а не basename'ы).
+ *
+ *  Зачем не через `applyMediaUrlMap` из blocks-media.ts: тот матчит по
+ *  basename'у, и две разных картинки с одинаковым именем из разных
+ *  папок (`assets/image.png` и `screens/image.png`) сливаются в один
+ *  upload и оба блока в md ссылаются на одну и ту же storage-копию
+ *  (Codex P1). Здесь ключуем по resolved-пути относительно pageDir,
+ *  что гарантирует уникальность.
+ *
+ *  `urlMap`: `resolveZipPath(pageDir, decodedRef)` → `kbfile://...`.
+ *  `pageDir`: тот же `pageDir`, что использовался при заполнении
+ *  urlMap для этой страницы. */
+export function applyNotionMediaUrlMap(
+  blocks: KbBlock[],
+  urlMap: Map<string, string>,
+  pageDir: string,
+): KbBlock[] {
+  return blocks.map((block) => {
+    const b = block as unknown as {
+      type?: string;
+      props?: { url?: string };
+      children?: unknown[];
+    };
+    const isMedia =
+      b.type === "image" ||
+      b.type === "file" ||
+      b.type === "video" ||
+      b.type === "audio";
+    if (isMedia) {
+      const url = (b.props?.url ?? "").trim();
+      if (url && !/^(https?:\/\/|data:|blob:|kbfile:\/\/)/i.test(url)) {
+        let decoded: string;
+        try {
+          decoded = decodeURIComponent(url);
+        } catch {
+          decoded = url;
+        }
+        const fullKey = resolveZipPath(pageDir, decoded);
+        const replacement = urlMap.get(fullKey);
+        if (replacement) {
+          return {
+            ...block,
+            props: { ...(b.props ?? {}), url: replacement },
+          } as KbBlock;
+        }
+      }
+    }
+    if (Array.isArray(b.children) && b.children.length > 0) {
+      return {
+        ...block,
+        children: applyNotionMediaUrlMap(
+          b.children as KbBlock[],
+          urlMap,
+          pageDir,
+        ),
+      } as KbBlock;
+    }
+    return block;
+  });
+}
+
 /** Все UUID'ы потомков данного узла (DFS). Используется UI чтобы при
  *  снятии чекбокса с родителя автоматически снимать всё поддерево —
  *  иначе у потомков теряется parent_id и они «всплывают» в root. */
@@ -314,6 +391,18 @@ export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
     cursor++;
   }
   if (propertyBlocks.length === 0) return blocks;
+
+  // Stronger signal — иначе одиночный intro-параграф вида «Note: …»
+  // (или любая другая фраза с двоеточием) ошибочно сворачивается в
+  // toggle «Свойства», превращая авторский контент в DB-метаданные.
+  // Требуем либо ≥2 consecutive property-параграфов, либо одиночный
+  // параграф со склеенными multi-property парами (≥3 двоеточий —
+  // реальный кейс Notion DB-export'а с merged properties).
+  if (propertyBlocks.length === 1) {
+    const text = blockPlainText(propertyBlocks[0]).trim();
+    const colonCount = (text.match(/[:：]\s/g) ?? []).length;
+    if (colonCount < 3) return blocks;
+  }
 
   // Собираем пары {key, value}: для multi-line — каждая строка парсится
   // отдельно как `Key: Value`, для single-line — режется position-based

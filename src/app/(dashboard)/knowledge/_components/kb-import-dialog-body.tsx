@@ -44,6 +44,8 @@ import {
   preprocessNotionCallouts,
   postprocessNotionCallouts,
   collectDescendantPaths,
+  resolveZipPath,
+  applyNotionMediaUrlMap,
   type NotionZipParseResult,
   type UuidToPageInfo,
 } from "@/lib/knowledge/notion-import";
@@ -362,22 +364,28 @@ export default function KbImportDialogBody({
           });
         }
 
+        // Ключуем urlMap по **resolved full-path** внутри ZIP'а
+        // (а не по basename'у) — две картинки с одинаковым именем из
+        // разных папок (`assets/image.png` и `screens/image.png`)
+        // больше не сольются в один upload (Codex P1).
         for (const ref of refs) {
           const decodedRef = (() => {
             try { return decodeURIComponent(ref); } catch { return ref; }
           })();
-          const basenameKey = normalizeBasename(
-            decodedRef.split(/[/\\]/).pop() ?? "",
-          );
-          if (!basenameKey || seen.has(basenameKey)) continue;
-          seen.add(basenameKey);
           const resolvedKey = resolveZipPath(pageDir, decodedRef);
+          if (!resolvedKey || seen.has(resolvedKey)) continue;
+          seen.add(resolvedKey);
           let imgFile =
             result.imagesByPath.get(resolvedKey) ??
             result.imagesByPath.get(decodedRef);
           if (!imgFile) {
+            // Fallback по basename'у — если zip-структура не сматчилась
+            // (битый экспорт): берём первую картинку с тем же именем.
+            const basename = normalizeBasename(
+              decodedRef.split(/[/\\]/).pop() ?? "",
+            );
             for (const [path, f] of result.imagesByPath) {
-              if (normalizeBasename(path.split("/").pop() ?? "") === basenameKey) {
+              if (normalizeBasename(path.split("/").pop() ?? "") === basename) {
                 imgFile = f;
                 break;
               }
@@ -395,12 +403,12 @@ export default function KbImportDialogBody({
             failures.push(`«${imgFile.name}»: ${upErr ?? "не удалось загрузить"}`);
             continue;
           }
-          urlMap.set(basenameKey, `kbfile://${storage_path}`);
+          urlMap.set(resolvedKey, `kbfile://${storage_path}`);
         }
 
         const blocksWithImages =
           urlMap.size > 0
-            ? applyMediaUrlMap(propsStripped, urlMap)
+            ? applyNotionMediaUrlMap(propsStripped, urlMap, pageDir)
             : propsStripped;
 
         snapshot.push({
@@ -913,14 +921,3 @@ function formatSize(bytes: number): string {
   return `${Math.round(bytes / (1024 * 102.4)) / 10} MB`;
 }
 
-function resolveZipPath(pageDir: string, relPath: string): string {
-  if (relPath.startsWith("/")) relPath = relPath.slice(1);
-  const segments = (pageDir + relPath).split("/").filter(Boolean);
-  const out: string[] = [];
-  for (const s of segments) {
-    if (s === "." || s === "") continue;
-    if (s === "..") out.pop();
-    else out.push(s);
-  }
-  return out.join("/");
-}

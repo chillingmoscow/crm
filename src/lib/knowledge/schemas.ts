@@ -81,6 +81,9 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     ...kbPropertyBase,
     type: z.literal("text"),
     value: z.string().max(2000),
+    // Сжатое отображение: single-line truncate vs full multi-line
+    // (Stage 3 polish). Default false = развёрнуто.
+    collapsed: z.boolean().optional(),
   }),
   z.object({
     ...kbPropertyBase,
@@ -113,6 +116,11 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     value: z.array(z.string().max(200)).max(50),
     options: z.array(z.string().trim().min(1).max(200)).max(50),
     optionColors: z.record(z.string(), kbPropertyColorEnum).optional(),
+  }),
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("url"),
+    value: z.string().trim().max(2048),
   }),
 ]);
 

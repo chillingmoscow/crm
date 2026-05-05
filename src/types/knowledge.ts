@@ -67,7 +67,8 @@ export type KbPropertyType =
   | "date"
   | "checkbox"
   | "select"
-  | "multi-select";
+  | "multi-select"
+  | "url";
 
 /** 10-цветная палитра для select-options. Имена — а не tailwind-class'ы —
  *  чтобы хранить в jsonb компактно и стабильно (rename класса в палитре
@@ -96,7 +97,15 @@ interface KbPropertyIconOverride {
 }
 
 export type KbProperty =
-  | ({ id: string; name: string; type: "text"; value: string } & KbPropertyIconOverride)
+  | ({
+      id: string;
+      name: string;
+      type: "text";
+      value: string;
+      /** Сжатое отображение: одна строка с ellipsis. Default `false`
+       *  (полное multi-line). Stage 3 polish — toggle в ⋯ menu. */
+      collapsed?: boolean;
+    } & KbPropertyIconOverride)
   | ({
       id: string;
       name: string;
@@ -133,6 +142,12 @@ export type KbProperty =
       options: string[];
       /** Тот же mapping что у select, переиспользуется. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
+    } & KbPropertyIconOverride)
+  | ({
+      id: string;
+      name: string;
+      type: "url";
+      value: string;
     } & KbPropertyIconOverride);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────

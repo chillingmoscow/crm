@@ -24,6 +24,10 @@ import {
   Palette,
   Check,
   ListChecks,
+  Link as LinkIcon,
+  Minimize2,
+  Maximize2,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -101,6 +105,7 @@ const TYPE_ICONS: Record<KbPropertyType, React.ComponentType<{ className?: strin
   checkbox: CheckSquare,
   select: ChevronDown,
   "multi-select": ListChecks,
+  url: LinkIcon,
 };
 
 const TYPE_LABELS: Record<KbPropertyType, string> = {
@@ -110,6 +115,7 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   checkbox: "Чекбокс",
   select: "Выбор",
   "multi-select": "Мультивыбор",
+  url: "Ссылка",
 };
 
 // Notion-style пастельная палитра. Хранятся имена в jsonb (см.
@@ -223,6 +229,8 @@ function makeProperty(type: KbPropertyType, name?: string): KbProperty {
         value: [],
         options: [],
       };
+    case "url":
+      return { id, name: baseName, type: "url", value: "" };
   }
 }
 
@@ -354,6 +362,21 @@ export function KbPageProperties({
           } as KbProperty;
         }
         return { ...fresh, id: p.id, ...carriedIcon } as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  // Toggle сжатого отображения для text-property. По дефолту (нет
+  // collapsed) считаем `false` = развёрнуто. Переключаем — записываем
+  // явный boolean.
+  const togglePropertyCollapse = (id: string) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id || p.type !== "text") return p;
+        const wasCollapsed = p.collapsed === true;
+        return { ...p, collapsed: !wasCollapsed } as KbProperty;
       });
       scheduleSave(next);
       return next;
@@ -515,6 +538,7 @@ export function KbPageProperties({
                   onChangeIcon={(icon, iconColor) =>
                     changePropertyIcon(prop.id, icon, iconColor)
                   }
+                  onToggleCollapse={() => togglePropertyCollapse(prop.id)}
                   onRemove={() => removeProperty(prop.id)}
                   onDuplicate={() => duplicateProperty(prop.id)}
                   onChangeType={(t) => changePropertyType(prop.id, t)}
@@ -565,6 +589,9 @@ interface PropertyRowProps {
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
   onChangeIcon: (icon: string | null, iconColor: string | null) => void;
+  /** Toggle для text-property: collapsed (single-line truncate) ↔
+   *  expanded (full multi-line). Применимо только к type === "text". */
+  onToggleCollapse: () => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -578,6 +605,7 @@ function PropertyRow({
   onChangeOptions,
   onChangeOptionColors,
   onChangeIcon,
+  onToggleCollapse,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -720,6 +748,19 @@ function PropertyRow({
               <Copy className="size-3.5 text-muted-foreground" />
               Дублировать
             </DropdownMenuItem>
+            {/* Свернуть / Развернуть — только для text-property
+             *  (Stage 3 polish). По дефолту — развёрнуто, click меняет
+             *  на single-line truncate. */}
+            {property.type === "text" && (
+              <DropdownMenuItem onSelect={onToggleCollapse}>
+                {property.collapsed ? (
+                  <Maximize2 className="size-3.5 text-muted-foreground" />
+                ) : (
+                  <Minimize2 className="size-3.5 text-muted-foreground" />
+                )}
+                {property.collapsed ? "Развернуть" : "Свернуть"}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onRemove}>
               <Trash2 className="size-3.5 text-destructive" />
@@ -748,17 +789,25 @@ function PropertyValueControl({
   ) => void;
 }) {
   switch (property.type) {
-    case "text":
+    case "text": {
+      const collapsed = property.collapsed === true;
       return canEdit ? (
         <TextValueControl
           value={property.value}
+          collapsed={collapsed}
           onChange={onChangeValue}
         />
       ) : (
-        <span className="text-[13px] whitespace-pre-wrap break-words">
+        <span
+          className={cn(
+            "text-[13px] break-words",
+            collapsed ? "line-clamp-1" : "whitespace-pre-wrap",
+          )}
+        >
           {property.value || "—"}
         </span>
       );
+    }
     case "number":
       return canEdit ? (
         <Input
@@ -807,6 +856,12 @@ function PropertyValueControl({
         onChangeOptions={onChangeOptions}
         onChangeOptionColors={onChangeOptionColors}
       />;
+    case "url":
+      return <UrlValueControl
+        value={property.value}
+        canEdit={canEdit}
+        onChange={onChangeValue}
+      />;
     case "multi-select":
       return <MultiSelectControl
         property={property}
@@ -818,12 +873,18 @@ function PropertyValueControl({
   }
 }
 
-/** Текстовое значение property: textarea, растущая по содержимому. */
+/** Текстовое значение property:
+ *  - `collapsed = false` (default): textarea, растущая по содержимому
+ *    (auto-grow на каждое изменение).
+ *  - `collapsed = true`: single-line `<input>` с overflow-ellipsis.
+ *    Toggle переключается через ⋯ menu (см. PropertyRow). */
 function TextValueControl({
   value,
+  collapsed,
   onChange,
 }: {
   value: string;
+  collapsed: boolean;
   onChange: (value: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
@@ -839,8 +900,26 @@ function TextValueControl({
   };
 
   useEffect(() => {
-    resize();
-  }, [value]);
+    if (!collapsed) resize();
+  }, [value, collapsed]);
+
+  if (collapsed) {
+    // Single-line input — overflow auto-truncate'ится на input'е по
+    // ширине его контейнера. На фокус scroll-x внутри input'а позволяет
+    // редактировать длинный текст без визуального обрезания cursor'а.
+    return (
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="—"
+        className="w-full bg-transparent text-[13px] outline-none truncate
+                   leading-snug placeholder:text-muted-foreground/50
+                   border border-transparent rounded px-1 -mx-1
+                   hover:border-input focus:border-input transition-colors"
+      />
+    );
+  }
 
   return (
     <textarea
@@ -855,6 +934,100 @@ function TextValueControl({
                  border border-transparent rounded px-1 -mx-1
                  hover:border-input focus:border-input transition-colors"
     />
+  );
+}
+
+/** URL-property:
+ *  - Read-only mode: `<a target="_blank">` с external-link иконкой.
+ *  - Edit mode: `<input type="url">`. На blur — нормализуем (если не
+ *    пусто и нет схемы — добавляем `https://`).
+ *
+ *  «Битая» ссылка (не https?://, mailto:, tel: префикса) не блокирует
+ *  ввод — БД хранит как есть, рендер показывает amber-border как hint
+ *  что juyer возможно опечатался. Жёсткой валидации нет (Notion-style:
+ *  принимаем любую строку, помечаем подозрительные). */
+const URL_VALID_PREFIX_RE = /^(https?:\/\/|mailto:|tel:)/i;
+
+function UrlValueControl({
+  value,
+  canEdit,
+  onChange,
+}: {
+  value: string;
+  canEdit: boolean;
+  onChange: (value: string) => void;
+}) {
+  const trimmed = value.trim();
+  const looksValid = trimmed.length === 0 || URL_VALID_PREFIX_RE.test(trimmed);
+
+  if (!canEdit) {
+    if (!trimmed) {
+      return <span className="text-[13px] text-muted-foreground/50">—</span>;
+    }
+    if (!looksValid) {
+      return <span className="text-[13px] truncate">{trimmed}</span>;
+    }
+    return (
+      <a
+        href={trimmed}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-[13px] text-brand hover:underline truncate"
+      >
+        <span className="truncate">{trimmed}</span>
+        <ExternalLink className="size-3 shrink-0 opacity-60" />
+      </a>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 w-full">
+      <input
+        type="url"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={(e) => {
+          const v = e.target.value.trim();
+          // Auto-prefix https:// если юзер ввёл URL без схемы (типичный
+          // паттерн «example.com» — добавляем https). Не трогаем
+          // mailto:/tel:, пустую строку, и тех, у кого уже схема.
+          if (
+            v.length > 0 &&
+            !URL_VALID_PREFIX_RE.test(v) &&
+            // эвристика: что-то с точкой и без пробелов = домен
+            /\.[a-z]{2,}/i.test(v) &&
+            !/\s/.test(v)
+          ) {
+            onChange(`https://${v}`);
+          } else if (v !== value) {
+            onChange(v);
+          }
+        }}
+        placeholder="https://…"
+        className={cn(
+          "flex-1 min-w-0 bg-transparent text-[13px] outline-none truncate",
+          "border rounded px-1 -mx-1 transition-colors",
+          looksValid
+            ? "border-transparent hover:border-input focus:border-input"
+            : "border-amber-400/60 focus:border-amber-500",
+        )}
+        aria-invalid={!looksValid}
+      />
+      {looksValid && trimmed.length > 0 && (
+        <a
+          href={trimmed}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Открыть ссылку"
+          className="size-6 inline-flex items-center justify-center rounded
+                     text-muted-foreground/60 hover:text-foreground hover:bg-accent
+                     transition-colors"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="size-3.5" />
+        </a>
+      )}
+    </div>
   );
 }
 

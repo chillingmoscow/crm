@@ -56,7 +56,25 @@ export const kbSearchSchema = z.object({
 const kbPropertyBase = {
   id: z.string().min(1).max(32),
   name: z.string().trim().min(1).max(80),
+  // Icon override (Stage 2): Lucide-name из реестра KB_ICONS. Если нет —
+  // UI рендерит default TYPE_ICONS[type].
+  icon: z.string().trim().max(64).optional(),
+  // Тинт для Lucide (тот же color-name что у kb_pages.icon_color).
+  iconColor: z.string().trim().max(16).optional(),
 };
+
+const kbPropertyColorEnum = z.enum([
+  "stone",
+  "amber",
+  "orange",
+  "yellow",
+  "green",
+  "teal",
+  "sky",
+  "indigo",
+  "purple",
+  "pink",
+]);
 
 export const kbPropertySchema = z.discriminatedUnion("type", [
   z.object({
@@ -87,25 +105,14 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     type: z.literal("select"),
     value: z.string().max(200).nullable(),
     options: z.array(z.string().trim().min(1).max(200)).max(50),
-    // Per-option override цвета (Stage 1 polish). Map должен быть
-    // подмножеством options — UI чистит «висячие» записи на save'е.
-    optionColors: z
-      .record(
-        z.string(),
-        z.enum([
-          "stone",
-          "amber",
-          "orange",
-          "yellow",
-          "green",
-          "teal",
-          "sky",
-          "indigo",
-          "purple",
-          "pink",
-        ]),
-      )
-      .optional(),
+    optionColors: z.record(z.string(), kbPropertyColorEnum).optional(),
+  }),
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("multi-select"),
+    value: z.array(z.string().max(200)).max(50),
+    options: z.array(z.string().trim().min(1).max(200)).max(50),
+    optionColors: z.record(z.string(), kbPropertyColorEnum).optional(),
   }),
 ]);
 

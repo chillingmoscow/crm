@@ -1084,6 +1084,7 @@ input:-webkit-autofill {
   max-width: 100%;
 }
 .bn-sheerly .kb-video-embed {
+  position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   border-radius: 8px;
@@ -1095,6 +1096,33 @@ input:-webkit-autofill {
   height: 100%;
   border: 0;
   display: block;
+}
+.bn-sheerly .kb-video-native {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+/* Overlay для discoverability: первый клик по видео-блоку должен
+ * выделить его как ProseMirror NodeSelection (чтобы появился
+ * FormattingToolbar — align / replace / delete и т.д.), а не
+ * проиграть видео. Native `<video controls>` и iframe съедают клик,
+ * поэтому накрываем их прозрачным `<button>`-overlay'ем. После
+ * `selectedNode`-state'а ProseMirror помечает обёртку
+ * `.ProseMirror-selectednode` — overlay снимаем (pointer-events:
+ * none), плеер становится доступен для play/seek/fullscreen. */
+.bn-sheerly .kb-video-overlay {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.bn-sheerly .ProseMirror-selectednode .kb-video-overlay {
+  pointer-events: none;
+  display: none;
 }
 /* Direct video element — по дефолту растягивался произвольно. Даём
  * максимум 640px при отсутствии previewWidth, чтобы видеоплеер не

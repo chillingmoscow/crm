@@ -110,15 +110,53 @@ export function KbThreadGutterIndicators() {
     window.addEventListener("scroll", onLayout, true);
     window.addEventListener("resize", onLayout);
     // Editor change — выправляет, когда content layout пересчитан
-    // (insert/delete/typing).
+    // (insert/delete/typing). Через rAF, чтобы DOM успел отдать
+    // новые bounding rect'ы (BN apply'ит updateBlock'и в синхронной
+    // части `onChange`, до browser paint'а — getBoundingClientRect
+    // ещё видит старую разметку).
     const offChange = (
       editor as unknown as {
         onChange: (fn: () => void) => () => void;
       }
-    ).onChange(onLayout);
+    ).onChange(() => {
+      requestAnimationFrame(recompute);
+    });
+
+    // ResizeObserver — главное для image/video-resize'а. Resize-handle
+    // BN'а пушит inline-style.width на `.bn-visual-media-wrapper` через
+    // pointer-move без editor-transaction'а, поэтому ни MutationObserver
+    // (attributeFilter на thread-id), ни onChange нас не разбудят. RO
+    // на сам editor-root ловит ВСЕ изменения layout-размеров его
+    // descendants → пересчёт позиций индикаторов синхронно с resize'ом.
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(recompute);
+    });
+    ro.observe(editorEl);
+    // Дополнительно — все resizable-wrapper'ы (image / video / file).
+    // .bn-visual-media-wrapper меняет свою width inline-style'ом, root
+    // editor-element при этом не меняет общий размер, и outer RO
+    // не получает entry. Подписка на каждый wrapper отдельно гарантирует
+    // событие. Список wrapper'ов перепроверяется на MutationObserver-
+    // тике (новые блоки).
+    const observedMedia = new WeakSet<HTMLElement>();
+    function ensureMediaResizeObserved() {
+      const wrappers = editorEl!.querySelectorAll<HTMLElement>(
+        ".bn-visual-media-wrapper",
+      );
+      wrappers.forEach((el) => {
+        if (observedMedia.has(el)) return;
+        observedMedia.add(el);
+        ro.observe(el);
+      });
+    }
+    ensureMediaResizeObserved();
+    const mediaWatcher = new MutationObserver(ensureMediaResizeObserved);
+    mediaWatcher.observe(editorEl, { childList: true, subtree: true });
 
     return () => {
       observer.disconnect();
+      mediaWatcher.disconnect();
+      ro.disconnect();
       window.removeEventListener("scroll", onLayout, true);
       window.removeEventListener("resize", onLayout);
       offChange();

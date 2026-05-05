@@ -71,6 +71,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.48.1
         version: 2.97.0
+      '@tiptap/core':
+        specifier: ^3.22.5
+        version: 3.22.5(@tiptap/pm@3.22.5)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

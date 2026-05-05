@@ -74,6 +74,7 @@ import {
 } from "@/lib/knowledge/blocks-media";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
 import { kbVideoBlockSpec } from "@/components/knowledge/blocks/kb-video-block";
+import { KbHeadingEnterExtension } from "@/components/knowledge/blocks/kb-heading-enter-extension";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
 import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-composer";
@@ -485,7 +486,16 @@ export function KbBlockNoteEditor({
     uploadFile: stableUploadFile,
     resolveFileUrl: stableResolveFileUrl,
     dictionary,
-    extensions: commentsExtension ? [commentsExtension] : undefined,
+    // BN-internal'ная типизация `extensions` ждёт `Extension |
+    // ExtensionFactoryInstance`, но проверяет identity через свой
+    // re-export @tiptap/core; наш direct-import @tiptap/core type'ы
+    // не сходятся 1:1 (хотя runtime-shape идентичен — версия 3.22.5
+    // та же). `as never` — стандартный приём здесь, как делает BN
+    // в кастомных extension'ах.
+    extensions: [
+      KbHeadingEnterExtension as never,
+      ...(commentsExtension ? [commentsExtension] : []),
+    ],
     // Advanced Tables (BlockNote 0.49 built-in, без отдельного пакета):
     //   splitCells           — разбить ячейку на N (через context-menu по правому клику)
     //   cellBackgroundColor  — раскрашивать фон ячеек

@@ -64,10 +64,12 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
 
 const SAVE_DEBOUNCE_MS = 1500;
 
-/** Создаёт пустое property указанного типа с дефолтным `name`. */
+/** Создаёт пустое property указанного типа с дефолтным `name`.
+ *  Default name = label типа («Текст» / «Число» / …) — без префикса
+ *  «Свойство»; юзер сразу переименовывает в осмысленное. */
 function makeProperty(type: KbPropertyType, name?: string): KbProperty {
   const id = nanoid(8);
-  const baseName = name ?? `Свойство ${TYPE_LABELS[type].toLowerCase()}`;
+  const baseName = name ?? TYPE_LABELS[type];
   switch (type) {
     case "text":
       return { id, name: baseName, type: "text", value: "" };
@@ -89,12 +91,10 @@ export function KbPageProperties({
   canEdit,
 }: KbPagePropertiesProps) {
   const [properties, setProperties] = useState<KbProperty[]>(initialProperties);
-  const [saving, setSaving] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>(JSON.stringify(initialProperties));
 
-  // Debounced save: каждое изменение reset'ит таймер на 1.5s. На unmount
-  // (router.push, закрытие dialog'а) — flush'имся синхронно.
+  // Debounced save: каждое изменение reset'ит таймер на 1.5s.
   const scheduleSave = (next: KbProperty[]) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -105,7 +105,6 @@ export function KbPageProperties({
   const flushSave = async (next: KbProperty[]) => {
     const serialized = JSON.stringify(next);
     if (serialized === lastSavedRef.current) return;
-    setSaving(true);
     const action =
       mode === "page" ? saveKbPageProperties : saveKbTemplateProperties;
     const payload =
@@ -113,7 +112,6 @@ export function KbPageProperties({
         ? { pageId: targetId, properties: next }
         : { templateId: targetId, properties: next };
     const { error } = await action(payload as never);
-    setSaving(false);
     if (error) {
       toast.error(`Не удалось сохранить свойства: ${error}`);
       return;
@@ -193,7 +191,7 @@ export function KbPageProperties({
                 size="sm"
                 className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
               >
-                <Plus className="size-3.5" /> свойство
+                <Plus className="size-3.5" /> Добавить свойство
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-[160px]">
@@ -208,11 +206,6 @@ export function KbPageProperties({
               })}
             </DropdownMenuContent>
           </DropdownMenu>
-          {saving && (
-            <span className="text-[11px] text-muted-foreground/70">
-              сохранение…
-            </span>
-          )}
         </div>
       )}
     </section>
@@ -310,14 +303,14 @@ function PropertyValueControl({
   switch (property.type) {
     case "text":
       return canEdit ? (
-        <Input
+        <TextValueControl
           value={property.value}
-          onChange={(e) => onChangeValue(e.target.value)}
-          placeholder="—"
-          className="h-7 text-[13px] border-transparent bg-transparent px-0 hover:border-input focus:border-input"
+          onChange={onChangeValue}
         />
       ) : (
-        <span className="text-[13px]">{property.value || "—"}</span>
+        <span className="text-[13px] whitespace-pre-wrap break-words">
+          {property.value || "—"}
+        </span>
       );
     case "number":
       return canEdit ? (
@@ -367,6 +360,50 @@ function PropertyValueControl({
         onChangeOptions={onChangeOptions}
       />;
   }
+}
+
+/** Текстовое значение property: textarea, растущая по содержимому
+ *  (как title в KbPageEditor). Enter не блокируем — длинные значения
+ *  могут содержать переносы. Без border / bg по дефолту, чтобы плавно
+ *  жить рядом с другими value-control'ами; рамка появляется на hover/
+ *  focus. */
+function TextValueControl({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  // Auto-grow: на каждом изменении сбрасываем height в auto и выставляем
+  // в scrollHeight. Сброс нужен иначе scrollHeight «зависает» на
+  // максимальной достигнутой высоте и не сжимается обратно при удалении.
+  const resize = () => {
+    const ta = ref.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    resize();
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onInput={resize}
+      placeholder="—"
+      className="w-full bg-transparent text-[13px] outline-none resize-none overflow-hidden
+                 leading-snug placeholder:text-muted-foreground/50
+                 border border-transparent rounded px-1 -mx-1
+                 hover:border-input focus:border-input transition-colors"
+    />
+  );
 }
 
 function SelectControl({

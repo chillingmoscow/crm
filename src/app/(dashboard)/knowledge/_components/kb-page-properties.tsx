@@ -28,6 +28,7 @@ import {
   Minimize2,
   Maximize2,
   Ruler,
+  Star,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -117,6 +118,7 @@ const TYPE_ICONS: Record<KbPropertyType, React.ComponentType<{ className?: strin
   select: ChevronDown,
   "multi-select": ListChecks,
   url: LinkIcon,
+  rating: Star,
 };
 
 const TYPE_LABELS: Record<KbPropertyType, string> = {
@@ -127,6 +129,7 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   select: "Выбор",
   "multi-select": "Мультивыбор",
   url: "Ссылка",
+  rating: "Рейтинг",
 };
 
 // Notion-style пастельная палитра. Хранятся имена в jsonb (см.
@@ -242,6 +245,8 @@ function makeProperty(type: KbPropertyType, name?: string): KbProperty {
       };
     case "url":
       return { id, name: baseName, type: "url", value: "" };
+    case "rating":
+      return { id, name: baseName, type: "rating", value: null };
   }
 }
 
@@ -420,6 +425,23 @@ export function KbPageProperties({
     });
   };
 
+  // Меняет шкалу rating-property. По дефолту 5; допустимые 3 / 5 / 10.
+  // При сужении шкалы (например 10 → 5) clamp'им value сверху.
+  const changeRatingScale = (id: string, max: number) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id || p.type !== "rating") return p;
+        const updated: typeof p = { ...p, max };
+        if (updated.value !== null && updated.value > max) {
+          updated.value = max;
+        }
+        return updated as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
   // Меняет icon override property. value=null/undefined для обоих
   // полей = «без override» (рендерим default TYPE_ICONS[type]).
   const changePropertyIcon = (
@@ -592,6 +614,9 @@ export function KbPageProperties({
                   }
                   onToggleCollapse={() => togglePropertyCollapse(prop.id)}
                   onChangeUnit={(unit) => changePropertyUnit(prop.id, unit)}
+                  onChangeRatingScale={(max) =>
+                    changeRatingScale(prop.id, max)
+                  }
                   onRemove={() => removeProperty(prop.id)}
                   onDuplicate={() => duplicateProperty(prop.id)}
                   onChangeType={(t) => changePropertyType(prop.id, t)}
@@ -659,6 +684,8 @@ interface PropertyRowProps {
   onToggleCollapse: () => void;
   /** Меняет unit на number-property (Stage 4). `null` = «без единицы». */
   onChangeUnit: (unit: Unit | null) => void;
+  /** Меняет max-шкалу rating-property (Stage 5). 3 / 5 / 10. */
+  onChangeRatingScale: (max: number) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -674,6 +701,7 @@ function PropertyRow({
   onChangeIcon,
   onToggleCollapse,
   onChangeUnit,
+  onChangeRatingScale,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -862,6 +890,36 @@ function PropertyRow({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             )}
+            {/* Шкала — только для rating (Stage 5). 3 / 5 / 10. */}
+            {property.type === "rating" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Star className="size-3.5 text-muted-foreground" />
+                  Шкала
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[120px]">
+                  {[3, 5, 10].map((max) => {
+                    const isCurrent = (property.max ?? 5) === max;
+                    return (
+                      <DropdownMenuItem
+                        key={max}
+                        onSelect={() => onChangeRatingScale(max)}
+                      >
+                        <span className="text-[13px] tabular-nums w-6 shrink-0">
+                          {max}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {max === 3 ? "звезды" : "звёзд"}
+                        </span>
+                        {isCurrent && (
+                          <Check className="ml-auto size-3.5" />
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onRemove}>
               <Trash2 className="size-3.5 text-destructive" />
@@ -995,6 +1053,13 @@ function PropertyValueControl({
       return <UrlValueControl
         value={property.value}
         collapsed={property.urlCollapsed === true}
+        canEdit={canEdit}
+        onChange={onChangeValue}
+      />;
+    case "rating":
+      return <RatingValueControl
+        value={property.value}
+        max={property.max ?? 5}
         canEdit={canEdit}
         onChange={onChangeValue}
       />;
@@ -1867,6 +1932,110 @@ function NumberValueControl({
         >
           {suffix}
         </span>
+      )}
+    </div>
+  );
+}
+
+/** Rating value-control: ★★★☆☆ строка из звёзд. Click по N-й звезде
+ *  ставит value = N. Click по уже-выбранной — сбрасывает в null. Hover
+ *  по звезде показывает preview (полупрозрачный fill).
+ *
+ *  Read-only: те же звёзды без интерактивности. */
+function RatingValueControl({
+  value,
+  max,
+  canEdit,
+  onChange,
+}: {
+  value: number | null;
+  max: number;
+  canEdit: boolean;
+  onChange: (value: number | null) => void;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const effective = hover ?? value ?? 0;
+
+  if (!canEdit) {
+    return (
+      <div
+        className="inline-flex items-center gap-0.5"
+        aria-label={
+          value === null
+            ? "Не оценено"
+            : `Оценка ${value} из ${max}`
+        }
+      >
+        {Array.from({ length: max }).map((_, i) => {
+          const filled = (value ?? 0) > i;
+          return (
+            <Star
+              key={i}
+              className={cn(
+                "size-3.5",
+                filled
+                  ? "fill-amber-400 text-amber-400"
+                  : "text-muted-foreground/30",
+              )}
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="inline-flex items-center gap-0.5"
+      onMouseLeave={() => setHover(null)}
+      role="radiogroup"
+      aria-label={`Оценка от 0 до ${max}`}
+    >
+      {Array.from({ length: max }).map((_, i) => {
+        const star = i + 1;
+        const filled = effective >= star;
+        const isHoverPreview = hover !== null && hover >= star;
+        return (
+          <button
+            key={i}
+            type="button"
+            role="radio"
+            aria-checked={value === star}
+            aria-label={`${star} из ${max}`}
+            onMouseEnter={() => setHover(star)}
+            onClick={() => {
+              // Click по уже-выбранной звезде = сбросить.
+              onChange(value === star ? null : star);
+            }}
+            className={cn(
+              "size-5 inline-flex items-center justify-center rounded transition-colors",
+              "hover:bg-amber-100/60 dark:hover:bg-amber-900/20",
+            )}
+          >
+            <Star
+              className={cn(
+                "size-3.5 transition-colors",
+                filled
+                  ? isHoverPreview && hover !== null && (value ?? 0) < star
+                    ? "fill-amber-300 text-amber-400/80"
+                    : "fill-amber-400 text-amber-400"
+                  : "text-muted-foreground/30",
+              )}
+            />
+          </button>
+        );
+      })}
+      {value !== null && (
+        <button
+          type="button"
+          aria-label="Сбросить оценку"
+          onClick={() => onChange(null)}
+          className="ml-1 size-5 inline-flex items-center justify-center rounded
+                     text-muted-foreground/40 hover:text-destructive transition-colors
+                     opacity-0 group-hover/row:opacity-100"
+        >
+          <X className="size-3" />
+        </button>
       )}
     </div>
   );

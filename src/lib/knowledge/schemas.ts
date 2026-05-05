@@ -150,6 +150,12 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     value: z.string().trim().max(2048),
     urlCollapsed: z.boolean().optional(),
   }),
+  z.object({
+    ...kbPropertyBase,
+    type: z.literal("rating"),
+    value: z.number().int().min(0).max(10).nullable(),
+    max: z.number().int().min(1).max(10).optional(),
+  }),
 ]);
 
 // Cap на массив — sanity, не функциональное ограничение. На странице

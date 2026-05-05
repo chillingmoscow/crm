@@ -69,7 +69,8 @@ export type KbPropertyType =
   | "checkbox"
   | "select"
   | "multi-select"
-  | "url";
+  | "url"
+  | "rating";
 
 /** 10-цветная палитра для select-options. Имена — а не tailwind-class'ы —
  *  чтобы хранить в jsonb компактно и стабильно (rename класса в палитре
@@ -157,6 +158,15 @@ export type KbProperty =
        *  текста ссылки. Сама href остаётся полной. Default `false` =
        *  показывать как есть. */
       urlCollapsed?: boolean;
+    } & KbPropertyIconOverride)
+  | ({
+      id: string;
+      name: string;
+      type: "rating";
+      /** Текущее значение от 0 до `max`. null = не задано. */
+      value: number | null;
+      /** Шкала. По дефолту 5. Допустимые: 3 / 5 / 10. */
+      max?: number;
     } & KbPropertyIconOverride);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────

@@ -18,6 +18,8 @@ import {
 } from "@blocknote/react";
 import { Volume2 } from "lucide-react";
 
+import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
+
 function KbAudioBlock(
   props: ReactCustomBlockRenderProps<typeof createAudioBlockConfig>,
 ) {
@@ -26,6 +28,21 @@ function KbAudioBlock(
   // в node_modules/.../blocks/Audio/block.tsx — там тот же приём.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wrapperProps = props as any;
+  const url = props.block.props.url ?? "";
+  const showPreview = props.block.props.showPreview;
+
+  // showPreview=false → BN-default рендерил file-иконку. Рендерим
+  // свой chip с audio-иконкой.
+  if (url !== "" && showPreview === false) {
+    return (
+      <KbMediaChip
+        icon={<Volume2 size={18} strokeWidth={1.75} />}
+        label={props.block.props.name || url}
+        variant="minimal"
+      />
+    );
+  }
+
   return (
     <FileBlockWrapper
       {...wrapperProps}

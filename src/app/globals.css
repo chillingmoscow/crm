@@ -273,27 +273,31 @@ input:-webkit-autofill {
   line-height: 1.3;
 }
 
-/* Загруженный файл (showPreview=false / тип=file): chip с border'ом
-   и filename, на hover bg-accent чтобы юзер видел кликабельность
-   (откроет formatting-toolbar с rename / download / delete). */
-.bn-sheerly [data-file-block] .bn-file-name-with-icon {
+/* Свёрнутая (collapsed / showPreview=false / type=file) репрезентация
+   media-блока — наш `<KbMediaChip>` (см. kb-media-chip.tsx). Заменяет
+   BN-default'ный `.bn-file-name-with-icon` потому что тот хардкодит
+   file-иконку для всех типов и не умеет показывать type-specific
+   иконку (video для видео, аудио для аудио).
+
+   Два варианта:
+     • `card` — pill с border'ом + bg, для file-блоков (у file нет
+       preview-режима — это основное представление, нужно сделать его
+       визуально читаемым).
+     • `minimal` — без border'а / bg, для свернутых video/audio/image
+       (юзер обычно скоро раскроет назад, pill в обычном тексте
+       перегружал ряд). */
+.bn-sheerly .kb-media-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background-color: hsl(var(--muted) / 0.5);
-  border: 1px solid hsl(var(--border));
   width: fit-content;
   max-width: 100%;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.bn-sheerly [data-file-block] .bn-file-name-with-icon:hover,
-.bn-sheerly [data-file-block].ProseMirror-selectednode
-  .bn-file-name-with-icon {
-  background-color: hsl(var(--accent));
-}
-.bn-sheerly [data-file-block] .bn-file-icon {
-  display: flex;
+.bn-sheerly .kb-media-chip__icon {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 20px;
@@ -301,15 +305,41 @@ input:-webkit-autofill {
   flex-shrink: 0;
   color: hsl(var(--muted-foreground));
 }
-.bn-sheerly [data-file-block] .bn-file-icon svg {
+.bn-sheerly .kb-media-chip__icon svg {
   width: 18px;
   height: 18px;
 }
-.bn-sheerly [data-file-block] .bn-file-name {
+.bn-sheerly .kb-media-chip__label {
   font-size: 14px;
   line-height: 1.3;
   color: hsl(var(--foreground));
   word-break: break-all;
+}
+
+/* Card-variant — для file-блоков (всегда схлопнут). Pill в стиле DS:
+   muted-фон, 1px border, hover-accent, padding/radius под наш rhythm. */
+.bn-sheerly .kb-media-chip--card {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background-color: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  transition: background-color 120ms ease;
+}
+.bn-sheerly .kb-media-chip--card:hover,
+.bn-sheerly .ProseMirror-selectednode .kb-media-chip--card {
+  background-color: hsl(var(--accent));
+}
+
+/* Minimal-variant — для свернутых video/audio/image. Без border'а и
+   фона, тонкий padding для tap-area. На hover — лёгкий accent. */
+.bn-sheerly .kb-media-chip--minimal {
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 120ms ease;
+}
+.bn-sheerly .kb-media-chip--minimal:hover,
+.bn-sheerly .ProseMirror-selectednode .kb-media-chip--minimal {
+  background-color: hsl(var(--accent) / 0.6);
 }
 
 /* @-mention chip'ы (kbPageMention / kbStaffMention) — атомарные inline-

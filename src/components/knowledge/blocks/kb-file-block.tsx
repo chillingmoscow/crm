@@ -17,6 +17,8 @@ import {
 } from "@blocknote/react";
 import { File as FileIcon } from "lucide-react";
 
+import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
+
 function KbFileBlock(
   props: ReactCustomBlockRenderProps<typeof createFileBlockConfig>,
 ) {
@@ -24,6 +26,24 @@ function KbFileBlock(
   // используем any как делает default ReactFileBlock в BN-react.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wrapperProps = props as any;
+  const url = props.block.props.url ?? "";
+
+  // Загруженный файл (url непустой) — рендерим свой `KbMediaChip` в
+  // card-варианте. Раньше FileBlockWrapper рендерил BN-default'ный
+  // `FileNameWithIcon` с тем же RiFile2Line хардкоднутой иконкой,
+  // плюс scoped-CSS не подхватывался (см. ниже про meta) — выглядело
+  // максимально голо: маленькая иконка + filename inline. Теперь
+  // pill в стиле DS: иконка + filename, border + bg + hover-accent.
+  if (url !== "") {
+    return (
+      <KbMediaChip
+        icon={<FileIcon size={18} strokeWidth={1.75} />}
+        label={props.block.props.name || url}
+        variant="card"
+      />
+    );
+  }
+
   return (
     <FileBlockWrapper
       {...wrapperProps}
@@ -47,6 +67,11 @@ function FileToExternalHTML(
 }
 
 export const kbFileBlockSpec = createReactBlockSpec(createFileBlockConfig, () => ({
+  // BN использует `meta.fileBlockAccept !== undefined` чтобы
+  // проставить `data-file-block` атрибут на DOM-обёртку блока. Без
+  // этого `[data-file-block] .bn-add-file-button` CSS не матчится и
+  // empty-state CTA («Добавить файл») рендерится без pill-стилей. */
+  meta: { fileBlockAccept: ["*/*"] },
   render: KbFileBlock,
   parse: fileParse(),
   toExternalHTML: FileToExternalHTML,

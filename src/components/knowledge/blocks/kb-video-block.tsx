@@ -20,6 +20,8 @@ import {
   useResolveUrl,
 } from "@blocknote/react";
 
+import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
+
 // ─── URL detection ────────────────────────────────────────────────
 
 interface EmbedTarget {
@@ -221,6 +223,24 @@ function KbVideoBlock(
   // в node_modules/.../blocks/Video/block.tsx — там тот же приём.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wrapperProps = props as any;
+  const url = props.block.props.url ?? "";
+  const showPreview = props.block.props.showPreview;
+
+  // showPreview=false → BN-default рендерил `FileNameWithIcon` с
+  // хардкоднутой file-иконкой (RiFile2Line), что юзера сбивало с
+  // толку — у видео должна быть видео-иконка. Рендерим свой
+  // KbMediaChip с правильной иконкой. URL непустой — empty-state
+  // wrapper всё равно сам обработает.
+  if (url !== "" && showPreview === false) {
+    return (
+      <KbMediaChip
+        icon={<VideoIcon size={18} strokeWidth={1.75} />}
+        label={props.block.props.name || url}
+        variant="minimal"
+      />
+    );
+  }
+
   return (
     <ResizableFileBlockWrapper
       {...wrapperProps}

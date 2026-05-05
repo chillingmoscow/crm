@@ -123,9 +123,29 @@ function KbSlashItem({
   const handleEnter = () => {
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
+      // На wrapperRef форсим block-layout (см. style ниже), чтобы у
+      // div-а был свой bounding-box по ширине Item'а. Раньше тут было
+      // `display: contents` — он убирал box из layout'а, и
+      // getBoundingClientRect возвращал {0,0,0,0}, а tooltip уезжал
+      // в верхний левый угол viewport'а (Codex P2 на PR #109).
       const rect = wrapperRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      setTipPos({ left: rect.right + 8, top: rect.top });
+      if (!rect || rect.width === 0) return;
+      // Tooltip позиционируется справа; если не помещается — слева;
+      // если и слева не помещается (узкий viewport / меню вплотную к
+      // левому краю) — clamp в видимую область с 8px gutter'ом, чтобы
+      // tooltip не уезжал в негативный X (Codex P2 на PR #112).
+      const TIP_W = 260;
+      const margin = 8;
+      const rightCandidate = rect.right + margin;
+      const fitsRight = rightCandidate + TIP_W <= window.innerWidth - margin;
+      let left: number;
+      if (fitsRight) {
+        left = rightCandidate;
+      } else {
+        const leftCandidate = rect.left - TIP_W - margin;
+        left = Math.max(margin, leftCandidate);
+      }
+      setTipPos({ left, top: rect.top });
     }, HOVER_HOLD_MS);
   };
 
@@ -137,15 +157,15 @@ function KbSlashItem({
     setTipPos(null);
   };
 
+  // Wrapper — обычный block-element. Чтобы flex-column на Root'е
+  // не ломался, он растягивается на полную ширину parent'а; visual-
+  // layout пункта определяет сам Item внутри.
   return (
     <div
       ref={wrapperRef}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
-      // display:contents чтобы wrapper не ломал flex-column-layout
-      // BN-shadcn'овского `Components.SuggestionMenu.Root`. Item внутри
-      // ведёт себя как direct child Root'а.
-      style={{ display: "contents" }}
+      className="kb-slash-item-wrap"
     >
       <ItemComponent
         className="bn-suggestion-menu-item"

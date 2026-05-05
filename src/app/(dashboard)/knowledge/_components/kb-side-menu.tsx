@@ -1,10 +1,9 @@
 "use client";
 
 import type { FC } from "react";
-import { Copy, CopyPlus, Palette, Trash2 } from "lucide-react";
+import { Copy, CopyPlus, Trash2 } from "lucide-react";
 import { SideMenuExtension } from "@blocknote/core";
 import {
-  BlockColorsItem,
   DragHandleMenu,
   RemoveBlockItem,
   SideMenu,
@@ -14,6 +13,8 @@ import {
   useExtensionState,
 } from "@blocknote/react";
 import { toast } from "sonner";
+
+import { KbColorPickerItem } from "@/app/(dashboard)/knowledge/_components/kb-color-picker-item";
 
 /**
  * Custom drag-handle menu для KB-страниц. Дополняет default-меню
@@ -89,17 +90,11 @@ const KbDragHandleMenu: FC = () => (
   <DragHandleMenu>
     <CopyBlockItem />
     <DuplicateBlockItem />
-    {/* BlockColorsItem / RemoveBlockItem из @blocknote/react рендерят
-     *  Generic.Menu.Item без icon-prop'а — у них только children. По
-     *  дизайну (sheerly.pen frame 07 · W8wDJ) у каждого пункта меню
-     *  должна быть иконка слева, а «Удалить» — destructive-цвет.
-     *  Подставляем lucide-иконки внутрь children, чтобы flex-row-layout
-     *  rendering BN автоматически выстроил их рядом с label'ом. */}
-    <BlockColorsItem>
-      <span className="bn-kb-menu-item-label">
-        <Palette className="size-4" /> Цвет
-      </span>
-    </BlockColorsItem>
+    {/* `KbColorPickerItem` — наш кастомный sub-trigger с правильной
+     *  Palette-иконкой; внутри открывает grid-сетку 5 колонок (frame
+     *  08 · GkjMx). Полностью заменяет BN-default'ный
+     *  `BlockColorsItem`, который рендерит unstyled vertical-list. */}
+    <KbColorPickerItem>Цвет</KbColorPickerItem>
     <RemoveBlockItem>
       <span className="bn-kb-menu-item-label bn-kb-menu-item-destructive">
         <Trash2 className="size-4" /> Удалить

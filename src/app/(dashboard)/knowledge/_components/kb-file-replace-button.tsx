@@ -1,15 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { ImagePlus } from "lucide-react";
-import { useBlockNoteEditor, useEditorState } from "@blocknote/react";
+import { Film } from "lucide-react";
+import {
+  useBlockNoteEditor,
+  useComponentsContext,
+  useEditorState,
+} from "@blocknote/react";
 
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 import { KbFilePanel } from "@/app/(dashboard)/knowledge/_components/kb-file-panel";
 
 /**
@@ -20,14 +23,17 @@ import { KbFilePanel } from "@/app/(dashboard)/knowledge/_components/kb-file-pan
  * перехватывает только initial-add-block flow, а replace-button BN
  * рендерит панель напрямую через свой Popover.
  *
- * Эта обёртка использует тот же KbFilePanel что и initial-add: drop-
- * zone + URL-tab под дизайн sheerly.pen frame 13b · rNEwo. Юзер
- * видит идентичный UI при добавлении и при замене.
+ * Используем Components.FormattingToolbar.Button (через
+ * useComponentsContext) вместо нашего shadcn `<Button>` — гарантирует
+ * совпадение геометрии с соседними BN-кнопками (alignment / nest /
+ * link / etc.) и общий TooltipProvider'ом для красивых tooltip'ов
+ * вместо native-title.
  *
  * Подменяется в `getFormattingToolbarItems(...)` через `key === "replaceFileButton"`.
  */
 export function KbFileReplaceButton() {
   const editor = useBlockNoteEditor();
+  const Components = useComponentsContext();
   const [open, setOpen] = useState(false);
 
   // Подписка на selection: рендерим кнопку только если выбран один
@@ -48,31 +54,19 @@ export function KbFileReplaceButton() {
     },
   });
 
-  if (!block) return null;
+  if (!Components || !block) return null;
 
   const tooltip = TOOLTIP[block.type] ?? TOOLTIP.file;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        {/* shadcn `Button variant=ghost size=default` — тот же компонент,
-            который BN-shadcn применяет к link/comment/AI кнопкам через
-            FormattingToolbar.Button (см. kb-ai-formatting-button.tsx).
-            Без него raw-button визуально на 6-8px меньше остальных
-            кнопок ряда — выбивается из toolbar'а. */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="default"
-          aria-label={tooltip}
-          title={tooltip}
-          // mousedown.preventDefault — иначе клик стирает selection в
-          // редакторе и block из selector'а становится null до того,
-          // как успеет открыться popover (race с focus-loss'ом).
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <ImagePlus className="size-4" strokeWidth={1.75} />
-        </Button>
+        <Components.FormattingToolbar.Button
+          mainTooltip={tooltip}
+          label={tooltip}
+          icon={<Film className="size-4" strokeWidth={1.75} />}
+          onClick={() => setOpen((v) => !v)}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"

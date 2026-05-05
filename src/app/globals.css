@@ -228,6 +228,90 @@ input:-webkit-autofill {
   transition: background-color 120ms ease;
 }
 
+/* ──────────────────────────────────────────────────────────────────
+ * File-block empty-state CTA («Добавить файл» / image / video / audio).
+ *
+ * BN-default стилизует `.bn-add-file-button` как pill (bg #f2f1ee,
+ * padding 12px), но `.bn-shadcn` scope перетирает фон, оставляя
+ * row-flex без визуальных границ — выглядит «голо». Возвращаем pill
+ * в стиле DS: muted-фон, 1px border, hover, и подгоняем размеры
+ * под наш rhythm (padding 10/14, gap 12, radius 8).
+ * ──────────────────────────────────────────────────────────────── */
+.bn-sheerly [data-file-block] .bn-add-file-button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background-color: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+  width: fit-content;
+  max-width: 100%;
+}
+.bn-sheerly .bn-editor[contenteditable="true"]
+  [data-file-block] .bn-add-file-button:hover {
+  background-color: hsl(var(--muted));
+  border-color: hsl(var(--border));
+}
+.bn-sheerly [data-file-block] .bn-add-file-button-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.bn-sheerly [data-file-block] .bn-add-file-button-icon svg {
+  width: 20px;
+  height: 20px;
+}
+.bn-sheerly [data-file-block] .bn-add-file-button-text {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+/* Загруженный файл (showPreview=false / тип=file): chip с border'ом
+   и filename, на hover bg-accent чтобы юзер видел кликабельность
+   (откроет formatting-toolbar с rename / download / delete). */
+.bn-sheerly [data-file-block] .bn-file-name-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background-color: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  width: fit-content;
+  max-width: 100%;
+}
+.bn-sheerly [data-file-block] .bn-file-name-with-icon:hover,
+.bn-sheerly [data-file-block].ProseMirror-selectednode
+  .bn-file-name-with-icon {
+  background-color: hsl(var(--accent));
+}
+.bn-sheerly [data-file-block] .bn-file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+.bn-sheerly [data-file-block] .bn-file-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.bn-sheerly [data-file-block] .bn-file-name {
+  font-size: 14px;
+  line-height: 1.3;
+  color: hsl(var(--foreground));
+  word-break: break-all;
+}
+
 /* @-mention chip'ы (kbPageMention / kbStaffMention) — атомарные inline-
    content'ы (см. kb-page-mention.tsx, kb-staff-mention.tsx). Рендерятся
    как <a>, и shadcn-вариант BN выставляет `.bn-editor a { color: revert }`

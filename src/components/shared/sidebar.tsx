@@ -46,6 +46,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
+import { KbNavLink } from "@/app/(dashboard)/knowledge/_components/kb-nav-link";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -160,6 +161,12 @@ interface AppSidebarProps {
    *  Сайдбар фильтрует пункты по этому списку (вместо hardcoded
    *  ролей). Передаётся из dashboard layout через RPC list_my_permissions. */
   userPermissions: string[];
+  /** SSR-полученное состояние KB-сайдбара из cookie `kb_sidebar_hidden`.
+   *  Прокидывается дальше в `KbNavLink` как `initialHidden`, чтобы первый
+   *  рендер иконки «База знаний» использовал правильный цвет (muted vs
+   *  active) до того как hydration-effect поднимет module-store
+   *  (Codex P2 на PR #129). */
+  kbSidebarHidden?: boolean;
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -212,6 +219,7 @@ function SidebarBody({
   activeRoleName,
   accountName,
   userPermissions,
+  kbSidebarHidden = false,
 }: AppSidebarProps) {
   const userPermissionsSet = useMemo(
     () => new Set(userPermissions),
@@ -322,6 +330,19 @@ function SidebarBody({
           // Flat sections (href set) — render as direct top-level link
           // in both collapsed and expanded modes.
           if (section.href) {
+            // Спецкейс — «База знаний». KbNavLink дополнительно
+            // обрабатывает click-toggle (когда юзер уже на /knowledge)
+            // и hover-peek для overlay-сайдбара. Все остальные flat-
+            // секции остаются на дефолтных Flat[Expanded|Collapsed]Link.
+            if (section.href === "/knowledge") {
+              return (
+                <KbNavLink
+                  key={section.label}
+                  collapsed={collapsed}
+                  initialHidden={kbSidebarHidden}
+                />
+              );
+            }
             return collapsed ? (
               <FlatCollapsedLink
                 key={section.label}

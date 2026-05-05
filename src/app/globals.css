@@ -633,8 +633,14 @@ input:-webkit-autofill {
   height: auto;
 }
 [data-slot="select-content"] {
-  width: var(--radix-select-trigger-width, auto);
-  min-width: 240px;
+  /* Радикальный override на width: вместо привязки к trigger (узкий
+   * — он по контенту триггера) даём content расти до содержимого
+   * самого длинного пункта. min-width 280, max-width 360 — упирается
+   * в горизонт viewport'а на узких экранах. Default Radix позиционирует
+   * popper, без явного width он max'ится по trigger-row. */
+  width: max-content !important;
+  min-width: 280px !important;
+  max-width: 360px;
   border-radius: 10px !important;
   padding: 6px !important;
   border: 1px solid hsl(var(--border)) !important;
@@ -648,6 +654,7 @@ input:-webkit-autofill {
   font-size: 13px;
   font-weight: 500;
   gap: 10px;
+  white-space: nowrap;
 }
 
 /* ── Formatting toolbar (frame 05 · sJEjP) ─────────────────────────
@@ -713,6 +720,20 @@ input:-webkit-autofill {
 .bn-menu-dropdown.bn-drag-handle-menu [role="menuitem"] svg {
   width: 16px !important;
   height: 16px !important;
+}
+/* `BlockColorsItem` / `RemoveBlockItem` BN-default'ом не дают icon-prop
+ * — мы оборачиваем содержимое в `.bn-kb-menu-item-label` (см.
+ * kb-side-menu.tsx). Делаем его flex-row с тем же gap, что и нативные
+ * Generic.Menu.Item с icon. Destructive-вариант для «Удалить»
+ * подкрашивает иконку и текст красным. */
+.bn-menu-dropdown.bn-drag-handle-menu .bn-kb-menu-item-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.bn-menu-dropdown.bn-drag-handle-menu .bn-kb-menu-item-destructive,
+.bn-menu-dropdown.bn-drag-handle-menu .bn-kb-menu-item-destructive svg {
+  color: hsl(var(--destructive)) !important;
 }
 
 /* ── Color picker submenu (frame 08 · GkjMx) ───────────────────────

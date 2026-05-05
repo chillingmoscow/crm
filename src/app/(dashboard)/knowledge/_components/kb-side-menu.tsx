@@ -1,7 +1,7 @@
 "use client";
 
 import type { FC } from "react";
-import { Copy, CopyPlus } from "lucide-react";
+import { Copy, CopyPlus, Palette, Trash2 } from "lucide-react";
 import { SideMenuExtension } from "@blocknote/core";
 import {
   BlockColorsItem,
@@ -89,8 +89,22 @@ const KbDragHandleMenu: FC = () => (
   <DragHandleMenu>
     <CopyBlockItem />
     <DuplicateBlockItem />
-    <BlockColorsItem>Цвет</BlockColorsItem>
-    <RemoveBlockItem>Удалить</RemoveBlockItem>
+    {/* BlockColorsItem / RemoveBlockItem из @blocknote/react рендерят
+     *  Generic.Menu.Item без icon-prop'а — у них только children. По
+     *  дизайну (sheerly.pen frame 07 · W8wDJ) у каждого пункта меню
+     *  должна быть иконка слева, а «Удалить» — destructive-цвет.
+     *  Подставляем lucide-иконки внутрь children, чтобы flex-row-layout
+     *  rendering BN автоматически выстроил их рядом с label'ом. */}
+    <BlockColorsItem>
+      <span className="bn-kb-menu-item-label">
+        <Palette className="size-4" /> Цвет
+      </span>
+    </BlockColorsItem>
+    <RemoveBlockItem>
+      <span className="bn-kb-menu-item-label bn-kb-menu-item-destructive">
+        <Trash2 className="size-4" /> Удалить
+      </span>
+    </RemoveBlockItem>
   </DragHandleMenu>
 );
 

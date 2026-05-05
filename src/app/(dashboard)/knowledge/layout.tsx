@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getKbTree } from "@/lib/knowledge/tree";
 import { listMyKbFavorites } from "@/lib/knowledge/favorites";
 import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
-import { KbSidebarResizer } from "@/app/(dashboard)/knowledge/_components/kb-sidebar-resizer";
+import { KbSidebarShell } from "@/app/(dashboard)/knowledge/_components/kb-sidebar-shell";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbMobileTreeDrawer } from "@/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer";
 import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
@@ -75,15 +75,21 @@ export default async function KnowledgeLayout({
     listMyKbFavorites(),
   ]);
 
-  // SSR-чтение сохранённой ширины KB-сайдбара из cookie. Без этого
-  // после reload'а KbSidebarResizer рендерился с дефолтом 288px и
-  // потом «прыгал» на saved-width при гидратации (прежняя реализация
-  // на localStorage недоступна на сервере). Cookie пишется самим
-  // resizer'ом на pointerUp.
-  const sidebarWidthCookie = (await cookies()).get("kb_sidebar_width")?.value;
+  // SSR-чтение сохранённого состояния KB-сайдбара из cookies:
+  //   • `kb_sidebar_width` — ширина (drag-resize'ом). Без этого после
+  //     reload'а сайдбар рендерился дефолтом 288px и потом «прыгал»
+  //     на saved-width при гидратации.
+  //   • `kb_sidebar_hidden` — скрыт ли сайдбар. Toggle-ит юзер кликом
+  //     на иконку «База знаний» в main-sidebar когда он уже на
+  //     /knowledge (см. KbNavLink + kb-sidebar-visibility-store).
+  // Обе cookie пишутся клиентом (не httpOnly), читаются здесь чтобы
+  // первый рендер был без CLS/flicker'а.
+  const cookieStore = await cookies();
+  const sidebarWidthCookie = cookieStore.get("kb_sidebar_width")?.value;
   const sidebarInitialWidth = sidebarWidthCookie
     ? Number.parseInt(sidebarWidthCookie, 10)
     : undefined;
+  const sidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
 
   return (
     <KbSearchProvider aiAskEnabled={aiAskEnabled}>
@@ -93,30 +99,25 @@ export default async function KnowledgeLayout({
           на мобильных платформах с динамическим toolbar'ом колонки
           не совпадают по высоте. */}
       <div className="flex w-full min-h-svh">
-        <aside
-          aria-label="Дерево страниц"
-          className="hidden md:flex sticky top-0 h-svh shrink-0
-                     flex-col border-r bg-sidebar"
+        <KbSidebarShell
+          initialHidden={sidebarHidden}
+          sidebarInitialWidth={
+            sidebarInitialWidth && !Number.isNaN(sidebarInitialWidth)
+              ? sidebarInitialWidth
+              : undefined
+          }
         >
-          <KbSidebarResizer
-            initialWidth={
-              sidebarInitialWidth && !Number.isNaN(sidebarInitialWidth)
-                ? sidebarInitialWidth
-                : undefined
-            }
-          >
-            <KbTreeNav
-              nodes={nodes}
-              favorites={favorites}
-              canSeeTrash={Boolean(canDelete)}
-              canViewAudit={Boolean(canViewAudit)}
-              canViewAnalytics={Boolean(canViewAnalytics)}
-              canImport={Boolean(canImport)}
-              canCreate={Boolean(canCreate)}
-              canManageTemplates={Boolean(canManageTemplates)}
-            />
-          </KbSidebarResizer>
-        </aside>
+          <KbTreeNav
+            nodes={nodes}
+            favorites={favorites}
+            canSeeTrash={Boolean(canDelete)}
+            canViewAudit={Boolean(canViewAudit)}
+            canViewAnalytics={Boolean(canViewAnalytics)}
+            canImport={Boolean(canImport)}
+            canCreate={Boolean(canCreate)}
+            canManageTemplates={Boolean(canManageTemplates)}
+          />
+        </KbSidebarShell>
         <main className="flex-1 min-w-0 flex flex-col">
           {/* KB-локальный top-bar: breadcrumb слева, actions + bell
               справа. h-14 совпадает с дашборд-топбаром на других

@@ -19,7 +19,6 @@ import {
   CommandInput,
   CommandList,
   CommandItem,
-  CommandShortcut,
 } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
@@ -442,19 +441,23 @@ function SnippetMarks({ raw }: { raw: string }) {
 
 // ─── Trigger button (used in the tree header) ──────────────────────
 
+import { IconTooltip } from "@/components/ui/icon-tooltip";
+
 export function KbSearchTrigger() {
   const { open } = useKbSearch();
   return (
-    <button
-      type="button"
-      onClick={open}
-      className="flex w-full items-center gap-2 rounded-md border bg-background px-2 py-1.5
-                 text-xs text-muted-foreground hover:bg-accent
-                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Search className="size-3.5" />
-      <span className="flex-1 text-left">Поиск</span>
-      <CommandShortcut className="ml-0">⌘K</CommandShortcut>
-    </button>
+    <IconTooltip label="Поиск (⌘K)">
+      <button
+        type="button"
+        onClick={open}
+        aria-label="Поиск (Cmd+K)"
+        className="inline-flex items-center justify-center size-6 rounded-md
+                   text-muted-foreground hover:bg-accent hover:text-foreground
+                   transition-colors
+                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Search className="size-3.5" />
+      </button>
+    </IconTooltip>
   );
 }

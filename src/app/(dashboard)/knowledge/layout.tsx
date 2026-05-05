@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getKbTree } from "@/lib/knowledge/tree";
 import { listMyKbFavorites } from "@/lib/knowledge/favorites";
 import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
+import { KbSidebarResizer } from "@/app/(dashboard)/knowledge/_components/kb-sidebar-resizer";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbMobileTreeDrawer } from "@/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer";
 import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
@@ -88,19 +89,21 @@ export default async function KnowledgeLayout({
       <div className="flex w-full min-h-svh">
         <aside
           aria-label="Дерево страниц"
-          className="hidden md:flex sticky top-0 h-svh w-72 shrink-0
+          className="hidden md:flex sticky top-0 h-svh shrink-0
                      flex-col border-r bg-sidebar"
         >
-          <KbTreeNav
-            nodes={nodes}
-            favorites={favorites}
-            canSeeTrash={Boolean(canDelete)}
-            canViewAudit={Boolean(canViewAudit)}
-            canViewAnalytics={Boolean(canViewAnalytics)}
-            canImport={Boolean(canImport)}
-            canCreate={Boolean(canCreate)}
-            canManageTemplates={Boolean(canManageTemplates)}
-          />
+          <KbSidebarResizer>
+            <KbTreeNav
+              nodes={nodes}
+              favorites={favorites}
+              canSeeTrash={Boolean(canDelete)}
+              canViewAudit={Boolean(canViewAudit)}
+              canViewAnalytics={Boolean(canViewAnalytics)}
+              canImport={Boolean(canImport)}
+              canCreate={Boolean(canCreate)}
+              canManageTemplates={Boolean(canManageTemplates)}
+            />
+          </KbSidebarResizer>
         </aside>
         <main className="flex-1 min-w-0 flex flex-col">
           {/* KB-локальный top-bar: breadcrumb слева, actions + bell

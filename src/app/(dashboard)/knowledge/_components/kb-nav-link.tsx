@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen } from "lucide-react";
+import { BookOpen, PanelLeftOpen } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -32,9 +32,16 @@ import {
  *
  * Цвет иконки:
  *   • На /knowledge AND visible → accent (foreground, активный пункт)
- *   • На /knowledge AND hidden → muted (тонкий намёк что сайдбар
- *     спрятан, но мы тут)
+ *   • На /knowledge AND hidden → brand (мы тут, но сайдбар спрятан —
+ *     brand-цвет сильнее muted'а намекает «можно вернуть, кликни /
+ *     наведи»; раньше был muted и выглядел как «отключено»)
  *   • Не на /knowledge → стандартный sidebar-foreground
+ *
+ * Когда main-сайдбар развёрнут И KB-сайдбар скрыт И мы на /knowledge,
+ * рядом с лейблом «База знаний» рисуется маленький `PanelLeftOpen`
+ * символ — affordance, что наведением можно вернуть/посмотреть
+ * KB-сайдбар. В collapsed-режиме символ не нужен (иконка сама и
+ * есть affordance).
  */
 export function KbNavLink({
   collapsed,
@@ -82,10 +89,6 @@ export function KbNavLink({
     schedulePeekClose();
   };
 
-  // Color logic:
-  //   • on KB & visible → accent (active state)
-  //   • on KB & hidden → muted (мы тут, но сайдбар спрятан)
-  //   • not on KB → default
   const isActiveVisible = isOnKb && !hidden;
   const isActiveHidden = isOnKb && hidden;
 
@@ -101,7 +104,7 @@ export function KbNavLink({
         className={cn(
           "flex items-center justify-center size-10 rounded-lg transition-colors hover:bg-sidebar-accent",
           isActiveVisible && "bg-sidebar-accent text-sidebar-accent-foreground",
-          isActiveHidden && "text-muted-foreground",
+          isActiveHidden && "text-brand",
           !isOnKb && "text-sidebar-foreground",
         )}
       >
@@ -119,12 +122,22 @@ export function KbNavLink({
       className={cn(
         "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] font-medium transition-colors hover:bg-sidebar-accent",
         isActiveVisible && "bg-sidebar-accent text-sidebar-accent-foreground",
-        isActiveHidden && "text-muted-foreground",
+        isActiveHidden && "text-brand",
         !isOnKb && "text-sidebar-foreground",
       )}
     >
       <BookOpen className="w-[18px] h-[18px] shrink-0" />
       <span className="flex-1 text-left">База знаний</span>
+      {/* Hover-hint: рисуется только в expanded-mode, когда KB-сайдбар
+          скрыт И мы на /knowledge. Подсказывает, что наведением можно
+          peek-открыть сайдбар. В collapsed-mode не нужен — сама иконка
+          уже affordance. */}
+      {isActiveHidden && (
+        <PanelLeftOpen
+          className="w-[14px] h-[14px] shrink-0 text-brand/60"
+          aria-hidden
+        />
+      )}
     </Link>
   );
 }

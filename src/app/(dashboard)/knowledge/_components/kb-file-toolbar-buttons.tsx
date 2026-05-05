@@ -2,31 +2,39 @@
 
 import { useState } from "react";
 import {
-  Captions,
+  ClipboardType,
   Download,
   ExternalLink,
+  ImageMinus,
+  ImagePlus,
   Pencil,
   Trash2,
 } from "lucide-react";
-import { useBlockNoteEditor, useEditorState } from "@blocknote/react";
+import {
+  useBlockNoteEditor,
+  useComponentsContext,
+  useEditorState,
+} from "@blocknote/react";
 
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { detectVideoEmbed } from "@/components/knowledge/blocks/kb-video-block";
 
 /**
  * Кастомные замены BN-овских FormattingToolbar-кнопок для file-shape
- * блоков (image / video / audio / file). Все 5 кнопок используют BN-
- * default react-icons (RiInputField / RiFontFamily / RiDeleteBin7Line /
- * RiDownload2Fill / RiExternalLinkFill), а у нас в DS — lucide. Ещё:
- * caption и rename рендерят BN'ный `Generic.Form.TextInput` внутри
- * popover'а — он стилизован под bn-shadcn (другой radius / padding /
- * focus-ring), не совпадает с нашим `<Input>`. Здесь подменяем оба
- * аспекта: lucide-иконки + shadcn Popover + Input.
+ * блоков (image / video / audio / file). Сохраняем поведение, но:
+ *   • используем lucide-иконки вместо react-icons (Ri*)
+ *   • рендерим триггер через `Components.FormattingToolbar.Button`,
+ *     чтобы геометрия (h-10 ghost, padding) совпадала с соседними
+ *     BN-кнопками (alignment / nest / link / etc.) и был общий
+ *     TooltipProvider — без этого native-title с системной задержкой
+ *     показывался вместо красивого tooltip'а в стиле DS
+ *   • caption / rename popover'ы рендерим shadcn'ным `<Input>` вместо
+ *     BN-овского `Generic.Form.TextInput` (другой radius / focus-ring).
  *
  * Подключаются через `swapFileToolbarButtons(items)` в blocknote-
  * editor.tsx: проходим items[], по item.key подменяем default React-
@@ -42,6 +50,7 @@ interface FileBlockSelector {
     url?: unknown;
     caption?: unknown;
     name?: unknown;
+    showPreview?: unknown;
   };
 }
 
@@ -75,10 +84,11 @@ const TYPE_LABEL: Record<string, string> = {
 export function KbFileCaptionButton() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
+  const Components = useComponentsContext();
   const block = useSelectedFileBlock();
   const [open, setOpen] = useState(false);
 
-  if (!block) return null;
+  if (!Components || !block) return null;
   const caption = typeof block.props?.caption === "string" ? block.props.caption : "";
 
   const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,16 +105,12 @@ export function KbFileCaptionButton() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="default"
-          aria-label="Подпись"
-          title="Подпись"
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <Captions className="size-4" strokeWidth={1.75} />
-        </Button>
+        <Components.FormattingToolbar.Button
+          mainTooltip="Подпись"
+          label="Подпись"
+          icon={<Pencil className="size-4" strokeWidth={1.75} />}
+          onClick={() => setOpen((v) => !v)}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -129,10 +135,11 @@ export function KbFileCaptionButton() {
 export function KbFileRenameButton() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
+  const Components = useComponentsContext();
   const block = useSelectedFileBlock();
   const [open, setOpen] = useState(false);
 
-  if (!block) return null;
+  if (!Components || !block) return null;
   // `name` присутствует в схемах image/video/audio/file и редактируется
   // только если selection-block имеет валидный prop. BN-rename-button
   // также фильтрует по этому условию (см. xn в blocknote-react.js).
@@ -153,16 +160,12 @@ export function KbFileRenameButton() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="default"
-          aria-label={label}
-          title={label}
-          onMouseDown={(e) => e.preventDefault()}
-        >
-          <Pencil className="size-4" strokeWidth={1.75} />
-        </Button>
+        <Components.FormattingToolbar.Button
+          mainTooltip={label}
+          label={label}
+          icon={<ClipboardType className="size-4" strokeWidth={1.75} />}
+          onClick={() => setOpen((v) => !v)}
+        />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -187,40 +190,54 @@ export function KbFileRenameButton() {
 export function KbFileDeleteButton() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
+  const Components = useComponentsContext();
   const block = useSelectedFileBlock();
 
-  if (!block) return null;
+  if (!Components || !block) return null;
   const label = `Удалить ${TYPE_LABEL[block.type] ?? "файл"}`;
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="default"
-      aria-label={label}
-      title={label}
+    <Components.FormattingToolbar.Button
+      mainTooltip={label}
+      label={label}
+      icon={<Trash2 className="size-4" strokeWidth={1.75} />}
       onClick={() => {
         editor.focus();
         editor.removeBlocks([block.id]);
       }}
-      onMouseDown={(e) => e.preventDefault()}
-    >
-      <Trash2 className="size-4" strokeWidth={1.75} />
-    </Button>
+    />
   );
 }
 
-// ── Download ───────────────────────────────────────────────────────
+// ── Download / Open in browser ─────────────────────────────────────
+
+/** Возвращает true если URL — это embed-провайдер (YouTube / Vimeo /
+ *  Loom / Vidyard) ИЛИ external https:// (т.е. не наш kbfile://). Для
+ *  таких URL'ов download-anchor не работает (cross-origin без CORS),
+ *  поэтому кнопку рендерим как «Открыть в браузере» с external-link-
+ *  иконкой. Для kbfile:// (uploaded) — нормальный download. */
+function isExternalUrl(url: string): boolean {
+  if (!url) return false;
+  if (url.startsWith("kbfile://")) return false;
+  if (detectVideoEmbed(url)) return true;
+  // Любой http(s):// — внешний (download-attribute не сработает
+  // cross-origin без CORS-allow-Content-Disposition).
+  return /^https?:\/\//.test(url);
+}
 
 export function KbFileDownloadButton() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
+  const Components = useComponentsContext();
   const block = useSelectedFileBlock();
 
-  if (!block) return null;
+  if (!Components || !block) return null;
   const url = typeof block.props?.url === "string" ? block.props.url : "";
   if (!url) return null;
-  const label = `Скачать ${TYPE_LABEL[block.type] ?? "файл"}`;
+  const external = isExternalUrl(url);
+  const label = external
+    ? "Открыть в браузере"
+    : `Скачать ${TYPE_LABEL[block.type] ?? "файл"}`;
 
   const handleClick = async () => {
     // Codex P1 на PR #130: previous version рендерила `<a href={url}
@@ -238,54 +255,56 @@ export function KbFileDownloadButton() {
   };
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="default"
-      aria-label={label}
-      title={label}
+    <Components.FormattingToolbar.Button
+      mainTooltip={label}
+      label={label}
+      icon={
+        external ? (
+          <ExternalLink className="size-4" strokeWidth={1.75} />
+        ) : (
+          <Download className="size-4" strokeWidth={1.75} />
+        )
+      }
       onClick={handleClick}
-      onMouseDown={(e) => e.preventDefault()}
-    >
-      <Download className="size-4" strokeWidth={1.75} />
-    </Button>
+    />
   );
 }
 
-// ── Preview (open in new tab / toggle preview) ─────────────────────
+// ── Preview toggle ─────────────────────────────────────────────────
 
 export function KbFilePreviewButton() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
+  const Components = useComponentsContext();
   const block = useSelectedFileBlock();
 
-  if (!block) return null;
+  if (!Components || !block) return null;
   // BN'ный FilePreview-button toggle'ит showPreview prop у image/video/
   // audio (показывать inline `<img>`/`<video>` или ссылку chip'ом).
   // Кнопка появляется только у блоков с `showPreview` в propSchema —
-  // тип `file` его не имеет, для него BN кнопку скрывает. Нашу логику
-  // дублируем: если у блока нет prop'а — рендерим null.
-  const showPreview = (block.props as { showPreview?: unknown } | undefined)
-    ?.showPreview;
+  // тип `file` его не имеет, для него BN кнопку скрывает. Дублируем
+  // — если у блока нет prop'а, рендерим null.
+  const showPreview = block.props?.showPreview;
   if (typeof showPreview !== "boolean") return null;
 
   const label = showPreview ? "Скрыть превью" : "Показать превью";
 
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="default"
-      aria-label={label}
-      title={label}
+    <Components.FormattingToolbar.Button
+      mainTooltip={label}
+      label={label}
+      icon={
+        showPreview ? (
+          <ImageMinus className="size-4" strokeWidth={1.75} />
+        ) : (
+          <ImagePlus className="size-4" strokeWidth={1.75} />
+        )
+      }
       onClick={() => {
         editor.updateBlock(block.id, {
           props: { showPreview: !showPreview },
         });
       }}
-      onMouseDown={(e) => e.preventDefault()}
-    >
-      <ExternalLink className="size-4" strokeWidth={1.75} />
-    </Button>
+    />
   );
 }

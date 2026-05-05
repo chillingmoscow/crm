@@ -703,11 +703,13 @@ export function KbBlockNoteEditor({
               "Продвинутый",
               "Прочее",
             );
+            // Order: Заголовки → Базовые блоки → Подсказки →
+            // Подзаголовки → Медиа → Прочее (по запросу пользователя).
             const ordered = [
               ...headings,
-              ...subheadings,
               ...basics,
               ...callouts,
+              ...subheadings,
               ...media,
               ...others,
             ];

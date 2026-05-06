@@ -48,6 +48,21 @@ export default async function KbPageView({ params }: PageProps) {
     ),
   );
 
+  // Pre-compute mentionSlugs из row.content — `extractBacklinks` чисто
+  // in-memory, не требует await. Раньше resolveKbMentionTargets ждал
+  // основной Promise.all → дополнительный последовательный RTT. Сейчас
+  // он стартует параллельно с остальными запросами (data-deps только на
+  // `row`, которая уже загружена). Same logic for `accounts.ai_enabled`:
+  // раньше запрашивалось отдельно после Promise.all (с зависимостью от
+  // permissions+activeAccountId), теперь — внутри inline-IIFE, который
+  // дожидается двух уже-pending promises (RPC резолвится один раз — JS
+  // promises memoized).
+  const contentBlocks = (row.content as unknown as KbBlock[]) ?? [];
+  const { slugs: mentionSlugs } = extractBacklinks(contentBlocks);
+
+  const permissionsPromise = supabase.rpc("list_my_permissions", {});
+  const activeAccountPromise = supabase.rpc("get_active_account_id");
+
   const [
     { data: permissionCodes },
     { data: activeAccountId },
@@ -56,9 +71,11 @@ export default async function KbPageView({ params }: PageProps) {
     { rows: allPages },
     { chain },
     { data: profiles },
+    mentionResolution,
+    aiSlashEnabledResolved,
   ] = await Promise.all([
-    supabase.rpc("list_my_permissions", {}),
-    supabase.rpc("get_active_account_id"),
+    permissionsPromise,
+    activeAccountPromise,
     isKbPageFavorited(row.id),
     getKbPageReadStatus(row.id),
     getKbTreeRows(),
@@ -69,6 +86,22 @@ export default async function KbPageView({ params }: PageProps) {
           .select("id, first_name, last_name, avatar_url")
           .in("id", profileIds)
       : Promise.resolve({ data: [] as { id: string; first_name: string | null; last_name: string | null; avatar_url: string | null }[] }),
+    resolveKbMentionTargets(mentionSlugs),
+    (async () => {
+      const [permsRes, accRes] = await Promise.all([
+        permissionsPromise,
+        activeAccountPromise,
+      ]);
+      const perms = new Set(permsRes.data ?? []);
+      const accId = accRes.data;
+      if (!perms.has("kb.use_ai") || !accId) return false;
+      const { data: accountRow } = await supabase
+        .from("accounts")
+        .select("ai_enabled")
+        .eq("id", accId as unknown as string)
+        .maybeSingle();
+      return Boolean(accountRow?.ai_enabled);
+    })(),
   ]);
   const permissions = new Set(permissionCodes ?? []);
   const hasEditAny = permissions.has("kb.edit_any_page");
@@ -114,15 +147,12 @@ export default async function KbPageView({ params }: PageProps) {
   // AI slash-команды: двойной gate. UI-уровень — чтобы не показывать
   // /ai-айтемы в slash-меню если account отключил AI или у юзера
   // нет права. Server-action runKbAiCommand перепроверит.
-  let aiSlashEnabled = false;
-  if (hasUseAi && activeAccountId) {
-    const { data: accountRow } = await supabase
-      .from("accounts")
-      .select("ai_enabled")
-      .eq("id", activeAccountId as unknown as string)
-      .maybeSingle();
-    aiSlashEnabled = Boolean(accountRow?.ai_enabled);
-  }
+  // Резолв ai_enabled параллелен с основным Promise.all выше (см. inline
+  // IIFE) — раньше это был отдельный последовательный roundtrip.
+  // hasUseAi проверка дублируется внутри IIFE; финальный gate здесь
+  // тоже учитывает hasUseAi на случай если в будущем IIFE поменяет
+  // семантику.
+  const aiSlashEnabled = hasUseAi && Boolean(aiSlashEnabledResolved);
   // Total descendants — нужно для текста подтверждения удаления
   // (cascade soft-delete заберёт всю ветку, не только direct children).
   const descendantsCount = countDescendants(allPages, row.id);
@@ -141,8 +171,8 @@ export default async function KbPageView({ params }: PageProps) {
   // считается доступным по умолчанию. Иначе только что добавленный
   // mention автоматически рендерился бы как deleted (Codex bug
   // #100-followup).
-  const contentBlocks =
-    (row.content as unknown as KbBlock[]) ?? [];
+  // contentBlocks + mentionSlugs уже посчитаны выше до Promise.all,
+  // resolveKbMentionTargets резолвит параллельно с остальными запросами.
   // properties — zod-валидация чтобы кривые/старые записи не сломали
   // UI; невалидные просто отдаём как пустой массив.
   const propertiesParsed = kbPropertiesSchema.safeParse(
@@ -151,9 +181,8 @@ export default async function KbPageView({ params }: PageProps) {
   const initialProperties: KbProperty[] = propertiesParsed.success
     ? propertiesParsed.data
     : [];
-  const { slugs: mentionSlugs } = extractBacklinks(contentBlocks);
   const { checked: checkedMentionSlugs, deleted: deletedMentionSlugs } =
-    await resolveKbMentionTargets(mentionSlugs);
+    mentionResolution;
 
   // Resolve back-link target: parent page if any, else /knowledge.
   // chain comes root → leaf, last entry is the current page itself.

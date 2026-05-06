@@ -961,6 +961,62 @@ export class SupabaseThreadStore extends ThreadStore {
     if (!markType) return;
 
     const docSize = view.state.doc.content.size;
+
+    // Walk doc once и собираем текущие comment-mark диапазоны по threadId.
+    // Используется (а) для no-op-guard'а ниже — если target-набор marks
+    // точно совпадает с текущим, не диспатчим транзакцию вообще; (б) для
+    // отслеживания orphan-flag'а, чтобы дёрнуть update даже если from/to
+    // те же, но `resolved` поменялось.
+    //
+    // КРИТИЧНО: без этого guard'а каждый notify() (даже на свои же
+    // position-updates) приводил к removeMark+addMark dispatch'у → PM
+    // фиксирует docChanged=true → BlockNote onChange → parent
+    // scheduleSave → 2 сек → flush → captureCommentMarkPositions →
+    // UPDATE kb_threads.metadata → notify() → loop. См. plan
+    // frolicking-gathering-aho.md §P0.
+    const currentMarks = new Map<
+      string,
+      { from: number; to: number; orphan: boolean }
+    >();
+    {
+      const walkDoc = view.state.doc as unknown as {
+        descendants: (
+          cb: (
+            node: {
+              isText: boolean;
+              marks: Array<{
+                type: { name: string };
+                attrs: Record<string, unknown>;
+              }>;
+              nodeSize: number;
+            },
+            pos: number,
+          ) => void,
+        ) => void;
+      };
+      walkDoc.descendants((node, pos) => {
+        if (!node.isText) return;
+        for (const mark of node.marks ?? []) {
+          if (mark.type.name !== "comment") continue;
+          const tid = mark.attrs.threadId as string | undefined;
+          if (!tid) continue;
+          const orphan = Boolean(mark.attrs.orphan);
+          const from = pos;
+          const to = pos + node.nodeSize;
+          const cur = currentMarks.get(tid);
+          if (!cur) {
+            currentMarks.set(tid, { from, to, orphan });
+          } else {
+            currentMarks.set(tid, {
+              from: Math.min(cur.from, from),
+              to: Math.max(cur.to, to),
+              orphan: cur.orphan || orphan,
+            });
+          }
+        }
+      });
+    }
+
     let tr = view.state.tr as unknown as {
       addMark: (from: number, to: number, mark: unknown) => unknown;
       removeMark: (
@@ -968,6 +1024,7 @@ export class SupabaseThreadStore extends ThreadStore {
         to: number,
         mark: { type: { name: string } } | unknown,
       ) => unknown;
+      setMeta: (key: string, value: unknown) => unknown;
     };
     // Снимаем все существующие comment-марки на всём документе.
     // PM-сигнатура `removeMark(from, to, MarkType)` очищает все марки
@@ -1001,6 +1058,13 @@ export class SupabaseThreadStore extends ThreadStore {
     // applyAllMarksToEditor нам нужно чтобы исходное состояние было
     // правильное.
     const correctedPositions = new Map<string, { from: number; to: number; text: string }>();
+    // Target-набор marks — тот, который мы СОБИРАЕМСЯ применить.
+    // Сравниваем с currentMarks (выше) после расчёта drift-correction'а.
+    // Если совпадают точь-в-точь, dispatch не делаем (no-op-guard).
+    const targetMarks = new Map<
+      string,
+      { from: number; to: number; orphan: boolean }
+    >();
     for (const thread of this.threadCache.values()) {
       // Hard-deleted threads (deletedAt set, и DB row помечена) —
       // не должны иметь mark'а вообще: BN-логика всё равно показала
@@ -1126,15 +1190,58 @@ export class SupabaseThreadStore extends ThreadStore {
       }
 
       if (safeFrom >= safeTo) continue;
+      const orphan = Boolean(thread.resolved);
+      targetMarks.set(thread.id, { from: safeFrom, to: safeTo, orphan });
       tr = tr.addMark(
         safeFrom,
         safeTo,
         markType.create({
-          orphan: Boolean(thread.resolved),
+          orphan,
           threadId: thread.id,
         }),
       ) as typeof tr;
     }
+
+    // No-op-guard: если target-набор marks ровно совпадает с тем, что
+    // уже стоит в doc'е, не диспатчим транзакцию. Без guard'а dispatch
+    // фиксирует docChanged → BlockNote onChange → parent scheduleSave →
+    // потенциальная петля через captureCommentMarkPositions → notify().
+    let identical = currentMarks.size === targetMarks.size;
+    if (identical) {
+      for (const [tid, target] of targetMarks) {
+        const cur = currentMarks.get(tid);
+        if (
+          !cur ||
+          cur.from !== target.from ||
+          cur.to !== target.to ||
+          cur.orphan !== target.orphan
+        ) {
+          identical = false;
+          break;
+        }
+      }
+    }
+    if (identical) {
+      // Persist drift-correction'ы всё равно — позиции пересобраны и
+      // нужно записать их в БД (чтобы next reload не перезапускал
+      // re-anchor). Сам dispatch — пропущен.
+      for (const [threadId, p] of correctedPositions) {
+        void this.persistThreadPosition(threadId, p.from, p.to, p.text).catch(
+          (err) => {
+            console.warn("[kb-comments] re-anchor persist failed", {
+              threadId,
+              error: err,
+            });
+          },
+        );
+      }
+      return;
+    }
+    // setMeta('addToHistory', false) — re-apply'ы comment-mark'ов после
+    // realtime-event'а от других юзеров не должны попадать в undo-стек:
+    // ctrl-Z должен возвращать ТОЛЬКО собственные правки, а не «снимать»
+    // чужие комменты. Для local-cycle'а тоже безвредно.
+    tr = tr.setMeta("addToHistory", false) as typeof tr;
     view.dispatch(tr);
 
     // Fire-and-forget: persist'им скорректированные позиции в DB,
@@ -1282,7 +1389,13 @@ export class SupabaseThreadStore extends ThreadStore {
     }
     if (thread) {
       thread.metadata = newMetadata;
-      this.notify();
+      // Намеренно НЕ зовём this.notify(): metadata.position не отображается
+      // в UI (не sidebar, не floating-thread, не composer) — единственный
+      // её consumer — applyAllMarksToEditor на следующем reload'е, который
+      // читает свежий threadCache в любом случае. notify() здесь раньше
+      // запускал applyAllMarksToEditor через подписчика в blocknote-editor.tsx,
+      // что в свою очередь дёргало editor.dispatch → onChange → scheduleSave
+      // и приводило к петле автосейва. См. plan §P0.
     }
   }
 
@@ -1307,7 +1420,8 @@ export class SupabaseThreadStore extends ThreadStore {
       return;
     }
     thread.metadata = rest;
-    this.notify();
+    // Та же мотивация что и в persistThreadPosition: position не имеет
+    // UI-consumer'ов, notify() лишний и провоцирует applyAllMarksToEditor.
   }
 }
 

@@ -54,7 +54,6 @@ export function KbNotificationRow({
   //   • Если есть actor + verb из registry — собираем «<Actor> <verb>».
   //   • Иначе — рендерим notification.title as-is (system-emit'ы без actor'а).
   const useStructuredTitle = actor && spec.verb;
-  const preview = (notification.payload as { preview?: string })?.preview ?? null;
 
   return (
     <div
@@ -122,14 +121,12 @@ export function KbNotificationRow({
           )}
         </div>
 
-        {/* Preview snippet (если есть). */}
-        {preview && (
-          <div className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5">
-            <p className="text-[12px] italic text-muted-foreground leading-snug line-clamp-3">
-              {preview}
-            </p>
-          </div>
-        )}
+        {/* Preview-snippet убран по UX-feedback'у юзера: дублировал
+            entity-chip; для notif'ов «упомянули в странице» preview
+            это просто плейн-текст самой страницы, не добавляет ценности.
+            Поле payload.preview оставлено в схеме — может пригодиться
+            для finance/schedule emit'еров где snippet ≠ entity title
+            (например, transaction amount + counterparty). */}
 
         {/* Inline custom-actions (payload.actions[]) — пока не
             используются KB-эмиттерами; reserved для будущих finance/

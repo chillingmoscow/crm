@@ -189,11 +189,17 @@ function validateFile(file: File, blockType: string): string | null {
   const mimePattern = MIME_PATTERNS[blockType];
   const extPattern = EXT_PATTERNS[blockType];
   if (mimePattern && extPattern) {
-    const mimeOk = file.type ? mimePattern.test(file.type) : true;
     const extOk = extPattern.test(file.name);
-    // Хотя бы один из (mime, ext) должен подойти. Браузер мог не выдать
-    // mime (file.type === "") — fallback'имся на расширение.
-    if (!mimeOk && !extOk) {
+    // Если браузер дал MIME — accept'им либо при совпадении MIME либо
+    // расширения (некоторые ОС/браузеры пишут нестандартные MIME — типа
+    // audio/x-m4a — но расширение корректное). Если MIME пустой — путь
+    // через extension'у единственный (Codex P2 на PR #151: ставить
+    // mimeOk=true при empty MIME ломает проверку — !mimeOk && !extOk
+    // никогда не сработает, и .docx-файл проходит в audio-блок).
+    const passes = file.type
+      ? mimePattern.test(file.type) || extOk
+      : extOk;
+    if (!passes) {
       return `Неподходящий формат: ${file.type || file.name.split(".").pop() || "?"}. Поддерживаются: ${FORMAT_HINT[blockType]}.`;
     }
   }

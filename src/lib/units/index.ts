@@ -63,17 +63,17 @@ export const UNIT_NONE: Unit = { kind: "none" };
 export function formatWithUnit(value: number, unit: Unit): string {
   switch (unit.kind) {
     case "none":
-      return value.toLocaleString("ru-RU");
+      return value.toLocaleString("ru-RU", { maximumFractionDigits: 20 });
     case "currency":
       return formatCurrency(value, unit.code);
     case "mass":
-      return `${value.toLocaleString("ru-RU")} ${massLabel(unit.code)}`;
+      return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 20 })} ${massLabel(unit.code)}`;
     case "volume":
-      return `${value.toLocaleString("ru-RU")} ${volumeLabel(unit.code)}`;
+      return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 20 })} ${volumeLabel(unit.code)}`;
     case "piece":
-      return `${value.toLocaleString("ru-RU")} ${PIECE_UNIT.label}`;
+      return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 20 })} ${PIECE_UNIT.label}`;
     case "custom":
-      return `${value.toLocaleString("ru-RU")} ${unit.label}`;
+      return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 20 })} ${unit.label}`;
   }
 }
 

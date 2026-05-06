@@ -27,17 +27,18 @@ import {
   Link as LinkIcon,
   Minimize2,
   Maximize2,
-  ExternalLink,
   Ruler,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
+  DragOverlay,
   PointerSensor,
   closestCenter,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
   type Modifier,
 } from "@dnd-kit/core";
 import {
@@ -397,15 +398,22 @@ export function KbPageProperties({
     });
   };
 
-  // Toggle сжатого отображения для text-property. По дефолту (нет
-  // collapsed) считаем `false` = развёрнуто. Переключаем — записываем
-  // явный boolean.
+  // Toggle сжатого отображения. Для text меняет `collapsed` (single-line
+  // truncate vs full multi-line). Для url меняет `urlCollapsed` (hide
+  // `https://` префикс vs показать полностью).
   const togglePropertyCollapse = (id: string) => {
     setProperties((prev) => {
       const next = prev.map((p) => {
-        if (p.id !== id || p.type !== "text") return p;
-        const wasCollapsed = p.collapsed === true;
-        return { ...p, collapsed: !wasCollapsed } as KbProperty;
+        if (p.id !== id) return p;
+        if (p.type === "text") {
+          const wasCollapsed = p.collapsed === true;
+          return { ...p, collapsed: !wasCollapsed } as KbProperty;
+        }
+        if (p.type === "url") {
+          const wasCollapsed = p.urlCollapsed === true;
+          return { ...p, urlCollapsed: !wasCollapsed } as KbProperty;
+        }
+        return p;
       });
       scheduleSave(next);
       return next;
@@ -443,7 +451,20 @@ export function KbPageProperties({
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
   const sortableIds = useMemo(() => properties.map((p) => p.id), [properties]);
+  // activeId — id property, который сейчас тащим. Используется для
+  // рендеринга <DragOverlay> (см. ниже): drag-копия в портале с
+  // фиксированной высотой / шириной избавляет от деформации соседей,
+  // когда expanded text-property пролетает под/над ними.
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const activeProperty = useMemo(
+    () => properties.find((p) => p.id === activeId) ?? null,
+    [activeId, properties],
+  );
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+  };
   const handleDragEnd = (event: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     setProperties((prev) => {
@@ -497,7 +518,9 @@ export function KbPageProperties({
           sensors={sensors}
           collisionDetection={closestCenter}
           modifiers={dndModifiers}
+          onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onDragCancel={() => setActiveId(null)}
         >
           <SortableContext
             items={sortableIds}
@@ -576,6 +599,18 @@ export function KbPageProperties({
               ))}
             </ul>
           </SortableContext>
+          {/* DragOverlay рендерит копию dragged-row в портале с
+           *  фиксированными габаритами. Это решает деформацию когда
+           *  таскаешь tall expanded text-property через короткие — у
+           *  соседей меняется их sortable-rect только по мере
+           *  реального reorder'а, не из-за visual-смещения dragged-
+           *  элемента. Оригинальный <li> в списке остаётся (faded)
+           *  чтобы держать своё место в layout'е. */}
+          <DragOverlay>
+            {activeProperty ? (
+              <PropertyRowDragPreview property={activeProperty} />
+            ) : null}
+          </DragOverlay>
         </DndContext>
       )}
       {canEdit && (
@@ -664,7 +699,10 @@ function PropertyRow({
     transform: DndCSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 10 : undefined,
-    opacity: isDragging ? 0.85 : undefined,
+    // Оригинальный <li> при active-drag прячем визуально (DragOverlay
+    // рендерит ghost-копию в portal'е). `0.25` оставляет лёгкий силуэт
+    // чтобы юзер видел исходную позицию.
+    opacity: isDragging ? 0.25 : undefined,
   };
 
   return (
@@ -701,7 +739,7 @@ function PropertyRow({
        *  юзер хочет подсветку имени, не всего ряда). */}
       <div
         className="flex items-center gap-1.5 px-1 -mx-1 rounded-md
-                   hover:bg-muted/50 transition-colors"
+                   hover:bg-accent hover:text-accent-foreground transition-colors"
       >
         <PropertyIconButton
           property={property}
@@ -781,9 +819,8 @@ function PropertyRow({
               <Copy className="size-3.5 text-muted-foreground" />
               Дублировать
             </DropdownMenuItem>
-            {/* Свернуть / Развернуть — только для text-property
-             *  (Stage 3 polish). По дефолту — развёрнуто, click меняет
-             *  на single-line truncate. */}
+            {/* Свернуть / Развернуть для text-property:
+             *  collapsed = single-line truncate. */}
             {property.type === "text" && (
               <DropdownMenuItem onSelect={onToggleCollapse}>
                 {property.collapsed ? (
@@ -792,6 +829,20 @@ function PropertyRow({
                   <Minimize2 className="size-3.5 text-muted-foreground" />
                 )}
                 {property.collapsed ? "Развернуть" : "Свернуть"}
+              </DropdownMenuItem>
+            )}
+            {/* Показать полностью / сокращённо для url:
+             *  urlCollapsed = убираем https:// из visible-текста. */}
+            {property.type === "url" && (
+              <DropdownMenuItem onSelect={onToggleCollapse}>
+                {property.urlCollapsed ? (
+                  <Maximize2 className="size-3.5 text-muted-foreground" />
+                ) : (
+                  <Minimize2 className="size-3.5 text-muted-foreground" />
+                )}
+                {property.urlCollapsed
+                  ? "Показывать полностью"
+                  : "Показывать сокращённо"}
               </DropdownMenuItem>
             )}
             {/* Единица измерения — только для number (Stage 4).
@@ -819,6 +870,50 @@ function PropertyRow({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
+    </li>
+  );
+}
+
+/** Visual-копия PropertyRow для DragOverlay. Без useSortable, без
+ *  edit-handler'ов (носер при drag не нужен) — только статичный
+ *  layout, повторяющий PropertyRow. Использует те же icon/name/value
+ *  компоненты для визуальной идентичности. */
+function PropertyRowDragPreview({ property }: { property: KbProperty }) {
+  const Icon = TYPE_ICONS[property.type];
+  return (
+    <li
+      className={cn(
+        "flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md",
+        "bg-card shadow-md ring-1 ring-border/40",
+        "px-2",
+      )}
+    >
+      <span className="size-5 -ml-1 shrink-0 flex items-center justify-center text-muted-foreground/40">
+        <GripVertical className="size-3.5" />
+      </span>
+      <div className="flex items-center gap-1.5 px-1 -mx-1">
+        {property.icon ? (
+          <KbPageIcon
+            icon={property.icon}
+            color={property.iconColor ?? null}
+            size={14}
+          />
+        ) : (
+          <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
+        )}
+        <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
+          {property.name}
+        </span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <PropertyValueControl
+          property={property}
+          canEdit={false}
+          onChangeValue={() => {}}
+          onChangeOptions={() => {}}
+          onChangeOptionColors={() => {}}
+        />
+      </div>
     </li>
   );
 }
@@ -899,6 +994,7 @@ function PropertyValueControl({
     case "url":
       return <UrlValueControl
         value={property.value}
+        collapsed={property.urlCollapsed === true}
         canEdit={canEdit}
         onChange={onChangeValue}
       />;
@@ -988,17 +1084,28 @@ function TextValueControl({
  *  принимаем любую строку, помечаем подозрительные). */
 const URL_VALID_PREFIX_RE = /^(https?:\/\/|mailto:|tel:)/i;
 
+/** Убирает `https://` / `http://` префикс для display-режима когда
+ *  `urlCollapsed === true`. Сама href остаётся полной. mailto: / tel:
+ *  префиксы не трогаем — они смысловые. */
+function shortenUrlForDisplay(url: string, collapsed: boolean): string {
+  if (!collapsed) return url;
+  return url.replace(/^https?:\/\//i, "");
+}
+
 function UrlValueControl({
   value,
+  collapsed,
   canEdit,
   onChange,
 }: {
   value: string;
+  collapsed: boolean;
   canEdit: boolean;
   onChange: (value: string) => void;
 }) {
   const trimmed = value.trim();
   const looksValid = trimmed.length === 0 || URL_VALID_PREFIX_RE.test(trimmed);
+  const display = shortenUrlForDisplay(trimmed, collapsed);
 
   if (!canEdit) {
     if (!trimmed) {
@@ -1012,62 +1119,56 @@ function UrlValueControl({
         href={trimmed}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 text-[13px] text-brand hover:underline truncate"
+        className="text-[13px] text-foreground underline decoration-muted-foreground/40
+                   underline-offset-[3px] decoration-[1.5px]
+                   hover:decoration-foreground hover:text-foreground transition-colors
+                   truncate inline-block max-w-full"
       >
-        <span className="truncate">{trimmed}</span>
-        <ExternalLink className="size-3 shrink-0 opacity-60" />
+        {display}
       </a>
     );
   }
 
+  // Edit-mode: единое поле где input живёт «внутри» ссылки.
+  // Когда сфокусирован — обычный input. Без фокуса (но не сейчас в
+  // edit-mode) — показывали бы ссылку. Делаем гибридно: input всегда
+  // редактируемый, но visible-text — `display` (= с/без https://).
+  // Чтобы это работало просто, рендерим input с value=display и
+  // на onChange/onBlur восстанавливаем «канонический» https://-form.
   return (
-    <div className="flex items-center gap-1 w-full">
-      <input
-        type="url"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={(e) => {
-          const v = e.target.value.trim();
-          // Auto-prefix https:// если юзер ввёл URL без схемы (типичный
-          // паттерн «example.com» — добавляем https). Не трогаем
-          // mailto:/tel:, пустую строку, и тех, у кого уже схема.
-          if (
-            v.length > 0 &&
-            !URL_VALID_PREFIX_RE.test(v) &&
-            // эвристика: что-то с точкой и без пробелов = домен
-            /\.[a-z]{2,}/i.test(v) &&
-            !/\s/.test(v)
-          ) {
-            onChange(`https://${v}`);
-          } else if (v !== value) {
-            onChange(v);
-          }
-        }}
-        placeholder="https://…"
-        className={cn(
-          "flex-1 min-w-0 bg-transparent text-[13px] outline-none truncate",
-          "border rounded px-1 -mx-1 transition-colors",
-          looksValid
-            ? "border-transparent hover:border-input focus:border-input"
-            : "border-amber-400/60 focus:border-amber-500",
-        )}
-        aria-invalid={!looksValid}
-      />
-      {looksValid && trimmed.length > 0 && (
-        <a
-          href={trimmed}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Открыть ссылку"
-          className="size-6 inline-flex items-center justify-center rounded
-                     text-muted-foreground/60 hover:text-foreground hover:bg-accent
-                     transition-colors"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ExternalLink className="size-3.5" />
-        </a>
+    <input
+      type="url"
+      value={display}
+      onChange={(e) => {
+        const next = e.target.value;
+        // Если в collapsed-mode юзер начал ввод — он скорее всего
+        // печатает БЕЗ https://. На onBlur ниже мы добавим префикс.
+        // Здесь сохраняем как есть — `display` работает на read только.
+        onChange(next);
+      }}
+      onBlur={(e) => {
+        const v = e.target.value.trim();
+        if (
+          v.length > 0 &&
+          !URL_VALID_PREFIX_RE.test(v) &&
+          /\.[a-z]{2,}/i.test(v) &&
+          !/\s/.test(v)
+        ) {
+          onChange(`https://${v}`);
+        } else if (v !== value) {
+          onChange(v);
+        }
+      }}
+      placeholder={collapsed ? "example.com" : "https://…"}
+      className={cn(
+        "w-full bg-transparent text-[13px] outline-none truncate",
+        "border rounded px-1 -mx-1 transition-colors",
+        looksValid
+          ? "border-transparent hover:border-input focus:border-input"
+          : "border-amber-400/60 focus:border-amber-500",
       )}
-    </div>
+      aria-invalid={!looksValid}
+    />
   );
 }
 
@@ -1734,22 +1835,34 @@ function NumberValueControl({
     );
   }
 
+  // Auto-size input под содержимое — чтобы suffix вплотную лип к
+  // числу, а не висел справа в отрыве. `size` HTML-атрибут даёт width
+  // ≈ N character'ов; min 3 для visible empty state.
+  const valueStr = property.value === null ? "" : String(property.value);
+  const inputSize = Math.max(3, valueStr.length || 3);
+
   return (
-    <div className="flex items-center gap-1 w-full">
-      <Input
+    <div className="inline-flex items-baseline gap-1 max-w-full">
+      <input
         type="number"
         inputMode="numeric"
+        size={inputSize}
         value={property.value ?? ""}
         onChange={(e) => {
           const v = e.target.value;
           onChangeValue(v === "" ? null : Number(v));
         }}
         placeholder="—"
-        className="h-7 text-[13px] tabular-nums border-transparent bg-transparent px-0 hover:border-input focus:border-input"
+        className="h-7 text-[13px] tabular-nums outline-none bg-transparent
+                   border border-transparent rounded px-1 -mx-1
+                   hover:border-input focus:border-input transition-colors
+                   [appearance:textfield]
+                   [&::-webkit-outer-spin-button]:appearance-none
+                   [&::-webkit-inner-spin-button]:appearance-none"
       />
       {suffix && (
         <span
-          className="text-[12px] text-muted-foreground/70 shrink-0 select-none"
+          className="text-[13px] text-muted-foreground/80 shrink-0 select-none"
           title="Единица измерения (изменить — через ⋯ меню)"
         >
           {suffix}

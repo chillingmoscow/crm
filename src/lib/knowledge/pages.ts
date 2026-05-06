@@ -321,17 +321,33 @@ export async function listBacklinksTo(pageId: string): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
+  // RLS на kb_pages для юзеров с kb.delete_pages пускает видеть soft-
+  // deleted строки (для рендера корзины). В backlinks их показывать
+  // нельзя: клик ведёт через /knowledge/<slug>, а `getKbPageBySlug`
+  // фильтрует `deleted_at IS NULL` → notFound. Codex P2 на PR #164
+  // (была дыра ещё до #163; RPC `kb_get_page_view_data` из миграции
+  // 108 фильтровал deleted_at, после revert'а проблему унаследовали).
+  // `!inner` делает JOIN INNER — строки с пустым/отфильтрованным
+  // эмбеддингом не возвращаются вовсе.
   const { data, error } = await supabase
     .from("kb_page_links")
-    .select("from_page:kb_pages!kb_page_links_from_page_id_fkey(id, slug, title, icon, icon_color)")
-    .eq("to_page_id", pageId);
+    .select(
+      "from_page:kb_pages!kb_page_links_from_page_id_fkey!inner(id, slug, title, icon, icon_color)",
+    )
+    .eq("to_page_id", pageId)
+    .is("from_page.deleted_at", null);
   if (error) return { rows: [], error: error.message };
 
   // PostgREST returns the embedded `from_page` as an object for single FKs.
-  type Embedded = { from_page: Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color"> | null };
+  type Embedded = {
+    from_page: Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color"> | null;
+  };
   const rows = ((data ?? []) as unknown as Embedded[])
     .map((r) => r.from_page)
-    .filter((p): p is Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color"> => p != null);
+    .filter(
+      (p): p is Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color"> =>
+        p != null,
+    );
   return { rows, error: null };
 }
 

@@ -136,11 +136,13 @@ function startInlineEdit(opts: {
   const cleanup = () => {
     const value = (target.textContent ?? "").trim();
     // Чистим `<br>`-placeholder который мог быть вставлен для caret-
-    // visibility в empty-state. Если юзер ничего не напечатал — value
-    // пустой, и BN перерендерит caption как :empty (placeholder снова
-    // покажется на hover/select). Если напечатал — innerHTML заменён
-    // на текст, и br тоже обнулится.
-    target.innerHTML = value;
+    // visibility в empty-state. Используем textContent (НЕ innerHTML):
+    // value — это юзер-controlled caption/name, и innerHTML парсил бы
+    // `<img src=x onerror=...>` как HTML → DOM-XSS-сток (Codex P1 на
+    // PR #147). textContent безопасно ставит plain-text-нод, br-
+    // плейсхолдер автоматически удаляется. После updateBlock BN
+    // перерендерит блок и :empty-плейсхолдер снова покажется на hover.
+    target.textContent = value;
     target.removeAttribute("contenteditable");
     delete target.dataset.kbInlineEdit;
     target.style.cursor = "";

@@ -40,15 +40,7 @@ import {
  * под наш DS. Подключается через
  * `<FilePanelController filePanel={KbFilePanel} />`.
  */
-export type KbFilePanelProps = FilePanelProps & {
-  /** Callback закрывает popover (replace flow — controlled Radix Popover
-   *  в KbFileReplaceButton). Если не передан — KbFilePanel закрывает себя
-   *  через FilePanelExtension.closeMenu (BN-default flow для empty media-
-   *  блоков, открывается через FilePanelController). */
-  onClose?: () => void;
-};
-
-export function KbFilePanel(props: KbFilePanelProps) {
+export function KbFilePanel(props: FilePanelProps) {
   // any-generic'и идиоматичны для BN-extension'ов (см. kb-side-menu).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
@@ -60,26 +52,6 @@ export function KbFilePanel(props: KbFilePanelProps) {
   // BN передаёт blockId, но в момент closeMenu блок может быть удалён —
   // защита от null'а.
   if (!block) return null;
-
-  // Универсальный close: replace flow → setOpen(false) (controlled Radix
-  // Popover); empty-state add flow → FilePanelExtension.closeMenu()
-  // (показ панели завязан на blockId-state экстеншена, blur'ом не
-  // закрыть, см. node_modules/.../FilePanelController.tsx).
-  const close = () => {
-    if (props.onClose) {
-      props.onClose();
-      return;
-    }
-    try {
-      const ext = editor.extensions?.get?.("filePanel") as
-        | { closeMenu?: () => void }
-        | undefined;
-      ext?.closeMenu?.();
-    } catch {
-      // Defensive: если API изменится — silently ignore, юзер сам
-      // переключится с блока (selection deselect → BN сам закроет).
-    }
-  };
 
   return (
     <div className="kb-file-panel">
@@ -109,19 +81,9 @@ export function KbFilePanel(props: KbFilePanelProps) {
       </div>
 
       {tab === "upload" && editor.uploadFile && (
-        <UploadPanel
-          blockId={props.blockId}
-          blockType={block.type}
-          onClose={close}
-        />
+        <UploadPanel blockType={block.type} {...props} />
       )}
-      {tab === "embed" && (
-        <EmbedPanel
-          blockId={props.blockId}
-          blockType={block.type}
-          onClose={close}
-        />
-      )}
+      {tab === "embed" && <EmbedPanel blockType={block.type} {...props} />}
     </div>
   );
 }
@@ -131,10 +93,7 @@ export function KbFilePanel(props: KbFilePanelProps) {
 const FORMAT_HINT: Record<string, string> = {
   video: "MP4, MOV, WebM · до 50 МБ",
   image: "PNG, JPG, GIF, WEBP · до 10 МБ",
-  // MP3 (audio/mpeg) НЕ принимается storage-bucket'ом по фидбеку юзера
-  // (#147) — конкретный mp3 не грузился, а ogg / m4a проходили. Указываем
-  // только проверенные форматы; mp3 не пишем во избежание confusion'а.
-  audio: "WAV, OGG, M4A · до 50 МБ",
+  audio: "MP3, WAV, OGG · до 50 МБ",
   file: "Любой файл · до 50 МБ",
 };
 
@@ -148,8 +107,7 @@ const UPLOAD_TITLE: Record<string, string> = {
 function UploadPanel({
   blockType,
   blockId,
-  onClose,
-}: FilePanelProps & { blockType: string; onClose: () => void }) {
+}: FilePanelProps & { blockType: string }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -163,16 +121,29 @@ function UploadPanel({
     return () => clearTimeout(t);
   }, [error]);
 
-  // Upload — fire-and-forget: регистрируем в kb-upload-queue-store, сразу
-  // закрываем panel через onClose (FilePanelExtension.closeMenu для add
-  // flow или setOpen(false) для replace flow), запускаем editor.uploadFile
-  // в фоне. Юзер сразу возвращается к editing — overlay с прогрессом
-  // отрисуется в блоке (см. KbUploadProgressOverlay).
+  // Upload теперь fire-and-forget: регистрируем в kb-upload-queue-store,
+  // запускаем editor.uploadFile в фоне, сразу пытаемся свернуть file-
+  // panel (через blur PM-view'ы — тогда BN-овский FilePanelController
+  // отслеживает что блок больше не selected → закрывает popover).
+  // Юзер может дальше редактировать другие блоки — overlay с прогрессом
+  // отрисуется в empty-state блока (см. KbUploadProgressOverlay).
   const upload = useCallback(
     (file: File) => {
       if (!editor.uploadFile) return;
       startUpload(blockId, file.name);
-      onClose();
+
+      // Закрываем panel: blur редактора убирает selection с блока, BN-
+      // овский FilePanelController видит deselect → закрывает popover.
+      // Done синхронно, до запуска async-promise'а: юзер сразу
+      // возвращается к editing flow без ожидания.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ed = editor as any;
+        ed._tiptapEditor?.commands?.blur?.();
+      } catch {
+        // Если blur не сработал — не критично, пользователь сам
+        // переключится на другой блок.
+      }
 
       void (async () => {
         try {
@@ -183,19 +154,18 @@ function UploadPanel({
             };
           }
           editor.updateBlock(blockId, updateData);
-        } catch (e) {
+        } catch {
           // Ошибка попадает уже после закрытия panel'а — показываем её
           // в сторонней form'е нельзя, поэтому fallback'имся на alert.
           // Лучше чем тихий fail (юзер видит заглушку "Загрузить файл"
           // и не понимает что произошло).
-          const msg = e instanceof Error ? e.message : "Не удалось загрузить файл";
-          alert(msg);
+          alert("Не удалось загрузить файл");
         } finally {
           finishUpload(blockId);
         }
       })();
     },
-    [editor, blockId, onClose],
+    [editor, blockId],
   );
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -290,8 +260,7 @@ const EMBED_HINT: Record<string, string> = {
 function EmbedPanel({
   blockType,
   blockId,
-  onClose,
-}: FilePanelProps & { blockType: string; onClose: () => void }) {
+}: FilePanelProps & { blockType: string }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
   const [url, setUrl] = useState("");
@@ -301,7 +270,6 @@ function EmbedPanel({
     editor.updateBlock(blockId, {
       props: { name: filenameFromURL(url), url },
     });
-    onClose();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

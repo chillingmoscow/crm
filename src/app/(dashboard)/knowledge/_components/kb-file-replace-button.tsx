@@ -71,7 +71,7 @@ export function KbFileReplaceButton() {
         sideOffset={6}
         className="p-0 border-none bg-transparent shadow-none w-auto"
       >
-        <KbFilePanel blockId={block.id} onClose={() => setOpen(false)} />
+        <KbFilePanel blockId={block.id} />
       </PopoverContent>
     </Popover>
   );

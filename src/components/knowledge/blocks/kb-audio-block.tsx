@@ -124,6 +124,11 @@ function KbAudioBlock(
   const showPreview = props.block.props.showPreview;
   const upload = useUploadQueueEntry(props.block.id);
 
+  // Активный upload (add ИЛИ replace flow) — overlay поверх блока.
+  if (upload) {
+    return <KbUploadProgressOverlay blockId={props.block.id} />;
+  }
+
   // Legacy: showPreview=false → chip с audio-иконкой. Юзер просил
   // убрать preview-toggle button, но legacy-блоки с этим prop'ом
   // продолжают рендериться корректно.
@@ -136,10 +141,6 @@ function KbAudioBlock(
         variant="minimal"
       />
     );
-  }
-
-  if (url === "" && upload) {
-    return <KbUploadProgressOverlay blockId={props.block.id} />;
   }
 
   return (

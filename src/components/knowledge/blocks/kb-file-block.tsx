@@ -44,6 +44,11 @@ function KbFileBlock(
   const name = props.block.props.name ?? "";
   const upload = useUploadQueueEntry(props.block.id);
 
+  // Активный upload (add ИЛИ replace flow) — overlay поверх блока.
+  if (upload) {
+    return <KbUploadProgressOverlay blockId={props.block.id} />;
+  }
+
   // Загруженный файл (url непустой) — рендерим свой `KbMediaChip` в
   // card-варианте. Раньше FileBlockWrapper рендерил BN-default'ный
   // `FileNameWithIcon` с тем же RiFile2Line хардкоднутой иконкой,
@@ -103,10 +108,6 @@ function KbFileBlock(
         onClick={handleClick}
       />
     );
-  }
-
-  if (upload) {
-    return <KbUploadProgressOverlay blockId={props.block.id} />;
   }
 
   return (

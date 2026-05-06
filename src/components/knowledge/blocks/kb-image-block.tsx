@@ -34,6 +34,15 @@ function KbImageBlock(
   const showPreview = props.block.props.showPreview;
   const upload = useUploadQueueEntry(props.block.id);
 
+  // Активный upload (add ИЛИ replace flow) — рендерим прогресс-бар
+  // вместо preview / CTA. Юзер-фидбек: «при загрузке файлов показывать
+  // что-то типа статус-бара». Для replace заменяем существующее preview
+  // на overlay, чтобы было видно что upload идёт; после updateBlock
+  // блок снова отрендерится с новым url.
+  if (upload) {
+    return <KbUploadProgressOverlay blockId={props.block.id} />;
+  }
+
   // showPreview=false → BN-default рендерил file-иконку. Рендерим
   // свой chip с image-иконкой.
   if (url !== "" && showPreview === false) {
@@ -45,13 +54,6 @@ function KbImageBlock(
         variant="minimal"
       />
     );
-  }
-
-  // Empty-state с активным upload'ом: рендерим прогресс-бар вместо
-  // BN-default'ной CTA-pill, чтобы юзер видел, что файл грузится в
-  // фоне (см. kb-upload-queue-store + UploadPanel).
-  if (url === "" && upload) {
-    return <KbUploadProgressOverlay blockId={props.block.id} />;
   }
 
   return (

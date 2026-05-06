@@ -229,6 +229,11 @@ function KbVideoBlock(
   const showPreview = props.block.props.showPreview;
   const upload = useUploadQueueEntry(props.block.id);
 
+  // Активный upload (add ИЛИ replace flow) — overlay поверх блока.
+  if (upload) {
+    return <KbUploadProgressOverlay blockId={props.block.id} />;
+  }
+
   // showPreview=false → BN-default рендерил `FileNameWithIcon` с
   // хардкоднутой file-иконкой (RiFile2Line), что юзера сбивало с
   // толку — у видео должна быть видео-иконка. Рендерим свой
@@ -243,10 +248,6 @@ function KbVideoBlock(
         variant="minimal"
       />
     );
-  }
-
-  if (url === "" && upload) {
-    return <KbUploadProgressOverlay blockId={props.block.id} />;
   }
 
   return (

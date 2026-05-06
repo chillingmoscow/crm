@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import {
   ClipboardType,
   Download,
@@ -13,6 +14,12 @@ import {
   useEditorState,
 } from "@blocknote/react";
 
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { detectVideoEmbed } from "@/components/knowledge/blocks/kb-video-block";
 
 /**
@@ -29,11 +36,13 @@ import { detectVideoEmbed } from "@/components/knowledge/blocks/kb-video-block";
  * editor.tsx: проходим items[], по item.key подменяем default React-
  * elements на наши.
  *
- * Caption и rename теперь редактируются inline (не через popover) —
- * клик на кнопку находит соответствующий DOM-элемент в редакторе,
- * делает его contentEditable, фокусирует и слушает blur для save'а
- * через editor.updateBlock. Юзер набирает прямо в той области, где
- * caption / filename отображаются.
+ * Caption и Rename — Popover с `<Input>`-полем. Раньше пробовали
+ * inline-редактирование DOM-элемента (.bn-file-caption / .kb-media-
+ * chip__label с setAttribute contenteditable=true), но это оказалось
+ * хрупким: BN-овская React-перерисовка блока на изменение selection
+ * затирала наш contentEditable, кнопка тулбара забирала focus, и в
+ * empty-state caret вообще не появлялся. Popover с явным <Input>'ом —
+ * предсказуемо и работает во всех four block-types.
  */
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -67,126 +76,75 @@ function useSelectedFileBlock(): FileBlockSelector | null {
   });
 }
 
-/** Inline-edit для bn-class'ом помеченных DOM-элементов внутри блока
- *  (`.bn-file-caption`, `.bn-file-name`). Делает элемент contentEditable,
- *  ставит cursor в конец, слушает blur → updateBlock. На blur также
- *  снимает contentEditable.
- *
- *  Вместо popover'а с `<Input>`-ом — UX по фидбеку юзера: «не открывать
- *  дополнительное окно, а сместить курсор в область, где располагается
- *  сама подпись». */
-function startInlineEdit(opts: {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  editor: any;
-  blockId: string;
-  selector: string;
-  /** Ключ prop'а в блоке, куда писать новое значение (caption / name). */
-  propKey: string;
+/** Generic popover-form для prop-edit'а блока (caption / name).
+ *  Открывается на клик кнопки тулбара, autoFocus'ит Input, на Enter /
+ *  blur вызывает updateBlock и закрывается. */
+function PropEditPopover({
+  open,
+  onOpenChange,
+  trigger,
+  initialValue,
+  placeholder,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+  trigger: React.ReactNode;
+  initialValue: string;
+  placeholder: string;
+  onSubmit: (value: string) => void;
 }) {
-  const editorView = opts.editor._tiptapEditor?.view;
-  if (!editorView) return;
-  const editorDom = editorView.dom as HTMLElement;
+  const [value, setValue] = useState(initialValue);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Находим блок: BN ставит `data-id="<block.id>"` на bn-block-content
-  // (см. src/blocks/createReactBlockSpec.tsx, addOptions). Внутри —
-  // целевой `.bn-file-caption` / `.bn-file-name`.
-  const blockEl = editorDom.querySelector<HTMLElement>(
-    `[data-id="${opts.blockId}"]`,
+  // Sync initial value на каждое открытие — иначе после save/close
+  // popover «помнит» предыдущий черновик.
+  useEffect(() => {
+    if (open) setValue(initialValue);
+  }, [open, initialValue]);
+
+  const submit = () => {
+    onSubmit(value.trim());
+    onOpenChange(false);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="w-72 p-2"
+        // autoFocus на Input'е делается через ref в useEffect, но Radix
+        // Popover при открытии перехватывает focus в свой content. Без
+        // onOpenAutoFocus={focus on input} он landing'ится на content
+        // wrapper'е. Делегируем focus сразу на input.
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }}
+      >
+        <Input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              submit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              onOpenChange(false);
+            }
+          }}
+          placeholder={placeholder}
+          className="h-9"
+        />
+      </PopoverContent>
+    </Popover>
   );
-  if (!blockEl) return;
-  const target = blockEl.querySelector<HTMLElement>(opts.selector);
-  if (!target) return;
-
-  target.setAttribute("contenteditable", "true");
-  target.dataset.kbInlineEdit = opts.propKey;
-  target.style.cursor = "text";
-  target.style.outline = "none";
-
-  // Если caption / name пустой — Chrome/Safari НЕ показывают мигающий
-  // caret в empty contenteditable-элементе (известный quirk). Вставляем
-  // `<br>` placeholder: достаточно чтобы появилась text-line и каретка
-  // отрисовалась. На blur cleanup() читает `textContent` (br не считается
-  // символом), так что value корректно пустеет если юзер ничего не
-  // напечатал.
-  if (target.textContent === "" && target.childNodes.length === 0) {
-    target.appendChild(document.createElement("br"));
-  }
-
-  // requestAnimationFrame: дать браузеру применить contenteditable + наш
-  // CSS-стейт перед focus'ом. Без этого Chrome иногда фокусит элемент
-  // ДО layout'а, и caret остаётся невидимым (placeholder ::before уже
-  // скрыт по [contenteditable=true]-селектору, но box ещё нулевой).
-  requestAnimationFrame(() => {
-    target.focus();
-
-    // Move caret в конец текста (а не в начало — чтобы юзер мог сразу
-    // дописывать к существующему тексту).
-    try {
-      const range = document.createRange();
-      range.selectNodeContents(target);
-      range.collapse(false);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    } catch {
-      // Selection API may fail в некоторых случаях (detached node) — fine.
-    }
-  });
-
-  const cleanup = () => {
-    const value = (target.textContent ?? "").trim();
-    // Чистим `<br>`-placeholder который мог быть вставлен для caret-
-    // visibility в empty-state. Используем textContent (НЕ innerHTML):
-    // value — это юзер-controlled caption/name, и innerHTML парсил бы
-    // `<img src=x onerror=...>` как HTML → DOM-XSS-сток (Codex P1 на
-    // PR #147). textContent безопасно ставит plain-text-нод, br-
-    // плейсхолдер автоматически удаляется. После updateBlock BN
-    // перерендерит блок и :empty-плейсхолдер снова покажется на hover.
-    target.textContent = value;
-    target.removeAttribute("contenteditable");
-    delete target.dataset.kbInlineEdit;
-    target.style.cursor = "";
-    target.style.outline = "";
-    target.removeEventListener("blur", onBlur);
-    target.removeEventListener("keydown", onKeyDown);
-    target.removeEventListener("click", onClick);
-    target.removeEventListener("mousedown", onMouseDown);
-    opts.editor.updateBlock(opts.blockId, { props: { [opts.propKey]: value } });
-  };
-
-  const onBlur = () => cleanup();
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    // Stop propagation чтобы PM не пытался обработать keystroke как
-    // edit'ы основного doc'а — мы редактируем prop, не PM-content.
-    e.stopPropagation();
-    if (e.key === "Enter" && !e.isComposing) {
-      e.preventDefault();
-      target.blur();
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      target.blur();
-    }
-  };
-
-  // Codex P2 на PR #143: для file-блока `.kb-media-chip__label` сидит
-  // ВНУТРИ chip'а, у которого есть onClick → открывает файл в новой
-  // вкладке. Без stopPropagation на target клик мышью для позиционирования
-  // курсора bubble'ил до chip'а → file открывался → contentEditable
-  // терял фокус → blur → cleanup → юзер не успевал ничего напечатать.
-  // Останавливаем bubbling click + mousedown пока редактируем.
-  const onClick = (e: MouseEvent) => {
-    e.stopPropagation();
-  };
-  const onMouseDown = (e: MouseEvent) => {
-    e.stopPropagation();
-  };
-
-  target.addEventListener("blur", onBlur);
-  target.addEventListener("keydown", onKeyDown);
-  target.addEventListener("click", onClick);
-  target.addEventListener("mousedown", onMouseDown);
 }
 
 // ── Caption ────────────────────────────────────────────────────────
@@ -196,21 +154,29 @@ export function KbFileCaptionButton() {
   const editor = useBlockNoteEditor<any, any, any>();
   const Components = useComponentsContext();
   const block = useSelectedFileBlock();
+  const [open, setOpen] = useState(false);
 
   if (!Components || !block) return null;
 
+  const caption =
+    typeof block.props?.caption === "string" ? block.props.caption : "";
+
   return (
-    <Components.FormattingToolbar.Button
-      mainTooltip="Добавить подпись"
-      label="Добавить подпись"
-      icon={<Pencil className="size-4" strokeWidth={1.75} />}
-      onClick={() =>
-        startInlineEdit({
-          editor,
-          blockId: block.id,
-          selector: ".bn-file-caption",
-          propKey: "caption",
-        })
+    <PropEditPopover
+      open={open}
+      onOpenChange={setOpen}
+      initialValue={caption}
+      placeholder="Подпись к файлу"
+      onSubmit={(value) => {
+        editor.updateBlock(block.id, { props: { caption: value } });
+      }}
+      trigger={
+        <Components.FormattingToolbar.Button
+          mainTooltip="Добавить подпись"
+          label="Добавить подпись"
+          icon={<Pencil className="size-4" strokeWidth={1.75} />}
+          onClick={() => setOpen((v) => !v)}
+        />
       }
     />
   );
@@ -223,6 +189,7 @@ export function KbFileRenameButton() {
   const editor = useBlockNoteEditor<any, any, any>();
   const Components = useComponentsContext();
   const block = useSelectedFileBlock();
+  const [open, setOpen] = useState(false);
 
   if (!Components || !block) return null;
   // Rename только для type="file": для image/video/audio имя — либо URL
@@ -231,21 +198,27 @@ export function KbFileRenameButton() {
   // download'е). Caption — отдельная сущность, она остаётся для всех.
   if (block.type !== "file") return null;
 
+  const name = typeof block.props?.name === "string" ? block.props.name : "";
+
   return (
-    <Components.FormattingToolbar.Button
-      mainTooltip="Переименовать"
-      label="Переименовать"
-      icon={<ClipboardType className="size-4" strokeWidth={1.75} />}
-      onClick={() =>
-        startInlineEdit({
-          editor,
-          blockId: block.id,
-          // BN рендерит filename в `.bn-file-name` (см. ei в blocknote-
-          // react.js — FileNameWithIcon). Для наших chip'ов
-          // (KbMediaChip) — `.kb-media-chip__label`. Селектор-OR.
-          selector: ".bn-file-name, .kb-media-chip__label",
-          propKey: "name",
-        })
+    <PropEditPopover
+      open={open}
+      onOpenChange={setOpen}
+      initialValue={name}
+      placeholder="Имя файла"
+      onSubmit={(value) => {
+        // Не переписываем имя пустой строкой — иначе chip остаётся без
+        // label'а вообще. Если юзер очистил input — игнорируем save.
+        if (!value) return;
+        editor.updateBlock(block.id, { props: { name: value } });
+      }}
+      trigger={
+        <Components.FormattingToolbar.Button
+          mainTooltip="Переименовать"
+          label="Переименовать"
+          icon={<ClipboardType className="size-4" strokeWidth={1.75} />}
+          onClick={() => setOpen((v) => !v)}
+        />
       }
     />
   );

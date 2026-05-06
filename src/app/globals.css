@@ -214,25 +214,6 @@ input:-webkit-autofill {
   pointer-events: none;
   opacity: 0.6;
 }
-/* Inline-edit подписи (см. startInlineEdit в kb-file-toolbar-buttons.tsx):
-   когда юзер кликнул «Добавить подпись», мы ставим contenteditable=true
-   на пустой <p>. Без min-height и явного caret-color caret не виден:
-   Chrome не рисует мигающий курсор в empty-contenteditable-блоке без
-   line-box'а. Скрываем placeholder ::before в этом стейте — иначе
-   юзер видит «Добавить подпись» поверх своего ввода. */
-.bn-sheerly .bn-file-caption[contenteditable="true"] {
-  min-height: 1.4em;
-  caret-color: hsl(var(--foreground));
-  outline: none;
-  font-style: normal;
-  font-size: 0.8em;
-  color: hsl(var(--muted-foreground));
-  line-height: 1.5;
-  padding-block: 4px;
-}
-.bn-sheerly .bn-file-caption[contenteditable="true"]::before {
-  content: none !important;
-}
 /* Если caption уже заполнена — стилизуем её consistently (DS-серый
    muted, не дефолтный #7d797a из BlockNote). */
 .bn-sheerly [data-file-block] .bn-file-caption:not(:empty) {

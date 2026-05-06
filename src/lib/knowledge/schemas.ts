@@ -154,9 +154,29 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     ...kbPropertyBase,
     type: z.literal("rating"),
     value: z.number().int().min(0).max(10).nullable(),
-    max: z.number().int().min(1).max(10).optional(),
+    // Шкала ограничена дискретным набором — UI даёт ровно эти три
+    // варианта в picker'е. Сужение enum'а на стороне zod закрывает
+    // дыру, в которую старый клиент / прямой API-call мог послать
+    // произвольный max и получить inconsistent data (Codex P2 на #144).
+    max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
   }),
-]);
+]).superRefine((p, ctx) => {
+  // Cross-field invariant для rating: `value` не может превышать `max`.
+  // UI clamp'ит при сужении шкалы, защищаемся ещё и серверно. Делаем
+  // через `.superRefine` на discriminated-union'е (а не `.refine`
+  // внутри option'а) — иначе ZodEffects ломает type-resolution union'а.
+  if (
+    p.type === "rating" &&
+    p.value !== null &&
+    p.value > (p.max ?? 5)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["value"],
+      message: "Значение rating не может превышать max",
+    });
+  }
+});
 
 // Cap на массив — sanity, не функциональное ограничение. На странице
 // больше 30 properties — антипаттерн.

@@ -244,10 +244,9 @@ export default async function KbPageView({ params }: PageProps) {
           initialFavorited={favorited}
           initialRequiredReading={readStatus.required}
           initialLocked={isLocked}
-          requiredReadingActive={readStatus.required}
           updatedAt={row.updated_at}
           updatedByName={updatedByName}
-          canEdit={canEdit}
+          canEditBase={canEditBase}
           canDelete={canDelete}
           canDuplicate={canDuplicate}
           canExport={canExport}

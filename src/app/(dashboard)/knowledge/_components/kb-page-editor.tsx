@@ -456,8 +456,20 @@ export function KbPageEditor({
             // при resize/перерендере блока.
             const cached = getCachedSignedUrl(storagePath);
             if (cached) return cached;
-            const { url: signed, error } =
-              await getKbAttachmentSignedUrl(storagePath);
+            // Retry-once на transient pool-timeout'ах. На странице с 10+
+            // изображениями BlockNote дёргает resolveFileUrl параллельно
+            // на каждый блок → 10 одновременных DB-query на pool=20.
+            // Половина может упасть на «pool exhausted» → user видит
+            // «BlockNote image» broken-icon вместо картинки. Backoff
+            // 200мс перед retry даёт pool разгрузиться. На постоянной
+            // ошибке (file deleted, RLS reject) обе попытки упадут
+            // одинаково — fallback на kbfile:// → broken-icon как и раньше.
+            let attempt = await getKbAttachmentSignedUrl(storagePath);
+            if (attempt.error || !attempt.url) {
+              await new Promise((r) => setTimeout(r, 200));
+              attempt = await getKbAttachmentSignedUrl(storagePath);
+            }
+            const { url: signed, error } = attempt;
             if (error || !signed) {
               // Fall back to the kbfile:// URL — browser will show a
               // broken-image icon, which is the right signal that

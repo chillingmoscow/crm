@@ -66,14 +66,16 @@ interface KbPageMenuProps {
   initialFavorited: boolean;
   initialRequiredReading: boolean;
   initialLocked: boolean;
-  /** Текущая required-reading отметка для отображения "Кто прочитал"
-   *  пункта (имеет смысл только когда required=true). */
-  requiredReadingActive: boolean;
   /** Дата последнего изменения + автор — для footer-блока меню. */
   updatedAt: string | null;
   updatedByName: string | null;
   // ── permissions / capability gating ──
-  canEdit: boolean;
+  /** Базовый edit-permission БЕЗ учёта lock-state. Lock-state читаем
+   *  через override-store в реальном времени — undo/redo и
+   *  version-restore должны переключаться сразу после toggle Lock'а
+   *  без router.refresh. Codex P2 на PR #161. Тот же паттерн что в
+   *  KbPageEditor (#154). */
+  canEditBase: boolean;
   canDelete: boolean;
   canDuplicate: boolean;
   canExport: boolean;
@@ -164,10 +166,16 @@ export function KbPageMenu(props: KbPageMenuProps) {
     return editor.onChange(() => editorTick((t) => t + 1));
   }, [editor]);
 
+  // Effective canEdit учитывает свежий lock-state из override-store.
+  // props.canEdit передаётся как уже-resolved (canEditBase && !initialLocked),
+  // но не учитывает override от toggle'а; для undo/redo и version-restore
+  // нам нужно эффективное значение. canEditBase отдельным prop'ом —
+  // тот же паттерн что в KbPageEditor (см. PR #154). Codex P2 на #161.
+  const effectiveCanEdit = props.canEditBase && !locked;
   const undoEnabled =
-    editor && props.canEdit && undoDepth(editor._tiptapEditor.state) > 0;
+    editor && effectiveCanEdit && undoDepth(editor._tiptapEditor.state) > 0;
   const redoEnabled =
-    editor && props.canEdit && redoDepth(editor._tiptapEditor.state) > 0;
+    editor && effectiveCanEdit && redoDepth(editor._tiptapEditor.state) > 0;
 
   const onToggleFavorite = () => {
     const next = !favorited;
@@ -283,9 +291,14 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const showRequiredGroup = props.canManageRequiredReading || props.canLock;
   const showHistoryGroup = editor !== null || props.canDuplicate;
   const showFilesGroup = props.canExport || props.canImport;
+  // Insights group derived from EFFECTIVE required-reading flag (а не
+  // server-snapshot props.requiredReadingActive). После optimistic
+  // toggle'а off→on пункт «Кто прочитал» должен появиться сразу, а
+  // off-toggle — скрыть его, не дожидаясь router.refresh. Codex P2
+  // на #161.
   const showInsightsGroup =
     props.canViewAnalytics ||
-    (props.canManageRequiredReading && props.requiredReadingActive);
+    (props.canManageRequiredReading && required);
   const showLastSeparator = props.canDelete;
 
   return (
@@ -480,7 +493,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
               </Link>
             </DropdownMenuItem>
           )}
-          {props.canManageRequiredReading && props.requiredReadingActive && (
+          {props.canManageRequiredReading && required && (
             <DropdownMenuItem asChild>
               <Link
                 href={`/knowledge/${props.pageSlug}/required-reading`}
@@ -526,7 +539,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
        * чтобы их Radix-порталы не пересекались с DropdownMenuContent. */}
       <KbVersionHistory
         pageId={props.pageId}
-        canEdit={props.canEdit}
+        canEdit={effectiveCanEdit}
         open={versionsOpen}
         onOpenChange={setVersionsOpen}
       />

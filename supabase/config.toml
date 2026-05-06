@@ -43,9 +43,17 @@ port = 54329
 # Configure one of the supported pooler modes: `transaction`, `session`.
 pool_mode = "transaction"
 # How many server connections to allow per user/database pair.
-default_pool_size = 20
+# Поднято с 20 до 60 (2026-05-06): multi-user CRM с editor + uploads +
+# RSC-fetch'ами по ~14 параллельных запросов на навигацию упирался в
+# pool на 2-3 одновременных пользователях ("Timed out acquiring
+# connection from connection pool" на toggle Lock / uploads). См.
+# memory/kb_upload_pool_timeout.md + feedback_pool_pressure_audit.md.
+# На self-hosted Supabase (Coolify) надо ещё перезапустить Supavisor /
+# PgBouncer контейнер с этим значением — config.toml только для
+# локального supabase-cli, prod-pool настраивается в Coolify ENV.
+default_pool_size = 60
 # Maximum number of client connections allowed.
-max_client_conn = 100
+max_client_conn = 200
 
 # [db.vault]
 # secret_key = "env(SECRET_VALUE)"

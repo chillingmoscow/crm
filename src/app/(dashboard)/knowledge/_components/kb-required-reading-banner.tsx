@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,7 +47,6 @@ export function KbRequiredReadingBanner({
   needsReread = false,
   readingMinutes = null,
 }: KbRequiredReadingBannerProps) {
-  const router = useRouter();
   const [readAt, setReadAt] = useState<string | null>(initialReadAt);
   const [pending, setPending] = useState(false);
 
@@ -81,7 +79,12 @@ export function KbRequiredReadingBanner({
     }
     setReadAt(new Date().toISOString());
     toast.success("Прочтение подтверждено");
-    router.refresh();
+    // Без router.refresh: optimistic setReadAt уже переключил UI на
+    // зелёный «Прочитано» badge. revalidatePath в markKbPageAsRead
+    // покрывает next-navigation для других мест где статус виден
+    // (sidebar required-reading-stats и пр.). Refresh форсировал full
+    // RSC re-fetch (~10 запросов) ради синхронизации соседних page-
+    // header-кнопок — слишком дорого для одиночного ack-action'а.
   };
 
   // Re-read state: страница обновилась после прежнего подтверждения.

@@ -182,18 +182,27 @@ export function useKbAutosave({
       return;
     }
     const savePromise = (async () => {
-      // captureCommentMarkPositions перед save'ом — fire-and-forget
-      // (failures логируются внутри). Без этого PM-позиции comment-
-      // mark'ов теряются при serialization round-trip'е (BN strip'ает
-      // mark'и при сериализации в block-content).
+      // captureCommentMarkPositions перед save'ом — теперь awaited
+      // (раньше был fire-and-forget). Зачем serialize: внутри capture
+      // идёт N параллельных persistThreadPosition (по одной на каждый
+      // thread с drift), и они сразу гонялись параллельно с saveKbPage —
+      // итого 1 + N concurrent connections per save. На self-hosted
+      // Supabase с pool=20 это быстро упиралось в лимит. Awaited даёт
+      // максимум 1 connection в момент времени; save становится длиннее
+      // на ~50-150мс, но pool footprint падает с (1+N) до 1.
+      // failures логируются внутри capture'а; ошибка НЕ ломает save —
+      // continue без неё; кратность с PM-позициями восстановит next
+      // capture через 2 сек.
       if (commentsBundle) {
         const store = commentsBundle.threadStore as unknown as {
           captureCommentMarkPositions?: () => Promise<void>;
         };
         if (typeof store.captureCommentMarkPositions === "function") {
-          void store.captureCommentMarkPositions().catch((err) => {
+          try {
+            await store.captureCommentMarkPositions();
+          } catch (err) {
             console.warn("[kb] captureCommentMarkPositions failed", err);
-          });
+          }
         }
       }
       const plainText = blocksToPlainText(contentRef.current);

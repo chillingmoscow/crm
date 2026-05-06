@@ -270,12 +270,18 @@ function getKbNewPageSlashItem(onCreate: () => void) {
 /** Block-types на которых не нужны comment-кнопки (BN-comments крепятся
  *  на текстовый Yjs-mark, для leaf-блоков без content создание комментария
  *  превращается в no-op). Скрываем `addCommentButton` /
- *  `addTiptapCommentButton` при выделении такого блока. */
+ *  `addTiptapCommentButton` при выделении такого блока.
+ *
+ *  - `image/video/audio/file` — атомарные media-leaf'ы.
+ *  - `divider` — horizontal rule, тоже leaf без inline-content; коммент
+ *    к нему создал бы пустой thread без видимого якоря.
+ */
 const NON_COMMENTABLE_BLOCK_TYPES = new Set([
   "image",
   "video",
   "audio",
   "file",
+  "divider",
 ]);
 
 /** Lucide-иконка как IconType (react-icons-совместимый shape) — BN'ный

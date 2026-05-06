@@ -193,29 +193,12 @@ input:-webkit-autofill {
   padding: 0;
 }
 
-/* File / Image / Video / Audio блоки — discoverability подписей и
-   переименования. BlockNote из коробки уже даёт обе фичи через
-   formatting toolbar (кнопки «Изменить подпись» / «Переименовать»),
-   но empty-caption по умолчанию невидим (`padding-block:0`), и
-   пользователь не догадывается, что caption вообще существует.
-   Показываем placeholder при наведении на блок ИЛИ когда блок
-   selected — без перетягивания на JS. */
-/* Гейтим placeholder по contenteditable=true: в read-only-просмотрах
-   (trash preview через KbBlockNoteEditor editable={false}) editable
-   UI намеренно отключен и подсказки про edit-actions сбивают с толку.
-   Юзер-фидбек на PR #157: «при наведении на файл появляется надпись
-   "Добавить подпись" — этого быть не должно». Убрали `:hover`-вариант,
-   placeholder показывается ТОЛЬКО когда блок selectednode. */
-.bn-sheerly .bn-editor[contenteditable="true"] .ProseMirror-selectednode .bn-file-caption:empty::before {
-  content: "Добавить подпись";
-  color: hsl(var(--muted-foreground));
-  font-style: italic;
-  font-size: 0.8em;
-  display: block;
-  padding-block: 4px;
-  pointer-events: none;
-  opacity: 0.6;
-}
+/* File / Image / Video / Audio блоки — caption-placeholder убран
+ * полностью (юзер-фидбек на PR #159: «он и при выделении не должен
+ * появляться»). Discoverability обеспечивается кнопкой «Добавить
+ * подпись» в formatting-toolbar (см. KbFileCaptionButton) — placeholder
+ * под пустым `<p>` дублировал её функционал и вносил визуальный шум.
+ * Если caption уже заполнен — рендерим как обычный текст ниже. */
 /* Если caption уже заполнена — стилизуем её consistently (DS-серый
    muted, не дефолтный #7d797a из BlockNote). */
 .bn-sheerly [data-file-block] .bn-file-caption:not(:empty) {

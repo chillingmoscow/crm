@@ -124,6 +124,8 @@ function startInlineEdit(opts: {
     target.style.outline = "";
     target.removeEventListener("blur", onBlur);
     target.removeEventListener("keydown", onKeyDown);
+    target.removeEventListener("click", onClick);
+    target.removeEventListener("mousedown", onMouseDown);
     opts.editor.updateBlock(opts.blockId, { props: { [opts.propKey]: value } });
   };
 
@@ -143,8 +145,23 @@ function startInlineEdit(opts: {
     }
   };
 
+  // Codex P2 на PR #143: для file-блока `.kb-media-chip__label` сидит
+  // ВНУТРИ chip'а, у которого есть onClick → открывает файл в новой
+  // вкладке. Без stopPropagation на target клик мышью для позиционирования
+  // курсора bubble'ил до chip'а → file открывался → contentEditable
+  // терял фокус → blur → cleanup → юзер не успевал ничего напечатать.
+  // Останавливаем bubbling click + mousedown пока редактируем.
+  const onClick = (e: MouseEvent) => {
+    e.stopPropagation();
+  };
+  const onMouseDown = (e: MouseEvent) => {
+    e.stopPropagation();
+  };
+
   target.addEventListener("blur", onBlur);
   target.addEventListener("keydown", onKeyDown);
+  target.addEventListener("click", onClick);
+  target.addEventListener("mousedown", onMouseDown);
 }
 
 // ── Caption ────────────────────────────────────────────────────────

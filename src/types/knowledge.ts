@@ -129,6 +129,11 @@ export type KbProperty =
       name: string;
       type: "checkbox";
       value: boolean;
+      /** Визуальный variant. `checkbox` (default) — классический чекбокс,
+       *  `switch` — toggle-триггер. Семантика идентична (boolean), меняется
+       *  только рендер. Rollback-safe: старый клиент игнорирует и
+       *  показывает дефолтный чекбокс. */
+      displayVariant?: "checkbox" | "switch";
     } & KbPropertyIconOverride)
   | ({
       id: string;
@@ -167,6 +172,10 @@ export type KbProperty =
       value: number | null;
       /** Шкала. По дефолту 5. Допустимые: 3 / 5 / 10. */
       max?: number;
+      /** Визуальный variant. `stars` (default) — звёзды, `slider` —
+       *  range-input от 0 до max. Семантика та же (число), меняется
+       *  только рендер. Rollback-safe. */
+      displayVariant?: "stars" | "slider";
     } & KbPropertyIconOverride);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────

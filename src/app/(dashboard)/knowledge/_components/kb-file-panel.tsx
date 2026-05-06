@@ -40,7 +40,15 @@ import {
  * под наш DS. Подключается через
  * `<FilePanelController filePanel={KbFilePanel} />`.
  */
-export function KbFilePanel(props: FilePanelProps) {
+export type KbFilePanelProps = FilePanelProps & {
+  /** Callback закрывает popover (replace flow — controlled Radix Popover
+   *  в KbFileReplaceButton). Если не передан — KbFilePanel закрывает
+   *  себя через FilePanelExtension.closeMenu (BN-default flow для empty
+   *  media-блоков, открывается через FilePanelController). */
+  onClose?: () => void;
+};
+
+export function KbFilePanel(props: KbFilePanelProps) {
   // any-generic'и идиоматичны для BN-extension'ов (см. kb-side-menu).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
@@ -52,6 +60,26 @@ export function KbFilePanel(props: FilePanelProps) {
   // BN передаёт blockId, но в момент closeMenu блок может быть удалён —
   // защита от null'а.
   if (!block) return null;
+
+  // Универсальный close: replace flow → setOpen(false) (controlled
+  // Radix Popover); empty-state add flow → FilePanelExtension.closeMenu
+  // (показ панели завязан на blockId-state экстеншена, blur'ом не
+  // закрыть, см. node_modules/.../FilePanelController.tsx).
+  const close = () => {
+    if (props.onClose) {
+      props.onClose();
+      return;
+    }
+    try {
+      const ext = editor.extensions?.get?.("filePanel") as
+        | { closeMenu?: () => void }
+        | undefined;
+      ext?.closeMenu?.();
+    } catch {
+      // Defensive: если API изменится — silently ignore, юзер сам
+      // переключится с блока (selection deselect → BN сам закроет).
+    }
+  };
 
   return (
     <div className="kb-file-panel">
@@ -81,20 +109,63 @@ export function KbFilePanel(props: FilePanelProps) {
       </div>
 
       {tab === "upload" && editor.uploadFile && (
-        <UploadPanel blockType={block.type} {...props} />
+        <UploadPanel
+          blockId={props.blockId}
+          blockType={block.type}
+          onClose={close}
+        />
       )}
-      {tab === "embed" && <EmbedPanel blockType={block.type} {...props} />}
+      {tab === "embed" && (
+        <EmbedPanel
+          blockId={props.blockId}
+          blockType={block.type}
+          onClose={close}
+        />
+      )}
     </div>
   );
 }
 
 // ─── Upload tab ─────────────────────────────────────────────────────
 
+/** Хинты для drop-zone'ы. Список форматов синхронен с MIME_PATTERNS
+ *  ниже (валидация в pre-flight). */
 const FORMAT_HINT: Record<string, string> = {
   video: "MP4, MOV, WebM · до 50 МБ",
   image: "PNG, JPG, GIF, WEBP · до 10 МБ",
-  audio: "MP3, WAV, OGG · до 50 МБ",
+  audio: "MP3, WAV, OGG, M4A · до 50 МБ",
   file: "Любой файл · до 50 МБ",
+};
+
+/** Лимиты по размеру (в байтах). Должны совпадать со
+ *  storage.file_size_limit в supabase/config.toml (50 MiB) и с
+ *  experimental.serverActions.bodySizeLimit в next.config.ts. Image
+ *  ограничиваем строже (10 МБ): большие фото обычно нужно сжать
+ *  перед загрузкой, иначе и страница тормозит и storage пухнет. */
+const MAX_BYTES: Record<string, number> = {
+  video: 50 * 1024 * 1024,
+  image: 10 * 1024 * 1024,
+  audio: 50 * 1024 * 1024,
+  file: 50 * 1024 * 1024,
+};
+
+/** MIME-паттерны для проверки формата на клиенте перед отправкой
+ *  server-action'а. RegExp намеренно lax: браузеры репортят разные
+ *  варианты (audio/mpeg vs audio/mp3, image/jpeg vs image/jpg).
+ *  null → валидируем по расширению вместо MIME (некоторые ОС/браузеры
+ *  не отдают type для редких форматов). */
+const MIME_PATTERNS: Record<string, RegExp | null> = {
+  video: /^video\//,
+  image: /^image\/(png|jpe?g|gif|webp)$/,
+  audio: /^audio\//,
+  file: null,
+};
+
+const EXT_PATTERNS: Record<string, RegExp | null> = {
+  video: /\.(mp4|mov|webm|m4v|ogv)$/i,
+  image: /\.(png|jpe?g|gif|webp)$/i,
+  audio: /\.(mp3|wav|ogg|m4a|aac|flac|opus)$/i,
+  file: null,
 };
 
 const UPLOAD_TITLE: Record<string, string> = {
@@ -104,46 +175,68 @@ const UPLOAD_TITLE: Record<string, string> = {
   file: "Перетащите файл сюда",
 };
 
+/** Pre-flight валидация: размер + формат. Возвращает текст ошибки или
+ *  null если всё ок. Юзер-фидбек: «Если размер превышает — должна
+ *  показаться соответствующая ошибка. Если формат файла не подходит —
+ *  другая ошибка. И так для всех медиафайлов». */
+function validateFile(file: File, blockType: string): string | null {
+  const maxBytes = MAX_BYTES[blockType] ?? MAX_BYTES.file;
+  if (file.size > maxBytes) {
+    const limitMb = Math.round(maxBytes / (1024 * 1024));
+    const fileMb = (file.size / (1024 * 1024)).toFixed(1);
+    return `Файл слишком большой (${fileMb} МБ). Лимит — ${limitMb} МБ.`;
+  }
+  const mimePattern = MIME_PATTERNS[blockType];
+  const extPattern = EXT_PATTERNS[blockType];
+  if (mimePattern && extPattern) {
+    const mimeOk = file.type ? mimePattern.test(file.type) : true;
+    const extOk = extPattern.test(file.name);
+    // Хотя бы один из (mime, ext) должен подойти. Браузер мог не выдать
+    // mime (file.type === "") — fallback'имся на расширение.
+    if (!mimeOk && !extOk) {
+      return `Неподходящий формат: ${file.type || file.name.split(".").pop() || "?"}. Поддерживаются: ${FORMAT_HINT[blockType]}.`;
+    }
+  }
+  return null;
+}
+
 function UploadPanel({
   blockType,
   blockId,
-}: FilePanelProps & { blockType: string }) {
+  onClose,
+}: FilePanelProps & { blockType: string; onClose: () => void }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 3-сек auto-clear ошибки (как в BN-default'е).
+  // 5-сек auto-clear ошибки. Длиннее чем у BN (3 сек) — даём юзеру
+  // прочитать причину (особенно «формат не поддерживается» с длинным
+  // списком).
   useEffect(() => {
     if (!error) return;
-    const t = setTimeout(() => setError(null), 3000);
+    const t = setTimeout(() => setError(null), 5000);
     return () => clearTimeout(t);
   }, [error]);
 
-  // Upload теперь fire-and-forget: регистрируем в kb-upload-queue-store,
-  // запускаем editor.uploadFile в фоне, сразу пытаемся свернуть file-
-  // panel (через blur PM-view'ы — тогда BN-овский FilePanelController
-  // отслеживает что блок больше не selected → закрывает popover).
-  // Юзер может дальше редактировать другие блоки — overlay с прогрессом
-  // отрисуется в empty-state блока (см. KbUploadProgressOverlay).
+  // Upload — fire-and-forget после pre-flight'а: валидируем размер +
+  // формат, регистрируем в kb-upload-queue-store, закрываем panel,
+  // запускаем editor.uploadFile в фоне. Ошибка после закрытия panel'а
+  // показывается через alert() с реальным сообщением от Supabase
+  // (а не заглушка «Не удалось загрузить»).
   const upload = useCallback(
     (file: File) => {
       if (!editor.uploadFile) return;
-      startUpload(blockId, file.name);
 
-      // Закрываем panel: blur редактора убирает selection с блока, BN-
-      // овский FilePanelController видит deselect → закрывает popover.
-      // Done синхронно, до запуска async-promise'а: юзер сразу
-      // возвращается к editing flow без ожидания.
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ed = editor as any;
-        ed._tiptapEditor?.commands?.blur?.();
-      } catch {
-        // Если blur не сработал — не критично, пользователь сам
-        // переключится на другой блок.
+      const validationError = validateFile(file, blockType);
+      if (validationError) {
+        setError(validationError);
+        return;
       }
+
+      startUpload(blockId, file.name);
+      onClose();
 
       void (async () => {
         try {
@@ -154,18 +247,17 @@ function UploadPanel({
             };
           }
           editor.updateBlock(blockId, updateData);
-        } catch {
-          // Ошибка попадает уже после закрытия panel'а — показываем её
-          // в сторонней form'е нельзя, поэтому fallback'имся на alert.
-          // Лучше чем тихий fail (юзер видит заглушку "Загрузить файл"
-          // и не понимает что произошло).
-          alert("Не удалось загрузить файл");
+        } catch (e) {
+          // Surface real message: Supabase / RLS / size errors → юзер
+          // увидит конкретную причину, а не generic «не удалось».
+          const msg = e instanceof Error ? e.message : "Не удалось загрузить файл";
+          alert(`Ошибка загрузки: ${msg}`);
         } finally {
           finishUpload(blockId);
         }
       })();
     },
-    [editor, blockId],
+    [editor, blockId, blockType, onClose],
   );
 
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -253,14 +345,15 @@ const EMBED_HINT: Record<string, string> = {
   video:
     "Поддерживаются YouTube, Vimeo, Loom, Vidyard и прямые ссылки на .mp4/.webm",
   image: "Прямая ссылка на изображение (JPG, PNG, GIF, WEBP)",
-  audio: "Прямая ссылка на аудио (MP3, WAV, OGG)",
+  audio: "Прямая ссылка на аудио (MP3, WAV, OGG, M4A)",
   file: "Прямая ссылка на файл",
 };
 
 function EmbedPanel({
   blockType,
   blockId,
-}: FilePanelProps & { blockType: string }) {
+  onClose,
+}: FilePanelProps & { blockType: string; onClose: () => void }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
   const [url, setUrl] = useState("");
@@ -270,6 +363,7 @@ function EmbedPanel({
     editor.updateBlock(blockId, {
       props: { name: filenameFromURL(url), url },
     });
+    onClose();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

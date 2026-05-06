@@ -19,6 +19,19 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  experimental: {
+    serverActions: {
+      // Next.js server actions имеют дефолт 1 МБ для тела запроса
+      // (https://nextjs.org/docs/app/api-reference/functions/server-actions
+      //   #size-limitation). KB-аплоады (uploadKbAttachment) — server
+      // action, и любой файл >1 МБ молча режется ДО того как доходит
+      // до Supabase. Юзер репортил «mp3 5.7 МБ не загружается, ogg/m4a
+      // проходят» — те, что прошли, видимо были <1 МБ.
+      // Поднимаем до 50 МБ, чтобы совпадало с storage.file_size_limit
+      // в supabase/config.toml (50 MiB) и hint'ом в KB-FilePanel.
+      bodySizeLimit: "50mb",
+    },
+  },
   images: {
     remotePatterns: [
       // Self-hosted Supabase storage (production)

@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { CloudUpload, Loader2 } from "lucide-react";
+import { CloudUpload } from "lucide-react";
 import { filenameFromURL } from "@blocknote/core";
 import {
   type FilePanelProps,
@@ -19,6 +19,10 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  finishUpload,
+  startUpload,
+} from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
 
 /**
  * Custom replacement для BN-default'ного `FilePanel`. Появляется как
@@ -108,7 +112,6 @@ function UploadPanel({
   const editor = useBlockNoteEditor<any, any, any>();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // 3-сек auto-clear ошибки (как в BN-default'е).
@@ -118,23 +121,49 @@ function UploadPanel({
     return () => clearTimeout(t);
   }, [error]);
 
+  // Upload теперь fire-and-forget: регистрируем в kb-upload-queue-store,
+  // запускаем editor.uploadFile в фоне, сразу пытаемся свернуть file-
+  // panel (через blur PM-view'ы — тогда BN-овский FilePanelController
+  // отслеживает что блок больше не selected → закрывает popover).
+  // Юзер может дальше редактировать другие блоки — overlay с прогрессом
+  // отрисуется в empty-state блока (см. KbUploadProgressOverlay).
   const upload = useCallback(
-    async (file: File) => {
+    (file: File) => {
       if (!editor.uploadFile) return;
-      setUploading(true);
+      startUpload(blockId, file.name);
+
+      // Закрываем panel: blur редактора убирает selection с блока, BN-
+      // овский FilePanelController видит deselect → закрывает popover.
+      // Done синхронно, до запуска async-promise'а: юзер сразу
+      // возвращается к editing flow без ожидания.
       try {
-        let updateData = await editor.uploadFile(file, blockId);
-        if (typeof updateData === "string") {
-          updateData = {
-            props: { name: file.name, url: updateData },
-          };
-        }
-        editor.updateBlock(blockId, updateData);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ed = editor as any;
+        ed._tiptapEditor?.commands?.blur?.();
       } catch {
-        setError("Не удалось загрузить файл");
-      } finally {
-        setUploading(false);
+        // Если blur не сработал — не критично, пользователь сам
+        // переключится на другой блок.
       }
+
+      void (async () => {
+        try {
+          let updateData = await editor.uploadFile!(file, blockId);
+          if (typeof updateData === "string") {
+            updateData = {
+              props: { name: file.name, url: updateData },
+            };
+          }
+          editor.updateBlock(blockId, updateData);
+        } catch {
+          // Ошибка попадает уже после закрытия panel'а — показываем её
+          // в сторонней form'е нельзя, поэтому fallback'имся на alert.
+          // Лучше чем тихий fail (юзер видит заглушку "Загрузить файл"
+          // и не понимает что произошло).
+          alert("Не удалось загрузить файл");
+        } finally {
+          finishUpload(blockId);
+        }
+      })();
     },
     [editor, blockId],
   );
@@ -177,21 +206,13 @@ function UploadPanel({
           }
         }}
       >
-        {uploading ? (
-          <Loader2 className="size-7 animate-spin text-muted-foreground" />
-        ) : (
-          <CloudUpload className="size-7 text-muted-foreground" />
-        )}
+        <CloudUpload className="size-7 text-muted-foreground" />
         <div className="kb-file-panel-dropzone-title">
-          {uploading
-            ? "Загружаем…"
-            : (UPLOAD_TITLE[blockType] ?? UPLOAD_TITLE.file)}
+          {UPLOAD_TITLE[blockType] ?? UPLOAD_TITLE.file}
         </div>
-        {!uploading && (
-          <div className="kb-file-panel-dropzone-sub">
-            или нажмите, чтобы выбрать файл
-          </div>
-        )}
+        <div className="kb-file-panel-dropzone-sub">
+          или нажмите, чтобы выбрать файл
+        </div>
         <input
           ref={inputRef}
           type="file"

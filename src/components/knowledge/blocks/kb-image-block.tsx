@@ -19,6 +19,8 @@ import {
 import { Image as ImageIcon } from "lucide-react";
 
 import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
+import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
+import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
 
 function KbImageBlock(
   props: ReactCustomBlockRenderProps<typeof createImageBlockConfig>,
@@ -30,6 +32,7 @@ function KbImageBlock(
   const wrapperProps = props as any;
   const url = props.block.props.url ?? "";
   const showPreview = props.block.props.showPreview;
+  const upload = useUploadQueueEntry(props.block.id);
 
   // showPreview=false → BN-default рендерил file-иконку. Рендерим
   // свой chip с image-иконкой.
@@ -42,6 +45,13 @@ function KbImageBlock(
         variant="minimal"
       />
     );
+  }
+
+  // Empty-state с активным upload'ом: рендерим прогресс-бар вместо
+  // BN-default'ной CTA-pill, чтобы юзер видел, что файл грузится в
+  // фоне (см. kb-upload-queue-store + UploadPanel).
+  if (url === "" && upload) {
+    return <KbUploadProgressOverlay blockId={props.block.id} />;
   }
 
   return (

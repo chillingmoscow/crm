@@ -10,7 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { BarChart3, ChevronRight, GripVertical, Lock, Plus, ScrollText, Trash2 } from "lucide-react";
+import { BarChart3, ChevronRight, GripVertical, Plus, ScrollText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -588,9 +588,11 @@ function KbTreeItem({
   const displayIconColor =
     override?.iconColor !== undefined ? override.iconColor : node.icon_color;
   const displayTitle = override?.title ?? node.title;
-  // Lock-state в sidebar тоже читаем через page-state override —
-  // тогда после lock-toggle иконка замочка появляется/пропадает в дереве
-  // мгновенно, без router.refresh.
+  // Lock-state используется только в title-tooltip'е (для информации
+  // что страница заблокирована). Visual lock-chip в самой строке tree
+  // больше не рендерим — пользователь видит lock-status уже из page-
+  // header'а на самой странице, дублирующая иконка в дереве визуально
+  // зашумляла.
   const stateOverride = useKbPageStateOverride(node.id);
   const displayIsLocked = stateOverride?.locked ?? node.is_locked;
   const isActive = activeSlug === node.slug;
@@ -764,12 +766,6 @@ function KbTreeItem({
           title={displayIsLocked ? `${displayTitle} (заблокирована)` : displayTitle}
         >
           <span className="truncate">{displayTitle || "Без названия"}</span>
-          {displayIsLocked && (
-            <Lock
-              className="size-3 shrink-0 text-amber-600 dark:text-amber-400"
-              aria-label="Страница заблокирована"
-            />
-          )}
         </Link>
 
         {/* Hover-only "+" to add a child. */}

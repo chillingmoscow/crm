@@ -53,11 +53,9 @@ export function KbRequiredReadingToggle({
       toast.error(`Не удалось переключить: ${error}`);
       return;
     }
-    toast.success(
-      next
-        ? "Страница помечена как обязательная к прочтению"
-        : "Снят флаг обязательного прочтения",
-    );
+    // Без success-toast'а: жёлтый banner на странице (KbRequiredReadingBanner)
+    // и подсветка иконки уже сообщают что флаг включён. Дополнительный
+    // toast дублировал эту информацию.
     // НЕ зовём router.refresh() — override уже синхронизировал UI.
     // revalidatePath на сервере покрывает next-navigation для других
     // пользователей.

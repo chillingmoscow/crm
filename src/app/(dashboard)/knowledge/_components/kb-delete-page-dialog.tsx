@@ -53,7 +53,9 @@ export function KbDeletePageDialog({
       toast.error(`Не удалось удалить: ${error}`);
       return;
     }
-    toast.success("Страница перемещена в корзину");
+    // Без success-toast'а: redirect на /knowledge + исчезновение страницы
+    // из tree сами по себе достаточный feedback. Дублирующий toast
+    // отвлекал пользователя.
     onOpenChange(false);
     router.push("/knowledge");
     router.refresh();

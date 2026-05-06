@@ -974,9 +974,23 @@ export class SupabaseThreadStore extends ThreadStore {
     // scheduleSave → 2 сек → flush → captureCommentMarkPositions →
     // UPDATE kb_threads.metadata → notify() → loop. См. plan
     // frolicking-gathering-aho.md §P0.
+    // currentMarks: bounding-box для каждого thread'а + `fragmentCount`.
+    // fragmentCount > 1 означает что mark лежит на ДВУХ-И-БОЛЕЕ disjoint
+    // text-runs (между ними есть unmarked-промежуток). Это происходит
+    // если PM создал отдельные text-node'ы для одного и того же thread'а
+    // (например, BN сохранил content как `[{text:"foo", marks:[comment]},
+    // {text:"bar", marks:[]}, {text:"baz", marks:[comment]}]`) — тогда
+    // визуально юзер видит ДВА highlight'а на один thread («ополаскиват»
+    // + «еля» вместо «ополаскивателя» — реальный bug).
+    //
+    // Без этого counter'а старый no-op-guard сравнивал bounding-box
+    // currentMarks vs targetMarks (= одна непрерывная позиция из metadata),
+    // получал EQUAL → пропускал dispatch → фрагментация навсегда.
+    // С counter'ом: при fragmentCount > 1 → identical = false → dispatch
+    // → addMark консолидирует mark в одну непрерывную полосу.
     const currentMarks = new Map<
       string,
-      { from: number; to: number; orphan: boolean }
+      { from: number; to: number; orphan: boolean; fragmentCount: number }
     >();
     {
       const walkDoc = view.state.doc as unknown as {
@@ -1005,12 +1019,20 @@ export class SupabaseThreadStore extends ThreadStore {
           const to = pos + node.nodeSize;
           const cur = currentMarks.get(tid);
           if (!cur) {
-            currentMarks.set(tid, { from, to, orphan });
+            currentMarks.set(tid, { from, to, orphan, fragmentCount: 1 });
           } else {
+            // Контигуальный run = новый кусок начинается ровно там, где
+            // закончился предыдущий. Если есть зазор — отдельный фрагмент.
+            // PM walk'ает doc в порядке возрастания pos, поэтому достаточно
+            // сверить `from === cur.to`.
+            const isContiguous = from === cur.to;
             currentMarks.set(tid, {
               from: Math.min(cur.from, from),
               to: Math.max(cur.to, to),
               orphan: cur.orphan || orphan,
+              fragmentCount: isContiguous
+                ? cur.fragmentCount
+                : cur.fragmentCount + 1,
             });
           }
         }
@@ -1214,7 +1236,12 @@ export class SupabaseThreadStore extends ThreadStore {
           !cur ||
           cur.from !== target.from ||
           cur.to !== target.to ||
-          cur.orphan !== target.orphan
+          cur.orphan !== target.orphan ||
+          // Если mark в doc'е раздроблен на 2+ disjoint run'а (PM
+          // text-node split при сериализации, см. comментарий выше) —
+          // bounding-box совпадает с target, но между runs есть
+          // unmarked-промежуток. dispatch consolidates через addMark.
+          cur.fragmentCount > 1
         ) {
           identical = false;
           break;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Lock, Unlock, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,21 +45,10 @@ export function KbPageLockToggle({
 
   const [pending, setPending] = useState(false);
 
-  // Cleanup override при смене pageId — чтобы предыдущая открытая
-  // страница не «залипала» в локально-кэшированном состоянии когда
-  // юзер вернётся на неё уже после изменения lock-state с другого
-  // устройства / таба. Server-данные в этот момент актуальные
-  // (revalidatePath отработал), и наш override-fallback не должен
-  // их перебивать.
-  useEffect(() => {
-    return () => {
-      // Намеренно НЕ зовём clearKbPageStateOverride на каждый
-      // unmount — KbPageMenu (где живёт toggle) живёт в slot'е
-      // через context и может ремоунтиться чаще чем reasonable.
-      // Override остаётся в памяти и pererenders себя same value
-      // на следующей навигации (no-op'ит по equality в setOverride).
-    };
-  }, [pageId]);
+  // Cleanup override на смену pageId происходит в KbPageEditor (см.
+  // useEffect там же). Toggle сам ничего не чистит — KbPageMenu, в
+  // котором он живёт, рендерится через slot-context и НЕ ремоунтится
+  // на смену страницы, поэтому local-cleanup здесь был бы бесполезен.
 
   const onToggle = async () => {
     const next = !locked;

@@ -182,27 +182,24 @@ export function useKbAutosave({
       return;
     }
     const savePromise = (async () => {
-      // captureCommentMarkPositions перед save'ом — теперь awaited
-      // (раньше был fire-and-forget). Зачем serialize: внутри capture
-      // идёт N параллельных persistThreadPosition (по одной на каждый
-      // thread с drift), и они сразу гонялись параллельно с saveKbPage —
-      // итого 1 + N concurrent connections per save. На self-hosted
-      // Supabase с pool=20 это быстро упиралось в лимит. Awaited даёт
-      // максимум 1 connection в момент времени; save становится длиннее
-      // на ~50-150мс, но pool footprint падает с (1+N) до 1.
-      // failures логируются внутри capture'а; ошибка НЕ ломает save —
-      // continue без неё; кратность с PM-позициями восстановит next
-      // capture через 2 сек.
+      // captureCommentMarkPositions — fire-and-forget (HOTFIX revert #161).
+      // Awaited вариант на проде вызвал каскадный degrade: persistThreadPosition
+      // = UPDATE kb_threads SET metadata, который под realtime publication
+      // amplification + lock-contention занимает 300-1500мс (mean 344мс по
+      // pg_stat_statements). N параллельных UPDATE'ов в одной save'е на
+      // одной странице блочат друг друга на row-lock'е. Когда save их ждёт
+      // синхронно — UX «Сохраняем... 30 сек».
+      // Fire-and-forget возвращает save мгновенно; capture продолжает в фоне
+      // и НЕ блокирует пользователя. Драфт metadata если capture не успел —
+      // следующий save (через 2 сек) повторит. Ошибка тоже не ломает save.
       if (commentsBundle) {
         const store = commentsBundle.threadStore as unknown as {
           captureCommentMarkPositions?: () => Promise<void>;
         };
         if (typeof store.captureCommentMarkPositions === "function") {
-          try {
-            await store.captureCommentMarkPositions();
-          } catch (err) {
+          void store.captureCommentMarkPositions().catch((err) => {
             console.warn("[kb] captureCommentMarkPositions failed", err);
-          }
+          });
         }
       }
       const plainText = blocksToPlainText(contentRef.current);

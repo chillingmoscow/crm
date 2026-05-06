@@ -155,19 +155,39 @@ curl -s -o /dev/null -w "HTTP %{http_code}\n" https://supabase.sheerly.app/auth/
 
 **Cause**: Old Coolify Supabase template created tables owned by `postgres` user. Service connects as `supabase_auth_admin` / `supabase_storage_admin`. New service version's migration tries `ALTER TABLE` → permission denied.
 
-**Fix — auth schema**:
+**Fix — auth schema** (covers tables, sequences, views, and functions — the migration may `ALTER FUNCTION` or `CREATE OR REPLACE FUNCTION` on existing objects, which also requires ownership):
 ```sql
 DO $$
 DECLARE r record;
 BEGIN
-  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='auth' AND tableowner='postgres'
+  FOR r IN SELECT 'TABLE ' AS kind, c.relname AS name FROM pg_class c
+           JOIN pg_namespace n ON n.oid=c.relnamespace
+           JOIN pg_roles ro ON ro.oid=c.relowner
+           WHERE n.nspname='auth' AND ro.rolname='postgres' AND c.relkind='r'
+           UNION ALL
+           SELECT 'SEQUENCE ', c.relname FROM pg_class c
+           JOIN pg_namespace n ON n.oid=c.relnamespace
+           JOIN pg_roles ro ON ro.oid=c.relowner
+           WHERE n.nspname='auth' AND ro.rolname='postgres' AND c.relkind='S'
+           UNION ALL
+           SELECT 'VIEW ', c.relname FROM pg_class c
+           JOIN pg_namespace n ON n.oid=c.relnamespace
+           JOIN pg_roles ro ON ro.oid=c.relowner
+           WHERE n.nspname='auth' AND ro.rolname='postgres' AND c.relkind='v'
   LOOP
-    EXECUTE 'ALTER TABLE auth.' || quote_ident(r.tablename) || ' OWNER TO supabase_auth_admin';
+    EXECUTE 'ALTER ' || r.kind || ' auth.' || quote_ident(r.name) || ' OWNER TO supabase_auth_admin';
+  END LOOP;
+  FOR r IN SELECT p.proname AS name, pg_get_function_identity_arguments(p.oid) AS args
+           FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+           JOIN pg_roles ro ON ro.oid=p.proowner
+           WHERE n.nspname='auth' AND ro.rolname='postgres'
+  LOOP
+    EXECUTE 'ALTER FUNCTION auth.' || quote_ident(r.name) || '(' || r.args || ') OWNER TO supabase_auth_admin';
   END LOOP;
 END $$;
 ```
 
-**Fix — storage schema** (also needs functions and sequences):
+**Fix — storage schema** (same shape, covers tables + sequences + views + functions):
 ```sql
 DO $$
 DECLARE r record;

@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { setKbPageRequiredReading } from "@/lib/knowledge/required-reading";
+import {
+  setKbPageStateOverride,
+  useKbPageStateOverride,
+} from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 
 interface KbRequiredReadingToggleProps {
   pageId: string;
@@ -19,30 +22,26 @@ interface KbRequiredReadingToggleProps {
  * Видна только пользователям с `kb.manage_required_reading`
  * (gated на server-render'е [slug]/page.tsx).
  *
- * Visual: иконка треугольника, fill-yellow когда флаг активен,
- * muted когда нет. Клик → toggle. Optimistic update + router.refresh.
+ * UX: optimistic через client-side override store
+ * (`kb-page-state-overrides-store`). Раньше после успеха был
+ * `router.refresh()` → full RSC re-fetch → ~300мс задержка. Теперь
+ * override push'ится мгновенно, consumer'ы (banner на странице,
+ * sidebar-icon если рендерится) подхватывают новое значение.
+ * revalidatePath на сервере (см. setKbPageRequiredReading) — для
+ * соседних табов / других юзеров на следующей навигации.
  */
 export function KbRequiredReadingToggle({
   pageId,
   initialRequired,
 }: KbRequiredReadingToggleProps) {
-  const router = useRouter();
-  const [required, setRequired] = useState(initialRequired);
-  const [pending, setPending] = useState(false);
+  const override = useKbPageStateOverride(pageId);
+  const required = override?.requiredReading ?? initialRequired;
 
-  // Sync с server-prop'ом: при навигации между страницами компонент
-  // не remount'ится (он живёт в PageHeaderActions slot'е через
-  // context), поэтому useState без явной синхронизации залипает на
-  // первом значении. pageId в deps (Codex #86 P1): без него если
-  // оптимистично переключили на A, а у B initialRequired такой же
-  // как стал на A — sync не сработает, state stale'ится.
-  useEffect(() => {
-    setRequired(initialRequired);
-  }, [initialRequired, pageId]);
+  const [pending, setPending] = useState(false);
 
   const onToggle = async () => {
     const next = !required;
-    setRequired(next); // optimistic
+    setKbPageStateOverride(pageId, { requiredReading: next }); // optimistic
     setPending(true);
     const { error } = await setKbPageRequiredReading({
       pageId,
@@ -50,7 +49,7 @@ export function KbRequiredReadingToggle({
     });
     setPending(false);
     if (error) {
-      setRequired(!next); // revert
+      setKbPageStateOverride(pageId, { requiredReading: !next }); // revert
       toast.error(`Не удалось переключить: ${error}`);
       return;
     }
@@ -59,7 +58,9 @@ export function KbRequiredReadingToggle({
         ? "Страница помечена как обязательная к прочтению"
         : "Снят флаг обязательного прочтения",
     );
-    router.refresh();
+    // НЕ зовём router.refresh() — override уже синхронизировал UI.
+    // revalidatePath на сервере покрывает next-navigation для других
+    // пользователей.
   };
 
   return (

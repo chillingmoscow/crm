@@ -51,7 +51,21 @@
 --
 -- ============================================================
 
-ALTER PUBLICATION supabase_realtime DROP TABLE public.kb_threads;
+-- Idempotent: на проде runtime-командой kb_threads уже убран до того
+-- как миграция применилась файлом, поэтому проверяем pg_publication_tables
+-- перед DROP'ом. Без этого ALTER PUBLICATION ... DROP TABLE падает
+-- ошибкой "table is not part of the publication".
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'kb_threads'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime DROP TABLE public.kb_threads;
+  END IF;
+END $$;
 
 COMMENT ON PUBLICATION supabase_realtime IS
   'Realtime publication. kb_threads НАМЕРЕННО исключён — миграция 109, '

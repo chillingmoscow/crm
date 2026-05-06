@@ -2745,6 +2745,10 @@ export type Database = {
           title: string
         }[]
       }
+      kb_threads_set_positions_batch: {
+        Args: { p_positions: Json }
+        Returns: undefined
+      }
       kb_search_embeddings: {
         Args: { p_limit?: number; p_query_embedding: string }
         Returns: {

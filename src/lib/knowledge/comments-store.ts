@@ -974,24 +974,36 @@ export class SupabaseThreadStore extends ThreadStore {
     // scheduleSave → 2 сек → flush → captureCommentMarkPositions →
     // UPDATE kb_threads.metadata → notify() → loop. См. plan
     // frolicking-gathering-aho.md §P0.
-    // currentMarks: bounding-box для каждого thread'а + `fragmentCount`.
-    // fragmentCount > 1 означает что mark лежит на ДВУХ-И-БОЛЕЕ disjoint
-    // text-runs (между ними есть unmarked-промежуток). Это происходит
-    // если PM создал отдельные text-node'ы для одного и того же thread'а
-    // (например, BN сохранил content как `[{text:"foo", marks:[comment]},
-    // {text:"bar", marks:[]}, {text:"baz", marks:[comment]}]`) — тогда
-    // визуально юзер видит ДВА highlight'а на один thread («ополаскиват»
-    // + «еля» вместо «ополаскивателя» — реальный bug).
+    // currentMarks: bounding-box для каждого thread'а + флаг `fragmented`.
+    // `fragmented = true` означает что между marked-runs одного thread'а
+    // ИМЕЕТСЯ unmarked text — настоящая фрагментация (например BN сохранил
+    // content как `[{text:"foo", marks:[comment]}, {text:"bar"},
+    // {text:"baz", marks:[comment]}]`) — визуально юзер видит ДВА
+    // highlight'а на один thread («ополаскиват» + «еля» вместо
+    // «ополаскивателя» — реальный bug со скриншота).
     //
-    // Без этого counter'а старый no-op-guard сравнивал bounding-box
-    // currentMarks vs targetMarks (= одна непрерывная позиция из metadata),
-    // получал EQUAL → пропускал dispatch → фрагментация навсегда.
-    // С counter'ом: при fragmentCount > 1 → identical = false → dispatch
-    // → addMark консолидирует mark в одну непрерывную полосу.
-    const currentMarks = new Map<
-      string,
-      { from: number; to: number; orphan: boolean; fragmentCount: number }
-    >();
+    // КРИТИЧНО — НЕ путать с structural-токенами PM (block-boundary
+    // close/open между параграфами). Multi-block comment естественно
+    // имеет gap в pos между marked-runs (block-close + block-open
+    // токены), но визуально это не фрагментация — каждый параграф
+    // рендерит свой highlight. Раньше counter `fragmentCount > 1`
+    // ловил такие cross-block legitimate marks и форсировал dispatch
+    // на каждом notify → cpu-churn (Codex P1 на PR #158).
+    //
+    // Логика: для каждого thread'а помним `lastMarkedEnd`. На каждом
+    // ВСТРЕЧЕННОМ text-node'е (любом, даже без mark'а tid'а) проверяем
+    // — если этот узел БЕЗ mark'а tid'а И его pos > lastMarkedEnd для
+    // tid → значит между marked-runs тщ появилось «чужое» (unmarked)
+    // text-content → fragmented=true. Block-boundary токены не isText —
+    // они через `if (!node.isText) return;` отфильтрованы, не задевают.
+    type MarkAccum = {
+      from: number;
+      to: number;
+      orphan: boolean;
+      fragmented: boolean;
+      lastMarkedEnd: number;
+    };
+    const accum = new Map<string, MarkAccum>();
     {
       const walkDoc = view.state.doc as unknown as {
         descendants: (
@@ -1010,6 +1022,23 @@ export class SupabaseThreadStore extends ThreadStore {
       };
       walkDoc.descendants((node, pos) => {
         if (!node.isText) return;
+        // Собираем threadIds, маркирующие этот узел (могут быть несколько).
+        const tidsOnNode = new Set<string>();
+        for (const mark of node.marks ?? []) {
+          if (mark.type.name !== "comment") continue;
+          const tid = mark.attrs.threadId as string | undefined;
+          if (tid) tidsOnNode.add(tid);
+        }
+        // Для каждого уже-аккумулированного thread'а: если этот text-node
+        // НЕ помечен tid'ом, и его позиция позже последнего marked-run'а
+        // tid'а — фиксируем что в gap'е появился «чужой» текст.
+        for (const [tid, a] of accum) {
+          if (!tidsOnNode.has(tid) && pos > a.lastMarkedEnd) {
+            a.fragmented = true;
+          }
+        }
+        // Теперь обрабатываем сами marked-tid'ы на этом узле: расширяем
+        // bounding-box и обновляем lastMarkedEnd.
         for (const mark of node.marks ?? []) {
           if (mark.type.name !== "comment") continue;
           const tid = mark.attrs.threadId as string | undefined;
@@ -1017,25 +1046,36 @@ export class SupabaseThreadStore extends ThreadStore {
           const orphan = Boolean(mark.attrs.orphan);
           const from = pos;
           const to = pos + node.nodeSize;
-          const cur = currentMarks.get(tid);
+          const cur = accum.get(tid);
           if (!cur) {
-            currentMarks.set(tid, { from, to, orphan, fragmentCount: 1 });
-          } else {
-            // Контигуальный run = новый кусок начинается ровно там, где
-            // закончился предыдущий. Если есть зазор — отдельный фрагмент.
-            // PM walk'ает doc в порядке возрастания pos, поэтому достаточно
-            // сверить `from === cur.to`.
-            const isContiguous = from === cur.to;
-            currentMarks.set(tid, {
-              from: Math.min(cur.from, from),
-              to: Math.max(cur.to, to),
-              orphan: cur.orphan || orphan,
-              fragmentCount: isContiguous
-                ? cur.fragmentCount
-                : cur.fragmentCount + 1,
+            accum.set(tid, {
+              from,
+              to,
+              orphan,
+              fragmented: false,
+              lastMarkedEnd: to,
             });
+          } else {
+            cur.from = Math.min(cur.from, from);
+            cur.to = Math.max(cur.to, to);
+            cur.orphan = cur.orphan || orphan;
+            cur.lastMarkedEnd = Math.max(cur.lastMarkedEnd, to);
           }
         }
+      });
+    }
+    // Project to read-only currentMarks shape (fragmented flag заменяет
+    // прежний fragmentCount counter; см. guard ниже).
+    const currentMarks = new Map<
+      string,
+      { from: number; to: number; orphan: boolean; fragmented: boolean }
+    >();
+    for (const [tid, a] of accum) {
+      currentMarks.set(tid, {
+        from: a.from,
+        to: a.to,
+        orphan: a.orphan,
+        fragmented: a.fragmented,
       });
     }
 
@@ -1237,11 +1277,12 @@ export class SupabaseThreadStore extends ThreadStore {
           cur.from !== target.from ||
           cur.to !== target.to ||
           cur.orphan !== target.orphan ||
-          // Если mark в doc'е раздроблен на 2+ disjoint run'а (PM
-          // text-node split при сериализации, см. comментарий выше) —
-          // bounding-box совпадает с target, но между runs есть
-          // unmarked-промежуток. dispatch consolidates через addMark.
-          cur.fragmentCount > 1
+          // Если в gap'е между marked-runs одного tid'а появился
+          // unmarked-text (НЕ просто block-boundary structural-токены),
+          // bounding-box совпадает с target но рендерится как ДВА
+          // highlight'а — реальная фрагментация. dispatch consolidates
+          // через addMark. См. detail в walkDoc выше + Codex P1 на #158.
+          cur.fragmented
         ) {
           identical = false;
           break;

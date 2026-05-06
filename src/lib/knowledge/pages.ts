@@ -268,7 +268,54 @@ export async function listRecentKbPages(limit = 10): Promise<{
   return { rows: (data ?? []) as KbPageRow[], error: null };
 }
 
-/** Backlinks: pages that link TO the given page id. */
+/** Page-view data, нужный для рендера /knowledge/[slug] — required-reading
+ *  + read-status + favorited + breadcrumbs + backlinks. Один RPC вместо
+ *  4 отдельных query'ев + 3 internal'ов в getKbPageReadStatus = 6+ DB-hits
+ *  → 1 на навигацию. См. миграцию 108. */
+export interface KbPageViewData {
+  required_reading: boolean;
+  current_version: number;
+  /** ISO timestamp когда юзер подтвердил прочтение CURRENT версии,
+   *  null если не подтверждал или подтверждал старую. */
+  my_read_at: string | null;
+  my_read_version: number | null;
+  /** True если юзер прочитал старую версию и страница обновилась
+   *  с тех пор — banner показывает «Страница обновлена, подтвердите
+   *  заново». */
+  needs_reread: boolean;
+  favorited: boolean;
+  /** Root → leaf chain. Last entry = текущая страница. */
+  breadcrumbs: Array<{
+    id: string;
+    slug: string;
+    title: string;
+    icon: string | null;
+    icon_color: string | null;
+  }>;
+  /** Pages that link TO this page. */
+  backlinks: Array<{
+    id: string;
+    slug: string;
+    title: string;
+    icon: string | null;
+    icon_color: string | null;
+  }>;
+}
+
+export async function getKbPageViewData(
+  pageId: string,
+): Promise<{ data: KbPageViewData | null; error: string | null }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("kb_get_page_view_data", {
+    p_page_id: pageId,
+  });
+  if (error) return { data: null, error: error.message };
+  return { data: data as unknown as KbPageViewData, error: null };
+}
+
+/** Backlinks: pages that link TO the given page id.
+ *  Оставлен для backward-compat (используется в standalone-местах);
+ *  для [slug]/page.tsx предпочитай getKbPageViewData(). */
 export async function listBacklinksTo(pageId: string): Promise<{
   rows: Array<Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color">>;
   error: string | null;

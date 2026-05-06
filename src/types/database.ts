@@ -2687,6 +2687,10 @@ export type Database = {
         Args: { p_page_id: string; p_locked: boolean }
         Returns: undefined
       }
+      kb_get_page_view_data: {
+        Args: { p_page_id: string }
+        Returns: Json
+      }
       kb_register_attachment: {
         Args: {
           p_storage_path: string

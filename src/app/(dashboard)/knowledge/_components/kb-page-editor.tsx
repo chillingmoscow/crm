@@ -364,6 +364,18 @@ export function KbPageEditor({
   }, [iconColor]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // In-flight save tracker. Хранит Promise активного `saveKbPage`-вызова
+  // (или null, если ничего не сохраняется). Используется flush'ом для
+  // двух гарантий:
+  //   1. Не запускаем второй save параллельно с первым (раньше overlapping
+  //      POST'ы → бейдж «Сохраняем…» висит и race в lastSavedHashRef).
+  //   2. Если flush() вызван когда save уже летит, ЖДЁМ его + рекурсивно
+  //      перезапускаемся, чтобы дослать правки появившиеся во время
+  //      ожидания. Без этой гарантии `flushAllPendingSaves()` (lock-toggle,
+  //      soft-delete и т.п.) мог пропустить последние секунды правок:
+  //      timer для них стирается в начале flush'а, а ранний return
+  //      по in-flight-флагу не давал им сохраниться. Codex P1 на PR #148.
+  const savingPromiseRef = useRef<Promise<void> | null>(null);
 
   // Reset save badge to idle при смене pageId (на случай если
   // module-store держал «Сохранено» от предыдущей страницы).
@@ -371,19 +383,52 @@ export function KbPageEditor({
     setKbSaveState({ kind: "idle" });
   }, [pageId]);
 
-  // Подогнать высоту title-textarea под content на первый рендер
-  // (длинный заголовок занимает 2-3 строки сразу, без мерцания).
+  // Auto-height для title-textarea. Primary path — CSS `field-sizing:
+  // content` (Chrome 123+ / Safari 17.4+); textarea сам растёт под
+  // содержимое без JS. Fallback ниже — JS height-set, но через rAF и
+  // только когда CSS не поддерживается, чтобы не делать forced reflow
+  // на каждом keystroke (раньше это был hot path: setHeight("auto") →
+  // read scrollHeight → setHeight(px) — два sync-write'а с layout-
+  // read'ом между ними).
+  const cssFieldSizingSupported = useMemo(() => {
+    if (typeof CSS === "undefined" || typeof CSS.supports !== "function")
+      return false;
+    return CSS.supports("field-sizing", "content");
+  }, []);
   useEffect(() => {
+    if (cssFieldSizingSupported) return;
     const ta = titleAreaRef.current;
     if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${ta.scrollHeight}px`;
-  }, [pageId]);
+    let raf = 0;
+    const fit = () => {
+      ta.style.height = "auto";
+      ta.style.height = `${ta.scrollHeight}px`;
+    };
+    raf = requestAnimationFrame(fit);
+    return () => cancelAnimationFrame(raf);
+  }, [pageId, cssFieldSizingSupported]);
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<void> => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
+    }
+    // Save уже идёт — ждём его и рекурсивно перезапускаемся, чтобы
+    // дослать правки, появившиеся во время ожидания. Это критично для
+    // callers, требующих persistence-гарантию (flushAllPendingSaves
+    // перед kb_set_page_lock и пр.): иначе clearTimeout выше стёр бы
+    // отложенный debounce, ранний return оставил бы последние правки
+    // несохранёнными, lock прошёл бы по stale-content. Catch — потому
+    // что сама ошибка предыдущего save'а уже surface'нута через toast
+    // внутри его IIFE; пробрасывать её здесь не нужно (caller ждёт
+    // best-effort persist, не строгую success-семантику).
+    if (savingPromiseRef.current) {
+      try {
+        await savingPromiseRef.current;
+      } catch {
+        /* surfaced via toast inside the in-flight save */
+      }
+      return flush();
     }
     const newHash = snapshotHash(
       titleRef.current,
@@ -397,71 +442,81 @@ export function KbPageEditor({
       if (cur.kind === "pending") setKbSaveState({ kind: "idle" });
       return;
     }
-    // Перед save'ом — снимаем актуальные comment-mark позиции из PM-
-    // дока в kb_threads.metadata. BN strip'ает comment-марки при
-    // сериализации в block-content, поэтому позиции — единственный
-    // способ восстановить их при reload'е (см. comments-store.ts
-    // «Position-persistence для comment-mark'ов»). Fire-and-forget:
-    // failures логируются внутри, но не блокируют save.
-    if (commentsBundle) {
-      const store = commentsBundle.threadStore as unknown as {
-        captureCommentMarkPositions?: () => Promise<void>;
-      };
-      if (typeof store.captureCommentMarkPositions === "function") {
-        void store.captureCommentMarkPositions().catch((err) => {
-          console.warn("[kb] captureCommentMarkPositions failed", err);
+    // Запускаем save как отдельный Promise и сохраняем в ref'е, чтобы
+    // конкурентные flush()-вызовы могли его await'ить (см. ветку выше).
+    const savePromise = (async () => {
+      // Перед save'ом — снимаем актуальные comment-mark позиции из PM-
+      // дока в kb_threads.metadata. BN strip'ает comment-марки при
+      // сериализации в block-content, поэтому позиции — единственный
+      // способ восстановить их при reload'е (см. comments-store.ts
+      // «Position-persistence для comment-mark'ов»). Fire-and-forget:
+      // failures логируются внутри, но не блокируют save.
+      if (commentsBundle) {
+        const store = commentsBundle.threadStore as unknown as {
+          captureCommentMarkPositions?: () => Promise<void>;
+        };
+        if (typeof store.captureCommentMarkPositions === "function") {
+          void store.captureCommentMarkPositions().catch((err) => {
+            console.warn("[kb] captureCommentMarkPositions failed", err);
+          });
+        }
+      }
+      const plainText = blocksToPlainText(contentRef.current);
+      setKbSaveState({ kind: "saving" });
+      const { error } = await saveKbPage({
+        id: pageId,
+        title: titleRef.current.trim() || "Без названия",
+        icon: iconRef.current?.trim() || null,
+        icon_color: iconColorRef.current || null,
+        content: contentRef.current,
+        plain_text: plainText,
+      });
+      if (error) {
+        setKbSaveState({ kind: "error", message: error });
+        toast.error(`Не удалось сохранить: ${error}`);
+        return;
+      }
+      lastSavedHashRef.current = newHash;
+
+      // Tree-relevant fields (title/icon/iconColor) изменились → push'им
+      // оверрайд в client-side store. KbTreeNav читает оверрайд поверх
+      // server-данных и сразу рендерит новую иконку. Никакого RSC-refresh'а
+      // — страница не «прыгает». На следующей навигации server-getKbTree()
+      // вернёт уже свежие значения, override станет no-op.
+      // Normalized title — то же, что persists `saveKbPage` выше
+      // (`titleRef.current.trim() || "Без названия"`). Codex P2 на PR
+      // #134: раньше override писал raw-textarea-значение (с trailing-
+      // spaces или пустой строкой), а server сохранял normalized-форму
+      // → tree-сайдбар показывал «Без названия» по-разному с editor'ом
+      // до next reload'а. Используем одинаковую нормализацию в обеих
+      // ветках, чтобы override всегда matched persisted-значение.
+      const normalizedTitle = titleRef.current.trim() || "Без названия";
+      const prevTree = lastTreeSnapshotRef.current;
+      const treeChanged =
+        prevTree.title !== normalizedTitle ||
+        prevTree.icon !== (iconRef.current ?? "") ||
+        prevTree.iconColor !== (iconColorRef.current ?? "");
+      if (treeChanged) {
+        lastTreeSnapshotRef.current = {
+          title: normalizedTitle,
+          icon: iconRef.current ?? "",
+          iconColor: iconColorRef.current ?? "",
+        };
+        setKbTreeOverride(pageId, {
+          title: normalizedTitle,
+          icon: iconRef.current ?? null,
+          iconColor: iconColorRef.current ?? null,
         });
       }
-    }
-    const plainText = blocksToPlainText(contentRef.current);
-    setKbSaveState({ kind: "saving" });
-    const { error } = await saveKbPage({
-      id: pageId,
-      title: titleRef.current.trim() || "Без названия",
-      icon: iconRef.current?.trim() || null,
-      icon_color: iconColorRef.current || null,
-      content: contentRef.current,
-      plain_text: plainText,
-    });
-    if (error) {
-      setKbSaveState({ kind: "error", message: error });
-      toast.error(`Не удалось сохранить: ${error}`);
-      return;
-    }
-    lastSavedHashRef.current = newHash;
 
-    // Tree-relevant fields (title/icon/iconColor) изменились → push'им
-    // оверрайд в client-side store. KbTreeNav читает оверрайд поверх
-    // server-данных и сразу рендерит новую иконку. Никакого RSC-refresh'а
-    // — страница не «прыгает». На следующей навигации server-getKbTree()
-    // вернёт уже свежие значения, override станет no-op.
-    // Normalized title — то же, что persists `saveKbPage` выше
-    // (`titleRef.current.trim() || "Без названия"`). Codex P2 на PR
-    // #134: раньше override писал raw-textarea-значение (с trailing-
-    // spaces или пустой строкой), а server сохранял normalized-форму
-    // → tree-сайдбар показывал «Без названия» по-разному с editor'ом
-    // до next reload'а. Используем одинаковую нормализацию в обеих
-    // ветках, чтобы override всегда matched persisted-значение.
-    const normalizedTitle = titleRef.current.trim() || "Без названия";
-    const prevTree = lastTreeSnapshotRef.current;
-    const treeChanged =
-      prevTree.title !== normalizedTitle ||
-      prevTree.icon !== (iconRef.current ?? "") ||
-      prevTree.iconColor !== (iconColorRef.current ?? "");
-    if (treeChanged) {
-      lastTreeSnapshotRef.current = {
-        title: normalizedTitle,
-        icon: iconRef.current ?? "",
-        iconColor: iconColorRef.current ?? "",
-      };
-      setKbTreeOverride(pageId, {
-        title: normalizedTitle,
-        icon: iconRef.current ?? null,
-        iconColor: iconColorRef.current ?? null,
-      });
+      setKbSaveState({ kind: "saved", at: new Date() });
+    })();
+    savingPromiseRef.current = savePromise;
+    try {
+      await savePromise;
+    } finally {
+      savingPromiseRef.current = null;
     }
-
-    setKbSaveState({ kind: "saved", at: new Date() });
   }, [pageId, commentsBundle]);
 
   // Allow scheduleSave когда:
@@ -587,11 +642,16 @@ export function KbPageEditor({
             const next = e.target.value;
             titleRef.current = next;
             setTitle(next);
-            // Авто-высота: сначала сбрасываем, иначе scrollHeight
-            // растёт безостановочно при backspace.
-            const ta = e.currentTarget;
-            ta.style.height = "auto";
-            ta.style.height = `${ta.scrollHeight}px`;
+            // Auto-height: primary — CSS `field-sizing: content`,
+            // fallback (старые браузеры) — defer JS-resize в rAF
+            // чтобы избежать sync forced reflow в hot path keystroke'а.
+            if (!cssFieldSizingSupported) {
+              const ta = e.currentTarget;
+              requestAnimationFrame(() => {
+                ta.style.height = "auto";
+                ta.style.height = `${ta.scrollHeight}px`;
+              });
+            }
             scheduleSave();
           }}
           onKeyDown={(e) => {
@@ -602,8 +662,18 @@ export function KbPageEditor({
           placeholder="Без названия"
           disabled={!canEdit}
           // H1-страницы: 40px / 800 / -0.02em / 1.15. resize-none чтобы
-          // юзер не таскал ручкой. overflow-hidden + auto-height в
-          // onChange = wrap без скролла.
+          // юзер не таскал ручкой. overflow-hidden + field-sizing
+          // (CSS-уровневый auto-grow) = wrap без скролла без JS-reflow.
+          // [field-sizing:content] — Tailwind arbitrary value; в
+          // браузерах без поддержки этого CSS-свойства — игнорируется,
+          // далее работает rAF-fallback в onChange + useEffect.
+          style={{
+            // TS DOM lib пока не знает о field-sizing CSS-prop'е (Baseline 2024).
+            // Объект-стиль — единственный способ передать его без casting'а
+            // к 'as any' прямо в className. Чисто строковое значение, рантайм-
+            // безопасно даже в старых браузерах (просто игнорируется).
+            fieldSizing: "content",
+          } as React.CSSProperties & { fieldSizing?: string }}
           className="w-full bg-transparent px-2 -ml-2 py-1 outline-none resize-none overflow-hidden
                      text-[40px] font-extrabold tracking-tight leading-[1.15]
                      placeholder:text-muted-foreground/50"

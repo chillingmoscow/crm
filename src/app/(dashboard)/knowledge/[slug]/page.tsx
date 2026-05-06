@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   getKbPageBySlug,
-  getKbPageViewData,
+  listBacklinksTo,
   resolveKbMentionTargets,
 } from "@/lib/knowledge/pages";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
-import { getKbTreeRows } from "@/lib/knowledge/tree";
+import { isKbPageFavorited } from "@/lib/knowledge/favorites";
+import { getKbPageReadStatus } from "@/lib/knowledge/required-reading";
+import { getKbBreadcrumbs, getKbTreeRows } from "@/lib/knowledge/tree";
 import {
   PageBreadcrumb,
   PageHeaderActions,
@@ -65,22 +67,31 @@ export default async function KbPageView({ params }: PageProps) {
   const permissionsPromise = supabase.rpc("list_my_permissions", {});
   const activeAccountPromise = supabase.rpc("get_active_account_id");
 
+  // ВРЕМЕННО revert на parallel Promise.all из-за регрессии после деплоя
+  // 108-й миграции (юзер: "страницы обновляются по минуте"). Подозрение:
+  // plpgsql `kb_get_page_view_data` СЕРИАЛИЗОВАЛ запросы, которые раньше
+  // шли параллельно — pool footprint ↓, но per-user latency ↑. Старые
+  // функции остались в коде; миграция 108 в БД пока остаётся unused.
+  // Когда диагноз подтвердится — либо переписать 108 на параллельные
+  // PERFORM-async, либо вернуть consolidated подход с EXPLAIN-tuned-RPC.
   const [
     { data: permissionCodes },
     { data: activeAccountId },
-    { data: pageViewData },
+    { favorited },
+    readStatus,
     { rows: allPages },
+    { chain },
     { data: profiles },
     mentionResolution,
     aiSlashEnabledResolved,
+    { rows: backlinkRows },
   ] = await Promise.all([
     permissionsPromise,
     activeAccountPromise,
-    // Один RPC kb_get_page_view_data объединяет 4 query (favorited +
-    // read-status (3 internal!) + breadcrumbs + backlinks). См. миграцию
-    // 108. До этого было 6+ DB-hits per page-nav, после — 1.
-    getKbPageViewData(row.id),
+    isKbPageFavorited(row.id),
+    getKbPageReadStatus(row.id),
     getKbTreeRows(),
+    getKbBreadcrumbs(row.id),
     profileIds.length > 0
       ? supabase
           .from("profiles")
@@ -103,22 +114,8 @@ export default async function KbPageView({ params }: PageProps) {
         .maybeSingle();
       return Boolean(accountRow?.ai_enabled);
     })(),
+    listBacklinksTo(row.id),
   ]);
-
-  // Деструктурируем pageViewData в shape совместимый со старым downstream
-  // кодом — banner/menu/breadcrumb компоненты остаются неизменными.
-  // Если RPC упал (например, страница недоступна по RLS) — fallback'имся
-  // на безопасные defaults; getKbPageBySlug выше уже бы redirect'нул на
-  // notFound() если бы row была недоступна, поэтому failure здесь —
-  // редкий edge-case (timeout / DB error).
-  const favorited = pageViewData?.favorited ?? false;
-  const readStatus = {
-    required: pageViewData?.required_reading ?? false,
-    myReadAt: pageViewData?.my_read_at ?? null,
-    needsReread: pageViewData?.needs_reread ?? false,
-  };
-  const chain = pageViewData?.breadcrumbs ?? [];
-  const backlinkRows = pageViewData?.backlinks ?? [];
   const permissions = new Set(permissionCodes ?? []);
   const hasEditAny = permissions.has("kb.edit_any_page");
   const hasEditOwn = permissions.has("kb.edit_own_pages");

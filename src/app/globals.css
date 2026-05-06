@@ -193,27 +193,12 @@ input:-webkit-autofill {
   padding: 0;
 }
 
-/* File / Image / Video / Audio блоки — discoverability подписей и
-   переименования. BlockNote из коробки уже даёт обе фичи через
-   formatting toolbar (кнопки «Изменить подпись» / «Переименовать»),
-   но empty-caption по умолчанию невидим (`padding-block:0`), и
-   пользователь не догадывается, что caption вообще существует.
-   Показываем placeholder при наведении на блок ИЛИ когда блок
-   selected — без перетягивания на JS. */
-/* Гейтим placeholder по contenteditable=true: в read-only-просмотрах
-   (trash preview через KbBlockNoteEditor editable={false}) editable
-   UI намеренно отключен и подсказки про edit-actions сбивают с толку. */
-.bn-sheerly .bn-editor[contenteditable="true"] [data-file-block]:hover .bn-file-caption:empty::before,
-.bn-sheerly .bn-editor[contenteditable="true"] .ProseMirror-selectednode .bn-file-caption:empty::before {
-  content: "Добавить подпись";
-  color: hsl(var(--muted-foreground));
-  font-style: italic;
-  font-size: 0.8em;
-  display: block;
-  padding-block: 4px;
-  pointer-events: none;
-  opacity: 0.6;
-}
+/* File / Image / Video / Audio блоки — caption-placeholder убран
+ * полностью (юзер-фидбек на PR #159: «он и при выделении не должен
+ * появляться»). Discoverability обеспечивается кнопкой «Добавить
+ * подпись» в formatting-toolbar (см. KbFileCaptionButton) — placeholder
+ * под пустым `<p>` дублировал её функционал и вносил визуальный шум.
+ * Если caption уже заполнен — рендерим как обычный текст ниже. */
 /* Если caption уже заполнена — стилизуем её consistently (DS-серый
    muted, не дефолтный #7d797a из BlockNote). */
 .bn-sheerly [data-file-block] .bn-file-caption:not(:empty) {
@@ -1427,58 +1412,29 @@ input:-webkit-autofill {
 }
 
 /* ──────────────────────────────────────────────────────────────────
- * Selection styling for media + file blocks (юзер-фидбек на PR #153:
- * «Сейчас выделение файлов и медиа выглядит просто ужасно. Давай
- * сделаем что-нибудь аккуратное и деликатное в нашем стиле»).
+ * Selection styling for media + file blocks.
  *
  * Дефолт ProseMirror рисует `outline: 2px solid #8cf` (см. node_modules/
  *   prosemirror-view/style/prosemirror.css) — толстую светло-голубую
- * рамку, которая клиппит шрифт, не радиусится по форме блока и не
- * совпадает с DS-палитрой. Перебиваем для file/image/video/audio:
- * убираем outline и заменяем на тонкий ring через box-shadow в
- * brand-цвете на низкой альфе. Радиус совпадает с радиусом самого
- * блока (chip 8px / video-embed 12px / audio chip 6px).
+ * рамку, которая клиппит шрифт и не подходит DS-палитре.
+ *
+ * Юзер-фидбек на PR #157: «выделение... ты сделал на контура самого
+ * объекта (chip / audio / video), а надо было просто исправить
+ * выделение блока». Применяем ring на сам block-content (containing
+ * chip + caption + любой content), а не на отдельные inner-элементы.
+ * Block уже имеет padding и radius, так что ring рисуется по
+ * естественной форме блока.
  * ────────────────────────────────────────────────────────────────── */
 
-/* Отключаем PM-default-outline для всех media-блоков. */
 .bn-sheerly .ProseMirror-selectednode[data-content-type="image"],
 .bn-sheerly .ProseMirror-selectednode[data-content-type="video"],
 .bn-sheerly .ProseMirror-selectednode[data-content-type="audio"],
 .bn-sheerly .ProseMirror-selectednode[data-content-type="file"] {
   outline: none;
-}
-
-/* Тонкий ring через box-shadow на самом chip'е (file-block / collapsed
- * media). 2px ring + 1px gap для читаемости — без рамки на тексте. */
-.bn-sheerly .ProseMirror-selectednode .kb-media-chip--card,
-.bn-sheerly .ProseMirror-selectednode .kb-media-chip--minimal {
-  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
-}
-
-/* Native video / iframe — ring на самой `<video>` / `<iframe>` через
- * box-shadow, чтобы радиус (8px на video, 12px на iframe-embed)
- * сохранялся. */
-.bn-sheerly .ProseMirror-selectednode .kb-video-native > video,
-.bn-sheerly .ProseMirror-selectednode .kb-video-embed > iframe {
-  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
-}
-
-/* Native audio — ring на flex-обёртке (`<audio>` сам по себе плохо
- * рисует box-shadow в Chrome, поэтому wrap'ом). */
-.bn-sheerly .ProseMirror-selectednode .kb-audio-native {
-  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
-  border-radius: 999px;
-}
-
-/* Image — `ImagePreview` рендерит `<img>` напрямую внутри
- * `.bn-visual-media-wrapper`. Применяем ring к wrapper'у. */
-.bn-sheerly .ProseMirror-selectednode .bn-visual-media-wrapper {
   box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
   border-radius: 8px;
-}
-
-/* Upload progress overlay (KbUploadProgressOverlay): тоже media-блок,
- * выбранное состояние показываем тем же ring'ом. */
-.bn-sheerly .ProseMirror-selectednode .kb-upload-progress {
-  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
+  /* Чуть-чуть padding'а внутри ring'а — без него ring впритык к
+   * содержимому. block-content уже имеет padding 3px 0 от BN-default,
+   * добавляем horizontal 6px для дыхания. */
+  padding-inline: 6px;
 }

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { markKbPageAsRead } from "@/lib/knowledge/required-reading";
+import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 
 interface KbRequiredReadingBannerProps {
   pageId: string;
@@ -51,7 +52,12 @@ export function KbRequiredReadingBanner({
   const [readAt, setReadAt] = useState<string | null>(initialReadAt);
   const [pending, setPending] = useState(false);
 
-  if (!required) return null;
+  // Если admin переключил required-reading toggle, пользователь должен
+  // увидеть исчезновение баннера мгновенно (без router.refresh). Берём
+  // эффективное значение из override-store, fallback — server-prop.
+  const override = useKbPageStateOverride(pageId);
+  const effectiveRequired = override?.requiredReading ?? required;
+  if (!effectiveRequired) return null;
 
   if (readAt) {
     return (

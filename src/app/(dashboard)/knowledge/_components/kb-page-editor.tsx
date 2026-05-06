@@ -18,6 +18,7 @@ import {
 import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
 import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
+import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import { useKbCommentsBundle } from "@/app/(dashboard)/knowledge/_components/use-kb-comments-bundle";
 import { useKbTitleAutoHeight } from "@/app/(dashboard)/knowledge/_components/use-kb-title-auto-height";
 import { useKbAutosave } from "@/app/(dashboard)/knowledge/_components/use-kb-autosave";
@@ -85,7 +86,14 @@ interface KbPageEditorProps {
   initialIcon: string | null;
   initialIconColor: string | null;
   initialContent: KbBlock[];
-  canEdit: boolean;
+  /** Базовый edit-permission БЕЗ учёта lock-state. Lock-state мы
+   *  читаем через override-store ниже, чтобы lock-toggle работал
+   *  optimistic-but-без router.refresh. effectiveCanEdit =
+   *  canEditBase && !(override.locked ?? initialLocked). */
+  canEditBase: boolean;
+  /** Server-rendered lock-state (`row.locked_at !== null`). Override
+   *  сверху может его перебить — см. kb-page-state-overrides-store. */
+  initialLocked: boolean;
   /** `kb.create_pages` permission. Если true — slash-меню «/» содержит
    *  пункт «Новая страница», который создаёт вложенный kb_page и
    *  переводит юзера на него. */
@@ -166,7 +174,8 @@ export function KbPageEditor({
   initialIcon,
   initialIconColor,
   initialContent,
-  canEdit,
+  canEditBase,
+  initialLocked,
   canCreate = false,
   aiSlashEnabled = false,
   canComment = false,
@@ -189,6 +198,15 @@ export function KbPageEditor({
   // visibilitychange. Без `userId` — не пишем (анонимные сессии не
   // имеют смысла, RPC всё равно требует auth.uid()).
   useKbPageViewTracker({ pageId, enabled: Boolean(userId) });
+
+  // Lock-state читаем через override-store: после клика lock-toggle
+  // мы получаем мгновенное обновление UI без router.refresh()'а
+  // (который бы re-fetch'ил все 10 запросов в page.tsx + всё в layout).
+  // На next-navigation server-данные уже актуальны (revalidatePath
+  // на сервере отработал), override становится no-op'ом по equality.
+  const stateOverride = useKbPageStateOverride(pageId);
+  const effectiveLocked = stateOverride?.locked ?? initialLocked;
+  const canEdit = canEditBase && !effectiveLocked;
 
   // CommentsBundle: ThreadStore + resolveUsers + UI-флаги. Хук
   // инкапсулирует useMemo (single instance per page-mount) +

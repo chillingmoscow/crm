@@ -35,6 +35,7 @@ import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-impor
 import { KbTemplatePicker } from "@/app/(dashboard)/knowledge/_components/kb-template-picker";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { useKbTreeOverride } from "@/app/(dashboard)/knowledge/_components/kb-tree-overrides-store";
+import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
 import { Star } from "lucide-react";
@@ -587,6 +588,11 @@ function KbTreeItem({
   const displayIconColor =
     override?.iconColor !== undefined ? override.iconColor : node.icon_color;
   const displayTitle = override?.title ?? node.title;
+  // Lock-state в sidebar тоже читаем через page-state override —
+  // тогда после lock-toggle иконка замочка появляется/пропадает в дереве
+  // мгновенно, без router.refresh.
+  const stateOverride = useKbPageStateOverride(node.id);
+  const displayIsLocked = stateOverride?.locked ?? node.is_locked;
   const isActive = activeSlug === node.slug;
   const isOpen = expanded.has(node.id);
   const hasChildren = node.children.length > 0;
@@ -755,10 +761,10 @@ function KbTreeItem({
         <Link
           href={`/knowledge/${node.slug}`}
           className="flex-1 truncate inline-flex items-center gap-1.5 min-w-0"
-          title={node.is_locked ? `${displayTitle} (заблокирована)` : displayTitle}
+          title={displayIsLocked ? `${displayTitle} (заблокирована)` : displayTitle}
         >
           <span className="truncate">{displayTitle || "Без названия"}</span>
-          {node.is_locked && (
+          {displayIsLocked && (
             <Lock
               className="size-3 shrink-0 text-amber-600 dark:text-amber-400"
               aria-label="Страница заблокирована"

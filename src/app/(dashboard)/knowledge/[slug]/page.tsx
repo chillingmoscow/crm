@@ -293,7 +293,8 @@ export default async function KbPageView({ params }: PageProps) {
             initialProperties={initialProperties}
             checkedMentionSlugs={checkedMentionSlugs}
             deletedMentionSlugs={deletedMentionSlugs}
-            canEdit={canEdit}
+            canEditBase={canEditBase}
+            initialLocked={isLocked}
             canCreate={hasCreate}
             aiSlashEnabled={aiSlashEnabled}
             canComment={hasComment}

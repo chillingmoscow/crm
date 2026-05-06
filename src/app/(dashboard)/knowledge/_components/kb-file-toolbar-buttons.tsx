@@ -215,8 +215,17 @@ export function KbFileRenameButton() {
         // файла пропадает его расширение, если я удалил его из названия.
         // Оно должно оставаться»). Если юзер ввёл другое расширение
         // (`Foo.txt` → `Foo.docx`) — оставляем как есть, не трогаем.
-        const oldExt = name.match(/\.[a-zA-Z0-9]{1,10}$/)?.[0] ?? "";
-        const valueHasExt = /\.[a-zA-Z0-9]{1,10}$/.test(value);
+        //
+        // Codex P2 на PR #153: «report.pdf» → «Report v2.0» — `.0`
+        // matches `\.[a-zA-Z0-9]+$`, false positive «юзер ввёл новое
+        // расширение» → теряем `.pdf`. Меняем regex: расширение должно
+        // начинаться С БУКВЫ (extensions like .pdf/.mp3/.docx — да;
+        // numeric version-suffix .0/.5 — нет). Trade-off: редкие digit-
+        // led расширения (.7z, .3gp) не auto-detect'ятся; юзер может
+        // ввести их явно.
+        const EXT_RE = /\.[a-zA-Z][a-zA-Z0-9]{0,9}$/;
+        const oldExt = name.match(EXT_RE)?.[0] ?? "";
+        const valueHasExt = EXT_RE.test(value);
         const finalName = valueHasExt || !oldExt ? value : value + oldExt;
         editor.updateBlock(block.id, { props: { name: finalName } });
       }}

@@ -157,6 +157,16 @@ export class SupabaseThreadStore extends ThreadStore {
    *  Read-only снаружи, set'им только в createThread. */
   public lastCreatedThreadId: string | null = null;
 
+  /** Throttle для captureCommentMarkPositions. Capture теперь fire-and-
+   *  forget на каждом save'е (debounce 2с), и без throttle'а под активным
+   *  редактированием это N RPC-вызовов в 2с × M тредов. Ставим минимум
+   *  30с между капчурами — drift корректируется per-save в памяти PM,
+   *  а персист в БД (для reload-stability) делается реже. Если юзер
+   *  ничего не печатает — no-op'нем за first-call предохранителем
+   *  (positions vs prev совпадут). */
+  private lastCaptureAt = 0;
+  private static readonly CAPTURE_THROTTLE_MS = 30_000;
+
   constructor(opts: SupabaseThreadStoreOptions) {
     const auth = new KbThreadStoreAuth({
       userId: opts.userId,
@@ -1290,19 +1300,19 @@ export class SupabaseThreadStore extends ThreadStore {
       }
     }
     if (identical) {
-      // Persist drift-correction'ы всё равно — позиции пересобраны и
-      // нужно записать их в БД (чтобы next reload не перезапускал
-      // re-anchor). Сам dispatch — пропущен.
-      for (const [threadId, p] of correctedPositions) {
-        void this.persistThreadPosition(threadId, p.from, p.to, p.text).catch(
-          (err) => {
-            console.warn("[kb-comments] re-anchor persist failed", {
-              threadId,
-              error: err,
-            });
-          },
-        );
-      }
+      // НЕТ write-back для correctedPositions. Раньше тут (и в hot-path
+      // ниже после dispatch'а) был fire-and-forget UPDATE для каждого
+      // re-anchor'енного thread'а — это создавало петлю: write → realtime
+      // echo → notify → applyAllMarksToEditor → может детектнуть drift
+      // снова → write → ... Incident 2026-05-07 (см. миграцию 109).
+      //
+      // Drift-correction остаётся ТОЛЬКО в памяти (PM-mark на новой
+      // позиции). При следующем captureCommentMarkPositions (на ближайшем
+      // save'е) PM-позиция отличается от thread.metadata.position →
+      // capture запишет corrected position через batch RPC. Это асинхронно,
+      // но safe: до тех пор пока запись не доехала до БД, reload пере-
+      // якорится по text-fingerprint'у заново. Idempotent, не теряем
+      // данные.
       return;
     }
     // setMeta('addToHistory', false) — re-apply'ы comment-mark'ов после
@@ -1312,26 +1322,31 @@ export class SupabaseThreadStore extends ThreadStore {
     tr = tr.setMeta("addToHistory", false) as typeof tr;
     view.dispatch(tr);
 
-    // Fire-and-forget: persist'им скорректированные позиции в DB,
-    // чтобы next save / reload не делали re-anchor (драйфт зафиксирован).
-    // Без этого drift возникал бы повторно при каждом cycle'е.
-    for (const [threadId, p] of correctedPositions) {
-      void this.persistThreadPosition(threadId, p.from, p.to, p.text).catch(
-        (err) => {
-          console.warn("[kb-comments] re-anchor persist failed", {
-            threadId,
-            error: err,
-          });
-        },
-      );
-    }
+    // НЕТ write-back для correctedPositions (см. комментарий выше про
+    // identical-branch). Persist делает captureCommentMarkPositions на
+    // ближайшем save'е через batch RPC.
   }
 
   /** Walks PM doc, находит все comment-mark'и, обновляет
    *  metadata.position если позиция drift'нула с прошлой записи.
    *  Вызывается на save-cycle'е чтобы корректировать сдвиги от
-   *  edit'ов окружающего текста. */
+   *  edit'ов окружающего текста.
+   *
+   *  Throttle: минимум 30 секунд между вызовами. Save (debounce 2с) на
+   *  активной редактуре дёргал бы capture каждые 2с, что = N UPDATE'ов
+   *  в БД per-save × M тредов. Drift коррелирует с edit-volume — за 30с
+   *  накопится столько же drift'а сколько за один save, но запись будет
+   *  одна. Позиция в metadata.position на reload остаётся валидной до
+   *  ±30с edit'а; text-fingerprint re-anchor чинит остальное.
+   *
+   *  Batched: ОДИН RPC `kb_threads_set_positions_batch` вместо N
+   *  параллельных PostgREST UPDATE'ов (миграция 110). */
   async captureCommentMarkPositions(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastCaptureAt < SupabaseThreadStore.CAPTURE_THROTTLE_MS) {
+      return;
+    }
+    this.lastCaptureAt = now;
     const editor = this.editor as
       | { _tiptapEditor?: { view?: { state: { doc: unknown } } } }
       | null;
@@ -1383,7 +1398,18 @@ export class SupabaseThreadStore extends ThreadStore {
       }
     });
 
-    const writes: Array<Promise<void>> = [];
+    // Собираем единый batch вместо N параллельных UPDATE'ов. На странице
+    // с M тредами раньше летело M PostgREST round-trip'ов; теперь — один
+    // RPC `kb_threads_set_positions_batch` (миграция 110). Это снимает
+    // lock-contention на kb_threads + WAL-/realtime-amplification, которые
+    // и были root cause incident'а 2026-05-07.
+    type BatchItem = {
+      thread_id: string;
+      position: { from: number; to: number; text?: string } | null;
+    };
+    const batch: BatchItem[] = [];
+
+    // SET: треды с mark'ами, у которых позиция drift'нула.
     for (const [threadId, pos] of positions) {
       const thread = this.threadCache.get(threadId);
       if (!thread) continue;
@@ -1391,9 +1417,9 @@ export class SupabaseThreadStore extends ThreadStore {
         | { position?: { from?: number; to?: number; text?: string } }
         | null;
       const prev = meta?.position;
-      // Также захватываем text-fingerprint — содержимое текста под
-      // mark'ом. На reload используем для re-anchor'а если PM-позиции
-      // drift'нули (см. applyAllMarksToEditor).
+      // text-fingerprint — содержимое текста под mark'ом. На reload
+      // используем для re-anchor'а если PM-позиции drift'нули (см.
+      // applyAllMarksToEditor).
       const text = readDocTextBetween(this.editor, pos.from, pos.to);
       if (
         prev &&
@@ -1403,10 +1429,15 @@ export class SupabaseThreadStore extends ThreadStore {
       ) {
         continue;
       }
-      writes.push(this.persistThreadPosition(threadId, pos.from, pos.to, text));
+      batch.push({
+        thread_id: threadId,
+        position: text
+          ? { from: pos.from, to: pos.to, text }
+          : { from: pos.from, to: pos.to },
+      });
     }
 
-    // Threads с metadata.position, но БЕЗ соответствующего mark'а в
+    // CLEAR: треды с metadata.position, но БЕЗ соответствующего mark'а в
     // doc'е — их marked-text был удалён. Без этой ветки stale position
     // оставался в metadata, и applyAllMarksToEditor на reload'е
     // re-apply'ил их к ЧУЖОМУ тексту по тем же координатам. Codex #80 P1.
@@ -1414,13 +1445,42 @@ export class SupabaseThreadStore extends ThreadStore {
       const meta = thread.metadata as { position?: { from?: number; to?: number } } | null;
       const prev = meta?.position;
       if (!prev) continue;
-      if (positions.has(thread.id)) continue; // Mark есть — позиция уже закаптурена выше.
+      if (positions.has(thread.id)) continue; // Mark есть — позиция уже в SET-секции.
       if (thread.deletedAt || thread.resolved) continue; // Этим thread'ам всё равно не applyMarks.
       // Mark исчез — clear position. Тред становится orphan'ом, popover
       // открывать только из ThreadsSidebar или per-thread навигации.
-      writes.push(this.clearThreadPosition(thread.id));
+      batch.push({ thread_id: thread.id, position: null });
     }
-    await Promise.all(writes);
+
+    if (batch.length === 0) return;
+
+    const { error } = await this.supabase.rpc("kb_threads_set_positions_batch", {
+      p_positions: batch as unknown as never,
+    });
+    if (error) {
+      console.warn("[kb-comments] batch position update failed", {
+        error: error.message,
+        count: batch.length,
+      });
+      return;
+    }
+
+    // Local cache update — RPC отработал атомарно, синхронизируем
+    // threadCache с тем что только что записано в БД. Намеренно НЕ зовём
+    // notify(): position не имеет UI-consumer'ов (см. persistThreadPosition
+    // ниже + plan §P0).
+    for (const item of batch) {
+      const thread = this.threadCache.get(item.thread_id);
+      if (!thread) continue;
+      const cur = (thread.metadata as Record<string, unknown> | null) ?? {};
+      if (item.position === null) {
+        const { position: _omit, ...rest } = cur;
+        void _omit;
+        thread.metadata = rest;
+      } else {
+        thread.metadata = { ...cur, position: item.position };
+      }
+    }
   }
 
   /** Records `metadata.position={from, to}` в БД + локальном кэше.

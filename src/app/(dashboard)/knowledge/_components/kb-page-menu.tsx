@@ -38,6 +38,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { useKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
+import {
+  setKbPageStateOverride,
+  useKbPageStateOverride,
+} from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import { addKbFavorite, removeKbFavorite } from "@/lib/knowledge/favorites";
 import { setKbPageRequiredReading } from "@/lib/knowledge/required-reading";
 import {
@@ -117,23 +121,26 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const editor = useKbEditor();
   const [, editorTick] = useState(0);
 
-  // Optimistic-state для тогглов (favorite / required / lock).
-  // Sync на pageId-change — при навигации между страницами компонент
-  // не remount'ится (живёт в PageHeaderActions slot'е через context),
-  // useState без явного sync залипал бы на initial. См. Codex #86 P1.
+  // Optimistic-state для тогглов:
+  //  • required-reading + lock — через global override store, чтобы
+  //    KbPageEditor (canEdit-gate) и KbRequiredReadingBanner получили
+  //    свежий state мгновенно — без `router.refresh()`. router.refresh
+  //    форсировал full RSC re-fetch (10+ запросов в layout + page), что
+  //    при self-hosted pool=20 быстро выжирало connections. См.
+  //    plan §TRACK-B + memory/feedback_pool_pressure_audit.md.
+  //  • favorite — local state + optimistic; server-данные подтянутся
+  //    на next-navigation, sidebar favorite-section обновится тогда же.
+  const stateOverride = useKbPageStateOverride(props.pageId);
+  const required =
+    stateOverride?.requiredReading ?? props.initialRequiredReading;
+  const locked = stateOverride?.locked ?? props.initialLocked;
   const [favorited, setFavorited] = useState(props.initialFavorited);
-  const [required, setRequired] = useState(props.initialRequiredReading);
-  const [locked, setLocked] = useState(props.initialLocked);
+  // Sync favorited на pageId-change — компонент НЕ remount'ится (живёт
+  // в PageHeaderActions slot'е через context), useState без явного sync
+  // залипал бы на initial при навигации между страницами. Codex #86 P1.
   useEffect(() => {
     setFavorited(props.initialFavorited);
-    setRequired(props.initialRequiredReading);
-    setLocked(props.initialLocked);
-  }, [
-    props.pageId,
-    props.initialFavorited,
-    props.initialRequiredReading,
-    props.initialLocked,
-  ]);
+  }, [props.pageId, props.initialFavorited]);
 
   // controlled-state'ы для тяжёлых dialog'ов — открываются по клику
   // на соответствующий menu-item; DropdownMenu закрывается сразу,
@@ -174,13 +181,16 @@ export function KbPageMenu(props: KbPageMenuProps) {
         toast.error(`Не удалось обновить избранное: ${error}`);
         return;
       }
-      router.refresh();
+      // Без router.refresh() — server-action делает revalidatePath,
+      // sidebar favorite-section подхватит на next-navigation. Дёргать
+      // RSC ради одной кнопки — pool-нагрузка (10+ запросов) ради
+      // косметики.
     });
   };
 
   const onToggleRequired = async () => {
     const next = !required;
-    setRequired(next);
+    setKbPageStateOverride(props.pageId, { requiredReading: next });
     setRequiredPending(true);
     const { error } = await setKbPageRequiredReading({
       pageId: props.pageId,
@@ -188,21 +198,20 @@ export function KbPageMenu(props: KbPageMenuProps) {
     });
     setRequiredPending(false);
     if (error) {
-      setRequired(!next);
+      setKbPageStateOverride(props.pageId, { requiredReading: !next });
       toast.error(`Не удалось переключить: ${error}`);
       return;
     }
-    toast.success(
-      next
-        ? "Страница помечена как обязательная к прочтению"
-        : "Снят флаг обязательного прочтения",
-    );
-    router.refresh();
+    // Без success-toast'а: жёлтый banner на странице
+    // (KbRequiredReadingBanner) и подсветка иконки уже сообщают что
+    // флаг включён. Дополнительный toast дублировал эту информацию.
+    // Без router.refresh: override-store уже синхронизировал UI;
+    // revalidatePath на сервере покрывает next-navigation.
   };
 
   const onToggleLock = async () => {
     const next = !locked;
-    setLocked(next);
+    setKbPageStateOverride(props.pageId, { locked: next });
     setLockPending(true);
     if (next) {
       // Перед lock'ом — ждём pending-save'а, иначе strict-lock guard в
@@ -221,11 +230,13 @@ export function KbPageMenu(props: KbPageMenuProps) {
     });
     setLockPending(false);
     if (error) {
-      setLocked(!next);
+      setKbPageStateOverride(props.pageId, { locked: !next });
       toast.error(`Не удалось переключить блокировку: ${error}`);
       return;
     }
-    router.refresh();
+    // Без router.refresh: KbPageEditor читает override через
+    // useKbPageStateOverride и мгновенно переключает canEdit-gate.
+    // Sidebar lock-state — то же. revalidatePath покрывает next-nav.
   };
 
   const onDuplicate = async () => {

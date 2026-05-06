@@ -1172,6 +1172,23 @@ function UrlValueControl({
   const looksValid = trimmed.length === 0 || URL_VALID_PREFIX_RE.test(trimmed);
   const display = shortenUrlForDisplay(trimmed, collapsed);
 
+  // Local draft — input controlled by нашему state'у, не сторовому
+  // value. Это нужно для двух кейсов:
+  //   1. Collapsed-режим: input показывает scheme-stripped display, но
+  //      БД должна хранить полный URL. Если бы мы напрямую saved
+  //      `display` в value, сохранёнка теряла бы https:// при первом
+  //      же change'е.
+  //   2. Codex P1 на #142: focus + blur без правок не должен переписывать
+  //      `http://` на `https://`. Если draft === display(value), значит
+  //      юзер ничего не редактировал — no-op.
+  const [draft, setDraft] = useState(display);
+  const focusedRef = useRef(false);
+  // Sync draft при изменении value/collapsed снаружи — но только если
+  // input не сфокусирован (иначе сломаем typing).
+  useEffect(() => {
+    if (!focusedRef.current) setDraft(display);
+  }, [display]);
+
   if (!canEdit) {
     if (!trimmed) {
       return <span className="text-[13px] text-muted-foreground/50">—</span>;
@@ -1194,35 +1211,51 @@ function UrlValueControl({
     );
   }
 
-  // Edit-mode: единое поле где input живёт «внутри» ссылки.
-  // Когда сфокусирован — обычный input. Без фокуса (но не сейчас в
-  // edit-mode) — показывали бы ссылку. Делаем гибридно: input всегда
-  // редактируемый, но visible-text — `display` (= с/без https://).
-  // Чтобы это работало просто, рендерим input с value=display и
-  // на onChange/onBlur восстанавливаем «канонический» https://-form.
+  const commit = (raw: string) => {
+    const v = raw.trim();
+    // No-op: юзер открыл фокус и закрыл без правок. Critical для
+    // collapsed-режима — иначе оригинальный `http://` переписался бы
+    // на `https://` через auto-prefix эвристику ниже.
+    if (v === display) {
+      setDraft(display);
+      return;
+    }
+    // Юзер сам ввёл схему (http:// / https:// / mailto: / tel:) —
+    // принимаем как есть.
+    if (URL_VALID_PREFIX_RE.test(v)) {
+      onChange(v);
+      return;
+    }
+    // Без схемы. В collapsed-режиме сохраняем оригинальную схему
+    // (если была) — иначе пользователь, который правит «example.com/x»
+    // в URL'е `http://example.com`, не теряет http://.
+    if (collapsed && trimmed.length > 0) {
+      const origSchemeMatch = trimmed.match(/^(https?:\/\/)/i);
+      const origScheme = origSchemeMatch ? origSchemeMatch[1] : "https://";
+      onChange(`${origScheme}${v}`);
+      return;
+    }
+    // Domain-эвристика: «example.com» / «api.foo.bar/path» → prefix
+    // https://. Иначе сохраняем как есть (свободный текст / битая
+    // ссылка — UI помечает amber-border'ом).
+    if (v.length > 0 && /\.[a-z]{2,}/i.test(v) && !/\s/.test(v)) {
+      onChange(`https://${v}`);
+      return;
+    }
+    onChange(v);
+  };
+
   return (
     <input
       type="url"
-      value={display}
-      onChange={(e) => {
-        const next = e.target.value;
-        // Если в collapsed-mode юзер начал ввод — он скорее всего
-        // печатает БЕЗ https://. На onBlur ниже мы добавим префикс.
-        // Здесь сохраняем как есть — `display` работает на read только.
-        onChange(next);
+      value={draft}
+      onFocus={() => {
+        focusedRef.current = true;
       }}
+      onChange={(e) => setDraft(e.target.value)}
       onBlur={(e) => {
-        const v = e.target.value.trim();
-        if (
-          v.length > 0 &&
-          !URL_VALID_PREFIX_RE.test(v) &&
-          /\.[a-z]{2,}/i.test(v) &&
-          !/\s/.test(v)
-        ) {
-          onChange(`https://${v}`);
-        } else if (v !== value) {
-          onChange(v);
-        }
+        focusedRef.current = false;
+        commit(e.target.value);
       }}
       placeholder={collapsed ? "example.com" : "https://…"}
       className={cn(

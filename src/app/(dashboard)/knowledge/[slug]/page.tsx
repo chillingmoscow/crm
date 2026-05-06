@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { getKbPageBySlug, resolveKbMentionTargets } from "@/lib/knowledge/pages";
+import { getKbPageBySlug, listBacklinksTo, resolveKbMentionTargets } from "@/lib/knowledge/pages";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { isKbPageFavorited } from "@/lib/knowledge/favorites";
 import { getKbPageReadStatus } from "@/lib/knowledge/required-reading";
@@ -73,6 +73,7 @@ export default async function KbPageView({ params }: PageProps) {
     { data: profiles },
     mentionResolution,
     aiSlashEnabledResolved,
+    { rows: backlinkRows },
   ] = await Promise.all([
     permissionsPromise,
     activeAccountPromise,
@@ -102,6 +103,7 @@ export default async function KbPageView({ params }: PageProps) {
         .maybeSingle();
       return Boolean(accountRow?.ai_enabled);
     })(),
+    listBacklinksTo(row.id),
   ]);
   const permissions = new Set(permissionCodes ?? []);
   const hasEditAny = permissions.has("kb.edit_any_page");
@@ -309,7 +311,7 @@ export default async function KbPageView({ params }: PageProps) {
           />
 
           <KbChildrenList pageId={row.id} allPages={allPages} />
-          <KbBacklinks pageId={row.id} />
+          <KbBacklinks rows={backlinkRows} />
         </div>
       </div>
     </div>

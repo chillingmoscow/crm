@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
-import { listBacklinksTo } from "@/lib/knowledge/pages";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import type { KbPageRow } from "@/types/knowledge";
 
 interface KbBacklinksProps {
-  pageId: string;
+  /** Pre-fetched rows (см. [slug]/page.tsx — `listBacklinksTo` теперь
+   *  идёт в общий Promise.all, чтобы не делать отдельный RTT после
+   *  основного фетча). Sync-component без своего await. */
+  rows: Array<Pick<KbPageRow, "id" | "slug" | "title" | "icon" | "icon_color">>;
 }
 
 /**
@@ -14,8 +17,7 @@ interface KbBacklinksProps {
  * сохранении исходной страницы. Если ссылок нет — секция не рендерится
  * (никаких пустых заголовков «Backlinks: 0»).
  */
-export async function KbBacklinks({ pageId }: KbBacklinksProps) {
-  const { rows } = await listBacklinksTo(pageId);
+export function KbBacklinks({ rows }: KbBacklinksProps) {
   if (rows.length === 0) return null;
 
   return (

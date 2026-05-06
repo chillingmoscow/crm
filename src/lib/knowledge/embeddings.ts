@@ -63,6 +63,42 @@ export async function reembedKbPage(pageId: string): Promise<{
         ? [`[Заголовок] ${titleChunk}`, ...chunks]
         : chunks;
 
+  // Content-hash dedup. Если существующие embeddings в БД уже содержат
+  // ровно те же chunk'и (ту же индексацию + тот же текст), — пропускаем
+  // SiliconFlow API и RPC: re-embed для unchanged-content'а — чистое
+  // burn'инг квоты. Срабатывает на каждом save'е, который не менял
+  // `plain_text` (изменили только icon/title через нормализацию,
+  // добавили comment-mark, обновили properties — saveKbPage всё равно
+  // дёргает reembedKbPage).
+  //
+  // Стоимость guard'а — один SELECT (~10мс), экономия — embed-roundtrip
+  // (~500мс на SiliconFlow) + RPC (~10мс) + квота bge-m3.
+  //
+  // Guard НЕ заменяет существующий `p_expected_updated_at`-stale-guard
+  // в RPC: тот защищает от race'ов между параллельными reembed-job'ами,
+  // эта проверка — от reembed'а одного и того же контента подряд.
+  const { data: existingChunks } = await supabase
+    .from("kb_page_embeddings")
+    .select("chunk_index, content_chunk")
+    .eq("page_id", pageId)
+    .order("chunk_index", { ascending: true });
+  if (existingChunks && existingChunks.length === allChunks.length) {
+    let same = true;
+    for (let i = 0; i < allChunks.length; i++) {
+      if (
+        existingChunks[i].chunk_index !== i ||
+        existingChunks[i].content_chunk !== allChunks[i]
+      ) {
+        same = false;
+        break;
+      }
+    }
+    if (same) {
+      // Pure content no-op: текст не менялся, embeddings актуальны.
+      return { chunks_count: allChunks.length, error: null };
+    }
+  }
+
   // Embed только если есть что embed'ить — иначе шлём пустой массив,
   // RPC очистит существующие chunks (страница опустошена).
   let embeddings: number[][] = [];

@@ -1,26 +1,15 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 /**
  * Module-level client-store для МГНОВЕННОГО обновления page-level
  * boolean-флагов (lock + required-reading), не дожидаясь RSC-roundtrip'а.
  *
- * Зачем: оба toggle'а до этого делали `router.refresh()` после успешного
- * server-action'а. router.refresh() форсирует full RSC re-fetch текущего
- * route'а (все 10 запросов в [slug]/page.tsx Promise.all + всё в layout)
- * → 300-600мс perceived latency. В Notion-аналоге toggle ощущается как
- * мгновенный — этого мы и добиваемся.
- *
- * Решение: после server-action'а мы сразу пишем оверрайд в этот store.
- * Consumer'ы (KbPageEditor для canEdit-gate, KbTreeItem для lock-icon в
- * sidebar, banner для required-reading отображения) читают оверрайд
- * поверх server-prop'ов. На NEXT navigation/reload свежие данные приходят
- * с сервера (revalidatePath на сервере уже инвалидировал кэш), оверрайд
- * становится no-op'ом по equality.
- *
- * Тот же паттерн что `kb-tree-overrides-store.ts` — useSyncExternalStore
- * с per-page Map'ом.
+ * См. kb-tree-overrides-store.ts для общего паттерна. Per-id subscription:
+ * каждый pageId имеет свой Set listener'ов; setKbPageStateOverride(id, ...)
+ * дёргает только тех, кто реально слушает этот id. Это критично для
+ * KB-tree до 500+ нод — иначе любой toggle бы re-render'ил все ноды.
  */
 
 export interface KbPageStateOverride {
@@ -31,31 +20,26 @@ export interface KbPageStateOverride {
   requiredReading?: boolean;
 }
 
-let overrides = new Map<string, KbPageStateOverride>();
-const listeners = new Set<() => void>();
+const overrides = new Map<string, KbPageStateOverride>();
+const listenersByPageId = new Map<string, Set<() => void>>();
 
-function emit() {
-  // Свежий Map ref ради referential-check в useSyncExternalStore. Без
-  // этого мутация на месте → getSnapshot возвращает тот же ref →
-  // подписчики не ре-рендерятся.
-  overrides = new Map(overrides);
-  for (const l of listeners) l();
+function notifyId(pageId: string) {
+  const set = listenersByPageId.get(pageId);
+  if (!set || set.size === 0) return;
+  for (const l of set) l();
 }
 
-function subscribe(cb: () => void) {
-  listeners.add(cb);
+function subscribeToId(pageId: string, cb: () => void): () => void {
+  let set = listenersByPageId.get(pageId);
+  if (!set) {
+    set = new Set();
+    listenersByPageId.set(pageId, set);
+  }
+  set.add(cb);
   return () => {
-    listeners.delete(cb);
+    set!.delete(cb);
+    if (set!.size === 0) listenersByPageId.delete(pageId);
   };
-}
-
-function getSnapshot(): Map<string, KbPageStateOverride> {
-  return overrides;
-}
-
-const EMPTY_MAP = new Map<string, KbPageStateOverride>();
-function getServerSnapshot(): Map<string, KbPageStateOverride> {
-  return EMPTY_MAP;
 }
 
 /** Записать override для одной страницы. patch — только те поля,
@@ -65,8 +49,7 @@ export function setKbPageStateOverride(
   patch: KbPageStateOverride,
 ): void {
   const prev = overrides.get(pageId);
-  // No-op если patch ничего не меняет (defensive — иначе emit'ы могли
-  // бы дёргать подписчиков лишний раз при двойных кликах).
+  // No-op если patch ничего не меняет.
   if (prev) {
     const sameLock =
       patch.locked === undefined || prev.locked === patch.locked;
@@ -76,24 +59,35 @@ export function setKbPageStateOverride(
     if (sameLock && sameReq) return;
   }
   overrides.set(pageId, { ...prev, ...patch });
-  emit();
+  notifyId(pageId);
 }
 
 /** Удалить override для страницы (например после успешного reload'а
  *  когда server-данные уже актуальны). Не обязательно — оверрайд
- *  безвреден, просто остаётся в памяти текущей сессии. */
+ *  безвреден, остаётся в памяти текущей сессии. */
 export function clearKbPageStateOverride(pageId: string): void {
   if (!overrides.has(pageId)) return;
   overrides.delete(pageId);
-  emit();
+  notifyId(pageId);
 }
 
 /** Hook для consumer'ов. Возвращает override для pageId или undefined.
- *  Подписка через useSyncExternalStore — на любое emit() React
- *  ре-рендерит подписчика; селектор `.get(pageId)` оставляем component'у. */
+ *  Per-id subscription: re-render только когда меняется override
+ *  ИМЕННО этого pageId. */
 export function useKbPageStateOverride(
   pageId: string,
 ): KbPageStateOverride | undefined {
-  const map = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return map.get(pageId);
+  const subscribe = useCallback(
+    (cb: () => void) => subscribeToId(pageId, cb),
+    [pageId],
+  );
+  const getSnapshot = useCallback(
+    () => overrides.get(pageId),
+    [pageId],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
+function getServerSnapshot(): undefined {
+  return undefined;
 }

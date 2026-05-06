@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 /**
  * Module-level client-store для МГНОВЕННОГО обновления элементов
@@ -8,9 +8,7 @@ import { useSyncExternalStore } from "react";
  *
  * Зачем: `getKbTree()` крутится в knowledge/layout.tsx server-side,
  * и единственный способ его пересчитать — `router.refresh()`. Но он
- * перезапрашивает ВЕСЬ RSC-poddrevo (layout + page + всё что внутри),
- * что юзер видит как заметное «обновление страницы» (топбар мигает,
- * editor получает свежие props и т.п.).
+ * перезапрашивает ВЕСЬ RSC-poddrevo (layout + page + всё что внутри).
  *
  * Решение: после save'а title/иконки в editor'е, мы кладём оверрайд
  * в этот store. KbTreeNav читает оверрайды поверх serverNode'ов и
@@ -18,9 +16,14 @@ import { useSyncExternalStore } from "react";
  * сервера, оверрайды можно очистить (но и без очистки overhead'а
  * нет — Map<pageId, partial> не тяжёлый).
  *
- * Используется в паре с editor'ом — он PUSH'ит, tree PULL'ит. State
- * шарится через useSyncExternalStore, тот же паттерн что
- * kb-editor-store.ts и kb-sidebar-visibility-store.ts.
+ * **Per-id subscription** (ключевая оптимизация для KB-tree до 500+
+ * нод): раньше один global Set listeners получал ВСЕ изменения,
+ * useSyncExternalStore возвращал Map целиком, и сотни subscriber'ов
+ * пере-рендерились на любой override. Теперь у каждого pageId свой
+ * Set listener'ов; setKbTreeOverride(id, patch) дёргает только тех,
+ * кто реально интересуется этим id. Хук возвращает override-value
+ * напрямую, useSyncExternalStore сравнивает по Object.is — если ref
+ * не поменялся (или вернулся undefined), компонент не ре-рендерится.
  */
 
 export interface KbTreeNodeOverride {
@@ -31,39 +34,34 @@ export interface KbTreeNodeOverride {
   title?: string;
 }
 
-let overrides = new Map<string, KbTreeNodeOverride>();
-const listeners = new Set<() => void>();
+const overrides = new Map<string, KbTreeNodeOverride>();
+const listenersByPageId = new Map<string, Set<() => void>>();
 
-function emit() {
-  // Создаём свежий Map ref'ом, чтобы useSyncExternalStore'овский
-  // referential-check заметил изменение. Без этого setKbTreeOverride
-  // мутировал Map, getSnapshot возвращал тот же ref → React не
-  // re-render'ил подписчиков.
-  overrides = new Map(overrides);
-  for (const l of listeners) l();
+function notifyId(pageId: string) {
+  const set = listenersByPageId.get(pageId);
+  if (!set || set.size === 0) return;
+  for (const l of set) l();
 }
 
-function subscribe(cb: () => void) {
-  listeners.add(cb);
+function subscribeToId(pageId: string, cb: () => void): () => void {
+  let set = listenersByPageId.get(pageId);
+  if (!set) {
+    set = new Set();
+    listenersByPageId.set(pageId, set);
+  }
+  set.add(cb);
   return () => {
-    listeners.delete(cb);
+    set!.delete(cb);
+    if (set!.size === 0) listenersByPageId.delete(pageId);
   };
 }
 
-function getSnapshot(): Map<string, KbTreeNodeOverride> {
-  return overrides;
-}
-
-function getServerSnapshot(): Map<string, KbTreeNodeOverride> {
-  // На SSR никаких оверрайдов нет — всё из server-данных
-  // (knowledge/layout.tsx → getKbTree).
-  return EMPTY_MAP;
-}
-const EMPTY_MAP = new Map<string, KbTreeNodeOverride>();
-
 /** Записать override для одной страницы. Только заданные поля
  *  переопределяются — остальные fallback'ятся к server-значениям. */
-export function setKbTreeOverride(pageId: string, patch: KbTreeNodeOverride) {
+export function setKbTreeOverride(
+  pageId: string,
+  patch: KbTreeNodeOverride,
+): void {
   const prev = overrides.get(pageId);
   // No-op'аем когда patch не меняет ничего, чтобы не дёргать слишком
   // часто (editor'ный onChange может вызываться пачкой).
@@ -76,28 +74,36 @@ export function setKbTreeOverride(pageId: string, patch: KbTreeNodeOverride) {
     return;
   }
   overrides.set(pageId, { ...prev, ...patch });
-  emit();
+  notifyId(pageId);
 }
 
 /** Удалить override для страницы — например, после успешного
  *  router.refresh()'а или unmount'е editor'а. Не обязательно вызывать
  *  — оверрайд просто остаётся в памяти текущей сессии. */
-export function clearKbTreeOverride(pageId: string) {
+export function clearKbTreeOverride(pageId: string): void {
   if (!overrides.has(pageId)) return;
   overrides.delete(pageId);
-  emit();
+  notifyId(pageId);
 }
 
 /** Hook для KB-tree-нодов: возвращает override для pageId или
- *  undefined. Селектор-уровень — только тот override, что связан с
- *  pageId, чтобы не re-render'ить все ноды на любое изменение. */
+ *  undefined. Per-id subscription: re-render только когда меняется
+ *  override ИМЕННО этого pageId. */
 export function useKbTreeOverride(
   pageId: string,
 ): KbTreeNodeOverride | undefined {
-  // useSyncExternalStore возвращает Map целиком; селектор делаем
-  // снаружи hook'а — компонент-нод вытаскивает override и сравнивает.
-  // Map identity меняется только когда есть реальное изменение (см.
-  // emit), поэтому RSC-tree не страдает от лишних реренеров.
-  const map = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return map.get(pageId);
+  const subscribe = useCallback(
+    (cb: () => void) => subscribeToId(pageId, cb),
+    [pageId],
+  );
+  const getSnapshot = useCallback(
+    () => overrides.get(pageId),
+    [pageId],
+  );
+  // SSR snapshot: всегда undefined (на сервере оверрайдов нет).
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+}
+
+function getServerSnapshot(): undefined {
+  return undefined;
 }

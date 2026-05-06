@@ -210,7 +210,15 @@ export function KbFileRenameButton() {
         // Не переписываем имя пустой строкой — иначе chip остаётся без
         // label'а вообще. Если юзер очистил input — игнорируем save.
         if (!value) return;
-        editor.updateBlock(block.id, { props: { name: value } });
+        // Сохраняем расширение: если юзер удалил ".mp3" / ".pdf" из
+        // конца, дописываем обратно (юзер-фидбек: «после переименовывания
+        // файла пропадает его расширение, если я удалил его из названия.
+        // Оно должно оставаться»). Если юзер ввёл другое расширение
+        // (`Foo.txt` → `Foo.docx`) — оставляем как есть, не трогаем.
+        const oldExt = name.match(/\.[a-zA-Z0-9]{1,10}$/)?.[0] ?? "";
+        const valueHasExt = /\.[a-zA-Z0-9]{1,10}$/.test(value);
+        const finalName = valueHasExt || !oldExt ? value : value + oldExt;
+        editor.updateBlock(block.id, { props: { name: finalName } });
       }}
       trigger={
         <Components.FormattingToolbar.Button

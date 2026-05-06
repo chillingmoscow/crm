@@ -364,13 +364,18 @@ export function KbPageEditor({
   }, [iconColor]);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // In-flight-guard: блокирует overlapping flush'и. Если save уже летит,
-  // следующий scheduleSave перезапустит timer на 2 сек после возврата
-  // — finally-clause очищает inFlight; если за время save'а появились
-  // новые правки, debounced-timer догонит их следующим circle'ом.
-  // Без guard'а медленный save (>2 сек) приводил к одновременным
-  // POST'ам и стабильно «висящему» бейджу «Сохраняем…».
-  const inFlightRef = useRef(false);
+  // In-flight save tracker. Хранит Promise активного `saveKbPage`-вызова
+  // (или null, если ничего не сохраняется). Используется flush'ом для
+  // двух гарантий:
+  //   1. Не запускаем второй save параллельно с первым (раньше overlapping
+  //      POST'ы → бейдж «Сохраняем…» висит и race в lastSavedHashRef).
+  //   2. Если flush() вызван когда save уже летит, ЖДЁМ его + рекурсивно
+  //      перезапускаемся, чтобы дослать правки появившиеся во время
+  //      ожидания. Без этой гарантии `flushAllPendingSaves()` (lock-toggle,
+  //      soft-delete и т.п.) мог пропустить последние секунды правок:
+  //      timer для них стирается в начале flush'а, а ранний return
+  //      по in-flight-флагу не давал им сохраниться. Codex P1 на PR #148.
+  const savingPromiseRef = useRef<Promise<void> | null>(null);
 
   // Reset save badge to idle при смене pageId (на случай если
   // module-store держал «Сохранено» от предыдущей страницы).
@@ -403,16 +408,28 @@ export function KbPageEditor({
     return () => cancelAnimationFrame(raf);
   }, [pageId, cssFieldSizingSupported]);
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<void> => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    // In-flight-guard: уже идёт save → не запускаем второй параллельно.
-    // Если за время save'а появились новые правки, очередной scheduleSave
-    // в onChange (или title-input) перезапустит debounce-timer и догонит
-    // их следующим циклом.
-    if (inFlightRef.current) return;
+    // Save уже идёт — ждём его и рекурсивно перезапускаемся, чтобы
+    // дослать правки, появившиеся во время ожидания. Это критично для
+    // callers, требующих persistence-гарантию (flushAllPendingSaves
+    // перед kb_set_page_lock и пр.): иначе clearTimeout выше стёр бы
+    // отложенный debounce, ранний return оставил бы последние правки
+    // несохранёнными, lock прошёл бы по stale-content. Catch — потому
+    // что сама ошибка предыдущего save'а уже surface'нута через toast
+    // внутри его IIFE; пробрасывать её здесь не нужно (caller ждёт
+    // best-effort persist, не строгую success-семантику).
+    if (savingPromiseRef.current) {
+      try {
+        await savingPromiseRef.current;
+      } catch {
+        /* surfaced via toast inside the in-flight save */
+      }
+      return flush();
+    }
     const newHash = snapshotHash(
       titleRef.current,
       iconRef.current,
@@ -425,8 +442,9 @@ export function KbPageEditor({
       if (cur.kind === "pending") setKbSaveState({ kind: "idle" });
       return;
     }
-    inFlightRef.current = true;
-    try {
+    // Запускаем save как отдельный Promise и сохраняем в ref'е, чтобы
+    // конкурентные flush()-вызовы могли его await'ить (см. ветку выше).
+    const savePromise = (async () => {
       // Перед save'ом — снимаем актуальные comment-mark позиции из PM-
       // дока в kb_threads.metadata. BN strip'ает comment-марки при
       // сериализации в block-content, поэтому позиции — единственный
@@ -492,8 +510,12 @@ export function KbPageEditor({
       }
 
       setKbSaveState({ kind: "saved", at: new Date() });
+    })();
+    savingPromiseRef.current = savePromise;
+    try {
+      await savePromise;
     } finally {
-      inFlightRef.current = false;
+      savingPromiseRef.current = null;
     }
   }, [pageId, commentsBundle]);
 

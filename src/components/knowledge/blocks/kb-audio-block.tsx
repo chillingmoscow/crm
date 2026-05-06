@@ -25,6 +25,8 @@ import {
 import { MoreHorizontal, Volume2 } from "lucide-react";
 
 import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
+import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
+import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
 
 /** Wrapping-компонент: BN-default `<AudioPreview>` + наша «⋯»-кнопка
  *  в углу. Кнопка click → setNodeSelection через raw PM (BN-овский
@@ -80,9 +82,16 @@ function KbAudioPreviewWithMenu(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const previewProps = props as any;
+  // key={url}: HTML5 `<audio>` не перечитывает src при изменении атрибута
+  // через React (нужно audio.load(), которое BN-овский AudioPreview не
+  // вызывает). Меняя key мы force-remount'им элемент на каждое новое
+  // url → старый stream сбрасывается, новый загружается. Без этого
+  // юзер кликал «Заменить» → upload новый файл, но плеер продолжал
+  // играть старый. (Юзер-фидбек: «Замена аудиофайлов не работает».)
+  const audioUrl = props.block.props.url ?? "";
   return (
     <div className="kb-audio-native" contentEditable={false}>
-      <AudioPreview {...previewProps} />
+      <AudioPreview key={audioUrl} {...previewProps} />
       <button
         type="button"
         // Отдельный CSS-class от kb-video-menu-btn: для аудио кнопка
@@ -113,6 +122,7 @@ function KbAudioBlock(
   const wrapperProps = props as any;
   const url = props.block.props.url ?? "";
   const showPreview = props.block.props.showPreview;
+  const upload = useUploadQueueEntry(props.block.id);
 
   // Legacy: showPreview=false → chip с audio-иконкой. Юзер просил
   // убрать preview-toggle button, но legacy-блоки с этим prop'ом
@@ -126,6 +136,10 @@ function KbAudioBlock(
         variant="minimal"
       />
     );
+  }
+
+  if (url === "" && upload) {
+    return <KbUploadProgressOverlay blockId={props.block.id} />;
   }
 
   return (

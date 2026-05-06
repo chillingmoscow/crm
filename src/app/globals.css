@@ -214,6 +214,25 @@ input:-webkit-autofill {
   pointer-events: none;
   opacity: 0.6;
 }
+/* Inline-edit подписи (см. startInlineEdit в kb-file-toolbar-buttons.tsx):
+   когда юзер кликнул «Добавить подпись», мы ставим contenteditable=true
+   на пустой <p>. Без min-height и явного caret-color caret не виден:
+   Chrome не рисует мигающий курсор в empty-contenteditable-блоке без
+   line-box'а. Скрываем placeholder ::before в этом стейте — иначе
+   юзер видит «Добавить подпись» поверх своего ввода. */
+.bn-sheerly .bn-file-caption[contenteditable="true"] {
+  min-height: 1.4em;
+  caret-color: hsl(var(--foreground));
+  outline: none;
+  font-style: normal;
+  font-size: 0.8em;
+  color: hsl(var(--muted-foreground));
+  line-height: 1.5;
+  padding-block: 4px;
+}
+.bn-sheerly .bn-file-caption[contenteditable="true"]::before {
+  content: none !important;
+}
 /* Если caption уже заполнена — стилизуем её consistently (DS-серый
    muted, не дефолтный #7d797a из BlockNote). */
 .bn-sheerly [data-file-block] .bn-file-caption:not(:empty) {
@@ -1195,6 +1214,66 @@ input:-webkit-autofill {
 .kb-file-panel-error {
   font-size: 12px;
   color: hsl(var(--destructive));
+}
+
+/* Upload progress overlay в empty-state блока: показывается пока
+ * editor.uploadFile() в фоне, после того как FilePanel закрылся
+ * (см. KbUploadProgressOverlay + kb-upload-queue-store).
+ *
+ * Геометрия совпадает с `.bn-add-file-button` (см. data-file-block
+ * empty-state выше), чтобы layout не прыгал в момент завершения
+ * upload'а: тот же padding 10/14, border, radius 8.
+ */
+.bn-sheerly .kb-upload-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background-color: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  width: fit-content;
+  max-width: 100%;
+  min-width: 240px;
+}
+.bn-sheerly .kb-upload-progress-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.bn-sheerly .kb-upload-progress-title {
+  font-size: 13px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bn-sheerly .kb-upload-progress-bar {
+  position: relative;
+  height: 3px;
+  width: 100%;
+  background-color: hsl(var(--border));
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bn-sheerly .kb-upload-progress-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 30%;
+  background-color: hsl(var(--brand) / 0.7);
+  border-radius: 2px;
+  animation: kb-upload-progress-slide 1.4s ease-in-out infinite;
+}
+@keyframes kb-upload-progress-slide {
+  0% {
+    left: -30%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 
 /* sr-only — визуально скрытый file-input (open'им через wrapper-click) */

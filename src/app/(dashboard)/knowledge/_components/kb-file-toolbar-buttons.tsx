@@ -101,23 +101,48 @@ function startInlineEdit(opts: {
   target.dataset.kbInlineEdit = opts.propKey;
   target.style.cursor = "text";
   target.style.outline = "none";
-  target.focus();
 
-  // Move caret в конец текста (а не в начало — чтобы юзер мог сразу
-  // дописывать к существующему тексту).
-  try {
-    const range = document.createRange();
-    range.selectNodeContents(target);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-  } catch {
-    // Selection API may fail в некоторых случаях (detached node) — fine.
+  // Если caption / name пустой — Chrome/Safari НЕ показывают мигающий
+  // caret в empty contenteditable-элементе (известный quirk). Вставляем
+  // `<br>` placeholder: достаточно чтобы появилась text-line и каретка
+  // отрисовалась. На blur cleanup() читает `textContent` (br не считается
+  // символом), так что value корректно пустеет если юзер ничего не
+  // напечатал.
+  if (target.textContent === "" && target.childNodes.length === 0) {
+    target.appendChild(document.createElement("br"));
   }
 
+  // requestAnimationFrame: дать браузеру применить contenteditable + наш
+  // CSS-стейт перед focus'ом. Без этого Chrome иногда фокусит элемент
+  // ДО layout'а, и caret остаётся невидимым (placeholder ::before уже
+  // скрыт по [contenteditable=true]-селектору, но box ещё нулевой).
+  requestAnimationFrame(() => {
+    target.focus();
+
+    // Move caret в конец текста (а не в начало — чтобы юзер мог сразу
+    // дописывать к существующему тексту).
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(target);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } catch {
+      // Selection API may fail в некоторых случаях (detached node) — fine.
+    }
+  });
+
   const cleanup = () => {
-    const value = target.textContent ?? "";
+    const value = (target.textContent ?? "").trim();
+    // Чистим `<br>`-placeholder который мог быть вставлен для caret-
+    // visibility в empty-state. Используем textContent (НЕ innerHTML):
+    // value — это юзер-controlled caption/name, и innerHTML парсил бы
+    // `<img src=x onerror=...>` как HTML → DOM-XSS-сток (Codex P1 на
+    // PR #147). textContent безопасно ставит plain-text-нод, br-
+    // плейсхолдер автоматически удаляется. После updateBlock BN
+    // перерендерит блок и :empty-плейсхолдер снова покажется на hover.
+    target.textContent = value;
     target.removeAttribute("contenteditable");
     delete target.dataset.kbInlineEdit;
     target.style.cursor = "";
@@ -200,11 +225,11 @@ export function KbFileRenameButton() {
   const block = useSelectedFileBlock();
 
   if (!Components || !block) return null;
-  const url = typeof block.props?.url === "string" ? block.props.url : "";
-  // Видео, добавленное по embed-URL (YouTube/Vimeo/Loom/Vidyard) — нечего
-  // переименовывать: name это URL, edit просто заменит ссылку. По
-  // фидбеку юзера прячем кнопку для embed-видео.
-  if (block.type === "video" && detectVideoEmbed(url)) return null;
+  // Rename только для type="file": для image/video/audio имя — либо URL
+  // (embed), либо filename загруженного blob'а, который юзер не должен
+  // править вручную (имя должно совпадать с .Content-Disposition при
+  // download'е). Caption — отдельная сущность, она остаётся для всех.
+  if (block.type !== "file") return null;
 
   return (
     <Components.FormattingToolbar.Button
@@ -270,6 +295,9 @@ export function KbFileDownloadButton() {
   const block = useSelectedFileBlock();
 
   if (!Components || !block) return null;
+  // Audio плеер уже даёт нативный download через свои controls (overflow
+  // menu в `<audio controls>`), наша кнопка дублирует и сбивает с толку.
+  if (block.type === "audio") return null;
   const url = typeof block.props?.url === "string" ? block.props.url : "";
   if (!url) return null;
 

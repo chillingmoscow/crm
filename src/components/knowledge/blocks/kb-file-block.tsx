@@ -19,6 +19,8 @@ import {
 import { File as FileIcon } from "lucide-react";
 
 import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
+import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
+import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
 
 /** Экстракт расширения файла из имени для показа справа от label'а
  *  («.pdf», «.png», ...). Notion-style metadata-hint. Возвращает
@@ -40,6 +42,7 @@ function KbFileBlock(
   const editor = useBlockNoteEditor<any, any, any>();
   const url = props.block.props.url ?? "";
   const name = props.block.props.name ?? "";
+  const upload = useUploadQueueEntry(props.block.id);
 
   // Загруженный файл (url непустой) — рендерим свой `KbMediaChip` в
   // card-варианте. Раньше FileBlockWrapper рендерил BN-default'ный
@@ -100,6 +103,10 @@ function KbFileBlock(
         onClick={handleClick}
       />
     );
+  }
+
+  if (upload) {
+    return <KbUploadProgressOverlay blockId={props.block.id} />;
   }
 
   return (

@@ -296,8 +296,15 @@ function UploadPanel({
         } catch (e) {
           // Surface real message: Supabase / RLS / size errors → юзер
           // увидит конкретную причину, а не generic «не удалось».
-          const msg = e instanceof Error ? e.message : "Не удалось загрузить файл";
-          alert(`Ошибка загрузки: ${msg}`);
+          // Pool-timeout — типичная проблема self-hosted Supabase под
+          // нагрузкой (юзер-фидбек на PR #159: 950КБ грузилось 30с,
+          // потом «Timed out acquiring connection from connection
+          // pool»). Подменяем на user-friendly текст.
+          const raw = e instanceof Error ? e.message : "Не удалось загрузить файл";
+          const friendly = /connection pool|timed out acquiring/i.test(raw)
+            ? "Сервер сейчас перегружен (connection pool). Попробуйте ещё раз через минуту."
+            : raw;
+          alert(`Ошибка загрузки: ${friendly}`);
         } finally {
           finishUpload(blockId);
         }

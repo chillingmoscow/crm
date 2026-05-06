@@ -2687,6 +2687,16 @@ export type Database = {
         Args: { p_page_id: string; p_locked: boolean }
         Returns: undefined
       }
+      kb_register_attachment: {
+        Args: {
+          p_storage_path: string
+          p_name: string
+          p_mime_type: string
+          p_size_bytes: number
+          p_page_id: string
+        }
+        Returns: string
+      }
       kb_replace_page_embeddings: {
         Args: {
           p_page_id: string

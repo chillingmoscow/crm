@@ -38,20 +38,31 @@ export type UploadKbAttachmentResult =
  * Авторизация: `kb.manage_attachments` (storage RLS из 054/055 +
  * account_files INSERT из 050 + kb_page_attachments INSERT из 050).
  *
- * Откат: если пивот не удалось вставить, удаляем и storage-объект,
- * и account_files-строку — иначе остаётся ничейный файл.
+ * Раньше делал 4 sequential round-trip'а к Supabase (auth.getUser →
+ * get_active_account_id → storage.upload → account_files INSERT →
+ * kb_page_attachments INSERT) — под нагрузкой self-hosted PG pool
+ * исчерпывался ("Timed out acquiring connection from connection pool",
+ * 30+ сек на 1MB файл). С миграции 107 шаги «get account + 2 INSERT»
+ * объединены в один RPC `kb_register_attachment` (SECURITY INVOKER,
+ * RLS применяется внутри). Итого: 2 round-trip'а вместо 4 (1 storage +
+ * 1 RPC), pool footprint падает 3 → 1 connection per upload.
+ *
+ * Откат: storage-upload отдельно, поэтому если RPC упадёт после успеха
+ * storage-upload'а — нужно вручную удалить storage-объект (compensating
+ * delete). Двух INSERT'ов в RPC автоматически atomic — если pivot
+ * упал, account_files INSERT откатывается транзакцией Postgres.
  */
 export async function uploadKbAttachment(
   args: UploadKbAttachmentArgs,
 ): Promise<UploadKbAttachmentResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return { file_id: null, storage_path: null, error: "Не авторизован" };
-  }
 
+  // accountId нужен для storage-path шаблона (`{account}/{yyyy}/{mm}/...`).
+  // Это ОДИН маленький RPC — отдельно от kb_register_attachment, потому
+  // что сам storagePath передаётся в storage.upload (HTTP к storage-
+  // service), а только потом — в RPC (PG). Но в новой архитектуре всё
+  // равно избавились от auth.getUser() — userId резолвится внутри RPC
+  // через auth.uid().
   const { data: accountId, error: accErr } = await supabase.rpc(
     "get_active_account_id",
   );
@@ -65,7 +76,8 @@ export async function uploadKbAttachment(
 
   const storagePath = buildKbStoragePath(accountId as unknown as string, args.name);
 
-  // 1. Storage upload.
+  // 1. Storage upload — отдельный HTTP-call к storage-service. Не
+  //    шарит pool с PG; consolidate'ить с RPC нельзя.
   const { error: upErr } = await supabase.storage
     .from("account-attachments")
     .upload(storagePath, args.file, { contentType: args.mime_type, upsert: false });
@@ -73,47 +85,37 @@ export async function uploadKbAttachment(
     return { file_id: null, storage_path: null, error: upErr.message };
   }
 
-  // 2. account_files row.
-  const { data: fileRow, error: fileErr } = await supabase
-    .from("account_files")
-    .insert({
-      account_id: accountId as unknown as string,
-      uploaded_by: user.id,
-      storage_path: storagePath,
-      name: args.name,
-      mime_type: args.mime_type,
-      size_bytes: args.file.size,
-    })
-    .select("id")
-    .single();
-  if (fileErr || !fileRow) {
+  // 2. Один RPC: account_files INSERT + kb_page_attachments INSERT
+  //    в одной серверной транзакции. RLS политики применяются внутри
+  //    SECURITY INVOKER функции — авторизация под юзером, как раньше.
+  //    См. миграцию 107.
+  const { data: fileId, error: rpcErr } = await supabase.rpc(
+    "kb_register_attachment",
+    {
+      p_storage_path: storagePath,
+      p_name: args.name,
+      p_mime_type: args.mime_type,
+      p_size_bytes: args.file.size,
+      p_page_id: args.pageId,
+    },
+  );
+  if (rpcErr || !fileId) {
+    // Compensating delete: storage-объект уже создан, но БД-записей нет
+    // (RPC atomic — оба INSERT'а откатились). Без удаления storage
+    // получим ничейный blob в bucket'е.
     await supabase.storage.from("account-attachments").remove([storagePath]);
     return {
       file_id: null,
       storage_path: null,
-      error: fileErr?.message ?? "Не удалось создать запись о файле",
+      error: rpcErr?.message ?? "Не удалось зарегистрировать файл",
     };
   }
 
-  // 3. Pivot — привязка к странице.
-  const { error: pivotErr } = await supabase.from("kb_page_attachments").insert({
-    page_id: args.pageId,
-    file_id: fileRow.id,
-    attached_by: user.id,
-  });
-  if (pivotErr) {
-    // Compensating delete — без пивота файл «осиротеет» (account_files
-    // SELECT-политика проверяет EXISTS в pivot-таблицах).
-    await supabase.from("account_files").delete().eq("id", fileRow.id);
-    await supabase.storage.from("account-attachments").remove([storagePath]);
-    return {
-      file_id: null,
-      storage_path: null,
-      error: pivotErr.message,
-    };
-  }
-
-  return { file_id: fileRow.id, storage_path: storagePath, error: null };
+  return {
+    file_id: fileId as unknown as string,
+    storage_path: storagePath,
+    error: null,
+  };
 }
 
 /** Получить (refreshed) signed URL по storage_path — нужно при загрузке

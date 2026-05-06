@@ -29,6 +29,8 @@ import {
   Maximize2,
   Ruler,
   Star,
+  Pencil,
+  ToggleRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -53,6 +55,7 @@ import { CSS as DndCSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -442,6 +445,26 @@ export function KbPageProperties({
     });
   };
 
+  // Меняет displayVariant для checkbox / rating. Принимает variant
+  // именем; при undefined — удаляем поле (= default-вариант).
+  const changeDisplayVariant = (
+    id: string,
+    variant: string | undefined,
+  ) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id) return p;
+        if (p.type !== "checkbox" && p.type !== "rating") return p;
+        const updated = { ...p } as KbProperty & { displayVariant?: string };
+        if (variant === undefined) delete updated.displayVariant;
+        else updated.displayVariant = variant;
+        return updated as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
   // Меняет icon override property. value=null/undefined для обоих
   // полей = «без override» (рендерим default TYPE_ICONS[type]).
   const changePropertyIcon = (
@@ -617,6 +640,9 @@ export function KbPageProperties({
                   onChangeRatingScale={(max) =>
                     changeRatingScale(prop.id, max)
                   }
+                  onChangeDisplayVariant={(variant) =>
+                    changeDisplayVariant(prop.id, variant)
+                  }
                   onRemove={() => removeProperty(prop.id)}
                   onDuplicate={() => duplicateProperty(prop.id)}
                   onChangeType={(t) => changePropertyType(prop.id, t)}
@@ -686,6 +712,9 @@ interface PropertyRowProps {
   onChangeUnit: (unit: Unit | null) => void;
   /** Меняет max-шкалу rating-property (Stage 5). 3 / 5 / 10. */
   onChangeRatingScale: (max: number) => void;
+  /** Меняет displayVariant для checkbox ("checkbox" | "switch") и
+   *  rating ("stars" | "slider"). undefined = вернуть default. */
+  onChangeDisplayVariant: (variant: string | undefined) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -702,6 +731,7 @@ function PropertyRow({
   onToggleCollapse,
   onChangeUnit,
   onChangeRatingScale,
+  onChangeDisplayVariant,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -727,10 +757,10 @@ function PropertyRow({
     transform: DndCSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 10 : undefined,
-    // Оригинальный <li> при active-drag прячем визуально (DragOverlay
-    // рендерит ghost-копию в portal'е). `0.25` оставляет лёгкий силуэт
-    // чтобы юзер видел исходную позицию.
-    opacity: isDragging ? 0.25 : undefined,
+    // Оригинальный <li> при active-drag полностью невидим (но место в
+    // layout'е сохраняется через height/transform). Видна только
+    // ghost-копия в DragOverlay'е — без «двойника».
+    opacity: isDragging ? 0 : undefined,
   };
 
   return (
@@ -764,10 +794,13 @@ function PropertyRow({
         <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
       )}
       {/* Label area: icon + name. Hover-bg ТОЛЬКО здесь (Notion-style —
-       *  юзер хочет подсветку имени, не всего ряда). */}
+       *  юзер хочет подсветку имени, не всего ряда). Заметная подсветка
+       *  через `bg-foreground/10` — работает одинаково ярко на light /
+       *  dark theme'ах, в отличие от `bg-accent` (которая в light тонет). */}
       <div
-        className="flex items-center gap-1.5 px-1 -mx-1 rounded-md
-                   hover:bg-accent hover:text-accent-foreground transition-colors"
+        className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 rounded-md
+                   hover:bg-foreground/[0.08] dark:hover:bg-foreground/10
+                   transition-colors"
       >
         <PropertyIconButton
           property={property}
@@ -920,6 +953,73 @@ function PropertyRow({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             )}
+            {/* Внешний вид — для checkbox (Чекбокс / Триггер) и rating
+             *  (Звёзды / Слайдер). Семантика значения та же; меняется
+             *  только рендер. */}
+            {property.type === "checkbox" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ToggleRight className="size-3.5 text-muted-foreground" />
+                  Внешний вид
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[140px]">
+                  {(
+                    [
+                      ["checkbox", "Чекбокс"],
+                      ["switch", "Триггер"],
+                    ] as const
+                  ).map(([variant, label]) => {
+                    const isCurrent =
+                      (property.displayVariant ?? "checkbox") === variant;
+                    return (
+                      <DropdownMenuItem
+                        key={variant}
+                        onSelect={() =>
+                          onChangeDisplayVariant(
+                            variant === "checkbox" ? undefined : variant,
+                          )
+                        }
+                      >
+                        {label}
+                        {isCurrent && <Check className="ml-auto size-3.5" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {property.type === "rating" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ToggleRight className="size-3.5 text-muted-foreground" />
+                  Внешний вид
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[140px]">
+                  {(
+                    [
+                      ["stars", "Звёзды"],
+                      ["slider", "Слайдер"],
+                    ] as const
+                  ).map(([variant, label]) => {
+                    const isCurrent =
+                      (property.displayVariant ?? "stars") === variant;
+                    return (
+                      <DropdownMenuItem
+                        key={variant}
+                        onSelect={() =>
+                          onChangeDisplayVariant(
+                            variant === "stars" ? undefined : variant,
+                          )
+                        }
+                      >
+                        {label}
+                        {isCurrent && <Check className="ml-auto size-3.5" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onRemove}>
               <Trash2 className="size-3.5 text-destructive" />
@@ -1033,7 +1133,16 @@ function PropertyValueControl({
         </span>
       );
     case "checkbox":
-      return (
+      // displayVariant = "switch" → toggle-триггер; иначе — классический
+      // чекбокс. Семантика boolean идентична.
+      return property.displayVariant === "switch" ? (
+        <Switch
+          checked={property.value}
+          onCheckedChange={(v) => onChangeValue(v === true)}
+          disabled={!canEdit}
+          aria-label="Значение"
+        />
+      ) : (
         <Checkbox
           checked={property.value}
           onCheckedChange={(v) => onChangeValue(v === true)}
@@ -1060,6 +1169,7 @@ function PropertyValueControl({
       return <RatingValueControl
         value={property.value}
         max={property.max ?? 5}
+        variant={property.displayVariant ?? "stars"}
         canEdit={canEdit}
         onChange={onChangeValue}
       />;
@@ -1116,8 +1226,7 @@ function TextValueControl({
         placeholder="—"
         className="w-full bg-transparent text-[13px] outline-none truncate
                    leading-snug placeholder:text-muted-foreground/50
-                   border border-transparent rounded px-1 -mx-1
-                   hover:border-input focus:border-input transition-colors"
+                   border-0 p-0"
       />
     );
   }
@@ -1132,8 +1241,7 @@ function TextValueControl({
       placeholder="—"
       className="w-full bg-transparent text-[13px] outline-none resize-none overflow-hidden
                  leading-snug placeholder:text-muted-foreground/50
-                 border border-transparent rounded px-1 -mx-1
-                 hover:border-input focus:border-input transition-colors"
+                 border-0 p-0"
     />
   );
 }
@@ -1172,23 +1280,23 @@ function UrlValueControl({
   const looksValid = trimmed.length === 0 || URL_VALID_PREFIX_RE.test(trimmed);
   const display = shortenUrlForDisplay(trimmed, collapsed);
 
-  // Local draft — input controlled by нашему state'у, не сторовому
-  // value. Это нужно для двух кейсов:
-  //   1. Collapsed-режим: input показывает scheme-stripped display, но
-  //      БД должна хранить полный URL. Если бы мы напрямую saved
-  //      `display` в value, сохранёнка теряла бы https:// при первом
-  //      же change'е.
-  //   2. Codex P1 на #142: focus + blur без правок не должен переписывать
-  //      `http://` на `https://`. Если draft === display(value), значит
-  //      юзер ничего не редактировал — no-op.
+  // Click-to-edit. Display-mode по дефолту — `<a>` остаётся
+  // кликабельной (открывает ссылку). В edit-mode переходим через
+  // отдельный pencil-toggle (или click по placeholder'у при empty
+  // value). Так клик по самой ссылке не «угоняет» юзера в edit-режим.
+  const [editing, setEditing] = useState(false);
+
+  // Local draft — input controlled. См. PR #142 / Codex P1 #142:
+  //   1. Collapsed-режим: input показывает scheme-stripped display, БД
+  //      должна хранить полный URL.
+  //   2. Focus + blur без правок не должен переписывать http://https://.
   const [draft, setDraft] = useState(display);
   const focusedRef = useRef(false);
-  // Sync draft при изменении value/collapsed снаружи — но только если
-  // input не сфокусирован (иначе сломаем typing).
   useEffect(() => {
     if (!focusedRef.current) setDraft(display);
   }, [display]);
 
+  // Read-only пользователь — всегда display-mode (clickable link).
   if (!canEdit) {
     if (!trimmed) {
       return <span className="text-[13px] text-muted-foreground/50">—</span>;
@@ -1213,31 +1321,20 @@ function UrlValueControl({
 
   const commit = (raw: string) => {
     const v = raw.trim();
-    // No-op: юзер открыл фокус и закрыл без правок. Critical для
-    // collapsed-режима — иначе оригинальный `http://` переписался бы
-    // на `https://` через auto-prefix эвристику ниже.
     if (v === display) {
       setDraft(display);
       return;
     }
-    // Юзер сам ввёл схему (http:// / https:// / mailto: / tel:) —
-    // принимаем как есть.
     if (URL_VALID_PREFIX_RE.test(v)) {
       onChange(v);
       return;
     }
-    // Без схемы. В collapsed-режиме сохраняем оригинальную схему
-    // (если была) — иначе пользователь, который правит «example.com/x»
-    // в URL'е `http://example.com`, не теряет http://.
     if (collapsed && trimmed.length > 0) {
       const origSchemeMatch = trimmed.match(/^(https?:\/\/)/i);
       const origScheme = origSchemeMatch ? origSchemeMatch[1] : "https://";
       onChange(`${origScheme}${v}`);
       return;
     }
-    // Domain-эвристика: «example.com» / «api.foo.bar/path» → prefix
-    // https://. Иначе сохраняем как есть (свободный текст / битая
-    // ссылка — UI помечает amber-border'ом).
     if (v.length > 0 && /\.[a-z]{2,}/i.test(v) && !/\s/.test(v)) {
       onChange(`https://${v}`);
       return;
@@ -1245,28 +1342,87 @@ function UrlValueControl({
     onChange(v);
   };
 
+  // Edit-mode: bare input без рамки, с auto-focus.
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="url"
+        value={draft}
+        onFocus={() => {
+          focusedRef.current = true;
+        }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={(e) => {
+          focusedRef.current = false;
+          commit(e.target.value);
+          setEditing(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === "Escape") {
+            e.currentTarget.blur();
+          }
+        }}
+        placeholder={collapsed ? "example.com" : "https://…"}
+        className={cn(
+          "w-full bg-transparent text-[13px] outline-none truncate",
+          "border-0 p-0",
+          !looksValid && "text-amber-700 dark:text-amber-400",
+        )}
+        aria-invalid={!looksValid}
+      />
+    );
+  }
+
+  // Display-mode: clickable `<a>` или placeholder. Pencil-кнопка
+  // справа (на hover) — entry в edit-mode. Если value пустое — клик
+  // по placeholder'у сразу переходит в edit (некуда вести ссылкой).
+  if (!trimmed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="text-left text-[13px] text-muted-foreground/50 w-full truncate"
+        aria-label="Ввести URL"
+      >
+        —
+      </button>
+    );
+  }
+
   return (
-    <input
-      type="url"
-      value={draft}
-      onFocus={() => {
-        focusedRef.current = true;
-      }}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={(e) => {
-        focusedRef.current = false;
-        commit(e.target.value);
-      }}
-      placeholder={collapsed ? "example.com" : "https://…"}
-      className={cn(
-        "w-full bg-transparent text-[13px] outline-none truncate",
-        "border rounded px-1 -mx-1 transition-colors",
-        looksValid
-          ? "border-transparent hover:border-input focus:border-input"
-          : "border-amber-400/60 focus:border-amber-500",
+    <span className="inline-flex items-center gap-1 max-w-full group/url">
+      {looksValid ? (
+        <a
+          href={trimmed}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[13px] text-foreground underline decoration-muted-foreground/40
+                     underline-offset-[3px] decoration-[1.5px]
+                     hover:decoration-foreground hover:text-foreground transition-colors
+                     truncate inline-block max-w-full"
+        >
+          {display}
+        </a>
+      ) : (
+        <span
+          className="text-[13px] text-amber-700 dark:text-amber-400 truncate inline-block max-w-full"
+          title="Неверный URL"
+        >
+          {trimmed}
+        </span>
       )}
-      aria-invalid={!looksValid}
-    />
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        aria-label="Редактировать URL"
+        className="size-5 shrink-0 inline-flex items-center justify-center rounded
+                   text-muted-foreground/40 hover:text-foreground transition-colors
+                   opacity-0 group-hover/url:opacity-100 focus-visible:opacity-100"
+      >
+        <Pencil className="size-3" />
+      </button>
+    </span>
   );
 }
 
@@ -1908,9 +2064,12 @@ function MultiSelectControl({
 }
 
 /** Number value-control с поддержкой опциональной единицы измерения
- *  (Stage 4). Edit-mode: input + suffix-label справа (≈ Notion). Read-
- *  only: форматированная строка через formatWithUnit. Управление
- *  единицей вынесено в ⋯ menu (UnitPickerItems). */
+ *  (Stage 4). Click-to-edit pattern:
+ *  - Default: read-mode (formatted string, suffix flush с числом).
+ *  - On click → edit-mode (наг input + suffix inline, без рамки).
+ *  - On blur → обратно в read-mode.
+ *
+ *  Управление единицей вынесено в ⋯ menu (UnitPickerItems). */
 function NumberValueControl({
   property,
   canEdit,
@@ -1922,26 +2081,41 @@ function NumberValueControl({
 }) {
   const unit: Unit = property.unit ?? { kind: "none" };
   const suffix = unitSuffix(unit);
+  const [editing, setEditing] = useState(false);
+
+  const display =
+    property.value === null ? "—" : formatWithUnit(property.value, unit);
 
   if (!canEdit) {
+    return <span className="text-[13px] tabular-nums">{display}</span>;
+  }
+
+  if (!editing) {
     return (
-      <span className="text-[13px] tabular-nums">
-        {property.value === null
-          ? "—"
-          : formatWithUnit(property.value, unit)}
-      </span>
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className={cn(
+          "text-left text-[13px] tabular-nums w-full truncate",
+          property.value === null && "text-muted-foreground/50",
+        )}
+        aria-label="Редактировать число"
+      >
+        {display}
+      </button>
     );
   }
 
-  // Auto-size input под содержимое — чтобы suffix вплотную лип к
-  // числу, а не висел справа в отрыве. `size` HTML-атрибут даёт width
-  // ≈ N character'ов; min 3 для visible empty state.
+  // Edit-mode: <input> + inline suffix, без рамки. `size` атрибут
+  // подгоняет ширину input'а под содержимое, чтобы suffix лип к числу
+  // вплотную (а не висел справа в отрыве).
   const valueStr = property.value === null ? "" : String(property.value);
-  const inputSize = Math.max(3, valueStr.length || 3);
+  const inputSize = Math.max(2, valueStr.length || 2);
 
   return (
-    <div className="inline-flex items-baseline gap-1 max-w-full">
+    <span className="inline-flex items-baseline max-w-full">
       <input
+        autoFocus
         type="number"
         inputMode="numeric"
         size={inputSize}
@@ -1950,10 +2124,15 @@ function NumberValueControl({
           const v = e.target.value;
           onChangeValue(v === "" ? null : Number(v));
         }}
+        onBlur={() => setEditing(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === "Escape") {
+            e.currentTarget.blur();
+          }
+        }}
         placeholder="—"
-        className="h-7 text-[13px] tabular-nums outline-none bg-transparent
-                   border border-transparent rounded px-1 -mx-1
-                   hover:border-input focus:border-input transition-colors
+        className="text-[13px] tabular-nums outline-none bg-transparent
+                   border-0 p-0 m-0
                    [appearance:textfield]
                    [&::-webkit-outer-spin-button]:appearance-none
                    [&::-webkit-inner-spin-button]:appearance-none"
@@ -1966,27 +2145,69 @@ function NumberValueControl({
           {suffix}
         </span>
       )}
-    </div>
+    </span>
   );
 }
 
-/** Rating value-control: ★★★☆☆ строка из звёзд. Click по N-й звезде
- *  ставит value = N. Click по уже-выбранной — сбрасывает в null. Hover
- *  по звезде показывает preview (полупрозрачный fill).
- *
- *  Read-only: те же звёзды без интерактивности. */
+/** Rating value-control. Два variant'а:
+ *  - `stars` (default): ★★★☆☆ строка из звёзд. Click по N-й ставит
+ *    value = N, click по уже-выбранной — null. Hover показывает preview.
+ *  - `slider`: native `<input type="range">` от 0 до max + label с
+ *    текущим значением. 0 = null (не задано). */
 function RatingValueControl({
   value,
   max,
+  variant,
   canEdit,
   onChange,
 }: {
   value: number | null;
   max: number;
+  variant: "stars" | "slider";
   canEdit: boolean;
   onChange: (value: number | null) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
+
+  if (variant === "slider") {
+    const effective = value ?? 0;
+    if (!canEdit) {
+      return (
+        <span
+          className="text-[13px] tabular-nums"
+          aria-label={
+            value === null ? "Не оценено" : `Оценка ${value} из ${max}`
+          }
+        >
+          {value === null ? "—" : `${value} / ${max}`}
+        </span>
+      );
+    }
+    return (
+      <div className="inline-flex items-center gap-2 max-w-full">
+        <input
+          type="range"
+          min={0}
+          max={max}
+          step={1}
+          value={effective}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            // 0 = «не задано». Удобно: можно sweep'нуть слайдер влево
+            // чтобы сбросить, без отдельной кнопки X.
+            onChange(n === 0 ? null : n);
+          }}
+          aria-label={`Оценка от 0 до ${max}`}
+          className="w-32 accent-amber-400 cursor-pointer"
+        />
+        <span className="text-[13px] tabular-nums text-muted-foreground min-w-[40px]">
+          {value === null ? "—" : `${value} / ${max}`}
+        </span>
+      </div>
+    );
+  }
+
+  // variant === "stars"
   const effective = hover ?? value ?? 0;
 
   if (!canEdit) {

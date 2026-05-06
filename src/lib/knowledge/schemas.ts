@@ -129,6 +129,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     ...kbPropertyBase,
     type: z.literal("checkbox"),
     value: z.boolean(),
+    displayVariant: z.enum(["checkbox", "switch"]).optional(),
   }),
   z.object({
     ...kbPropertyBase,
@@ -159,6 +160,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     // дыру, в которую старый клиент / прямой API-call мог послать
     // произвольный max и получить inconsistent data (Codex P2 на #144).
     max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
+    displayVariant: z.enum(["stars", "slider"]).optional(),
   }),
 ]).superRefine((p, ctx) => {
   // Cross-field invariant для rating: `value` не может превышать `max`.

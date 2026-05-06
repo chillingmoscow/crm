@@ -407,6 +407,23 @@ input:-webkit-autofill {
      для глаза). Padding 2px по горизонтали даёт зазор между ними →
      визуально mark «разрывается» посреди слова. Без padding границы
      adjacent-spans слипаются и подсветка читается как одна полоса. */
+  /* `box-decoration-break: clone` гарантирует что background и underline
+     красятся на каждом fragment'е mark'а независимо. Без него (default
+     `slice`) browser «делит» декорацию на части — на line-wrap'ах и на
+     adjacent inline'ах могут появляться sub-pixel gap'ы из-за fractional
+     positioning. Юзер видел это как «выделение разорвалось в одном
+     слове, два куска ссылаются на один коммент» (фактически один thread,
+     просто split на DOM-уровне → split на render-уровне без clone). */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  /* Defensive: если PM всё-таки порезал text-node на два adjacent span'а
+     (одинаковый threadId, разное bold/italic между ними), background
+     должен слипаться без видимого зазора. margin-inline: 0 явно
+     перебивает любые browser/UA-default'ы; не добавляем здесь padding
+     или border которые бы создали зазор. */
+  margin-inline: 0;
+  padding-inline: 0;
+  border: 0;
   cursor: pointer;
   transition: background-color 120ms ease;
 }

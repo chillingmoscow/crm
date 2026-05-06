@@ -52,25 +52,43 @@ function KbFileBlock(
   // через editor.resolveFileUrl — для kbfile:// scheme получаем
   // signed Supabase-URL, для external https:// no-op'ит.
   if (url !== "") {
-    const handleClick = async (e: React.MouseEvent<HTMLDivElement>) => {
-      // Игнорируем клик если PM-block уже выделен (юзер кликает второй
-      // раз чтобы открыть, иначе первый клик селектит блок и formatting-
-      // toolbar перехватывает фокус). На самом деле PM сам не блокирует
-      // клик — просто сделаем preventDefault'а на mousedown level не
-      // нужно: BN-flow «clicked-on-block → ProseMirror-selectednode →
-      // open toolbar» работает параллельно.
+    const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
       e.stopPropagation();
+      // Codex P1 на PR #141: window.open ПОСЛЕ await editor.resolveFileUrl
+      // теряет user-activation context, и popup-blocker'ы Chrome / Safari
+      // режут tab. Решение: открываем blank-tab СИНХРОННО внутри click-
+      // handler'а (user-gesture ещё активен), затем navigate'им его на
+      // resolved URL когда async-resolve завершится. Безопасность: сами
+      // обнуляем .opener чтобы новая вкладка не имела доступ к
+      // window.opener (флаг "noopener" в window.open не передаём — иначе
+      // он возвращает null в новых браузерах, и навигировать tab нельзя).
+      const newTab = window.open("", "_blank");
+      if (!newTab) return;
       try {
-        const resolved = editor.resolveFileUrl
-          ? await editor.resolveFileUrl(url)
-          : url;
-        window.open(resolved, "_blank", "noopener,noreferrer");
+        newTab.opener = null;
       } catch {
-        // Failed to resolve — fallback to raw URL (если external).
-        if (!url.startsWith("kbfile://")) {
-          window.open(url, "_blank", "noopener,noreferrer");
-        }
+        // Cross-origin write блокируется — fine.
       }
+      void (async () => {
+        let resolvedUrl: string;
+        try {
+          resolvedUrl = editor.resolveFileUrl
+            ? await editor.resolveFileUrl(url)
+            : url;
+        } catch {
+          if (!url.startsWith("kbfile://")) {
+            resolvedUrl = url;
+          } else {
+            newTab.close();
+            return;
+          }
+        }
+        try {
+          newTab.location.href = resolvedUrl;
+        } catch {
+          // Tab уже закрыт / cross-origin — silently.
+        }
+      })();
     };
     return (
       <KbMediaChip

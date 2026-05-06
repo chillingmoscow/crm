@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   ClipboardType,
   Download,
@@ -14,12 +13,6 @@ import {
   useEditorState,
 } from "@blocknote/react";
 
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Input } from "@/components/ui/input";
 import { detectVideoEmbed } from "@/components/knowledge/blocks/kb-video-block";
 
 /**
@@ -30,13 +23,17 @@ import { detectVideoEmbed } from "@/components/knowledge/blocks/kb-video-block";
  *     чтобы геометрия (h-10 ghost, padding) совпадала с соседними
  *     BN-кнопками (alignment / nest / link / etc.) и был общий
  *     TooltipProvider — без этого native-title с системной задержкой
- *     показывался вместо красивого tooltip'а в стиле DS
- *   • caption / rename popover'ы рендерим shadcn'ным `<Input>` вместо
- *     BN-овского `Generic.Form.TextInput` (другой radius / focus-ring).
+ *     показывался вместо красивого tooltip'а в стиле DS.
  *
  * Подключаются через `swapFileToolbarButtons(items)` в blocknote-
  * editor.tsx: проходим items[], по item.key подменяем default React-
  * elements на наши.
+ *
+ * Caption и rename теперь редактируются inline (не через popover) —
+ * клик на кнопку находит соответствующий DOM-элемент в редакторе,
+ * делает его contentEditable, фокусирует и слушает blur для save'а
+ * через editor.updateBlock. Юзер набирает прямо в той области, где
+ * caption / filename отображаются.
  */
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -70,12 +67,102 @@ function useSelectedFileBlock(): FileBlockSelector | null {
   });
 }
 
-const TYPE_LABEL: Record<string, string> = {
-  video: "видео",
-  image: "изображение",
-  audio: "аудио",
-  file: "файл",
-};
+/** Inline-edit для bn-class'ом помеченных DOM-элементов внутри блока
+ *  (`.bn-file-caption`, `.bn-file-name`). Делает элемент contentEditable,
+ *  ставит cursor в конец, слушает blur → updateBlock. На blur также
+ *  снимает contentEditable.
+ *
+ *  Вместо popover'а с `<Input>`-ом — UX по фидбеку юзера: «не открывать
+ *  дополнительное окно, а сместить курсор в область, где располагается
+ *  сама подпись». */
+function startInlineEdit(opts: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor: any;
+  blockId: string;
+  selector: string;
+  /** Ключ prop'а в блоке, куда писать новое значение (caption / name). */
+  propKey: string;
+}) {
+  const editorView = opts.editor._tiptapEditor?.view;
+  if (!editorView) return;
+  const editorDom = editorView.dom as HTMLElement;
+
+  // Находим блок: BN ставит `data-id="<block.id>"` на bn-block-content
+  // (см. src/blocks/createReactBlockSpec.tsx, addOptions). Внутри —
+  // целевой `.bn-file-caption` / `.bn-file-name`.
+  const blockEl = editorDom.querySelector<HTMLElement>(
+    `[data-id="${opts.blockId}"]`,
+  );
+  if (!blockEl) return;
+  const target = blockEl.querySelector<HTMLElement>(opts.selector);
+  if (!target) return;
+
+  target.setAttribute("contenteditable", "true");
+  target.dataset.kbInlineEdit = opts.propKey;
+  target.style.cursor = "text";
+  target.style.outline = "none";
+  target.focus();
+
+  // Move caret в конец текста (а не в начало — чтобы юзер мог сразу
+  // дописывать к существующему тексту).
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  } catch {
+    // Selection API may fail в некоторых случаях (detached node) — fine.
+  }
+
+  const cleanup = () => {
+    const value = target.textContent ?? "";
+    target.removeAttribute("contenteditable");
+    delete target.dataset.kbInlineEdit;
+    target.style.cursor = "";
+    target.style.outline = "";
+    target.removeEventListener("blur", onBlur);
+    target.removeEventListener("keydown", onKeyDown);
+    target.removeEventListener("click", onClick);
+    target.removeEventListener("mousedown", onMouseDown);
+    opts.editor.updateBlock(opts.blockId, { props: { [opts.propKey]: value } });
+  };
+
+  const onBlur = () => cleanup();
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    // Stop propagation чтобы PM не пытался обработать keystroke как
+    // edit'ы основного doc'а — мы редактируем prop, не PM-content.
+    e.stopPropagation();
+    if (e.key === "Enter" && !e.isComposing) {
+      e.preventDefault();
+      target.blur();
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      target.blur();
+    }
+  };
+
+  // Codex P2 на PR #143: для file-блока `.kb-media-chip__label` сидит
+  // ВНУТРИ chip'а, у которого есть onClick → открывает файл в новой
+  // вкладке. Без stopPropagation на target клик мышью для позиционирования
+  // курсора bubble'ил до chip'а → file открывался → contentEditable
+  // терял фокус → blur → cleanup → юзер не успевал ничего напечатать.
+  // Останавливаем bubbling click + mousedown пока редактируем.
+  const onClick = (e: MouseEvent) => {
+    e.stopPropagation();
+  };
+  const onMouseDown = (e: MouseEvent) => {
+    e.stopPropagation();
+  };
+
+  target.addEventListener("blur", onBlur);
+  target.addEventListener("keydown", onKeyDown);
+  target.addEventListener("click", onClick);
+  target.addEventListener("mousedown", onMouseDown);
+}
 
 // ── Caption ────────────────────────────────────────────────────────
 
@@ -84,47 +171,23 @@ export function KbFileCaptionButton() {
   const editor = useBlockNoteEditor<any, any, any>();
   const Components = useComponentsContext();
   const block = useSelectedFileBlock();
-  const [open, setOpen] = useState(false);
 
   if (!Components || !block) return null;
-  const caption = typeof block.props?.caption === "string" ? block.props.caption : "";
-
-  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    editor.updateBlock(block.id, { props: { caption: e.target.value } });
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      setOpen(false);
-    }
-  };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Components.FormattingToolbar.Button
-          mainTooltip="Подпись"
-          label="Подпись"
-          icon={<Pencil className="size-4" strokeWidth={1.75} />}
-          onClick={() => setOpen((v) => !v)}
-        />
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-72 p-2"
-      >
-        <Input
-          autoFocus
-          value={caption}
-          onChange={onChange}
-          onKeyDown={onKeyDown}
-          placeholder="Подпись к файлу"
-          className="h-9"
-        />
-      </PopoverContent>
-    </Popover>
+    <Components.FormattingToolbar.Button
+      mainTooltip="Добавить подпись"
+      label="Добавить подпись"
+      icon={<Pencil className="size-4" strokeWidth={1.75} />}
+      onClick={() =>
+        startInlineEdit({
+          editor,
+          blockId: block.id,
+          selector: ".bn-file-caption",
+          propKey: "caption",
+        })
+      }
+    />
   );
 }
 
@@ -135,51 +198,31 @@ export function KbFileRenameButton() {
   const editor = useBlockNoteEditor<any, any, any>();
   const Components = useComponentsContext();
   const block = useSelectedFileBlock();
-  const [open, setOpen] = useState(false);
 
   if (!Components || !block) return null;
-  // `name` присутствует в схемах image/video/audio/file и редактируется
-  // только если selection-block имеет валидный prop. BN-rename-button
-  // также фильтрует по этому условию (см. xn в blocknote-react.js).
-  const name = typeof block.props?.name === "string" ? block.props.name : "";
-  const label = `Переименовать ${TYPE_LABEL[block.type] ?? "файл"}`;
-
-  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    editor.updateBlock(block.id, { props: { name: e.target.value } });
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      setOpen(false);
-    }
-  };
+  const url = typeof block.props?.url === "string" ? block.props.url : "";
+  // Видео, добавленное по embed-URL (YouTube/Vimeo/Loom/Vidyard) — нечего
+  // переименовывать: name это URL, edit просто заменит ссылку. По
+  // фидбеку юзера прячем кнопку для embed-видео.
+  if (block.type === "video" && detectVideoEmbed(url)) return null;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Components.FormattingToolbar.Button
-          mainTooltip={label}
-          label={label}
-          icon={<ClipboardType className="size-4" strokeWidth={1.75} />}
-          onClick={() => setOpen((v) => !v)}
-        />
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-72 p-2"
-      >
-        <Input
-          autoFocus
-          value={name}
-          onChange={onChange}
-          onKeyDown={onKeyDown}
-          placeholder={label}
-          className="h-9"
-        />
-      </PopoverContent>
-    </Popover>
+    <Components.FormattingToolbar.Button
+      mainTooltip="Переименовать"
+      label="Переименовать"
+      icon={<ClipboardType className="size-4" strokeWidth={1.75} />}
+      onClick={() =>
+        startInlineEdit({
+          editor,
+          blockId: block.id,
+          // BN рендерит filename в `.bn-file-name` (см. ei в blocknote-
+          // react.js — FileNameWithIcon). Для наших chip'ов
+          // (KbMediaChip) — `.kb-media-chip__label`. Селектор-OR.
+          selector: ".bn-file-name, .kb-media-chip__label",
+          propKey: "name",
+        })
+      }
+    />
   );
 }
 
@@ -192,12 +235,11 @@ export function KbFileDeleteButton() {
   const block = useSelectedFileBlock();
 
   if (!Components || !block) return null;
-  const label = `Удалить ${TYPE_LABEL[block.type] ?? "файл"}`;
 
   return (
     <Components.FormattingToolbar.Button
-      mainTooltip={label}
-      label={label}
+      mainTooltip="Удалить"
+      label="Удалить"
       icon={<Trash2 className="size-4" strokeWidth={1.75} />}
       onClick={() => {
         editor.focus();
@@ -207,7 +249,7 @@ export function KbFileDeleteButton() {
   );
 }
 
-// ── Download / Open in browser ─────────────────────────────────────
+// ── Download / Open in browser / Show original ────────────────────
 
 /** Возвращает true если URL — это embed-провайдер (YouTube / Vimeo /
  *  Loom / Vidyard) ИЛИ external https:// (т.е. не наш kbfile://). Для
@@ -218,8 +260,6 @@ function isExternalUrl(url: string): boolean {
   if (!url) return false;
   if (url.startsWith("kbfile://")) return false;
   if (detectVideoEmbed(url)) return true;
-  // Любой http(s):// — внешний (download-attribute не сработает
-  // cross-origin без CORS-allow-Content-Disposition).
   return /^https?:\/\//.test(url);
 }
 
@@ -232,37 +272,66 @@ export function KbFileDownloadButton() {
   if (!Components || !block) return null;
   const url = typeof block.props?.url === "string" ? block.props.url : "";
   if (!url) return null;
-  const external = isExternalUrl(url);
-  const label = external
-    ? "Открыть в браузере"
-    : `Скачать ${TYPE_LABEL[block.type] ?? "файл"}`;
 
-  const handleClick = async () => {
-    // Codex P1 на PR #130: previous version рендерила `<a href={url}
-    // download>` напрямую. Для uploaded-файлов мы храним url'ы как
-    // `kbfile://<storage_path>` (см. blocknote-editor.tsx) — это не
-    // fetchable URL, browser молча игнорирует click. Resolve через
-    // editor.resolveFileUrl (как делает BN-default FileDownloadButton)
-    // конвертит в свежую signed-Supabase-URL'у. Для cross-origin'ов
-    // (YouTube/Vimeo/external https://) resolveFileUrl no-op'ит и
-    // возвращает оригинал.
-    const resolved = editor.resolveFileUrl
-      ? await editor.resolveFileUrl(url)
-      : url;
-    window.open(resolved, "_blank", "noopener,noreferrer");
+  // Для image-блоков всегда показываем «Показать оригинал» (открывает
+  // изображение в новой вкладке) — независимо от kbfile:// vs external.
+  // Это юзер-friendly: уменьшенное превью inline в editor'е, а
+  // оригинал открывается «как есть» в новой вкладке.
+  const isImage = block.type === "image";
+  const external = isExternalUrl(url);
+  const label = isImage
+    ? "Показать оригинал"
+    : external
+      ? "Открыть в браузере"
+      : "Скачать";
+  const icon =
+    isImage || external ? (
+      <ExternalLink className="size-4" strokeWidth={1.75} />
+    ) : (
+      <Download className="size-4" strokeWidth={1.75} />
+    );
+
+  const handleClick = () => {
+    // Codex P1 на PR #141: window.open ПОСЛЕ await editor.resolveFileUrl
+    // теряет user-activation context, и popup-blocker'ы Chrome / Safari
+    // режут tab. Решение: открываем blank-tab СИНХРОННО внутри click-
+    // handler'а (user-gesture ещё активен), затем navigate'им его на
+    // resolved URL когда async-resolve завершится.
+    const newTab = window.open("", "_blank");
+    if (!newTab) return; // popup-blocker сработал даже на blank
+    try {
+      newTab.opener = null;
+    } catch {
+      // Cross-origin write блокируется — оставляем как есть.
+    }
+
+    void (async () => {
+      let resolvedUrl: string;
+      try {
+        resolvedUrl = editor.resolveFileUrl
+          ? await editor.resolveFileUrl(url)
+          : url;
+      } catch {
+        if (!url.startsWith("kbfile://")) {
+          resolvedUrl = url;
+        } else {
+          newTab.close();
+          return;
+        }
+      }
+      try {
+        newTab.location.href = resolvedUrl;
+      } catch {
+        // Tab уже закрыт юзером / cross-origin восстание — silently.
+      }
+    })();
   };
 
   return (
     <Components.FormattingToolbar.Button
       mainTooltip={label}
       label={label}
-      icon={
-        external ? (
-          <ExternalLink className="size-4" strokeWidth={1.75} />
-        ) : (
-          <Download className="size-4" strokeWidth={1.75} />
-        )
-      }
+      icon={icon}
       onClick={handleClick}
     />
   );

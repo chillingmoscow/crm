@@ -61,26 +61,18 @@ export function KbFilePanel(props: KbFilePanelProps) {
   // защита от null'а.
   if (!block) return null;
 
-  // Универсальный close: replace flow → setOpen(false) (controlled
-  // Radix Popover); empty-state add flow → FilePanelExtension.closeMenu
-  // (показ панели завязан на blockId-state экстеншена, blur'ом не
-  // закрыть, см. node_modules/.../FilePanelController.tsx).
-  const close = () => {
-    if (props.onClose) {
-      props.onClose();
-      return;
-    }
-    try {
-      const ext = editor.extensions?.get?.("filePanel") as
-        | { closeMenu?: () => void }
-        | undefined;
-      ext?.closeMenu?.();
-    } catch {
-      // Defensive: если API изменится — silently ignore, юзер сам
-      // переключится с блока (selection deselect → BN сам закроет).
-    }
-  };
-
+  // Передаём props.onClose «как есть»: для replace-flow (controlled
+  // Radix Popover в KbFileReplaceButton) — setOpen(false), scoped к
+  // КОНКРЕТНОМУ instance'у. Для add-flow (BN's FilePanelController) —
+  // undefined: после успешного upload editor.updateBlock триггерит
+  // editor.onChange, и FilePanelExtension сам закрывает panel
+  // (см. node_modules/.../FilePanel.ts: onChange(closeMenu)).
+  //
+  // Codex P2 на PR #157: если зовать FilePanelExtension.closeMenu()
+  // вручную ПОСЛЕ async-upload'а, мы могли бы закрыть НЕ ту panel
+  // (юзер начал upload-A в block-1, открыл panel-B для block-2,
+  // upload-A закончился → закрыл бы panel-B). Решение — не звать
+  // closeMenu вручную в add-flow вообще.
   return (
     <div className="kb-file-panel">
       <div className="kb-file-panel-tabs" role="tablist">
@@ -112,14 +104,14 @@ export function KbFilePanel(props: KbFilePanelProps) {
         <UploadPanel
           blockId={props.blockId}
           blockType={block.type}
-          onClose={close}
+          onClose={props.onClose}
         />
       )}
       {tab === "embed" && (
         <EmbedPanel
           blockId={props.blockId}
           blockType={block.type}
-          onClose={close}
+          onClose={props.onClose}
         />
       )}
     </div>
@@ -210,7 +202,7 @@ function UploadPanel({
   blockType,
   blockId,
   onClose,
-}: FilePanelProps & { blockType: string; onClose: () => void }) {
+}: FilePanelProps & { blockType: string; onClose: (() => void) | undefined }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -226,15 +218,29 @@ function UploadPanel({
     return () => clearTimeout(t);
   }, [error]);
 
-  // Upload — fire-and-forget после pre-flight'а: валидируем размер +
-  // формат, регистрируем в kb-upload-queue-store, СНАЧАЛА запускаем
-  // editor.uploadFile в фоне (Promise сразу in-flight), и ТОЛЬКО потом
-  // через microtask закрываем panel. Юзер-фидбек на PR #151:
-  // «файл загружается только со второго раза» — раньше onClose() шёл
-  // синхронно ДО IIFE, и FilePanelExtension.closeMenu() ремаунтил
-  // KbFilePanel посреди React-event handler'а, из-за чего upload-Promise
-  // терялся на первой попытке. queueMicrotask отсрочивает close до
-  // следующего тика, когда server-action уже initiated.
+  // Upload — fire-and-forget после pre-flight'а. Юзер-фидбек на PR
+  // #153: «загрузка по-прежнему происходит только с второго раза» —
+  // queueMicrotask-фикс из #151 не помог. Гипотеза: при OS-file-picker'е
+  // фокус на короткое время уходит на dialog → BN-овский floating-ui
+  // useDismiss срабатывает на focus-out (или onSelectionChange), и
+  // popover уходит в close-transition → GenericPopover (см. node_modules/
+  //   .../Popovers/GenericPopover.tsx) подменяет React-children на
+  // dangerouslySetInnerHTML, ОТРЫВАЯ `<input>`-элемент от React-fiber'а.
+  // input.onChange всё ещё фаерится (DOM-event'ом), но React-handler
+  // уже не привязан → upload() не зовётся.
+  //
+  // Workaround: НЕ закрываем panel вручную. Дожидаемся upload-success,
+  // делаем editor.updateBlock — он автоматически триггерит onChange,
+  // и FilePanelExtension сам закрывает panel (см. node_modules/.../
+  //   FilePanel/FilePanel.ts: editor.onChange(closeMenu)). То же
+  // поведение что у BN-default'ной UploadTab. Trade-off: panel виден
+  // во время upload'а (раньше скрывался сразу) — но pre-flight
+  // mp3-фикса требовал работающий первый upload, без него UX-приоритеты
+  // вторичны.
+  //
+  // Для replace-flow (KbFileReplaceButton) — там Radix Popover, не
+  // BN-store, у нас сами должны закрывать. KbFileReplaceButton передаёт
+  // onClose, и ОН будет дёрнут после updateBlock (см. ниже).
   const upload = useCallback(
     (file: File) => {
       if (!editor.uploadFile) return;
@@ -256,21 +262,24 @@ function UploadPanel({
             };
           }
           editor.updateBlock(blockId, updateData);
+          // updateBlock → editor.onChange → FilePanelExtension.closeMenu
+          // (auto-close для add-flow). Для replace-flow onClose — это
+          // setOpen(false) на нашем КОНКРЕТНОМ Radix Popover'е (scoped),
+          // зовём только если передан. Codex P2 на PR #157: для add-
+          // flow onClose=undefined — иначе вызов FilePanelExtension.
+          // closeMenu() закрыл бы любую активную panel, не обязательно
+          // ту, которая инициировала этот upload.
+          onClose?.();
         } catch (e) {
           // Surface real message: Supabase / RLS / size errors → юзер
           // увидит конкретную причину, а не generic «не удалось».
           const msg = e instanceof Error ? e.message : "Не удалось загрузить файл";
           alert(`Ошибка загрузки: ${msg}`);
+          onClose?.();
         } finally {
           finishUpload(blockId);
         }
       })();
-
-      // Defer close: даём React-event handler'у дойти до конца, IIFE
-      // выше уже синхронно вызвал editor.uploadFile (server-action
-      // initiated до первого await). Только теперь безопасно закрывать
-      // panel.
-      queueMicrotask(() => onClose());
     },
     [editor, blockId, blockType, onClose],
   );
@@ -371,7 +380,7 @@ function EmbedPanel({
   blockType,
   blockId,
   onClose,
-}: FilePanelProps & { blockType: string; onClose: () => void }) {
+}: FilePanelProps & { blockType: string; onClose: (() => void) | undefined }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const editor = useBlockNoteEditor<any, any, any>();
   const [url, setUrl] = useState("");
@@ -381,7 +390,9 @@ function EmbedPanel({
     editor.updateBlock(blockId, {
       props: { name: filenameFromURL(url), url },
     });
-    onClose();
+    // Add-flow: BN auto-closes panel via editor.onChange (см. PR #157
+    // Codex P2). Replace-flow: scoped Radix Popover, зовём явно.
+    onClose?.();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

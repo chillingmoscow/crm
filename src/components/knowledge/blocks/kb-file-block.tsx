@@ -21,15 +21,7 @@ import { File as FileIcon } from "lucide-react";
 import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
 import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
 import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
-
-/** Экстракт расширения файла из имени для показа справа от label'а
- *  («.pdf», «.png», ...). Notion-style metadata-hint. Возвращает
- *  null если расширения нет / не распознать. */
-function extractExtension(name: string | undefined | null): string | null {
-  if (!name) return null;
-  const m = /\.([a-zA-Z0-9]{1,10})$/.exec(name);
-  return m ? `.${m[1].toLowerCase()}` : null;
-}
+import { splitFileName } from "@/lib/knowledge/file-name";
 
 function KbFileBlock(
   props: ReactCustomBlockRenderProps<typeof createFileBlockConfig>,
@@ -98,11 +90,15 @@ function KbFileBlock(
         }
       })();
     };
+    // Юзер-фидбек: «расширение есть и в названии, и дублируется
+    // справа. Скрывать в названии, показывать только справа.»
+    // splitFileName: label = basename, meta = extension.
+    const { basename, extension } = splitFileName(name);
     return (
       <KbMediaChip
         icon={<FileIcon size={18} strokeWidth={1.75} />}
-        label={name || url}
-        meta={extractExtension(name) ?? undefined}
+        label={basename || name || url}
+        meta={extension || undefined}
         caption={props.block.props.caption}
         variant="card"
         onClick={handleClick}

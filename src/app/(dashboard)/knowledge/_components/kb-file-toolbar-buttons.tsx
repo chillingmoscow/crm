@@ -21,6 +21,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { detectVideoEmbed } from "@/components/knowledge/blocks/kb-video-block";
+import { joinFileName, splitFileName } from "@/lib/knowledge/file-name";
 
 /**
  * Кастомные замены BN-овских FormattingToolbar-кнопок для file-shape
@@ -199,35 +200,28 @@ export function KbFileRenameButton() {
   if (block.type !== "file") return null;
 
   const name = typeof block.props?.name === "string" ? block.props.name : "";
+  const { basename, extension } = splitFileName(name);
 
   return (
     <PropEditPopover
       open={open}
       onOpenChange={setOpen}
-      initialValue={name}
+      // Юзер-фидбек на PR #153: «Переименовал PDF файл в "Преза.docx" —
+      // в расширении теперь тоже указано docx». Реальное расширение
+      // соответствует blob'у на Supabase storage и не должно меняться
+      // через rename. Поэтому в input редактируется ТОЛЬКО basename;
+      // extension всегда сохраняется и подставляется обратно.
+      initialValue={basename}
       placeholder="Имя файла"
       onSubmit={(value) => {
         // Не переписываем имя пустой строкой — иначе chip остаётся без
         // label'а вообще. Если юзер очистил input — игнорируем save.
         if (!value) return;
-        // Сохраняем расширение: если юзер удалил ".mp3" / ".pdf" из
-        // конца, дописываем обратно (юзер-фидбек: «после переименовывания
-        // файла пропадает его расширение, если я удалил его из названия.
-        // Оно должно оставаться»). Если юзер ввёл другое расширение
-        // (`Foo.txt` → `Foo.docx`) — оставляем как есть, не трогаем.
-        //
-        // Codex P2 на PR #153: «report.pdf» → «Report v2.0» — `.0`
-        // matches `\.[a-zA-Z0-9]+$`, false positive «юзер ввёл новое
-        // расширение» → теряем `.pdf`. Меняем regex: расширение должно
-        // начинаться С БУКВЫ (extensions like .pdf/.mp3/.docx — да;
-        // numeric version-suffix .0/.5 — нет). Trade-off: редкие digit-
-        // led расширения (.7z, .3gp) не auto-detect'ятся; юзер может
-        // ввести их явно.
-        const EXT_RE = /\.[a-zA-Z][a-zA-Z0-9]{0,9}$/;
-        const oldExt = name.match(EXT_RE)?.[0] ?? "";
-        const valueHasExt = EXT_RE.test(value);
-        const finalName = valueHasExt || !oldExt ? value : value + oldExt;
-        editor.updateBlock(block.id, { props: { name: finalName } });
+        // joinFileName: возвращает basename + extension; защита от
+        // дубля если юзер всё-таки скопипастил расширение в input.
+        editor.updateBlock(block.id, {
+          props: { name: joinFileName(value, extension) },
+        });
       }}
       trigger={
         <Components.FormattingToolbar.Button

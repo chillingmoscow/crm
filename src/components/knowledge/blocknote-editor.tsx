@@ -918,7 +918,24 @@ export function KbBlockNoteEditor({
             const headings = byGroup("Заголовки");
             const subheadings = byGroup("Подзаголовки");
             const basics = byGroup("Базовые блоки", "Основные блоки");
-            const media = byGroup("Медиа");
+            // Расширяем aliases для media-items: BN-default ru-locale
+            // даёт {image, картинка, рисунок, ...}, юзер просил «фото»
+            // и «изображение» (см. PR #159 фидбек). Добавляем в title-
+            // соответствующий item, не трогая остальные.
+            const media = byGroup("Медиа").map((it) => {
+              const item = it as { title?: string; aliases?: string[] };
+              if (item.title === "Картинка") {
+                return {
+                  ...it,
+                  aliases: [
+                    ...(item.aliases ?? []),
+                    "фото",
+                    "изображение",
+                  ],
+                };
+              }
+              return it;
+            });
             // «Продвинутый» сейчас содержит только Таблицу — переименуем
             // её группу в «Прочее» и склеим с эмодзи.
             const others = remap(

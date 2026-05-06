@@ -143,8 +143,10 @@ export default async function KbPageView({ params }: PageProps) {
   // read-only ДЛЯ ВСЕХ, включая admin'а с kb.lock_pages. Чтобы edit'ить
   // надо явно разблокировать через banner-кнопку. Backend RPC
   // kb_save_page (миграция 086) отвергает любой write на locked-странице.
+  // KbPageEditor + KbPageMenu принимают `canEditBase` + `initialLocked`
+  // отдельно и считают effective сами через page-state-overrides-store —
+  // так они реагируют на toggle Lock мгновенно, без router.refresh.
   const isLocked = row.locked_at !== null;
-  const canEdit = canEditBase && !isLocked;
 
   // AI slash-команды: двойной gate. UI-уровень — чтобы не показывать
   // /ai-айтемы в slash-меню если account отключил AI или у юзера

@@ -227,10 +227,14 @@ function UploadPanel({
   }, [error]);
 
   // Upload — fire-and-forget после pre-flight'а: валидируем размер +
-  // формат, регистрируем в kb-upload-queue-store, закрываем panel,
-  // запускаем editor.uploadFile в фоне. Ошибка после закрытия panel'а
-  // показывается через alert() с реальным сообщением от Supabase
-  // (а не заглушка «Не удалось загрузить»).
+  // формат, регистрируем в kb-upload-queue-store, СНАЧАЛА запускаем
+  // editor.uploadFile в фоне (Promise сразу in-flight), и ТОЛЬКО потом
+  // через microtask закрываем panel. Юзер-фидбек на PR #151:
+  // «файл загружается только со второго раза» — раньше onClose() шёл
+  // синхронно ДО IIFE, и FilePanelExtension.closeMenu() ремаунтил
+  // KbFilePanel посреди React-event handler'а, из-за чего upload-Promise
+  // терялся на первой попытке. queueMicrotask отсрочивает close до
+  // следующего тика, когда server-action уже initiated.
   const upload = useCallback(
     (file: File) => {
       if (!editor.uploadFile) return;
@@ -242,7 +246,6 @@ function UploadPanel({
       }
 
       startUpload(blockId, file.name);
-      onClose();
 
       void (async () => {
         try {
@@ -262,6 +265,12 @@ function UploadPanel({
           finishUpload(blockId);
         }
       })();
+
+      // Defer close: даём React-event handler'у дойти до конца, IIFE
+      // выше уже синхронно вызвал editor.uploadFile (server-action
+      // initiated до первого await). Только теперь безопасно закрывать
+      // panel.
+      queueMicrotask(() => onClose());
     },
     [editor, blockId, blockType, onClose],
   );
@@ -269,6 +278,9 @@ function UploadPanel({
   const onChange = (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f) upload(f);
+    // Reset input.value: позволяет повторно выбрать тот же файл (без
+    // этого браузер не файрит change на одинаковом file pick).
+    e.target.value = "";
   };
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();

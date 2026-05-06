@@ -1408,3 +1408,60 @@ input:-webkit-autofill {
 .bn-sheerly .bn-resize-handle:hover {
   background-color: hsl(var(--brand) / 0.7);
 }
+
+/* ──────────────────────────────────────────────────────────────────
+ * Selection styling for media + file blocks (юзер-фидбек на PR #153:
+ * «Сейчас выделение файлов и медиа выглядит просто ужасно. Давай
+ * сделаем что-нибудь аккуратное и деликатное в нашем стиле»).
+ *
+ * Дефолт ProseMirror рисует `outline: 2px solid #8cf` (см. node_modules/
+ *   prosemirror-view/style/prosemirror.css) — толстую светло-голубую
+ * рамку, которая клиппит шрифт, не радиусится по форме блока и не
+ * совпадает с DS-палитрой. Перебиваем для file/image/video/audio:
+ * убираем outline и заменяем на тонкий ring через box-shadow в
+ * brand-цвете на низкой альфе. Радиус совпадает с радиусом самого
+ * блока (chip 8px / video-embed 12px / audio chip 6px).
+ * ────────────────────────────────────────────────────────────────── */
+
+/* Отключаем PM-default-outline для всех media-блоков. */
+.bn-sheerly .ProseMirror-selectednode[data-content-type="image"],
+.bn-sheerly .ProseMirror-selectednode[data-content-type="video"],
+.bn-sheerly .ProseMirror-selectednode[data-content-type="audio"],
+.bn-sheerly .ProseMirror-selectednode[data-content-type="file"] {
+  outline: none;
+}
+
+/* Тонкий ring через box-shadow на самом chip'е (file-block / collapsed
+ * media). 2px ring + 1px gap для читаемости — без рамки на тексте. */
+.bn-sheerly .ProseMirror-selectednode .kb-media-chip--card,
+.bn-sheerly .ProseMirror-selectednode .kb-media-chip--minimal {
+  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
+}
+
+/* Native video / iframe — ring на самой `<video>` / `<iframe>` через
+ * box-shadow, чтобы радиус (8px на video, 12px на iframe-embed)
+ * сохранялся. */
+.bn-sheerly .ProseMirror-selectednode .kb-video-native > video,
+.bn-sheerly .ProseMirror-selectednode .kb-video-embed > iframe {
+  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
+}
+
+/* Native audio — ring на flex-обёртке (`<audio>` сам по себе плохо
+ * рисует box-shadow в Chrome, поэтому wrap'ом). */
+.bn-sheerly .ProseMirror-selectednode .kb-audio-native {
+  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
+  border-radius: 999px;
+}
+
+/* Image — `ImagePreview` рендерит `<img>` напрямую внутри
+ * `.bn-visual-media-wrapper`. Применяем ring к wrapper'у. */
+.bn-sheerly .ProseMirror-selectednode .bn-visual-media-wrapper {
+  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
+  border-radius: 8px;
+}
+
+/* Upload progress overlay (KbUploadProgressOverlay): тоже media-блок,
+ * выбранное состояние показываем тем же ring'ом. */
+.bn-sheerly .ProseMirror-selectednode .kb-upload-progress {
+  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.35);
+}

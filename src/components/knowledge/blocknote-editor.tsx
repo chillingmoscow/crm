@@ -420,34 +420,19 @@ function filterToolbarItemsForBlock(
   }
   if (!blockType) return items;
 
-  // Leaf-блоки без inline-content (image/video/audio/file/divider):
-  // comment всегда no-op, фильтруем кнопки целиком.
-  if (NON_COMMENTABLE_BLOCK_TYPES.has(blockType)) {
+  // Leaf-блоки без inline-content (image/video/audio/file/divider) +
+  // table: comment всегда no-op либо нежелателен (в table block-level
+  // mark рисуется на всей строке/ячейке, что юзеру не нужно — раньше
+  // мы пробовали разрешать на «выделенный текст в ячейке», но это
+  // путало UX). Фильтруем кнопки целиком.
+  if (
+    NON_COMMENTABLE_BLOCK_TYPES.has(blockType) ||
+    blockType === "table"
+  ) {
     return items.filter(
       (it) =>
         it.key !== "addCommentButton" && it.key !== "addTiptapCommentButton",
     );
-  }
-
-  // Таблица: запрещаем block-level комментарий (commentExtension при
-  // collapsed-selection вешает mark на весь блок-таблицу, что юзеру
-  // не нужно). Если выделен конкретный текст в ячейке — comment-mark
-  // ляжет на этот text-node ProseMirror'а, что норма; кнопку оставляем.
-  if (blockType === "table") {
-    const tt = (
-      editor as unknown as {
-        _tiptapEditor?: {
-          state: { selection: { empty: boolean } };
-        };
-      }
-    )._tiptapEditor;
-    const selectionEmpty = tt?.state.selection.empty ?? true;
-    if (selectionEmpty) {
-      return items.filter(
-        (it) =>
-          it.key !== "addCommentButton" && it.key !== "addTiptapCommentButton",
-      );
-    }
   }
 
   return items;
@@ -963,7 +948,7 @@ export function KbBlockNoteEditor({
       editor={editor}
       editable={editable}
       theme={resolvedTheme === "dark" ? "dark" : "light"}
-      className={cn("bn-sheerly", !editable && "kb-bn-locked", className)}
+      className={cn("bn-sheerly", className)}
       sideMenu={customSideMenu ? false : undefined}
       slashMenu={customSlashMenu ? false : undefined}
       // Default formatting-toolbar отключаем когда мы добавляем свои

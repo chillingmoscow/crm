@@ -52,6 +52,18 @@ const KbThreadGutterIndicators = dynamic(
 import type { BlockNoteEditor as BlockNoteEditorType } from "@blocknote/core";
 import type { KbBlock, KbProperty } from "@/types/knowledge";
 import { KbPageProperties } from "@/app/(dashboard)/knowledge/_components/kb-page-properties";
+// Page-level Comments — Notion-style top-level discussion. Рендерится
+// между properties и body. Не зависит от BlockNote ThreadStore (это
+// inline-комментарии); работает напрямую c kb_threads (kind='page') +
+// kb_comments. Dynamic-import чтобы realtime/composer-deps не висели в
+// SSR-bundle страницы.
+const KbPageComments = dynamic(
+  () =>
+    import("@/components/knowledge/page-comments/kb-page-comments").then(
+      (m) => m.KbPageComments,
+    ),
+  { ssr: false, loading: () => null },
+);
 
 // Custom URL scheme used by the BlockNote wrapper to mark uploaded KB
 // files (kept in sync with KB_BLOCKNOTE_FILE_SCHEME).
@@ -407,6 +419,23 @@ export function KbPageEditor({
         initialProperties={initialProperties}
         canEdit={canEdit}
       />
+
+      {/* Page-level Comments (Notion-style discussion). Между properties
+          и body — соответствует Notion'овскому расположению. Render-gate
+          внутри: если у юзера НЕТ kb.comment_pages И комментариев нет —
+          компонент не рендерится. inline-comments (через ThreadStore)
+          работают независимо в KbBlockNoteEditor ниже. */}
+      {accountId && userId && (
+        <KbPageComments
+          pageId={pageId}
+          accountId={accountId}
+          userId={userId}
+          currentUserName={currentUserName}
+          currentUserAvatarUrl={currentUserAvatarUrl}
+          canComment={canComment}
+          canEdit={canEdit}
+        />
+      )}
 
       {/* Editor surface — обёрнут в KbMentionResolutionProvider, чтобы
           render kbPageMention chip'а мог отличить slug, ведущий на

@@ -43,6 +43,43 @@
     --sidebar-ring: 240 5% 46%;        /* #71717a */
     --autofill-bg: #fafafa;
     --autofill-text: #09090b;
+
+    /* ──── Унифицированная 10-цветная палитра ────
+       Источник правды: src/lib/palette.ts (TypeScript-помощники).
+       Эти CSS-переменные — зеркало для CSS-only потребителей: BlockNote
+       data-text-color / data-background-color и highlight'ы.
+       Имена и значения должны совпадать со значениями в TEXT/BG/DOT
+       картах в palette.ts (light: -700/100, dark: -300/-900 30%). */
+    --palette-default-fg: hsl(var(--foreground));
+    --palette-default-bg: transparent;
+    --palette-default-dot: hsl(var(--foreground));
+    --palette-gray-fg:    #4b5563;
+    --palette-gray-bg:    #f3f4f6;
+    --palette-gray-dot:   #6b7280;
+    --palette-brown-fg:   #92400e;
+    --palette-brown-bg:   #fef3c7;
+    --palette-brown-dot:  #b45309;
+    --palette-orange-fg:  #c2410c;
+    --palette-orange-bg:  #ffedd5;
+    --palette-orange-dot: #f97316;
+    --palette-yellow-fg:  #a16207;
+    --palette-yellow-bg:  #fef9c3;
+    --palette-yellow-dot: #eab308;
+    --palette-green-fg:   #047857;
+    --palette-green-bg:   #d1fae5;
+    --palette-green-dot:  #10b981;
+    --palette-blue-fg:    hsl(var(--brand));
+    --palette-blue-bg:    hsl(var(--brand) / 0.10);
+    --palette-blue-dot:   hsl(var(--brand));
+    --palette-purple-fg:  #6d28d9;
+    --palette-purple-bg:  #ede9fe;
+    --palette-purple-dot: #8b5cf6;
+    --palette-pink-fg:    #be185d;
+    --palette-pink-bg:    #fce7f3;
+    --palette-pink-dot:   #ec4899;
+    --palette-red-fg:     #be123c;
+    --palette-red-bg:     #ffe4e6;
+    --palette-red-dot:    #f43f5e;
   }
 
   .dark {
@@ -85,6 +122,40 @@
     --sidebar-ring: 240 4% 46%;
     --autofill-bg: #18181b;
     --autofill-text: #fafafa;
+
+    /* Палитра для тёмной темы: -300 (fg) / -900 30% (bg). Зеркало
+       palette.ts → TEXT/BG dark-варианты. blue/default следуют brand
+       и foreground соответственно. */
+    --palette-default-fg: hsl(var(--foreground));
+    --palette-default-bg: transparent;
+    --palette-default-dot: hsl(var(--foreground));
+    --palette-gray-fg:    #d1d5db;
+    --palette-gray-bg:    rgba(31, 41, 55, 0.5);
+    --palette-gray-dot:   #6b7280;
+    --palette-brown-fg:   #fcd34d;
+    --palette-brown-bg:   rgba(120, 53, 15, 0.3);
+    --palette-brown-dot:  #b45309;
+    --palette-orange-fg:  #fdba74;
+    --palette-orange-bg:  rgba(124, 45, 18, 0.3);
+    --palette-orange-dot: #f97316;
+    --palette-yellow-fg:  #fde047;
+    --palette-yellow-bg:  rgba(113, 63, 18, 0.3);
+    --palette-yellow-dot: #eab308;
+    --palette-green-fg:   #6ee7b7;
+    --palette-green-bg:   rgba(6, 78, 59, 0.3);
+    --palette-green-dot:  #10b981;
+    --palette-blue-fg:    hsl(var(--brand));
+    --palette-blue-bg:    hsl(var(--brand) / 0.10);
+    --palette-blue-dot:   hsl(var(--brand));
+    --palette-purple-fg:  #c4b5fd;
+    --palette-purple-bg:  rgba(76, 29, 149, 0.3);
+    --palette-purple-dot: #8b5cf6;
+    --palette-pink-fg:    #f9a8d4;
+    --palette-pink-bg:    rgba(131, 24, 67, 0.3);
+    --palette-pink-dot:   #ec4899;
+    --palette-red-fg:     #fda4af;
+    --palette-red-bg:     rgba(159, 18, 57, 0.3);
+    --palette-red-dot:    #f43f5e;
   }
 }
 
@@ -168,11 +239,33 @@ input:-webkit-autofill {
     sans-serif;
 }
 
-/* Highlight palette (BlockNote built-in /color command). Сохраняем
-   тёплую гамму Notion-warm, но синхронизируем серый/коричневый с DS. */
+/* Highlight palette (BlockNote built-in /color command).
+   Биндим все 10 цветов BN через единый --palette-* layer (см. :root /
+   .dark в начале файла). BN рендерит inline-spans с
+   `data-text-color={c}` / `data-background-color={c}`, чьи стили
+   вычитываются из этих --bn-colors-highlights-{c}-* переменных. Привязка
+   гарантирует, что текст-highlight в редакторе, swatch-чипы в picker'е
+   (`<span class="bn-color-icon" data-text-color={c}>A</span>`), и тинт
+   KB-иконок берут одни и те же значения. */
 .bn-sheerly {
-  --bn-colors-highlights-gray-text:       hsl(var(--muted-foreground));
-  --bn-colors-highlights-gray-background: hsl(var(--muted));
+  --bn-colors-highlights-gray-text:       var(--palette-gray-fg);
+  --bn-colors-highlights-gray-background: var(--palette-gray-bg);
+  --bn-colors-highlights-brown-text:       var(--palette-brown-fg);
+  --bn-colors-highlights-brown-background: var(--palette-brown-bg);
+  --bn-colors-highlights-red-text:        var(--palette-red-fg);
+  --bn-colors-highlights-red-background:  var(--palette-red-bg);
+  --bn-colors-highlights-orange-text:     var(--palette-orange-fg);
+  --bn-colors-highlights-orange-background: var(--palette-orange-bg);
+  --bn-colors-highlights-yellow-text:     var(--palette-yellow-fg);
+  --bn-colors-highlights-yellow-background: var(--palette-yellow-bg);
+  --bn-colors-highlights-green-text:      var(--palette-green-fg);
+  --bn-colors-highlights-green-background: var(--palette-green-bg);
+  --bn-colors-highlights-blue-text:       var(--palette-blue-fg);
+  --bn-colors-highlights-blue-background: var(--palette-blue-bg);
+  --bn-colors-highlights-purple-text:     var(--palette-purple-fg);
+  --bn-colors-highlights-purple-background: var(--palette-purple-bg);
+  --bn-colors-highlights-pink-text:       var(--palette-pink-fg);
+  --bn-colors-highlights-pink-background: var(--palette-pink-bg);
 }
 
 /* Editor surface — прозрачная, без отдельной «карточки».

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Shuffle, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -9,13 +9,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import {
-  KB_ICONS,
-  KB_ICON_COLORS,
-  colorDotClass,
-  colorTextClass,
-  type KbIconColor,
-} from "@/lib/knowledge/icons";
+  PALETTE_COLORS,
+  paletteDot,
+  paletteText,
+  type PaletteColor,
+} from "@/lib/palette";
+import { KB_ICONS } from "@/lib/knowledge/icons";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 
 interface KbIconPickerProps {
@@ -29,17 +32,52 @@ interface KbIconPickerProps {
   triggerSize?: number;
 }
 
+const ASK_EVERY_TIME_KEY = "kb-icon-picker.ask-every-time";
+
+/** Прочитать localStorage флаг (с SSR-safe fallback'ом). */
+function readAskEveryTime(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(ASK_EVERY_TIME_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeAskEveryTime(v: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ASK_EVERY_TIME_KEY, v ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
- * Picker иконки KB-страницы: палитра 13 цветов сверху + flat grid
- * иконок. Без табов / категорий / emoji-input — Lucide only.
+ * Notion-style picker иконки KB-страницы.
  *
- * Цвет работает как «активный для всего грида» — каждая иконка в гриде
- * рендерится в текущем выбранном цвете, чтобы пользователь видел
- * результат до клика. Click по иконке = apply (icon + currently
- * selected color), popover закрывается.
+ * Layout:
+ *   ┌─────────────────────────────────────────────────────┐
+ *   │ [search input]  [🎲]  [●]              [✕ Убрать]  │  ← header row
+ *   ├─────────────────────────────────────────────────────┤
+ *   │  Lucide-иконки (8 в ряд) — фильтруются по запросу   │
+ *   └─────────────────────────────────────────────────────┘
  *
- * Кнопка «Убрать» сбрасывает icon и color → fallback FileText в
- * KbPageIcon.
+ * Color popover (вложенный, открывается от ●):
+ *   • 5×2 grid палитры с галочкой на активном
+ *   • Switch «Спрашивать каждый раз»
+ *
+ * Семантика «Спрашивать каждый раз»:
+ *   • OFF (default): кнопка Random выбирает случайную иконку И случайный цвет
+ *   • ON: Random берёт текущий pendingColor (юзер сначала выбрал цвет вручную)
+ *   • TODO: gated-commit (заставлять выбрать цвет ПЕРЕД иконкой) — отдельный
+ *     state-machine, в MVP сознательно не делаем.
+ *
+ * Color сохраняется как PaletteColor name. `'default'` = явный пользовательский
+ * выбор «без тинта» (визуально как foreground); `null` = ничего не выбирали
+ * (тоже foreground, но не commit'ится через onChange как явный сигнал).
+ *
+ * Кнопка «Убрать» сбрасывает icon и color → fallback File в KbPageIcon.
  */
 export function KbIconPicker({
   value,
@@ -49,16 +87,74 @@ export function KbIconPicker({
   triggerSize = 48,
 }: KbIconPickerProps) {
   const [open, setOpen] = useState(false);
-  // Локальный «текущий цвет» — изменения цвета до клика по иконке
-  // живут только в picker'е и не сохраняются. Только клик по иконке
-  // коммитит icon + color через onChange.
-  const [pendingColor, setPendingColor] = useState<KbIconColor | null>(
-    (color as KbIconColor | null) ?? null,
+  const [colorOpen, setColorOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [pendingColor, setPendingColor] = useState<PaletteColor | null>(
+    (color as PaletteColor | null) ?? null,
   );
+  const [askEveryTime, setAskEveryTime] = useState(false);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
-  const onPickIcon = (name: string) => {
-    onChange({ icon: name, color: pendingColor ?? null });
+  // На mount читаем флаг из localStorage. Делаем в useEffect чтобы избежать
+  // hydration-mismatch (SSR не имеет доступа к storage).
+  useEffect(() => {
+    setAskEveryTime(readAskEveryTime());
+  }, []);
+
+  // Filter иконки по запросу. Case-insensitive, по label И name.
+  const filteredIcons = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return KB_ICONS;
+    return KB_ICONS.filter(
+      (i) =>
+        i.label.toLowerCase().includes(q) ||
+        i.name.toLowerCase().includes(q),
+    );
+  }, [query]);
+
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) {
+      // Sync pendingColor к актуальному props.color при открытии (на случай
+      // если color поменялся через другой code path).
+      setPendingColor((color as PaletteColor | null) ?? null);
+      setQuery("");
+      // Auto-focus search для немедленного набора (как в Notion).
+      requestAnimationFrame(() => searchRef.current?.focus());
+    } else {
+      setColorOpen(false);
+    }
+  };
+
+  const onPickIcon = (name: string, withColor?: PaletteColor | null) => {
+    const finalColor = withColor !== undefined ? withColor : pendingColor;
+    onChange({ icon: name, color: finalColor });
     setOpen(false);
+  };
+
+  const onPickColor = (c: PaletteColor) => {
+    setPendingColor(c);
+    // Если иконка уже выбрана — применяем цвет немедленно
+    // (preview = commit для существующей иконки). Это сохраняет UX
+    // предыдущей версии picker'а.
+    if (value) onChange({ icon: value, color: c });
+  };
+
+  const onRandom = () => {
+    const pool = filteredIcons.length > 0 ? filteredIcons : KB_ICONS;
+    const randomIcon = pool[Math.floor(Math.random() * pool.length)];
+    if (!randomIcon) return;
+    // Если askEveryTime ВЫКЛ — реролл и цвет (любой кроме default).
+    // Если ВКЛ — оставляем pendingColor (юзер хотел сначала задать сам).
+    let finalColor = pendingColor;
+    if (!askEveryTime) {
+      const colorPool = PALETTE_COLORS.filter((c) => c.name !== "default");
+      const picked =
+        colorPool[Math.floor(Math.random() * colorPool.length)]?.name ?? null;
+      finalColor = picked;
+      setPendingColor(picked);
+    }
+    onPickIcon(randomIcon.name, finalColor);
   };
 
   const onClear = () => {
@@ -67,19 +163,13 @@ export function KbIconPicker({
     setOpen(false);
   };
 
-  // Если текущая иконка — emoji (нет в реестре, не пустая), это
-  // legacy-данные. Picker всё равно даёт выбрать новую Lucide-иконку
-  // взамен; emoji при этом перезаписывается.
+  const onToggleAskEveryTime = (next: boolean) => {
+    setAskEveryTime(next);
+    writeAskEveryTime(next);
+  };
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        // При открытии синхронизируем pendingColor с реальным.
-        if (next) setPendingColor((color as KbIconColor | null) ?? null);
-      }}
-    >
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -106,81 +196,139 @@ export function KbIconPicker({
         align="start"
         side="bottom"
         sideOffset={6}
-        className="w-[360px] p-0 rounded-[10px]"
+        className="w-[380px] p-0 rounded-[10px]"
       >
-        {/* Header: палитра + «Убрать» */}
-        <div className="flex flex-col gap-2 px-3 pt-3 pb-2 border-b">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-              Цвет
-            </span>
-            <button
-              type="button"
-              onClick={onClear}
-              disabled={!value && !color}
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
-              title="Убрать иконку"
-            >
-              <X className="w-3 h-3" />
-              Убрать
-            </button>
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {KB_ICON_COLORS.map((c) => {
-              const isActive = pendingColor === c.name;
-              return (
-                <button
-                  key={c.name}
-                  type="button"
-                  onClick={() => {
-                    setPendingColor(c.name);
-                    // Если иконка уже выбрана — применяем цвет сразу,
-                    // не дожидаясь повторного клика по иконке. Это то,
-                    // что юзер ожидает увидеть (preview = commit для
-                    // существующей иконки).
-                    if (value) onChange({ icon: value, color: c.name });
-                  }}
-                  aria-label={c.label}
-                  title={c.label}
+        {/* Header row: search + random + color swatch + remove */}
+        <div className="flex items-center gap-2 px-2 py-2 border-b">
+          <Input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Поиск иконок"
+            className="h-8 text-sm flex-1 min-w-0"
+            aria-label="Поиск иконок"
+          />
+          <button
+            type="button"
+            onClick={onRandom}
+            aria-label="Случайная иконка"
+            title="Случайная иконка"
+            className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+          >
+            <Shuffle className="size-4" />
+          </button>
+          <Popover open={colorOpen} onOpenChange={setColorOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Цвет иконки"
+                title="Цвет иконки"
+                className="inline-flex items-center justify-center size-8 rounded-md hover:bg-accent transition-colors shrink-0"
+              >
+                <span
                   className={cn(
-                    "size-5 rounded-full transition-transform shrink-0",
-                    colorDotClass(c.name),
-                    isActive
-                      ? "ring-2 ring-offset-2 ring-offset-popover ring-foreground/50 scale-110"
-                      : "hover:scale-110",
+                    "size-5 rounded-full",
+                    paletteDot(pendingColor),
                   )}
                 />
-              );
-            })}
-          </div>
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="w-[220px] p-3 rounded-[10px]"
+            >
+              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2">
+                Цвет
+              </div>
+              <div className="grid grid-cols-5 gap-1.5">
+                {PALETTE_COLORS.map((c) => {
+                  const isActive = pendingColor === c.name;
+                  return (
+                    <button
+                      key={c.name}
+                      type="button"
+                      onClick={() => onPickColor(c.name)}
+                      aria-label={c.label}
+                      title={c.label}
+                      className={cn(
+                        "relative size-8 rounded-full transition-transform shrink-0 inline-flex items-center justify-center",
+                        paletteDot(c.name),
+                        isActive
+                          ? "ring-2 ring-offset-2 ring-offset-popover ring-foreground"
+                          : "hover:scale-110",
+                      )}
+                    >
+                      {isActive && (
+                        <Check
+                          className={cn(
+                            "size-4",
+                            // На default-swatch'е (прозрачный фон) галочка
+                            // должна быть foreground; на цветных — белая.
+                            c.name === "default"
+                              ? "text-foreground"
+                              : "text-white",
+                          )}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <Separator className="my-3" />
+              <label className="flex items-center justify-between gap-3 cursor-pointer">
+                <span className="text-sm text-foreground">
+                  Спрашивать каждый раз
+                </span>
+                <Switch
+                  checked={askEveryTime}
+                  onCheckedChange={onToggleAskEveryTime}
+                />
+              </label>
+            </PopoverContent>
+          </Popover>
+          <button
+            type="button"
+            onClick={onClear}
+            disabled={!value && !color}
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground shrink-0 px-1"
+            title="Убрать иконку"
+          >
+            <X className="size-3" />
+            Убрать
+          </button>
         </div>
 
-        {/* Flat icons grid — все иконки одним сплошным блоком,
-            каждая рендерится в pending-цвете для preview. */}
+        {/* Icons grid: фильтрованный список, в pendingColor для preview. */}
         <div className="max-h-[300px] overflow-y-auto p-2">
-          <div className="grid grid-cols-8 gap-0.5">
-            {KB_ICONS.map(({ name, icon: Icon, label }) => {
-              const isActive = value === name;
-              return (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={() => onPickIcon(name)}
-                  aria-label={label}
-                  title={label}
-                  className={cn(
-                    "flex items-center justify-center size-9 rounded-md transition-colors",
-                    isActive ? "bg-accent" : "hover:bg-accent/60",
-                    pendingColor
-                      ? colorTextClass(pendingColor)
-                      : "text-foreground",
-                  )}
-                >
-                  <Icon className="w-[18px] h-[18px]" />
-                </button>
-              );
-            })}
-          </div>
+          {filteredIcons.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-8">
+              Ничего не найдено
+            </div>
+          ) : (
+            <div className="grid grid-cols-8 gap-0.5">
+              {filteredIcons.map(({ name, icon: Icon, label }) => {
+                const isActive = value === name;
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => onPickIcon(name)}
+                    aria-label={label}
+                    title={label}
+                    className={cn(
+                      "flex items-center justify-center size-9 rounded-md transition-colors",
+                      isActive ? "bg-accent" : "hover:bg-accent/60",
+                      paletteText(pendingColor) || "text-foreground",
+                    )}
+                  >
+                    <Icon className="w-[18px] h-[18px]" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </PopoverContent>
     </Popover>

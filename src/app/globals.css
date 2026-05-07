@@ -750,12 +750,13 @@ input:-webkit-autofill {
   padding-top: 26px;
 }
 
-/* Audio-блок: скрываем side-menu (drag-handle + add-block-button).
-   Audio рендерится как полноширинный плеер; drag-handle/+ кнопки
-   сбоку визуально шумят и редко нужны (юзер обычно вставляет аудио
-   один раз и оставляет). В случае реорганизации блок всё ещё можно
-   таскать через formatting-toolbar или удалить через кнопку в нём. */
-.bn-sheerly .bn-side-menu[data-block-type="audio"] {
+/* Audio-блок на locked-странице: скрываем side-menu (drag-handle +
+   add-block-button). На read-only странице эти кнопки бесполезны —
+   действий с блоком сделать нельзя. На editable они нужны для
+   реорганизации, оставляем.
+   Класс kb-bn-locked ставит KbBlockNoteEditor на root-обёртке когда
+   editable=false (см. blocknote-editor.tsx). */
+.bn-sheerly.kb-bn-locked .bn-side-menu[data-block-type="audio"] {
   display: none;
 }
 .bn-sheerly .bn-side-menu .bn-button {

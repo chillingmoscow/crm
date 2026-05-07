@@ -935,7 +935,7 @@ export function KbBlockNoteEditor({
       editor={editor}
       editable={editable}
       theme={resolvedTheme === "dark" ? "dark" : "light"}
-      className={cn("bn-sheerly", className)}
+      className={cn("bn-sheerly", !editable && "kb-bn-locked", className)}
       sideMenu={customSideMenu ? false : undefined}
       slashMenu={customSlashMenu ? false : undefined}
       // Default formatting-toolbar отключаем когда мы добавляем свои

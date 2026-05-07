@@ -94,7 +94,6 @@ export function KbTemplatePicker({
     }
     setOpen(false);
     router.push(`/knowledge/${slug}`);
-    router.refresh();
   };
 
   const onDelete = async (templateId: string, name: string) => {

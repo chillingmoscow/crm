@@ -84,7 +84,6 @@ export function KbPageActions({
     toast.success("Страница перемещена в корзину");
     setOpen(false);
     router.push("/knowledge");
-    router.refresh();
   };
 
   const onDuplicate = async () => {
@@ -97,7 +96,6 @@ export function KbPageActions({
     }
     toast.success("Создана копия страницы");
     router.push(`/knowledge/${slug}`);
-    router.refresh();
   };
 
   const onExport = async () => {

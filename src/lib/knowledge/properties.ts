@@ -21,21 +21,24 @@ import type { KbProperty } from "@/types/knowledge";
 export async function saveKbPageProperties(input: {
   pageId: string;
   properties: KbProperty[];
-}): Promise<{ error: string | null }> {
+  force_new_version?: boolean;
+}): Promise<{ version_number: number | null; error: string | null }> {
   const parsed = kbSavePagePropertiesSchema.safeParse(input);
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Невалидные свойства" };
+    return {
+      version_number: null,
+      error: parsed.error.issues[0]?.message ?? "Невалидные свойства",
+    };
   }
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("kb_pages")
-    .update({
-      properties: parsed.data.properties as unknown as never,
-    })
-    .eq("id", parsed.data.pageId);
-  if (error) return { error: error.message };
+  const { data, error } = await supabase.rpc("kb_save_page_properties", {
+    p_id: parsed.data.pageId,
+    p_properties: parsed.data.properties as unknown as never,
+    p_force_new_version: parsed.data.force_new_version ?? false,
+  } as never);
+  if (error) return { version_number: null, error: error.message };
 
-  return { error: null };
+  return { version_number: (data as number | null) ?? null, error: null };
 }
 
 /** Сохраняет properties шаблона. RLS на UPDATE kb_templates гейтит

@@ -188,6 +188,8 @@ export type KbPageSaveInput = {
   content: KbBlock[];
   /** Plaintext projection for FTS. Computed on client via blocksToMarkdownLossy. */
   plain_text: string;
+  /** Force a new version row instead of folding into the current edit session. */
+  force_new_version?: boolean;
 };
 
 export type KbPageMoveInput = {

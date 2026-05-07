@@ -1191,40 +1191,55 @@ export type Database = {
         Row: {
           account_id: string
           change_note: string | null
+          change_kinds: string[]
           content: Json
           created_at: string
           created_by: string | null
           id: string
+          icon: string | null
+          icon_color: string | null
           page_id: string
           plain_text: string
+          properties: Json | null
           text_length: number
           title: string
+          updated_at: string
           version_number: number
         }
         Insert: {
           account_id: string
           change_note?: string | null
+          change_kinds?: string[]
           content: Json
           created_at?: string
           created_by?: string | null
           id?: string
+          icon?: string | null
+          icon_color?: string | null
           page_id: string
           plain_text?: string
+          properties?: Json | null
           text_length?: number
           title: string
+          updated_at?: string
           version_number: number
         }
         Update: {
           account_id?: string
           change_note?: string | null
+          change_kinds?: string[]
           content?: Json
           created_at?: string
           created_by?: string | null
           id?: string
+          icon?: string | null
+          icon_color?: string | null
           page_id?: string
           plain_text?: string
+          properties?: Json | null
           text_length?: number
           title?: string
+          updated_at?: string
           version_number?: number
         }
         Relationships: [
@@ -2748,15 +2763,33 @@ export type Database = {
         Returns: string
       }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
+      kb_restore_page_version: {
+        Args: {
+          p_link_targets: string[]
+          p_page_id: string
+          p_plain_text: string
+          p_version_number: number
+        }
+        Returns: number
+      }
       kb_save_page: {
         Args: {
           p_content: Json
+          p_force_new_version?: boolean
           p_icon: string
           p_icon_color: string
           p_id: string
           p_link_targets: string[]
           p_plain_text: string
           p_title: string
+        }
+        Returns: number | null
+      }
+      kb_save_page_properties: {
+        Args: {
+          p_force_new_version?: boolean
+          p_id: string
+          p_properties: Json
         }
         Returns: number | null
       }

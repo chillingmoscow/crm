@@ -152,6 +152,7 @@ export async function importKbPageFromMarkdown(input: {
     p_content: input.file.blocks as unknown as never,
     p_plain_text: input.file.plainText,
     p_link_targets: linkTargets,
+    p_force_new_version: false,
   } as never);
   if (saveErr) {
     // Страница уже создана как пустая — оставляем, сообщаем что

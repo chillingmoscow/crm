@@ -453,6 +453,7 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
     p_content: parsed.data.content as unknown as never,
     p_plain_text: parsed.data.plain_text,
     p_link_targets: pageIds,
+    p_force_new_version: parsed.data.force_new_version ?? false,
   } as never);
   let savedVersion: number | null = (data as number | null) ?? null;
   if (error) {

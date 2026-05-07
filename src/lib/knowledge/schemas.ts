@@ -32,6 +32,7 @@ export const kbPageSaveSchema = z.object({
   content: kbContentSchema,
   // 1 MB plain-text cap as a soft guard against runaway pages.
   plain_text: z.string().max(1_000_000),
+  force_new_version: z.boolean().optional(),
 });
 
 export const kbPageMoveSchema = z.object({
@@ -206,6 +207,7 @@ export const kbPropertiesSchema = z.array(kbPropertySchema).max(30);
 export const kbSavePagePropertiesSchema = z.object({
   pageId: z.string().uuid(),
   properties: kbPropertiesSchema,
+  force_new_version: z.boolean().optional(),
 });
 
 export const kbSaveTemplatePropertiesSchema = z.object({

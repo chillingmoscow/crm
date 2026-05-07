@@ -180,10 +180,10 @@ begin
   -- копируем. Backlinks пересоберутся на первом save через kb_save_page;
   -- история версий начинается заново.
 
-  select new_id, new_slug
+  select dm.new_id, dm.new_slug
     into v_new_root_id, v_new_root_slug
-    from _dup_map
-   where old_id = p_id;
+    from _dup_map dm
+   where dm.old_id = p_id;
 
   return query select v_new_root_id, v_new_root_slug;
 end;

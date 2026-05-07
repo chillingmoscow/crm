@@ -2763,6 +2763,15 @@ export type Database = {
         Returns: string
       }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
+      kb_restore_page_version: {
+        Args: {
+          p_link_targets: string[]
+          p_page_id: string
+          p_plain_text: string
+          p_version_number: number
+        }
+        Returns: number
+      }
       kb_save_page: {
         Args: {
           p_content: Json

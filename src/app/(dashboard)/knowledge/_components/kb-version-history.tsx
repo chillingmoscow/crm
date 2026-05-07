@@ -108,9 +108,9 @@ export function KbVersionHistory({
   }, [pageId]);
 
   useEffect(() => {
-    if (!open || rows !== null || loading) return;
+    if (!open) return;
     void load();
-  }, [load, loading, open, rows]);
+  }, [load, open]);
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);

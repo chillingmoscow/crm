@@ -262,7 +262,7 @@ end;
 $$;
 
 comment on function public.kb_save_page(uuid, text, text, text, jsonb, text, uuid[], boolean) is
-  'Saves a KB page and folds autosave snapshots by author/page into a 15-minute version session.';
+  'Saves a KB page and folds autosave snapshots by author/page into a 5-minute version session.';
 
 grant execute on function public.kb_save_page(uuid, text, text, text, jsonb, text, uuid[], boolean) to authenticated;
 
@@ -335,6 +335,130 @@ end;
 $$;
 
 comment on function public.kb_save_page_properties(uuid, jsonb, boolean) is
-  'Saves KB page properties and records them in the same 15-minute version-session history.';
+  'Saves KB page properties and records them in the same 5-minute version-session history.';
 
 grant execute on function public.kb_save_page_properties(uuid, jsonb, boolean) to authenticated;
+
+create or replace function public.kb_restore_page_version(
+  p_page_id uuid,
+  p_version_number integer,
+  p_plain_text text,
+  p_link_targets uuid[]
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_uid                uuid := auth.uid();
+  v_page               public.kb_pages%rowtype;
+  v_version            public.kb_page_versions%rowtype;
+  v_can_edit_any       boolean := public.has_permission('kb.edit_any_page');
+  v_can_edit_own       boolean := public.has_permission('kb.edit_own_pages');
+  v_restored_title     text;
+  v_restored_icon      text;
+  v_restored_icon_color text;
+  v_restored_content   jsonb;
+  v_restored_plain_text text;
+  v_restored_properties jsonb;
+  v_change_kinds       text[] := array['restore']::text[];
+  v_saved_version      integer;
+begin
+  if v_uid is null then
+    raise exception 'Не авторизован' using errcode = '42501';
+  end if;
+
+  select * into v_page from public.kb_pages where id = p_page_id for update;
+  if not found or v_page.deleted_at is not null then
+    raise exception 'Страница не найдена' using errcode = 'P0002';
+  end if;
+  if v_page.account_id <> public.get_active_account_id() then
+    raise exception 'Страница из другого аккаунта' using errcode = '42501';
+  end if;
+  if not (v_can_edit_any or (v_can_edit_own and v_page.created_by = v_uid)) then
+    raise exception 'Нет права редактировать страницу' using errcode = '42501';
+  end if;
+
+  select *
+    into v_version
+    from public.kb_page_versions
+   where page_id = p_page_id
+     and version_number = p_version_number;
+  if not found or v_version.account_id <> v_page.account_id then
+    raise exception 'Версия не найдена' using errcode = 'P0002';
+  end if;
+
+  v_restored_title := coalesce(nullif(trim(v_version.title), ''), 'Без названия');
+  v_restored_icon := nullif(trim(coalesce(v_version.icon, '')), '');
+  v_restored_icon_color := nullif(trim(coalesce(v_version.icon_color, '')), '');
+  v_restored_content := coalesce(v_version.content, '[]'::jsonb);
+  v_restored_plain_text := coalesce(p_plain_text, v_version.plain_text, '');
+  v_restored_properties := case
+    when v_version.properties is null then coalesce(v_page.properties, '[]'::jsonb)
+    else v_version.properties
+  end;
+
+  if coalesce(v_page.title, '') is distinct from v_restored_title then
+    v_change_kinds := v_change_kinds || array['title']::text[];
+  end if;
+  if coalesce(v_page.content, '[]'::jsonb) is distinct from v_restored_content then
+    v_change_kinds := v_change_kinds || array['content']::text[];
+  end if;
+  if coalesce(v_page.icon, '') is distinct from coalesce(v_restored_icon, '')
+     or coalesce(v_page.icon_color, '') is distinct from coalesce(v_restored_icon_color, '')
+  then
+    v_change_kinds := v_change_kinds || array['icon']::text[];
+  end if;
+  if coalesce(v_page.properties, '[]'::jsonb) is distinct from v_restored_properties then
+    v_change_kinds := v_change_kinds || array['properties']::text[];
+  end if;
+
+  update public.kb_pages
+     set title = v_restored_title,
+         icon = v_restored_icon,
+         icon_color = v_restored_icon_color,
+         content = v_restored_content,
+         plain_text = v_restored_plain_text,
+         properties = v_restored_properties,
+         updated_by = v_uid
+   where id = p_page_id;
+
+  v_saved_version := public.kb_upsert_page_version_session(
+    p_page_id,
+    v_page.account_id,
+    v_restored_title,
+    v_restored_icon,
+    v_restored_icon_color,
+    v_restored_content,
+    v_restored_plain_text,
+    v_restored_properties,
+    v_uid,
+    v_change_kinds,
+    true
+  );
+
+  delete from public.kb_page_links where from_page_id = p_page_id;
+  if p_link_targets is not null and array_length(p_link_targets, 1) > 0 then
+    insert into public.kb_page_links (from_page_id, to_page_id, account_id)
+    select p_page_id, target_id, v_page.account_id
+      from unnest(p_link_targets) as target_id
+     where target_id <> p_page_id
+       and exists (
+         select 1 from public.kb_pages p
+          where p.id = target_id
+            and p.account_id = v_page.account_id
+            and p.deleted_at is null
+       )
+    on conflict do nothing;
+  end if;
+
+  return v_saved_version;
+end;
+$$;
+
+comment on function public.kb_restore_page_version(uuid, integer, text, uuid[]) is
+  'Atomically restores a KB page version, including content, metadata, properties, backlinks, and a new restore snapshot.';
+
+revoke all on function public.kb_restore_page_version(uuid, integer, text, uuid[]) from public;
+grant execute on function public.kb_restore_page_version(uuid, integer, text, uuid[]) to authenticated;

@@ -7,10 +7,9 @@ import {
   kbPropertiesSchema,
   kbVersionRestoreSchema,
 } from "@/lib/knowledge/schemas";
-import { saveKbPage } from "@/lib/knowledge/pages";
-import { saveKbPageProperties } from "@/lib/knowledge/properties";
+import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
-import type { KbBlock, KbPageVersionRow, KbProperty } from "@/types/knowledge";
+import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
 
 /** Author info embedded into version rows so the UI can show who saved
  * the snapshot. Mirrors the `profiles` columns we read in get-name. */
@@ -132,14 +131,8 @@ export async function getKbPageVersionDiffData(
 }
 
 /**
- * Restore a previous version. Implemented as a regular saveKbPage call
- * with the old content — that creates a NEW version snapshot at the
- * top of history (instead of mutating the past). Same approach as
- * Google Docs/Notion.
- *
- * Note: plain_text is taken from the historical version row. If the
- * historical row was created before plain_text became reliable, search
- * may briefly miss the restored content until the next live edit.
+ * Restore a previous version through one DB RPC so content, page
+ * properties, backlinks, and the new restore snapshot commit together.
  */
 export async function restoreKbPageVersion(
   input: { page_id: string; version_number: number }
@@ -150,7 +143,7 @@ export async function restoreKbPageVersion(
   const supabase = await createClient();
   const { data: version, error: vErr } = await supabase
     .from("kb_page_versions")
-    .select("title, content, plain_text, icon, icon_color, properties")
+    .select("content, plain_text, properties")
     .eq("page_id", parsed.data.page_id)
     .eq("version_number", parsed.data.version_number)
     .maybeSingle();
@@ -164,18 +157,6 @@ export async function restoreKbPageVersion(
       ? storedPlainText
       : blocksToPlainText(content);
 
-  // Reuse saveKbPage so the snapshot/backlinks logic runs uniformly.
-  const result = await saveKbPage({
-    id: parsed.data.page_id,
-    title: (version as { title: string }).title,
-    icon: (version as { icon?: string | null }).icon ?? null,
-    icon_color: (version as { icon_color?: string | null }).icon_color ?? null,
-    content,
-    plain_text: plainText,
-    force_new_version: true,
-  });
-  if (result.error) return { error: result.error, new_version_number: null };
-
   const versionProperties = (version as { properties?: unknown }).properties;
   if (versionProperties !== null && versionProperties !== undefined) {
     const parsedProperties = kbPropertiesSchema.safeParse(versionProperties);
@@ -185,17 +166,19 @@ export async function restoreKbPageVersion(
         new_version_number: null,
       };
     }
-    const propResult = await saveKbPageProperties({
-      pageId: parsed.data.page_id,
-      properties: parsedProperties.data as KbProperty[],
-    });
-    if (propResult.error) {
-      return { error: propResult.error, new_version_number: null };
-    }
   }
 
+  const { pageIds } = extractBacklinks(content);
+  const { data, error } = await supabase.rpc("kb_restore_page_version", {
+    p_page_id: parsed.data.page_id,
+    p_version_number: parsed.data.version_number,
+    p_plain_text: plainText,
+    p_link_targets: pageIds,
+  } as never);
+  if (error) return { error: error.message, new_version_number: null };
+
   revalidatePath(`/knowledge/${parsed.data.page_id}`);
-  return { error: null, new_version_number: result.version_number };
+  return { error: null, new_version_number: (data as number | null) ?? null };
 }
 
 function versionPlainText(row: {

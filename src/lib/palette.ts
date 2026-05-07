@@ -89,6 +89,16 @@ export function isPaletteColor(v: unknown): v is PaletteColor {
 // и оставляет нужные утилиты в финальном bundle'е. Для `default` и `null`
 // возвращаем "" — caller использует свой fallback (обычно `text-foreground`).
 
+// Tailwind-маппинг подобран так, чтобы юзерская «Красный» подпись
+// читалась как чистый красный (а не малиновый rose), и не сливалась
+// с «Розовый» (pink). Раньше было red→rose, и rose-700 практически
+// не отличается от pink-700.
+//   red    → tailwind red-*    (чистый красный)
+//   pink   → tailwind pink-*   (фуксийный розовый)
+//   brown  → tailwind amber-*  (тёплый коричневый — нет brown-* в TW v3)
+//   green  → tailwind emerald-*
+//   purple → tailwind violet-*
+//   blue   → DS-токен brand
 const TEXT: Record<Exclude<PaletteColor, "default">, string> = {
   gray:   "text-gray-600 dark:text-gray-300",
   brown:  "text-amber-800 dark:text-amber-300",
@@ -98,7 +108,7 @@ const TEXT: Record<Exclude<PaletteColor, "default">, string> = {
   blue:   "text-brand",
   purple: "text-violet-700 dark:text-violet-300",
   pink:   "text-pink-700 dark:text-pink-300",
-  red:    "text-rose-700 dark:text-rose-300",
+  red:    "text-red-700 dark:text-red-300",
 };
 
 const BG: Record<Exclude<PaletteColor, "default">, string> = {
@@ -110,7 +120,7 @@ const BG: Record<Exclude<PaletteColor, "default">, string> = {
   blue:   "bg-brand/10",
   purple: "bg-violet-100 dark:bg-violet-900/30",
   pink:   "bg-pink-100 dark:bg-pink-900/30",
-  red:    "bg-rose-100 dark:bg-rose-900/30",
+  red:    "bg-red-100 dark:bg-red-900/30",
 };
 
 const DOT: Record<Exclude<PaletteColor, "default">, string> = {
@@ -122,7 +132,7 @@ const DOT: Record<Exclude<PaletteColor, "default">, string> = {
   blue:   "bg-brand",
   purple: "bg-violet-500",
   pink:   "bg-pink-500",
-  red:    "bg-rose-500",
+  red:    "bg-red-500",
 };
 
 /** Класс foreground-цвета (text-*). Для default/null/невалидных — "". */

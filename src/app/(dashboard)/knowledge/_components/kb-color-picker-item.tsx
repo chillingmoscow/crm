@@ -43,6 +43,21 @@ const COLORS = [
 
 type Color = (typeof COLORS)[number];
 
+/** Подписи для tooltip'ов на swatch'ах. Без них юзер угадывает цвет
+ *  по визуалу (а коричневый и оранжевый похожи в light-tint'е). */
+const COLOR_LABELS: Record<Color, string> = {
+  default: "По умолчанию",
+  gray: "Серый",
+  brown: "Коричневый",
+  red: "Красный",
+  orange: "Оранжевый",
+  yellow: "Жёлтый",
+  green: "Зелёный",
+  blue: "Синий",
+  purple: "Фиолетовый",
+  pink: "Розовый",
+};
+
 interface KbColorPickerItemProps {
   /** Видимая подпись sub-trigger'а в parent-меню (обычно «Цвет»). */
   children: ReactNode;
@@ -125,7 +140,12 @@ export const KbColorPickerItem: FC<KbColorPickerItemProps> = ({ children }) => {
                 className="kb-color-chip"
                 checked={textColor === c}
                 icon={
-                  <span className="bn-color-icon" data-text-color={c}>
+                  <span
+                    className="bn-color-icon"
+                    data-text-color={c}
+                    title={`Текст · ${COLOR_LABELS[c]}`}
+                    aria-label={`Текст · ${COLOR_LABELS[c]}`}
+                  >
                     A
                   </span>
                 }
@@ -145,7 +165,12 @@ export const KbColorPickerItem: FC<KbColorPickerItemProps> = ({ children }) => {
                 className="kb-color-chip"
                 checked={bgColor === c}
                 icon={
-                  <span className="bn-color-icon" data-background-color={c}>
+                  <span
+                    className="bn-color-icon"
+                    data-background-color={c}
+                    title={`Фон · ${COLOR_LABELS[c]}`}
+                    aria-label={`Фон · ${COLOR_LABELS[c]}`}
+                  >
                     A
                   </span>
                 }

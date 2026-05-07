@@ -77,9 +77,10 @@
     --palette-pink-fg:    #be185d;
     --palette-pink-bg:    #fce7f3;
     --palette-pink-dot:   #ec4899;
-    --palette-red-fg:     #be123c;
-    --palette-red-bg:     #ffe4e6;
-    --palette-red-dot:    #f43f5e;
+    /* red — чистый tailwind red-*, не rose-*. См. palette.ts. */
+    --palette-red-fg:     #b91c1c;
+    --palette-red-bg:     #fee2e2;
+    --palette-red-dot:    #ef4444;
   }
 
   .dark {
@@ -153,9 +154,10 @@
     --palette-pink-fg:    #f9a8d4;
     --palette-pink-bg:    rgba(131, 24, 67, 0.3);
     --palette-pink-dot:   #ec4899;
-    --palette-red-fg:     #fda4af;
-    --palette-red-bg:     rgba(159, 18, 57, 0.3);
-    --palette-red-dot:    #f43f5e;
+    /* red — tailwind red-*. -300 / -900 30%. */
+    --palette-red-fg:     #fca5a5;
+    --palette-red-bg:     rgba(127, 29, 29, 0.3);
+    --palette-red-dot:    #ef4444;
   }
 }
 

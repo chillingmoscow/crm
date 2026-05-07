@@ -7,6 +7,7 @@ import { Clock, Loader2, Lock, Pencil, Unlock } from "lucide-react";
 import { toast } from "sonner";
 
 import { createKbPage, setKbPageLock } from "@/lib/knowledge/pages";
+import { cn } from "@/lib/utils";
 import {
   uploadKbAttachment,
   getKbAttachmentSignedUrl,
@@ -316,11 +317,12 @@ export function KbPageEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      {globalLocked && !localUnlocked && (
+      {globalLocked && (
         <KbLockedPill
           pageId={pageId}
           canEditBase={canEditBase}
           canLock={canLock}
+          localUnlocked={localUnlocked}
         />
       )}
       {/* Notion-style header: icon на отдельной строке, ниже title. */}
@@ -544,13 +546,22 @@ function KbLockedPill({
   pageId,
   canEditBase,
   canLock,
+  localUnlocked,
 }: {
   pageId: string;
   canEditBase: boolean;
   canLock: boolean;
+  localUnlocked: boolean;
 }) {
   const [unlockPending, setUnlockPending] = useState(false);
-  const hasActions = canEditBase || canLock;
+  const hasActions = (canEditBase && !localUnlocked) || canLock;
+  const pillClassName = cn(
+    "inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
+    localUnlocked
+      ? "border border-amber-300/70 bg-amber-50 text-amber-900 hover:bg-amber-100 data-[state=open]:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/20 dark:data-[state=open]:bg-amber-500/20"
+      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground",
+  );
+  const PillIcon = localUnlocked ? Pencil : Lock;
 
   const unlockForMe = () => {
     setKbPageStateOverride(pageId, { localUnlocked: true });
@@ -573,9 +584,9 @@ function KbLockedPill({
   if (!hasActions) {
     return (
       <div className="px-2 -ml-2">
-        <span className="inline-flex h-9 items-center gap-2 rounded-lg bg-muted/70 px-3 text-sm font-medium text-muted-foreground">
-          <Lock className="size-4" />
-          <span>Locked</span>
+        <span className={pillClassName}>
+          <PillIcon className="size-4" />
+          <span>Заблокировано</span>
         </span>
       </div>
     );
@@ -587,11 +598,11 @@ function KbLockedPill({
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-muted/70 px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground transition-colors"
+            className={pillClassName}
             aria-label="Страница заблокирована"
           >
-            <Lock className="size-4" />
-            <span>Locked</span>
+            <PillIcon className="size-4" />
+            <span>Заблокировано</span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -599,7 +610,7 @@ function KbLockedPill({
           sideOffset={6}
           className="w-[260px] rounded-[10px] p-1.5"
         >
-          {canEditBase && (
+          {canEditBase && !localUnlocked && (
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();

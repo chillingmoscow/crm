@@ -94,10 +94,13 @@ function DuplicateBlockItem() {
 }
 
 /** Item для table-блока: «Расширить» — равномерно распределить ширины
- *  колонок. Берёт сумму текущих colwidth у первой строки, делит на
- *  количество ячеек и применяет одинаковую ширину каждой ячейке во
- *  всех строках. Если colwidth не выставлены явно — фолбэк на 100px
- *  на колонку (BN-default). */
+ *  колонок. Ширины хранятся в `block.content.columnWidths: (number |
+ *  undefined)[]`, по одной на колонку — НЕ в `cell.props.colwidth`
+ *  (которое было использовано в первой версии — Codex P1 на PR #180:
+ *  cell.props зарезервирован под цвета/alignment/span, а не ширину).
+ *
+ *  Сумма явных + DEFAULT_COL_WIDTH за каждый `undefined` дает total;
+ *  делим на N колонок, применяем одинаковое значение всему массиву. */
 function TableExpandItem() {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor();
@@ -111,41 +114,29 @@ function TableExpandItem() {
       className="bn-menu-item"
       icon={<Columns3 className="size-4" />}
       onClick={() => {
-        // Структура BN table-content: { rows: [{ cells: [{ props: { colwidth?: number[] } }] }] }
         const content = (
           block as unknown as {
             content?: {
-              rows?: Array<{
-                cells: Array<{
-                  props?: { colwidth?: number[] };
-                }>;
-              }>;
+              type?: "tableContent";
+              columnWidths?: (number | undefined)[];
+              rows?: Array<{ cells: unknown[] }>;
             };
           }
         ).content;
-        const rows = content?.rows ?? [];
-        const firstRow = rows[0];
-        if (!firstRow || firstRow.cells.length === 0) return;
+        if (!content?.rows?.length) return;
+        const colCount = content.rows[0]?.cells.length ?? 0;
+        if (colCount === 0) return;
 
-        const widths = firstRow.cells.map(
-          (c) => c.props?.colwidth?.[0] ?? 100,
-        );
-        const total = widths.reduce((a, b) => a + b, 0);
-        const equal = Math.round(total / widths.length);
-
-        const newRows = rows.map((row) => ({
-          ...row,
-          cells: row.cells.map((cell) => ({
-            ...cell,
-            props: {
-              ...(cell.props ?? {}),
-              colwidth: [equal],
-            },
-          })),
-        }));
+        const DEFAULT_COL_WIDTH = 120;
+        const current = content.columnWidths ?? [];
+        const total = Array.from({ length: colCount }, (_, i) =>
+          current[i] ?? DEFAULT_COL_WIDTH,
+        ).reduce((a, b) => a + b, 0);
+        const equal = Math.round(total / colCount);
+        const newColumnWidths = Array.from({ length: colCount }, () => equal);
 
         editor.updateBlock(block, {
-          content: { ...content, rows: newRows },
+          content: { ...content, columnWidths: newColumnWidths },
         } as never);
       }}
     >

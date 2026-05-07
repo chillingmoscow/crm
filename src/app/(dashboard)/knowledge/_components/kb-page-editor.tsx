@@ -19,7 +19,7 @@ import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
 import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
 import {
-  clearKbPageStateOverride,
+  clearKbPageLocalUnlock,
   setKbPageStateOverride,
   useKbPageStateOverride,
 } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
@@ -240,17 +240,12 @@ export function KbPageEditor({
   const localUnlocked = stateOverride?.localUnlocked === true;
   const canEdit = canEditBase && (!globalLocked || localUnlocked);
 
-  // Clear page-state override на unmount/смене pageId. Без этого
-  // override может shadow свежие server-данные в сценарии «другой
-  // юзер изменил lock/required → возвращаемся на страницу → SSR-fresh
-  // initialLocked приходит, но override.locked всё ещё держит
-  // оптимистическое значение из предыдущего toggle'а». Codex P1 на
-  // PR #154. Editor remount'ится по `key={pageId-updatedAt}`, поэтому
-  // unmount-cleanup срабатывает на каждой навигации и оставляет
-  // override в Map'е только на ВРЕМЯ просмотра текущей страницы.
-  // На next mount страница получит свежие props без shadow'а.
+  // Local unlock действует только для текущего открытия страницы.
+  // Global lock override НЕ чистим: после server-action без revalidatePath
+  // soft navigation может вернуться к stale RSC payload, а override
+  // удерживает свежий lock-state до reload.
   useEffect(() => {
-    return () => clearKbPageStateOverride(pageId);
+    return () => clearKbPageLocalUnlock(pageId);
   }, [pageId]);
 
   // CommentsBundle: ThreadStore + resolveUsers + UI-флаги. Хук

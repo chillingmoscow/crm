@@ -295,7 +295,7 @@ export function KbPageEditor({
   // чтобы хук useExtension(CommentsExtension) не срабатывал на страницах
   // без комментариев.
   const hasComments = commentsBundle !== null;
-  const shouldRenderProperties = canEdit || initialProperties.length > 0;
+  const shouldRenderProperties = canEditBase || initialProperties.length > 0;
   const renderExtras = useCallback(
     (editor: BlockNoteEditorType) => (
       <>
@@ -370,7 +370,8 @@ export function KbPageEditor({
           } as React.CSSProperties & { fieldSizing?: string }}
           className="w-full bg-transparent px-2 -ml-2 py-1 outline-none resize-none overflow-hidden
                      text-[40px] font-extrabold tracking-tight leading-[1.15]
-                     placeholder:text-muted-foreground/50"
+                     placeholder:text-muted-foreground/50
+                     disabled:opacity-100 disabled:text-foreground"
         />
         {/* Header-meta line: автор + reading-time. Notion-style: тонкая
             строка под title с компактными chip'ами. authorName/

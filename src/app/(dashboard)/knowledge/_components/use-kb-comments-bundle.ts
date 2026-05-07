@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import {
   SupabaseThreadStore,
@@ -33,7 +33,7 @@ interface UseKbCommentsBundleOptions {
  * `commentsBundle` для `KbBlockNoteEditor`: один instance на page-mount.
  * Хук инкапсулирует:
  *   1. `useMemo` создающий `SupabaseThreadStore` + резолвер юзеров +
- *      UI-флаги. Recreate при смене любого dep'а; родитель и так
+ *      UI-флаги. Recreate только при смене identity dep'ов; родитель и так
  *      remount'ится по `key={pageId}` в SSR-page'е, но deps на pageId/
  *      accountId/userId — defensive на случай если в будущем remount уберут.
  *   2. Cleanup-effect зовущий `store.destroy()` на unmount / смене
@@ -49,6 +49,9 @@ export function useKbCommentsBundle({
   currentUserName,
   currentUserAvatarUrl,
 }: UseKbCommentsBundleOptions): CommentsBundle | null {
+  const latestCanEditRef = useRef(canEdit);
+  latestCanEditRef.current = canEdit;
+
   const commentsBundle = useMemo<CommentsBundle | null>(() => {
     if (!accountId || !userId) return null;
     if (!canComment) return null;
@@ -57,7 +60,7 @@ export function useKbCommentsBundle({
         pageId,
         accountId,
         userId,
-        isEditor: canEdit,
+        isEditor: latestCanEditRef.current,
       }),
       resolveUsers: resolveKbUsers,
       canComment,
@@ -68,11 +71,18 @@ export function useKbCommentsBundle({
     pageId,
     accountId,
     userId,
-    canEdit,
     canComment,
     currentUserName,
     currentUserAvatarUrl,
   ]);
+
+  useEffect(() => {
+    if (!commentsBundle) return;
+    const store = commentsBundle.threadStore;
+    if (store instanceof SupabaseThreadStore) {
+      store.setEditorAccess(canEdit);
+    }
+  }, [commentsBundle, canEdit]);
 
   useEffect(() => {
     if (!commentsBundle) return;

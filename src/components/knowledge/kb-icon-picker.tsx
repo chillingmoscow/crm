@@ -323,7 +323,7 @@ export function KbIconPicker({
             "inline-flex items-center justify-center rounded-lg border border-transparent transition-colors shrink-0",
             "hover:border-border hover:bg-accent",
             "data-[state=open]:border-border data-[state=open]:bg-accent",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
+            "disabled:cursor-default disabled:hover:border-transparent disabled:hover:bg-transparent",
           )}
           style={{ width: triggerSize, height: triggerSize }}
         >

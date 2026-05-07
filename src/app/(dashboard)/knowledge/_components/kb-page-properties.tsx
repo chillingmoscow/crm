@@ -644,8 +644,8 @@ export function KbPageProperties({
           </DragOverlay>
         </DndContext>
       )}
-      {canEdit && (
-        <div className="flex items-center gap-2 pt-1">
+      <div className="flex items-center gap-2 pt-1 min-h-8">
+        {canEdit ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -669,8 +669,19 @@ export function KbPageProperties({
               })}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      )}
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled
+            aria-disabled="true"
+            className="h-7 px-2 text-xs text-muted-foreground opacity-40"
+          >
+            <Plus className="size-3.5" /> Добавить свойство
+          </Button>
+        )}
+      </div>
     </section>
   );
 }
@@ -815,51 +826,52 @@ function PropertyRow({
           onChangeOptionColors={onChangeOptionColors}
         />
       </div>
-      {canEdit && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 opacity-0 group-hover/row:opacity-100 focus:opacity-100"
-              aria-label="Действия со свойством"
-            >
-              <MoreHorizontal className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[180px]">
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Replace className="size-3.5 text-muted-foreground" />
-                Изменить тип
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-[160px]">
-                {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
-                  const TIcon = TYPE_ICONS[t];
-                  const isCurrent = t === property.type;
-                  return (
-                    <DropdownMenuItem
-                      key={t}
-                      disabled={isCurrent}
-                      onSelect={() => onChangeType(t)}
-                    >
-                      <TIcon className="size-3.5 text-muted-foreground" />
-                      {TYPE_LABELS[t]}
-                      {isCurrent && (
-                        <span className="ml-auto text-[11px] text-muted-foreground/60">
-                          текущий
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuItem onSelect={onDuplicate}>
-              <Copy className="size-3.5 text-muted-foreground" />
-              Дублировать
-            </DropdownMenuItem>
+      <div className="size-6 shrink-0">
+        {canEdit && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-6 opacity-0 group-hover/row:opacity-100 focus:opacity-100"
+                aria-label="Действия со свойством"
+              >
+                <MoreHorizontal className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[180px]">
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Replace className="size-3.5 text-muted-foreground" />
+                  Изменить тип
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[160px]">
+                  {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
+                    const TIcon = TYPE_ICONS[t];
+                    const isCurrent = t === property.type;
+                    return (
+                      <DropdownMenuItem
+                        key={t}
+                        disabled={isCurrent}
+                        onSelect={() => onChangeType(t)}
+                      >
+                        <TIcon className="size-3.5 text-muted-foreground" />
+                        {TYPE_LABELS[t]}
+                        {isCurrent && (
+                          <span className="ml-auto text-[11px] text-muted-foreground/60">
+                            текущий
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem onSelect={onDuplicate}>
+                <Copy className="size-3.5 text-muted-foreground" />
+                Дублировать
+              </DropdownMenuItem>
             {/* Свернуть / Развернуть для text-property:
              *  collapsed = single-line truncate. */}
             {property.type === "text" && (
@@ -1000,14 +1012,15 @@ function PropertyRow({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onRemove}>
-              <Trash2 className="size-3.5 text-destructive" />
-              <span className="text-destructive">Удалить</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={onRemove}>
+                <Trash2 className="size-3.5 text-destructive" />
+                <span className="text-destructive">Удалить</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
     </li>
   );
 }
@@ -1662,7 +1675,7 @@ function PropertyIconButton({
 
   if (!canEdit) {
     return (
-      <span className="size-4 shrink-0 inline-flex items-center justify-center">
+      <span className="size-5 shrink-0 inline-flex items-center justify-center">
         {renderIcon(14)}
       </span>
     );
@@ -2078,18 +2091,6 @@ function RatingValueControl({
 
   if (variant === "slider") {
     const effective = value ?? 0;
-    if (!canEdit) {
-      return (
-        <span
-          className="text-[13px] tabular-nums"
-          aria-label={
-            value === null ? "Не оценено" : `Оценка ${value} из ${max}`
-          }
-        >
-          {value === null ? "—" : `${value} / ${max}`}
-        </span>
-      );
-    }
     return (
       <div className="inline-flex items-center gap-2 max-w-full">
         <input
@@ -2098,6 +2099,7 @@ function RatingValueControl({
           max={max}
           step={1}
           value={effective}
+          disabled={!canEdit}
           onChange={(e) => {
             const n = Number(e.target.value);
             // 0 = «не задано». Удобно: можно sweep'нуть слайдер влево
@@ -2105,7 +2107,10 @@ function RatingValueControl({
             onChange(n === 0 ? null : n);
           }}
           aria-label={`Оценка от 0 до ${max}`}
-          className="w-32 accent-amber-400 cursor-pointer"
+          className={cn(
+            "w-32 accent-amber-400",
+            canEdit ? "cursor-pointer" : "cursor-default",
+          )}
         />
         <span className="text-[13px] tabular-nums text-muted-foreground min-w-[40px]">
           {value === null ? "—" : `${value} / ${max}`}
@@ -2117,38 +2122,10 @@ function RatingValueControl({
   // variant === "stars"
   const effective = hover ?? value ?? 0;
 
-  if (!canEdit) {
-    return (
-      <div
-        className="inline-flex items-center gap-0.5"
-        aria-label={
-          value === null
-            ? "Не оценено"
-            : `Оценка ${value} из ${max}`
-        }
-      >
-        {Array.from({ length: max }).map((_, i) => {
-          const filled = (value ?? 0) > i;
-          return (
-            <Star
-              key={i}
-              className={cn(
-                "size-3.5",
-                filled
-                  ? "fill-amber-400 text-amber-400"
-                  : "text-muted-foreground/30",
-              )}
-            />
-          );
-        })}
-      </div>
-    );
-  }
-
   return (
     <div
       className="inline-flex items-center gap-0.5"
-      onMouseLeave={() => setHover(null)}
+      onMouseLeave={canEdit ? () => setHover(null) : undefined}
       role="radiogroup"
       aria-label={`Оценка от 0 до ${max}`}
     >
@@ -2163,14 +2140,17 @@ function RatingValueControl({
             role="radio"
             aria-checked={value === star}
             aria-label={`${star} из ${max}`}
-            onMouseEnter={() => setHover(star)}
+            disabled={!canEdit}
+            onMouseEnter={canEdit ? () => setHover(star) : undefined}
             onClick={() => {
               // Click по уже-выбранной звезде = сбросить.
               onChange(value === star ? null : star);
             }}
             className={cn(
               "size-5 inline-flex items-center justify-center rounded transition-colors",
-              "hover:bg-amber-100/60 dark:hover:bg-amber-900/20",
+              canEdit
+                ? "hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
+                : "cursor-default",
             )}
           >
             <Star
@@ -2190,10 +2170,14 @@ function RatingValueControl({
         <button
           type="button"
           aria-label="Сбросить оценку"
+          disabled={!canEdit}
           onClick={() => onChange(null)}
-          className="ml-1 size-5 inline-flex items-center justify-center rounded
-                     text-muted-foreground/40 hover:text-destructive transition-colors
-                     opacity-0 group-hover/row:opacity-100"
+          className={cn(
+            "ml-1 size-5 inline-flex items-center justify-center rounded",
+            "text-muted-foreground/40 transition-colors opacity-0",
+            canEdit &&
+              "hover:text-destructive group-hover/row:opacity-100",
+          )}
         >
           <X className="size-3" />
         </button>

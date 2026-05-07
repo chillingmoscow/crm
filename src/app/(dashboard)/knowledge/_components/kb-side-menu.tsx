@@ -1,7 +1,14 @@
 "use client";
 
 import type { FC } from "react";
-import { Check, Copy, CopyPlus, Quote, Trash2, Type } from "lucide-react";
+import {
+  Check,
+  Columns3,
+  Copy,
+  CopyPlus,
+  Trash2,
+  Type,
+} from "lucide-react";
 import { SideMenuExtension } from "@blocknote/core";
 import {
   DragHandleMenu,
@@ -86,6 +93,67 @@ function DuplicateBlockItem() {
   );
 }
 
+/** Item для table-блока: «Расширить» — равномерно распределить ширины
+ *  колонок. Берёт сумму текущих colwidth у первой строки, делит на
+ *  количество ячеек и применяет одинаковую ширину каждой ячейке во
+ *  всех строках. Если colwidth не выставлены явно — фолбэк на 100px
+ *  на колонку (BN-default). */
+function TableExpandItem() {
+  const Components = useComponentsContext()!;
+  const editor = useBlockNoteEditor();
+  const block = useExtensionState(SideMenuExtension, {
+    editor,
+    selector: (s) => s?.block,
+  });
+  if (!block || block.type !== "table") return null;
+  return (
+    <Components.Generic.Menu.Item
+      className="bn-menu-item"
+      icon={<Columns3 className="size-4" />}
+      onClick={() => {
+        // Структура BN table-content: { rows: [{ cells: [{ props: { colwidth?: number[] } }] }] }
+        const content = (
+          block as unknown as {
+            content?: {
+              rows?: Array<{
+                cells: Array<{
+                  props?: { colwidth?: number[] };
+                }>;
+              }>;
+            };
+          }
+        ).content;
+        const rows = content?.rows ?? [];
+        const firstRow = rows[0];
+        if (!firstRow || firstRow.cells.length === 0) return;
+
+        const widths = firstRow.cells.map(
+          (c) => c.props?.colwidth?.[0] ?? 100,
+        );
+        const total = widths.reduce((a, b) => a + b, 0);
+        const equal = Math.round(total / widths.length);
+
+        const newRows = rows.map((row) => ({
+          ...row,
+          cells: row.cells.map((cell) => ({
+            ...cell,
+            props: {
+              ...(cell.props ?? {}),
+              colwidth: [equal],
+            },
+          })),
+        }));
+
+        editor.updateBlock(block, {
+          content: { ...content, rows: newRows },
+        } as never);
+      }}
+    >
+      Расширить
+    </Components.Generic.Menu.Item>
+  );
+}
+
 /** Submenu для quote-блока: «Размер» (default / large). Виден только если
  *  текущий выделенный блок имеет type=quote. Apply через editor.updateBlock. */
 function QuoteSizeItem() {
@@ -143,62 +211,6 @@ function QuoteSizeItem() {
   );
 }
 
-/** Submenu для quote-блока: «Оформление» (line / quotes). */
-function QuoteVariantItem() {
-  const Components = useComponentsContext()!;
-  const editor = useBlockNoteEditor();
-  const block = useExtensionState(SideMenuExtension, {
-    editor,
-    selector: (s) => s?.block,
-  });
-  if (!block || block.type !== "quote") return null;
-  const current =
-    ((block.props as { variant?: string }).variant as "line" | "quotes") ??
-    "line";
-  const items: { value: "line" | "quotes"; label: string }[] = [
-    { value: "line", label: "Линия" },
-    { value: "quotes", label: "Кавычки" },
-  ];
-  return (
-    <Components.Generic.Menu.Root position={"right"} sub>
-      <Components.Generic.Menu.Trigger sub>
-        <Components.Generic.Menu.Item
-          className="bn-menu-item"
-          subTrigger
-          icon={<Quote className="size-4" />}
-        >
-          Оформление
-        </Components.Generic.Menu.Item>
-      </Components.Generic.Menu.Trigger>
-      <Components.Generic.Menu.Dropdown sub className="bn-menu-dropdown">
-        {items.map((it) => {
-          const checked = current === it.value;
-          return (
-            <Components.Generic.Menu.Item
-              key={it.value}
-              className="bn-menu-item"
-              icon={
-                checked ? (
-                  <Check className="size-4" />
-                ) : (
-                  <span className="size-4 inline-block" />
-                )
-              }
-              onClick={() => {
-                editor.updateBlock(block, {
-                  props: { variant: it.value },
-                } as never);
-              }}
-            >
-              {it.label}
-            </Components.Generic.Menu.Item>
-          );
-        })}
-      </Components.Generic.Menu.Dropdown>
-    </Components.Generic.Menu.Root>
-  );
-}
-
 const KbDragHandleMenu: FC = () => (
   <DragHandleMenu>
     <CopyBlockItem />
@@ -208,11 +220,10 @@ const KbDragHandleMenu: FC = () => (
      *  08 · GkjMx). Полностью заменяет BN-default'ный
      *  `BlockColorsItem`, который рендерит unstyled vertical-list. */}
     <KbColorPickerItem>Цвет</KbColorPickerItem>
-    {/* Quote-only submenus. Внутри сами проверяют block.type === "quote"
-     *  и возвращают null для других блоков — DragHandleMenu просто
-     *  не отрендерит элемент. */}
+    {/* Type-specific submenus. Каждый item внутри сам проверяет
+     *  `block.type` и возвращает null для других блоков. */}
     <QuoteSizeItem />
-    <QuoteVariantItem />
+    <TableExpandItem />
     <RemoveBlockItem>
       <span className="bn-kb-menu-item-label bn-kb-menu-item-destructive">
         <Trash2 className="size-4" /> Удалить

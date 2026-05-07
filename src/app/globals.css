@@ -749,6 +749,15 @@ input:-webkit-autofill {
 .bn-sheerly .bn-side-menu[data-block-type="heading"][data-level="3"] {
   padding-top: 26px;
 }
+
+/* Audio-блок: скрываем side-menu (drag-handle + add-block-button).
+   Audio рендерится как полноширинный плеер; drag-handle/+ кнопки
+   сбоку визуально шумят и редко нужны (юзер обычно вставляет аудио
+   один раз и оставляет). В случае реорганизации блок всё ещё можно
+   таскать через formatting-toolbar или удалить через кнопку в нём. */
+.bn-sheerly .bn-side-menu[data-block-type="audio"] {
+  display: none;
+}
 .bn-sheerly .bn-side-menu .bn-button {
   width: 16px;
   height: 16px;

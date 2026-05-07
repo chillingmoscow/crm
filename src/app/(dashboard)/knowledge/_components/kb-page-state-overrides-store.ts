@@ -15,18 +15,22 @@ import { useSyncExternalStore } from "react";
  * Решение: после server-action'а мы сразу пишем оверрайд в этот store.
  * Consumer'ы (KbPageEditor для canEdit-gate, KbTreeItem для lock-icon в
  * sidebar, banner для required-reading отображения) читают оверрайд
- * поверх server-prop'ов. На NEXT navigation/reload свежие данные приходят
- * с сервера (revalidatePath на сервере уже инвалидировал кэш), оверрайд
- * становится no-op'ом по equality.
+ * поверх server-prop'ов. Global overrides живут до reload, чтобы soft
+ * navigation не возвращала stale RSC-снапшот. Local edit-mode очищаем на
+ * unmount, потому что Notion-style «Редактировать» действует только для
+ * текущего открытия страницы.
  *
  * Тот же паттерн что `kb-tree-overrides-store.ts` — useSyncExternalStore
  * с per-page Map'ом.
  */
 
 export interface KbPageStateOverride {
-  /** Lock-флаг. true = страница заблокирована (canEdit=false для всех).
+  /** Глобальный lock-флаг. true = страница открывается read-only.
    *  undefined = используем server-значение `row.locked_at !== null`. */
   locked?: boolean;
+  /** Локальная Notion-style разблокировка только для текущей вкладки.
+   *  Не пишется в БД и сбрасывается на navigation/reload. */
+  localUnlocked?: boolean;
   /** Required-reading флаг (admin toggle). undefined = используем server. */
   requiredReading?: boolean;
 }
@@ -70,10 +74,13 @@ export function setKbPageStateOverride(
   if (prev) {
     const sameLock =
       patch.locked === undefined || prev.locked === patch.locked;
+    const sameLocalUnlock =
+      patch.localUnlocked === undefined ||
+      prev.localUnlocked === patch.localUnlocked;
     const sameReq =
       patch.requiredReading === undefined ||
       prev.requiredReading === patch.requiredReading;
-    if (sameLock && sameReq) return;
+    if (sameLock && sameLocalUnlock && sameReq) return;
   }
   overrides.set(pageId, { ...prev, ...patch });
   emit();
@@ -85,6 +92,22 @@ export function setKbPageStateOverride(
 export function clearKbPageStateOverride(pageId: string): void {
   if (!overrides.has(pageId)) return;
   overrides.delete(pageId);
+  emit();
+}
+
+/** Сбросить только локальную разблокировку страницы. Global lock/
+ *  required-reading overrides сохраняем, иначе soft navigation может
+ *  вернуться к stale RSC payload после server-action без revalidatePath. */
+export function clearKbPageLocalUnlock(pageId: string): void {
+  const prev = overrides.get(pageId);
+  if (!prev || prev.localUnlocked === undefined) return;
+  const next = { ...prev };
+  delete next.localUnlocked;
+  if (Object.keys(next).length === 0) {
+    overrides.delete(pageId);
+  } else {
+    overrides.set(pageId, next);
+  }
   emit();
 }
 

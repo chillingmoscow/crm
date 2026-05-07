@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Clock } from "lucide-react";
+import { Clock, Loader2, Lock, Pencil, Unlock } from "lucide-react";
 import { toast } from "sonner";
 
-import { createKbPage } from "@/lib/knowledge/pages";
+import { createKbPage, setKbPageLock } from "@/lib/knowledge/pages";
 import {
   uploadKbAttachment,
   getKbAttachmentSignedUrl,
@@ -19,13 +19,20 @@ import { KbIconPicker } from "@/components/knowledge/kb-icon-picker";
 import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
 import {
-  clearKbPageStateOverride,
+  clearKbPageLocalUnlock,
+  setKbPageStateOverride,
   useKbPageStateOverride,
 } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import { useKbCommentsBundle } from "@/app/(dashboard)/knowledge/_components/use-kb-comments-bundle";
 import { useKbTitleAutoHeight } from "@/app/(dashboard)/knowledge/_components/use-kb-title-auto-height";
 import { useKbAutosave } from "@/app/(dashboard)/knowledge/_components/use-kb-autosave";
 import { KbMentionResolutionProvider } from "@/components/knowledge/blocks/kb-mention-context";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 // Dynamic-import — оба компонента статически зависят от @blocknote/react.
 // Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
@@ -115,6 +122,8 @@ interface KbPageEditorProps {
   /** Server-rendered lock-state (`row.locked_at !== null`). Override
    *  сверху может его перебить — см. kb-page-state-overrides-store. */
   initialLocked: boolean;
+  /** `kb.lock_pages`: глобально заблокировать/разблокировать страницу. */
+  canLock?: boolean;
   /** `kb.create_pages` permission. Если true — slash-меню «/» содержит
    *  пункт «Новая страница», который создаёт вложенный kb_page и
    *  переводит юзера на него. */
@@ -197,6 +206,7 @@ export function KbPageEditor({
   initialContent,
   canEditBase,
   initialLocked,
+  canLock = false,
   canCreate = false,
   aiSlashEnabled = false,
   canComment = false,
@@ -226,20 +236,16 @@ export function KbPageEditor({
   // На next-navigation server-данные уже актуальны (revalidatePath
   // на сервере отработал), override становится no-op'ом по equality.
   const stateOverride = useKbPageStateOverride(pageId);
-  const effectiveLocked = stateOverride?.locked ?? initialLocked;
-  const canEdit = canEditBase && !effectiveLocked;
+  const globalLocked = stateOverride?.locked ?? initialLocked;
+  const localUnlocked = stateOverride?.localUnlocked === true;
+  const canEdit = canEditBase && (!globalLocked || localUnlocked);
 
-  // Clear page-state override на unmount/смене pageId. Без этого
-  // override может shadow свежие server-данные в сценарии «другой
-  // юзер изменил lock/required → возвращаемся на страницу → SSR-fresh
-  // initialLocked приходит, но override.locked всё ещё держит
-  // оптимистическое значение из предыдущего toggle'а». Codex P1 на
-  // PR #154. Editor remount'ится по `key={pageId-updatedAt}`, поэтому
-  // unmount-cleanup срабатывает на каждой навигации и оставляет
-  // override в Map'е только на ВРЕМЯ просмотра текущей страницы.
-  // На next mount страница получит свежие props без shadow'а.
+  // Local unlock действует только для текущего открытия страницы.
+  // Global lock override НЕ чистим: после server-action без revalidatePath
+  // soft navigation может вернуться к stale RSC payload, а override
+  // удерживает свежий lock-state до reload.
   useEffect(() => {
-    return () => clearKbPageStateOverride(pageId);
+    return () => clearKbPageLocalUnlock(pageId);
   }, [pageId]);
 
   // CommentsBundle: ThreadStore + resolveUsers + UI-флаги. Хук
@@ -310,6 +316,13 @@ export function KbPageEditor({
 
   return (
     <div className="flex flex-col gap-3">
+      {globalLocked && !localUnlocked && (
+        <KbLockedPill
+          pageId={pageId}
+          canEditBase={canEditBase}
+          canLock={canLock}
+        />
+      )}
       {/* Notion-style header: icon на отдельной строке, ниже title. */}
       <div className="flex flex-col gap-2">
         <div className="-ml-2">
@@ -523,6 +536,100 @@ export function KbPageEditor({
           }}
         />
       </KbMentionResolutionProvider>
+    </div>
+  );
+}
+
+function KbLockedPill({
+  pageId,
+  canEditBase,
+  canLock,
+}: {
+  pageId: string;
+  canEditBase: boolean;
+  canLock: boolean;
+}) {
+  const [unlockPending, setUnlockPending] = useState(false);
+  const hasActions = canEditBase || canLock;
+
+  const unlockForMe = () => {
+    setKbPageStateOverride(pageId, { localUnlocked: true });
+  };
+
+  const unlockForEveryone = async () => {
+    setKbPageStateOverride(pageId, { locked: false, localUnlocked: false });
+    setUnlockPending(true);
+    const { error } = await setKbPageLock({ pageId, locked: false });
+    setUnlockPending(false);
+    if (error) {
+      setKbPageStateOverride(pageId, {
+        locked: true,
+        localUnlocked: false,
+      });
+      toast.error(`Не удалось разблокировать страницу: ${error}`);
+    }
+  };
+
+  if (!hasActions) {
+    return (
+      <div className="px-2 -ml-2">
+        <span className="inline-flex h-9 items-center gap-2 rounded-lg bg-muted/70 px-3 text-sm font-medium text-muted-foreground">
+          <Lock className="size-4" />
+          <span>Locked</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-2 -ml-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-muted/70 px-3 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground transition-colors"
+            aria-label="Страница заблокирована"
+          >
+            <Lock className="size-4" />
+            <span>Locked</span>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          sideOffset={6}
+          className="w-[260px] rounded-[10px] p-1.5"
+        >
+          {canEditBase && (
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                unlockForMe();
+              }}
+              className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
+            >
+              <Pencil className="size-4 shrink-0" />
+              <span>Редактировать</span>
+            </DropdownMenuItem>
+          )}
+          {canLock && (
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                if (!unlockPending) void unlockForEveryone();
+              }}
+              disabled={unlockPending}
+              className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
+            >
+              {unlockPending ? (
+                <Loader2 className="size-4 shrink-0 animate-spin" />
+              ) : (
+                <Unlock className="size-4 shrink-0" />
+              )}
+              <span>Разблокировать</span>
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

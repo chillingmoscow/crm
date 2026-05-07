@@ -456,14 +456,10 @@ export async function saveKbPage(input: KbPageSaveInput): Promise<{
   } as never);
   let savedVersion: number | null = (data as number | null) ?? null;
   if (error) {
-    // Lock-guard в kb_save_page (миграция 086) reject'ит save на
-    // заблокированной странице с errcode 42501. Если caller имеет
-    // kb.comment_pages, фоллбэчимся на kb_save_page_comment_only
-    // (миграция 092): он валидирует НЕИЗМЕННОСТЬ title/icon/
-    // icon_color/plain_text — разрешает сохранять ТОЛЬКО content
-    // (= новые comment-mark'и). Если эти поля изменились, RPC
-    // reject'ит, юзер получит понятную lock-error, а silent-drop
-    // редактур больше не возможен (Codex #79 P1).
+    // Legacy fallback для БД до Notion-style lock migration: старый
+    // kb_save_page reject'ил locked-страницы, но comment-mark'и могли
+    // сохраняться через отдельный RPC. После новой миграции lock — это
+    // UI-защита, обычный save проходит по edit-permission'ам.
     const isLockError =
       error.code === "42501" &&
       typeof error.message === "string" &&
@@ -760,9 +756,8 @@ export async function restoreKbPage(
  *  При locked=false → обнуляет оба. Audit-event `kb_page.locked` /
  *  `kb_page.unlocked` пишется триггером (миграция 082).
  *
- *  RPC kb_save_page (с миграции 078) отвергает save на locked-странице
- *  если caller не имеет kb.lock_pages — это backend-enforcement поверх
- *  UI-readonly режима. */
+ *  kb_save_page НЕ проверяет locked_at: lock — UI-защита от случайных
+ *  правок, а security остаётся на edit-permission'ах. */
 export async function setKbPageLock(input: {
   pageId: string;
   locked: boolean;
@@ -774,6 +769,8 @@ export async function setKbPageLock(input: {
   });
   if (error) return { error: error.message };
 
-  revalidatePath(`/knowledge`);
+  // Не revalidate'им весь KB route: optimistic override уже обновляет
+  // текущий UI, а RSC refresh ради одного boolean-флага ремоунтит
+  // тяжёлый editor subtree.
   return { error: null };
 }

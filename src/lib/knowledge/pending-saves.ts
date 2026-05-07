@@ -1,11 +1,10 @@
 "use client";
 
 /** Module-scope registry of in-flight «flush pending edits» callbacks
- *  — used by `KbPageLockToggle`, чтобы дождаться debounced-save'а
- *  редактора ДО вызова `kb_set_page_lock`. Без этого admin кликает
- *  lock сразу после печати → `locked_at` ставится, debounced-flush
- *  через 2 сек упирается в strict-lock guard в kb_save_page (086) и
- *  теряет последние правки. См. Codex #65 P2.
+ *  — used by lock/delete-like actions, чтобы дождаться debounced-save'а
+ *  редактора ДО смены UI-режима или удаления. Без этого пользователь
+ *  может визуально выйти из edit-mode до того, как последний save ушёл
+ *  на сервер. См. Codex #65 P2.
  *
  *  На странице обычно ровно один `KbPageEditor`, но регистр сделан
  *  Set'ом — на случай side-by-side редактирования в будущем. */

@@ -40,3 +40,24 @@ export const getCachedUser = cache(async () => {
   } = await supabase.auth.getUser();
   return user;
 });
+
+/**
+ * Per-request cached active account ID — RPC вызывается ровно один раз
+ * на весь RSC-дерево. Layout + дочерние страницы получают одно и то же значение
+ * без повторного DB-хита.
+ */
+export const getCachedActiveAccountId = cache(async () => {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("get_active_account_id");
+  return data as string | null;
+});
+
+/**
+ * Per-request cached permission list — list_my_permissions RPC вызывается
+ * ровно один раз на весь RSC-дерево.
+ */
+export const getCachedPermissions = cache(async () => {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("list_my_permissions", {});
+  return (data as string[] | null) ?? [];
+});

@@ -400,11 +400,39 @@ function filterToolbarItemsForBlock(
     // all items, conservative default.
     return items;
   }
-  if (!blockType || !NON_COMMENTABLE_BLOCK_TYPES.has(blockType)) return items;
-  return items.filter(
-    (it) =>
-      it.key !== "addCommentButton" && it.key !== "addTiptapCommentButton",
-  );
+  if (!blockType) return items;
+
+  // Leaf-блоки без inline-content (image/video/audio/file/divider):
+  // comment всегда no-op, фильтруем кнопки целиком.
+  if (NON_COMMENTABLE_BLOCK_TYPES.has(blockType)) {
+    return items.filter(
+      (it) =>
+        it.key !== "addCommentButton" && it.key !== "addTiptapCommentButton",
+    );
+  }
+
+  // Таблица: запрещаем block-level комментарий (commentExtension при
+  // collapsed-selection вешает mark на весь блок-таблицу, что юзеру
+  // не нужно). Если выделен конкретный текст в ячейке — comment-mark
+  // ляжет на этот text-node ProseMirror'а, что норма; кнопку оставляем.
+  if (blockType === "table") {
+    const tt = (
+      editor as unknown as {
+        _tiptapEditor?: {
+          state: { selection: { empty: boolean } };
+        };
+      }
+    )._tiptapEditor;
+    const selectionEmpty = tt?.state.selection.empty ?? true;
+    if (selectionEmpty) {
+      return items.filter(
+        (it) =>
+          it.key !== "addCommentButton" && it.key !== "addTiptapCommentButton",
+      );
+    }
+  }
+
+  return items;
 }
 
 /** Заменяет все file-toolbar кнопки (caption / replace / rename /

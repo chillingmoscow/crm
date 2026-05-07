@@ -151,7 +151,15 @@ function TableExpandItem() {
         } catch {
           /* fallback to 720 */
         }
-        const equal = Math.floor(availableWidth / colCount);
+        // Clamp к минимально-читаемой ширине: при импортированных
+        // wide-таблицах (N > availableWidth/MIN_PX) деление дало бы
+        // 0 → колонки схлопываются. Лучше превысить available и дать
+        // горизонтальный скролл (Codex P2 на PR #183).
+        const MIN_COL_WIDTH = 60;
+        const equal = Math.max(
+          MIN_COL_WIDTH,
+          Math.floor(availableWidth / colCount),
+        );
         const newColumnWidths = Array.from({ length: colCount }, () => equal);
 
         editor.updateBlock(block, {

@@ -257,7 +257,6 @@ export function KbPageMenu(props: KbPageMenuProps) {
     }
     toast.success("Создана копия страницы");
     router.push(`/knowledge/${slug}`);
-    router.refresh();
   };
 
   const onExport = async () => {

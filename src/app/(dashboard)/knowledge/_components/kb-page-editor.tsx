@@ -554,17 +554,22 @@ function KbLockedPill({
   localUnlocked: boolean;
 }) {
   const [unlockPending, setUnlockPending] = useState(false);
-  const hasActions = (canEditBase && !localUnlocked) || canLock;
+  const hasActions = canEditBase || canLock;
   const pillClassName = cn(
     "inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
     localUnlocked
       ? "border border-amber-300/70 bg-amber-50 text-amber-900 hover:bg-amber-100 data-[state=open]:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/20 dark:data-[state=open]:bg-amber-500/20"
       : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground",
   );
-  const PillIcon = localUnlocked ? Pencil : Lock;
+  const PillIcon = localUnlocked ? Unlock : Lock;
+  const pillLabel = localUnlocked ? "Разблокировано" : "Заблокировано";
 
   const unlockForMe = () => {
     setKbPageStateOverride(pageId, { localUnlocked: true });
+  };
+
+  const lockForMe = () => {
+    setKbPageStateOverride(pageId, { localUnlocked: false });
   };
 
   const unlockForEveryone = async () => {
@@ -586,8 +591,24 @@ function KbLockedPill({
       <div className="px-2 -ml-2">
         <span className={pillClassName}>
           <PillIcon className="size-4" />
-          <span>Заблокировано</span>
+          <span>{pillLabel}</span>
         </span>
+      </div>
+    );
+  }
+
+  if (localUnlocked) {
+    return (
+      <div className="px-2 -ml-2">
+        <button
+          type="button"
+          className={pillClassName}
+          aria-label="Снова заблокировать страницу для себя"
+          onClick={lockForMe}
+        >
+          <PillIcon className="size-4" />
+          <span>{pillLabel}</span>
+        </button>
       </div>
     );
   }
@@ -602,7 +623,7 @@ function KbLockedPill({
             aria-label="Страница заблокирована"
           >
             <PillIcon className="size-4" />
-            <span>Заблокировано</span>
+            <span>{pillLabel}</span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

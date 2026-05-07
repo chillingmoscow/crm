@@ -80,6 +80,10 @@ class KbThreadStoreAuth extends ThreadStoreAuth {
     this.isThreadCreator = opts.isThreadCreator;
   }
 
+  setEditor(isEditor: boolean): void {
+    this.isEditor = isEditor;
+  }
+
   canCreateThread(): boolean {
     return true;
   }
@@ -116,6 +120,7 @@ class KbThreadStoreAuth extends ThreadStoreAuth {
 }
 
 export class SupabaseThreadStore extends ThreadStore {
+  private kbAuth!: KbThreadStoreAuth;
   private supabase: SupabaseClient<Database>;
   private pageId: string;
   private accountId: string;
@@ -175,6 +180,7 @@ export class SupabaseThreadStore extends ThreadStore {
         this.threadCreators.get(threadId) === opts.userId,
     });
     super(auth);
+    this.kbAuth = auth;
     this.supabase = createClient();
     this.pageId = opts.pageId;
     this.accountId = opts.accountId;
@@ -185,6 +191,14 @@ export class SupabaseThreadStore extends ThreadStore {
     // юзер успел уйти со страницы пока loadInitial pending'ует, мы
     // НЕ создаём orphaned channel.
     void this.loadInitial().then(() => this.setupRealtime());
+  }
+
+  /** Lock/unlock меняет права на admin-действия с комментариями, но не
+   *  должен пересоздавать ThreadStore: иначе BlockNote ремоунтит comment
+   *  UI, закрывает floating composer и страница заметно скачет. */
+  setEditorAccess(isEditor: boolean): void {
+    this.kbAuth.setEditor(isEditor);
+    this.notify();
   }
 
   /** Cleanup на unmount. Без unsubscribe канал утекал бы в memory

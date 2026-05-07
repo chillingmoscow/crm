@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Shuffle, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -19,52 +19,48 @@ import {
 import { KB_ICONS } from "@/lib/knowledge/icons";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 
-interface KbIconPickerProps {
+interface KbIconPickerBodyProps {
   /** Текущая иконка: имя из реестра, emoji (legacy) или null. */
   value: string | null;
-  /** Текущий цвет тинта. Применяется только к Lucide-иконкам. */
+  /** Текущий цвет тинта. */
   color: string | null;
+  /** Commit изменений. После применения caller обычно закрывает popover. */
   onChange: (next: { icon: string | null; color: string | null }) => void;
-  disabled?: boolean;
-  /** Размер квадрата-триггера и рендера иконки внутри (по умолчанию 48). */
-  triggerSize?: number;
+  /** Зовётся когда юзер сделал commit'ящий выбор (icon / random / clear). */
+  onCommitClose?: () => void;
 }
 
 /**
- * Notion-style picker иконки KB-страницы.
- *
- * Layout:
- *   ┌─────────────────────────────────────────────────────┐
- *   │ [search input]   [🎲]   [●]                  [✕]   │  ← header row
- *   ├─────────────────────────────────────────────────────┤
- *   │  Lucide-иконки (8 в ряд) — фильтруются по запросу   │
- *   └─────────────────────────────────────────────────────┘
- *
- * Color popover (вложенный, открывается от ●): 5×2 grid палитры с
- * галочкой на активном цвете. Random выбирает случайную иконку и
- * случайный цвет из 10-палитры.
- *
- * Color сохраняется как PaletteColor name. `'default'` = явный
- * пользовательский выбор «без тинта» (визуально как foreground); `null`
- * = ничего не выбирали.
- *
- * Кнопка-крестик справа сбрасывает icon и color → fallback File в
- * KbPageIcon. Disabled когда нечего сбрасывать.
+ * Внутренности popover'а picker'а — header (search + random + color +
+ * clear) + grid иконок. Вынесено отдельно чтобы переиспользовать
+ * в разных trigger-обёртках:
+ *   - `<KbIconPicker>` — Notion-style 48-64px квадрат для KB-страниц
+ *   - `<PropertyIconButton>` (kb-page-properties.tsx) — маленький 20px
+ *     trigger перед именем свойства
  */
-export function KbIconPicker({
+export function KbIconPickerBody({
   value,
   color,
   onChange,
-  disabled,
-  triggerSize = 48,
-}: KbIconPickerProps) {
-  const [open, setOpen] = useState(false);
+  onCommitClose,
+}: KbIconPickerBodyProps) {
   const [colorOpen, setColorOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [pendingColor, setPendingColor] = useState<PaletteColor | null>(
     (color as PaletteColor | null) ?? null,
   );
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // Sync pendingColor при смене props.color (parent открывает picker
+  // на новом property — pendingColor должен следовать).
+  useEffect(() => {
+    setPendingColor((color as PaletteColor | null) ?? null);
+  }, [color]);
+
+  // Auto-focus search на mount.
+  useEffect(() => {
+    requestAnimationFrame(() => searchRef.current?.focus());
+  }, []);
 
   // Filter иконки по запросу. Case-insensitive, по label И name.
   const filteredIcons = useMemo(() => {
@@ -77,24 +73,10 @@ export function KbIconPicker({
     );
   }, [query]);
 
-  const handleOpenChange = (next: boolean) => {
-    setOpen(next);
-    if (next) {
-      // Sync pendingColor к актуальному props.color при открытии (на случай
-      // если color поменялся через другой code path).
-      setPendingColor((color as PaletteColor | null) ?? null);
-      setQuery("");
-      // Auto-focus search для немедленного набора (как в Notion).
-      requestAnimationFrame(() => searchRef.current?.focus());
-    } else {
-      setColorOpen(false);
-    }
-  };
-
   const onPickIcon = (name: string, withColor?: PaletteColor | null) => {
     const finalColor = withColor !== undefined ? withColor : pendingColor;
     onChange({ icon: name, color: finalColor });
-    setOpen(false);
+    onCommitClose?.();
   };
 
   const onPickColor = (c: PaletteColor) => {
@@ -119,13 +101,164 @@ export function KbIconPicker({
   const onClear = () => {
     setPendingColor(null);
     onChange({ icon: null, color: null });
-    setOpen(false);
+    onCommitClose?.();
   };
 
   const canClear = Boolean(value || color);
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <>
+      {/* Header row: search + random + color swatch + clear */}
+      <div className="flex items-center gap-1.5 px-2 py-2 border-b">
+        <Input
+          ref={searchRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Поиск иконок"
+          className="h-8 text-sm flex-1 min-w-0"
+          aria-label="Поиск иконок"
+        />
+        <button
+          type="button"
+          onClick={onRandom}
+          aria-label="Случайная иконка"
+          title="Случайная иконка"
+          className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+        >
+          <Shuffle className="size-4" />
+        </button>
+        <Popover open={colorOpen} onOpenChange={setColorOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="Цвет иконки"
+              title="Цвет иконки"
+              className="inline-flex items-center justify-center size-8 rounded-md hover:bg-accent transition-colors shrink-0"
+            >
+              <span
+                className={cn(
+                  "size-5 rounded-full",
+                  paletteDot(pendingColor),
+                )}
+              />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            side="bottom"
+            sideOffset={6}
+            className="w-[220px] p-3 rounded-[10px]"
+          >
+            <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2">
+              Цвет
+            </div>
+            <div className="grid grid-cols-5 gap-1.5">
+              {PALETTE_COLORS.map((c) => {
+                const isActive = pendingColor === c.name;
+                return (
+                  <button
+                    key={c.name}
+                    type="button"
+                    onClick={() => onPickColor(c.name)}
+                    aria-label={c.label}
+                    title={c.label}
+                    className={cn(
+                      "relative size-8 rounded-full transition-transform shrink-0 inline-flex items-center justify-center",
+                      paletteDot(c.name),
+                      isActive
+                        ? "ring-2 ring-offset-2 ring-offset-popover ring-foreground"
+                        : "hover:scale-110",
+                    )}
+                  >
+                    {isActive && (
+                      <Check
+                        className={cn(
+                          "size-4",
+                          // На default-swatch'е (прозрачный фон) галочка
+                          // должна быть foreground; на цветных — белая.
+                          c.name === "default"
+                            ? "text-foreground"
+                            : "text-white",
+                        )}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={!canClear}
+          aria-label="Отменить выбор"
+          title="Отменить выбор"
+          className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
+        >
+          <X className="size-4" />
+        </button>
+      </div>
+
+      {/* Icons grid: фильтрованный список, в pendingColor для preview. */}
+      <div className="max-h-[300px] overflow-y-auto p-2">
+        {filteredIcons.length === 0 ? (
+          <div className="text-center text-sm text-muted-foreground py-8">
+            Ничего не найдено
+          </div>
+        ) : (
+          <div className="grid grid-cols-8 gap-0.5">
+            {filteredIcons.map(({ name, icon: Icon, label }) => {
+              const isActive = value === name;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  onClick={() => onPickIcon(name)}
+                  aria-label={label}
+                  title={label}
+                  className={cn(
+                    "flex items-center justify-center size-9 rounded-md transition-colors",
+                    isActive ? "bg-accent" : "hover:bg-accent/60",
+                    paletteText(pendingColor) || "text-foreground",
+                  )}
+                >
+                  <Icon className="w-[18px] h-[18px]" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+interface KbIconPickerProps {
+  value: string | null;
+  color: string | null;
+  onChange: (next: { icon: string | null; color: string | null }) => void;
+  disabled?: boolean;
+  /** Размер квадрата-триггера и рендера иконки внутри (по умолчанию 48). */
+  triggerSize?: number;
+}
+
+/**
+ * Notion-style picker иконки KB-страницы. Триггер — большой квадрат
+ * 48-64px с рамкой; popover-body — общий с другими picker'ами через
+ * `<KbIconPickerBody>`.
+ */
+export function KbIconPicker({
+  value,
+  color,
+  onChange,
+  disabled,
+  triggerSize = 48,
+}: KbIconPickerProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -154,128 +287,12 @@ export function KbIconPicker({
         sideOffset={6}
         className="w-[380px] p-0 rounded-[10px]"
       >
-        {/* Header row: search + random + color swatch + clear */}
-        <div className="flex items-center gap-1.5 px-2 py-2 border-b">
-          <Input
-            ref={searchRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Поиск иконок"
-            className="h-8 text-sm flex-1 min-w-0"
-            aria-label="Поиск иконок"
-          />
-          <button
-            type="button"
-            onClick={onRandom}
-            aria-label="Случайная иконка"
-            title="Случайная иконка"
-            className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
-          >
-            <Shuffle className="size-4" />
-          </button>
-          <Popover open={colorOpen} onOpenChange={setColorOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label="Цвет иконки"
-                title="Цвет иконки"
-                className="inline-flex items-center justify-center size-8 rounded-md hover:bg-accent transition-colors shrink-0"
-              >
-                <span
-                  className={cn(
-                    "size-5 rounded-full",
-                    paletteDot(pendingColor),
-                  )}
-                />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="end"
-              side="bottom"
-              sideOffset={6}
-              className="w-[220px] p-3 rounded-[10px]"
-            >
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70 mb-2">
-                Цвет
-              </div>
-              <div className="grid grid-cols-5 gap-1.5">
-                {PALETTE_COLORS.map((c) => {
-                  const isActive = pendingColor === c.name;
-                  return (
-                    <button
-                      key={c.name}
-                      type="button"
-                      onClick={() => onPickColor(c.name)}
-                      aria-label={c.label}
-                      title={c.label}
-                      className={cn(
-                        "relative size-8 rounded-full transition-transform shrink-0 inline-flex items-center justify-center",
-                        paletteDot(c.name),
-                        isActive
-                          ? "ring-2 ring-offset-2 ring-offset-popover ring-foreground"
-                          : "hover:scale-110",
-                      )}
-                    >
-                      {isActive && (
-                        <Check
-                          className={cn(
-                            "size-4",
-                            // На default-swatch'е (прозрачный фон) галочка
-                            // должна быть foreground; на цветных — белая.
-                            c.name === "default"
-                              ? "text-foreground"
-                              : "text-white",
-                          )}
-                        />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </PopoverContent>
-          </Popover>
-          <button
-            type="button"
-            onClick={onClear}
-            disabled={!canClear}
-            aria-label="Отменить выбор"
-            title="Отменить выбор"
-            className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-
-        {/* Icons grid: фильтрованный список, в pendingColor для preview. */}
-        <div className="max-h-[300px] overflow-y-auto p-2">
-          {filteredIcons.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground py-8">
-              Ничего не найдено
-            </div>
-          ) : (
-            <div className="grid grid-cols-8 gap-0.5">
-              {filteredIcons.map(({ name, icon: Icon, label }) => {
-                const isActive = value === name;
-                return (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => onPickIcon(name)}
-                    aria-label={label}
-                    title={label}
-                    className={cn(
-                      "flex items-center justify-center size-9 rounded-md transition-colors",
-                      isActive ? "bg-accent" : "hover:bg-accent/60",
-                      paletteText(pendingColor) || "text-foreground",
-                    )}
-                  >
-                    <Icon className="w-[18px] h-[18px]" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <KbIconPickerBody
+          value={value}
+          color={color}
+          onChange={onChange}
+          onCommitClose={() => setOpen(false)}
+        />
       </PopoverContent>
     </Popover>
   );

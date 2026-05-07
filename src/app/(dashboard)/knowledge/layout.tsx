@@ -1,13 +1,16 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 
 import { createClient } from "@/lib/supabase/server";
-import { getKbTree } from "@/lib/knowledge/tree";
-import { listMyKbFavorites } from "@/lib/knowledge/favorites";
-import { KbTreeNav } from "@/app/(dashboard)/knowledge/_components/kb-tree-nav";
+import { getCachedPermissions, getCachedActiveAccountId } from "@/lib/supabase/server";
 import { KbSidebarShell } from "@/app/(dashboard)/knowledge/_components/kb-sidebar-shell";
+import {
+  KbTreeLoader,
+  KbMobileTreeLoader,
+  KbTreeSkeleton,
+} from "@/app/(dashboard)/knowledge/_components/kb-tree-loader";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
-import { KbMobileTreeDrawer } from "@/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer";
 import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
 import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { NotificationBell } from "@/components/shared/notification-bell";
@@ -23,14 +26,14 @@ import {
  *   ─ left: full-height sticky KB tree (Notion-style page navigator)
  *   ─ right: page content with its own slim top-bar
  *
- * Dashboard topbar скрывается на /knowledge (см. DashboardTopbar) —
- * KB-сайдбар занимает полную высоту экрана, а action-кнопки и
- * breadcrumb рендерятся в локальном top-bar справа от дерева. Слоты
- * (PageHeaderActionsSlot/BreadcrumbSlot) шарят тот же React-context,
- * что и дашборд: одновременно mounted только один consumer.
+ * Tree streaming: KbTreeLoader / KbMobileTreeLoader are wrapped in
+ * <Suspense> so page content streams to the browser before the tree
+ * rows are fetched. getKbTree() uses React cache() — both loaders
+ * share a single DB round-trip within the same render pass.
  *
- * Mobile (<md): tree column collapses out; users navigate via the
- * landing page list, search dialog, or direct URL.
+ * Permission caching: getCachedPermissions / getCachedActiveAccountId
+ * are React cache() wrappers; dashboard layout already called them,
+ * so no extra DB hit here.
  */
 export default async function KnowledgeLayout({
   children,
@@ -38,52 +41,33 @@ export default async function KnowledgeLayout({
   children: React.ReactNode;
 }) {
   const supabase = await createClient();
-  const [
-    { data: permissionCodes },
-    { data: activeAccountId },
-  ] = await Promise.all([
-    supabase.rpc("list_my_permissions", {}),
-    supabase.rpc("get_active_account_id"),
+
+  const [permissions, activeAccountId] = await Promise.all([
+    getCachedPermissions(),
+    getCachedActiveAccountId(),
   ]);
-  const permissions = new Set(permissionCodes ?? []);
-  const canView = permissions.has("kb.view_pages");
-  const canDelete = permissions.has("kb.delete_pages");
-  const canImport = permissions.has("kb.import_pages");
-  const canCreate = permissions.has("kb.create_pages");
-  const canManageTemplates = permissions.has("kb.manage_templates");
-  const canAskAi = permissions.has("kb.ask_ai");
-  const canViewAudit = permissions.has("org.view_audit");
-  const canViewAnalytics = permissions.has("kb.view_analytics");
+
+  const permSet = new Set(permissions);
+  const canView = permSet.has("kb.view_pages");
+  const canDelete = permSet.has("kb.delete_pages");
+  const canImport = permSet.has("kb.import_pages");
+  const canCreate = permSet.has("kb.create_pages");
+  const canManageTemplates = permSet.has("kb.manage_templates");
+  const canAskAi = permSet.has("kb.ask_ai");
+  const canViewAudit = permSet.has("org.view_audit");
+  const canViewAnalytics = permSet.has("kb.view_analytics");
   if (!canView) redirect("/dashboard");
 
-  // RAG (kb.ask_ai) gate: permission + account.ai_enabled. Если оба
-  // true — KbSearchProvider покажет AI-quick-row в dialog'е.
   let aiAskEnabled = false;
-  if (Boolean(canAskAi) && activeAccountId) {
+  if (canAskAi && activeAccountId) {
     const { data: accountRow } = await supabase
       .from("accounts")
       .select("ai_enabled")
-      .eq("id", activeAccountId as unknown as string)
+      .eq("id", activeAccountId)
       .maybeSingle();
     aiAskEnabled = Boolean(accountRow?.ai_enabled);
   }
 
-  // Tree + favorites параллельно. KbTreeNav reads from React cache
-  // (getKbTree wraps listKbPages с React.cache), no double-fetch.
-  const [{ nodes }, { pages: favorites }] = await Promise.all([
-    getKbTree(),
-    listMyKbFavorites(),
-  ]);
-
-  // SSR-чтение сохранённого состояния KB-сайдбара из cookies:
-  //   • `kb_sidebar_width` — ширина (drag-resize'ом). Без этого после
-  //     reload'а сайдбар рендерился дефолтом 288px и потом «прыгал»
-  //     на saved-width при гидратации.
-  //   • `kb_sidebar_hidden` — скрыт ли сайдбар. Toggle-ит юзер кликом
-  //     на иконку «База знаний» в main-sidebar когда он уже на
-  //     /knowledge (см. KbNavLink + kb-sidebar-visibility-store).
-  // Обе cookie пишутся клиентом (не httpOnly), читаются здесь чтобы
-  // первый рендер был без CLS/flicker'а.
   const cookieStore = await cookies();
   const sidebarWidthCookie = cookieStore.get("kb_sidebar_width")?.value;
   const sidebarInitialWidth = sidebarWidthCookie
@@ -91,13 +75,17 @@ export default async function KnowledgeLayout({
     : undefined;
   const sidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
 
+  const treePermissions = {
+    canSeeTrash: canDelete,
+    canViewAudit,
+    canViewAnalytics,
+    canImport,
+    canCreate,
+    canManageTemplates,
+  };
+
   return (
     <KbSearchProvider aiAskEnabled={aiAskEnabled}>
-      {/* Полная высота viewport: dashboard topbar скрыт на /knowledge,
-          поэтому aside поднят к самому верху. svh (а не vh) — потому
-          что SidebarProvider дашборда использует ту же единицу, иначе
-          на мобильных платформах с динамическим toolbar'ом колонки
-          не совпадают по высоте. */}
       <div className="flex w-full min-h-svh">
         <KbSidebarShell
           initialHidden={sidebarHidden}
@@ -107,54 +95,31 @@ export default async function KnowledgeLayout({
               : undefined
           }
         >
-          <KbTreeNav
-            nodes={nodes}
-            favorites={favorites}
-            canSeeTrash={Boolean(canDelete)}
-            canViewAudit={Boolean(canViewAudit)}
-            canViewAnalytics={Boolean(canViewAnalytics)}
-            canImport={Boolean(canImport)}
-            canCreate={Boolean(canCreate)}
-            canManageTemplates={Boolean(canManageTemplates)}
-          />
+          {/* Desktop tree streams independently — page content renders
+              without waiting for tree rows. Both loaders share one DB
+              fetch via getKbTree() React cache(). */}
+          <Suspense fallback={<KbTreeSkeleton />}>
+            <KbTreeLoader {...treePermissions} />
+          </Suspense>
         </KbSidebarShell>
         <main className="flex-1 min-w-0 flex flex-col">
-          {/* KB-локальный top-bar: breadcrumb слева, actions + bell
-              справа. h-14 совпадает с дашборд-топбаром на других
-              маршрутах, чтобы кнопки сохраняли свою позицию. */}
           <header className="sticky top-0 z-30 flex h-14 items-center gap-2 px-6 bg-background/95 backdrop-blur">
             <SidebarTrigger className="md:hidden" />
             <PageHeaderBreadcrumbSlot />
             <div className="flex-1" />
-            {/* Save-state badge — рядом с History/Delete/Info справа.
-                Подписан на module-store, не зависит от render-цикла
-                редактора → popover'ы редактора больше не дёргаются. */}
             <KbSaveStatusBadge />
             <PageHeaderActionsSlot />
             <NotificationBell />
           </header>
           {/* Mobile-only sticky bar with tree-drawer trigger. */}
-          <div className="md:hidden sticky top-14 z-20 border-b bg-background/95
-                          px-4 py-2 backdrop-blur">
-            <KbMobileTreeDrawer
-              nodes={nodes}
-              favorites={favorites}
-              canSeeTrash={Boolean(canDelete)}
-              canViewAudit={Boolean(canViewAudit)}
-              canViewAnalytics={Boolean(canViewAnalytics)}
-              canImport={Boolean(canImport)}
-              canCreate={Boolean(canCreate)}
-              canManageTemplates={Boolean(canManageTemplates)}
-            />
+          <div className="md:hidden sticky top-14 z-20 border-b bg-background/95 px-4 py-2 backdrop-blur">
+            <Suspense fallback={null}>
+              <KbMobileTreeLoader {...treePermissions} />
+            </Suspense>
           </div>
           {children}
         </main>
       </div>
-      {/* Sprint D Phase 7: глобальный inline-preview tooltip для
-          @-mention'ов и kb-links. Один экземпляр на весь layout —
-          listener делегированный, рендер один tooltip-popup.
-          Активируется hover'ом на `<a href="/knowledge/...">` где
-          угодно в KB-секции (страница, комменты, search-results). */}
       <KbLinkPreview />
     </KbSearchProvider>
   );

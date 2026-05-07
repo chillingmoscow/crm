@@ -54,29 +54,24 @@ export const kbQuoteBlock = createReactBlockSpec(
       const size = (block.props.size as KbQuoteSize) ?? "default";
       const variant = (block.props.variant as KbQuoteVariant) ?? "line";
 
-      // Один контейнер с data-* атрибутами: всю стилизацию делаем в
-      // globals.css по селекторам [data-quote-variant] / [data-quote-size].
-      // Так Tailwind покрывает базовый layout, а сложные псевдоэлементы
-      // с большими кавычками-«ёлочками» — чистый CSS (в JSX псевдо-
-      // элементы не вписать без лишних DOM-узлов).
+      // contentRef — `<span>`, а не `<div>`. Для variant=quotes нужно,
+      // чтобы псевдоэлементы `::before` / `::after` blockquote'а
+      // обтекали inline-content (большие „ " по краям одной строки
+      // текста), а не вставали на отдельных строках вокруг block-level
+      // обёртки. inline-content BN рендерится в любой узел —
+      // span работает идентично div'у.
       return (
         <blockquote
           data-quote-variant={variant}
           data-quote-size={size}
           className={cn(
             "kb-quote w-full m-0",
-            // Базовые классы — рантайм, без зависимостей от data-*.
-            // Конкретные visual-decorations (палочка / кавычки) живут
-            // в globals.css.
             variant === "line" && "kb-quote--line",
             variant === "quotes" && "kb-quote--quotes",
             size === "large" && "kb-quote--large",
           )}
         >
-          <div
-            ref={contentRef}
-            className="kb-quote__content flex-1 min-w-0 [&>p]:m-0"
-          />
+          <span ref={contentRef} className="kb-quote__content" />
         </blockquote>
       );
     },

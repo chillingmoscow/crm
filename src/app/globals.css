@@ -475,9 +475,13 @@ input:-webkit-autofill {
  * ──────────────────────────────────────────────────────────────── */
 
 /* Снимаем дефолтные BN-стили на blockquote (border-left, colour и
-   padding-left заданы в shadcn-стилях; перебиваем по новой). */
+   padding-left заданы в shadcn-стилях; перебиваем по новой). НЕ
+   ставим color/font-style на блок — иначе перебиваем prop'ы textColor /
+   inline-marks (italic). Цвет наследуется от .bn-block через
+   `[data-text-color=…]` правила в shadcn/style.css; курсив для
+   variant=quotes мы делаем через ::before/::after-агностичный
+   font-style на самом контенте (см. ниже). */
 .bn-sheerly .bn-editor [data-content-type="quote"] blockquote.kb-quote {
-  color: inherit;
   border-left: none;
   padding-left: 0;
   margin: 0;
@@ -487,17 +491,22 @@ input:-webkit-autofill {
 .bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--line {
   border-left: 3px solid hsl(var(--border));
   padding-left: 14px;
-  color: hsl(var(--foreground));
 }
 
 /* ── variant=quotes ─ типографская: курсив + большие „ "
-   на псевдоэлементах. Кавычки масштабируются от font-size, цвет —
-   muted-foreground (не отвлекает от текста). */
+   на псевдоэлементах. content — span (inline) внутри blockquote
+   (block); ::before/::after на blockquote становятся inline в начале
+   и конце inline-content потока, что даёт «ёлочки по краям текста». */
 .bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes {
-  font-style: italic;
-  color: hsl(var(--foreground));
   position: relative;
   padding: 0.25em 0 0.25em 0;
+}
+/* Курсив только для contentRef-span'а — inline-marks в нём (text-text-
+   nodes ProseMirror) тоже наследуют font-style. Если поверх стоит
+   markdown-italic — он накладывается, normal комбинация ОК. Сами
+   ёлочки (псевдо) — не курсивные, см. ниже. */
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes .kb-quote__content {
+  font-style: italic;
 }
 .bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes::before,
 .bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes::after {

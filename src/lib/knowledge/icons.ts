@@ -281,101 +281,16 @@ export function getKbLucideIcon(name: string): LucideIcon | null {
 }
 
 // ─── Цветовая палитра ─────────────────────────────────────────────────────
+//
+// Палитра промоутнута в `@/lib/palette` (10 Notion-цветов + `default`).
+// Здесь оставляем re-export'ы со старыми именами для обратной совместимости
+// существующих call-site'ов (kb-icon-picker, kb-page-icon, kb-page-properties,
+// types/knowledge.ts). Новый код должен импортировать напрямую из `@/lib/palette`.
 
-export type KbIconColor =
-  | "gray"
-  | "brown"
-  | "orange"
-  | "yellow"
-  | "lime"
-  | "green"
-  | "teal"
-  | "cyan"
-  | "blue"
-  | "indigo"
-  | "purple"
-  | "pink"
-  | "red";
-
-export const KB_ICON_COLORS: { name: KbIconColor; label: string }[] = [
-  { name: "gray",   label: "Серый" },
-  { name: "brown",  label: "Коричневый" },
-  { name: "red",    label: "Красный" },
-  { name: "orange", label: "Оранжевый" },
-  { name: "yellow", label: "Жёлтый" },
-  { name: "lime",   label: "Лайм" },
-  { name: "green",  label: "Зелёный" },
-  { name: "teal",   label: "Бирюзовый" },
-  { name: "cyan",   label: "Циан" },
-  { name: "blue",   label: "Синий" },
-  { name: "indigo", label: "Индиго" },
-  { name: "purple", label: "Фиолетовый" },
-  { name: "pink",   label: "Розовый" },
-];
-
-/**
- * Tailwind-классы для цветной обводки/фона/текста иконки. Используем
- * 100/700 пары для light, 900/30 → 300 для dark — даёт мягкий тинт
- * на нейтральном фоне без жёсткой заливки.
- */
-const COLOR_TEXT: Record<KbIconColor, string> = {
-  gray:   "text-gray-600 dark:text-gray-300",
-  brown:  "text-amber-800 dark:text-amber-300",
-  red:    "text-rose-700 dark:text-rose-300",
-  orange: "text-orange-700 dark:text-orange-300",
-  yellow: "text-yellow-700 dark:text-yellow-300",
-  lime:   "text-lime-700 dark:text-lime-300",
-  green:  "text-emerald-700 dark:text-emerald-300",
-  teal:   "text-teal-700 dark:text-teal-300",
-  cyan:   "text-cyan-700 dark:text-cyan-300",
-  blue:   "text-brand",
-  indigo: "text-indigo-700 dark:text-indigo-300",
-  purple: "text-violet-700 dark:text-violet-300",
-  pink:   "text-pink-700 dark:text-pink-300",
-};
-
-const COLOR_TINT_BG: Record<KbIconColor, string> = {
-  gray:   "bg-gray-100 dark:bg-gray-800/50",
-  brown:  "bg-amber-100 dark:bg-amber-900/30",
-  red:    "bg-rose-100 dark:bg-rose-900/30",
-  orange: "bg-orange-100 dark:bg-orange-900/30",
-  yellow: "bg-yellow-100 dark:bg-yellow-900/30",
-  lime:   "bg-lime-100 dark:bg-lime-900/30",
-  green:  "bg-emerald-100 dark:bg-emerald-900/30",
-  teal:   "bg-teal-100 dark:bg-teal-900/30",
-  cyan:   "bg-cyan-100 dark:bg-cyan-900/30",
-  blue:   "bg-brand/10",
-  indigo: "bg-indigo-100 dark:bg-indigo-900/30",
-  purple: "bg-violet-100 dark:bg-violet-900/30",
-  pink:   "bg-pink-100 dark:bg-pink-900/30",
-};
-
-const COLOR_DOT_BG: Record<KbIconColor, string> = {
-  gray:   "bg-gray-500",
-  brown:  "bg-amber-700",
-  red:    "bg-rose-500",
-  orange: "bg-orange-500",
-  yellow: "bg-yellow-500",
-  lime:   "bg-lime-500",
-  green:  "bg-emerald-500",
-  teal:   "bg-teal-500",
-  cyan:   "bg-cyan-500",
-  blue:   "bg-brand",
-  indigo: "bg-indigo-500",
-  purple: "bg-violet-500",
-  pink:   "bg-pink-500",
-};
-
-export function colorTextClass(color: string | null | undefined): string {
-  if (!color) return "";
-  return COLOR_TEXT[color as KbIconColor] ?? "";
-}
-
-export function colorTintClass(color: string | null | undefined): string {
-  if (!color) return "";
-  return COLOR_TINT_BG[color as KbIconColor] ?? "";
-}
-
-export function colorDotClass(color: KbIconColor): string {
-  return COLOR_DOT_BG[color];
-}
+export {
+  paletteText as colorTextClass,
+  paletteBg as colorTintClass,
+  paletteDot as colorDotClass,
+  type PaletteColor as KbIconColor,
+  PALETTE_COLORS as KB_ICON_COLORS,
+} from "@/lib/palette";

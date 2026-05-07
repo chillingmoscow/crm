@@ -46,7 +46,12 @@ export function KbPageIcon({
       <span
         className={cn(
           "inline-flex items-center justify-center shrink-0",
-          colorTextClass(color) || "text-muted-foreground",
+          // colorTextClass возвращает "" для null / "default" / неизвестных
+          // значений — в этом случае иконка наследует foreground (а не
+          // muted), потому что юзер сознательно выбрал иконку, она не
+          // должна выглядеть приглушённо. Для пустого `icon` (fallback
+          // File ниже) muted-foreground остаётся.
+          colorTextClass(color) || "text-foreground",
           className,
         )}
         style={{ width: size, height: size }}

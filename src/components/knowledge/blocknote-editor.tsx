@@ -315,11 +315,18 @@ function getKbEmojiSlashItem(editor: BlockNoteEditor<never, never, never>) {
 /** Block-types на которых не нужны comment-кнопки (BN-comments крепятся
  *  на текстовый Yjs-mark, для leaf-блоков без content создание комментария
  *  превращается в no-op). Скрываем `addCommentButton` /
- *  `addTiptapCommentButton` при выделении такого блока.
+ *  `addTiptapCommentButton` при выделении такого блока в editable
+ *  режиме И блокируем auto-открытие composer'а в locked-режиме.
  *
  *  - `image/video/audio/file` — атомарные media-leaf'ы.
  *  - `divider` — horizontal rule, тоже leaf без inline-content; коммент
  *    к нему создал бы пустой thread без видимого якоря.
+ *  - `table` — block-level комментарий бесполезен (как и на media-
+ *    leaf'ах). На editable дополнительно различаем «collapsed selection
+ *    → запрет, выделенный текст в ячейке → разрешён» в
+ *    filterToolbarItemsForBlock; на locked-режиме селекшн идёт через
+ *    auto-composer, и так же запрещаем для всей таблицы (см.
+ *    selectionUpdate-handler ниже).
  */
 const NON_COMMENTABLE_BLOCK_TYPES = new Set([
   "image",
@@ -327,6 +334,17 @@ const NON_COMMENTABLE_BLOCK_TYPES = new Set([
   "audio",
   "file",
   "divider",
+]);
+
+/** Locked-режим: дополнительно к выше — `table`. На locked auto-
+ *  composer открывается на любое выделение (см. selectionUpdate-effect),
+ *  и юзер не различает «выделил текст в ячейке» vs «выделил блок» —
+ *  чтобы не плодить «болтающиеся» mark'и в table-cell, запрещаем
+ *  весь тип целиком. На editable различаем (см. filterToolbarItemsForBlock).
+ */
+const NON_COMMENTABLE_LOCKED_BLOCK_TYPES = new Set([
+  ...NON_COMMENTABLE_BLOCK_TYPES,
+  "table",
 ]);
 
 /** Lucide-иконка как IconType (react-icons-совместимый shape) — BN'ный
@@ -797,6 +815,23 @@ export function KbBlockNoteEditor({
     const handler = () => {
       const sel = tiptap.state.selection;
       if (sel.empty || sel.from === sel.to) return;
+      // Block-type guard: на media-leaf'ах / divider'е / table коммент
+      // не имеет смысла (см. NON_COMMENTABLE_LOCKED_BLOCK_TYPES). Тут
+      // single source of truth с editable-режимом — запрет parallel
+      // тому, что filterToolbarItemsForBlock делает в editable
+      // formatting-toolbar'е.
+      try {
+        const blockType = (
+          editor as unknown as {
+            getTextCursorPosition: () => { block?: { type?: string } };
+          }
+        ).getTextCursorPosition().block?.type;
+        if (blockType && NON_COMMENTABLE_LOCKED_BLOCK_TYPES.has(blockType)) {
+          return;
+        }
+      } catch {
+        /* fallthrough — conservative default = allow */
+      }
       if (ext.store?.state.pendingComment) return;
       ext.startPendingComment?.();
     };
@@ -928,7 +963,7 @@ export function KbBlockNoteEditor({
       editor={editor}
       editable={editable}
       theme={resolvedTheme === "dark" ? "dark" : "light"}
-      className={cn("bn-sheerly", className)}
+      className={cn("bn-sheerly", !editable && "kb-bn-locked", className)}
       sideMenu={customSideMenu ? false : undefined}
       slashMenu={customSlashMenu ? false : undefined}
       // Default formatting-toolbar отключаем когда мы добавляем свои

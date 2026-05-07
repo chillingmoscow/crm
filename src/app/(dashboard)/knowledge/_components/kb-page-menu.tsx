@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -50,10 +51,35 @@ import {
   setKbPageLock,
 } from "@/lib/knowledge/pages";
 import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
-import { KbDeletePageDialog } from "@/app/(dashboard)/knowledge/_components/kb-delete-page-dialog";
-import { KbVersionHistory } from "@/app/(dashboard)/knowledge/_components/kb-version-history";
-import { KbSaveAsTemplateDialog } from "@/app/(dashboard)/knowledge/_components/kb-save-as-template-dialog";
-import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
+
+const KbDeletePageDialog = dynamic(
+  () =>
+    import("@/app/(dashboard)/knowledge/_components/kb-delete-page-dialog").then(
+      (m) => m.KbDeletePageDialog,
+    ),
+  { ssr: false, loading: () => null },
+);
+const KbVersionHistory = dynamic(
+  () =>
+    import("@/app/(dashboard)/knowledge/_components/kb-version-history").then(
+      (m) => m.KbVersionHistory,
+    ),
+  { ssr: false, loading: () => null },
+);
+const KbSaveAsTemplateDialog = dynamic(
+  () =>
+    import(
+      "@/app/(dashboard)/knowledge/_components/kb-save-as-template-dialog"
+    ).then((m) => m.KbSaveAsTemplateDialog),
+  { ssr: false, loading: () => null },
+);
+const KbImportDialog = dynamic(
+  () =>
+    import("@/app/(dashboard)/knowledge/_components/kb-import-dialog").then(
+      (m) => m.KbImportDialog,
+    ),
+  { ssr: false, loading: () => null },
+);
 
 interface KbPageMenuProps {
   pageId: string;
@@ -122,6 +148,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const router = useRouter();
   const editor = useKbEditor();
   const [, editorTick] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Optimistic-state для тогглов:
   //  • required-reading + lock — через global override store, чтобы
@@ -159,12 +186,14 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const [exporting, setExporting] = useState(false);
   const [, startFavTransition] = useTransition();
 
-  // Re-render undo/redo state on каждый editor.onChange. Cheap — это
-  // 2 строчки ProseMirror state read'а на каждое изменение.
+  // Undo/redo state нужен только пока dropdown открыт. Раньше меню
+  // подписывалось на editor.onChange всегда и перерендеривалось на
+  // каждый ввод в странице, хотя кнопки undo/redo скрыты в закрытом
+  // dropdown.
   useEffect(() => {
-    if (!editor) return;
+    if (!menuOpen || !editor) return;
     return editor.onChange(() => editorTick((t) => t + 1));
-  }, [editor]);
+  }, [editor, menuOpen]);
 
   // Effective canEdit учитывает свежий lock-state из override-store.
   // props.canEdit передаётся как уже-resolved (canEditBase && !initialLocked),
@@ -302,7 +331,13 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu
+        open={menuOpen}
+        onOpenChange={(next) => {
+          setMenuOpen(next);
+          if (next) editorTick((t) => t + 1);
+        }}
+      >
         <IconTooltip label="Меню страницы">
           <DropdownMenuTrigger asChild>
             <button
@@ -536,13 +571,15 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
       {/* Тяжёлые controlled-диалоги, рендерятся на корневом уровне
        * чтобы их Radix-порталы не пересекались с DropdownMenuContent. */}
-      <KbVersionHistory
-        pageId={props.pageId}
-        canEdit={effectiveCanEdit}
-        open={versionsOpen}
-        onOpenChange={setVersionsOpen}
-      />
-      {props.canManageTemplates && (
+      {versionsOpen && (
+        <KbVersionHistory
+          pageId={props.pageId}
+          canEdit={effectiveCanEdit}
+          open={versionsOpen}
+          onOpenChange={setVersionsOpen}
+        />
+      )}
+      {props.canManageTemplates && templateOpen && (
         <KbSaveAsTemplateDialog
           pageId={props.pageId}
           pageTitle={props.pageTitle}
@@ -550,7 +587,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
           onOpenChange={setTemplateOpen}
         />
       )}
-      {props.canImport && (
+      {props.canImport && importOpen && (
         <KbImportDialog
           parentId={props.pageId}
           triggerLabel="Импорт в эту страницу"
@@ -558,7 +595,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
           onOpenChange={setImportOpen}
         />
       )}
-      {props.canDelete && (
+      {props.canDelete && deleteOpen && (
         <KbDeletePageDialog
           pageId={props.pageId}
           pageTitle={props.pageTitle}

@@ -16,6 +16,13 @@ import type { KbBlock } from "@/types/knowledge";
 
 const DEBOUNCE_MS = 2000;
 
+type SnapshotInput = {
+  title: string;
+  icon: string | null;
+  iconColor: string | null;
+  content: KbBlock[];
+};
+
 interface UseKbAutosaveOptions {
   pageId: string;
   /** ThreadStore нужен для `captureCommentMarkPositions` перед save'ом —
@@ -116,13 +123,17 @@ export function useKbAutosave({
   const iconColorRef = useRef<string | null>(initialIconColor);
   const contentRef = useRef<KbBlock[]>(initialContent);
 
-  // Hash последнего успешного save'а (или initial baseline). Используется
-  // для skip'а no-op-save'ов: BN fires onChange при первой загрузке
-  // doc'а, и наш title/icon не меняется на mount'е — мы не должны
-  // POST'ить identical content обратно на сервер.
-  const lastSavedHashRef = useRef<string>(
-    snapshotHash(initialTitle, initialIcon, initialIconColor, initialContent),
-  );
+  // Hash последнего успешного save'а считается лениво на debounced flush.
+  // Раньше initial render и первый BlockNote normalization event делали
+  // JSON.stringify всего документа, что давало заметный mount-lag на
+  // длинных страницах.
+  const lastSavedHashRef = useRef<string | null>(null);
+  const lastSavedSnapshotRef = useRef<SnapshotInput>({
+    title: initialTitle,
+    icon: initialIcon,
+    iconColor: initialIconColor,
+    content: initialContent,
+  });
 
   // Snapshot значений видимых в KB-tree (sidebar): title + icon + iconColor.
   // После успешного save'а сравниваем с current — если изменились, push'им
@@ -170,13 +181,17 @@ export function useKbAutosave({
       }
       return flush();
     }
-    const newHash = snapshotHash(
-      titleRef.current,
-      iconRef.current,
-      iconColorRef.current,
-      contentRef.current,
-    );
-    if (newHash === lastSavedHashRef.current) {
+    const currentSnapshot: SnapshotInput = {
+      title: titleRef.current,
+      icon: iconRef.current,
+      iconColor: iconColorRef.current,
+      content: contentRef.current,
+    };
+    const newHash = snapshotHash(currentSnapshot);
+    const lastSavedHash =
+      lastSavedHashRef.current ?? snapshotHash(lastSavedSnapshotRef.current);
+    if (newHash === lastSavedHash) {
+      lastSavedHashRef.current = lastSavedHash;
       const cur = getKbSaveState();
       if (cur.kind === "pending") setKbSaveState({ kind: "idle" });
       return;
@@ -218,6 +233,7 @@ export function useKbAutosave({
         return;
       }
       lastSavedHashRef.current = newHash;
+      lastSavedSnapshotRef.current = currentSnapshot;
 
       const normalizedTitle = titleRef.current.trim() || "Без названия";
       const prevTree = lastTreeSnapshotRef.current;
@@ -288,12 +304,13 @@ export function useKbAutosave({
       contentRef.current = next;
       if (isFirstEditorEventRef.current) {
         isFirstEditorEventRef.current = false;
-        lastSavedHashRef.current = snapshotHash(
-          titleRef.current,
-          iconRef.current,
-          iconColorRef.current,
-          next,
-        );
+        lastSavedSnapshotRef.current = {
+          title: titleRef.current,
+          icon: iconRef.current,
+          iconColor: iconColorRef.current,
+          content: next,
+        };
+        lastSavedHashRef.current = null;
         return;
       }
       scheduleSave();
@@ -358,11 +375,11 @@ export function useKbAutosave({
 /** Cheap fingerprint of (title, icon, color, content) для change-detect.
  *  JSON.stringify достаточен на наших doc-размерах (≤ ~100 KB jsonb).
  *  Если когда-то страница раздуется, можно swap'нуть на streaming hash. */
-function snapshotHash(
-  title: string,
-  icon: string | null,
-  iconColor: string | null,
-  content: KbBlock[],
-): string {
-  return JSON.stringify([title, icon ?? "", iconColor ?? "", content]);
+function snapshotHash(snapshot: SnapshotInput): string {
+  return JSON.stringify([
+    snapshot.title,
+    snapshot.icon ?? "",
+    snapshot.iconColor ?? "",
+    snapshot.content,
+  ]);
 }

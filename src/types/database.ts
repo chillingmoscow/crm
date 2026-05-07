@@ -1031,6 +1031,7 @@ export type Database = {
           metadata: Json
           page_id: string
           reactions: Json
+          thread_kind: string
           thread_id: string
           updated_at: string
         }
@@ -1044,6 +1045,7 @@ export type Database = {
           metadata?: Json
           page_id?: string
           reactions?: Json
+          thread_kind?: string
           thread_id: string
           updated_at?: string
         }
@@ -1057,6 +1059,7 @@ export type Database = {
           metadata?: Json
           page_id?: string
           reactions?: Json
+          thread_kind?: string
           thread_id?: string
           updated_at?: string
         }
@@ -1193,6 +1196,8 @@ export type Database = {
           created_by: string | null
           id: string
           page_id: string
+          plain_text: string
+          text_length: number
           title: string
           version_number: number
         }
@@ -1204,6 +1209,8 @@ export type Database = {
           created_by?: string | null
           id?: string
           page_id: string
+          plain_text?: string
+          text_length?: number
           title: string
           version_number: number
         }
@@ -1215,6 +1222,8 @@ export type Database = {
           created_by?: string | null
           id?: string
           page_id?: string
+          plain_text?: string
+          text_length?: number
           title?: string
           version_number?: number
         }
@@ -1604,6 +1613,7 @@ export type Database = {
           created_by: string | null
           deleted_at: string | null
           id: string
+          kind: string
           metadata: Json
           page_id: string
           resolved: boolean
@@ -1617,6 +1627,7 @@ export type Database = {
           created_by?: string | null
           deleted_at?: string | null
           id?: string
+          kind?: string
           metadata?: Json
           page_id: string
           resolved?: boolean
@@ -1630,6 +1641,7 @@ export type Database = {
           created_by?: string | null
           deleted_at?: string | null
           id?: string
+          kind?: string
           metadata?: Json
           page_id?: string
           resolved?: boolean
@@ -2691,6 +2703,32 @@ export type Database = {
         Args: { p_page_id: string }
         Returns: Json
       }
+      kb_create_page_comment: {
+        Args: { p_body: Json; p_page_id: string }
+        Returns: {
+          author_id: string
+          body: Json
+          created_at: string
+          deleted_at: string | null
+          id: string
+          reactions: Json
+          thread_id: string
+          updated_at: string
+        }[]
+      }
+      kb_list_page_comments: {
+        Args: { p_page_id: string }
+        Returns: {
+          author_id: string
+          body: Json
+          created_at: string
+          deleted_at: string | null
+          id: string
+          reactions: Json
+          thread_id: string
+          updated_at: string
+        }[]
+      }
       kb_register_attachment: {
         Args: {
           p_storage_path: string
@@ -2720,7 +2758,7 @@ export type Database = {
           p_plain_text: string
           p_title: string
         }
-        Returns: number
+        Returns: number | null
       }
       kb_save_page_comment_only: {
         Args: {

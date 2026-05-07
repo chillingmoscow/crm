@@ -327,6 +327,7 @@ export class SupabaseThreadStore extends ThreadStore {
       // re-build при realtime UPDATE'е должен сохранять автора (не null).
       created_by: this.threadCreators.get(t.id) ?? null,
       deleted_at: t.deletedAt?.toISOString() ?? null,
+      kind: "inline",
       metadata: (t.metadata as Database["public"]["Tables"]["kb_threads"]["Row"]["metadata"]) ?? {},
     };
   }
@@ -344,6 +345,7 @@ export class SupabaseThreadStore extends ThreadStore {
       created_at: c.createdAt.toISOString(),
       updated_at: c.updatedAt.toISOString(),
       deleted_at: "deletedAt" in c && c.deletedAt ? c.deletedAt.toISOString() : null,
+      thread_kind: "inline",
       metadata: (c.metadata as Database["public"]["Tables"]["kb_comments"]["Row"]["metadata"]) ?? {},
     }));
   }
@@ -515,6 +517,7 @@ export class SupabaseThreadStore extends ThreadStore {
       updated_at: nowIso,
       created_by: this.userId,
       deleted_at: null,
+      kind: "inline",
       metadata: ((opts.metadata as Record<string, unknown>) ?? {}) as never,
     };
 
@@ -529,6 +532,7 @@ export class SupabaseThreadStore extends ThreadStore {
       created_at: nowIso,
       updated_at: nowIso,
       deleted_at: null,
+      thread_kind: "inline",
       metadata: ((opts.initialComment.metadata as Record<string, unknown>) ?? {}) as never,
     };
 
@@ -614,6 +618,7 @@ export class SupabaseThreadStore extends ThreadStore {
       created_at: nowIso,
       updated_at: nowIso,
       deleted_at: null,
+      thread_kind: "inline",
       metadata: ((opts.comment.metadata as Record<string, unknown>) ?? {}) as never,
     };
 

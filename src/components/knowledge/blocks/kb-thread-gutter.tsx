@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { MessageSquare } from "lucide-react";
 
 import {
@@ -45,12 +45,21 @@ export function KbThreadGutterIndicators() {
   };
   const threads = useThreads();
   const [items, setItems] = useState<IndicatorPos[]>([]);
+  const hasActiveThreads = useMemo(
+    () =>
+      [...threads].some(([, thread]) => !thread.resolved && !thread.deletedAt),
+    [threads],
+  );
 
   // Recompute caller — собирает positions через querySelectorAll'ы.
   // useLayoutEffect/effect: вызываем при изменениях threads, а ниже
   // подключаем MutationObserver + scroll/resize для DOM-зависимых
   // апдейтов.
   useLayoutEffect(() => {
+    if (!hasActiveThreads) {
+      setItems([]);
+      return;
+    }
     // Координаты — viewport-based (для `position: fixed`). Переcчёт
      // на scroll/resize держит индикаторы синхронно с прокруткой.
      // Альтернатива (position:absolute от .bn-editor) сложнее, потому
@@ -131,7 +140,11 @@ export function KbThreadGutterIndicators() {
 
     // Scroll/resize меняют позицию блоков — пересчитываем.
     const onLayout = () => scheduleRecompute();
-    window.addEventListener("scroll", onLayout, true);
+    const scrollOptions: AddEventListenerOptions = {
+      capture: true,
+      passive: true,
+    };
+    window.addEventListener("scroll", onLayout, scrollOptions);
     window.addEventListener("resize", onLayout);
     // Editor change — выправляет, когда content layout пересчитан
     // (insert/delete/typing). Через rAF, чтобы DOM успел отдать
@@ -182,11 +195,11 @@ export function KbThreadGutterIndicators() {
       observer.disconnect();
       mediaWatcher.disconnect();
       ro.disconnect();
-      window.removeEventListener("scroll", onLayout, true);
+      window.removeEventListener("scroll", onLayout, scrollOptions);
       window.removeEventListener("resize", onLayout);
       offChange();
     };
-  }, [editor, threads]);
+  }, [editor, threads, hasActiveThreads]);
 
   if (items.length === 0) return null;
 

@@ -22,10 +22,10 @@
 import { createClient } from "@/lib/supabase/client";
 import { extractMentionedUserIds } from "@/lib/knowledge/mention-extract";
 import type { KbBlock } from "@/types/knowledge";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 
-type KbCommentRow = Database["public"]["Tables"]["kb_comments"]["Row"];
-type KbThreadRow = Database["public"]["Tables"]["kb_threads"]["Row"];
+type PageCommentRpcRow =
+  Database["public"]["Functions"]["kb_list_page_comments"]["Returns"][number];
 
 export interface PageComment {
   id: string;
@@ -39,7 +39,7 @@ export interface PageComment {
   deletedAt: string | null;
 }
 
-function rowToComment(row: KbCommentRow & { thread_id: string }): PageComment {
+function rowToComment(row: PageCommentRpcRow): PageComment {
   return {
     id: row.id,
     threadId: row.thread_id,
@@ -63,92 +63,36 @@ function parseReactions(value: unknown): Record<string, string[]> {
   return out;
 }
 
-/** Загрузить все page-level threads + comments одной страницы.
- *
- *  Two-query path: сначала находим page-threads, потом тянем их comments.
- *  Альтернативный inner-join `kb_threads!inner(...)` тоже работает, но
- *  возвращает данные nested и хуже типизируется до regenerate'а
- *  database.ts (kind ещё не в схеме). RLS на обеих таблицах добавляет
- *  account_id + kb.view_pages фильтр.
- *
- *  Возвращает comments отсортированные по created_at asc. Soft-deleted
- *  threads пропускаются полностью; comments внутри живых threads
- *  возвращаются включая soft-deleted (UI рендерит tombstone).
- */
+/** Загрузить все page-level comments одной страницы одним RPC. */
 export async function fetchPageComments(pageId: string): Promise<PageComment[]> {
   const supabase = createClient();
-  // 1. Page-level threads. `kind='page'` фильтр; `kind` ещё не в типе,
-  //    поэтому cast.
-  const { data: threadRows, error: threadErr } = await supabase
-    .from("kb_threads")
-    .select("id")
-    .eq("page_id", pageId)
-    .eq("kind" as never, "page" as never)
-    .is("deleted_at", null);
-  if (threadErr) {
-    console.error("[page-comments] fetch threads failed", threadErr);
-    throw new Error(`Не удалось загрузить комментарии: ${threadErr.message}`);
+  const { data, error } = await supabase.rpc("kb_list_page_comments", {
+    p_page_id: pageId,
+  });
+  if (error) {
+    console.error("[page-comments] fetch page comments failed", error);
+    throw new Error(`Не удалось загрузить комментарии: ${error.message}`);
   }
-  const threadIds = (threadRows ?? []).map((r) => r.id);
-  if (threadIds.length === 0) return [];
-  // 2. Comments в этих thread'ах. Включая soft-deleted (tombstone в UI).
-  const { data: commentRows, error: commentErr } = await supabase
-    .from("kb_comments")
-    .select("id, thread_id, body, author_id, reactions, created_at, updated_at, deleted_at")
-    .in("thread_id", threadIds)
-    .order("created_at", { ascending: true });
-  if (commentErr) {
-    console.error("[page-comments] fetch comments failed", commentErr);
-    throw new Error(`Не удалось загрузить комментарии: ${commentErr.message}`);
-  }
-  return (commentRows ?? []).map((row) =>
-    rowToComment(row as KbCommentRow & { thread_id: string }),
-  );
+  return (data ?? []).map(rowToComment);
 }
 
 /** Создать новый top-level page-comment (один thread с одним comment'ом).
  *  Вызывает kb_emit_comment_mentions в фоне для @-уведомлений. */
 export async function createPageComment(args: {
   pageId: string;
-  accountId: string;
   body: unknown[];
 }): Promise<PageComment> {
   const supabase = createClient();
-  // 1. Создать thread с kind='page'.
-  // Cast необходим — kind ещё не в auto-generated Insert-типе.
-  const { data: threadRow, error: threadErr } = await supabase
-    .from("kb_threads")
-    .insert({
-      page_id: args.pageId,
-      account_id: args.accountId,
-      kind: "page",
-    } as never)
-    .select("id, page_id, account_id, created_at, updated_at, deleted_at, created_by, resolved, resolved_at, resolved_by, metadata")
-    .single<KbThreadRow>();
-  if (threadErr || !threadRow) {
-    throw new Error(`Не удалось создать thread: ${threadErr?.message ?? "no row"}`);
-  }
-  // 2. Создать comment. page_id auto-fill'ится trigger'ом
-  //    `kb_comments_set_page_id` (миграция 106) — передавать его не надо.
-  const { data: commentRow, error: commentErr } = await supabase
-    .from("kb_comments")
-    .insert({
-      thread_id: threadRow.id,
-      account_id: args.accountId,
-      body: args.body as never,
-      author_id: (await supabase.auth.getUser()).data.user?.id ?? "",
+  const { data, error } = await supabase
+    .rpc("kb_create_page_comment", {
+      p_page_id: args.pageId,
+      p_body: args.body as Json,
     })
-    .select("id, thread_id, body, author_id, reactions, created_at, updated_at, deleted_at")
-    .single<KbCommentRow & { thread_id: string }>();
-  if (commentErr || !commentRow) {
-    // Best-effort cleanup: thread без comment'а — мусор, soft-delete его.
-    await supabase
-      .from("kb_threads")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", threadRow.id);
-    throw new Error(`Не удалось создать комментарий: ${commentErr?.message ?? "no row"}`);
+    .single();
+  if (error || !data) {
+    throw new Error(`Не удалось создать комментарий: ${error?.message ?? "no row"}`);
   }
-  // 3. Fire-and-forget mention notifications.
+  const commentRow = data as PageCommentRpcRow;
   emitMentions(commentRow.id, args.body);
   return rowToComment(commentRow);
 }

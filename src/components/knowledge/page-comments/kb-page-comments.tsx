@@ -15,7 +15,6 @@ import { PageCommentItem } from "./page-comment-item";
 
 interface KbPageCommentsProps {
   pageId: string;
-  accountId: string;
   userId: string;
   currentUserName: string | null;
   currentUserAvatarUrl: string | null;
@@ -47,14 +46,12 @@ interface ResolvedUser {
  * нет — компонент не рендерится (нет шумного пустого блока). Если
  * комментарии есть — рендерим в read-only.
  *
- * Realtime: подписка на kb_comments INSERT/UPDATE по page_id. Self-
- * broadcast suppression через Set<commentId> локально-вставленных id.
- * Lazy thread-kind cache, чтобы инлайн-comment'ы (kind='inline') не
- * прорывались в UI.
+ * Realtime: подписка на kb_comments INSERT/UPDATE по page_id и
+ * denormalized thread_kind. Self-broadcast suppression через
+ * Set<commentId> локально-вставленных id.
  */
 export function KbPageComments({
   pageId,
-  accountId,
   userId,
   currentUserName,
   currentUserAvatarUrl,
@@ -65,42 +62,36 @@ export function KbPageComments({
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<Map<string, ResolvedUser>>(new Map());
 
-  // ID'шники thread'ов, известных как kind='page'. Realtime присылает
-  // kb_comments-row без kind — этот cache позволяет фильтровать инлайн-
-  // комменты на лету.
-  const pageThreadIds = useRef<Set<string>>(new Set());
-  // ID'шники thread'ов, которые мы УЖЕ запросили из БД (чтобы не
-  // дёргать select kind=… повторно для одного и того же thread'а).
-  const checkedThreadIds = useRef<Set<string>>(new Set());
   // Comment IDs, которые сами что-то с ними сделали (insert / update /
   // delete) — игнорим self-broadcast.
   const localCommentIds = useRef<Set<string>>(new Set());
+  const usersRef = useRef<Map<string, ResolvedUser>>(new Map());
 
   // Resolve авторов для всех уникальных author_id в comments. Кэшируем,
   // чтобы каждый realtime-update не триггерил повторный fetch.
-  const resolveMissingUsers = useCallback(
-    async (rows: PageComment[]) => {
-      const missing = Array.from(
-        new Set(
-          rows.map((r) => r.authorId).filter((id) => !users.has(id) && id),
-        ),
-      );
-      if (missing.length === 0) return;
-      const resolved = await resolveKbUsers(missing);
-      setUsers((prev) => {
-        const next = new Map(prev);
-        for (const u of resolved) {
-          next.set(u.id, {
-            id: u.id,
-            fullName: u.username,
-            avatarUrl: u.avatarUrl || null,
-          });
-        }
-        return next;
-      });
-    },
-    [users],
-  );
+  const resolveMissingUsers = useCallback(async (rows: PageComment[]) => {
+    const missing = Array.from(
+      new Set(
+        rows
+          .map((r) => r.authorId)
+          .filter((id) => !usersRef.current.has(id) && id),
+      ),
+    );
+    if (missing.length === 0) return;
+    const resolved = await resolveKbUsers(missing);
+    setUsers((prev) => {
+      const next = new Map(prev);
+      for (const u of resolved) {
+        next.set(u.id, {
+          id: u.id,
+          fullName: u.username,
+          avatarUrl: u.avatarUrl || null,
+        });
+      }
+      usersRef.current = next;
+      return next;
+    });
+  }, []);
 
   // Initial load.
   useEffect(() => {
@@ -109,10 +100,6 @@ export function KbPageComments({
     fetchPageComments(pageId)
       .then((rows) => {
         if (cancelled) return;
-        for (const r of rows) {
-          pageThreadIds.current.add(r.threadId);
-          checkedThreadIds.current.add(r.threadId);
-        }
         setComments(rows);
         void resolveMissingUsers(rows);
       })
@@ -141,9 +128,10 @@ export function KbPageComments({
         },
         (payload) => {
           const row = (payload.new ?? payload.old) as
-            | { id?: string; thread_id?: string }
+            | { id?: string; thread_id?: string; thread_kind?: string }
             | undefined;
           if (!row?.id || !row.thread_id) return;
+          if (row.thread_kind !== "page") return;
           // Self-broadcast suppression — гасим ТОЛЬКО первый INSERT-echo
           // нашего собственного оптимистично-добавленного коммента, чтобы
           // не получить дубликат в UI. UPDATE/DELETE / реакции от других
@@ -154,24 +142,6 @@ export function KbPageComments({
             localCommentIds.current.has(row.id)
           ) {
             localCommentIds.current.delete(row.id);
-            return;
-          }
-          // Lazy thread-kind проверка. Если thread не в page-set'е и
-          // не проверен — спрашиваем БД один раз. inline-thread'ы
-          // не попадают в UI.
-          if (!pageThreadIds.current.has(row.thread_id)) {
-            if (checkedThreadIds.current.has(row.thread_id)) return;
-            checkedThreadIds.current.add(row.thread_id);
-            void supabase
-              .from("kb_threads")
-              .select("id, kind")
-              .eq("id", row.thread_id)
-              .maybeSingle<{ id: string; kind: string }>()
-              .then(({ data }) => {
-                if (!data || data.kind !== "page") return;
-                pageThreadIds.current.add(data.id);
-                applyChange(payload);
-              });
             return;
           }
           applyChange(payload);
@@ -224,11 +194,8 @@ export function KbPageComments({
     async (body: unknown[]) => {
       const inserted = await createPageComment({
         pageId,
-        accountId,
         body,
       });
-      pageThreadIds.current.add(inserted.threadId);
-      checkedThreadIds.current.add(inserted.threadId);
       localCommentIds.current.add(inserted.id);
       setComments((prev) => {
         if (prev.some((c) => c.id === inserted.id)) return prev;
@@ -238,7 +205,7 @@ export function KbPageComments({
       });
       void resolveMissingUsers([inserted]);
     },
-    [pageId, accountId, resolveMissingUsers],
+    [pageId, resolveMissingUsers],
   );
 
   // Local-state mutations (вызываются из PageCommentItem на оптимистических

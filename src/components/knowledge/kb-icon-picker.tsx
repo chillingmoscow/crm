@@ -241,7 +241,9 @@ export function KbIconPickerBody({
                   className={cn(
                     "flex items-center justify-center size-9 rounded-md transition-colors",
                     isActive ? "bg-accent" : "hover:bg-accent/60",
-                    paletteText(pendingColor) || "text-foreground",
+                    // Default/null preview = muted (серый), как и
+                    // реальная иконка без выбранного цвета.
+                    paletteText(pendingColor) || "text-muted-foreground",
                   )}
                 >
                   <Icon className="w-[18px] h-[18px]" />
@@ -269,7 +271,7 @@ export function KbIconPickerBody({
                         className={cn(
                           "flex items-center justify-center size-9 rounded-md transition-colors",
                           isActive ? "bg-accent" : "hover:bg-accent/60",
-                          paletteText(pendingColor) || "text-foreground",
+                          paletteText(pendingColor) || "text-muted-foreground",
                         )}
                       >
                         <Icon className="w-[18px] h-[18px]" />

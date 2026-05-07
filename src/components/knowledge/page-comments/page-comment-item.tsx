@@ -49,6 +49,8 @@ interface PageCommentItemProps {
   /** Optimistic-update коллбэки от родительского контейнера. */
   onLocalUpdate: (commentId: string, body: unknown[]) => void;
   onLocalDelete: (commentId: string) => void;
+  /** Откатить optimistic delete (RPC упала, deletedAt → null). */
+  onLocalRestore: (commentId: string) => void;
   onLocalReact: (commentId: string, emoji: string, add: boolean) => void;
 }
 
@@ -78,6 +80,7 @@ export function PageCommentItem({
   currentUserAvatarUrl,
   onLocalUpdate,
   onLocalDelete,
+  onLocalRestore,
   onLocalReact,
 }: PageCommentItemProps) {
   const [editing, setEditing] = useState(false);
@@ -199,6 +202,8 @@ export function PageCommentItem({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={async () => {
+                      // Optimistic tombstone → откат при ошибке RPC,
+                      // иначе юзер видит «удалён» хотя в БД жив.
                       onLocalDelete(comment.id);
                       try {
                         await deletePageComment({
@@ -207,6 +212,7 @@ export function PageCommentItem({
                         });
                       } catch (err) {
                         console.error("[page-comment] delete failed", err);
+                        onLocalRestore(comment.id);
                       }
                     }}
                     className="text-destructive focus:text-destructive"

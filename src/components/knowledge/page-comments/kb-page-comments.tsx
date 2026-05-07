@@ -144,8 +144,16 @@ export function KbPageComments({
             | { id?: string; thread_id?: string }
             | undefined;
           if (!row?.id || !row.thread_id) return;
-          if (localCommentIds.current.has(row.id)) {
-            // Self-broadcast — UI уже актуален.
+          // Self-broadcast suppression — гасим ТОЛЬКО первый INSERT-echo
+          // нашего собственного оптимистично-добавленного коммента, чтобы
+          // не получить дубликат в UI. UPDATE/DELETE / реакции от других
+          // юзеров на этот же id должны проходить, иначе collaboration
+          // на нашем-же только что созданном комменте ломается.
+          if (
+            payload.eventType === "INSERT" &&
+            localCommentIds.current.has(row.id)
+          ) {
+            localCommentIds.current.delete(row.id);
             return;
           }
           // Lazy thread-kind проверка. Если thread не в page-set'е и
@@ -258,6 +266,13 @@ export function KbPageComments({
       ),
     );
   }, []);
+  /** Откат optimistic-delete'а: RPC упала, надо вернуть `deletedAt=null`,
+   *  иначе UI остаётся в tombstone хотя коммент живой в БД. */
+  const handleLocalRestore = useCallback((commentId: string) => {
+    setComments((prev) =>
+      prev.map((c) => (c.id === commentId ? { ...c, deletedAt: null } : c)),
+    );
+  }, []);
   const handleLocalReact = useCallback(
     (commentId: string, emoji: string, add: boolean) => {
       setComments((prev) =>
@@ -305,6 +320,7 @@ export function KbPageComments({
               currentUserAvatarUrl={currentUserAvatarUrl}
               onLocalUpdate={handleLocalUpdate}
               onLocalDelete={handleLocalDelete}
+              onLocalRestore={handleLocalRestore}
               onLocalReact={handleLocalReact}
             />
           ))}

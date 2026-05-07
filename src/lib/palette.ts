@@ -46,18 +46,30 @@ const PALETTE_NAMES: ReadonlySet<PaletteColor> = new Set(
   PALETTE_COLORS.map((c) => c.name),
 );
 
-/** Legacy → canonical. До миграции 113 в БД могут лежать
- *  lime/teal/cyan/indigo. Вызывается в каждом read-site (paletteText/Bg/Dot),
- *  чтобы UI показывал ближайший Notion-цвет даже до backfill'а. */
+/** Legacy → canonical. UI безопасен и до миграции в БД (113 — палитра
+ *  иконок, 115 — палитра property-options): любое легаси-значение
+ *  нормализуется в ближайший Notion-цвет на чтении.
+ *
+ *  Маппинг покрывает обе устаревших палитры:
+ *   • icon-палитра (lime/teal/cyan/indigo) — мигр. 113
+ *   • property-палитра (stone/amber/sky/teal/indigo) — мигр. 115
+ *
+ *  Пересечения по именам обрабатываются одинаково (teal→green,
+ *  indigo→purple) — обе палитры мигрируют в одну точку. */
 export function normalizePaletteColor(
   v: string | null | undefined,
 ): PaletteColor | null {
   if (!v) return null;
   if (PALETTE_NAMES.has(v as PaletteColor)) return v as PaletteColor;
   switch (v) {
+    case "stone":
+      return "gray";
+    case "amber":
+      return "brown";
     case "lime":
     case "teal":
       return "green";
+    case "sky":
     case "cyan":
       return "blue";
     case "indigo":
@@ -136,4 +148,15 @@ export function paletteDot(c: string | null | undefined): string {
     return "bg-transparent border border-border";
   }
   return DOT[n];
+}
+
+/** Класс для chip'а (фон + текст одной строкой) — для select-options
+ *  property-блоков, тегов и т.п. Сочетает paletteBg + paletteText.
+ *  Для default/null — нейтральный muted-chip (читается как «без цвета»). */
+export function paletteChip(c: string | null | undefined): string {
+  const n = normalizePaletteColor(c);
+  if (!n || n === "default") {
+    return "bg-muted text-foreground";
+  }
+  return `${BG[n]} ${TEXT[n]}`;
 }

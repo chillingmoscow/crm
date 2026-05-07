@@ -79,12 +79,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  KB_ICONS,
-  KB_ICON_COLORS,
-  colorTextClass,
-  type KbIconColor,
-} from "@/lib/knowledge/icons";
+  PALETTE_COLORS,
+  paletteChip,
+  paletteDot,
+} from "@/lib/palette";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
 import {
   formatWithUnit,
   unitSuffix,
@@ -135,56 +135,33 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   rating: "Рейтинг",
 };
 
-// Notion-style пастельная палитра. Хранятся имена в jsonb (см.
-// `KbPropertyColor`); UI мап'ит имя → tailwind-class-pair. Tailwind JIT
-// видит class'ы инлайн, не нужен safelist.
-const OPTION_COLOR_CLASSES: Record<KbPropertyColor, string> = {
-  stone:
-    "bg-stone-100 text-stone-700 dark:bg-stone-800/60 dark:text-stone-200",
-  amber:
-    "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-200",
-  orange:
-    "bg-orange-100 text-orange-800 dark:bg-orange-950/50 dark:text-orange-200",
-  yellow:
-    "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-200",
-  green:
-    "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-200",
-  teal: "bg-teal-100 text-teal-800 dark:bg-teal-950/50 dark:text-teal-200",
-  sky: "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-200",
-  indigo:
-    "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200",
-  purple:
-    "bg-purple-100 text-purple-800 dark:bg-purple-950/50 dark:text-purple-200",
-  pink: "bg-pink-100 text-pink-800 dark:bg-pink-950/50 dark:text-pink-200",
-};
+// Палитра option-chip'ов берётся из единого 10-цветного источника
+// `@/lib/palette` (Notion-style). Раньше тут жил отдельный 10-цветный
+// набор (stone/amber/sky/teal/indigo + …), не совпадающий ни с
+// BlockNote'ом, ни с iconColor'ами; миграция 115 + normalizePaletteColor
+// переводят легаси-значения в canonical на чтении.
+//
+// Tailwind JIT видит class'ы внутри `paletteChip` / `paletteDot` —
+// safelist не нужен.
+//
+// Для select-options префиксуем `default` тем же neutral-chip'ом,
+// что и paletteChip(null), чтобы юзерский «По умолчанию» выбор
+// читался единообразно.
 
-const OPTION_COLOR_NAMES = Object.keys(
-  OPTION_COLOR_CLASSES,
-) as KbPropertyColor[];
+// Хеш-FNV, выбирает цвет из палитры (без `default`) детерминированно
+// по value: «Высокий приоритет» всегда красится одинаково везде, где
+// появляется. Если юзер override'ит через picker — берём его.
+const HASH_PALETTE = PALETTE_COLORS.filter((c) => c.name !== "default").map(
+  (c) => c.name,
+) as Exclude<KbPropertyColor, "default">[];
 
-const OPTION_COLOR_LABELS: Record<KbPropertyColor, string> = {
-  stone: "Серый",
-  amber: "Янтарный",
-  orange: "Оранжевый",
-  yellow: "Жёлтый",
-  green: "Зелёный",
-  teal: "Бирюзовый",
-  sky: "Голубой",
-  indigo: "Индиго",
-  purple: "Фиолетовый",
-  pink: "Розовый",
-};
-
-// Дефолтный цвет для опции — детерминированный hash-FNV. Стабилен
-// между сессиями: «Высокий приоритет» всегда красится одинаково везде,
-// где появляется (если юзер не override'ил вручную).
 function colorNameForOption(value: string): KbPropertyColor {
   let h = 2166136261;
   for (let i = 0; i < value.length; i++) {
     h ^= value.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  return OPTION_COLOR_NAMES[Math.abs(h) % OPTION_COLOR_NAMES.length];
+  return HASH_PALETTE[Math.abs(h) % HASH_PALETTE.length];
 }
 
 /** Resolve финального цвета: explicit override > hash-fallback. */
@@ -192,7 +169,10 @@ function resolveOptionColor(
   value: string,
   explicit?: KbPropertyColor,
 ): string {
-  return OPTION_COLOR_CLASSES[explicit ?? colorNameForOption(value)];
+  // Если у explicit `default` — возвращаем нейтральный chip; для null/
+  // undefined падаем в hash. paletteChip сам нормализует legacy-имена
+  // (stone/amber/sky/teal/indigo) до миграции 115.
+  return paletteChip(explicit ?? colorNameForOption(value));
 }
 
 /** Цветной chip для select-option. `explicit` — если юзер вручную
@@ -1565,26 +1545,28 @@ function SelectControl({
                       )}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {OPTION_COLOR_NAMES.map((c) => {
-                      const isCurrent = property.optionColors?.[o] === c;
-                      return (
-                        <DropdownMenuItem
-                          key={c}
-                          onSelect={() => setOptionColor(o, c)}
-                        >
-                          <span
-                            className={cn(
-                              "size-3.5 shrink-0 rounded-full",
-                              OPTION_COLOR_CLASSES[c],
+                    {PALETTE_COLORS.filter((c) => c.name !== "default").map(
+                      (c) => {
+                        const isCurrent = property.optionColors?.[o] === c.name;
+                        return (
+                          <DropdownMenuItem
+                            key={c.name}
+                            onSelect={() => setOptionColor(o, c.name)}
+                          >
+                            <span
+                              className={cn(
+                                "size-3.5 shrink-0 rounded-full",
+                                paletteDot(c.name),
+                              )}
+                            />
+                            {c.label}
+                            {isCurrent && (
+                              <Check className="ml-auto size-3.5" />
                             )}
-                          />
-                          {OPTION_COLOR_LABELS[c]}
-                          {isCurrent && (
-                            <Check className="ml-auto size-3.5" />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
+                          </DropdownMenuItem>
+                        );
+                      },
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 <button
@@ -1641,15 +1623,16 @@ function SelectControl({
 /** Inline icon-trigger перед именем property. По дефолту показывает
  *  TYPE_ICONS[type] (default behavior до Stage 2). Если у property
  *  есть `icon` override — рендерится оно (Lucide-name из KB_ICONS) с
- *  опциональным `iconColor` тинтом. Click открывает Popover-picker:
- *  10 цветов + grid KB_ICONS + «По умолчанию» (сбросить override).
+ *  опциональным `iconColor` тинтом. Click открывает Popover с
+ *  `KbIconPickerBody` — тот же компонент, что у KB-страничного picker'а:
+ *  search + Random + color popover (10 цветов) + крестик «Отменить выбор».
  *
  *  Read-only режим (`!canEdit`): trigger некликабельный, выглядит как
  *  обычная иконка без интерактивности.
  *
- *  Намеренно НЕ переиспользуем `<KbIconPicker>` напрямую: его дефолтный
- *  fallback (FileText из KbPageIcon при `icon=null`) не подходит для
- *  property — мы хотим показать TYPE_ICONS[type] до override'а. */
+ *  Триггер у property маленький (20px) и fallback другой (TYPE_ICONS[type],
+ *  не File), поэтому не используем `<KbIconPicker>` целиком — только
+ *  его popover-body. */
 function PropertyIconButton({
   property,
   canEdit,
@@ -1660,16 +1643,6 @@ function PropertyIconButton({
   onChangeIcon: (icon: string | null, iconColor: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [pendingColor, setPendingColor] = useState<KbIconColor | null>(
-    (property.iconColor as KbIconColor | null) ?? null,
-  );
-
-  // Sync pendingColor при открытии — на случай rename'а извне.
-  useEffect(() => {
-    if (open) {
-      setPendingColor((property.iconColor as KbIconColor | null) ?? null);
-    }
-  }, [open, property.iconColor]);
 
   const TypeFallback = TYPE_ICONS[property.type];
   const hasOverride = Boolean(property.icon);
@@ -1688,7 +1661,11 @@ function PropertyIconButton({
     );
 
   if (!canEdit) {
-    return <span className="size-4 shrink-0 inline-flex items-center justify-center">{renderIcon(14)}</span>;
+    return (
+      <span className="size-4 shrink-0 inline-flex items-center justify-center">
+        {renderIcon(14)}
+      </span>
+    );
   }
 
   return (
@@ -1708,86 +1685,14 @@ function PropertyIconButton({
         align="start"
         side="bottom"
         sideOffset={6}
-        className="w-[320px] p-0 rounded-[10px]"
+        className="w-[380px] p-0 rounded-[10px]"
       >
-        <div className="flex items-center justify-between gap-2 px-3 pt-3 pb-2 border-b">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-            Цвет
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setPendingColor(null);
-              onChangeIcon(null, null);
-              setOpen(false);
-            }}
-            disabled={!hasOverride && !property.iconColor}
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40"
-          >
-            <X className="size-3" />
-            По умолчанию
-          </button>
-        </div>
-        <div className="flex items-center gap-1.5 flex-wrap px-3 py-2 border-b">
-          {KB_ICON_COLORS.map((c) => {
-            const isActive = pendingColor === c.name;
-            return (
-              <button
-                key={c.name}
-                type="button"
-                onClick={() => {
-                  setPendingColor(c.name);
-                  // Если icon уже set — apply сразу (preview = commit).
-                  if (property.icon) {
-                    onChangeIcon(property.icon, c.name);
-                  }
-                }}
-                title={c.label}
-                className={cn(
-                  "size-5 rounded-full border transition-all",
-                  isActive
-                    ? "border-foreground/60 ring-1 ring-foreground/20"
-                    : "border-border hover:border-foreground/30",
-                )}
-              >
-                <span
-                  className={cn(
-                    "block size-full rounded-full",
-                    colorTextClass(c.name),
-                  )}
-                  aria-hidden="true"
-                  style={{ backgroundColor: "currentColor" }}
-                />
-              </button>
-            );
-          })}
-        </div>
-        <div className="grid grid-cols-9 gap-0.5 px-2 py-2 max-h-[280px] overflow-y-auto">
-          {KB_ICONS.map((entry) => {
-            const isCurrent = property.icon === entry.name;
-            const Icon = entry.icon;
-            return (
-              <button
-                key={entry.name}
-                type="button"
-                onClick={() => {
-                  onChangeIcon(entry.name, pendingColor ?? null);
-                  setOpen(false);
-                }}
-                title={entry.label}
-                className={cn(
-                  "size-7 rounded inline-flex items-center justify-center transition-colors",
-                  isCurrent
-                    ? "bg-accent text-foreground"
-                    : "hover:bg-accent",
-                  pendingColor && colorTextClass(pendingColor),
-                )}
-              >
-                <Icon className="size-4" />
-              </button>
-            );
-          })}
-        </div>
+        <KbIconPickerBody
+          value={property.icon ?? null}
+          color={property.iconColor ?? null}
+          onChange={({ icon, color }) => onChangeIcon(icon, color)}
+          onCommitClose={() => setOpen(false)}
+        />
       </PopoverContent>
     </Popover>
   );
@@ -1976,26 +1881,28 @@ function MultiSelectControl({
                       )}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    {OPTION_COLOR_NAMES.map((c) => {
-                      const isCurrent = property.optionColors?.[o] === c;
-                      return (
-                        <DropdownMenuItem
-                          key={c}
-                          onSelect={() => setOptionColor(o, c)}
-                        >
-                          <span
-                            className={cn(
-                              "size-3.5 shrink-0 rounded-full",
-                              OPTION_COLOR_CLASSES[c],
+                    {PALETTE_COLORS.filter((c) => c.name !== "default").map(
+                      (c) => {
+                        const isCurrent = property.optionColors?.[o] === c.name;
+                        return (
+                          <DropdownMenuItem
+                            key={c.name}
+                            onSelect={() => setOptionColor(o, c.name)}
+                          >
+                            <span
+                              className={cn(
+                                "size-3.5 shrink-0 rounded-full",
+                                paletteDot(c.name),
+                              )}
+                            />
+                            {c.label}
+                            {isCurrent && (
+                              <Check className="ml-auto size-3.5" />
                             )}
-                          />
-                          {OPTION_COLOR_LABELS[c]}
-                          {isCurrent && (
-                            <Check className="ml-auto size-3.5" />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
+                          </DropdownMenuItem>
+                        );
+                      },
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 <button

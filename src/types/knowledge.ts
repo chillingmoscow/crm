@@ -72,21 +72,13 @@ export type KbPropertyType =
   | "url"
   | "rating";
 
-/** 10-цветная палитра для select-options. Имена — а не tailwind-class'ы —
- *  чтобы хранить в jsonb компактно и стабильно (rename класса в палитре
- *  не ломает уже сохранённые свойства). Mapping name → tailwind class —
- *  на стороне UI (см. `kb-page-properties.tsx`). */
-export type KbPropertyColor =
-  | "stone"
-  | "amber"
-  | "orange"
-  | "yellow"
-  | "green"
-  | "teal"
-  | "sky"
-  | "indigo"
-  | "purple"
-  | "pink";
+/** Палитра для select-options. Имена — а не tailwind-class'ы — чтобы
+ *  хранить в jsonb компактно и стабильно (rename класса в палитре не
+ *  ломает уже сохранённые свойства). С версии 115 миграции — alias
+ *  для `PaletteColor` из `@/lib/palette` (единая 10-цветная палитра
+ *  Notion-style). Маппинг легаси-имён (stone/amber/sky/teal/indigo)
+ *  выполняется через `normalizePaletteColor` на чтении. */
+export type KbPropertyColor = import("@/lib/palette").PaletteColor;
 
 /** Icon override на уровне property. Lucide-name (см. `KB_ICONS`
  *  в src/lib/knowledge/icons.ts). Если не задан — UI рендерит default

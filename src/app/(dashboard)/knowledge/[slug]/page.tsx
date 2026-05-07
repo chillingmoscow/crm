@@ -157,13 +157,11 @@ export default async function KbPageView({ params }: PageProps) {
   const canLock = hasLockPages;
   const canViewAnalytics = hasViewAnalytics;
 
-  // Effective edit-permission: если страница заблокирована — editor
-  // read-only ДЛЯ ВСЕХ, включая admin'а с kb.lock_pages. Чтобы edit'ить
-  // надо явно разблокировать через banner-кнопку. Backend RPC
-  // kb_save_page (миграция 086) отвергает любой write на locked-странице.
+  // Effective edit-permission: если страница глобально заблокирована —
+  // editor открывается read-only, но юзер с edit-правом может включить
+  // локальный Notion-style режим «Редактировать» без записи в БД.
   // KbPageEditor + KbPageMenu принимают `canEditBase` + `initialLocked`
-  // отдельно и считают effective сами через page-state-overrides-store —
-  // так они реагируют на toggle Lock мгновенно, без router.refresh.
+  // отдельно и считают effective сами через page-state-overrides-store.
   const isLocked = row.locked_at !== null;
 
   // AI slash-команды: двойной gate. UI-уровень — чтобы не показывать
@@ -314,6 +312,7 @@ export default async function KbPageView({ params }: PageProps) {
             deletedMentionSlugs={deletedMentionSlugs}
             canEditBase={canEditBase}
             initialLocked={isLocked}
+            canLock={canLock}
             canCreate={hasCreate}
             aiSlashEnabled={aiSlashEnabled}
             canComment={hasComment}

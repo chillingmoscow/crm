@@ -132,12 +132,9 @@ export async function importKbPageFromMarkdown(input: {
     return { imported: null, error: "Не удалось сгенерировать уникальный slug" };
   }
 
-  // Defensive: гарантируем что свежесозданная страница НЕ заблокирована.
-  // Прецедент с импортом Notion-zip'а: импортированные страницы массово
-  // получали locked_at != null (root cause не локализован — возможно
-  // legacy trigger в чьей-то prod-БД), и kb_save_page (086 strict lock)
-  // отвергал любые правки. INSERT по умолчанию должен оставлять
-  // locked_at=null, но прямой UPDATE гарантирует это инвариант на любом
+  // Defensive: гарантируем что свежесозданная импортом страница НЕ
+  // заблокирована. INSERT по умолчанию должен оставлять locked_at=null,
+  // но прямой UPDATE сохраняет этот продуктовый инвариант на любом
   // окружении.
   await supabase
     .from("kb_pages")

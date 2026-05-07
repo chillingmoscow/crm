@@ -163,6 +163,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const required =
     stateOverride?.requiredReading ?? props.initialRequiredReading;
   const locked = stateOverride?.locked ?? props.initialLocked;
+  const localUnlocked = stateOverride?.localUnlocked === true;
   const [favorited, setFavorited] = useState(props.initialFavorited);
   // Sync favorited на pageId-change — компонент НЕ remount'ится (живёт
   // в PageHeaderActions slot'е через context), useState без явного sync
@@ -195,12 +196,13 @@ export function KbPageMenu(props: KbPageMenuProps) {
     return editor.onChange(() => editorTick((t) => t + 1));
   }, [editor, menuOpen]);
 
-  // Effective canEdit учитывает свежий lock-state из override-store.
+  // Effective canEdit учитывает свежий lock-state + локальный
+  // Notion-style unlock из override-store.
   // props.canEdit передаётся как уже-resolved (canEditBase && !initialLocked),
   // но не учитывает override от toggle'а; для undo/redo и version-restore
   // нам нужно эффективное значение. canEditBase отдельным prop'ом —
   // тот же паттерн что в KbPageEditor (см. PR #154). Codex P2 на #161.
-  const effectiveCanEdit = props.canEditBase && !locked;
+  const effectiveCanEdit = props.canEditBase && (!locked || localUnlocked);
   const undoEnabled =
     editor && effectiveCanEdit && undoDepth(editor._tiptapEditor.state) > 0;
   const redoEnabled =
@@ -248,12 +250,16 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
   const onToggleLock = async () => {
     const next = !locked;
-    setKbPageStateOverride(props.pageId, { locked: next });
+    const prevLocalUnlocked = localUnlocked;
+    setKbPageStateOverride(props.pageId, {
+      locked: next,
+      localUnlocked: false,
+    });
     setLockPending(true);
     if (next) {
-      // Перед lock'ом — ждём pending-save'а, иначе strict-lock guard в
-      // kb_save_page (миграция 086) reject'ит последний flush на 42501
-      // и unsaved edits теряются. См. Codex #65 P2.
+      // Перед global lock'ом — ждём pending-save'а, иначе пользователь
+      // может визуально выйти из edit-mode до того как последний flush
+      // успел уйти на сервер.
       try {
         await flushAllPendingSaves();
       } catch {
@@ -267,7 +273,10 @@ export function KbPageMenu(props: KbPageMenuProps) {
     });
     setLockPending(false);
     if (error) {
-      setKbPageStateOverride(props.pageId, { locked: !next });
+      setKbPageStateOverride(props.pageId, {
+        locked: !next,
+        localUnlocked: prevLocalUnlocked,
+      });
       toast.error(`Не удалось переключить блокировку: ${error}`);
       return;
     }
@@ -423,7 +432,9 @@ export function KbPageMenu(props: KbPageMenuProps) {
               ) : (
                 <Unlock className="size-4 shrink-0" />
               )}
-              <span className="flex-1">Заблокировать</span>
+              <span className="flex-1">
+                {locked ? "Заблокировано" : "Заблокировать"}
+              </span>
               <Switch
                 checked={locked}
                 disabled={lockPending}

@@ -24,9 +24,12 @@ import { useSyncExternalStore } from "react";
  */
 
 export interface KbPageStateOverride {
-  /** Lock-флаг. true = страница заблокирована (canEdit=false для всех).
+  /** Глобальный lock-флаг. true = страница открывается read-only.
    *  undefined = используем server-значение `row.locked_at !== null`. */
   locked?: boolean;
+  /** Локальная Notion-style разблокировка только для текущей вкладки.
+   *  Не пишется в БД и сбрасывается на navigation/reload. */
+  localUnlocked?: boolean;
   /** Required-reading флаг (admin toggle). undefined = используем server. */
   requiredReading?: boolean;
 }
@@ -70,10 +73,13 @@ export function setKbPageStateOverride(
   if (prev) {
     const sameLock =
       patch.locked === undefined || prev.locked === patch.locked;
+    const sameLocalUnlock =
+      patch.localUnlocked === undefined ||
+      prev.localUnlocked === patch.localUnlocked;
     const sameReq =
       patch.requiredReading === undefined ||
       prev.requiredReading === patch.requiredReading;
-    if (sameLock && sameReq) return;
+    if (sameLock && sameLocalUnlock && sameReq) return;
   }
   overrides.set(pageId, { ...prev, ...patch });
   emit();

@@ -30,8 +30,6 @@ import {
   restoreKbPageVersion,
   type KbPageVersionWithAuthor,
 } from "@/lib/knowledge/versions";
-import { blocksToPlainText } from "@/lib/knowledge/plain-text";
-import type { KbBlock } from "@/types/knowledge";
 
 interface KbVersionHistoryProps {
   pageId: string;
@@ -110,14 +108,13 @@ export function KbVersionHistory({
   const groups = useMemo(() => {
     if (!rows) return null;
     const enriched: EnrichedVersion[] = rows.map((row, idx) => {
-      const text = blocksToPlainText(row.content as unknown as KbBlock[]);
+      const textLength = row.text_length ?? row.plain_text.length;
       const prev = rows[idx + 1];
       let delta: number | null = null;
       if (prev) {
-        const prevText = blocksToPlainText(prev.content as unknown as KbBlock[]);
-        delta = text.length - prevText.length;
+        delta = textLength - (prev.text_length ?? prev.plain_text.length);
       }
-      return { ...row, textLength: text.length, delta };
+      return { ...row, textLength, delta };
     });
     return groupByDay(enriched);
   }, [rows]);
@@ -270,17 +267,17 @@ function authorName(a: { first_name: string | null; last_name: string | null }):
   return parts.length > 0 ? parts.join(" ") : "—";
 }
 
-/** Two-line preview of the version's content, derived from BlockNote
- * blocks via the same plain-text walker used for FTS. */
-function ContentSnippet({ content }: { content: KbBlock[] }) {
-  const text = blocksToPlainText(content);
-  if (!text) return null;
+/** Two-line preview from the lightweight plain_text snapshot. */
+function ContentSnippet({ plainText }: { plainText: string }) {
+  if (!plainText) return null;
+  const snippet =
+    plainText.length > 240 ? `${plainText.slice(0, 240).trimEnd()}...` : plainText;
   return (
     <p
       className="text-xs text-muted-foreground line-clamp-2"
-      title={text}
+      title={snippet}
     >
-      {text}
+      {snippet}
     </p>
   );
 }
@@ -347,7 +344,7 @@ function VersionRow({
             </span>
           )}
         </div>
-        <ContentSnippet content={row.content as unknown as KbBlock[]} />
+        <ContentSnippet plainText={row.plain_text} />
         <p className="text-xs text-muted-foreground">
           {format(created, "HH:mm", { locale: ru })}
           {row.author && (

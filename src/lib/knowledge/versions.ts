@@ -5,11 +5,24 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { kbVersionRestoreSchema } from "@/lib/knowledge/schemas";
 import { saveKbPage } from "@/lib/knowledge/pages";
-import type { KbPageVersionRow } from "@/types/knowledge";
+import { blocksToPlainText } from "@/lib/knowledge/plain-text";
+import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
 
 /** Author info embedded into version rows so the UI can show who saved
  * the snapshot. Mirrors the `profiles` columns we read in get-name. */
-export type KbPageVersionWithAuthor = KbPageVersionRow & {
+type KbPageVersionSummaryRow = Pick<
+  KbPageVersionRow,
+  | "id"
+  | "page_id"
+  | "version_number"
+  | "title"
+  | "plain_text"
+  | "text_length"
+  | "created_at"
+  | "created_by"
+>;
+
+export type KbPageVersionWithAuthor = KbPageVersionSummaryRow & {
   author: { first_name: string | null; last_name: string | null } | null;
 };
 
@@ -24,14 +37,14 @@ export async function listKbPageVersions(pageId: string): Promise<{
   const { data, error } = await supabase
     .from("kb_page_versions")
     .select(
-      "*, author:profiles!kb_page_versions_created_by_fkey(first_name, last_name)",
+      "id, page_id, version_number, title, plain_text, text_length, created_at, created_by, author:profiles!kb_page_versions_created_by_fkey(first_name, last_name)",
     )
     .eq("page_id", pageId)
     .order("version_number", { ascending: false });
   if (error) return { rows: [], error: error.message };
 
   // PostgREST embeds single-FK relationships as objects (not arrays).
-  type Embedded = KbPageVersionRow & {
+  type Embedded = KbPageVersionSummaryRow & {
     author: { first_name: string | null; last_name: string | null } | null;
   };
   return { rows: (data ?? []) as unknown as Embedded[], error: null };
@@ -71,21 +84,26 @@ export async function restoreKbPageVersion(
   const supabase = await createClient();
   const { data: version, error: vErr } = await supabase
     .from("kb_page_versions")
-    .select("title, content")
+    .select("title, content, plain_text")
     .eq("page_id", parsed.data.page_id)
     .eq("version_number", parsed.data.version_number)
     .maybeSingle();
   if (vErr) return { error: vErr.message, new_version_number: null };
   if (!version) return { error: "Версия не найдена", new_version_number: null };
 
+  const content = (version as { content: unknown }).content as KbBlock[];
+  const storedPlainText = (version as { plain_text?: string | null }).plain_text;
+  const plainText =
+    typeof storedPlainText === "string" && storedPlainText.length > 0
+      ? storedPlainText
+      : blocksToPlainText(content);
+
   // Reuse saveKbPage so the snapshot/backlinks logic runs uniformly.
-  // We don't have a stored plain_text in the version row, so pass an
-  // empty string — the next live edit will repopulate it.
   const result = await saveKbPage({
     id: parsed.data.page_id,
     title: (version as { title: string }).title,
-    content: (version as { content: unknown }).content as never,
-    plain_text: "",
+    content,
+    plain_text: plainText,
   });
   if (result.error) return { error: result.error, new_version_number: null };
 

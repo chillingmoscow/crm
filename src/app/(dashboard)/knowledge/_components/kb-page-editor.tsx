@@ -51,7 +51,13 @@ const KbThreadGutterIndicators = dynamic(
 );
 import type { BlockNoteEditor as BlockNoteEditorType } from "@blocknote/core";
 import type { KbBlock, KbProperty } from "@/types/knowledge";
-import { KbPageProperties } from "@/app/(dashboard)/knowledge/_components/kb-page-properties";
+const KbPageProperties = dynamic(
+  () =>
+    import("@/app/(dashboard)/knowledge/_components/kb-page-properties").then(
+      (m) => m.KbPageProperties,
+    ),
+  { ssr: false, loading: () => null },
+);
 // Page-level Comments — Notion-style top-level discussion. Рендерится
 // между properties и body. Не зависит от BlockNote ThreadStore (это
 // inline-комментарии); работает напрямую c kb_threads (kind='page') +
@@ -289,6 +295,7 @@ export function KbPageEditor({
   // чтобы хук useExtension(CommentsExtension) не срабатывал на страницах
   // без комментариев.
   const hasComments = commentsBundle !== null;
+  const shouldRenderProperties = canEdit || initialProperties.length > 0;
   const renderExtras = useCallback(
     (editor: BlockNoteEditorType) => (
       <>
@@ -413,12 +420,14 @@ export function KbPageEditor({
           между title и content. Свой save-цикл (saveKbPageProperties),
           не идёт через scheduleSave editor'а — независимый UPDATE
           колонки `properties`. */}
-      <KbPageProperties
-        targetId={pageId}
-        mode="page"
-        initialProperties={initialProperties}
-        canEdit={canEdit}
-      />
+      {shouldRenderProperties && (
+        <KbPageProperties
+          targetId={pageId}
+          mode="page"
+          initialProperties={initialProperties}
+          canEdit={canEdit}
+        />
+      )}
 
       {/* Page-level Comments (Notion-style discussion). Между properties
           и body — соответствует Notion'овскому расположению. Render-gate
@@ -428,7 +437,6 @@ export function KbPageEditor({
       {accountId && userId && (
         <KbPageComments
           pageId={pageId}
-          accountId={accountId}
           userId={userId}
           currentUserName={currentUserName}
           currentUserAvatarUrl={currentUserAvatarUrl}

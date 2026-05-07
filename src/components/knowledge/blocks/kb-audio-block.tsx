@@ -16,17 +16,20 @@
  */
 import { audioParse, createAudioBlockConfig } from "@blocknote/core";
 import {
-  AudioPreview,
   AudioToExternalHTML,
   FileBlockWrapper,
   createReactBlockSpec,
   type ReactCustomBlockRenderProps,
+  useResolveUrl,
 } from "@blocknote/react";
 import { MoreHorizontal, Volume2 } from "lucide-react";
 
 import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
 import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
 import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
+import { useCachedAudioBlobUrl } from "@/lib/knowledge/use-audio-blob-cache";
+
+const KB_FILE_SCHEME = "kbfile://";
 
 /** Wrapping-компонент: BN-default `<AudioPreview>` + наша «⋯»-кнопка
  *  в углу. Кнопка click → setNodeSelection через raw PM (BN-овский
@@ -80,18 +83,35 @@ function KbAudioPreviewWithMenu(
     }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const previewProps = props as any;
-  // key={url}: HTML5 `<audio>` не перечитывает src при изменении атрибута
-  // через React (нужно audio.load(), которое BN-овский AudioPreview не
-  // вызывает). Меняя key мы force-remount'им элемент на каждое новое
-  // url → старый stream сбрасывается, новый загружается. Без этого
-  // юзер кликал «Заменить» → upload новый файл, но плеер продолжал
-  // играть старый. (Юзер-фидбек: «Замена аудиофайлов не работает».)
   const audioUrl = props.block.props.url ?? "";
+  const resolved = useResolveUrl(audioUrl);
+  const storagePath = audioUrl.startsWith(KB_FILE_SCHEME)
+    ? audioUrl.slice(KB_FILE_SCHEME.length)
+    : null;
+  const sourceUrl =
+    resolved.loadingState === "loading" ? null : (resolved.downloadUrl ?? null);
+  const cached = useCachedAudioBlobUrl({
+    storagePath,
+    sourceUrl,
+  });
+  const src =
+    storagePath && cached.url
+      ? cached.url
+      : resolved.loadingState === "loading"
+        ? audioUrl
+        : (resolved.downloadUrl ?? audioUrl);
+
   return (
     <div className="kb-audio-native" contentEditable={false}>
-      <AudioPreview key={audioUrl} {...previewProps} />
+      <audio
+        key={src}
+        className="bn-visual-media"
+        src={src}
+        controls
+        preload="metadata"
+        contentEditable={false}
+        draggable={false}
+      />
       <button
         type="button"
         // Отдельный CSS-class от kb-video-menu-btn: для аудио кнопка

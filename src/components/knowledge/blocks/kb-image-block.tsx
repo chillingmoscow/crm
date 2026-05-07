@@ -10,17 +10,20 @@
  */
 import { createImageBlockConfig, imageParse } from "@blocknote/core";
 import {
-  ImagePreview,
   ImageToExternalHTML,
   ResizableFileBlockWrapper,
   createReactBlockSpec,
   type ReactCustomBlockRenderProps,
+  useResolveUrl,
 } from "@blocknote/react";
 import { Image as ImageIcon } from "lucide-react";
 
 import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
 import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
 import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
+import { useCachedImagePreviewUrl } from "@/lib/knowledge/use-image-preview-cache";
+
+const KB_FILE_SCHEME = "kbfile://";
 
 function KbImageBlock(
   props: ReactCustomBlockRenderProps<typeof createImageBlockConfig>,
@@ -61,8 +64,58 @@ function KbImageBlock(
       {...wrapperProps}
       buttonIcon={<ImageIcon size={24} strokeWidth={1.5} />}
     >
-      <ImagePreview {...wrapperProps} />
+      <KbImagePreview {...wrapperProps} />
     </ResizableFileBlockWrapper>
+  );
+}
+
+function KbImagePreview(
+  props: Omit<
+    ReactCustomBlockRenderProps<typeof createImageBlockConfig>,
+    "contentRef"
+  >,
+) {
+  const url = props.block.props.url ?? "";
+  const resolved = useResolveUrl(url);
+  const storagePath = url.startsWith(KB_FILE_SCHEME)
+    ? url.slice(KB_FILE_SCHEME.length)
+    : null;
+  const sourceUrl =
+    resolved.loadingState === "loading" ? null : (resolved.downloadUrl ?? null);
+  const preview = useCachedImagePreviewUrl({
+    storagePath,
+    sourceUrl,
+  });
+
+  if (storagePath && preview.status === "loading" && !preview.url) {
+    return (
+      <div
+        className="bn-visual-media bg-muted/40"
+        aria-label="Загружаем превью изображения"
+        contentEditable={false}
+      />
+    );
+  }
+
+  const src =
+    storagePath && preview.url
+      ? preview.url
+      : resolved.loadingState === "loading"
+        ? url
+        : (resolved.downloadUrl ?? url);
+
+  return (
+    // Blob/signed URLs are editor-local and not compatible with next/image.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      className="bn-visual-media"
+      src={src}
+      alt={props.block.props.caption || "BlockNote image"}
+      loading="lazy"
+      decoding="async"
+      contentEditable={false}
+      draggable={false}
+    />
   );
 }
 

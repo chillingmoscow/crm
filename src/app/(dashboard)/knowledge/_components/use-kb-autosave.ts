@@ -157,6 +157,7 @@ export function useKbAutosave({
   const isFirstEditorEventRef = useRef(true);
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasPendingChangesRef = useRef(false);
   // In-flight save tracker. Хранит Promise активного `saveKbPage`
   // (или null если ничего не сохраняется). См. Codex P1 на PR #148:
   // boolean-флаг + early-return мог терять правки при race'е с
@@ -192,6 +193,7 @@ export function useKbAutosave({
       lastSavedHashRef.current ?? snapshotHash(lastSavedSnapshotRef.current);
     if (newHash === lastSavedHash) {
       lastSavedHashRef.current = lastSavedHash;
+      hasPendingChangesRef.current = false;
       const cur = getKbSaveState();
       if (cur.kind === "pending") setKbSaveState({ kind: "idle" });
       return;
@@ -232,6 +234,7 @@ export function useKbAutosave({
         toast.error(`Не удалось сохранить: ${error}`);
         return;
       }
+      hasPendingChangesRef.current = false;
       lastSavedHashRef.current = newHash;
       lastSavedSnapshotRef.current = currentSnapshot;
 
@@ -267,9 +270,12 @@ export function useKbAutosave({
   // canSave gate. canEdit (обычный editable) или canComment
   // (locked-страница, save идёт через kb_save_page_comment_only).
   const canSave = canEdit || canComment;
-  const scheduleSave = useCallback(() => {
+  const scheduleSave = useCallback((options?: { showPending?: boolean }) => {
     if (!canSave) return;
-    setKbSaveState({ kind: "pending" });
+    hasPendingChangesRef.current = true;
+    if (options?.showPending !== false) {
+      setKbSaveState({ kind: "pending" });
+    }
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       void flush();
@@ -313,7 +319,11 @@ export function useKbAutosave({
         lastSavedHashRef.current = null;
         return;
       }
-      scheduleSave();
+      // Не показываем "Не сохранено" до debounce-flush для body-
+      // изменений: BlockNote иногда шлёт служебный onChange с тем же
+      // snapshot сразу после save. Flush ниже сравнит hash и тихо
+      // сбросит false dirty-state без мигания бейджа.
+      scheduleSave({ showPending: false });
     },
     [scheduleSave],
   );
@@ -352,7 +362,7 @@ export function useKbAutosave({
     if (!canEdit) return;
     const handler = (e: BeforeUnloadEvent) => {
       const k = getKbSaveState().kind;
-      if (k === "pending" || k === "saving") {
+      if (hasPendingChangesRef.current || k === "pending" || k === "saving") {
         e.preventDefault();
         e.returnValue = "";
       }

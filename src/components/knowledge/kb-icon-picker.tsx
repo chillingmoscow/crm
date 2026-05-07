@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Check, Shuffle, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -10,8 +10,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
 import {
   PALETTE_COLORS,
   paletteDot,
@@ -32,52 +30,26 @@ interface KbIconPickerProps {
   triggerSize?: number;
 }
 
-const ASK_EVERY_TIME_KEY = "kb-icon-picker.ask-every-time";
-
-/** Прочитать localStorage флаг (с SSR-safe fallback'ом). */
-function readAskEveryTime(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.localStorage.getItem(ASK_EVERY_TIME_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeAskEveryTime(v: boolean) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(ASK_EVERY_TIME_KEY, v ? "1" : "0");
-  } catch {
-    /* ignore */
-  }
-}
-
 /**
  * Notion-style picker иконки KB-страницы.
  *
  * Layout:
  *   ┌─────────────────────────────────────────────────────┐
- *   │ [search input]  [🎲]  [●]              [✕ Убрать]  │  ← header row
+ *   │ [search input]   [🎲]   [●]                  [✕]   │  ← header row
  *   ├─────────────────────────────────────────────────────┤
  *   │  Lucide-иконки (8 в ряд) — фильтруются по запросу   │
  *   └─────────────────────────────────────────────────────┘
  *
- * Color popover (вложенный, открывается от ●):
- *   • 5×2 grid палитры с галочкой на активном
- *   • Switch «Спрашивать каждый раз»
+ * Color popover (вложенный, открывается от ●): 5×2 grid палитры с
+ * галочкой на активном цвете. Random выбирает случайную иконку и
+ * случайный цвет из 10-палитры.
  *
- * Семантика «Спрашивать каждый раз»:
- *   • OFF (default): кнопка Random выбирает случайную иконку И случайный цвет
- *   • ON: Random берёт текущий pendingColor (юзер сначала выбрал цвет вручную)
- *   • TODO: gated-commit (заставлять выбрать цвет ПЕРЕД иконкой) — отдельный
- *     state-machine, в MVP сознательно не делаем.
+ * Color сохраняется как PaletteColor name. `'default'` = явный
+ * пользовательский выбор «без тинта» (визуально как foreground); `null`
+ * = ничего не выбирали.
  *
- * Color сохраняется как PaletteColor name. `'default'` = явный пользовательский
- * выбор «без тинта» (визуально как foreground); `null` = ничего не выбирали
- * (тоже foreground, но не commit'ится через onChange как явный сигнал).
- *
- * Кнопка «Убрать» сбрасывает icon и color → fallback File в KbPageIcon.
+ * Кнопка-крестик справа сбрасывает icon и color → fallback File в
+ * KbPageIcon. Disabled когда нечего сбрасывать.
  */
 export function KbIconPicker({
   value,
@@ -92,14 +64,7 @@ export function KbIconPicker({
   const [pendingColor, setPendingColor] = useState<PaletteColor | null>(
     (color as PaletteColor | null) ?? null,
   );
-  const [askEveryTime, setAskEveryTime] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
-
-  // На mount читаем флаг из localStorage. Делаем в useEffect чтобы избежать
-  // hydration-mismatch (SSR не имеет доступа к storage).
-  useEffect(() => {
-    setAskEveryTime(readAskEveryTime());
-  }, []);
 
   // Filter иконки по запросу. Case-insensitive, по label И name.
   const filteredIcons = useMemo(() => {
@@ -135,26 +100,20 @@ export function KbIconPicker({
   const onPickColor = (c: PaletteColor) => {
     setPendingColor(c);
     // Если иконка уже выбрана — применяем цвет немедленно
-    // (preview = commit для существующей иконки). Это сохраняет UX
-    // предыдущей версии picker'а.
+    // (preview = commit для существующей иконки).
     if (value) onChange({ icon: value, color: c });
   };
 
+  /** Random реролит и иконку, и цвет (любой кроме default). */
   const onRandom = () => {
     const pool = filteredIcons.length > 0 ? filteredIcons : KB_ICONS;
     const randomIcon = pool[Math.floor(Math.random() * pool.length)];
     if (!randomIcon) return;
-    // Если askEveryTime ВЫКЛ — реролл и цвет (любой кроме default).
-    // Если ВКЛ — оставляем pendingColor (юзер хотел сначала задать сам).
-    let finalColor = pendingColor;
-    if (!askEveryTime) {
-      const colorPool = PALETTE_COLORS.filter((c) => c.name !== "default");
-      const picked =
-        colorPool[Math.floor(Math.random() * colorPool.length)]?.name ?? null;
-      finalColor = picked;
-      setPendingColor(picked);
-    }
-    onPickIcon(randomIcon.name, finalColor);
+    const colorPool = PALETTE_COLORS.filter((c) => c.name !== "default");
+    const picked =
+      colorPool[Math.floor(Math.random() * colorPool.length)]?.name ?? null;
+    setPendingColor(picked);
+    onPickIcon(randomIcon.name, picked);
   };
 
   const onClear = () => {
@@ -163,10 +122,7 @@ export function KbIconPicker({
     setOpen(false);
   };
 
-  const onToggleAskEveryTime = (next: boolean) => {
-    setAskEveryTime(next);
-    writeAskEveryTime(next);
-  };
+  const canClear = Boolean(value || color);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -198,8 +154,8 @@ export function KbIconPicker({
         sideOffset={6}
         className="w-[380px] p-0 rounded-[10px]"
       >
-        {/* Header row: search + random + color swatch + remove */}
-        <div className="flex items-center gap-2 px-2 py-2 border-b">
+        {/* Header row: search + random + color swatch + clear */}
+        <div className="flex items-center gap-1.5 px-2 py-2 border-b">
           <Input
             ref={searchRef}
             value={query}
@@ -276,27 +232,17 @@ export function KbIconPicker({
                   );
                 })}
               </div>
-              <Separator className="my-3" />
-              <label className="flex items-center justify-between gap-3 cursor-pointer">
-                <span className="text-sm text-foreground">
-                  Спрашивать каждый раз
-                </span>
-                <Switch
-                  checked={askEveryTime}
-                  onCheckedChange={onToggleAskEveryTime}
-                />
-              </label>
             </PopoverContent>
           </Popover>
           <button
             type="button"
             onClick={onClear}
-            disabled={!value && !color}
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-40 disabled:hover:text-muted-foreground shrink-0 px-1"
-            title="Убрать иконку"
+            disabled={!canClear}
+            aria-label="Отменить выбор"
+            title="Отменить выбор"
+            className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
           >
-            <X className="size-3" />
-            Убрать
+            <X className="size-4" />
           </button>
         </div>
 

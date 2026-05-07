@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { normalizePaletteColor } from "@/lib/palette";
+
 // Loosely typed BlockNote block. We don't validate the inner shape —
 // BlockNote's runtime is the source of truth and a strict schema would
 // reject any block we didn't anticipate. We just gate the outer
@@ -63,18 +65,35 @@ const kbPropertyBase = {
   iconColor: z.string().trim().max(16).optional(),
 };
 
-const kbPropertyColorEnum = z.enum([
-  "stone",
-  "amber",
-  "orange",
-  "yellow",
-  "green",
-  "teal",
-  "sky",
-  "indigo",
-  "purple",
-  "pink",
-]);
+// Унифицированная Notion-10 палитра (см. src/lib/palette.ts) + legacy-
+// имена для совместимости с jsonb до миграции 115. Принимаем оба
+// набора, но через `.transform()` нормализуем легаси в canonical, чтобы
+// внешний тип (KbPropertyColor = PaletteColor) был узким.
+//
+// После одного deploy-цикла после 115 legacy-токены можно вычистить из
+// списка. До тех пор: parse не падает на legacy, но возвращает уже
+// canonical PaletteColor.
+const kbPropertyColorEnum = z
+  .enum([
+    // Canonical Notion-10
+    "default",
+    "gray",
+    "brown",
+    "orange",
+    "yellow",
+    "green",
+    "blue",
+    "purple",
+    "pink",
+    "red",
+    // Legacy (до миграции 115).
+    "stone",
+    "amber",
+    "teal",
+    "sky",
+    "indigo",
+  ])
+  .transform((v) => normalizePaletteColor(v) ?? "default");
 
 // Unit (Stage 4) — discriminated union из shared `src/lib/units/`.
 // Здесь дублируем shape-валидацией. Если палитра валют изменится,

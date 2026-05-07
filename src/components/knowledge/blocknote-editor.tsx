@@ -51,6 +51,7 @@ import {
   ListChecks,
   ListCollapse,
   FilePlus,
+  Smile,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -82,6 +83,10 @@ import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-pag
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
 import { KbFloatingComposer } from "@/components/knowledge/blocks/kb-floating-composer";
 import { KbFloatingThread } from "@/components/knowledge/blocks/kb-floating-thread";
+import {
+  KbEmojiPickerOverlay,
+  openKbEmojiPicker,
+} from "@/components/knowledge/blocks/kb-emoji-picker";
 import { KbAiFormattingButton } from "@/app/(dashboard)/knowledge/_components/kb-ai-formatting-button";
 import { KbSlashMenu } from "@/app/(dashboard)/knowledge/_components/kb-slash-menu";
 import { KbFilePanel } from "@/app/(dashboard)/knowledge/_components/kb-file-panel";
@@ -254,6 +259,45 @@ function getKbNewPageSlashItem(onCreate: () => void) {
     group: "Базовые блоки",
     icon: <FilePlus className="size-4 text-brand" />,
     onItemClick: onCreate,
+  };
+}
+
+/** Slash-item «Эмодзи» — открывает Notion-style emoji-picker overlay
+ *  (kb-emoji-picker.tsx). После выбора эмодзи вставляется в текущий
+ *  блок через editor.insertInlineContent. Picker — отдельный popover,
+ *  не растягиваем slash-меню эмодзи-grid'ом (BN list flat и не
+ *  поддерживает категории, поэтому для эмодзи рендерим свой UI). */
+function getKbEmojiSlashItem(editor: BlockNoteEditor<never, never, never>) {
+  return {
+    title: "Эмодзи",
+    subtext: "Вставить эмодзи в текст",
+    aliases: ["emoji", "эмодзи", "smile", "смайл"],
+    group: "Прочее",
+    icon: <Smile className="size-4 text-brand" />,
+    onItemClick: () => {
+      // Координата каретки — берём bounding rect view'а на posBefore.
+      // Если selection пуст или в неподходящем месте, fallback к centre
+      // viewport'а (overlay сам clamp'нется).
+      let anchor: { x: number; y: number } = {
+        x: window.innerWidth / 2 - 180,
+        y: window.innerHeight / 2 - 200,
+      };
+      try {
+        const view = (
+          editor as unknown as { prosemirrorView?: { coordsAtPos: (pos: number) => { left: number; top: number; bottom: number } } }
+        ).prosemirrorView;
+        const sel = (
+          editor as unknown as { _tiptapEditor?: { state: { selection: { from: number } } } }
+        )._tiptapEditor?.state.selection;
+        if (view && sel) {
+          const c = view.coordsAtPos(sel.from);
+          anchor = { x: c.left, y: c.bottom };
+        }
+      } catch {
+        /* ignore — fallback к центру viewport'а */
+      }
+      openKbEmojiPicker(editor as unknown as BlockNoteEditor, anchor);
+    },
   };
 }
 
@@ -900,6 +944,7 @@ export function KbBlockNoteEditor({
             const newPageItem = onCreateNestedPage
               ? [getKbNewPageSlashItem(onCreateNestedPage)]
               : [];
+            const emojiItem = getKbEmojiSlashItem(editor as never);
             const byGroup = (...names: string[]) =>
               defaults.filter((it) =>
                 names.includes((it as { group?: string }).group ?? ""),
@@ -954,6 +999,7 @@ export function KbBlockNoteEditor({
               ...subheadings,
               ...media,
               ...others,
+              emojiItem,
             ];
             return filterSuggestionItems(
               ordered as ReturnType<typeof getDefaultReactSlashMenuItems>,
@@ -1052,6 +1098,7 @@ export function KbBlockNoteEditor({
         </>
       )}
       {renderExtras?.(editor as unknown as BlockNoteEditor)}
+      <KbEmojiPickerOverlay />
     </BlockNoteView>
   );
 }

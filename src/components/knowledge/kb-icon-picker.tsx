@@ -73,6 +73,25 @@ export function KbIconPickerBody({
     );
   }, [query]);
 
+  // Группировка для рендера без поиска: сохраняем порядок KB_ICONS,
+  // создавая массив { group, items } со стабильным insertion-order.
+  // Используется только когда query пустой (с поиском показываем
+  // плоский grid — заголовки только мешают).
+  const groupedIcons = useMemo(() => {
+    const groups: { group: string; items: typeof KB_ICONS }[] = [];
+    const indexByGroup = new Map<string, number>();
+    for (const item of KB_ICONS) {
+      let idx = indexByGroup.get(item.group);
+      if (idx === undefined) {
+        idx = groups.length;
+        indexByGroup.set(item.group, idx);
+        groups.push({ group: item.group, items: [] });
+      }
+      groups[idx].items.push(item);
+    }
+    return groups;
+  }, []);
+
   const onPickIcon = (name: string, withColor?: PaletteColor | null) => {
     const finalColor = withColor !== undefined ? withColor : pendingColor;
     onChange({ icon: name, color: finalColor });
@@ -200,13 +219,15 @@ export function KbIconPickerBody({
         </button>
       </div>
 
-      {/* Icons grid: фильтрованный список, в pendingColor для preview. */}
-      <div className="max-h-[300px] overflow-y-auto p-2">
+      {/* Icons grid. Без поиска — рендерим со sticky-заголовками групп
+          (KB_ICONS уже отсортирован по `group`); с поиском — единый flat
+          grid (категория теряет смысл если показано только пара иконок). */}
+      <div className="max-h-[320px] overflow-y-auto p-2">
         {filteredIcons.length === 0 ? (
           <div className="text-center text-sm text-muted-foreground py-8">
             Ничего не найдено
           </div>
-        ) : (
+        ) : query.trim() ? (
           <div className="grid grid-cols-8 gap-0.5">
             {filteredIcons.map(({ name, icon: Icon, label }) => {
               const isActive = value === name;
@@ -227,6 +248,37 @@ export function KbIconPickerBody({
                 </button>
               );
             })}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {groupedIcons.map(({ group, items }) => (
+              <div key={group} className="flex flex-col gap-1">
+                <div className="sticky top-0 bg-popover/95 backdrop-blur-sm px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 z-10">
+                  {group}
+                </div>
+                <div className="grid grid-cols-8 gap-0.5">
+                  {items.map(({ name, icon: Icon, label }) => {
+                    const isActive = value === name;
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        onClick={() => onPickIcon(name)}
+                        aria-label={label}
+                        title={label}
+                        className={cn(
+                          "flex items-center justify-center size-9 rounded-md transition-colors",
+                          isActive ? "bg-accent" : "hover:bg-accent/60",
+                          paletteText(pendingColor) || "text-foreground",
+                        )}
+                      >
+                        <Icon className="w-[18px] h-[18px]" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>

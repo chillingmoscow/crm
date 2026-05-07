@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
-import { getCachedUser, createClient } from "@/lib/supabase/server";
+import { getCachedUser, getCachedActiveAccountId, getCachedPermissions, createClient } from "@/lib/supabase/server";
 import {
   SidebarInset,
   SidebarProvider,
@@ -83,21 +83,21 @@ export default async function DashboardLayout({
 
   // Account name + список permission'ов параллельно. Permissions
   // нужны для permission-based фильтрации sidebar'а (см. AppSidebar
-  // → userPermissions prop).
-  const [{ data: accountId }, { data: userPerms }] = await Promise.all([
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("list_my_permissions"),
+  // → userPermissions prop). Cached-обёртки гарантируют что эти RPC
+  // вызываются ровно один раз на RSC-дерево (layout + дочерние страницы).
+  const [accountId, userPermissions] = await Promise.all([
+    getCachedActiveAccountId(),
+    getCachedPermissions(),
   ]);
   let accountName: string | null = null;
   if (accountId) {
     const { data: account } = await supabase
       .from("accounts")
       .select("name")
-      .eq("id", accountId as string)
+      .eq("id", accountId)
       .maybeSingle();
     accountName = account?.name ?? null;
   }
-  const userPermissions = (userPerms as string[] | null) ?? [];
 
   // Восстановим состояние main-сайдбара (открыт/свёрнут) из cookie
   // `sidebar_state`, который SidebarProvider пишет на каждый toggle.

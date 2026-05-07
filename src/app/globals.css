@@ -469,129 +469,19 @@ input:-webkit-autofill {
 /* ──────────────────────────────────────────────────────────────────
  * Кастомный блок цитаты (kb-quote-block.tsx).
  *
- * Один prop в schema: [data-quote-size] = default | large.
- * Оформление всегда — серая вертикальная палочка слева (Notion-style).
+ * Render идентичен BN-default: пустой `<blockquote>`, никаких наших
+ * обёрток или классов на reset. Дефолтная BN-стилизация
+ * `[data-content-type=quote] blockquote { color, border-left,
+ * padding-left }` (из @blocknote/shadcn/style.css) рисует серую
+ * вертикальную палочку — её НЕ перебиваем.
  *
- * BN-default стилизация для `[data-content-type=quote] blockquote`
- * (border-left + colour) живёт в @blocknote/shadcn/style.css и
- * перекрывается нашими селекторами через `.bn-sheerly .bn-editor`.
+ * Единственная добавка — класс `kb-quote-large` для крупного варианта:
+ * увеличивает font-size + line-height, всё остальное (border, color)
+ * берётся из BN-default'а.
  * ──────────────────────────────────────────────────────────────── */
-
-/* Снимаем дефолтные BN-стили на blockquote — colour задаётся через
-   prop textColor и наследуется .bn-block, padding/border ниже. */
-.bn-sheerly .bn-editor [data-content-type="quote"] blockquote.kb-quote {
-  border-left: none;
-  padding-left: 0;
-  margin: 0;
-}
-
-.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--line {
-  border-left: 3px solid hsl(var(--border));
-  padding-left: 14px;
-}
-
-.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--large {
+.bn-sheerly .bn-editor [data-content-type="quote"] blockquote.kb-quote-large {
   font-size: 1.5em;
   line-height: 1.35;
-}
-
-/* ──────────────────────────────────────────────────────────────────
- * Таблица: Notion-style handles + активная ячейка.
- *
- * BN-default рендерит drag-handle для столбца/строки как 12px-кнопку
- * со «своей» иконкой (три точки grip-vertical/horizontal). Визуально
- * сливается с side-menu drag-handle. Заменяем на тонкую полоску
- * (горизонтальную для column-handle, вертикальную для row-handle):
- *  - svg внутри handle'а скрыт
- *  - вместо него ::before — закруглённый rounded-full bar muted-цвета
- *  - hover ярче (foreground)
- *
- * Активная ячейка (с выделением ProseMirror'а): фон muted/40,
- * border-color brand на 1px (выделение в Notion-стиле).
- *
- * Резайз-handle между колонок (`.column-resize-handle`) перекрашиваем
- * с насыщенно-синего ProseMirror-default на brand (#1570EF) для
- * консистентности с DS.
- * ──────────────────────────────────────────────────────────────── */
-
-/* Hide BN-default SVG icon inside handle. */
-.bn-sheerly .bn-table-cell-handle > svg {
-  display: none;
-}
-
-/* Common pill style for handles. Базовая рамка-полоска посередине
-   кнопки. column-handle (top-of-column) — horizontal bar; row-handle
-   (left-of-row) — vertical bar. Различаем через aspect-ratio (handle
-   для столбца шире, чем высокий; для строки наоборот). */
-.bn-sheerly .bn-table-cell-handle {
-  position: relative;
-  background: transparent !important;
-  border: none !important;
-  cursor: grab;
-  opacity: 0.4;
-  transition: opacity 120ms ease;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 12px;
-  min-height: 12px;
-}
-.bn-sheerly .bn-table-cell-handle:hover {
-  opacity: 1;
-}
-.bn-sheerly .bn-table-cell-handle::before {
-  content: "";
-  display: block;
-  background: hsl(var(--muted-foreground) / 0.5);
-  border-radius: 999px;
-  transition: background 120ms ease;
-}
-.bn-sheerly .bn-table-cell-handle:hover::before {
-  background: hsl(var(--foreground) / 0.7);
-}
-/* Колоночный handle (сверху таблицы): горизонтальная полоска. BN
-   рендерит handle width=auto/min-12px; height=12px. Нашa полоска —
-   ширина фиксированная в максимум 18px. */
-.bn-sheerly .bn-table-cell-handle[data-test="cell-handle-column"]::before,
-.bn-sheerly
-  .bn-editor
-  [data-content-type="table"]
-  .tableWrapper
-  > [class*="bn-table-handle"][style*="rotate(90"]::before {
-  width: 18px;
-  height: 3px;
-}
-/* Default (горизонтальный) — для column. */
-.bn-sheerly .bn-table-cell-handle::before {
-  width: 18px;
-  height: 3px;
-}
-/* Row-handle (по левому краю таблицы): вертикальная полоска. BN
-   позиционирует row-handle с rotate(90deg) — оно вертикальное. У
-   нашего ::before менять width/height на rotate. Используем
-   data-test атрибут BN'а. */
-.bn-sheerly .bn-table-cell-handle[data-test="cell-handle-row"]::before {
-  width: 3px;
-  height: 18px;
-}
-
-/* Активная ячейка в Notion-style: лёгкий brand-border. ProseMirror
-   рисует .selectedCell::after полупрозрачный синий — заменяем на
-   brand с rgba для согласованности. */
-.bn-sheerly .bn-editor [data-content-type="table"] td.selectedCell::after,
-.bn-sheerly .bn-editor [data-content-type="table"] th.selectedCell::after {
-  background: hsl(var(--brand) / 0.12) !important;
-}
-.bn-sheerly .bn-editor [data-content-type="table"] td.selectedCell,
-.bn-sheerly .bn-editor [data-content-type="table"] th.selectedCell {
-  outline: 1px solid hsl(var(--brand) / 0.5);
-  outline-offset: -1px;
-}
-
-/* Resize-handle между колонок: brand вместо ProseMirror-default'ного
-   #adf (светло-синий). */
-.bn-sheerly .bn-editor [data-content-type="table"] .column-resize-handle {
-  background-color: hsl(var(--brand)) !important;
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -785,15 +675,6 @@ input:-webkit-autofill {
   padding-top: 26px;
 }
 
-/* Audio-блок на locked-странице: скрываем side-menu (drag-handle +
-   add-block-button). На read-only странице эти кнопки бесполезны —
-   действий с блоком сделать нельзя. На editable они нужны для
-   реорганизации, оставляем.
-   Класс kb-bn-locked ставит KbBlockNoteEditor на root-обёртке когда
-   editable=false (см. blocknote-editor.tsx). */
-.bn-sheerly.kb-bn-locked .bn-side-menu[data-block-type="audio"] {
-  display: none;
-}
 .bn-sheerly .bn-side-menu .bn-button {
   width: 16px;
   height: 16px;

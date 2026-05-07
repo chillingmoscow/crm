@@ -93,14 +93,16 @@ function DuplicateBlockItem() {
   );
 }
 
-/** Item для table-блока: «Расширить» — равномерно распределить ширины
- *  колонок. Ширины хранятся в `block.content.columnWidths: (number |
- *  undefined)[]`, по одной на колонку — НЕ в `cell.props.colwidth`
- *  (которое было использовано в первой версии — Codex P1 на PR #180:
- *  cell.props зарезервирован под цвета/alignment/span, а не ширину).
+/** Item для table-блока: «Расширить» — растянуть на всю доступную
+ *  ширину editor area и распределить колонки равномерно.
  *
- *  Сумма явных + DEFAULT_COL_WIDTH за каждый `undefined` дает total;
- *  делим на N колонок, применяем одинаковое значение всему массиву. */
+ *  Ширины хранятся в `block.content.columnWidths: (number | undefined)[]`,
+ *  по одной на колонку (cell.props не для ширины; см. Codex P1 на
+ *  PR #180).
+ *
+ *  Доступная ширина = `clientWidth` ProseMirror DOM-узла editor'а;
+ *  fallback на 720 (≈ ширина prose-зоны). Делим на N колонок,
+ *  применяем одинаковое значение всему массиву. */
 function TableExpandItem() {
   const Components = useComponentsContext()!;
   const editor = useBlockNoteEditor();
@@ -127,12 +129,37 @@ function TableExpandItem() {
         const colCount = content.rows[0]?.cells.length ?? 0;
         if (colCount === 0) return;
 
-        const DEFAULT_COL_WIDTH = 120;
-        const current = content.columnWidths ?? [];
-        const total = Array.from({ length: colCount }, (_, i) =>
-          current[i] ?? DEFAULT_COL_WIDTH,
-        ).reduce((a, b) => a + b, 0);
-        const equal = Math.round(total / colCount);
+        // Доступная ширина = clientWidth ProseMirror-DOM editor'а минус
+        // padding-вещи, BN рисует table-wrapper ещё с
+        // --bn-table-handle-size (9px) padding-left и --bn-table-widget-
+        // size (22px) padding-right (см. shadcn/style.css). Вычитаем,
+        // чтобы N равных колонок поместились в content-zone без overflow.
+        const TABLE_WRAPPER_PADDING = 9 + 22;
+        let availableWidth = 720;
+        try {
+          const view = (
+            editor as unknown as {
+              prosemirrorView?: { dom: HTMLElement };
+            }
+          ).prosemirrorView;
+          if (view?.dom) {
+            availableWidth = Math.max(
+              200,
+              view.dom.clientWidth - TABLE_WRAPPER_PADDING,
+            );
+          }
+        } catch {
+          /* fallback to 720 */
+        }
+        // Clamp к минимально-читаемой ширине: при импортированных
+        // wide-таблицах (N > availableWidth/MIN_PX) деление дало бы
+        // 0 → колонки схлопываются. Лучше превысить available и дать
+        // горизонтальный скролл (Codex P2 на PR #183).
+        const MIN_COL_WIDTH = 60;
+        const equal = Math.max(
+          MIN_COL_WIDTH,
+          Math.floor(availableWidth / colCount),
+        );
         const newColumnWidths = Array.from({ length: colCount }, () => equal);
 
         editor.updateBlock(block, {
@@ -225,13 +252,25 @@ const KbDragHandleMenu: FC = () => (
 
 /** Render-prop для BlockNoteView: отдаёт SideMenuController с custom
  *  drag-handle menu. AddBlockButton и DragHandleButton остаются default —
- *  меняем только содержимое выпадающего меню drag-handle'а. */
-export function KbSideMenuController() {
+ *  меняем только содержимое выпадающего меню drag-handle'а.
+ *
+ *  `editable` — если false (locked-страница), скрываем side-menu для
+ *  audio-блока: action'ов с ним всё равно сделать нельзя, drag-handle и
+ *  + кнопка визуально только мешают. CSS-подход через scope-класс не
+ *  работает — BN рендерит side-menu в FloatingUI portal вне `.bn-sheerly`.
+ *  JS-условие на `props.block.type` — единственный надёжный путь. */
+export function KbSideMenuController({
+  editable = true,
+}: {
+  editable?: boolean;
+}) {
   return (
     <SideMenuController
-      sideMenu={(props) => (
-        <SideMenu {...props} dragHandleMenu={KbDragHandleMenu} />
-      )}
+      sideMenu={(props) => {
+        const blockType = (props as { block?: { type?: string } }).block?.type;
+        if (!editable && blockType === "audio") return null;
+        return <SideMenu {...props} dragHandleMenu={KbDragHandleMenu} />;
+      }}
     />
   );
 }

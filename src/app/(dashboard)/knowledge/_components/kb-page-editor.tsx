@@ -294,11 +294,11 @@ export function KbPageEditor({
       <>
         <KbEditorRegistrar editor={editor} />
         <KbMentionMenu editor={editor} />
-        <KbSideMenuController />
+        <KbSideMenuController editable={canEdit} />
         {hasComments && <KbThreadGutterIndicators />}
       </>
     ),
-    [hasComments],
+    [hasComments, canEdit],
   );
 
   return (

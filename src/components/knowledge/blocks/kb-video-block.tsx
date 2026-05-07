@@ -192,6 +192,7 @@ function VideoPreview(
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
           frameBorder={0}
+          loading="lazy"
         />
         {menuButton}
       </div>
@@ -208,6 +209,7 @@ function VideoPreview(
             : resolved.downloadUrl
         }
         controls
+        preload="none"
         contentEditable={false}
         draggable={false}
       />
@@ -271,7 +273,7 @@ function VideoToExternalHTML(
   const embed = detectVideoEmbed(url);
   if (embed) {
     return (
-      <iframe src={embed.embedUrl} title="video" frameBorder={0} allowFullScreen />
+      <iframe src={embed.embedUrl} title="video" frameBorder={0} allowFullScreen loading="lazy" />
     );
   }
   if (props.block.props.showPreview) {

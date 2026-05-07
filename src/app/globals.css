@@ -469,28 +469,17 @@ input:-webkit-autofill {
 /* ──────────────────────────────────────────────────────────────────
  * Кастомный блок цитаты (kb-quote-block.tsx).
  *
- * Один prop в schema: [data-quote-size] = default | large.
- * Оформление всегда — серая вертикальная палочка слева (Notion-style).
+ * Render идентичен BN-default: пустой `<blockquote>`, никаких наших
+ * обёрток или классов на reset. Дефолтная BN-стилизация
+ * `[data-content-type=quote] blockquote { color, border-left,
+ * padding-left }` (из @blocknote/shadcn/style.css) рисует серую
+ * вертикальную палочку — её НЕ перебиваем.
  *
- * BN-default стилизация для `[data-content-type=quote] blockquote`
- * (border-left + colour) живёт в @blocknote/shadcn/style.css и
- * перекрывается нашими селекторами через `.bn-sheerly .bn-editor`.
+ * Единственная добавка — класс `kb-quote-large` для крупного варианта:
+ * увеличивает font-size + line-height, всё остальное (border, color)
+ * берётся из BN-default'а.
  * ──────────────────────────────────────────────────────────────── */
-
-/* Снимаем дефолтные BN-стили на blockquote — colour задаётся через
-   prop textColor и наследуется .bn-block, padding/border ниже. */
-.bn-sheerly .bn-editor [data-content-type="quote"] blockquote.kb-quote {
-  border-left: none;
-  padding-left: 0;
-  margin: 0;
-}
-
-.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--line {
-  border-left: 3px solid hsl(var(--border));
-  padding-left: 14px;
-}
-
-.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--large {
+.bn-sheerly .bn-editor [data-content-type="quote"] blockquote.kb-quote-large {
   font-size: 1.5em;
   line-height: 1.35;
 }

@@ -4,19 +4,20 @@ import { cn } from "@/lib/utils";
 import { createReactBlockSpec } from "@blocknote/react";
 
 /**
- * Кастомный блок цитаты для KB. Заменяет встроенный `quote` BlockNote
- * (который умеет только textColor/backgroundColor) — добавляет один
- * prop `size: "default" | "large"`.
+ * Кастомный блок цитаты для KB. По render-DOM МАКСИМАЛЬНО близок к
+ * встроенному BN `quote`: пустой `<blockquote ref={contentRef}>` без
+ * наших классов и обёрток, чтобы дефолтная BN-стилизация
+ * `[data-content-type=quote] blockquote { border-left, color,
+ * padding-left }` (см. @blocknote/shadcn/style.css) применялась
+ * автоматически и рисовала вертикальную палочку.
  *
- * Оформление всегда классическое Notion-style — серая вертикальная
- * палочка слева + regular text. Раньше был ещё «typographic quotes»
- * variant с большими „ " на псевдоэлементах, но мы отказались (PR #178
- * фидбек): курсив + ёлочки выглядели чужеродно в общепитовском KB.
+ * Единственная функциональная добавка — prop `size: "default" | "large"`.
+ * Для large добавляем класс `kb-quote-large`, который только увеличивает
+ * font-size + line-height; больше ничего не трогает (border / colour
+ * остаются от BN-default'а).
  *
- * Хранение пропов: `size` (default/large) + унаследованные от built-in
- * `quote` `backgroundColor` / `textColor`. Старые документы со полем
- * `variant` в jsonb просто игнорируют его (BN отбрасывает неизвестные
- * props на парсинге schema).
+ * Старые блоки с лишним полем `variant` в jsonb props (PR #178)
+ * игнорируются BN'ом на парсинге schema — backward-compat.
  */
 
 export type KbQuoteSize = "default" | "large";
@@ -25,10 +26,8 @@ export const kbQuoteBlock = createReactBlockSpec(
   {
     type: "quote",
     propSchema: {
-      // Сохраняем backgroundColor / textColor — у Notion-стиля цитата
-      // тоже может быть тинтованной, и BN-default'ный color-picker
-      // в side-menu / formatting-toolbar умеет с этим работать на любом
-      // блоке имеющем эти props.
+      // Сохраняем backgroundColor / textColor — BN-default'ный color-
+      // picker на любом блоке имеющем эти props.
       backgroundColor: { default: "default" as const },
       textColor: { default: "default" as const },
       size: {
@@ -41,16 +40,14 @@ export const kbQuoteBlock = createReactBlockSpec(
   {
     render: ({ block, contentRef }) => {
       const size = (block.props.size as KbQuoteSize) ?? "default";
+      // ContentRef прямо на blockquote — никаких обёрток. BN-default
+      // CSS получает `<blockquote>` ровно той же формы что у built-in
+      // quote, и border-left + color наследуются.
       return (
         <blockquote
-          data-quote-size={size}
-          className={cn(
-            "kb-quote kb-quote--line w-full m-0",
-            size === "large" && "kb-quote--large",
-          )}
-        >
-          <span ref={contentRef} className="kb-quote__content" />
-        </blockquote>
+          ref={contentRef as unknown as React.Ref<HTMLQuoteElement>}
+          className={cn(size === "large" && "kb-quote-large")}
+        />
       );
     },
   },

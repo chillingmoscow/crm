@@ -56,9 +56,11 @@
     --palette-gray-fg:    #4b5563;
     --palette-gray-bg:    #f3f4f6;
     --palette-gray-dot:   #6b7280;
-    --palette-brown-fg:   #92400e;
-    --palette-brown-bg:   #fef3c7;
-    --palette-brown-dot:  #b45309;
+    /* brown — кастомный hex, не tailwind amber-*. amber-100 в light
+       почти не отличался от yellow-100; теперь chocolate-cream. */
+    --palette-brown-fg:   #6e4937;
+    --palette-brown-bg:   #efe2d6;
+    --palette-brown-dot:  #92664a;
     --palette-orange-fg:  #c2410c;
     --palette-orange-bg:  #ffedd5;
     --palette-orange-dot: #f97316;
@@ -130,33 +132,37 @@
     --palette-default-fg: hsl(var(--foreground));
     --palette-default-bg: transparent;
     --palette-default-dot: hsl(var(--foreground));
+    /* fg — pastel-300, bg — -900 при alpha 55% (раньше 30% → chip'ы
+       плохо отличались от тёмного фона страницы #1f1f1f). */
     --palette-gray-fg:    #d1d5db;
-    --palette-gray-bg:    rgba(31, 41, 55, 0.5);
+    --palette-gray-bg:    rgba(55, 65, 81, 0.6);
     --palette-gray-dot:   #6b7280;
-    --palette-brown-fg:   #fcd34d;
-    --palette-brown-bg:   rgba(120, 53, 15, 0.3);
-    --palette-brown-dot:  #b45309;
+    /* brown — кастомный hex, теплее tailwind amber-900, лучше отличается
+       от yellow в тёмной теме. */
+    --palette-brown-fg:   #d6b89e;
+    --palette-brown-bg:   #3a261c;
+    --palette-brown-dot:  #92664a;
     --palette-orange-fg:  #fdba74;
-    --palette-orange-bg:  rgba(124, 45, 18, 0.3);
+    --palette-orange-bg:  rgba(124, 45, 18, 0.55);
     --palette-orange-dot: #f97316;
     --palette-yellow-fg:  #fde047;
-    --palette-yellow-bg:  rgba(113, 63, 18, 0.3);
+    --palette-yellow-bg:  rgba(113, 63, 18, 0.55);
     --palette-yellow-dot: #eab308;
     --palette-green-fg:   #6ee7b7;
-    --palette-green-bg:   rgba(6, 78, 59, 0.3);
+    --palette-green-bg:   rgba(6, 78, 59, 0.55);
     --palette-green-dot:  #10b981;
     --palette-blue-fg:    hsl(var(--brand));
-    --palette-blue-bg:    hsl(var(--brand) / 0.10);
+    --palette-blue-bg:    hsl(var(--brand) / 0.30);
     --palette-blue-dot:   hsl(var(--brand));
     --palette-purple-fg:  #c4b5fd;
-    --palette-purple-bg:  rgba(76, 29, 149, 0.3);
+    --palette-purple-bg:  rgba(76, 29, 149, 0.55);
     --palette-purple-dot: #8b5cf6;
     --palette-pink-fg:    #f9a8d4;
-    --palette-pink-bg:    rgba(131, 24, 67, 0.3);
+    --palette-pink-bg:    rgba(131, 24, 67, 0.55);
     --palette-pink-dot:   #ec4899;
-    /* red — tailwind red-*. -300 / -900 30%. */
+    /* red — tailwind red-*. -300 fg, -900 55% bg. */
     --palette-red-fg:     #fca5a5;
-    --palette-red-bg:     rgba(127, 29, 29, 0.3);
+    --palette-red-bg:     rgba(127, 29, 29, 0.55);
     --palette-red-dot:    #ef4444;
   }
 }

@@ -89,19 +89,22 @@ export function isPaletteColor(v: unknown): v is PaletteColor {
 // и оставляет нужные утилиты в финальном bundle'е. Для `default` и `null`
 // возвращаем "" — caller использует свой fallback (обычно `text-foreground`).
 
-// Tailwind-маппинг подобран так, чтобы юзерская «Красный» подпись
-// читалась как чистый красный (а не малиновый rose), и не сливалась
-// с «Розовый» (pink). Раньше было red→rose, и rose-700 практически
-// не отличается от pink-700.
-//   red    → tailwind red-*    (чистый красный)
-//   pink   → tailwind pink-*   (фуксийный розовый)
-//   brown  → tailwind amber-*  (тёплый коричневый — нет brown-* в TW v3)
+// Tailwind-маппинг подобран так, чтобы каждая юзерская подпись
+// читалась как ожидаемый цвет:
+//   red    → tailwind red-*       (чистый красный, не розовый)
+//   pink   → tailwind pink-*      (фуксийный розовый)
+//   brown  → arbitrary hex        (chocolate; tailwind amber-100 в light
+//                                   почти не отличался от yellow-100,
+//                                   юзерская «Вторая/Третья» сливались)
 //   green  → tailwind emerald-*
 //   purple → tailwind violet-*
 //   blue   → DS-токен brand
+//
+// Dark-theme bg повысил alpha с 30% до 55% — на тёмной странице
+// chip'ы 30%-alpha почти не отличаются от фона, плохо читаются.
 const TEXT: Record<Exclude<PaletteColor, "default">, string> = {
   gray:   "text-gray-600 dark:text-gray-300",
-  brown:  "text-amber-800 dark:text-amber-300",
+  brown:  "text-[#6e4937] dark:text-[#d6b89e]",
   orange: "text-orange-700 dark:text-orange-300",
   yellow: "text-yellow-700 dark:text-yellow-300",
   green:  "text-emerald-700 dark:text-emerald-300",
@@ -112,20 +115,20 @@ const TEXT: Record<Exclude<PaletteColor, "default">, string> = {
 };
 
 const BG: Record<Exclude<PaletteColor, "default">, string> = {
-  gray:   "bg-gray-100 dark:bg-gray-800/50",
-  brown:  "bg-amber-100 dark:bg-amber-900/30",
-  orange: "bg-orange-100 dark:bg-orange-900/30",
-  yellow: "bg-yellow-100 dark:bg-yellow-900/30",
-  green:  "bg-emerald-100 dark:bg-emerald-900/30",
-  blue:   "bg-brand/10",
-  purple: "bg-violet-100 dark:bg-violet-900/30",
-  pink:   "bg-pink-100 dark:bg-pink-900/30",
-  red:    "bg-red-100 dark:bg-red-900/30",
+  gray:   "bg-gray-100 dark:bg-gray-700/60",
+  brown:  "bg-[#efe2d6] dark:bg-[#3a261c]",
+  orange: "bg-orange-100 dark:bg-orange-900/55",
+  yellow: "bg-yellow-100 dark:bg-yellow-900/55",
+  green:  "bg-emerald-100 dark:bg-emerald-900/55",
+  blue:   "bg-brand/10 dark:bg-brand/30",
+  purple: "bg-violet-100 dark:bg-violet-900/55",
+  pink:   "bg-pink-100 dark:bg-pink-900/55",
+  red:    "bg-red-100 dark:bg-red-900/55",
 };
 
 const DOT: Record<Exclude<PaletteColor, "default">, string> = {
   gray:   "bg-gray-500",
-  brown:  "bg-amber-700",
+  brown:  "bg-[#92664a]",
   orange: "bg-orange-500",
   yellow: "bg-yellow-500",
   green:  "bg-emerald-500",

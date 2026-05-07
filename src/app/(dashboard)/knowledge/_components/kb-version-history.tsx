@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   AlertCircle,
   ChevronRight,
+  Eye,
   FileText,
   History,
   Loader2,
@@ -20,6 +21,14 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Sheet,
@@ -68,8 +77,9 @@ type DayBucket = {
   sessions: VersionSession[];
 };
 
-const SESSION_WINDOW_MS = 5 * 60 * 1000;
+const SESSION_WINDOW_MS = 15 * 60 * 1000;
 const DIFF_TOKEN_LIMIT = 1600;
+const DIFF_GROUP_LIMIT = 20;
 
 export function KbVersionHistory({
   pageId,
@@ -127,7 +137,7 @@ export function KbVersionHistory({
       toast.error(`Не удалось восстановить версию: ${result.error}`);
       return;
     }
-    toast.success(`Версия ${versionNumber} восстановлена`);
+    toast.success("Версия восстановлена");
     setOpen(false);
     router.refresh();
   };
@@ -186,7 +196,7 @@ export function KbVersionHistory({
               <Metric value={rows?.length ?? 0} label="версий" />
               <Metric value={sessionCount} label="сессий" />
               <span className="rounded-md bg-muted px-2 py-1">
-                окно сессии 5 мин
+                окно сессии 15 мин
               </span>
             </div>
           </SheetHeader>
@@ -303,8 +313,11 @@ function DayGroup({
           className={cn("size-3.5 transition-transform", open && "rotate-90")}
         />
         <span>{group.label}</span>
-        <span className="text-muted-foreground/60">
-          {group.sessions.length} сесс.
+        <span
+          className="inline-flex min-w-6 items-center justify-center rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
+          aria-label={`${group.sessions.length} ${plural(group.sessions.length, "сессия", "сессии", "сессий")}`}
+        >
+          {group.sessions.length}
         </span>
       </button>
       {open && (
@@ -342,12 +355,7 @@ function VersionSessionCard({
   pageId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const newest = session.versions[0];
-  const oldest = session.versions[session.versions.length - 1];
-  const versionLabel =
-    newest.version_number === oldest.version_number
-      ? `v${newest.version_number}`
-      : `v${oldest.version_number}–v${newest.version_number}`;
+  const changedCount = session.versions.length;
 
   return (
     <article className="rounded-lg border bg-background shadow-sm">
@@ -363,9 +371,6 @@ function VersionSessionCard({
             <span className="text-sm text-muted-foreground">
               {timeRange(session.startAt, session.endAt)}
             </span>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-              {versionLabel}
-            </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {session.changeKinds.map((kind) => (
@@ -373,7 +378,7 @@ function VersionSessionCard({
             ))}
             <DeltaBadge delta={session.delta} />
             <span className="text-xs text-muted-foreground">
-              {session.versions.length} {plural(session.versions.length, "версия", "версии", "версий")}
+              {changedCount} {plural(changedCount, "сохранение", "сохранения", "сохранений")}
             </span>
           </div>
         </div>
@@ -424,6 +429,7 @@ function VersionRow({
   const [diffData, setDiffData] = useState<KbVersionDiffData | null>(null);
   const [loadingDiff, setLoadingDiff] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const loadDiff = async () => {
     if (diffData || loadingDiff) return;
@@ -444,6 +450,11 @@ function VersionRow({
     if (next) void loadDiff();
   };
 
+  const onPreview = () => {
+    setPreviewOpen(true);
+    void loadDiff();
+  };
+
   return (
     <div className={cn("rounded-md border bg-background", isCurrent && "border-primary/30")}>
       <div className="flex items-center gap-2 px-3 py-2">
@@ -455,7 +466,7 @@ function VersionRow({
           <ChevronRight
             className={cn("size-3.5 shrink-0 transition-transform", expanded && "rotate-90")}
           />
-          <span className="text-sm font-medium">v{row.version_number}</span>
+          <span className="text-sm font-medium">Изменения</span>
           {isCurrent && (
             <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
               текущая
@@ -466,21 +477,15 @@ function VersionRow({
           </span>
           <DeltaBadge delta={row.delta} />
         </button>
-        {!isCurrent && canEdit && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onRestore}
-            disabled={restoring}
-            title="Восстановить эту версию"
-          >
-            {restoring ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RotateCcw className="size-4" />
-            )}
-          </Button>
-        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onPreview}
+          title="Просмотреть версию"
+        >
+          <Eye className="size-4" />
+          Просмотреть
+        </Button>
       </div>
       {expanded && (
         <div className="border-t px-3 py-3">
@@ -500,25 +505,118 @@ function VersionRow({
             <TextDiff
               before={diffData.previous_plain_text}
               after={diffData.plain_text}
-              previousVersion={diffData.previous_version_number}
             />
           )}
         </div>
       )}
+      <VersionPreviewDialog
+        row={row}
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        diffData={diffData}
+        loading={loadingDiff}
+        error={diffError}
+        canRestore={canEdit && !isCurrent}
+        restoring={restoring}
+        onRestore={onRestore}
+      />
     </div>
+  );
+}
+
+function VersionPreviewDialog({
+  row,
+  open,
+  onOpenChange,
+  diffData,
+  loading,
+  error,
+  canRestore,
+  restoring,
+  onRestore,
+}: {
+  row: EnrichedVersion;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  diffData: KbVersionDiffData | null;
+  loading: boolean;
+  error: string | null;
+  canRestore: boolean;
+  restoring: boolean;
+  onRestore: () => void;
+}) {
+  const previewText = diffData?.plain_text.trim() ?? "";
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[86vh] max-w-[760px] gap-0 overflow-hidden p-0">
+        <div className="border-b px-6 py-5">
+          <DialogTitle className="text-xl">Предпросмотр версии</DialogTitle>
+          <DialogDescription className="mt-2">
+            {authorName(row.author)} · {format(new Date(row.updated_at), "d MMMM yyyy, HH:mm", { locale: ru })}
+          </DialogDescription>
+        </div>
+        <div className="min-h-[320px] overflow-y-auto px-6 py-5">
+          {loading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              Загружаем snapshot…
+            </div>
+          )}
+          {!loading && error && (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              <AlertCircle className="size-4" />
+              {error}
+            </div>
+          )}
+          {!loading && !error && diffData && (
+            <article className="prose prose-sm max-w-none dark:prose-invert">
+              <h2 className="mb-4 text-2xl font-semibold tracking-tight">
+                {row.title || "Без названия"}
+              </h2>
+              {previewText ? (
+                <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/25 p-4 text-sm leading-7 text-foreground">
+                  {previewText}
+                </div>
+              ) : (
+                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                  У этой версии нет текстового preview, но полный snapshot всё равно
+                  доступен для восстановления.
+                </p>
+              )}
+            </article>
+          )}
+        </div>
+        <DialogFooter className="border-t px-6 py-4">
+          <DialogClose asChild>
+            <Button variant="outline">Закрыть</Button>
+          </DialogClose>
+          {canRestore && (
+            <Button onClick={onRestore} disabled={restoring || loading}>
+              {restoring ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RotateCcw className="size-4" />
+              )}
+              Восстановить эту версию
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function TextDiff({
   before,
   after,
-  previousVersion,
 }: {
   before: string;
   after: string;
-  previousVersion: number | null;
 }) {
-  const { parts, truncated } = useMemo(() => buildWordDiff(before, after), [before, after]);
+  const { changes, hiddenCount, truncated } = useMemo(
+    () => buildChangeSummary(before, after),
+    [before, after],
+  );
   if (!before && !after) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -526,36 +624,53 @@ function TextDiff({
       </p>
     );
   }
+  if (changes.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Текст не изменился. Проверьте бейджи выше: возможно, менялись свойства,
+        заголовок или иконка.
+      </p>
+    );
+  }
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>
-          Сравнение {previousVersion ? `с v${previousVersion}` : "с пустой страницей"}
+          Только изменённые фрагменты
         </span>
-        {truncated && <span>diff укорочен для быстрой отрисовки</span>}
+        {(truncated || hiddenCount > 0) && (
+          <span>
+            {truncated
+              ? "diff укорочен"
+              : `скрыто ${hiddenCount} ${plural(hiddenCount, "изменение", "изменения", "изменений")}`}
+          </span>
+        )}
       </div>
-      <div className="max-h-[260px] overflow-y-auto rounded-md bg-muted/35 p-3 text-sm leading-6">
-        {parts.map((part, idx) => {
-          if (part.type === "same") return <span key={idx}>{part.text}</span>;
-          if (part.type === "add") {
-            return (
-              <ins
-                key={idx}
-                className="rounded bg-emerald-500/15 px-0.5 text-emerald-800 no-underline dark:text-emerald-300"
-              >
-                {part.text}
-              </ins>
-            );
-          }
-          return (
-            <del
-              key={idx}
-              className="rounded bg-rose-500/15 px-0.5 text-rose-800 dark:text-rose-300"
-            >
-              {part.text}
-            </del>
-          );
-        })}
+      <div className="max-h-[260px] space-y-2 overflow-y-auto rounded-md bg-muted/35 p-3 text-sm leading-6">
+        {changes.map((change, idx) => (
+          <div key={idx} className="space-y-1.5 rounded-md border bg-background/70 p-2.5">
+            {change.removed && (
+              <div className="flex gap-2">
+                <span className="mt-0.5 inline-flex h-5 shrink-0 items-center rounded bg-rose-500/10 px-1.5 text-[11px] font-medium text-rose-700 dark:text-rose-300">
+                  Удалено
+                </span>
+                <del className="min-w-0 whitespace-pre-wrap break-words text-rose-800 decoration-rose-500/60 dark:text-rose-300">
+                  {change.removed}
+                </del>
+              </div>
+            )}
+            {change.added && (
+              <div className="flex gap-2">
+                <span className="mt-0.5 inline-flex h-5 shrink-0 items-center rounded bg-emerald-500/10 px-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                  Добавлено
+                </span>
+                <ins className="min-w-0 whitespace-pre-wrap break-words text-emerald-800 no-underline dark:text-emerald-300">
+                  {change.added}
+                </ins>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -722,6 +837,7 @@ function plural(n: number, one: string, few: string, many: string): string {
 }
 
 type DiffPart = { type: "same" | "add" | "del"; text: string };
+type DiffChange = { added: string; removed: string };
 
 function buildWordDiff(before: string, after: string): {
   parts: DiffPart[];
@@ -772,6 +888,54 @@ function buildWordDiff(before: string, after: string): {
   }
 
   return { parts, truncated };
+}
+
+function buildChangeSummary(before: string, after: string): {
+  changes: DiffChange[];
+  hiddenCount: number;
+  truncated: boolean;
+} {
+  const { parts, truncated } = buildWordDiff(before, after);
+  const changes: DiffChange[] = [];
+  let current: DiffChange | null = null;
+
+  for (const part of parts) {
+    if (part.type === "same") {
+      if (current) {
+        pushChange(changes, current);
+        current = null;
+      }
+      continue;
+    }
+    current ??= { added: "", removed: "" };
+    if (part.type === "add") {
+      current.added += part.text;
+    } else {
+      current.removed += part.text;
+    }
+  }
+  if (current) pushChange(changes, current);
+
+  const visible = changes.slice(0, DIFF_GROUP_LIMIT);
+  return {
+    changes: visible,
+    hiddenCount: Math.max(0, changes.length - visible.length),
+    truncated,
+  };
+}
+
+function pushChange(changes: DiffChange[], change: DiffChange) {
+  const added = compactDiffText(change.added);
+  const removed = compactDiffText(change.removed);
+  if (!added && !removed) return;
+  changes.push({ added, removed });
+}
+
+function compactDiffText(value: string): string {
+  const normalized = value.replace(/[ \t]+/g, " ").trim();
+  if (!normalized && value.length > 0) return "Изменены пробелы или переносы строк";
+  if (normalized.length <= 700) return normalized;
+  return `${normalized.slice(0, 700).trimEnd()}…`;
 }
 
 function tokenize(value: string): string[] {

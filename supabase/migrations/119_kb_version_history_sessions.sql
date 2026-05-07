@@ -1,7 +1,7 @@
 -- 119_kb_version_history_sessions.sql
 -- KB version history sessions:
 --   - store full lightweight page snapshot metadata for restore
---   - collapse autosave snapshots from the same author within 5 minutes
+--   - collapse autosave snapshots from the same author within 15 minutes
 --   - version page properties through the same session row
 
 alter table public.kb_page_versions
@@ -81,7 +81,7 @@ begin
   if found
      and not p_force_new_version
      and v_latest.created_by is not distinct from p_created_by
-     and coalesce(v_latest.updated_at, v_latest.created_at) >= now() - interval '5 minutes'
+     and coalesce(v_latest.updated_at, v_latest.created_at) >= now() - interval '15 minutes'
      and not exists (
        select 1
          from public.kb_page_reads r
@@ -262,7 +262,7 @@ end;
 $$;
 
 comment on function public.kb_save_page(uuid, text, text, text, jsonb, text, uuid[], boolean) is
-  'Saves a KB page and folds autosave snapshots by author/page into a 5-minute version session.';
+  'Saves a KB page and folds autosave snapshots by author/page into a 15-minute version session.';
 
 grant execute on function public.kb_save_page(uuid, text, text, text, jsonb, text, uuid[], boolean) to authenticated;
 
@@ -335,7 +335,7 @@ end;
 $$;
 
 comment on function public.kb_save_page_properties(uuid, jsonb, boolean) is
-  'Saves KB page properties and records them in the same 5-minute version-session history.';
+  'Saves KB page properties and records them in the same 15-minute version-session history.';
 
 grant execute on function public.kb_save_page_properties(uuid, jsonb, boolean) to authenticated;
 

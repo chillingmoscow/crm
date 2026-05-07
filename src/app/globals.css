@@ -459,6 +459,90 @@ input:-webkit-autofill {
 }
 
 /* ──────────────────────────────────────────────────────────────────
+ * Кастомный блок цитаты (kb-quote-block.tsx).
+ *
+ * Два независимых измерения:
+ *   • [data-quote-variant]: line — серая палочка, regular text;
+ *                           quotes — типографские «ёлочки» по краям,
+ *                           курсив, без бордера
+ *   • [data-quote-size]:    default — обычный body 14-15px;
+ *                           large — 22-24px (визуально подобно H3)
+ *
+ * BN-default стилизация для `[data-content-type=quote] blockquote`
+ * (border-left + colour) живёт в @blocknote/shadcn/style.css и
+ * перекрывается нашими селекторами специфичностью
+ * `.bn-sheerly .bn-editor .bn-block-content[data-content-type=quote]`.
+ * ──────────────────────────────────────────────────────────────── */
+
+/* Снимаем дефолтные BN-стили на blockquote (border-left, colour и
+   padding-left заданы в shadcn-стилях; перебиваем по новой). */
+.bn-sheerly .bn-editor [data-content-type="quote"] blockquote.kb-quote {
+  color: inherit;
+  border-left: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+/* ── variant=line ─ классическая Notion-style цитата. */
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--line {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 14px;
+  color: hsl(var(--foreground));
+}
+
+/* ── variant=quotes ─ типографская: курсив + большие „ "
+   на псевдоэлементах. Кавычки масштабируются от font-size, цвет —
+   muted-foreground (не отвлекает от текста). */
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes {
+  font-style: italic;
+  color: hsl(var(--foreground));
+  position: relative;
+  padding: 0.25em 0 0.25em 0;
+}
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes::before,
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes::after {
+  font-style: normal;
+  color: hsl(var(--muted-foreground));
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 600;
+  line-height: 0;
+  display: inline-block;
+  vertical-align: -0.3em;
+}
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes::before {
+  content: "\201E"; /* „ */
+  font-size: 2em;
+  margin-right: 0.12em;
+}
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--quotes::after {
+  content: "\201C"; /* " */
+  font-size: 2em;
+  margin-left: 0.08em;
+  vertical-align: -0.55em;
+}
+
+/* ── size=large ─ применяется поверх variant. */
+.bn-sheerly .bn-editor [data-content-type="quote"] .kb-quote--large {
+  font-size: 1.5em;
+  line-height: 1.35;
+}
+/* Для large+quotes ёлочки растут пропорционально (font-size 2em уже
+   relative), но vertical-align подкорректируем чтобы выглядело лучше
+   при крупном тексте. */
+.bn-sheerly
+  .bn-editor
+  [data-content-type="quote"]
+  .kb-quote--quotes.kb-quote--large::before {
+  vertical-align: -0.25em;
+}
+.bn-sheerly
+  .bn-editor
+  [data-content-type="quote"]
+  .kb-quote--quotes.kb-quote--large::after {
+  vertical-align: -0.5em;
+}
+
+/* ──────────────────────────────────────────────────────────────────
  * Comment thread mark — Notion-style highlight + underline + gutter
  * indicator.
  *

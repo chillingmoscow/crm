@@ -74,6 +74,7 @@ import {
   stripBrokenImgInHtml,
 } from "@/lib/knowledge/blocks-media";
 import { kbCalloutBlock } from "@/components/knowledge/blocks/kb-callout-block";
+import { kbQuoteBlock } from "@/components/knowledge/blocks/kb-quote-block";
 import { kbVideoBlockSpec } from "@/components/knowledge/blocks/kb-video-block";
 import { kbAudioBlockSpec } from "@/components/knowledge/blocks/kb-audio-block";
 import { kbFileBlockSpec } from "@/components/knowledge/blocks/kb-file-block";
@@ -564,6 +565,12 @@ export function KbBlockNoteEditor({
         blockSpecs: {
           ...defaultBlockSpecs,
           callout: kbCalloutBlock(),
+          // Замена встроенного `quote` блока: добавляем размеры
+          // (default / large) и стиль (line / quotes). Старые документы
+          // совместимы — backgroundColor/textColor оставлены, новые
+          // size/variant дефолтятся в "default"/"line", что эквивалентно
+          // прежнему виду.
+          quote: kbQuoteBlock(),
           // Custom video block c iframe-fallback'ом для YouTube /
           // Vimeo / Loom / Vidyard. См. kb-video-block.tsx.
           // createReactBlockSpec возвращает фабрику (options => spec),

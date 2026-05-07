@@ -68,7 +68,7 @@ type DayBucket = {
   sessions: VersionSession[];
 };
 
-const SESSION_WINDOW_MS = 15 * 60 * 1000;
+const SESSION_WINDOW_MS = 5 * 60 * 1000;
 const DIFF_TOKEN_LIMIT = 1600;
 
 export function KbVersionHistory({
@@ -186,7 +186,7 @@ export function KbVersionHistory({
               <Metric value={rows?.length ?? 0} label="версий" />
               <Metric value={sessionCount} label="сессий" />
               <span className="rounded-md bg-muted px-2 py-1">
-                окно сессии 15 мин
+                окно сессии 5 мин
               </span>
             </div>
           </SheetHeader>

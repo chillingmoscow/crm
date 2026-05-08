@@ -1690,6 +1690,33 @@ input:-webkit-autofill {
   justify-content: center;
   color: hsl(var(--muted-foreground));
 }
+.kb-gallery-menu-switch {
+  position: relative;
+  display: inline-flex;
+  width: 34px;
+  height: 20px;
+  flex: 0 0 34px;
+  align-items: center;
+  border-radius: 999px;
+  background-color: hsl(var(--muted));
+  transition: background-color 140ms ease;
+}
+.kb-gallery-menu-switch > span {
+  position: absolute;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background-color: hsl(var(--background));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+  transition: transform 140ms ease;
+}
+.kb-gallery-menu-switch[data-checked="true"] {
+  background-color: hsl(var(--primary));
+}
+.kb-gallery-menu-switch[data-checked="true"] > span {
+  transform: translateX(14px);
+}
 .kb-gallery-menu-select {
   width: 58px;
   height: 28px;

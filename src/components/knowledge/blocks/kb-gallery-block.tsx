@@ -62,7 +62,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
   coerceGalleryColumns,
@@ -541,6 +540,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 <button
                   type="button"
                   className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                  aria-pressed={layout === "spotlight"}
                   data-active={layout === "spotlight" || undefined}
                   onClick={(event) => {
                     stopBlockInteraction(event);
@@ -551,18 +551,12 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                     <ImageIcon className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">Главное изображение</span>
-                  <span onClick={(event) => event.stopPropagation()}>
-                    <Switch
-                      checked={layout === "spotlight"}
-                      onCheckedChange={(checked) =>
-                        updateLayout(checked ? "spotlight" : "grid")
-                      }
-                    />
-                  </span>
+                  <GalleryMenuSwitchIndicator checked={layout === "spotlight"} />
                 </button>
                 <button
                   type="button"
                   className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                  aria-pressed={showCaptions}
                   data-active={showCaptions || undefined}
                   onClick={(event) => {
                     stopBlockInteraction(event);
@@ -573,12 +567,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                     <Pencil className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">Показывать подписи</span>
-                  <span onClick={(event) => event.stopPropagation()}>
-                    <Switch
-                      checked={showCaptions}
-                      onCheckedChange={updateShowCaptions}
-                    />
-                  </span>
+                  <GalleryMenuSwitchIndicator checked={showCaptions} />
                 </button>
                 <div className="kb-gallery-menu-separator" />
                 <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
@@ -1083,6 +1072,18 @@ function stopBlockInteraction(event: React.SyntheticEvent) {
   event.stopPropagation();
 }
 
+function GalleryMenuSwitchIndicator({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className="kb-gallery-menu-switch"
+      data-checked={checked || undefined}
+      aria-hidden
+    >
+      <span />
+    </span>
+  );
+}
+
 function GalleryImageMenu({
   item,
   onEditCaption,
@@ -1102,7 +1103,13 @@ function GalleryImageMenu({
   const [replaceOpen, setReplaceOpen] = useState(false);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setReplaceOpen(false);
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"

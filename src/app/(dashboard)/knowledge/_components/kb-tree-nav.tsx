@@ -701,6 +701,11 @@ function KbTreeItem({
     setNodeRef: setDragRef,
     isDragging,
   } = useDraggable({ id: node.id });
+  const {
+    "aria-describedby": dragDescriptionId,
+    ...stableDragAttributes
+  } = dragAttributes;
+  void dragDescriptionId;
 
   // 3 droppable strip'а: before/child/after. Disabled если этот item —
   // dragged-сам (или его потомок). Активны только во время drag'а.
@@ -776,7 +781,7 @@ function KbTreeItem({
       ref={setDragRef}
       // dragAttributes first, explicit a11y роли переопределяют
       // role="button" от dnd-kit draggable.
-      {...dragAttributes}
+      {...stableDragAttributes}
       role="treeitem"
       aria-expanded={hasChildren ? isOpen : undefined}
       aria-selected={isActive}

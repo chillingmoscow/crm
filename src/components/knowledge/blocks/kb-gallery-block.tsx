@@ -546,7 +546,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
               <PopoverContent
                 align="end"
                 sideOffset={8}
-                className="kb-gallery-popover-menu kb-gallery-settings-menu w-72"
+                className="kb-gallery-popover-menu kb-gallery-settings-menu w-60"
                 onPointerDown={stopBlockInteraction}
                 onMouseDown={stopBlockInteraction}
                 onClick={stopBlockInteraction}
@@ -572,34 +572,12 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                     >
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent
-                      align="end"
-                      onPointerDown={stopBlockInteraction}
-                      onMouseDown={stopBlockInteraction}
-                      onClick={stopBlockInteraction}
-                    >
+                    <SelectContent align="end">
                       <SelectItem value="spotlight">Галерея</SelectItem>
                       <SelectItem value="grid">Сетка</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <button
-                  type="button"
-                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
-                  aria-pressed={showCaptions}
-                  data-active={showCaptions || undefined}
-                  onClick={(event) => {
-                    stopBlockInteraction(event);
-                    updateShowCaptions(!showCaptions);
-                  }}
-                >
-                  <span className="kb-gallery-menu-icon" aria-hidden>
-                    <Pencil className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">Показывать подписи</span>
-                  <GalleryMenuSwitchIndicator checked={showCaptions} />
-                </button>
-                <div className="kb-gallery-menu-separator" />
                 {layout === "grid" ? (
                   <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
                     <span className="kb-gallery-menu-icon" aria-hidden>
@@ -620,12 +598,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                       >
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent
-                        align="end"
-                        onPointerDown={stopBlockInteraction}
-                        onMouseDown={stopBlockInteraction}
-                        onClick={stopBlockInteraction}
-                      >
+                      <SelectContent align="end">
                         {GALLERY_COLUMNS.map((value) => (
                           <SelectItem key={value} value={String(value)}>
                             {value}
@@ -654,18 +627,30 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                       >
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent
-                        align="end"
-                        onPointerDown={stopBlockInteraction}
-                        onMouseDown={stopBlockInteraction}
-                        onClick={stopBlockInteraction}
-                      >
+                      <SelectContent align="end">
                         <SelectItem value="cover">Растянуть</SelectItem>
                         <SelectItem value="contain">Уместить</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 )}
+                <button
+                  type="button"
+                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                  aria-pressed={showCaptions}
+                  data-active={showCaptions || undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    stopBlockInteraction(event);
+                    updateShowCaptions(!showCaptions);
+                  }}
+                >
+                  <span className="kb-gallery-menu-icon" aria-hidden>
+                    <Pencil className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">Показывать подписи</span>
+                  <GalleryMenuSwitchIndicator checked={showCaptions} />
+                </button>
               </PopoverContent>
             </Popover>
           </div>

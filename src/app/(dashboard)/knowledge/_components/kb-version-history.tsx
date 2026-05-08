@@ -174,7 +174,7 @@ export function KbVersionHistory({
         delta: prevLength === null ? null : textLength - prevLength,
       };
     });
-    const sessions = groupIntoSessions(enriched);
+    const sessions = groupIntoSessions(pruneTechnicalVersions(enriched));
     return {
       groups: groupSessionsByDay(sessions),
       sessionCount: sessions.length,
@@ -619,17 +619,30 @@ function VersionPreviewDialog({
   onRestore: () => void;
   pageId: string;
 }) {
+  const metaLabel = format(new Date(row.updated_at), "d MMMM yyyy, HH:mm", {
+    locale: ru,
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[90vh] max-w-[1320px] flex-col gap-0 overflow-hidden p-0">
-        <div className="border-b px-6 py-5">
-          <DialogTitle className="text-xl">Снимок версии</DialogTitle>
-          <DialogDescription className="mt-2">
-            {authorName(row.author)} ·{" "}
-            {format(new Date(row.updated_at), "d MMMM yyyy, HH:mm", {
-              locale: ru,
-            })}
-          </DialogDescription>
+      <DialogContent className="flex h-[90vh] max-w-[1440px] flex-col gap-0 overflow-hidden p-0">
+        <div className="shrink-0 border-b bg-background/95 px-6 py-4 backdrop-blur">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <DialogTitle className="text-xl">Снимок версии</DialogTitle>
+              <DialogDescription>
+                Полный read-only просмотр страницы перед восстановлением.
+              </DialogDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                {authorName(row.author)}
+              </span>
+              <span className="rounded-md bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                {metaLabel}
+              </span>
+            </div>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto bg-muted/10">
           {loading && (
@@ -657,21 +670,28 @@ function VersionPreviewDialog({
             />
           )}
         </div>
-        <DialogFooter className="border-t px-6 py-4">
-          <DialogClose asChild>
-            <Button variant="outline">Закрыть</Button>
-          </DialogClose>
-          {canRestore && (
-            <Button onClick={onRestore} disabled={restoring || loading}>
-              {restoring ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RotateCcw className="size-4" />
+        <div className="shrink-0 border-t bg-background/95 px-6 py-4 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              Восстановление создаст новую текущую версию страницы.
+            </p>
+            <DialogFooter className="gap-2 p-0">
+              <DialogClose asChild>
+                <Button variant="outline">Закрыть</Button>
+              </DialogClose>
+              {canRestore && (
+                <Button onClick={onRestore} disabled={restoring || loading}>
+                  {restoring ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="size-4" />
+                  )}
+                  Восстановить эту версию
+                </Button>
               )}
-              Восстановить эту версию
-            </Button>
-          )}
-        </DialogFooter>
+            </DialogFooter>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -838,6 +858,67 @@ function groupIntoSessions(rows: EnrichedVersion[]): VersionSession[] {
   }
 
   return sessions;
+}
+
+function pruneTechnicalVersions(rows: EnrichedVersion[]): EnrichedVersion[] {
+  const kept: EnrichedVersion[] = [];
+
+  for (const row of rows) {
+    const newer = kept[kept.length - 1];
+    if (newer && isTechnicalNearDuplicate(newer, row)) {
+      continue;
+    }
+    kept.push(row);
+  }
+
+  return kept.filter((row, idx, arr) => {
+    const older = arr[idx + 1];
+    return !isPureTechnicalNoop(row, older);
+  });
+}
+
+function isTechnicalNearDuplicate(
+  newer: EnrichedVersion,
+  older: EnrichedVersion,
+): boolean {
+  if (authorKey(newer) !== authorKey(older)) return false;
+  if (hasStructuredChange(newer) || hasStructuredChange(older)) return false;
+
+  const gap =
+    new Date(newer.updated_at).getTime() - new Date(older.updated_at).getTime();
+  if (gap < 0 || gap > SESSION_WINDOW_MS) return false;
+
+  return comparableSnapshotKey(newer) === comparableSnapshotKey(older);
+}
+
+function isPureTechnicalNoop(
+  row: EnrichedVersion,
+  older: EnrichedVersion | undefined,
+): boolean {
+  if (!older) return false;
+  if (hasStructuredChange(row)) return false;
+  if (row.delta !== 0 && row.delta !== null) return false;
+  return comparableSnapshotKey(row) === comparableSnapshotKey(older);
+}
+
+function hasStructuredChange(row: EnrichedVersion): boolean {
+  return (row.change_kinds ?? []).some((kind) =>
+    kind === "properties" ||
+    kind === "icon" ||
+    kind === "restore" ||
+    kind === "title",
+  );
+}
+
+function comparableSnapshotKey(row: EnrichedVersion): string {
+  return [
+    normalizeComparableText(row.title),
+    normalizeComparableText(row.plain_text),
+  ].join("::");
+}
+
+function normalizeComparableText(value: string | null | undefined): string {
+  return (value ?? "").replace(/\s+/g, " ").trim();
 }
 
 function createSession(row: EnrichedVersion): VersionSession {

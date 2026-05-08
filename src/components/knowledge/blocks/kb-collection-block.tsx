@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils";
 import {
   createKbCollectionRecord,
   listKbCollectionItems,
+  syncKbCollectionRecords,
   type KbCollectionItem,
 } from "@/lib/knowledge/collection-actions";
 import {
@@ -171,6 +172,26 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   useEffect(() => {
     void loadItems();
   }, [loadItems]);
+
+  useEffect(() => {
+    if (!editable || !runtime.pageId || schema.fields.length === 0) return;
+
+    const schemaJson = serializeCollectionSchema(schema);
+    const timer = window.setTimeout(() => {
+      void syncKbCollectionRecords({
+        parentPageId: runtime.pageId!,
+        schemaJson,
+      }).then(({ updated, error }) => {
+        if (error) {
+          toast.error(`Не удалось применить поля коллекции: ${error}`);
+          return;
+        }
+        if (updated > 0) void loadItems();
+      });
+    }, 350);
+
+    return () => window.clearTimeout(timer);
+  }, [block.props.schemaJson, editable, loadItems, runtime.pageId, schema]);
 
   const updateSchema = (nextSchema: KbCollectionSchema) => {
     editor.updateBlock(block.id, {

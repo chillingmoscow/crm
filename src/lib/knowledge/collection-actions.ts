@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createKbPage } from "@/lib/knowledge/pages";
 import {
   collectionSchemaToProperties,
+  mergeCollectionSchemaProperties,
   parseCollectionSchemaJson,
 } from "@/lib/knowledge/collection";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
@@ -69,4 +70,52 @@ export async function createKbCollectionRecord(input: {
     parent_id: input.parentPageId,
     properties: collectionSchemaToProperties(schema),
   });
+}
+
+export async function syncKbCollectionRecords(input: {
+  parentPageId: string;
+  schemaJson: string;
+}): Promise<{ updated: number; error: string | null }> {
+  const schema = parseCollectionSchemaJson(input.schemaJson);
+  if (schema.fields.length === 0) return { updated: 0, error: null };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("kb_pages")
+    .select("id, properties")
+    .eq("parent_id", input.parentPageId)
+    .is("deleted_at", null)
+    .order("position", { ascending: true });
+
+  if (error) return { updated: 0, error: error.message };
+
+  let updated = 0;
+  for (const row of data ?? []) {
+    const parsed = kbPropertiesSchema.safeParse(
+      (row as { properties?: unknown }).properties ?? [],
+    );
+    const current = parsed.success ? parsed.data : [];
+    const merged = mergeCollectionSchemaProperties(current, schema);
+    if (!merged.changed) continue;
+
+    const valid = kbPropertiesSchema.safeParse(merged.properties);
+    if (!valid.success) {
+      return {
+        updated,
+        error:
+          valid.error.issues[0]?.message ??
+          "Не удалось синхронизировать свойства коллекции",
+      };
+    }
+
+    const { error: saveError } = await supabase.rpc("kb_save_page_properties", {
+      p_id: row.id,
+      p_properties: valid.data as unknown as never,
+      p_force_new_version: false,
+    } as never);
+    if (saveError) return { updated, error: saveError.message };
+    updated += 1;
+  }
+
+  return { updated, error: null };
 }

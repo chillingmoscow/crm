@@ -176,6 +176,59 @@ export function collectionSchemaToProperties(
   return schema.fields.map(collectionFieldToProperty);
 }
 
+export function mergeCollectionSchemaProperties(
+  existingProperties: KbProperty[],
+  schema: KbCollectionSchema,
+): { properties: KbProperty[]; changed: boolean } {
+  if (schema.fields.length === 0) {
+    return { properties: existingProperties, changed: false };
+  }
+
+  const usedIndexes = new Set<number>();
+  const collectionProperties: KbProperty[] = [];
+  let changed = false;
+
+  for (const field of schema.fields) {
+    const fallback = collectionFieldToProperty(field);
+    const byId = existingProperties.findIndex(
+      (property, index) => !usedIndexes.has(index) && property.id === field.id,
+    );
+    const byNameAndType =
+      byId >= 0
+        ? -1
+        : existingProperties.findIndex(
+            (property, index) =>
+              !usedIndexes.has(index) &&
+              property.name === field.name &&
+              property.type === field.type,
+          );
+    const matchedIndex = byId >= 0 ? byId : byNameAndType;
+
+    if (matchedIndex < 0) {
+      collectionProperties.push(fallback);
+      changed = true;
+      continue;
+    }
+
+    usedIndexes.add(matchedIndex);
+    const existing = existingProperties[matchedIndex]!;
+    const adopted =
+      byNameAndType >= 0 && existing.id !== field.id
+        ? ({ ...existing, id: field.id } as KbProperty)
+        : existing;
+    const merged = mergeCollectionProperty(adopted, field, fallback);
+    collectionProperties.push(merged);
+    if (!sameJson(existing, merged)) changed = true;
+  }
+
+  const manualProperties = existingProperties.filter(
+    (_property, index) => !usedIndexes.has(index),
+  );
+  const properties = [...collectionProperties, ...manualProperties];
+  if (!sameJson(existingProperties, properties)) changed = true;
+  return { properties, changed };
+}
+
 export function isCollectionFieldVisible(
   fieldId: string,
   visibleFieldIds: KbCollectionVisibleFieldIds,
@@ -245,4 +298,69 @@ function fallbackFieldId(seed: string): string {
     hash = (hash * 31 + seed.charCodeAt(i)) | 0;
   }
   return `field_${Math.abs(hash).toString(36)}`;
+}
+
+function mergeCollectionProperty(
+  property: KbProperty,
+  field: KbCollectionField,
+  fallback: KbProperty,
+): KbProperty {
+  if (property.type !== field.type) return fallback;
+
+  switch (property.type) {
+    case "text":
+    case "number":
+    case "date":
+    case "url":
+      return withCollectionBase(property, field);
+    case "checkbox":
+      return {
+        ...withCollectionBase(property, field),
+        ...(field.displayVariant === "switch"
+          ? { displayVariant: "switch" as const }
+          : {}),
+      };
+    case "select":
+      return {
+        ...withCollectionBase(property, field),
+        options: field.options ?? property.options,
+        ...(field.optionColors ? { optionColors: field.optionColors } : {}),
+      };
+    case "multi-select":
+      return {
+        ...withCollectionBase(property, field),
+        options: field.options ?? property.options,
+        ...(field.optionColors ? { optionColors: field.optionColors } : {}),
+      };
+    case "rating":
+      return {
+        ...withCollectionBase(property, field),
+        ...(field.max ? { max: field.max } : {}),
+      };
+  }
+}
+
+function withCollectionBase<T extends KbProperty>(
+  property: T,
+  field: KbCollectionField,
+): T {
+  const next = { ...property, id: field.id, name: field.name } as T & {
+    icon?: string;
+    iconColor?: string;
+  };
+  if (field.icon) {
+    next.icon = field.icon;
+  } else {
+    delete next.icon;
+  }
+  if (field.iconColor) {
+    next.iconColor = field.iconColor;
+  } else {
+    delete next.iconColor;
+  }
+  return next;
+}
+
+function sameJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }

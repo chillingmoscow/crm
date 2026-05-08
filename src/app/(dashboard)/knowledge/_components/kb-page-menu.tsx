@@ -13,6 +13,7 @@ import {
   Copy,
   Download,
   History,
+  ListTree,
   Loader2,
   Lock,
   MoreHorizontal,
@@ -48,6 +49,7 @@ import { setKbPageRequiredReading } from "@/lib/knowledge/required-reading";
 import {
   duplicateKbPage,
   exportKbPageAsMarkdown,
+  setKbPageShowChildren,
   setKbPageLock,
 } from "@/lib/knowledge/pages";
 import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
@@ -87,6 +89,8 @@ interface KbPageMenuProps {
   pageTitle: string;
   /** Cascade descendants count — used in delete confirmation. */
   childCount: number;
+  /** Initial page-level setting for automatic direct-children section. */
+  initialShowChildren: boolean;
   /** Initial state from server-render. Local state syncs to it on
    *  pageId change (Codex #86 P1 pattern). */
   initialFavorited: boolean;
@@ -163,6 +167,8 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const required =
     stateOverride?.requiredReading ?? props.initialRequiredReading;
   const locked = stateOverride?.locked ?? props.initialLocked;
+  const showChildren =
+    stateOverride?.showChildren ?? props.initialShowChildren;
   const localUnlocked = stateOverride?.localUnlocked === true;
   const [favorited, setFavorited] = useState(props.initialFavorited);
   // Sync favorited на pageId-change — компонент НЕ remount'ится (живёт
@@ -183,6 +189,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
   const [requiredPending, setRequiredPending] = useState(false);
   const [lockPending, setLockPending] = useState(false);
+  const [showChildrenPending, setShowChildrenPending] = useState(false);
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [, startFavTransition] = useTransition();
@@ -285,6 +292,21 @@ export function KbPageMenu(props: KbPageMenuProps) {
     // Sidebar lock-state — то же. revalidatePath покрывает next-nav.
   };
 
+  const onToggleShowChildren = async () => {
+    const next = !showChildren;
+    setKbPageStateOverride(props.pageId, { showChildren: next });
+    setShowChildrenPending(true);
+    const { error } = await setKbPageShowChildren({
+      pageId: props.pageId,
+      showChildren: next,
+    });
+    setShowChildrenPending(false);
+    if (error) {
+      setKbPageStateOverride(props.pageId, { showChildren: !next });
+      toast.error(`Не удалось переключить подстраницы: ${error}`);
+    }
+  };
+
   const onDuplicate = async () => {
     setDuplicatePending(true);
     const { slug, error } = await duplicateKbPage(props.pageId);
@@ -325,6 +347,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
     }
   };
 
+  const showPageSettingsGroup = props.canEditBase;
   const showRequiredGroup = props.canManageRequiredReading || props.canLock;
   const showHistoryGroup = editor !== null || props.canDuplicate;
   const showFilesGroup = props.canExport || props.canImport;
@@ -388,6 +411,30 @@ export function KbPageMenu(props: KbPageMenuProps) {
             >
               <BookmarkPlus className="size-4 shrink-0" />
               <span className="flex-1">Сохранить как шаблон</span>
+            </DropdownMenuItem>
+          )}
+
+          {showPageSettingsGroup && <DropdownMenuSeparator />}
+
+          {showPageSettingsGroup && (
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                if (effectiveCanEdit && !showChildrenPending) {
+                  onToggleShowChildren();
+                }
+              }}
+              disabled={!effectiveCanEdit || showChildrenPending}
+              className="px-2.5 py-1.5 rounded-md text-[13px] gap-2.5"
+            >
+              <ListTree className="size-4 shrink-0" />
+              <span className="flex-1">Показывать подстраницы</span>
+              <Switch
+                checked={showChildren}
+                disabled={!effectiveCanEdit || showChildrenPending}
+                aria-label="Показывать подстраницы"
+                className="pointer-events-none"
+              />
             </DropdownMenuItem>
           )}
 

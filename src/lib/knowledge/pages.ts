@@ -419,6 +419,21 @@ export async function createKbPage(input: KbPageCreateInput): Promise<{
   return { id: null, slug: null, error: "Не удалось сгенерировать уникальный slug" };
 }
 
+export async function setKbPageShowChildren(input: {
+  pageId: string;
+  showChildren: boolean;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("kb_set_page_show_children", {
+    p_page_id: input.pageId,
+    p_show_children: input.showChildren,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/knowledge");
+  return { error: null };
+}
+
 /**
  * Save a page edit. Atomic via the kb_save_page RPC (migration 052):
  *   1. UPDATE kb_pages with new title/icon/content/plain_text.

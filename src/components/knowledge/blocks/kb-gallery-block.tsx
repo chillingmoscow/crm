@@ -455,9 +455,9 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                   type="button"
                   size="sm"
                   className="kb-gallery-add-btn"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                  }}
+                  onPointerDown={stopBlockInteraction}
+                  onMouseDown={stopBlockInteraction}
+                  onClick={stopBlockInteraction}
                 >
                   <Plus className="size-4" />
                   Добавить
@@ -490,7 +490,9 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                   size="icon"
                   className="kb-gallery-settings-btn"
                   aria-label="Настройки галереи"
-                  onClick={(event) => event.stopPropagation()}
+                  onPointerDown={stopBlockInteraction}
+                  onMouseDown={stopBlockInteraction}
+                  onClick={stopBlockInteraction}
                 >
                   <Settings2 className="size-4" />
                 </Button>
@@ -734,7 +736,7 @@ function SortableGalleryItem({
         <GalleryResolvedImage item={item} variant="thumb" />
       </button>
       {editable && (
-        <div className="kb-gallery-item-actions">
+        <div className="kb-gallery-item-actions" contentEditable={false}>
           <GalleryImageMenu
             item={item}
             onEditCaption={onEditCaption}
@@ -789,7 +791,7 @@ function GallerySpotlight({
           <GalleryResolvedImage item={selectedItem} variant="spotlight" />
         </button>
         {editable && (
-          <div className="kb-gallery-item-actions">
+          <div className="kb-gallery-item-actions" contentEditable={false}>
             <GalleryImageMenu
               item={selectedItem}
               onEditCaption={() => onEditCaption(selectedItem)}
@@ -876,7 +878,7 @@ function SortableGalleryThumb({
         <GalleryResolvedImage item={item} variant="thumb" />
       </button>
       {editable && (
-        <div className="kb-gallery-thumb-actions">
+        <div className="kb-gallery-thumb-actions" contentEditable={false}>
           <GalleryImageMenu
             item={item}
             onEditCaption={onEditCaption}
@@ -902,6 +904,10 @@ function getPointerSortableListeners(
   return pointerListeners;
 }
 
+function stopBlockInteraction(event: React.SyntheticEvent) {
+  event.stopPropagation();
+}
+
 function GalleryImageMenu({
   item,
   onEditCaption,
@@ -925,10 +931,9 @@ function GalleryImageMenu({
             type="button"
             className="kb-gallery-item-action"
             aria-label="Открыть меню изображения"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={stopBlockInteraction}
           >
             <MoreHorizontal className="size-4" />
           </button>

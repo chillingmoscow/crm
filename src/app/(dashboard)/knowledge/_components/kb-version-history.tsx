@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -50,12 +51,14 @@ import {
   type KbPageUpdate,
 } from "@/lib/knowledge/updates";
 import {
+  getKbPageVersion,
   getKbPageVersionDiffData,
   listKbPageVersions,
   restoreKbPageVersion,
   type KbPageVersionWithAuthor,
   type KbVersionDiffData,
 } from "@/lib/knowledge/versions";
+import type { KbBlock, KbPageVersionRow } from "@/types/knowledge";
 
 interface KbVersionHistoryProps {
   pageId: string;
@@ -92,6 +95,21 @@ const SESSION_WINDOW_MS = 15 * 60 * 1000;
 const DIFF_TOKEN_LIMIT = 1600;
 const DIFF_GROUP_LIMIT = 20;
 const DEFAULT_TAB = "versions";
+const KbVersionSnapshotPreview = dynamic(
+  () =>
+    import(
+      "@/app/(dashboard)/knowledge/_components/kb-version-snapshot-preview"
+    ).then((m) => m.KbVersionSnapshotPreview),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[320px] items-center justify-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" />
+        Загружаем снимок страницы…
+      </div>
+    ),
+  },
+);
 
 export function KbVersionHistory({
   pageId,
@@ -221,27 +239,26 @@ export function KbVersionHistory({
           <SheetHeader className="border-b px-6 py-5 text-left">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1.5">
-                <SheetTitle className="text-xl">История страницы</SheetTitle>
+                <SheetTitle className="text-xl">Журнал страницы</SheetTitle>
                 <SheetDescription className="max-w-[520px] text-sm leading-5">
-                  Updates показывает лёгкую ленту действий за последний год.
-                  Version History хранит точки восстановления страницы.
+                  Обновления страницы и история версий разведены: первая
+                  вкладка показывает действия, вторая — снимки, из которых
+                  можно восстановить страницу.
                 </SheetDescription>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 pt-2 text-xs text-muted-foreground">
-              <Metric value={updates?.length ?? 0} label="updates" />
-              <Metric value={rows?.length ?? 0} label="версий" />
-              <Metric value={sessionCount} label="сессий" />
-              <span className="rounded-md bg-muted px-2 py-1">
-                окно сессии 15 мин
-              </span>
-            </div>
             <Tabs value={tab} onValueChange={setTab} className="pt-3">
-              <TabsList>
-                <TabsTrigger value="updates">Updates</TabsTrigger>
-                <TabsTrigger value="versions">Version History</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                <TabsTrigger value="updates">Обновления страницы</TabsTrigger>
+                <TabsTrigger value="versions">История версий</TabsTrigger>
               </TabsList>
             </Tabs>
+            <JournalTabIntro
+              tab={tab}
+              updatesCount={updates?.length ?? 0}
+              versionCount={rows?.length ?? 0}
+              sessionCount={sessionCount}
+            />
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -272,9 +289,78 @@ export function KbVersionHistory({
   );
 }
 
-function Metric({ value, label }: { value: number; label: string }) {
+function JournalTabIntro({
+  tab,
+  updatesCount,
+  versionCount,
+  sessionCount,
+}: {
+  tab: string;
+  updatesCount: number;
+  versionCount: number;
+  sessionCount: number;
+}) {
+  const isUpdates = tab === "updates";
+  const Icon = isUpdates ? History : RotateCcw;
+
   return (
-    <span className="rounded-md bg-muted px-2 py-1">
+    <div
+      className={cn(
+        "mt-4 rounded-xl border px-4 py-3",
+        isUpdates
+          ? "border-sky-500/20 bg-sky-500/5"
+          : "border-violet-500/20 bg-violet-500/5",
+      )}
+    >
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 rounded-lg bg-background/80 p-2 text-muted-foreground shadow-sm">
+          <Icon className="size-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold">
+              {isUpdates ? "Обновления страницы" : "История версий"}
+            </p>
+            {isUpdates ? (
+              <>
+                <BadgeMetric
+                  value={updatesCount}
+                  label={plural(updatesCount, "событие", "события", "событий")}
+                />
+                <span className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
+                  горизонт 1 год
+                </span>
+              </>
+            ) : (
+              <>
+                <BadgeMetric
+                  value={versionCount}
+                  label={plural(versionCount, "снимок", "снимка", "снимков")}
+                />
+                <BadgeMetric
+                  value={sessionCount}
+                  label={plural(sessionCount, "сессия", "сессии", "сессий")}
+                />
+                <span className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
+                  окно 15 мин
+                </span>
+              </>
+            )}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isUpdates
+              ? "Здесь живёт операционная лента: комментарии, блокировки, правки, переносы в корзину и другие действия."
+              : "Здесь живут точки восстановления. Можно открыть полный snapshot страницы и затем откатиться к выбранной версии."}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BadgeMetric({ value, label }: { value: number; label: string }) {
+  return (
+    <span className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
       {value} {label}
     </span>
   );
@@ -291,15 +377,16 @@ function UpdatesPane({
   error: string | null;
   onRetry: () => void;
 }) {
-  if (loading) return <LoadingState label="Загружаем updates…" />;
+  if (loading) return <LoadingState label="Загружаем обновления…" />;
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (rows !== null && rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center">
         <History className="mx-auto size-5 text-muted-foreground" />
-        <p className="mt-2 text-sm font-medium">Updates пока пусты</p>
+        <p className="mt-2 text-sm font-medium">Пока нет обновлений страницы</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Здесь появятся правки, комментарии, блокировки и другие действия за последний год.
+          Здесь появятся правки, комментарии, блокировки и другие действия за
+          последний год.
         </p>
       </div>
     );
@@ -602,6 +689,9 @@ function VersionRow({
   const [loadingDiff, setLoadingDiff] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [snapshot, setSnapshot] = useState<KbPageVersionRow | null>(null);
+  const [loadingSnapshot, setLoadingSnapshot] = useState(false);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
 
   const loadDiff = async () => {
     if (diffData || loadingDiff) return;
@@ -616,6 +706,23 @@ function VersionRow({
     setDiffData(result.row);
   };
 
+  const loadSnapshot = async () => {
+    if (snapshot || loadingSnapshot) return;
+    setLoadingSnapshot(true);
+    setSnapshotError(null);
+    const result = await getKbPageVersion(pageId, row.version_number);
+    setLoadingSnapshot(false);
+    if (result.error) {
+      setSnapshotError(result.error);
+      return;
+    }
+    if (!result.row) {
+      setSnapshotError("Версия не найдена");
+      return;
+    }
+    setSnapshot(result.row);
+  };
+
   const onToggle = () => {
     const next = !expanded;
     setExpanded(next);
@@ -624,7 +731,7 @@ function VersionRow({
 
   const onPreview = () => {
     setPreviewOpen(true);
-    void loadDiff();
+    void loadSnapshot();
   };
 
   return (
@@ -685,12 +792,13 @@ function VersionRow({
         row={row}
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        diffData={diffData}
-        loading={loadingDiff}
-        error={diffError}
+        snapshot={snapshot}
+        loading={loadingSnapshot}
+        error={snapshotError}
         canRestore={canEdit && !isCurrent}
         restoring={restoring}
         onRestore={onRestore}
+        pageId={pageId}
       />
     </div>
   );
@@ -700,62 +808,61 @@ function VersionPreviewDialog({
   row,
   open,
   onOpenChange,
-  diffData,
+  snapshot,
   loading,
   error,
   canRestore,
   restoring,
   onRestore,
+  pageId,
 }: {
   row: EnrichedVersion;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  diffData: KbVersionDiffData | null;
+  snapshot: KbPageVersionRow | null;
   loading: boolean;
   error: string | null;
   canRestore: boolean;
   restoring: boolean;
   onRestore: () => void;
+  pageId: string;
 }) {
-  const previewText = diffData?.plain_text.trim() ?? "";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[86vh] max-w-[760px] gap-0 overflow-hidden p-0">
+      <DialogContent className="flex h-[90vh] max-w-[1320px] flex-col gap-0 overflow-hidden p-0">
         <div className="border-b px-6 py-5">
-          <DialogTitle className="text-xl">Предпросмотр версии</DialogTitle>
+          <DialogTitle className="text-xl">Снимок версии</DialogTitle>
           <DialogDescription className="mt-2">
-            {authorName(row.author)} · {format(new Date(row.updated_at), "d MMMM yyyy, HH:mm", { locale: ru })}
+            {authorName(row.author)} ·{" "}
+            {format(new Date(row.updated_at), "d MMMM yyyy, HH:mm", {
+              locale: ru,
+            })}
           </DialogDescription>
         </div>
-        <div className="min-h-[320px] overflow-y-auto px-6 py-5">
+        <div className="min-h-0 flex-1 overflow-y-auto bg-muted/10">
           {loading && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex min-h-[320px] items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              Загружаем snapshot…
+              Загружаем снимок страницы…
             </div>
           )}
           {!loading && error && (
-            <div className="flex items-center gap-2 text-sm text-destructive">
-              <AlertCircle className="size-4" />
-              {error}
+            <div className="px-6 py-6">
+              <div className="flex items-center gap-2 text-sm text-destructive">
+                <AlertCircle className="size-4" />
+                {error}
+              </div>
             </div>
           )}
-          {!loading && !error && diffData && (
-            <article className="prose prose-sm max-w-none dark:prose-invert">
-              <h2 className="mb-4 text-2xl font-semibold tracking-tight">
-                {row.title || "Без названия"}
-              </h2>
-              {previewText ? (
-                <div className="whitespace-pre-wrap break-words rounded-lg border bg-muted/25 p-4 text-sm leading-7 text-foreground">
-                  {previewText}
-                </div>
-              ) : (
-                <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  У этой версии нет текстового preview, но полный snapshot всё равно
-                  доступен для восстановления.
-                </p>
-              )}
-            </article>
+          {!loading && !error && snapshot && (
+            <KbVersionSnapshotPreview
+              pageId={pageId}
+              title={snapshot.title}
+              icon={snapshot.icon}
+              iconColor={snapshot.icon_color}
+              content={((snapshot.content as unknown as KbBlock[]) ?? [])}
+              properties={snapshot.properties}
+            />
           )}
         </div>
         <DialogFooter className="border-t px-6 py-4">

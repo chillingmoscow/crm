@@ -10,7 +10,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { BarChart3, ChevronRight, GripVertical, Plus, ScrollText, Trash2 } from "lucide-react";
+import { BarChart3, ChevronRight, Plus, ScrollText, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -34,11 +34,11 @@ import { KbSearchTrigger } from "@/app/(dashboard)/knowledge/_components/kb-sear
 import { KbImportDialog } from "@/app/(dashboard)/knowledge/_components/kb-import-dialog";
 import { KbTemplatePicker } from "@/app/(dashboard)/knowledge/_components/kb-template-picker";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { KbTreeNodeMenu } from "@/app/(dashboard)/knowledge/_components/kb-tree-node-menu";
 import { useKbTreeOverride } from "@/app/(dashboard)/knowledge/_components/kb-tree-overrides-store";
 import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
-import { Star } from "lucide-react";
 
 interface KbTreeNavProps {
   nodes: KbTreeNode[];
@@ -49,6 +49,10 @@ interface KbTreeNavProps {
    *  Driven by `kb.delete_pages` permission, gated server-side in
    *  the layout. The trash route itself also re-checks. */
   canSeeTrash?: boolean;
+  /** `kb.delete_pages` — gates node-level trash action. */
+  canDelete?: boolean;
+  /** `kb.create_pages` — gates node-level duplicate action. */
+  canDuplicate?: boolean;
   /** `org.view_audit` permission. Показывает «Журнал» link рядом с
    *  «Корзина» внизу дерева. Сама страница /knowledge/audit re-check'ает. */
   canViewAudit?: boolean;
@@ -101,7 +105,7 @@ function makeDropId(targetId: string, zone: DropZone): string {
  *  ─ chevron expand/collapse for nodes with children
  *  ─ active state when the URL slug matches
  *  ─ "+" button on hover to create a child page
- *  ─ drag-handle (::: на hover) для full-tree reorder. Поддерживается:
+ *  ─ Notion-style drag: page row itself is the drag activator. Поддерживается:
  *      • drop в TOP-edge соседнего item'а → sibling-before
  *      • drop в BOTTOM-edge → sibling-after
  *      • drop в CENTER row'а → стать его child'ом (cross-parent move)
@@ -117,6 +121,8 @@ export function KbTreeNav({
   nodes,
   favorites = [],
   canSeeTrash = false,
+  canDelete = false,
+  canDuplicate = false,
   canViewAudit = false,
   canViewAnalytics = false,
   canImport = false,
@@ -130,6 +136,27 @@ export function KbTreeNav({
   // server-data догонит. При ошибке — откатываем к props.nodes.
   const [localNodes, setLocalNodes] = useState(nodes);
   useEffect(() => setLocalNodes(nodes), [nodes]);
+
+  const [localFavorites, setLocalFavorites] = useState(favorites);
+  useEffect(() => setLocalFavorites(favorites), [favorites]);
+  const favoriteIds = useMemo(
+    () => new Set(localFavorites.map((favorite) => favorite.id)),
+    [localFavorites],
+  );
+  const descendantCounts = useMemo(() => buildDescendantCountMap(localNodes), [localNodes]);
+
+  const handleFavoriteChange = useCallback(
+    (page: KbFavoritePage, favorited: boolean) => {
+      setLocalFavorites((prev) => {
+        if (favorited) {
+          const withoutPage = prev.filter((favorite) => favorite.id !== page.id);
+          return [page, ...withoutPage];
+        }
+        return prev.filter((favorite) => favorite.id !== page.id);
+      });
+    },
+    [],
+  );
 
   const [expanded, setExpanded] = useState<Set<string>>(
     () => expandAncestors(nodes, activeSlug),
@@ -313,8 +340,16 @@ export function KbTreeNav({
     >
       <div className="flex flex-col h-full">
         <div className="flex flex-col gap-2 p-3 pb-2">
-          {favorites.length > 0 && (
-            <KbFavoritesSection favorites={favorites} activeSlug={activeSlug} />
+          {localFavorites.length > 0 && (
+            <KbFavoritesSection
+              favorites={localFavorites}
+              activeSlug={activeSlug}
+              descendantCounts={descendantCounts}
+              onFavoriteChange={handleFavoriteChange}
+              canCreate={canCreate}
+              canDuplicate={canDuplicate}
+              canDelete={canDelete}
+            />
           )}
           <KbTreeHeader
             canImport={canImport}
@@ -324,7 +359,7 @@ export function KbTreeNav({
         </div>
         <div className="flex-1 overflow-y-auto px-3">
           {localNodes.length === 0 ? (
-            <KbTreeEmpty />
+            <KbTreeEmpty canCreate={canCreate} />
           ) : (
             <ul className="flex flex-col gap-0.5" role="tree">
               {localNodes.map((node) => (
@@ -338,6 +373,11 @@ export function KbTreeNav({
                   blockedTargets={blockedTargets}
                   overTarget={overTarget}
                   isDraggingAny={activeDragId !== null}
+                  favoriteIds={favoriteIds}
+                  onFavoriteChange={handleFavoriteChange}
+                  canCreate={canCreate}
+                  canDuplicate={canDuplicate}
+                  canDelete={canDelete}
                 />
               ))}
               {/* Root drop-zone — невидимый strip, активируется только
@@ -453,34 +493,68 @@ function KbRootDropZone({
 function KbFavoritesSection({
   favorites,
   activeSlug,
+  descendantCounts,
+  onFavoriteChange,
+  canCreate,
+  canDuplicate,
+  canDelete,
 }: {
   favorites: KbFavoritePage[];
   activeSlug?: string;
+  descendantCounts: Map<string, number>;
+  onFavoriteChange: (page: KbFavoritePage, favorited: boolean) => void;
+  canCreate: boolean;
+  canDuplicate: boolean;
+  canDelete: boolean;
 }) {
+  const router = useRouter();
+
+  const createChild = async (page: KbFavoritePage) => {
+    const { slug, error } = await createKbPage({ parent_id: page.id });
+    if (error || !slug) {
+      toast.error(error ?? "Не удалось создать подстраницу");
+      return;
+    }
+    router.push(`/knowledge/${slug}`);
+  };
+
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-1.5 px-2 py-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-        <Star className="size-3 fill-current text-yellow-500/70" />
         Избранное
       </div>
       {favorites.map((p) => {
         const isActive = activeSlug === p.slug;
         return (
-          <Link
+          <div
             key={p.id}
-            href={`/knowledge/${p.slug}`}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
+              "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
               "text-sidebar-foreground hover:bg-sidebar-accent",
               isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
             )}
-            title={p.title}
           >
-            <span className="size-5 shrink-0 inline-flex items-center justify-center">
-              <KbPageIcon icon={p.icon} color={p.icon_color} size={14} />
-            </span>
-            <span className="flex-1 truncate">{p.title || "Без названия"}</span>
-          </Link>
+            <Link
+              href={`/knowledge/${p.slug}`}
+              className="flex-1 truncate inline-flex items-center gap-2 min-w-0"
+              title={p.title}
+            >
+              <span className="size-5 shrink-0 inline-flex items-center justify-center">
+                <KbPageIcon icon={p.icon} color={p.icon_color} size={14} />
+              </span>
+              <span className="truncate">{p.title || "Без названия"}</span>
+            </Link>
+            <KbTreeNodeMenu
+              page={p}
+              childCount={descendantCounts.get(p.id) ?? 0}
+              favorited
+              canCreate={canCreate}
+              canDuplicate={canDuplicate}
+              canDelete={canDelete}
+              onCreateChild={() => void createChild(p)}
+              onFavoriteChange={onFavoriteChange}
+            />
+          </div>
         );
       })}
     </div>
@@ -525,28 +599,37 @@ function KbTreeHeader({
           />
         )}
         {canImport && <KbImportDialog parentId={null} />}
-        <IconTooltip label="Новая страница">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6"
-            aria-label="Новая страница"
-            onClick={onCreateRoot}
-            disabled={creating}
-          >
-            <Plus className="size-3.5" />
-          </Button>
-        </IconTooltip>
+        {canCreate && (
+          <IconTooltip label="Новая страница">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              aria-label="Новая страница"
+              onClick={onCreateRoot}
+              disabled={creating}
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          </IconTooltip>
+        )}
       </div>
     </div>
   );
 }
 
-function KbTreeEmpty() {
+function KbTreeEmpty({ canCreate }: { canCreate: boolean }) {
   return (
     <p className="px-2 py-3 text-sm text-muted-foreground">
-      Пока нет страниц. Нажмите <kbd className="rounded border px-1">+</kbd>{" "}
-      выше, чтобы создать первую.
+      {canCreate ? (
+        <>
+          Пока нет страниц. Нажмите{" "}
+          <kbd className="rounded border px-1">+</kbd> выше, чтобы создать
+          первую.
+        </>
+      ) : (
+        <>Пока нет страниц.</>
+      )}
     </p>
   );
 }
@@ -565,6 +648,11 @@ interface KbTreeItemProps {
   overTarget: ParsedDropTarget | null;
   /** Идёт ли drag прямо сейчас (для условной активации drop-zones). */
   isDraggingAny: boolean;
+  favoriteIds: Set<string>;
+  onFavoriteChange: (page: KbFavoritePage, favorited: boolean) => void;
+  canCreate: boolean;
+  canDuplicate: boolean;
+  canDelete: boolean;
 }
 
 function KbTreeItem({
@@ -576,6 +664,11 @@ function KbTreeItem({
   blockedTargets,
   overTarget,
   isDraggingAny,
+  favoriteIds,
+  onFavoriteChange,
+  canCreate,
+  canDuplicate,
+  canDelete,
 }: KbTreeItemProps) {
   const router = useRouter();
   // Client-side override (icon / iconColor / title) — пишется
@@ -600,15 +693,12 @@ function KbTreeItem({
   const hasChildren = node.children.length > 0;
   const [creating, setCreating] = useState(false);
   const isBlocked = blockedTargets?.has(node.id) ?? false;
+  const isFavorited = favoriteIds.has(node.id);
 
-  // Draggable handle (грип). Источник drag'а — кнопка ::: , как
-  // раньше. setActivatorNodeRef нужен чтобы dnd-kit использовал её
-  // для расчёта drag-event'а, а не весь li.
   const {
     attributes: dragAttributes,
     listeners: dragListeners,
     setNodeRef: setDragRef,
-    setActivatorNodeRef,
     isDragging,
   } = useDraggable({ id: node.id });
 
@@ -650,9 +740,7 @@ function KbTreeItem({
     [node.id, setExpanded],
   );
 
-  const onCreateChild = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const createChild = async () => {
     setCreating(true);
     const { slug, error } = await createKbPage({ parent_id: node.id });
     setCreating(false);
@@ -667,6 +755,20 @@ function KbTreeItem({
       return next;
     });
     router.push(`/knowledge/${slug}`);
+  };
+
+  const onCreateChild = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    void createChild();
+  };
+
+  const menuPage: KbFavoritePage = {
+    id: node.id,
+    slug: node.slug,
+    title: displayTitle,
+    icon: displayIcon,
+    icon_color: displayIconColor,
   };
 
   return (
@@ -701,8 +803,9 @@ function KbTreeItem({
       {/* Center drop-zone: при hover подсвечиваем row → стать child'ом */}
       <div
         ref={childDrop.setNodeRef}
+        {...dragListeners}
         className={cn(
-          "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium",
+          "group flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium cursor-grab active:cursor-grabbing",
           "text-sidebar-foreground hover:bg-sidebar-accent",
           isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
           hoveredZone === "child" &&
@@ -710,22 +813,6 @@ function KbTreeItem({
         )}
         style={{ paddingLeft: `${depth * 14 + 10}px` }}
       >
-        {/* Drag-handle ::: появляется на hover. Activator-ref +
-            listeners — это «триггер» drag'а для всего li (drag-ref на
-            li через setDragRef выше). */}
-        <button
-          ref={setActivatorNodeRef}
-          type="button"
-          aria-label="Перетащить страницу"
-          {...dragListeners}
-          className="flex size-4 shrink-0 items-center justify-center
-                     opacity-0 group-hover:opacity-60 hover:!opacity-100
-                     cursor-grab active:cursor-grabbing
-                     text-muted-foreground"
-        >
-          <GripVertical className="size-3.5" />
-        </button>
-
         {/* Иконка/chevron — занимают одну и ту же позицию.
             Notion-style: иконка по умолчанию, chevron на hover. */}
         <span className="relative size-5 shrink-0 inline-flex items-center justify-center">
@@ -742,6 +829,7 @@ function KbTreeItem({
             <button
               type="button"
               onClick={toggle}
+              onPointerDown={(e) => e.stopPropagation()}
               aria-label={isOpen ? "Свернуть" : "Развернуть"}
               className="absolute inset-0 flex items-center justify-center rounded
                          opacity-0 group-hover:opacity-100
@@ -768,20 +856,33 @@ function KbTreeItem({
           <span className="truncate">{displayTitle || "Без названия"}</span>
         </Link>
 
-        {/* Hover-only "+" to add a child. */}
-        <IconTooltip label="Добавить подстраницу" side="right">
-          <button
-            type="button"
-            onClick={onCreateChild}
-            disabled={creating}
-            aria-label="Добавить подстраницу"
-            className="opacity-0 group-hover:opacity-100 flex size-6 shrink-0 items-center
-                       justify-center rounded text-muted-foreground
-                       hover:bg-sidebar-accent/60 disabled:opacity-50"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </IconTooltip>
+        {canCreate && (
+          <IconTooltip label="Добавить подстраницу" side="right">
+            <button
+              type="button"
+              onClick={onCreateChild}
+              onPointerDown={(e) => e.stopPropagation()}
+              disabled={creating}
+              aria-label="Добавить подстраницу"
+              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 flex size-6 shrink-0 items-center
+                         justify-center rounded text-muted-foreground
+                         hover:bg-sidebar-accent/60 disabled:opacity-50"
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </IconTooltip>
+        )}
+
+        <KbTreeNodeMenu
+          page={menuPage}
+          childCount={countDescendants(node)}
+          favorited={isFavorited}
+          canCreate={canCreate}
+          canDuplicate={canDuplicate}
+          canDelete={canDelete}
+          onCreateChild={createChild}
+          onFavoriteChange={onFavoriteChange}
+        />
       </div>
 
       {/* Bottom-edge drop-strip — insertion-line под item'ом */}
@@ -813,6 +914,11 @@ function KbTreeItem({
               blockedTargets={blockedTargets}
               overTarget={overTarget}
               isDraggingAny={isDraggingAny}
+              favoriteIds={favoriteIds}
+              onFavoriteChange={onFavoriteChange}
+              canCreate={canCreate}
+              canDuplicate={canDuplicate}
+              canDelete={canDelete}
             />
           ))}
         </ul>
@@ -919,6 +1025,32 @@ function collectDescendantIds(node: KbTreeNode, includeSelf: boolean): Set<strin
   };
   walk(node.children);
   return acc;
+}
+
+function countDescendants(node: KbTreeNode): number {
+  let count = 0;
+  const walk = (list: KbTreeNode[]) => {
+    for (const child of list) {
+      count += 1;
+      if (child.children.length > 0) walk(child.children);
+    }
+  };
+  walk(node.children);
+  return count;
+}
+
+function buildDescendantCountMap(nodes: KbTreeNode[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  const walk = (node: KbTreeNode): number => {
+    let count = 0;
+    for (const child of node.children) {
+      count += 1 + walk(child);
+    }
+    counts.set(node.id, count);
+    return count;
+  };
+  for (const node of nodes) walk(node);
+  return counts;
 }
 
 /** Optimistic apply move: убрать draggedId из старого parent'а и

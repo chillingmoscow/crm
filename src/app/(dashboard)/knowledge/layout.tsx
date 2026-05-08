@@ -77,6 +77,8 @@ export default async function KnowledgeLayout({
 
   const treePermissions = {
     canSeeTrash: canDelete,
+    canDelete,
+    canDuplicate: canCreate,
     canViewAudit,
     canViewAnalytics,
     canImport,

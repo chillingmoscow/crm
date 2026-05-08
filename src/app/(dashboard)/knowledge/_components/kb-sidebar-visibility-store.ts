@@ -33,6 +33,7 @@ interface State {
 }
 
 let state: State = { hidden: false, peeking: false };
+const SERVER_STATE: State = { hidden: false, peeking: false };
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -55,7 +56,7 @@ function getSnapshot(): State {
  *  Для самого первого hydration'а до того как init успел отработать,
  *  возвращаем дефолт {hidden:false, peeking:false}. */
 function getServerSnapshot(): State {
-  return { hidden: false, peeking: false };
+  return SERVER_STATE;
 }
 
 export function useKbSidebarVisibility(): State {

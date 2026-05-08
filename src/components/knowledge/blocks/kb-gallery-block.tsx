@@ -27,6 +27,8 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Check,
   Columns3,
   ExternalLink,
   GalleryHorizontal,
@@ -56,13 +58,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   coerceGalleryColumns,
@@ -121,6 +116,9 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const [activeLightboxId, setActiveLightboxId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
+  const [settingsPanel, setSettingsPanel] = useState<
+    "layout" | "columns" | "fit" | null
+  >(null);
   const recentDragRef = useRef(false);
 
   const images = useMemo(
@@ -553,86 +551,146 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 onOpenAutoFocus={(event) => event.preventDefault()}
               >
                 <div className="kb-gallery-menu-label">Настройки</div>
-                <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
+                <button
+                  type="button"
+                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                  aria-expanded={settingsPanel === "layout"}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    stopBlockInteraction(event);
+                    setSettingsPanel((panel) =>
+                      panel === "layout" ? null : "layout",
+                    );
+                  }}
+                >
                   <span className="kb-gallery-menu-icon" aria-hidden>
                     <GalleryHorizontal className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">Вид</span>
-                  <Select
-                    value={layout}
-                    onValueChange={(value) =>
-                      updateLayout(value as KbGalleryLayout)
-                    }
-                  >
-                    <SelectTrigger
-                      className="kb-gallery-menu-select kb-gallery-menu-select-wide"
-                      onPointerDown={stopBlockInteraction}
-                      onMouseDown={stopBlockInteraction}
-                      onClick={stopBlockInteraction}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="end">
-                      <SelectItem value="spotlight">Галерея</SelectItem>
-                      <SelectItem value="grid">Сетка</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                  <span className="kb-gallery-menu-value">
+                    {layout === "spotlight" ? "Галерея" : "Сетка"}
+                  </span>
+                  <ChevronDown className="kb-gallery-menu-chevron size-4" />
+                </button>
+                {settingsPanel === "layout" && (
+                  <div className="kb-gallery-menu-option-list">
+                    {[
+                      ["spotlight", "Галерея"],
+                      ["grid", "Сетка"],
+                    ].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className="kb-gallery-menu-option"
+                        data-active={layout === value || undefined}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          stopBlockInteraction(event);
+                          updateLayout(value as KbGalleryLayout);
+                          setSettingsPanel(null);
+                        }}
+                      >
+                        <span>{label}</span>
+                        {layout === value ? <Check className="size-4" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {layout === "grid" ? (
-                  <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
+                  <>
+                    <button
+                      type="button"
+                      className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                      aria-expanded={settingsPanel === "columns"}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        stopBlockInteraction(event);
+                        setSettingsPanel((panel) =>
+                          panel === "columns" ? null : "columns",
+                        );
+                      }}
+                    >
                     <span className="kb-gallery-menu-icon" aria-hidden>
                       <Columns3 className="size-4" />
                     </span>
-                    <span className="min-w-0 flex-1">Изображений в ряду</span>
-                    <Select
-                      value={String(columns)}
-                      onValueChange={(value) =>
-                        updateColumns(Number(value) as KbGalleryColumns)
-                      }
-                    >
-                      <SelectTrigger
-                        className="kb-gallery-menu-select"
-                        onPointerDown={stopBlockInteraction}
-                        onMouseDown={stopBlockInteraction}
-                        onClick={stopBlockInteraction}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="end">
+                      <span className="min-w-0 flex-1">Ряд</span>
+                      <span className="kb-gallery-menu-value">{columns}</span>
+                      <ChevronDown className="kb-gallery-menu-chevron size-4" />
+                    </button>
+                    {settingsPanel === "columns" && (
+                      <div className="kb-gallery-menu-option-list">
                         {GALLERY_COLUMNS.map((value) => (
-                          <SelectItem key={value} value={String(value)}>
-                            {value}
-                          </SelectItem>
+                          <button
+                            key={value}
+                            type="button"
+                            className="kb-gallery-menu-option"
+                            data-active={columns === value || undefined}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              stopBlockInteraction(event);
+                              updateColumns(value);
+                              setSettingsPanel(null);
+                            }}
+                          >
+                            <span>{value}</span>
+                            {columns === value ? (
+                              <Check className="size-4" />
+                            ) : null}
+                          </button>
                         ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
-                  <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
+                  <>
+                    <button
+                      type="button"
+                      className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                      aria-expanded={settingsPanel === "fit"}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        stopBlockInteraction(event);
+                        setSettingsPanel((panel) =>
+                          panel === "fit" ? null : "fit",
+                        );
+                      }}
+                    >
                     <span className="kb-gallery-menu-icon" aria-hidden>
                       <ImageIcon className="size-4" />
                     </span>
-                    <span className="min-w-0 flex-1">Главное изображение</span>
-                    <Select
-                      value={imageFit}
-                      onValueChange={(value) =>
-                        updateImageFit(value as KbGalleryImageFit)
-                      }
-                    >
-                      <SelectTrigger
-                        className="kb-gallery-menu-select kb-gallery-menu-select-wide"
-                        onPointerDown={stopBlockInteraction}
-                        onMouseDown={stopBlockInteraction}
-                        onClick={stopBlockInteraction}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent align="end">
-                        <SelectItem value="cover">Растянуть</SelectItem>
-                        <SelectItem value="contain">Уместить</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <span className="min-w-0 flex-1">Главное изображение</span>
+                      <span className="kb-gallery-menu-value">
+                        {imageFit === "cover" ? "Растянуть" : "Уместить"}
+                      </span>
+                      <ChevronDown className="kb-gallery-menu-chevron size-4" />
+                    </button>
+                    {settingsPanel === "fit" && (
+                      <div className="kb-gallery-menu-option-list">
+                        {[
+                          ["cover", "Растянуть"],
+                          ["contain", "Уместить"],
+                        ].map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className="kb-gallery-menu-option"
+                            data-active={imageFit === value || undefined}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              stopBlockInteraction(event);
+                              updateImageFit(value as KbGalleryImageFit);
+                              setSettingsPanel(null);
+                            }}
+                          >
+                            <span>{label}</span>
+                            {imageFit === value ? (
+                              <Check className="size-4" />
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
                 <button
                   type="button"
@@ -648,7 +706,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                   <span className="kb-gallery-menu-icon" aria-hidden>
                     <Pencil className="size-4" />
                   </span>
-                  <span className="min-w-0 flex-1">Показывать подписи</span>
+                  <span className="min-w-0 flex-1">Подписи</span>
                   <GalleryMenuSwitchIndicator checked={showCaptions} />
                 </button>
               </PopoverContent>

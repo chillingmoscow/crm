@@ -734,29 +734,36 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
           </DialogTitle>
           {activeItem && (
             <>
-              <div className="kb-gallery-lightbox-media">
-                <GalleryResolvedImage item={activeItem} variant="lightbox" />
+              <div className="kb-gallery-lightbox-frame">
+                <div className="kb-gallery-lightbox-media">
+                  <GalleryResolvedImage item={activeItem} variant="lightbox" />
+                </div>
+                {images.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className="kb-gallery-lightbox-nav is-left"
+                      onClick={showPrevious}
+                      aria-label="Предыдущее изображение"
+                    >
+                      <ChevronLeft className="size-5" />
+                    </button>
+                    <button
+                      type="button"
+                      className="kb-gallery-lightbox-nav is-right"
+                      onClick={showNext}
+                      aria-label="Следующее изображение"
+                    >
+                      <ChevronRight className="size-5" />
+                    </button>
+                  </>
+                )}
+                {(activeItem.caption || activeItem.name) && (
+                  <div className="kb-gallery-lightbox-caption">
+                    {activeItem.caption || activeItem.name}
+                  </div>
+                )}
               </div>
-              {images.length > 1 && (
-                <>
-                  <button
-                    type="button"
-                    className="kb-gallery-lightbox-nav is-left"
-                    onClick={showPrevious}
-                    aria-label="Предыдущее изображение"
-                  >
-                    <ChevronLeft className="size-5" />
-                  </button>
-                  <button
-                    type="button"
-                    className="kb-gallery-lightbox-nav is-right"
-                    onClick={showNext}
-                    aria-label="Следующее изображение"
-                  >
-                    <ChevronRight className="size-5" />
-                  </button>
-                </>
-              )}
               {images.length > 1 && activeIndex >= 0 && (
                 <div
                   className="kb-gallery-lightbox-dots"
@@ -773,11 +780,6 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                       onClick={() => setActiveLightboxId(item.id)}
                     />
                   ))}
-                </div>
-              )}
-              {(activeItem.caption || activeItem.name) && (
-                <div className="kb-gallery-lightbox-caption">
-                  {activeItem.caption || activeItem.name}
                 </div>
               )}
             </>

@@ -111,6 +111,8 @@ interface KbPagePropertiesProps {
   mode: "page" | "template";
   initialProperties: KbProperty[];
   canEdit: boolean;
+  /** В preview-режимах можно скрыть нижний CTA-блок полностью. */
+  showAddButton?: boolean;
 }
 
 const TYPE_ICONS: Record<KbPropertyType, React.ComponentType<{ className?: string }>> = {
@@ -238,6 +240,7 @@ export function KbPageProperties({
   mode,
   initialProperties,
   canEdit,
+  showAddButton = true,
 }: KbPagePropertiesProps) {
   const [properties, setProperties] = useState<KbProperty[]>(initialProperties);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -644,44 +647,46 @@ export function KbPageProperties({
           </DragOverlay>
         </DndContext>
       )}
-      <div className="flex items-center gap-2 pt-1 min-h-8">
-        {canEdit ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <Plus className="size-3.5" /> Добавить свойство
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[160px]">
-              {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
-                const Icon = TYPE_ICONS[t];
-                return (
-                  <DropdownMenuItem key={t} onSelect={() => addProperty(t)}>
-                    <Icon className="size-3.5 text-muted-foreground" />
-                    {TYPE_LABELS[t]}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled
-            aria-disabled="true"
-            className="h-7 px-2 text-xs text-muted-foreground opacity-40"
-          >
-            <Plus className="size-3.5" /> Добавить свойство
-          </Button>
-        )}
-      </div>
+      {showAddButton && (
+        <div className="flex min-h-8 items-center gap-2 pt-1">
+          {canEdit ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <Plus className="size-3.5" /> Добавить свойство
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[160px]">
+                {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
+                  const Icon = TYPE_ICONS[t];
+                  return (
+                    <DropdownMenuItem key={t} onSelect={() => addProperty(t)}>
+                      <Icon className="size-3.5 text-muted-foreground" />
+                      {TYPE_LABELS[t]}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled
+              aria-disabled="true"
+              className="h-7 px-2 text-xs text-muted-foreground opacity-40"
+            >
+              <Plus className="size-3.5" /> Добавить свойство
+            </Button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

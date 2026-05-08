@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   closestCenter,
   DndContext,
@@ -112,6 +120,8 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPanel, setSettingsPanel] = useState<"columns" | null>(null);
+  const [previewWidth, setPreviewWidth] = useState<number | null>(null);
+  const blockRef = useRef<HTMLDivElement>(null);
   const recentDragRef = useRef(false);
 
   const images = useMemo(
@@ -122,6 +132,24 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
+  useLayoutEffect(() => {
+    const element = blockRef.current;
+    if (!element) return;
+
+    const updatePreviewWidth = () => {
+      const nextWidth = Math.round(element.getBoundingClientRect().width);
+      if (nextWidth <= 0) return;
+      setPreviewWidth((current) =>
+        current === nextWidth ? current : nextWidth,
+      );
+    };
+
+    updatePreviewWidth();
+    const resizeObserver = new ResizeObserver(updatePreviewWidth);
+    resizeObserver.observe(element);
+    return () => resizeObserver.disconnect();
+  }, []);
+
   const columns = coerceGalleryColumns(block.props.columns);
   const showCaptions = block.props.showCaptions === true;
   const activeIndex = activeLightboxId
@@ -430,14 +458,21 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     const next = images[(activeIndex + 1) % images.length];
     setActiveLightboxId(next.id);
   }, [activeIndex, images]);
+  const blockStyle = (
+    previewWidth
+      ? { "--kb-gallery-preview-width": `${previewWidth}px` }
+      : undefined
+  ) as CSSProperties | undefined;
 
   return (
     <div
+      ref={blockRef}
       className={cn(
         "kb-gallery-block",
         dragOver && "is-dragover",
         images.length === 0 && "is-empty",
       )}
+      style={blockStyle}
       data-editable={editable || undefined}
       data-controls-open={pickerOpen || settingsOpen || undefined}
       data-kb-gallery-block
@@ -553,8 +588,6 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                         onClick={(event) => {
                           stopBlockMenuAction(event);
                           updateColumns(value);
-                          setSettingsPanel(null);
-                          setSettingsOpen(false);
                         }}
                       >
                         <span>{value}</span>
@@ -723,6 +756,24 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                     <ChevronRight className="size-5" />
                   </button>
                 </>
+              )}
+              {images.length > 1 && activeIndex >= 0 && (
+                <div
+                  className="kb-gallery-lightbox-dots"
+                  aria-label={`Изображение ${activeIndex + 1} из ${images.length}`}
+                >
+                  {images.map((item, index) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="kb-gallery-lightbox-dot"
+                      data-active={index === activeIndex || undefined}
+                      aria-label={`Показать изображение ${index + 1} из ${images.length}`}
+                      aria-current={index === activeIndex ? "true" : undefined}
+                      onClick={() => setActiveLightboxId(item.id)}
+                    />
+                  ))}
+                </div>
               )}
               {(activeItem.caption || activeItem.name) && (
                 <div className="kb-gallery-lightbox-caption">

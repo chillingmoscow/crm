@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Columns3,
   ExternalLink,
+  GalleryHorizontal,
   Image as ImageIcon,
   Link as LinkIcon,
   Loader2,
@@ -65,6 +66,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   coerceGalleryColumns,
+  coerceGalleryImageFit,
   coerceGalleryLayout,
   extractImageUrlsFromText,
   isLikelyImageUrl,
@@ -72,6 +74,7 @@ import {
   parseGalleryItemsJson,
   serializeGalleryItems,
   type KbGalleryColumns,
+  type KbGalleryImageFit,
   type KbGalleryItem,
   type KbGalleryLayout,
 } from "@/lib/knowledge/gallery";
@@ -98,6 +101,10 @@ const galleryBlockConfig = {
     },
     showCaptions: {
       default: false,
+    },
+    imageFit: {
+      default: "cover" as const,
+      values: ["cover", "contain"] as const,
     },
   },
   content: "inline" as const,
@@ -137,6 +144,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
 
   const columns = coerceGalleryColumns(block.props.columns);
   const layout = coerceGalleryLayout(block.props.layout);
+  const imageFit = coerceGalleryImageFit(block.props.imageFit);
   const showCaptions = block.props.showCaptions === true;
   const spotlightItem =
     images.find((item) => item.id === spotlightId) ?? images[0] ?? null;
@@ -185,6 +193,15 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     (nextValue: boolean) => {
       editor.updateBlock(block.id, {
         props: { showCaptions: nextValue },
+      } as never);
+    },
+    [block.id, editor],
+  );
+
+  const updateImageFit = useCallback(
+    (nextFit: KbGalleryImageFit) => {
+      editor.updateBlock(block.id, {
+        props: { imageFit: nextFit },
       } as never);
     },
     [block.id, editor],
@@ -537,22 +554,36 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 onOpenAutoFocus={(event) => event.preventDefault()}
               >
                 <div className="kb-gallery-menu-label">Настройки</div>
-                <button
-                  type="button"
-                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
-                  aria-pressed={layout === "spotlight"}
-                  data-active={layout === "spotlight" || undefined}
-                  onClick={(event) => {
-                    stopBlockInteraction(event);
-                    updateLayout(layout === "spotlight" ? "grid" : "spotlight");
-                  }}
-                >
+                <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
                   <span className="kb-gallery-menu-icon" aria-hidden>
-                    <ImageIcon className="size-4" />
+                    <GalleryHorizontal className="size-4" />
                   </span>
-                  <span className="min-w-0 flex-1">Главное изображение</span>
-                  <GalleryMenuSwitchIndicator checked={layout === "spotlight"} />
-                </button>
+                  <span className="min-w-0 flex-1">Вид</span>
+                  <Select
+                    value={layout}
+                    onValueChange={(value) =>
+                      updateLayout(value as KbGalleryLayout)
+                    }
+                  >
+                    <SelectTrigger
+                      className="kb-gallery-menu-select kb-gallery-menu-select-wide"
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={stopBlockInteraction}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      align="end"
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={stopBlockInteraction}
+                    >
+                      <SelectItem value="spotlight">Галерея</SelectItem>
+                      <SelectItem value="grid">Сетка</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <button
                   type="button"
                   className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
@@ -570,34 +601,72 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                   <GalleryMenuSwitchIndicator checked={showCaptions} />
                 </button>
                 <div className="kb-gallery-menu-separator" />
-                <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
-                  <span className="kb-gallery-menu-icon" aria-hidden>
-                    <Columns3 className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">Изображений в ряду</span>
-                  <Select
-                    value={String(columns)}
-                    onValueChange={(value) =>
-                      updateColumns(Number(value) as KbGalleryColumns)
-                    }
-                  >
-                    <SelectTrigger
-                      className="kb-gallery-menu-select"
-                      onPointerDown={stopBlockInteraction}
-                      onMouseDown={stopBlockInteraction}
-                      onClick={stopBlockInteraction}
+                {layout === "grid" ? (
+                  <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
+                    <span className="kb-gallery-menu-icon" aria-hidden>
+                      <Columns3 className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">Изображений в ряду</span>
+                    <Select
+                      value={String(columns)}
+                      onValueChange={(value) =>
+                        updateColumns(Number(value) as KbGalleryColumns)
+                      }
                     >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="end">
-                      {GALLERY_COLUMNS.map((value) => (
-                        <SelectItem key={value} value={String(value)}>
-                          {value}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                      <SelectTrigger
+                        className="kb-gallery-menu-select"
+                        onPointerDown={stopBlockInteraction}
+                        onMouseDown={stopBlockInteraction}
+                        onClick={stopBlockInteraction}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent
+                        align="end"
+                        onPointerDown={stopBlockInteraction}
+                        onMouseDown={stopBlockInteraction}
+                        onClick={stopBlockInteraction}
+                      >
+                        {GALLERY_COLUMNS.map((value) => (
+                          <SelectItem key={value} value={String(value)}>
+                            {value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
+                    <span className="kb-gallery-menu-icon" aria-hidden>
+                      <ImageIcon className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">Главное изображение</span>
+                    <Select
+                      value={imageFit}
+                      onValueChange={(value) =>
+                        updateImageFit(value as KbGalleryImageFit)
+                      }
+                    >
+                      <SelectTrigger
+                        className="kb-gallery-menu-select kb-gallery-menu-select-wide"
+                        onPointerDown={stopBlockInteraction}
+                        onMouseDown={stopBlockInteraction}
+                        onClick={stopBlockInteraction}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent
+                        align="end"
+                        onPointerDown={stopBlockInteraction}
+                        onMouseDown={stopBlockInteraction}
+                        onClick={stopBlockInteraction}
+                      >
+                        <SelectItem value="cover">Растянуть</SelectItem>
+                        <SelectItem value="contain">Уместить</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
               </PopoverContent>
             </Popover>
           </div>
@@ -650,6 +719,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 images={images}
                 selectedItem={spotlightItem}
                 editable={editable}
+                imageFit={imageFit}
                 showCaptions={showCaptions}
                 onSelect={(id) => setSpotlightId(id)}
                 onOpen={() => setActiveLightboxId(spotlightItem.id)}
@@ -861,6 +931,7 @@ function GallerySpotlight({
   images,
   selectedItem,
   editable,
+  imageFit,
   showCaptions,
   onSelect,
   onOpen,
@@ -873,6 +944,7 @@ function GallerySpotlight({
   images: KbGalleryItem[];
   selectedItem: KbGalleryItem;
   editable: boolean;
+  imageFit: KbGalleryImageFit;
   showCaptions: boolean;
   onSelect: (id: string) => void;
   onOpen: () => void;
@@ -896,7 +968,11 @@ function GallerySpotlight({
   };
 
   return (
-    <div className="kb-gallery-spotlight" contentEditable={false}>
+    <div
+      className="kb-gallery-spotlight"
+      data-fit={imageFit}
+      contentEditable={false}
+    >
       <div className="kb-gallery-spotlight-main-wrap">
         <button
           type="button"
@@ -1447,9 +1523,11 @@ function GalleryResolvedImage({
   const src =
     storagePath && preview.url
       ? preview.url
-      : resolved.loadingState === "loading"
-        ? item.url
-        : (resolved.downloadUrl ?? item.url);
+      : sourceUrl
+        ? sourceUrl
+        : resolved.loadingState === "loading" && storagePath
+          ? null
+          : item.url;
 
   if (failed) {
     return (
@@ -1459,7 +1537,7 @@ function GalleryResolvedImage({
     );
   }
 
-  if (storagePath && preview.status === "loading" && !preview.url) {
+  if (!src) {
     return <div className="kb-gallery-image-loading" aria-hidden />;
   }
 

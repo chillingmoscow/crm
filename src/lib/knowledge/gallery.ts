@@ -1,5 +1,6 @@
 export type KbGalleryColumns = 2 | 3 | 4 | 5;
 export type KbGalleryLayout = "spotlight" | "grid";
+export type KbGalleryImageFit = "cover" | "contain";
 
 export interface KbGalleryItem {
   id: string;
@@ -17,6 +18,7 @@ export interface KbGalleryData {
 
 export const KB_GALLERY_DEFAULT_COLUMNS: KbGalleryColumns = 3;
 export const KB_GALLERY_DEFAULT_LAYOUT: KbGalleryLayout = "spotlight";
+export const KB_GALLERY_DEFAULT_IMAGE_FIT: KbGalleryImageFit = "cover";
 export const KB_GALLERY_EMPTY_JSON = JSON.stringify({
   version: 1,
   images: [],
@@ -30,6 +32,10 @@ export function coerceGalleryColumns(value: unknown): KbGalleryColumns {
 
 export function coerceGalleryLayout(value: unknown): KbGalleryLayout {
   return value === "grid" ? "grid" : KB_GALLERY_DEFAULT_LAYOUT;
+}
+
+export function coerceGalleryImageFit(value: unknown): KbGalleryImageFit {
+  return value === "contain" ? "contain" : KB_GALLERY_DEFAULT_IMAGE_FIT;
 }
 
 export function parseGalleryItemsJson(value: unknown): KbGalleryData {

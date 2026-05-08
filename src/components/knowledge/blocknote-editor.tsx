@@ -319,6 +319,7 @@ function getKbGallerySlashItem(editor: BlockNoteEditor<never, never, never>) {
           columns: 3,
           itemsJson: KB_GALLERY_EMPTY_JSON,
           layout: "spotlight",
+          imageFit: "cover",
         },
       } as never);
     },

@@ -27,7 +27,7 @@ export async function listKbPageUpdates(
     p_page_id: pageId,
     p_limit: 80,
   });
-  if (error) return { rows: [], error: error.message };
+  if (error) return { rows: [], error: normalizeUpdatesError(error.message) };
 
   return {
     rows: ((data ?? []) as KbPageUpdateRpcRow[]).map((row) => ({
@@ -55,4 +55,11 @@ function actorName(firstName: string | null, lastName: string | null): string {
 function normalizeDetails(value: Json): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function normalizeUpdatesError(message: string): string {
+  if (message.includes("Could not find the function public.kb_list_page_updates")) {
+    return "Лента обновлений пока недоступна: на сервере ещё не применена миграция базы знаний.";
+  }
+  return message;
 }

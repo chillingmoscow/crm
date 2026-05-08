@@ -341,16 +341,13 @@ function JournalTabIntro({
                   value={sessionCount}
                   label={plural(sessionCount, "сессия", "сессии", "сессий")}
                 />
-                <span className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
-                  окно 15 мин
-                </span>
               </>
             )}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             {isUpdates
               ? "Здесь живёт операционная лента: комментарии, блокировки, правки, переносы в корзину и другие действия."
-              : "Здесь живут точки восстановления. Можно открыть полный snapshot страницы и затем откатиться к выбранной версии."}
+              : "Здесь живут точки восстановления. Можно открыть полный снимок страницы и затем откатиться к выбранной версии."}
           </p>
         </div>
       </div>
@@ -378,7 +375,15 @@ function UpdatesPane({
   onRetry: () => void;
 }) {
   if (loading) return <LoadingState label="Загружаем обновления…" />;
-  if (error) return <ErrorState error={error} onRetry={onRetry} />;
+  if (error) {
+    return (
+      <ErrorState
+        title="Не удалось загрузить обновления"
+        error={error}
+        onRetry={onRetry}
+      />
+    );
+  }
   if (rows !== null && rows.length === 0) {
     return (
       <div className="rounded-lg border border-dashed p-6 text-center">
@@ -507,9 +512,11 @@ function LoadingState({ label = "Загружаем историю…" }: { labe
 }
 
 function ErrorState({
+  title = "Не удалось загрузить историю",
   error,
   onRetry,
 }: {
+  title?: string;
   error: string;
   onRetry: () => void;
 }) {
@@ -518,9 +525,7 @@ function ErrorState({
       <div className="flex items-start gap-3">
         <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-destructive">
-            Не удалось загрузить историю
-          </p>
+          <p className="text-sm font-medium text-destructive">{title}</p>
           <p className="mt-1 text-sm text-muted-foreground">{error}</p>
           <Button className="mt-3" size="sm" variant="outline" onClick={onRetry}>
             Повторить
@@ -899,7 +904,8 @@ function TextDiff({
   if (!before && !after) {
     return (
       <p className="text-sm text-muted-foreground">
-        В этой версии нет текстового preview. Полный snapshot доступен для восстановления.
+        В этой версии нет текстового предпросмотра. Полный снимок доступен
+        для восстановления.
       </p>
     );
   }

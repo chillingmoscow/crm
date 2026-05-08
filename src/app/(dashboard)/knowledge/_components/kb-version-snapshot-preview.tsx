@@ -40,8 +40,8 @@ export function KbVersionSnapshotPreview({
   const hasContent = content.length > 0;
 
   return (
-    <div className="mx-auto flex w-full max-w-[920px] flex-col gap-6 px-6 py-7 sm:px-8">
-      <header className="space-y-4">
+    <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-8 px-6 py-8 sm:px-8 lg:px-12 lg:py-10">
+      <header className="space-y-5">
         <KbPageIcon icon={icon} color={iconColor} size={56} />
         <div className="space-y-2">
           <h2 className="text-[36px] font-extrabold leading-[1.15] tracking-tight text-foreground">
@@ -55,7 +55,7 @@ export function KbVersionSnapshotPreview({
       </header>
 
       {snapshotProperties.length > 0 && (
-        <div className="rounded-xl border bg-background/70 px-3 py-3">
+        <div className="rounded-xl border bg-background/80 px-4 py-4">
           <KbPageProperties
             targetId={pageId}
             mode="page"
@@ -66,9 +66,9 @@ export function KbVersionSnapshotPreview({
         </div>
       )}
 
-      <section className="rounded-xl border bg-background/70">
+      <section className="rounded-xl border bg-background/80">
         {hasContent ? (
-          <div className="px-3 py-4 sm:px-4">
+          <div className="px-4 py-5 sm:px-5 lg:px-6">
             <KbBlockNoteEditor
               key={`${pageId}-snapshot`}
               initialContent={content}

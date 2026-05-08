@@ -705,6 +705,7 @@ function SortableGalleryItem({
   onOpenOriginal: () => void;
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
+  const dragListeners = getPointerSortableListeners(sortable.listeners);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -723,7 +724,7 @@ function SortableGalleryItem({
         type="button"
         className="kb-gallery-image-btn"
         {...sortable.attributes}
-        {...sortable.listeners}
+        {...dragListeners}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -845,6 +846,7 @@ function SortableGalleryThumb({
   onOpenOriginal: () => void;
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
+  const dragListeners = getPointerSortableListeners(sortable.listeners);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -864,7 +866,7 @@ function SortableGalleryThumb({
         type="button"
         className="kb-gallery-thumb-btn"
         {...sortable.attributes}
-        {...sortable.listeners}
+        {...dragListeners}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -886,6 +888,18 @@ function SortableGalleryThumb({
       )}
     </div>
   );
+}
+
+type SortableListeners = NonNullable<
+  ReturnType<typeof useSortable>["listeners"]
+>;
+
+function getPointerSortableListeners(
+  listeners: ReturnType<typeof useSortable>["listeners"],
+): Omit<SortableListeners, "onKeyDown"> {
+  const pointerListeners = { ...(listeners ?? ({} as SortableListeners)) };
+  delete pointerListeners.onKeyDown;
+  return pointerListeners;
 }
 
 function GalleryImageMenu({

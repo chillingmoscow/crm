@@ -1,4 +1,5 @@
 import type { KbBlock } from "@/types/knowledge";
+import { parseGalleryItemsJson } from "@/lib/knowledge/gallery";
 
 /**
  * BlockNote → Markdown serializer (lossy). Цель — экспорт страницы в
@@ -111,6 +112,16 @@ function renderBlock(b: BlockLike, depth: number, numberedIdx: number): string |
       const caption = String(props.caption ?? "");
       const name = String(props.name ?? caption ?? "image");
       return `![${escapeAlt(name)}](${url})${caption ? `\n\n_${escapeMd(caption)}_` : ""}`;
+    }
+
+    case "gallery": {
+      const gallery = parseGalleryItemsJson(props.itemsJson);
+      const images = gallery.images.map((item) => {
+        const label = item.caption || item.alt || item.name || "image";
+        const image = `![${escapeAlt(label)}](${item.url})`;
+        return item.caption ? `${image}\n\n_${escapeMd(item.caption)}_` : image;
+      });
+      return [...images, inline].filter(Boolean).join("\n\n") || null;
     }
 
     case "file":

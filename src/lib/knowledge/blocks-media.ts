@@ -1,4 +1,8 @@
 import type { KbBlock } from "@/types/knowledge";
+import {
+  parseGalleryItemsJson,
+  serializeGalleryItems,
+} from "@/lib/knowledge/gallery";
 
 /** URL'ы, которые BlockNote рендерит без обращения в наше storage.
  *  Всё остальное (`./foo.jpg`, `bar.png`, `file:///…`, и т.п.) — broken,
@@ -67,6 +71,42 @@ export function rewriteBrokenMediaBlocks(
         } as unknown as KbBlock;
       }
     }
+    if (b.type === "gallery") {
+      const gallery = parseGalleryItemsJson(
+        (b.props as { itemsJson?: unknown } | undefined)?.itemsJson,
+      );
+      const validImages = gallery.images.filter((item) =>
+        VALID_MEDIA_URL_RE.test(item.url.trim()),
+      );
+      if (validImages.length !== gallery.images.length) {
+        if (validImages.length === 0) {
+          const label =
+            gallery.images
+              .map((item) => item.name || item.caption || item.url)
+              .filter(Boolean)
+              .join(", ") || "вложение";
+          return {
+            type: "paragraph",
+            props: {},
+            content: [
+              {
+                type: "text",
+                text: `[${labelPrefix}: ${label}]`,
+                styles: { italic: true },
+              },
+            ],
+            children: [],
+          } as unknown as KbBlock;
+        }
+        return {
+          ...block,
+          props: {
+            ...(b.props ?? {}),
+            itemsJson: serializeGalleryItems(validImages),
+          },
+        } as KbBlock;
+      }
+    }
     if (Array.isArray(b.children) && b.children.length > 0) {
       return {
         ...block,
@@ -102,6 +142,15 @@ export function collectRelativeMediaRefs(blocks: KbBlock[]): string[] {
       if (isMedia) {
         const url = (b.props?.url ?? "").trim();
         if (url && !VALID_MEDIA_URL_RE.test(url)) out.push(url);
+      }
+      if (b.type === "gallery") {
+        const gallery = parseGalleryItemsJson(
+          (b.props as { itemsJson?: unknown } | undefined)?.itemsJson,
+        );
+        for (const item of gallery.images) {
+          const url = item.url.trim();
+          if (url && !VALID_MEDIA_URL_RE.test(url)) out.push(url);
+        }
       }
       if (Array.isArray(b.children) && b.children.length > 0) {
         visit(b.children as KbBlock[]);
@@ -152,6 +201,40 @@ export function applyMediaUrlMap(
             props: { ...(b.props ?? {}), url: replacement },
           } as KbBlock;
         }
+      }
+    }
+    if (b.type === "gallery") {
+      const gallery = parseGalleryItemsJson(
+        (b.props as { itemsJson?: unknown } | undefined)?.itemsJson,
+      );
+      let changed = false;
+      const nextImages = gallery.images.map((item) => {
+        const url = item.url.trim();
+        if (!url || VALID_MEDIA_URL_RE.test(url)) return item;
+        let decoded: string;
+        const rawBasename = url.split(/[/\\]/).pop() ?? "";
+        try {
+          decoded = decodeURIComponent(rawBasename);
+        } catch {
+          decoded = rawBasename;
+        }
+        const replacement = urlMap.get(decoded.toLowerCase());
+        if (!replacement) return item;
+        changed = true;
+        return {
+          ...item,
+          url: replacement,
+          source: "upload" as const,
+        };
+      });
+      if (changed) {
+        return {
+          ...block,
+          props: {
+            ...(b.props ?? {}),
+            itemsJson: serializeGalleryItems(nextImages),
+          },
+        } as KbBlock;
       }
     }
     if (Array.isArray(b.children) && b.children.length > 0) {

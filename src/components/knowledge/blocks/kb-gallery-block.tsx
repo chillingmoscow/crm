@@ -121,7 +121,6 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const [activeLightboxId, setActiveLightboxId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
-  const [captionTarget, setCaptionTarget] = useState<KbGalleryItem | null>(null);
   const recentDragRef = useRef(false);
 
   const images = useMemo(
@@ -547,7 +546,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
               <PopoverContent
                 align="end"
                 sideOffset={8}
-                className="kb-gallery-popover-menu w-64"
+                className="kb-gallery-popover-menu kb-gallery-settings-menu w-72"
                 onPointerDown={stopBlockInteraction}
                 onMouseDown={stopBlockInteraction}
                 onClick={stopBlockInteraction}
@@ -723,7 +722,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 showCaptions={showCaptions}
                 onSelect={(id) => setSpotlightId(id)}
                 onOpen={() => setActiveLightboxId(spotlightItem.id)}
-                onEditCaption={(item) => setCaptionTarget(item)}
+                onUpdateCaption={updateCaption}
                 onReplace={replaceImage}
                 onReplaceUrl={replaceImageWithUrl}
                 onRemove={removeImage}
@@ -747,7 +746,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                       if (recentDragRef.current) return;
                       setActiveLightboxId(item.id);
                     }}
-                    onEditCaption={() => setCaptionTarget(item)}
+                    onUpdateCaption={(caption) => updateCaption(item.id, caption)}
                     onReplace={(file) => void replaceImage(item.id, file)}
                     onReplaceUrl={(url) => replaceImageWithUrl(item.id, url)}
                     onRemove={() => removeImage(item.id)}
@@ -837,14 +836,6 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
           )}
         </DialogContent>
       </Dialog>
-      <GalleryCaptionDialog
-        item={captionTarget}
-        onClose={() => setCaptionTarget(null)}
-        onSave={(id, caption) => {
-          updateCaption(id, caption);
-          setCaptionTarget(null);
-        }}
-      />
     </div>
   );
 }
@@ -854,7 +845,7 @@ function SortableGalleryItem({
   editable,
   showCaptions,
   onOpen,
-  onEditCaption,
+  onUpdateCaption,
   onReplace,
   onReplaceUrl,
   onRemove,
@@ -865,7 +856,7 @@ function SortableGalleryItem({
   editable: boolean;
   showCaptions: boolean;
   onOpen: () => void;
-  onEditCaption: () => void;
+  onUpdateCaption: (caption: string) => void;
   onReplace: (file: File) => void;
   onReplaceUrl: (url: string) => void;
   onRemove: () => void;
@@ -912,7 +903,7 @@ function SortableGalleryItem({
         <div className="kb-gallery-item-actions" contentEditable={false}>
           <GalleryImageMenu
             item={item}
-            onEditCaption={onEditCaption}
+            onUpdateCaption={onUpdateCaption}
             onReplace={onReplace}
             onReplaceUrl={onReplaceUrl}
             onRemove={onRemove}
@@ -920,8 +911,13 @@ function SortableGalleryItem({
           />
         </div>
       )}
-      {showCaptions && item.caption ? (
-        <div className="kb-gallery-caption">{item.caption}</div>
+      {showCaptions ? (
+        <div
+          className="kb-gallery-caption"
+          data-empty={!item.caption || undefined}
+        >
+          {item.caption || "\u00A0"}
+        </div>
       ) : null}
     </article>
   );
@@ -935,7 +931,7 @@ function GallerySpotlight({
   showCaptions,
   onSelect,
   onOpen,
-  onEditCaption,
+  onUpdateCaption,
   onReplace,
   onReplaceUrl,
   onRemove,
@@ -948,7 +944,7 @@ function GallerySpotlight({
   showCaptions: boolean;
   onSelect: (id: string) => void;
   onOpen: () => void;
-  onEditCaption: (item: KbGalleryItem) => void;
+  onUpdateCaption: (id: string, caption: string) => void;
   onReplace: (id: string, file: File) => void;
   onReplaceUrl: (id: string, url: string) => void;
   onRemove: (id: string) => void;
@@ -1023,7 +1019,9 @@ function GallerySpotlight({
           <div className="kb-gallery-item-actions" contentEditable={false}>
             <GalleryImageMenu
               item={selectedItem}
-              onEditCaption={() => onEditCaption(selectedItem)}
+              onUpdateCaption={(caption) =>
+                onUpdateCaption(selectedItem.id, caption)
+              }
               onReplace={(file) => onReplace(selectedItem.id, file)}
               onReplaceUrl={(url) => onReplaceUrl(selectedItem.id, url)}
               onRemove={() => onRemove(selectedItem.id)}
@@ -1032,9 +1030,12 @@ function GallerySpotlight({
           </div>
         )}
       </div>
-      {showCaptions && selectedItem.caption ? (
-        <div className="kb-gallery-caption kb-gallery-spotlight-caption">
-          {selectedItem.caption}
+      {showCaptions ? (
+        <div
+          className="kb-gallery-caption kb-gallery-spotlight-caption"
+          data-empty={!selectedItem.caption || undefined}
+        >
+          {selectedItem.caption || "\u00A0"}
         </div>
       ) : null}
       {images.length > 1 && (
@@ -1046,7 +1047,7 @@ function GallerySpotlight({
               active={item.id === selectedItem.id}
               editable={editable}
               onSelect={() => onSelect(item.id)}
-              onEditCaption={() => onEditCaption(item)}
+              onUpdateCaption={(caption) => onUpdateCaption(item.id, caption)}
               onReplace={(file) => onReplace(item.id, file)}
               onReplaceUrl={(url) => onReplaceUrl(item.id, url)}
               onRemove={() => onRemove(item.id)}
@@ -1064,7 +1065,7 @@ function SortableGalleryThumb({
   active,
   editable,
   onSelect,
-  onEditCaption,
+  onUpdateCaption,
   onReplace,
   onReplaceUrl,
   onRemove,
@@ -1074,7 +1075,7 @@ function SortableGalleryThumb({
   active: boolean;
   editable: boolean;
   onSelect: () => void;
-  onEditCaption: () => void;
+  onUpdateCaption: (caption: string) => void;
   onReplace: (file: File) => void;
   onReplaceUrl: (url: string) => void;
   onRemove: () => void;
@@ -1120,7 +1121,7 @@ function SortableGalleryThumb({
         <div className="kb-gallery-thumb-actions" contentEditable={false}>
           <GalleryImageMenu
             item={item}
-            onEditCaption={onEditCaption}
+            onUpdateCaption={onUpdateCaption}
             onReplace={onReplace}
             onReplaceUrl={onReplaceUrl}
             onRemove={onRemove}
@@ -1162,14 +1163,14 @@ function GalleryMenuSwitchIndicator({ checked }: { checked: boolean }) {
 
 function GalleryImageMenu({
   item,
-  onEditCaption,
+  onUpdateCaption,
   onReplace,
   onReplaceUrl,
   onRemove,
   onOpenOriginal,
 }: {
   item: KbGalleryItem;
-  onEditCaption: () => void;
+  onUpdateCaption: (caption: string) => void;
   onReplace: (file: File) => void;
   onReplaceUrl: (url: string) => void;
   onRemove: () => void;
@@ -1177,13 +1178,17 @@ function GalleryImageMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [captionOpen, setCaptionOpen] = useState(false);
 
   return (
     <Popover
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen);
-        if (!nextOpen) setReplaceOpen(false);
+        if (!nextOpen) {
+          setReplaceOpen(false);
+          setCaptionOpen(false);
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -1203,7 +1208,9 @@ function GalleryImageMenu({
         sideOffset={6}
         className={cn(
           "kb-gallery-popover-menu",
-          replaceOpen ? "w-auto p-0 border-0 bg-transparent shadow-none" : "w-52",
+          replaceOpen || captionOpen
+            ? "w-auto p-0 border-0 bg-transparent shadow-none"
+            : "w-52",
         )}
         onPointerDown={stopBlockInteraction}
         onMouseDown={stopBlockInteraction}
@@ -1228,6 +1235,16 @@ function GalleryImageMenu({
               setOpen(false);
             }}
           />
+        ) : captionOpen ? (
+          <GalleryCaptionPopoverForm
+            initialValue={item.caption ?? ""}
+            onCancel={() => setCaptionOpen(false)}
+            onSubmit={(caption) => {
+              onUpdateCaption(caption);
+              setCaptionOpen(false);
+              setOpen(false);
+            }}
+          />
         ) : (
           <>
           <button
@@ -1235,8 +1252,7 @@ function GalleryImageMenu({
             className="kb-gallery-menu-item"
             onClick={(event) => {
               stopBlockInteraction(event);
-              setOpen(false);
-              onEditCaption();
+              setCaptionOpen(true);
             }}
           >
             <Pencil className="mr-2 size-4" />
@@ -1284,63 +1300,46 @@ function GalleryImageMenu({
   );
 }
 
-function GalleryCaptionDialog({
-  item,
-  onClose,
-  onSave,
+function GalleryCaptionPopoverForm({
+  initialValue,
+  onCancel,
+  onSubmit,
 }: {
-  item: KbGalleryItem | null;
-  onClose: () => void;
-  onSave: (id: string, caption: string) => void;
+  initialValue: string;
+  onCancel: () => void;
+  onSubmit: (caption: string) => void;
 }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
-    setDraft(item?.caption ?? "");
-  }, [item]);
+    setDraft(initialValue);
+  }, [initialValue]);
   useEffect(() => {
-    resizeTextarea(ref.current);
-  }, [draft]);
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
 
   return (
-    <Dialog open={!!item} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[420px] gap-3">
-        <DialogTitle className="text-[17px] font-semibold">
-          {item?.caption ? "Редактировать подпись" : "Добавить подпись"}
-        </DialogTitle>
-        <textarea
-          ref={ref}
-          value={draft}
-          rows={3}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            resizeTextarea(event.currentTarget);
-          }}
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-              event.preventDefault();
-              if (item) onSave(item.id, draft);
-            }
-          }}
-          className="kb-gallery-caption-dialog-input"
-          placeholder="Подпись к изображению"
-          autoFocus
-        />
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-            Отмена
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => item && onSave(item.id, draft)}
-          >
-            Сохранить
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+    <div className="kb-gallery-caption-popover">
+      <Input
+        ref={inputRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            onSubmit(draft);
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+        placeholder="Подпись к файлу"
+        className="h-9"
+      />
+    </div>
   );
 }
 
@@ -1604,12 +1603,6 @@ function uploadResultToUrl(result: string | Record<string, unknown>): string {
     return props.url;
   }
   throw new Error("Upload did not return an image URL");
-}
-
-function resizeTextarea(node: HTMLTextAreaElement | null) {
-  if (!node) return;
-  node.style.height = "auto";
-  node.style.height = `${node.scrollHeight}px`;
 }
 
 export const kbGalleryBlockSpec = createReactBlockSpec(

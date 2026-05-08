@@ -27,13 +27,14 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
-  Columns3,
-  GripVertical,
+  ExternalLink,
   Image as ImageIcon,
-  Images,
   Link as LinkIcon,
   Loader2,
+  MoreHorizontal,
+  Pencil,
   Plus,
+  Settings2,
   Trash2,
   UploadCloud,
 } from "lucide-react";
@@ -46,6 +47,15 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -86,6 +96,9 @@ const galleryBlockConfig = {
       default: "spotlight" as const,
       values: ["spotlight", "grid"] as const,
     },
+    showCaptions: {
+      default: false,
+    },
   },
   content: "inline" as const,
 };
@@ -101,6 +114,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const [activeLightboxId, setActiveLightboxId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
+  const [captionTarget, setCaptionTarget] = useState<KbGalleryItem | null>(null);
 
   const images = useMemo(
     () => parseGalleryItemsJson(block.props.itemsJson).images,
@@ -122,6 +136,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
 
   const columns = coerceGalleryColumns(block.props.columns);
   const layout = coerceGalleryLayout(block.props.layout);
+  const showCaptions = block.props.showCaptions === true;
   const spotlightItem =
     images.find((item) => item.id === spotlightId) ?? images[0] ?? null;
   const activeIndex = activeLightboxId
@@ -160,6 +175,15 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     (nextLayout: KbGalleryLayout) => {
       editor.updateBlock(block.id, {
         props: { layout: nextLayout },
+      } as never);
+    },
+    [block.id, editor],
+  );
+
+  const updateShowCaptions = useCallback(
+    (nextValue: boolean) => {
+      editor.updateBlock(block.id, {
+        props: { showCaptions: nextValue },
       } as never);
     },
     [block.id, editor],
@@ -317,12 +341,79 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     [updateImages],
   );
 
+  const replaceImage = useCallback(
+    async (id: string, file: File) => {
+      if (!editable || !editor.uploadFile) return;
+      const validationError = validateKnowledgeFile(file, "image");
+      if (validationError) {
+        toast.error(validationError);
+        return;
+      }
+
+      setUploadingCount(1);
+      try {
+        const uploadResult = await editor.uploadFile(file);
+        const url = uploadResultToUrl(uploadResult);
+        updateImages(
+          imagesRef.current.map((item) =>
+            item.id === id
+              ? {
+                  ...item,
+                  url,
+                  source: "upload",
+                  name: file.name,
+                }
+              : item,
+          ),
+        );
+        toast.success("Изображение заменено");
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Не удалось загрузить файл";
+        toast.error(`Ошибка загрузки: ${message}`);
+      } finally {
+        setUploadingCount(0);
+      }
+    },
+    [editable, editor, updateImages],
+  );
+
   const removeImage = useCallback(
     (id: string) => {
       updateImages(imagesRef.current.filter((item) => item.id !== id));
       if (activeLightboxId === id) setActiveLightboxId(null);
     },
     [activeLightboxId, updateImages],
+  );
+
+  const openOriginalImage = useCallback(
+    (item: KbGalleryItem) => {
+      const newTab = window.open("", "_blank");
+      if (!newTab) return;
+      try {
+        newTab.opener = null;
+      } catch {
+        /* ignore */
+      }
+      void (async () => {
+        let url = item.url;
+        try {
+          url = editor.resolveFileUrl ? await editor.resolveFileUrl(item.url) : item.url;
+        } catch {
+          if (item.url.startsWith(KB_FILE_SCHEME)) {
+            newTab.close();
+            toast.error("Не удалось открыть оригинал");
+            return;
+          }
+        }
+        try {
+          newTab.location.href = url;
+        } catch {
+          /* tab closed */
+        }
+      })();
+    },
+    [editor],
   );
 
   const showPrevious = useCallback(() => {
@@ -357,65 +448,13 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     >
       {editable && (
         <div className="kb-gallery-header" contentEditable={false}>
-          <div className="kb-gallery-title">
-            <Images className="size-4" strokeWidth={1.75} />
-            <span>Галерея</span>
-          </div>
           <div className="kb-gallery-toolbar">
-            <div className="kb-gallery-layouts" aria-label="Вид галереи">
-              {(["spotlight", "grid"] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className="kb-gallery-layout-btn"
-                  data-active={layout === value || undefined}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    updateLayout(value);
-                  }}
-                >
-                  {value === "spotlight" ? (
-                    <>
-                      <Images className="size-4" strokeWidth={1.75} />
-                      Лента
-                    </>
-                  ) : (
-                    <>
-                      <Columns3 className="size-4" strokeWidth={1.75} />
-                      Сетка
-                    </>
-                  )}
-                </button>
-              ))}
-            </div>
-            {layout === "grid" && (
-              <div className="kb-gallery-columns" aria-label="Колонки">
-                <Columns3 className="size-4" strokeWidth={1.75} />
-                {GALLERY_COLUMNS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className="kb-gallery-column-btn"
-                    data-active={columns === value || undefined}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      updateColumns(value);
-                    }}
-                  >
-                    {value}
-                  </button>
-                ))}
-              </div>
-            )}
             <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
               <PopoverTrigger asChild>
                 <Button
                   type="button"
-                  variant="ghost"
                   size="sm"
-                  className="kb-gallery-icon-btn"
+                  className="kb-gallery-add-btn"
                   onClick={(event) => {
                     event.stopPropagation();
                   }}
@@ -443,6 +482,48 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 />
               </PopoverContent>
             </Popover>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="kb-gallery-settings-btn"
+                  aria-label="Настройки галереи"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <Settings2 className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel>Настройки</DropdownMenuLabel>
+                <DropdownMenuCheckboxItem
+                  checked={layout === "spotlight"}
+                  onCheckedChange={(checked) =>
+                    updateLayout(checked ? "spotlight" : "grid")
+                  }
+                >
+                  Показывать главное изображение
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuCheckboxItem
+                  checked={showCaptions}
+                  onCheckedChange={(checked) => updateShowCaptions(checked)}
+                >
+                  Показывать подписи
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Изображений в ряду</DropdownMenuLabel>
+                {GALLERY_COLUMNS.map((value) => (
+                  <DropdownMenuCheckboxItem
+                    key={value}
+                    checked={columns === value}
+                    onCheckedChange={() => updateColumns(value)}
+                  >
+                    {value}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       )}
@@ -485,12 +566,13 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 images={images}
                 selectedItem={spotlightItem}
                 editable={editable}
+                showCaptions={showCaptions}
                 onSelect={(id) => setSpotlightId(id)}
                 onOpen={() => setActiveLightboxId(spotlightItem.id)}
-                onCaptionChange={(caption) =>
-                  updateCaption(spotlightItem.id, caption)
-                }
+                onEditCaption={(item) => setCaptionTarget(item)}
+                onReplace={replaceImage}
                 onRemove={removeImage}
+                onOpenOriginal={openOriginalImage}
               />
             ) : (
               <div
@@ -505,11 +587,12 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                     key={item.id}
                     item={item}
                     editable={editable}
+                    showCaptions={showCaptions}
                     onOpen={() => setActiveLightboxId(item.id)}
-                    onCaptionChange={(caption) =>
-                      updateCaption(item.id, caption)
-                    }
+                    onEditCaption={() => setCaptionTarget(item)}
+                    onReplace={(file) => void replaceImage(item.id, file)}
                     onRemove={() => removeImage(item.id)}
+                    onOpenOriginal={() => openOriginalImage(item)}
                   />
                 ))}
               </div>
@@ -525,7 +608,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
         </div>
       )}
 
-      <div className="kb-gallery-description-wrap">
+      <div className="kb-gallery-description-wrap" hidden>
         <div
           ref={contentRef}
           className="kb-gallery-description"
@@ -590,6 +673,14 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
           )}
         </DialogContent>
       </Dialog>
+      <GalleryCaptionDialog
+        item={captionTarget}
+        onClose={() => setCaptionTarget(null)}
+        onSave={(id, caption) => {
+          updateCaption(id, caption);
+          setCaptionTarget(null);
+        }}
+      />
     </div>
   );
 }
@@ -597,17 +688,24 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
 function SortableGalleryItem({
   item,
   editable,
+  showCaptions,
   onOpen,
-  onCaptionChange,
+  onEditCaption,
+  onReplace,
   onRemove,
+  onOpenOriginal,
 }: {
   item: KbGalleryItem;
   editable: boolean;
+  showCaptions: boolean;
   onOpen: () => void;
-  onCaptionChange: (caption: string) => void;
+  onEditCaption: () => void;
+  onReplace: (file: File) => void;
   onRemove: () => void;
+  onOpenOriginal: () => void;
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
+  const dragListeners = getPointerSortableListeners(sortable.listeners);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -625,6 +723,8 @@ function SortableGalleryItem({
       <button
         type="button"
         className="kb-gallery-image-btn"
+        {...sortable.attributes}
+        {...dragListeners}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -635,39 +735,16 @@ function SortableGalleryItem({
       </button>
       {editable && (
         <div className="kb-gallery-item-actions">
-          <button
-            type="button"
-            className="kb-gallery-item-action"
-            aria-label="Переместить изображение"
-            {...sortable.attributes}
-            {...sortable.listeners}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-          >
-            <GripVertical className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="kb-gallery-item-action"
-            aria-label="Удалить изображение"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onRemove();
-            }}
-          >
-            <Trash2 className="size-4" />
-          </button>
+          <GalleryImageMenu
+            item={item}
+            onEditCaption={onEditCaption}
+            onReplace={onReplace}
+            onRemove={onRemove}
+            onOpenOriginal={onOpenOriginal}
+          />
         </div>
       )}
-      {editable ? (
-        <GalleryCaptionInput
-          value={item.caption ?? ""}
-          onCommit={onCaptionChange}
-        />
-      ) : item.caption ? (
+      {showCaptions && item.caption ? (
         <div className="kb-gallery-caption">{item.caption}</div>
       ) : null}
     </article>
@@ -678,38 +755,52 @@ function GallerySpotlight({
   images,
   selectedItem,
   editable,
+  showCaptions,
   onSelect,
   onOpen,
-  onCaptionChange,
+  onEditCaption,
+  onReplace,
   onRemove,
+  onOpenOriginal,
 }: {
   images: KbGalleryItem[];
   selectedItem: KbGalleryItem;
   editable: boolean;
+  showCaptions: boolean;
   onSelect: (id: string) => void;
   onOpen: () => void;
-  onCaptionChange: (caption: string) => void;
+  onEditCaption: (item: KbGalleryItem) => void;
+  onReplace: (id: string, file: File) => void;
   onRemove: (id: string) => void;
+  onOpenOriginal: (item: KbGalleryItem) => void;
 }) {
   return (
     <div className="kb-gallery-spotlight" contentEditable={false}>
-      <button
-        type="button"
-        className="kb-gallery-spotlight-main"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onOpen();
-        }}
-      >
-        <GalleryResolvedImage item={selectedItem} variant="spotlight" />
-      </button>
-      {editable ? (
-        <GalleryCaptionInput
-          value={selectedItem.caption ?? ""}
-          onCommit={onCaptionChange}
-        />
-      ) : selectedItem.caption ? (
+      <div className="kb-gallery-spotlight-main-wrap">
+        <button
+          type="button"
+          className="kb-gallery-spotlight-main"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpen();
+          }}
+        >
+          <GalleryResolvedImage item={selectedItem} variant="spotlight" />
+        </button>
+        {editable && (
+          <div className="kb-gallery-item-actions">
+            <GalleryImageMenu
+              item={selectedItem}
+              onEditCaption={() => onEditCaption(selectedItem)}
+              onReplace={(file) => onReplace(selectedItem.id, file)}
+              onRemove={() => onRemove(selectedItem.id)}
+              onOpenOriginal={() => onOpenOriginal(selectedItem)}
+            />
+          </div>
+        )}
+      </div>
+      {showCaptions && selectedItem.caption ? (
         <div className="kb-gallery-caption kb-gallery-spotlight-caption">
           {selectedItem.caption}
         </div>
@@ -723,7 +814,10 @@ function GallerySpotlight({
               active={item.id === selectedItem.id}
               editable={editable}
               onSelect={() => onSelect(item.id)}
+              onEditCaption={() => onEditCaption(item)}
+              onReplace={(file) => onReplace(item.id, file)}
               onRemove={() => onRemove(item.id)}
+              onOpenOriginal={() => onOpenOriginal(item)}
             />
           ))}
         </div>
@@ -737,15 +831,22 @@ function SortableGalleryThumb({
   active,
   editable,
   onSelect,
+  onEditCaption,
+  onReplace,
   onRemove,
+  onOpenOriginal,
 }: {
   item: KbGalleryItem;
   active: boolean;
   editable: boolean;
   onSelect: () => void;
+  onEditCaption: () => void;
+  onReplace: (file: File) => void;
   onRemove: () => void;
+  onOpenOriginal: () => void;
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
+  const dragListeners = getPointerSortableListeners(sortable.listeners);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -764,6 +865,8 @@ function SortableGalleryThumb({
       <button
         type="button"
         className="kb-gallery-thumb-btn"
+        {...sortable.attributes}
+        {...dragListeners}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -774,83 +877,159 @@ function SortableGalleryThumb({
       </button>
       {editable && (
         <div className="kb-gallery-thumb-actions">
-          <button
-            type="button"
-            className="kb-gallery-item-action"
-            aria-label="Переместить изображение"
-            {...sortable.attributes}
-            {...sortable.listeners}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-          >
-            <GripVertical className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="kb-gallery-item-action"
-            aria-label="Удалить изображение"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onRemove();
-            }}
-          >
-            <Trash2 className="size-4" />
-          </button>
+          <GalleryImageMenu
+            item={item}
+            onEditCaption={onEditCaption}
+            onReplace={onReplace}
+            onRemove={onRemove}
+            onOpenOriginal={onOpenOriginal}
+          />
         </div>
       )}
     </div>
   );
 }
 
-function GalleryCaptionInput({
-  value,
-  onCommit,
+type SortableListeners = NonNullable<
+  ReturnType<typeof useSortable>["listeners"]
+>;
+
+function getPointerSortableListeners(
+  listeners: ReturnType<typeof useSortable>["listeners"],
+): Omit<SortableListeners, "onKeyDown"> {
+  const pointerListeners = { ...(listeners ?? ({} as SortableListeners)) };
+  delete pointerListeners.onKeyDown;
+  return pointerListeners;
+}
+
+function GalleryImageMenu({
+  item,
+  onEditCaption,
+  onReplace,
+  onRemove,
+  onOpenOriginal,
 }: {
-  value: string;
-  onCommit: (value: string) => void;
+  item: KbGalleryItem;
+  onEditCaption: () => void;
+  onReplace: (file: File) => void;
+  onRemove: () => void;
+  onOpenOriginal: () => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className="kb-gallery-item-action"
+            aria-label="Открыть меню изображения"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <MoreHorizontal className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-52">
+          <DropdownMenuItem onClick={onEditCaption}>
+            <Pencil className="mr-2 size-4" />
+            {item.caption ? "Редактировать подпись" : "Добавить подпись"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => inputRef.current?.click()}>
+            <UploadCloud className="mr-2 size-4" />
+            Заменить
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={onOpenOriginal}>
+            <ExternalLink className="mr-2 size-4" />
+            Показать оригинал
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            onClick={onRemove}
+            className="text-destructive focus:text-destructive"
+          >
+            <Trash2 className="mr-2 size-4" />
+            Удалить
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="sr-only"
+        aria-hidden
+        tabIndex={-1}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) onReplace(file);
+          event.target.value = "";
+        }}
+      />
+    </>
+  );
+}
+
+function GalleryCaptionDialog({
+  item,
+  onClose,
+  onSave,
+}: {
+  item: KbGalleryItem | null;
+  onClose: () => void;
+  onSave: (id: string, caption: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const [draft, setDraft] = useState(value);
+  const [draft, setDraft] = useState("");
 
   useEffect(() => {
-    setDraft(value);
-  }, [value]);
+    setDraft(item?.caption ?? "");
+  }, [item]);
   useEffect(() => {
     resizeTextarea(ref.current);
   }, [draft]);
 
-  const commit = () => {
-    if (draft.trim() !== value.trim()) {
-      onCommit(draft);
-    }
-  };
-
   return (
-    <textarea
-      ref={ref}
-      value={draft}
-      rows={1}
-      onChange={(event) => {
-        setDraft(event.target.value);
-        resizeTextarea(event.currentTarget);
-      }}
-      onBlur={commit}
-      onClick={(event) => event.stopPropagation()}
-      onPaste={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        event.stopPropagation();
-        if (event.key === "Escape") {
-          event.preventDefault();
-          setDraft(value);
-          event.currentTarget.blur();
-        }
-      }}
-      className="kb-gallery-caption-input"
-      placeholder="Подпись"
-    />
+    <Dialog open={!!item} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-[420px] gap-3">
+        <DialogTitle className="text-[17px] font-semibold">
+          {item?.caption ? "Редактировать подпись" : "Добавить подпись"}
+        </DialogTitle>
+        <textarea
+          ref={ref}
+          value={draft}
+          rows={3}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            resizeTextarea(event.currentTarget);
+          }}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              if (item) onSave(item.id, draft);
+            }
+          }}
+          className="kb-gallery-caption-dialog-input"
+          placeholder="Подпись к изображению"
+          autoFocus
+        />
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => item && onSave(item.id, draft)}
+          >
+            Сохранить
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

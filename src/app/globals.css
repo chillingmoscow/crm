@@ -1627,6 +1627,69 @@ input:-webkit-autofill {
   background-color: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
+.kb-gallery-popover-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background-color: hsl(var(--popover));
+  padding: 6px;
+  color: hsl(var(--popover-foreground));
+  box-shadow:
+    0 12px 30px rgb(0 0 0 / 0.12),
+    0 2px 8px rgb(0 0 0 / 0.08);
+}
+.kb-gallery-menu-label {
+  padding: 5px 8px 4px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 600;
+}
+.kb-gallery-menu-item {
+  display: flex;
+  min-height: 32px;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--popover-foreground));
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.25;
+  cursor: pointer;
+}
+.kb-gallery-menu-item:hover,
+.kb-gallery-menu-item:focus-visible {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  outline: none;
+}
+.kb-gallery-menu-item.is-destructive {
+  color: hsl(var(--destructive));
+}
+.kb-gallery-menu-item.is-destructive:hover,
+.kb-gallery-menu-item.is-destructive:focus-visible {
+  background-color: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
+.kb-gallery-menu-check {
+  display: inline-flex;
+  width: 14px;
+  flex: 0 0 14px;
+  justify-content: center;
+  color: hsl(var(--brand));
+  font-size: 12px;
+  font-weight: 700;
+}
+.kb-gallery-menu-separator {
+  height: 1px;
+  margin: 4px 0;
+  background-color: hsl(var(--border));
+}
 .bn-sheerly .kb-gallery-empty {
   display: flex;
   min-height: 170px;

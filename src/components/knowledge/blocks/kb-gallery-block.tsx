@@ -47,15 +47,6 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -482,8 +473,8 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 />
               </PopoverContent>
             </Popover>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <Popover>
+              <PopoverTrigger asChild>
                 <Button
                   type="button"
                   variant="ghost"
@@ -496,36 +487,66 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 >
                   <Settings2 className="size-4" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
-                <DropdownMenuLabel>Настройки</DropdownMenuLabel>
-                <DropdownMenuCheckboxItem
-                  checked={layout === "spotlight"}
-                  onCheckedChange={(checked) =>
-                    updateLayout(checked ? "spotlight" : "grid")
-                  }
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                sideOffset={8}
+                className="kb-gallery-popover-menu w-64"
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={stopBlockInteraction}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+              >
+                <div className="kb-gallery-menu-label">Настройки</div>
+                <button
+                  type="button"
+                  className="kb-gallery-menu-item"
+                  data-active={layout === "spotlight" || undefined}
+                  onClick={(event) => {
+                    stopBlockInteraction(event);
+                    updateLayout(layout === "spotlight" ? "grid" : "spotlight");
+                  }}
                 >
+                  <span className="kb-gallery-menu-check" aria-hidden>
+                    {layout === "spotlight" ? "✓" : ""}
+                  </span>
                   Показывать главное изображение
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuCheckboxItem
-                  checked={showCaptions}
-                  onCheckedChange={(checked) => updateShowCaptions(checked)}
+                </button>
+                <button
+                  type="button"
+                  className="kb-gallery-menu-item"
+                  data-active={showCaptions || undefined}
+                  onClick={(event) => {
+                    stopBlockInteraction(event);
+                    updateShowCaptions(!showCaptions);
+                  }}
                 >
+                  <span className="kb-gallery-menu-check" aria-hidden>
+                    {showCaptions ? "✓" : ""}
+                  </span>
                   Показывать подписи
-                </DropdownMenuCheckboxItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Изображений в ряду</DropdownMenuLabel>
+                </button>
+                <div className="kb-gallery-menu-separator" />
+                <div className="kb-gallery-menu-label">Изображений в ряду</div>
                 {GALLERY_COLUMNS.map((value) => (
-                  <DropdownMenuCheckboxItem
+                  <button
                     key={value}
-                    checked={columns === value}
-                    onCheckedChange={() => updateColumns(value)}
+                    type="button"
+                    className="kb-gallery-menu-item"
+                    data-active={columns === value || undefined}
+                    onClick={(event) => {
+                      stopBlockInteraction(event);
+                      updateColumns(value);
+                    }}
                   >
+                    <span className="kb-gallery-menu-check" aria-hidden>
+                      {columns === value ? "✓" : ""}
+                    </span>
                     {value}
-                  </DropdownMenuCheckboxItem>
+                  </button>
                 ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       )}
@@ -708,6 +729,7 @@ function SortableGalleryItem({
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
   const dragListeners = getPointerSortableListeners(sortable.listeners);
+  const pointerStartRef = useRef<PointerStart | null>(null);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -727,7 +749,18 @@ function SortableGalleryItem({
         className="kb-gallery-image-btn"
         {...sortable.attributes}
         {...dragListeners}
-        onClick={(event) => {
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          pointerStartRef.current = getPointerStart(event);
+          dragListeners.onPointerDown?.(event);
+        }}
+        onPointerUp={(event) => {
+          event.stopPropagation();
+          if (isPrimaryClickDistance(pointerStartRef.current, event)) onOpen();
+          pointerStartRef.current = null;
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
           event.stopPropagation();
           onOpen();
@@ -849,6 +882,7 @@ function SortableGalleryThumb({
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
   const dragListeners = getPointerSortableListeners(sortable.listeners);
+  const pointerStartRef = useRef<PointerStart | null>(null);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -869,7 +903,20 @@ function SortableGalleryThumb({
         className="kb-gallery-thumb-btn"
         {...sortable.attributes}
         {...dragListeners}
-        onClick={(event) => {
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          pointerStartRef.current = getPointerStart(event);
+          dragListeners.onPointerDown?.(event);
+        }}
+        onPointerUp={(event) => {
+          event.stopPropagation();
+          if (isPrimaryClickDistance(pointerStartRef.current, event)) {
+            onSelect();
+          }
+          pointerStartRef.current = null;
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
           event.preventDefault();
           event.stopPropagation();
           onSelect();
@@ -908,6 +955,25 @@ function stopBlockInteraction(event: React.SyntheticEvent) {
   event.stopPropagation();
 }
 
+type PointerStart = {
+  x: number;
+  y: number;
+};
+
+function getPointerStart(event: React.PointerEvent): PointerStart {
+  return { x: event.clientX, y: event.clientY };
+}
+
+function isPrimaryClickDistance(
+  start: PointerStart | null,
+  event: React.PointerEvent,
+): boolean {
+  if (!start || !event.isPrimary || event.button !== 0) return false;
+  const x = event.clientX - start.x;
+  const y = event.clientY - start.y;
+  return Math.hypot(x, y) < 8;
+}
+
 function GalleryImageMenu({
   item,
   onEditCaption,
@@ -922,11 +988,12 @@ function GalleryImageMenu({
   onOpenOriginal: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
           <button
             type="button"
             className="kb-gallery-item-action"
@@ -937,30 +1004,66 @@ function GalleryImageMenu({
           >
             <MoreHorizontal className="size-4" />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuItem onClick={onEditCaption}>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          sideOffset={6}
+          className="kb-gallery-popover-menu w-52"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={stopBlockInteraction}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            className="kb-gallery-menu-item"
+            onClick={(event) => {
+              stopBlockInteraction(event);
+              setOpen(false);
+              onEditCaption();
+            }}
+          >
             <Pencil className="mr-2 size-4" />
             {item.caption ? "Редактировать подпись" : "Добавить подпись"}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => inputRef.current?.click()}>
+          </button>
+          <button
+            type="button"
+            className="kb-gallery-menu-item"
+            onClick={(event) => {
+              stopBlockInteraction(event);
+              inputRef.current?.click();
+            }}
+          >
             <UploadCloud className="mr-2 size-4" />
             Заменить
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={onOpenOriginal}>
+          </button>
+          <button
+            type="button"
+            className="kb-gallery-menu-item"
+            onClick={(event) => {
+              stopBlockInteraction(event);
+              setOpen(false);
+              onOpenOriginal();
+            }}
+          >
             <ExternalLink className="mr-2 size-4" />
             Показать оригинал
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={onRemove}
-            className="text-destructive focus:text-destructive"
+          </button>
+          <div className="kb-gallery-menu-separator" />
+          <button
+            type="button"
+            className="kb-gallery-menu-item is-destructive"
+            onClick={(event) => {
+              stopBlockInteraction(event);
+              setOpen(false);
+              onRemove();
+            }}
           >
             <Trash2 className="mr-2 size-4" />
             Удалить
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </button>
+        </PopoverContent>
+      </Popover>
       <input
         ref={inputRef}
         type="file"
@@ -971,6 +1074,7 @@ function GalleryImageMenu({
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) onReplace(file);
+          setOpen(false);
           event.target.value = "";
         }}
       />

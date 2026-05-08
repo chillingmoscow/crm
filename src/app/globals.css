@@ -1569,7 +1569,11 @@ input:-webkit-autofill {
 .bn-sheerly .bn-block-content[data-content-type="gallery"]:focus,
 .bn-sheerly .bn-block-content[data-content-type="gallery"]:focus-visible,
 .bn-sheerly .bn-block-content[data-content-type="gallery"]:focus-within,
-.bn-sheerly [data-content-type="gallery"].ProseMirror-selectednode {
+.bn-sheerly [data-content-type="gallery"].ProseMirror-selectednode,
+.bn-sheerly .bn-block-content.ProseMirror-selectednode:has([data-kb-gallery-block]),
+.bn-sheerly .bn-block-content:has([data-kb-gallery-block]).ProseMirror-selectednode,
+.bn-sheerly [data-kb-gallery-block].ProseMirror-selectednode,
+.bn-sheerly .kb-gallery-block.ProseMirror-selectednode {
   outline: none !important;
   box-shadow: none !important;
   border-color: transparent !important;
@@ -1580,7 +1584,8 @@ input:-webkit-autofill {
 }
 .bn-sheerly .bn-block-content.ProseMirror-selectednode:has([data-kb-gallery-block]) > *,
 .bn-sheerly .ProseMirror-selectednode > .bn-block-content:has([data-kb-gallery-block]) > *,
-.bn-sheerly .ProseMirror-selectednode:has([data-kb-gallery-block]) > * {
+.bn-sheerly .ProseMirror-selectednode:has([data-kb-gallery-block]) > *,
+.bn-sheerly .bn-block-outer:has([data-kb-gallery-block]) .ProseMirror-selectednode {
   outline: none !important;
   box-shadow: none !important;
 }
@@ -1671,6 +1676,7 @@ input:-webkit-autofill {
 .kb-gallery-settings-menu {
   gap: 2px;
   overflow: visible;
+  position: relative;
 }
 .kb-gallery-menu-label {
   padding: 3px 8px 6px;
@@ -1769,8 +1775,13 @@ button.kb-gallery-menu-item {
   margin: -1px 0 2px 26px;
 }
 .kb-gallery-grid-submenu {
+  position: absolute;
+  top: 41px;
+  left: calc(100% + 8px);
+  z-index: 60;
   gap: 2px;
-  min-width: 74px;
+  width: 78px;
+  min-width: 78px;
   padding: 5px;
 }
 .kb-gallery-menu-option {
@@ -2004,6 +2015,11 @@ button.kb-gallery-menu-item {
 }
 
 @media (max-width: 640px) {
+  .kb-gallery-grid-submenu {
+    top: calc(100% + 8px);
+    right: 0;
+    left: auto;
+  }
   .bn-sheerly .kb-gallery-header {
     align-items: stretch;
     flex-direction: column;
@@ -2023,8 +2039,14 @@ button.kb-gallery-menu-item {
   display: none !important;
 }
 .bn-drag-preview:has([data-kb-gallery-block]) {
-  opacity: 0.72 !important;
+  width: min(760px, calc(100vw - 96px));
+  max-width: min(760px, calc(100vw - 96px));
+  opacity: 0.001 !important;
   padding: 0;
+}
+.bn-drag-preview:has([data-kb-gallery-block]) .kb-gallery-header {
+  display: flex !important;
+  visibility: hidden !important;
 }
 .bn-drag-preview:has([data-kb-gallery-block]) .kb-gallery-block {
   width: 100%;

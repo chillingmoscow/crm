@@ -487,7 +487,11 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 />
               </PopoverContent>
             </Popover>
-            <Popover>
+            <Popover
+              onOpenChange={(open) => {
+                if (!open) setSettingsPanel(null);
+              }}
+            >
               <PopoverTrigger asChild>
                 <Button
                   type="button"
@@ -512,46 +516,36 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 onOpenAutoFocus={(event) => event.preventDefault()}
               >
                 <div className="kb-gallery-menu-label">Настройки</div>
-                <Popover
-                  open={settingsPanel === "columns"}
-                  onOpenChange={(open) =>
-                    setSettingsPanel(open ? "columns" : null)
-                  }
+                <button
+                  type="button"
+                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                  aria-expanded={settingsPanel === "columns"}
+                  onPointerDown={stopBlockInteraction}
+                  onMouseDown={stopBlockInteraction}
+                  onClick={(event) => {
+                    stopBlockMenuAction(event);
+                    setSettingsPanel((panel) =>
+                      panel === "columns" ? null : "columns",
+                    );
+                  }}
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
-                      aria-expanded={settingsPanel === "columns"}
-                      onPointerDown={stopBlockInteraction}
-                      onMouseDown={stopBlockInteraction}
-                      onClick={stopBlockInteraction}
-                    >
-                      <span className="kb-gallery-menu-icon" aria-hidden>
-                        <Columns3 className="size-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">Сетка</span>
-                      <span className="kb-gallery-menu-value">{columns}</span>
-                      <ChevronDown className="kb-gallery-menu-chevron size-4" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="start"
-                    side="right"
-                    sideOffset={8}
-                    collisionPadding={12}
-                    className="kb-gallery-popover-menu kb-gallery-grid-submenu w-24"
-                    onPointerDown={stopBlockInteraction}
-                    onMouseDown={stopBlockInteraction}
-                    onClick={stopBlockInteraction}
-                    onOpenAutoFocus={(event) => event.preventDefault()}
-                  >
+                  <span className="kb-gallery-menu-icon" aria-hidden>
+                    <Columns3 className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">Сетка</span>
+                  <span className="kb-gallery-menu-value">{columns}</span>
+                  <ChevronDown className="kb-gallery-menu-chevron size-4" />
+                </button>
+                {settingsPanel === "columns" && (
+                  <div className="kb-gallery-popover-menu kb-gallery-grid-submenu">
                     {GALLERY_COLUMNS.map((value) => (
                       <button
                         key={value}
                         type="button"
                         className="kb-gallery-menu-option"
                         data-active={columns === value || undefined}
+                        onPointerDown={stopBlockInteraction}
+                        onMouseDown={stopBlockInteraction}
                         onClick={(event) => {
                           stopBlockMenuAction(event);
                           updateColumns(value);
@@ -562,8 +556,8 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                         {columns === value ? <Check className="size-4" /> : null}
                       </button>
                     ))}
-                  </PopoverContent>
-                </Popover>
+                  </div>
+                )}
                 <button
                   type="button"
                   className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
@@ -1003,14 +997,29 @@ function GalleryCaptionPopoverForm({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [draft, setDraft] = useState("");
+  const committedRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
 
   useEffect(() => {
     setDraft(initialValue);
+    committedRef.current = false;
+    skipBlurCommitRef.current = false;
   }, [initialValue]);
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
   }, []);
+
+  const commit = useCallback(() => {
+    if (committedRef.current || skipBlurCommitRef.current) return;
+    committedRef.current = true;
+    onSubmit(draft);
+  }, [draft, onSubmit]);
+
+  const cancel = useCallback(() => {
+    skipBlurCommitRef.current = true;
+    onCancel();
+  }, [onCancel]);
 
   return (
     <div className="kb-gallery-caption-popover">
@@ -1018,14 +1027,15 @@ function GalleryCaptionPopoverForm({
         ref={inputRef}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.nativeEvent.isComposing) {
             event.preventDefault();
-            onSubmit(draft);
+            commit();
           }
           if (event.key === "Escape") {
             event.preventDefault();
-            onCancel();
+            cancel();
           }
         }}
         placeholder="Подпись к файлу"

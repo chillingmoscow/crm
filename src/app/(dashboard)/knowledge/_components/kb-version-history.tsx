@@ -4,15 +4,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  BookOpenCheck,
   ChevronRight,
   Eye,
   FileText,
   History,
+  LockKeyhole,
   Loader2,
+  MessageSquare,
   Minus,
+  Pencil,
   Plus,
   RotateCcw,
   SlidersHorizontal,
+  Trash2,
+  UnlockKeyhole,
   Undo2,
 } from "lucide-react";
 import { format, isThisYear, isToday, isYesterday } from "date-fns";
@@ -38,6 +44,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  listKbPageUpdates,
+  type KbPageUpdate,
+} from "@/lib/knowledge/updates";
 import {
   getKbPageVersionDiffData,
   listKbPageVersions,
@@ -80,6 +91,7 @@ type DayBucket = {
 const SESSION_WINDOW_MS = 15 * 60 * 1000;
 const DIFF_TOKEN_LIMIT = 1600;
 const DIFF_GROUP_LIMIT = 20;
+const DEFAULT_TAB = "versions";
 
 export function KbVersionHistory({
   pageId,
@@ -92,8 +104,12 @@ export function KbVersionHistory({
   const open = isControlled ? openProp : openInternal;
   const setOpen = isControlled ? onOpenChangeProp : setOpenInternal;
   const [rows, setRows] = useState<KbPageVersionWithAuthor[] | null>(null);
+  const [updates, setUpdates] = useState<KbPageUpdate[] | null>(null);
+  const [tab, setTab] = useState(DEFAULT_TAB);
   const [loading, setLoading] = useState(false);
+  const [updatesLoading, setUpdatesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updatesError, setUpdatesError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<number | null>(null);
   const router = useRouter();
 
@@ -110,17 +126,37 @@ export function KbVersionHistory({
     setRows(result.rows);
   }, [pageId]);
 
+  const loadUpdates = useCallback(async () => {
+    setUpdatesLoading(true);
+    setUpdatesError(null);
+    const result = await listKbPageUpdates(pageId);
+    setUpdatesLoading(false);
+    if (result.error) {
+      setUpdatesError(result.error);
+      setUpdates([]);
+      return;
+    }
+    setUpdates(result.rows);
+  }, [pageId]);
+
   useEffect(() => {
     setRows(null);
+    setUpdates(null);
     setLoading(false);
+    setUpdatesLoading(false);
     setError(null);
+    setUpdatesError(null);
     setRestoring(null);
   }, [pageId]);
 
   useEffect(() => {
     if (!open) return;
+    if (tab === "updates") {
+      void loadUpdates();
+      return;
+    }
     void load();
-  }, [load, open]);
+  }, [load, loadUpdates, open, tab]);
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
@@ -185,43 +221,49 @@ export function KbVersionHistory({
           <SheetHeader className="border-b px-6 py-5 text-left">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1.5">
-                <SheetTitle className="text-xl">История версий</SheetTitle>
+                <SheetTitle className="text-xl">История страницы</SheetTitle>
                 <SheetDescription className="max-w-[520px] text-sm leading-5">
-                  Рабочие сессии показывают, кто и когда менял страницу.
-                  Детальный diff загружается только при раскрытии версии.
+                  Updates показывает лёгкую ленту действий за последний год.
+                  Version History хранит точки восстановления страницы.
                 </SheetDescription>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 pt-2 text-xs text-muted-foreground">
+              <Metric value={updates?.length ?? 0} label="updates" />
               <Metric value={rows?.length ?? 0} label="версий" />
               <Metric value={sessionCount} label="сессий" />
               <span className="rounded-md bg-muted px-2 py-1">
                 окно сессии 15 мин
               </span>
             </div>
+            <Tabs value={tab} onValueChange={setTab} className="pt-3">
+              <TabsList>
+                <TabsTrigger value="updates">Updates</TabsTrigger>
+                <TabsTrigger value="versions">Version History</TabsTrigger>
+              </TabsList>
+            </Tabs>
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            {loading && <LoadingState />}
-            {!loading && error && <ErrorState error={error} onRetry={load} />}
-            {!loading && !error && groups !== null && groups.length === 0 && (
-              <EmptyState />
-            )}
-            {!loading && !error && groups !== null && groups.length > 0 && (
-              <div className="space-y-6">
-                {groups.map((group, idx) => (
-                  <DayGroup
-                    key={group.label}
-                    group={group}
-                    defaultOpen={idx === 0}
-                    canEdit={canEdit}
-                    currentVersionNumber={currentVersionNumber}
-                    restoringVersion={restoring}
-                    onRestore={onRestore}
-                    pageId={pageId}
-                  />
-                ))}
-              </div>
+            {tab === "updates" ? (
+              <UpdatesPane
+                rows={updates}
+                loading={updatesLoading}
+                error={updatesError}
+                onRetry={loadUpdates}
+              />
+            ) : (
+              <VersionsPane
+                loading={loading}
+                error={error}
+                onRetry={load}
+                groups={groups}
+                canEdit={canEdit}
+                currentVersionNumber={currentVersionNumber}
+                restoring={restoring}
+                onRestore={onRestore}
+                pageId={pageId}
+              />
             )}
           </div>
         </div>
@@ -238,11 +280,141 @@ function Metric({ value, label }: { value: number; label: string }) {
   );
 }
 
-function LoadingState() {
+function UpdatesPane({
+  rows,
+  loading,
+  error,
+  onRetry,
+}: {
+  rows: KbPageUpdate[] | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) return <LoadingState label="Загружаем updates…" />;
+  if (error) return <ErrorState error={error} onRetry={onRetry} />;
+  if (rows !== null && rows.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed p-6 text-center">
+        <History className="mx-auto size-5 text-muted-foreground" />
+        <p className="mt-2 text-sm font-medium">Updates пока пусты</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Здесь появятся правки, комментарии, блокировки и другие действия за последний год.
+        </p>
+      </div>
+    );
+  }
+  if (!rows) return null;
+
+  return (
+    <div className="space-y-2">
+      {rows.map((row) => (
+        <UpdateRow key={row.id} row={row} />
+      ))}
+    </div>
+  );
+}
+
+function VersionsPane({
+  loading,
+  error,
+  onRetry,
+  groups,
+  canEdit,
+  currentVersionNumber,
+  restoring,
+  onRestore,
+  pageId,
+}: {
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  groups: DayBucket[] | null;
+  canEdit: boolean;
+  currentVersionNumber: number | null;
+  restoring: number | null;
+  onRestore: (versionNumber: number) => void;
+  pageId: string;
+}) {
+  if (loading) return <LoadingState />;
+  if (error) return <ErrorState error={error} onRetry={onRetry} />;
+  if (groups !== null && groups.length === 0) return <EmptyState />;
+  if (!groups) return null;
+
+  return (
+    <div className="space-y-6">
+      {groups.map((group, idx) => (
+        <DayGroup
+          key={group.label}
+          group={group}
+          defaultOpen={idx === 0}
+          canEdit={canEdit}
+          currentVersionNumber={currentVersionNumber}
+          restoringVersion={restoring}
+          onRestore={onRestore}
+          pageId={pageId}
+        />
+      ))}
+    </div>
+  );
+}
+
+function UpdateRow({ row }: { row: KbPageUpdate }) {
+  const meta = updateMeta(row.action_code, row.details);
+  const Icon = meta.icon;
+  const actor = row.actor?.name ?? "Кто-то";
+  return (
+    <article className="flex gap-3 rounded-lg border bg-background p-3">
+      <AvatarSmall author={row.actor} />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+          <span className="font-medium">{actor}</span>
+          <span className="inline-flex items-center gap-1 text-muted-foreground">
+            <Icon className="size-3.5" />
+            {meta.label}
+          </span>
+        </div>
+        {meta.detail && (
+          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+            {meta.detail}
+          </p>
+        )}
+        <p className="mt-1 text-xs text-muted-foreground">
+          {formatRelative(row.created_at)}
+        </p>
+      </div>
+    </article>
+  );
+}
+
+function AvatarSmall({
+  author,
+}: {
+  author: KbPageUpdate["actor"];
+}) {
+  const name = author?.name ?? "Н";
+  if (author?.avatar_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={author.avatar_url}
+        alt={name}
+        className="size-8 rounded-full object-cover"
+      />
+    );
+  }
+  return (
+    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
+      {name.slice(0, 1).toUpperCase()}
+    </div>
+  );
+}
+
+function LoadingState({ label = "Загружаем историю…" }: { label?: string }) {
   return (
     <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
       <Loader2 className="size-4 animate-spin" />
-      Загружаем историю…
+      {label}
     </div>
   );
 }
@@ -696,6 +868,95 @@ function ChangeKindBadge({ kind }: { kind: string }) {
   );
 }
 
+function updateMeta(
+  actionCode: string,
+  details: Record<string, unknown>,
+) {
+  if (actionCode === "kb_page.edited") {
+    const kinds = asStringArray(details.change_kinds);
+    return {
+      label: "редактировал страницу",
+      detail: kinds.length > 0 ? `Изменено: ${kinds.map(changeKindLabel).join(", ")}` : null,
+      icon: Pencil,
+    };
+  }
+  if (actionCode === "kb_page.version_restored") {
+    return { label: "восстановил версию", detail: null, icon: RotateCcw };
+  }
+  if (actionCode === "kb_page.locked") {
+    return { label: "заблокировал страницу", detail: null, icon: LockKeyhole };
+  }
+  if (actionCode === "kb_page.unlocked") {
+    return { label: "разблокировал страницу", detail: null, icon: UnlockKeyhole };
+  }
+  if (actionCode === "kb_comment.page_created") {
+    return { label: "оставил комментарий", detail: "Комментарий к странице", icon: MessageSquare };
+  }
+  if (actionCode === "kb_comment.inline_created") {
+    return { label: "оставил комментарий", detail: "Комментарий к выделенному фрагменту", icon: MessageSquare };
+  }
+  if (actionCode === "kb_thread.created") {
+    return { label: "создал обсуждение", detail: null, icon: MessageSquare };
+  }
+  if (actionCode === "kb_thread.resolved") {
+    return { label: "закрыл обсуждение", detail: null, icon: MessageSquare };
+  }
+  if (actionCode === "kb_thread.unresolved") {
+    return { label: "переоткрыл обсуждение", detail: null, icon: MessageSquare };
+  }
+  if (actionCode === "kb_thread.deleted") {
+    return { label: "удалил обсуждение", detail: null, icon: Trash2 };
+  }
+  if (actionCode === "kb_page.renamed") {
+    const oldTitle = asString(details.old_title);
+    const newTitle = asString(details.new_title);
+    return {
+      label: "переименовал страницу",
+      detail: oldTitle && newTitle ? `${oldTitle} → ${newTitle}` : null,
+      icon: FileText,
+    };
+  }
+  if (actionCode === "kb_page.required_reading_toggled") {
+    return {
+      label: details.enabled === true ? "включил обязательное чтение" : "выключил обязательное чтение",
+      detail: null,
+      icon: BookOpenCheck,
+    };
+  }
+  if (actionCode === "kb_page.deleted") {
+    return { label: "переместил страницу в корзину", detail: null, icon: Trash2 };
+  }
+  if (actionCode === "kb_page.restored") {
+    return { label: "восстановил страницу из корзины", detail: null, icon: RotateCcw };
+  }
+  if (actionCode === "kb_page.created") {
+    return { label: "создал страницу", detail: null, icon: FileText };
+  }
+  if (actionCode === "kb_page.moved") {
+    return { label: "переместил страницу", detail: null, icon: FileText };
+  }
+  return { label: "обновил страницу", detail: null, icon: History };
+}
+
+function changeKindLabel(kind: string): string {
+  if (kind === "title") return "заголовок";
+  if (kind === "content") return "контент";
+  if (kind === "properties") return "свойства";
+  if (kind === "icon") return "иконка";
+  if (kind === "restore") return "восстановление";
+  return kind;
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
 function DeltaBadge({ delta }: { delta: number | null }) {
   if (delta === null) {
     return <span className="text-xs text-muted-foreground/70">первая версия</span>;
@@ -936,6 +1197,21 @@ function compactDiffText(value: string): string {
   if (!normalized && value.length > 0) return "Изменены пробелы или переносы строк";
   if (normalized.length <= 700) return normalized;
   return `${normalized.slice(0, 700).trimEnd()}…`;
+}
+
+function formatRelative(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+  if (diffMin < 1) return "только что";
+  if (diffMin < 60) return `${diffMin} мин назад`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} ч назад`;
+  const diffDays = Math.round(diffHr / 24);
+  if (diffDays === 1) return "вчера";
+  if (diffDays < 7) return `${diffDays} дн назад`;
+  return format(date, isThisYear(date) ? "d MMMM" : "d MMMM yyyy", { locale: ru });
 }
 
 function tokenize(value: string): string[] {

@@ -2772,6 +2772,20 @@ export type Database = {
         }
         Returns: number
       }
+      kb_list_page_updates: {
+        Args: { p_limit?: number; p_page_id: string }
+        Returns: {
+          action_code: string
+          actor_avatar_url: string | null
+          actor_first_name: string | null
+          actor_id: string | null
+          actor_last_name: string | null
+          created_at: string
+          details: Json
+          id: string
+          source: string
+        }[]
+      }
       kb_save_page: {
         Args: {
           p_content: Json

@@ -5,21 +5,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
-  BookOpenCheck,
   ChevronRight,
   Eye,
   FileText,
   History,
-  LockKeyhole,
   Loader2,
-  MessageSquare,
   Minus,
-  Pencil,
   Plus,
   RotateCcw,
   SlidersHorizontal,
-  Trash2,
-  UnlockKeyhole,
   Undo2,
 } from "lucide-react";
 import { format, isThisYear, isToday, isYesterday } from "date-fns";
@@ -45,11 +39,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  listKbPageUpdates,
-  type KbPageUpdate,
-} from "@/lib/knowledge/updates";
 import {
   getKbPageVersion,
   getKbPageVersionDiffData,
@@ -94,7 +83,6 @@ type DayBucket = {
 const SESSION_WINDOW_MS = 15 * 60 * 1000;
 const DIFF_TOKEN_LIMIT = 1600;
 const DIFF_GROUP_LIMIT = 20;
-const DEFAULT_TAB = "versions";
 const KbVersionSnapshotPreview = dynamic(
   () =>
     import(
@@ -122,12 +110,8 @@ export function KbVersionHistory({
   const open = isControlled ? openProp : openInternal;
   const setOpen = isControlled ? onOpenChangeProp : setOpenInternal;
   const [rows, setRows] = useState<KbPageVersionWithAuthor[] | null>(null);
-  const [updates, setUpdates] = useState<KbPageUpdate[] | null>(null);
-  const [tab, setTab] = useState(DEFAULT_TAB);
   const [loading, setLoading] = useState(false);
-  const [updatesLoading, setUpdatesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [updatesError, setUpdatesError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<number | null>(null);
   const router = useRouter();
 
@@ -144,37 +128,17 @@ export function KbVersionHistory({
     setRows(result.rows);
   }, [pageId]);
 
-  const loadUpdates = useCallback(async () => {
-    setUpdatesLoading(true);
-    setUpdatesError(null);
-    const result = await listKbPageUpdates(pageId);
-    setUpdatesLoading(false);
-    if (result.error) {
-      setUpdatesError(result.error);
-      setUpdates([]);
-      return;
-    }
-    setUpdates(result.rows);
-  }, [pageId]);
-
   useEffect(() => {
     setRows(null);
-    setUpdates(null);
     setLoading(false);
-    setUpdatesLoading(false);
     setError(null);
-    setUpdatesError(null);
     setRestoring(null);
   }, [pageId]);
 
   useEffect(() => {
     if (!open) return;
-    if (tab === "updates") {
-      void loadUpdates();
-      return;
-    }
     void load();
-  }, [load, loadUpdates, open, tab]);
+  }, [load, open]);
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);
@@ -239,49 +203,38 @@ export function KbVersionHistory({
           <SheetHeader className="border-b px-6 py-5 text-left">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1.5">
-                <SheetTitle className="text-xl">Журнал страницы</SheetTitle>
+                <SheetTitle className="text-xl">История версий</SheetTitle>
                 <SheetDescription className="max-w-[520px] text-sm leading-5">
-                  Обновления страницы и история версий разведены: первая
-                  вкладка показывает действия, вторая — снимки, из которых
-                  можно восстановить страницу.
+                  Здесь собраны точки восстановления страницы. Можно
+                  посмотреть снимок версии, увидеть только изменённые
+                  фрагменты и при необходимости откатиться.
                 </SheetDescription>
               </div>
             </div>
-            <Tabs value={tab} onValueChange={setTab} className="pt-3">
-              <TabsList className="grid w-full grid-cols-2 sm:w-auto">
-                <TabsTrigger value="updates">Обновления страницы</TabsTrigger>
-                <TabsTrigger value="versions">История версий</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <JournalTabIntro
-              tab={tab}
-              updatesCount={updates?.length ?? 0}
-              versionCount={rows?.length ?? 0}
-              sessionCount={sessionCount}
-            />
+            <div className="flex flex-wrap items-center gap-2 pt-3">
+              <MetricBadge
+                value={rows?.length ?? 0}
+                label={plural(rows?.length ?? 0, "версия", "версии", "версий")}
+              />
+              <MetricBadge
+                value={sessionCount}
+                label={plural(sessionCount, "сессия", "сессии", "сессий")}
+              />
+            </div>
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            {tab === "updates" ? (
-              <UpdatesPane
-                rows={updates}
-                loading={updatesLoading}
-                error={updatesError}
-                onRetry={loadUpdates}
-              />
-            ) : (
-              <VersionsPane
-                loading={loading}
-                error={error}
-                onRetry={load}
-                groups={groups}
-                canEdit={canEdit}
-                currentVersionNumber={currentVersionNumber}
-                restoring={restoring}
-                onRestore={onRestore}
-                pageId={pageId}
-              />
-            )}
+            <VersionsPane
+              loading={loading}
+              error={error}
+              onRetry={load}
+              groups={groups}
+              canEdit={canEdit}
+              currentVersionNumber={currentVersionNumber}
+              restoring={restoring}
+              onRestore={onRestore}
+              pageId={pageId}
+            />
           </div>
         </div>
       </SheetContent>
@@ -289,121 +242,11 @@ export function KbVersionHistory({
   );
 }
 
-function JournalTabIntro({
-  tab,
-  updatesCount,
-  versionCount,
-  sessionCount,
-}: {
-  tab: string;
-  updatesCount: number;
-  versionCount: number;
-  sessionCount: number;
-}) {
-  const isUpdates = tab === "updates";
-  const Icon = isUpdates ? History : RotateCcw;
-
-  return (
-    <div
-      className={cn(
-        "mt-4 rounded-xl border px-4 py-3",
-        isUpdates
-          ? "border-sky-500/20 bg-sky-500/5"
-          : "border-violet-500/20 bg-violet-500/5",
-      )}
-    >
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 rounded-lg bg-background/80 p-2 text-muted-foreground shadow-sm">
-          <Icon className="size-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold">
-              {isUpdates ? "Обновления страницы" : "История версий"}
-            </p>
-            {isUpdates ? (
-              <>
-                <BadgeMetric
-                  value={updatesCount}
-                  label={plural(updatesCount, "событие", "события", "событий")}
-                />
-                <span className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
-                  горизонт 1 год
-                </span>
-              </>
-            ) : (
-              <>
-                <BadgeMetric
-                  value={versionCount}
-                  label={plural(versionCount, "снимок", "снимка", "снимков")}
-                />
-                <BadgeMetric
-                  value={sessionCount}
-                  label={plural(sessionCount, "сессия", "сессии", "сессий")}
-                />
-              </>
-            )}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {isUpdates
-              ? "Здесь живёт операционная лента: комментарии, блокировки, правки, переносы в корзину и другие действия."
-              : "Здесь живут точки восстановления. Можно открыть полный снимок страницы и затем откатиться к выбранной версии."}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BadgeMetric({ value, label }: { value: number; label: string }) {
+function MetricBadge({ value, label }: { value: number; label: string }) {
   return (
     <span className="rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground">
       {value} {label}
     </span>
-  );
-}
-
-function UpdatesPane({
-  rows,
-  loading,
-  error,
-  onRetry,
-}: {
-  rows: KbPageUpdate[] | null;
-  loading: boolean;
-  error: string | null;
-  onRetry: () => void;
-}) {
-  if (loading) return <LoadingState label="Загружаем обновления…" />;
-  if (error) {
-    return (
-      <ErrorState
-        title="Не удалось загрузить обновления"
-        error={error}
-        onRetry={onRetry}
-      />
-    );
-  }
-  if (rows !== null && rows.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed p-6 text-center">
-        <History className="mx-auto size-5 text-muted-foreground" />
-        <p className="mt-2 text-sm font-medium">Пока нет обновлений страницы</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Здесь появятся правки, комментарии, блокировки и другие действия за
-          последний год.
-        </p>
-      </div>
-    );
-  }
-  if (!rows) return null;
-
-  return (
-    <div className="space-y-2">
-      {rows.map((row) => (
-        <UpdateRow key={row.id} row={row} />
-      ))}
-    </div>
   );
 }
 
@@ -447,57 +290,6 @@ function VersionsPane({
           pageId={pageId}
         />
       ))}
-    </div>
-  );
-}
-
-function UpdateRow({ row }: { row: KbPageUpdate }) {
-  const meta = updateMeta(row.action_code, row.details);
-  const Icon = meta.icon;
-  const actor = row.actor?.name ?? "Кто-то";
-  return (
-    <article className="flex gap-3 rounded-lg border bg-background p-3">
-      <AvatarSmall author={row.actor} />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
-          <span className="font-medium">{actor}</span>
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <Icon className="size-3.5" />
-            {meta.label}
-          </span>
-        </div>
-        {meta.detail && (
-          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-            {meta.detail}
-          </p>
-        )}
-        <p className="mt-1 text-xs text-muted-foreground">
-          {formatRelative(row.created_at)}
-        </p>
-      </div>
-    </article>
-  );
-}
-
-function AvatarSmall({
-  author,
-}: {
-  author: KbPageUpdate["actor"];
-}) {
-  const name = author?.name ?? "Н";
-  if (author?.avatar_url) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={author.avatar_url}
-        alt={name}
-        className="size-8 rounded-full object-cover"
-      />
-    );
-  }
-  return (
-    <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-      {name.slice(0, 1).toUpperCase()}
     </div>
   );
 }
@@ -585,7 +377,7 @@ function DayGroup({
         </span>
       </button>
       {open && (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {group.sessions.map((session) => (
             <VersionSessionCard
               key={session.id}
@@ -622,11 +414,11 @@ function VersionSessionCard({
   const changedCount = session.versions.length;
 
   return (
-    <article className="rounded-lg border bg-background shadow-sm">
+    <article className="overflow-hidden rounded-lg border bg-background">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-start gap-3 p-4 text-left hover:bg-muted/35"
+        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/20"
       >
         <Avatar author={session.author} />
         <div className="min-w-0 flex-1">
@@ -654,8 +446,7 @@ function VersionSessionCard({
         />
       </button>
       {open && (
-        <div className="border-t bg-muted/15 px-3 py-3">
-          <div className="space-y-2">
+        <div className="divide-y border-t">
             {session.versions.map((version) => (
               <VersionRow
                 key={version.id}
@@ -667,7 +458,6 @@ function VersionSessionCard({
                 onRestore={() => onRestore(version.version_number)}
               />
             ))}
-          </div>
         </div>
       )}
     </article>
@@ -740,8 +530,8 @@ function VersionRow({
   };
 
   return (
-    <div className={cn("rounded-md border bg-background", isCurrent && "border-primary/30")}>
-      <div className="flex items-center gap-2 px-3 py-2">
+    <div className={cn("bg-background", isCurrent && "bg-primary/5")}>
+      <div className="flex items-center gap-2 px-4 py-3">
         <button
           type="button"
           onClick={onToggle}
@@ -762,7 +552,7 @@ function VersionRow({
           <DeltaBadge delta={row.delta} />
         </button>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={onPreview}
           title="Просмотреть версию"
@@ -772,7 +562,7 @@ function VersionRow({
         </Button>
       </div>
       {expanded && (
-        <div className="border-t px-3 py-3">
+        <div className="border-t bg-muted/15 px-4 py-3">
           {loadingDiff && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
@@ -786,10 +576,7 @@ function VersionRow({
             </div>
           )}
           {!loadingDiff && diffData && (
-            <TextDiff
-              before={diffData.previous_plain_text}
-              after={diffData.plain_text}
-            />
+            <TextDiff before={diffData.previous_plain_text} after={diffData.plain_text} />
           )}
         </div>
       )}
@@ -979,95 +766,6 @@ function ChangeKindBadge({ kind }: { kind: string }) {
       {meta.label}
     </span>
   );
-}
-
-function updateMeta(
-  actionCode: string,
-  details: Record<string, unknown>,
-) {
-  if (actionCode === "kb_page.edited") {
-    const kinds = asStringArray(details.change_kinds);
-    return {
-      label: "редактировал страницу",
-      detail: kinds.length > 0 ? `Изменено: ${kinds.map(changeKindLabel).join(", ")}` : null,
-      icon: Pencil,
-    };
-  }
-  if (actionCode === "kb_page.version_restored") {
-    return { label: "восстановил версию", detail: null, icon: RotateCcw };
-  }
-  if (actionCode === "kb_page.locked") {
-    return { label: "заблокировал страницу", detail: null, icon: LockKeyhole };
-  }
-  if (actionCode === "kb_page.unlocked") {
-    return { label: "разблокировал страницу", detail: null, icon: UnlockKeyhole };
-  }
-  if (actionCode === "kb_comment.page_created") {
-    return { label: "оставил комментарий", detail: "Комментарий к странице", icon: MessageSquare };
-  }
-  if (actionCode === "kb_comment.inline_created") {
-    return { label: "оставил комментарий", detail: "Комментарий к выделенному фрагменту", icon: MessageSquare };
-  }
-  if (actionCode === "kb_thread.created") {
-    return { label: "создал обсуждение", detail: null, icon: MessageSquare };
-  }
-  if (actionCode === "kb_thread.resolved") {
-    return { label: "закрыл обсуждение", detail: null, icon: MessageSquare };
-  }
-  if (actionCode === "kb_thread.unresolved") {
-    return { label: "переоткрыл обсуждение", detail: null, icon: MessageSquare };
-  }
-  if (actionCode === "kb_thread.deleted") {
-    return { label: "удалил обсуждение", detail: null, icon: Trash2 };
-  }
-  if (actionCode === "kb_page.renamed") {
-    const oldTitle = asString(details.old_title);
-    const newTitle = asString(details.new_title);
-    return {
-      label: "переименовал страницу",
-      detail: oldTitle && newTitle ? `${oldTitle} → ${newTitle}` : null,
-      icon: FileText,
-    };
-  }
-  if (actionCode === "kb_page.required_reading_toggled") {
-    return {
-      label: details.enabled === true ? "включил обязательное чтение" : "выключил обязательное чтение",
-      detail: null,
-      icon: BookOpenCheck,
-    };
-  }
-  if (actionCode === "kb_page.deleted") {
-    return { label: "переместил страницу в корзину", detail: null, icon: Trash2 };
-  }
-  if (actionCode === "kb_page.restored") {
-    return { label: "восстановил страницу из корзины", detail: null, icon: RotateCcw };
-  }
-  if (actionCode === "kb_page.created") {
-    return { label: "создал страницу", detail: null, icon: FileText };
-  }
-  if (actionCode === "kb_page.moved") {
-    return { label: "переместил страницу", detail: null, icon: FileText };
-  }
-  return { label: "обновил страницу", detail: null, icon: History };
-}
-
-function changeKindLabel(kind: string): string {
-  if (kind === "title") return "заголовок";
-  if (kind === "content") return "контент";
-  if (kind === "properties") return "свойства";
-  if (kind === "icon") return "иконка";
-  if (kind === "restore") return "восстановление";
-  return kind;
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
 }
 
 function DeltaBadge({ delta }: { delta: number | null }) {
@@ -1310,21 +1008,6 @@ function compactDiffText(value: string): string {
   if (!normalized && value.length > 0) return "Изменены пробелы или переносы строк";
   if (normalized.length <= 700) return normalized;
   return `${normalized.slice(0, 700).trimEnd()}…`;
-}
-
-function formatRelative(iso: string): string {
-  const date = new Date(iso);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMin = Math.round(diffMs / 60000);
-  if (diffMin < 1) return "только что";
-  if (diffMin < 60) return `${diffMin} мин назад`;
-  const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} ч назад`;
-  const diffDays = Math.round(diffHr / 24);
-  if (diffDays === 1) return "вчера";
-  if (diffDays < 7) return `${diffDays} дн назад`;
-  return format(date, isThisYear(date) ? "d MMMM" : "d MMMM yyyy", { locale: ru });
 }
 
 function tokenize(value: string): string[] {

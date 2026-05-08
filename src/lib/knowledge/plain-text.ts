@@ -1,4 +1,8 @@
 import type { KbBlock } from "@/types/knowledge";
+import {
+  galleryItemText,
+  parseGalleryItemsJson,
+} from "@/lib/knowledge/gallery";
 
 /**
  * Cheap BlockNote → plain-text projection. Walks blocks/inline runs
@@ -19,6 +23,14 @@ export function blocksToPlainText(blocks: KbBlock[]): string {
 
 function walk(blocks: KbBlock[], out: string[]): void {
   for (const block of blocks) {
+    if (block.type === "gallery") {
+      const props = block.props ?? {};
+      const galleryText = parseGalleryItemsJson(props.itemsJson).images
+        .map(galleryItemText)
+        .filter(Boolean)
+        .join("\n");
+      if (galleryText) out.push(galleryText);
+    }
     if (typeof block.content === "string") {
       out.push(block.content);
     } else if (Array.isArray(block.content)) {

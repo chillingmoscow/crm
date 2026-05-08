@@ -52,6 +52,7 @@ import {
   ListCollapse,
   FilePlus,
   Smile,
+  Images,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -79,6 +80,7 @@ import { kbVideoBlockSpec } from "@/components/knowledge/blocks/kb-video-block";
 import { kbAudioBlockSpec } from "@/components/knowledge/blocks/kb-audio-block";
 import { kbFileBlockSpec } from "@/components/knowledge/blocks/kb-file-block";
 import { kbImageBlockSpec } from "@/components/knowledge/blocks/kb-image-block";
+import { kbGalleryBlockSpec } from "@/components/knowledge/blocks/kb-gallery-block";
 import { KbHeadingEnterExtension } from "@/components/knowledge/blocks/kb-heading-enter-extension";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
@@ -103,6 +105,7 @@ import "@blocknote/core/fonts/inter.css";
 import "@blocknote/shadcn/style.css";
 
 import type { KbBlock } from "@/types/knowledge";
+import { KB_GALLERY_EMPTY_JSON } from "@/lib/knowledge/gallery";
 
 /** Custom URL scheme used to mark uploaded KB files. The string after
  *  `kbfile://` is the storage_path inside `account-attachments`.
@@ -298,6 +301,25 @@ function getKbEmojiSlashItem(editor: BlockNoteEditor<never, never, never>) {
         /* ignore — fallback к центру viewport'а */
       }
       openKbEmojiPicker(editor as unknown as BlockNoteEditor, anchor);
+    },
+  };
+}
+
+function getKbGallerySlashItem(editor: BlockNoteEditor<never, never, never>) {
+  return {
+    title: "Галерея",
+    subtext: "Сетка изображений с подписями",
+    aliases: ["gallery", "grid", "галерея", "сетка", "фото", "изображения"],
+    group: "Медиа",
+    icon: <Images className="size-4 text-brand" />,
+    onItemClick: () => {
+      insertOrUpdateBlockForSlashMenu(editor, {
+        type: "gallery",
+        props: {
+          columns: 3,
+          itemsJson: KB_GALLERY_EMPTY_JSON,
+        },
+      } as never);
     },
   };
 }
@@ -615,6 +637,7 @@ export function KbBlockNoteEditor({
           audio: kbAudioBlockSpec(),
           file: kbFileBlockSpec(),
           image: kbImageBlockSpec(),
+          gallery: kbGalleryBlockSpec(),
         },
         inlineContentSpecs: {
           ...defaultInlineContentSpecs,
@@ -994,6 +1017,7 @@ export function KbBlockNoteEditor({
             // KbAiFormattingButton.
             const defaults = getDefaultReactSlashMenuItems(editor);
             const callouts = getKbCalloutSlashItems(editor as never);
+            const galleryItem = getKbGallerySlashItem(editor as never);
             // «Новая страница» — первая в группе «Базовые блоки», если
             // хост передал колбэк (= юзер имеет `kb.create_pages`).
             const newPageItem = onCreateNestedPage
@@ -1052,6 +1076,7 @@ export function KbBlockNoteEditor({
               ...basics,
               ...callouts,
               ...subheadings,
+              galleryItem,
               ...media,
               ...others,
               emojiItem,

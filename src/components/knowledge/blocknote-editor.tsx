@@ -318,6 +318,7 @@ function getKbGallerySlashItem(editor: BlockNoteEditor<never, never, never>) {
         props: {
           columns: 3,
           itemsJson: KB_GALLERY_EMPTY_JSON,
+          layout: "spotlight",
         },
       } as never);
     },

@@ -47,9 +47,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import {
   coerceGalleryColumns,
+  coerceGalleryLayout,
   extractImageUrlsFromText,
   isLikelyImageUrl,
   KB_GALLERY_EMPTY_JSON,
@@ -57,6 +63,7 @@ import {
   serializeGalleryItems,
   type KbGalleryColumns,
   type KbGalleryItem,
+  type KbGalleryLayout,
 } from "@/lib/knowledge/gallery";
 import { validateKnowledgeFile } from "@/lib/knowledge/media-file-validation";
 import { useCachedImagePreviewUrl } from "@/lib/knowledge/use-image-preview-cache";
@@ -75,6 +82,10 @@ const galleryBlockConfig = {
       default: KB_GALLERY_EMPTY_JSON,
       type: "string" as const,
     },
+    layout: {
+      default: "spotlight" as const,
+      values: ["spotlight", "grid"] as const,
+    },
   },
   content: "inline" as const,
 };
@@ -85,11 +96,11 @@ type GalleryRenderProps = ReactCustomBlockRenderProps<
 
 function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const editable = editor.isEditable;
-  const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [urlValue, setUrlValue] = useState("");
   const [uploadingCount, setUploadingCount] = useState(0);
   const [activeLightboxId, setActiveLightboxId] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [spotlightId, setSpotlightId] = useState<string | null>(null);
 
   const images = useMemo(
     () => parseGalleryItemsJson(block.props.itemsJson).images,
@@ -99,8 +110,20 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
+  useEffect(() => {
+    if (images.length === 0) {
+      setSpotlightId(null);
+      return;
+    }
+    if (!spotlightId || !images.some((item) => item.id === spotlightId)) {
+      setSpotlightId(images[0].id);
+    }
+  }, [images, spotlightId]);
 
   const columns = coerceGalleryColumns(block.props.columns);
+  const layout = coerceGalleryLayout(block.props.layout);
+  const spotlightItem =
+    images.find((item) => item.id === spotlightId) ?? images[0] ?? null;
   const activeIndex = activeLightboxId
     ? images.findIndex((item) => item.id === activeLightboxId)
     : -1;
@@ -128,6 +151,15 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     (nextColumns: KbGalleryColumns) => {
       editor.updateBlock(block.id, {
         props: { columns: nextColumns },
+      } as never);
+    },
+    [block.id, editor],
+  );
+
+  const updateLayout = useCallback(
+    (nextLayout: KbGalleryLayout) => {
+      editor.updateBlock(block.id, {
+        props: { layout: nextLayout },
       } as never);
     },
     [block.id, editor],
@@ -210,19 +242,6 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     },
     [uploadFiles],
   );
-
-  const submitUrl = useCallback(() => {
-    const urls = extractImageUrlsFromText(urlValue);
-    if (urls.length === 0 && isLikelyImageUrl(urlValue)) {
-      urls.push(urlValue.trim());
-    }
-    if (urls.length === 0) {
-      toast.error("Вставьте прямую ссылку на JPG, PNG, GIF или WEBP");
-      return;
-    }
-    addUrls(urls);
-    setUrlValue("");
-  }, [addUrls, urlValue]);
 
   const onDrop = useCallback(
     (event: React.DragEvent<HTMLDivElement>) => {
@@ -336,48 +355,97 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
       onPaste={onPaste}
       tabIndex={editable ? 0 : undefined}
     >
-      <div className="kb-gallery-header" contentEditable={false}>
-        <div className="kb-gallery-title">
-          <Images className="size-4" strokeWidth={1.75} />
-          <span>Галерея</span>
-        </div>
-        {editable && (
+      {editable && (
+        <div className="kb-gallery-header" contentEditable={false}>
+          <div className="kb-gallery-title">
+            <Images className="size-4" strokeWidth={1.75} />
+            <span>Галерея</span>
+          </div>
           <div className="kb-gallery-toolbar">
-            <div className="kb-gallery-columns" aria-label="Колонки">
-              <Columns3 className="size-4" strokeWidth={1.75} />
-              {GALLERY_COLUMNS.map((value) => (
+            <div className="kb-gallery-layouts" aria-label="Вид галереи">
+              {(["spotlight", "grid"] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
-                  className="kb-gallery-column-btn"
-                  data-active={columns === value || undefined}
+                  className="kb-gallery-layout-btn"
+                  data-active={layout === value || undefined}
                   onClick={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
-                    updateColumns(value);
+                    updateLayout(value);
                   }}
                 >
-                  {value}
+                  {value === "spotlight" ? (
+                    <>
+                      <Images className="size-4" strokeWidth={1.75} />
+                      Лента
+                    </>
+                  ) : (
+                    <>
+                      <Columns3 className="size-4" strokeWidth={1.75} />
+                      Сетка
+                    </>
+                  )}
                 </button>
               ))}
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="kb-gallery-icon-btn"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                inputRef.current?.click();
-              }}
-            >
-              <Plus className="size-4" />
-              Добавить
-            </Button>
+            {layout === "grid" && (
+              <div className="kb-gallery-columns" aria-label="Колонки">
+                <Columns3 className="size-4" strokeWidth={1.75} />
+                {GALLERY_COLUMNS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className="kb-gallery-column-btn"
+                    data-active={columns === value || undefined}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      updateColumns(value);
+                    }}
+                  >
+                    {value}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="kb-gallery-icon-btn"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  <Plus className="size-4" />
+                  Добавить
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                sideOffset={8}
+                className="w-auto border-0 bg-transparent p-0 shadow-none"
+                onOpenAutoFocus={(event) => event.preventDefault()}
+              >
+                <GalleryImagePicker
+                  canUpload={!!editor.uploadFile}
+                  onFiles={(files) => {
+                    handleFiles(files);
+                    setPickerOpen(false);
+                  }}
+                  onUrls={(urls) => {
+                    addUrls(urls);
+                    setPickerOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {images.length === 0 ? (
         <div
@@ -385,12 +453,12 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
           contentEditable={false}
           role={editable ? "button" : undefined}
           tabIndex={editable ? 0 : undefined}
-          onClick={() => editable && inputRef.current?.click()}
+          onClick={() => editable && setPickerOpen(true)}
           onKeyDown={(event) => {
             if (!editable) return;
             if (event.key === "Enter" || event.key === " ") {
               event.preventDefault();
-              inputRef.current?.click();
+              setPickerOpen(true);
             }
           }}
         >
@@ -412,82 +480,50 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
             items={images.map((item) => item.id)}
             strategy={rectSortingStrategy}
           >
-            <div
-              className="kb-gallery-grid"
-              style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
-              contentEditable={false}
-            >
-              {images.map((item) => (
-                <SortableGalleryItem
-                  key={item.id}
-                  item={item}
-                  editable={editable}
-                  onOpen={() => setActiveLightboxId(item.id)}
-                  onCaptionChange={(caption) => updateCaption(item.id, caption)}
-                  onRemove={() => removeImage(item.id)}
-                />
-              ))}
-            </div>
+            {layout === "spotlight" && spotlightItem ? (
+              <GallerySpotlight
+                images={images}
+                selectedItem={spotlightItem}
+                editable={editable}
+                onSelect={(id) => setSpotlightId(id)}
+                onOpen={() => setActiveLightboxId(spotlightItem.id)}
+                onCaptionChange={(caption) =>
+                  updateCaption(spotlightItem.id, caption)
+                }
+                onRemove={removeImage}
+              />
+            ) : (
+              <div
+                className="kb-gallery-grid"
+                style={{
+                  gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                }}
+                contentEditable={false}
+              >
+                {images.map((item) => (
+                  <SortableGalleryItem
+                    key={item.id}
+                    item={item}
+                    editable={editable}
+                    onOpen={() => setActiveLightboxId(item.id)}
+                    onCaptionChange={(caption) =>
+                      updateCaption(item.id, caption)
+                    }
+                    onRemove={() => removeImage(item.id)}
+                  />
+                ))}
+              </div>
+            )}
           </SortableContext>
         </DndContext>
       )}
 
-      {editable && (
-        <div className="kb-gallery-add-row" contentEditable={false}>
-          <div className="kb-gallery-url">
-            <LinkIcon className="size-4" strokeWidth={1.75} />
-            <Input
-              value={urlValue}
-              onChange={(event) => setUrlValue(event.target.value)}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                  event.preventDefault();
-                  submitUrl();
-                }
-              }}
-              onPaste={(event) => event.stopPropagation()}
-              placeholder="Вставьте ссылку на изображение"
-              className="h-8 border-0 bg-transparent px-1 text-[13px] shadow-none focus-visible:ring-0"
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              disabled={!urlValue.trim()}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                submitUrl();
-              }}
-            >
-              Вставить
-            </Button>
-          </div>
-          {uploadingCount > 0 && (
-            <div className="kb-gallery-uploading" role="status">
-              <Loader2 className="size-4 animate-spin" />
-              Загружаем: {uploadingCount}
-            </div>
-          )}
+      {editable && uploadingCount > 0 && (
+        <div className="kb-gallery-uploading" role="status" contentEditable={false}>
+          <Loader2 className="size-4 animate-spin" />
+          Загружаем: {uploadingCount}
         </div>
       )}
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        multiple
-        className="sr-only"
-        aria-hidden
-        tabIndex={-1}
-        onChange={(event) => {
-          const files = event.target.files;
-          if (files) handleFiles(files);
-          event.target.value = "";
-        }}
-      />
 
       <div className="kb-gallery-description-wrap">
         <div
@@ -638,6 +674,137 @@ function SortableGalleryItem({
   );
 }
 
+function GallerySpotlight({
+  images,
+  selectedItem,
+  editable,
+  onSelect,
+  onOpen,
+  onCaptionChange,
+  onRemove,
+}: {
+  images: KbGalleryItem[];
+  selectedItem: KbGalleryItem;
+  editable: boolean;
+  onSelect: (id: string) => void;
+  onOpen: () => void;
+  onCaptionChange: (caption: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div className="kb-gallery-spotlight" contentEditable={false}>
+      <button
+        type="button"
+        className="kb-gallery-spotlight-main"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpen();
+        }}
+      >
+        <GalleryResolvedImage item={selectedItem} variant="spotlight" />
+      </button>
+      {editable ? (
+        <GalleryCaptionInput
+          value={selectedItem.caption ?? ""}
+          onCommit={onCaptionChange}
+        />
+      ) : selectedItem.caption ? (
+        <div className="kb-gallery-caption kb-gallery-spotlight-caption">
+          {selectedItem.caption}
+        </div>
+      ) : null}
+      {images.length > 1 && (
+        <div className="kb-gallery-spotlight-strip" aria-label="Изображения">
+          {images.map((item) => (
+            <SortableGalleryThumb
+              key={item.id}
+              item={item}
+              active={item.id === selectedItem.id}
+              editable={editable}
+              onSelect={() => onSelect(item.id)}
+              onRemove={() => onRemove(item.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SortableGalleryThumb({
+  item,
+  active,
+  editable,
+  onSelect,
+  onRemove,
+}: {
+  item: KbGalleryItem;
+  active: boolean;
+  editable: boolean;
+  onSelect: () => void;
+  onRemove: () => void;
+}) {
+  const sortable = useSortable({ id: item.id, disabled: !editable });
+  const style = {
+    transform: CSS.Transform.toString(sortable.transform),
+    transition: sortable.transition,
+  };
+
+  return (
+    <div
+      ref={sortable.setNodeRef}
+      style={style}
+      className={cn(
+        "kb-gallery-thumb",
+        active && "is-active",
+        sortable.isDragging && "is-dragging",
+      )}
+    >
+      <button
+        type="button"
+        className="kb-gallery-thumb-btn"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onSelect();
+        }}
+      >
+        <GalleryResolvedImage item={item} variant="thumb" />
+      </button>
+      {editable && (
+        <div className="kb-gallery-thumb-actions">
+          <button
+            type="button"
+            className="kb-gallery-item-action"
+            aria-label="Переместить изображение"
+            {...sortable.attributes}
+            {...sortable.listeners}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            <GripVertical className="size-4" />
+          </button>
+          <button
+            type="button"
+            className="kb-gallery-item-action"
+            aria-label="Удалить изображение"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRemove();
+            }}
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GalleryCaptionInput({
   value,
   onCommit,
@@ -645,11 +812,15 @@ function GalleryCaptionInput({
   value: string;
   onCommit: (value: string) => void;
 }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
     setDraft(value);
   }, [value]);
+  useEffect(() => {
+    resizeTextarea(ref.current);
+  }, [draft]);
 
   const commit = () => {
     if (draft.trim() !== value.trim()) {
@@ -658,19 +829,19 @@ function GalleryCaptionInput({
   };
 
   return (
-    <input
+    <textarea
+      ref={ref}
       value={draft}
-      onChange={(event) => setDraft(event.target.value)}
+      rows={1}
+      onChange={(event) => {
+        setDraft(event.target.value);
+        resizeTextarea(event.currentTarget);
+      }}
       onBlur={commit}
       onClick={(event) => event.stopPropagation()}
       onPaste={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-          event.preventDefault();
-          commit();
-          event.currentTarget.blur();
-        }
         if (event.key === "Escape") {
           event.preventDefault();
           setDraft(value);
@@ -683,12 +854,160 @@ function GalleryCaptionInput({
   );
 }
 
+function GalleryImagePicker({
+  canUpload,
+  onFiles,
+  onUrls,
+}: {
+  canUpload: boolean;
+  onFiles: (files: File[]) => void;
+  onUrls: (urls: string[]) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [tab, setTab] = useState<"upload" | "url">(
+    canUpload ? "upload" : "url",
+  );
+  const [urlValue, setUrlValue] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+
+  const submitUrl = () => {
+    const urls = extractImageUrlsFromText(urlValue);
+    if (urls.length === 0 && isLikelyImageUrl(urlValue)) {
+      urls.push(urlValue.trim());
+    }
+    if (urls.length === 0) {
+      toast.error("Вставьте прямую ссылку на JPG, PNG, GIF или WEBP");
+      return;
+    }
+    onUrls(urls);
+    setUrlValue("");
+  };
+
+  const pickFiles = (fileList: FileList | null) => {
+    const files = fileList ? Array.from(fileList) : [];
+    if (files.length > 0) onFiles(files);
+  };
+
+  return (
+    <div className="kb-file-panel kb-gallery-picker">
+      <div className="kb-file-panel-tabs" role="tablist">
+        {canUpload && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "upload"}
+            data-active={tab === "upload" || undefined}
+            onClick={() => setTab("upload")}
+            className="kb-file-panel-tab"
+          >
+            Файл
+          </button>
+        )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "url"}
+          data-active={tab === "url" || undefined}
+          onClick={() => setTab("url")}
+          className="kb-file-panel-tab"
+        >
+          Ссылка
+        </button>
+      </div>
+
+      {tab === "upload" && canUpload ? (
+        <div className="kb-file-panel-body">
+          <div
+            className={cn("kb-file-panel-dropzone", dragOver && "is-dragover")}
+            onDragOver={(event) => {
+              event.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(event) => {
+              event.preventDefault();
+              setDragOver(false);
+              pickFiles(event.dataTransfer.files);
+            }}
+            onClick={() => inputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                inputRef.current?.click();
+              }
+            }}
+          >
+            <UploadCloud className="size-7 text-muted-foreground" />
+            <div className="kb-file-panel-dropzone-title">
+              Перетащите изображения сюда
+            </div>
+            <div className="kb-file-panel-dropzone-sub">
+              или нажмите, чтобы выбрать файлы
+            </div>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              className="sr-only"
+              aria-hidden
+              tabIndex={-1}
+              onChange={(event) => {
+                pickFiles(event.target.files);
+                event.target.value = "";
+              }}
+            />
+          </div>
+          <div className="kb-file-panel-hint">
+            PNG, JPG, GIF, WEBP · до 10 МБ
+          </div>
+        </div>
+      ) : (
+        <div className="kb-file-panel-body">
+          <div className="kb-gallery-picker-url">
+            <LinkIcon className="size-4 text-muted-foreground" strokeWidth={1.75} />
+            <Input
+              type="url"
+              value={urlValue}
+              onChange={(event) => setUrlValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  submitUrl();
+                }
+              }}
+              placeholder="Вставьте ссылку на изображение"
+              autoFocus
+              className="h-10"
+            />
+          </div>
+          <div className="flex justify-end">
+            <Button
+              type="button"
+              onClick={submitUrl}
+              disabled={!urlValue.trim()}
+              size="sm"
+            >
+              Вставить
+            </Button>
+          </div>
+          <div className="kb-file-panel-hint kb-file-panel-hint-multiline">
+            Прямая ссылка на изображение JPG, PNG, GIF или WEBP
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GalleryResolvedImage({
   item,
   variant,
 }: {
   item: KbGalleryItem;
-  variant: "thumb" | "lightbox";
+  variant: "thumb" | "spotlight" | "lightbox";
 }) {
   const [failed, setFailed] = useState(false);
   const resolved = useResolveUrl(item.url);
@@ -727,6 +1046,7 @@ function GalleryResolvedImage({
     <img
       className={cn(
         "kb-gallery-image",
+        variant === "spotlight" && "kb-gallery-image-spotlight",
         variant === "lightbox" && "kb-gallery-image-lightbox",
       )}
       src={src}
@@ -783,6 +1103,12 @@ function uploadResultToUrl(result: string | Record<string, unknown>): string {
     return props.url;
   }
   throw new Error("Upload did not return an image URL");
+}
+
+function resizeTextarea(node: HTMLTextAreaElement | null) {
+  if (!node) return;
+  node.style.height = "auto";
+  node.style.height = `${node.scrollHeight}px`;
 }
 
 export const kbGalleryBlockSpec = createReactBlockSpec(

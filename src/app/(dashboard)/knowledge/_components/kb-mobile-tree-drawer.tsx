@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -21,6 +22,8 @@ interface KbMobileTreeDrawerProps {
   nodes: KbTreeNode[];
   favorites?: KbFavoritePage[];
   canSeeTrash: boolean;
+  canDelete?: boolean;
+  canDuplicate?: boolean;
   canViewAudit?: boolean;
   canViewAnalytics?: boolean;
   canImport?: boolean;
@@ -40,6 +43,8 @@ export function KbMobileTreeDrawer({
   nodes,
   favorites,
   canSeeTrash,
+  canDelete = false,
+  canDuplicate = false,
   canViewAudit = false,
   canViewAnalytics = false,
   canImport = false,
@@ -73,12 +78,17 @@ export function KbMobileTreeDrawer({
       >
         <SheetHeader className="border-b px-4 py-3">
           <SheetTitle className="text-sm">База знаний</SheetTitle>
+          <SheetDescription className="sr-only">
+            Дерево страниц базы знаний
+          </SheetDescription>
         </SheetHeader>
         <div className="overflow-y-auto h-[calc(100vh-3.25rem)]">
           <KbTreeNav
             nodes={nodes}
             favorites={favorites}
             canSeeTrash={canSeeTrash}
+            canDelete={canDelete}
+            canDuplicate={canDuplicate}
             canViewAudit={canViewAudit}
             canViewAnalytics={canViewAnalytics}
             canImport={canImport}

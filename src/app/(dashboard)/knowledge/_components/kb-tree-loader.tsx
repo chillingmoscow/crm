@@ -6,6 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 interface KbTreeNavPermissions {
   canSeeTrash: boolean;
+  canDelete: boolean;
+  canDuplicate: boolean;
   canViewAudit: boolean;
   canViewAnalytics: boolean;
   canImport: boolean;
@@ -31,6 +33,8 @@ export async function KbTreeLoader(props: KbTreeNavPermissions) {
       nodes={nodes}
       favorites={favorites}
       canSeeTrash={props.canSeeTrash}
+      canDelete={props.canDelete}
+      canDuplicate={props.canDuplicate}
       canViewAudit={props.canViewAudit}
       canViewAnalytics={props.canViewAnalytics}
       canImport={props.canImport}
@@ -56,6 +60,8 @@ export async function KbMobileTreeLoader(props: KbTreeNavPermissions) {
       nodes={nodes}
       favorites={favorites}
       canSeeTrash={props.canSeeTrash}
+      canDelete={props.canDelete}
+      canDuplicate={props.canDuplicate}
       canViewAudit={props.canViewAudit}
       canViewAnalytics={props.canViewAnalytics}
       canImport={props.canImport}

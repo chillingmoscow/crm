@@ -110,6 +110,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const [uploadingCount, setUploadingCount] = useState(0);
   const [activeLightboxId, setActiveLightboxId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsPanel, setSettingsPanel] = useState<"columns" | null>(null);
   const recentDragRef = useRef(false);
 
@@ -438,6 +439,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
         images.length === 0 && "is-empty",
       )}
       data-editable={editable || undefined}
+      data-controls-open={pickerOpen || settingsOpen || undefined}
       data-kb-gallery-block
       onDragOver={(event) => {
         if (!editable) return;
@@ -488,7 +490,9 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
               </PopoverContent>
             </Popover>
             <Popover
+              open={settingsOpen}
               onOpenChange={(open) => {
+                setSettingsOpen(open);
                 if (!open) setSettingsPanel(null);
               }}
             >
@@ -550,6 +554,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                           stopBlockMenuAction(event);
                           updateColumns(value);
                           setSettingsPanel(null);
+                          setSettingsOpen(false);
                         }}
                       >
                         <span>{value}</span>
@@ -623,6 +628,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
           >
             <div
               className="kb-gallery-grid"
+              data-columns={columns}
               style={{
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
               }}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ClipboardType,
   Download,
@@ -97,17 +97,29 @@ function PropEditPopover({
 }) {
   const [value, setValue] = useState(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
+  const submittedRef = useRef(false);
+  const skipBlurSubmitRef = useRef(false);
 
   // Sync initial value на каждое открытие — иначе после save/close
   // popover «помнит» предыдущий черновик.
   useEffect(() => {
-    if (open) setValue(initialValue);
+    if (!open) return;
+    setValue(initialValue);
+    submittedRef.current = false;
+    skipBlurSubmitRef.current = false;
   }, [open, initialValue]);
 
-  const submit = () => {
+  const submit = useCallback(() => {
+    if (submittedRef.current || skipBlurSubmitRef.current) return;
+    submittedRef.current = true;
     onSubmit(value.trim());
     onOpenChange(false);
-  };
+  }, [onOpenChange, onSubmit, value]);
+
+  const cancel = useCallback(() => {
+    skipBlurSubmitRef.current = true;
+    onOpenChange(false);
+  }, [onOpenChange]);
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -130,6 +142,7 @@ function PropEditPopover({
           ref={inputRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          onBlur={submit}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.nativeEvent.isComposing) {
               e.preventDefault();
@@ -137,7 +150,7 @@ function PropEditPopover({
             }
             if (e.key === "Escape") {
               e.preventDefault();
-              onOpenChange(false);
+              cancel();
             }
           }}
           placeholder={placeholder}
@@ -161,6 +174,7 @@ export function KbFileCaptionButton() {
 
   const caption =
     typeof block.props?.caption === "string" ? block.props.caption : "";
+  const captionLabel = caption.trim() ? "Изменить подпись" : "Добавить подпись";
 
   return (
     <PropEditPopover
@@ -173,8 +187,8 @@ export function KbFileCaptionButton() {
       }}
       trigger={
         <Components.FormattingToolbar.Button
-          mainTooltip="Добавить подпись"
-          label="Добавить подпись"
+          mainTooltip={captionLabel}
+          label={captionLabel}
           icon={<Pencil className="size-4" strokeWidth={1.75} />}
           onClick={() => setOpen((v) => !v)}
         />

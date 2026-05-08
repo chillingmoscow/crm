@@ -438,6 +438,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
         images.length === 0 && "is-empty",
       )}
       data-editable={editable || undefined}
+      data-kb-gallery-block
       onDragOver={(event) => {
         if (!editable) return;
         event.preventDefault();
@@ -504,34 +505,47 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
               <PopoverContent
                 align="end"
                 sideOffset={8}
-                className="kb-gallery-popover-menu kb-gallery-settings-menu w-60"
+                className="kb-gallery-popover-menu kb-gallery-settings-menu w-56"
                 onPointerDown={stopBlockInteraction}
                 onMouseDown={stopBlockInteraction}
                 onClick={stopBlockInteraction}
                 onOpenAutoFocus={(event) => event.preventDefault()}
               >
                 <div className="kb-gallery-menu-label">Настройки</div>
-                <button
-                  type="button"
-                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
-                  aria-expanded={settingsPanel === "columns"}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    stopBlockInteraction(event);
-                    setSettingsPanel((panel) =>
-                      panel === "columns" ? null : "columns",
-                    );
-                  }}
+                <Popover
+                  open={settingsPanel === "columns"}
+                  onOpenChange={(open) =>
+                    setSettingsPanel(open ? "columns" : null)
+                  }
                 >
-                  <span className="kb-gallery-menu-icon" aria-hidden>
-                    <Columns3 className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">Ряд</span>
-                  <span className="kb-gallery-menu-value">{columns}</span>
-                  <ChevronDown className="kb-gallery-menu-chevron size-4" />
-                </button>
-                {settingsPanel === "columns" && (
-                  <div className="kb-gallery-menu-option-list">
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                      aria-expanded={settingsPanel === "columns"}
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={stopBlockInteraction}
+                    >
+                      <span className="kb-gallery-menu-icon" aria-hidden>
+                        <Columns3 className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">Сетка</span>
+                      <span className="kb-gallery-menu-value">{columns}</span>
+                      <ChevronDown className="kb-gallery-menu-chevron size-4" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    align="start"
+                    side="right"
+                    sideOffset={8}
+                    collisionPadding={12}
+                    className="kb-gallery-popover-menu kb-gallery-grid-submenu w-24"
+                    onPointerDown={stopBlockInteraction}
+                    onMouseDown={stopBlockInteraction}
+                    onClick={stopBlockInteraction}
+                    onOpenAutoFocus={(event) => event.preventDefault()}
+                  >
                     {GALLERY_COLUMNS.map((value) => (
                       <button
                         key={value}
@@ -539,8 +553,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                         className="kb-gallery-menu-option"
                         data-active={columns === value || undefined}
                         onClick={(event) => {
-                          event.preventDefault();
-                          stopBlockInteraction(event);
+                          stopBlockMenuAction(event);
                           updateColumns(value);
                           setSettingsPanel(null);
                         }}
@@ -549,16 +562,15 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                         {columns === value ? <Check className="size-4" /> : null}
                       </button>
                     ))}
-                  </div>
-                )}
+                  </PopoverContent>
+                </Popover>
                 <button
                   type="button"
                   className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
                   aria-pressed={showCaptions}
                   data-active={showCaptions || undefined}
                   onClick={(event) => {
-                    event.preventDefault();
-                    stopBlockInteraction(event);
+                    stopBlockMenuAction(event);
                     updateShowCaptions(!showCaptions);
                   }}
                 >
@@ -824,6 +836,11 @@ function stopBlockInteraction(event: React.SyntheticEvent) {
   event.stopPropagation();
 }
 
+function stopBlockMenuAction(event: React.SyntheticEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 function GalleryMenuSwitchIndicator({ checked }: { checked: boolean }) {
   return (
     <span
@@ -922,52 +939,52 @@ function GalleryImageMenu({
           />
         ) : (
           <>
-          <button
-            type="button"
-            className="kb-gallery-menu-item"
-            onClick={(event) => {
-              stopBlockInteraction(event);
-              setCaptionOpen(true);
-            }}
-          >
-            <Pencil className="mr-2 size-4" />
-            {item.caption ? "Редактировать подпись" : "Добавить подпись"}
-          </button>
-          <button
-            type="button"
-            className="kb-gallery-menu-item"
-            onClick={(event) => {
-              stopBlockInteraction(event);
-              setReplaceOpen(true);
-            }}
-          >
-            <RefreshCw className="mr-2 size-4" />
-            Заменить
-          </button>
-          <button
-            type="button"
-            className="kb-gallery-menu-item"
-            onClick={(event) => {
-              stopBlockInteraction(event);
-              setOpen(false);
-              onOpenOriginal();
-            }}
-          >
-            <ExternalLink className="mr-2 size-4" />
-            Показать оригинал
-          </button>
-          <button
-            type="button"
-            className="kb-gallery-menu-item is-destructive"
-            onClick={(event) => {
-              stopBlockInteraction(event);
-              setOpen(false);
-              onRemove();
-            }}
-          >
-            <Trash2 className="mr-2 size-4" />
-            Удалить
-          </button>
+            <button
+              type="button"
+              className="kb-gallery-menu-item"
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                setCaptionOpen(true);
+              }}
+            >
+              <Pencil className="mr-2 size-4" />
+              {item.caption ? "Изменить подпись" : "Добавить подпись"}
+            </button>
+            <button
+              type="button"
+              className="kb-gallery-menu-item"
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                setReplaceOpen(true);
+              }}
+            >
+              <RefreshCw className="mr-2 size-4" />
+              Заменить
+            </button>
+            <button
+              type="button"
+              className="kb-gallery-menu-item"
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                setOpen(false);
+                onOpenOriginal();
+              }}
+            >
+              <ExternalLink className="mr-2 size-4" />
+              Показать оригинал
+            </button>
+            <button
+              type="button"
+              className="kb-gallery-menu-item is-destructive"
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                setOpen(false);
+                onRemove();
+              }}
+            >
+              <Trash2 className="mr-2 size-4" />
+              Удалить
+            </button>
           </>
         )}
       </PopoverContent>

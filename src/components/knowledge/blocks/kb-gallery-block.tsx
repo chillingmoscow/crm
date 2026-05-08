@@ -893,6 +893,19 @@ function GallerySpotlight({
   onRemove: (id: string) => void;
   onOpenOriginal: (item: KbGalleryItem) => void;
 }) {
+  const selectedIndex = images.findIndex((item) => item.id === selectedItem.id);
+  const canNavigate = images.length > 1 && selectedIndex >= 0;
+  const selectPrevious = () => {
+    if (!canNavigate) return;
+    const previous = images[(selectedIndex - 1 + images.length) % images.length];
+    if (previous) onSelect(previous.id);
+  };
+  const selectNext = () => {
+    if (!canNavigate) return;
+    const next = images[(selectedIndex + 1) % images.length];
+    if (next) onSelect(next.id);
+  };
+
   return (
     <div className="kb-gallery-spotlight" contentEditable={false}>
       <div className="kb-gallery-spotlight-main-wrap">
@@ -909,6 +922,38 @@ function GallerySpotlight({
         >
           <GalleryResolvedImage item={selectedItem} variant="spotlight" />
         </button>
+        {canNavigate && (
+          <>
+            <button
+              type="button"
+              className="kb-gallery-spotlight-nav is-left"
+              aria-label="Предыдущее изображение"
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectPrevious();
+              }}
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <button
+              type="button"
+              className="kb-gallery-spotlight-nav is-right"
+              aria-label="Следующее изображение"
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectNext();
+              }}
+            >
+              <ChevronRight className="size-5" />
+            </button>
+          </>
+        )}
         {editable && (
           <div className="kb-gallery-item-actions" contentEditable={false}>
             <GalleryImageMenu

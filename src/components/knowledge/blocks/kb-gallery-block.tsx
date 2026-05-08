@@ -25,14 +25,13 @@ import {
   useResolveUrl,
 } from "@blocknote/react";
 import {
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
   Check,
   Columns3,
   ExternalLink,
-  GalleryHorizontal,
   Image as ImageIcon,
+  ChevronLeft,
+  ChevronRight,
   Link as LinkIcon,
   Loader2,
   MoreHorizontal,
@@ -61,17 +60,13 @@ import {
 import { cn } from "@/lib/utils";
 import {
   coerceGalleryColumns,
-  coerceGalleryImageFit,
-  coerceGalleryLayout,
   extractImageUrlsFromText,
   isLikelyImageUrl,
   KB_GALLERY_EMPTY_JSON,
   parseGalleryItemsJson,
   serializeGalleryItems,
   type KbGalleryColumns,
-  type KbGalleryImageFit,
   type KbGalleryItem,
-  type KbGalleryLayout,
 } from "@/lib/knowledge/gallery";
 import { validateKnowledgeFile } from "@/lib/knowledge/media-file-validation";
 import { useCachedImagePreviewUrl } from "@/lib/knowledge/use-image-preview-cache";
@@ -91,7 +86,7 @@ const galleryBlockConfig = {
       type: "string" as const,
     },
     layout: {
-      default: "spotlight" as const,
+      default: "grid" as const,
       values: ["spotlight", "grid"] as const,
     },
     showCaptions: {
@@ -115,10 +110,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const [uploadingCount, setUploadingCount] = useState(0);
   const [activeLightboxId, setActiveLightboxId] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [spotlightId, setSpotlightId] = useState<string | null>(null);
-  const [settingsPanel, setSettingsPanel] = useState<
-    "layout" | "columns" | "fit" | null
-  >(null);
+  const [settingsPanel, setSettingsPanel] = useState<"columns" | null>(null);
   const recentDragRef = useRef(false);
 
   const images = useMemo(
@@ -129,22 +121,8 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   useEffect(() => {
     imagesRef.current = images;
   }, [images]);
-  useEffect(() => {
-    if (images.length === 0) {
-      setSpotlightId(null);
-      return;
-    }
-    if (!spotlightId || !images.some((item) => item.id === spotlightId)) {
-      setSpotlightId(images[0].id);
-    }
-  }, [images, spotlightId]);
-
   const columns = coerceGalleryColumns(block.props.columns);
-  const layout = coerceGalleryLayout(block.props.layout);
-  const imageFit = coerceGalleryImageFit(block.props.imageFit);
   const showCaptions = block.props.showCaptions === true;
-  const spotlightItem =
-    images.find((item) => item.id === spotlightId) ?? images[0] ?? null;
   const activeIndex = activeLightboxId
     ? images.findIndex((item) => item.id === activeLightboxId)
     : -1;
@@ -177,28 +155,10 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
     [block.id, editor],
   );
 
-  const updateLayout = useCallback(
-    (nextLayout: KbGalleryLayout) => {
-      editor.updateBlock(block.id, {
-        props: { layout: nextLayout },
-      } as never);
-    },
-    [block.id, editor],
-  );
-
   const updateShowCaptions = useCallback(
     (nextValue: boolean) => {
       editor.updateBlock(block.id, {
         props: { showCaptions: nextValue },
-      } as never);
-    },
-    [block.id, editor],
-  );
-
-  const updateImageFit = useCallback(
-    (nextFit: KbGalleryImageFit) => {
-      editor.updateBlock(block.id, {
-        props: { imageFit: nextFit },
       } as never);
     },
     [block.id, editor],
@@ -554,143 +514,42 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 <button
                   type="button"
                   className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
-                  aria-expanded={settingsPanel === "layout"}
+                  aria-expanded={settingsPanel === "columns"}
                   onClick={(event) => {
                     event.preventDefault();
                     stopBlockInteraction(event);
                     setSettingsPanel((panel) =>
-                      panel === "layout" ? null : "layout",
+                      panel === "columns" ? null : "columns",
                     );
                   }}
                 >
                   <span className="kb-gallery-menu-icon" aria-hidden>
-                    <GalleryHorizontal className="size-4" />
+                    <Columns3 className="size-4" />
                   </span>
-                  <span className="min-w-0 flex-1">Вид</span>
-                  <span className="kb-gallery-menu-value">
-                    {layout === "spotlight" ? "Галерея" : "Сетка"}
-                  </span>
+                  <span className="min-w-0 flex-1">Ряд</span>
+                  <span className="kb-gallery-menu-value">{columns}</span>
                   <ChevronDown className="kb-gallery-menu-chevron size-4" />
                 </button>
-                {settingsPanel === "layout" && (
+                {settingsPanel === "columns" && (
                   <div className="kb-gallery-menu-option-list">
-                    {[
-                      ["spotlight", "Галерея"],
-                      ["grid", "Сетка"],
-                    ].map(([value, label]) => (
+                    {GALLERY_COLUMNS.map((value) => (
                       <button
                         key={value}
                         type="button"
                         className="kb-gallery-menu-option"
-                        data-active={layout === value || undefined}
+                        data-active={columns === value || undefined}
                         onClick={(event) => {
                           event.preventDefault();
                           stopBlockInteraction(event);
-                          updateLayout(value as KbGalleryLayout);
+                          updateColumns(value);
                           setSettingsPanel(null);
                         }}
                       >
-                        <span>{label}</span>
-                        {layout === value ? <Check className="size-4" /> : null}
+                        <span>{value}</span>
+                        {columns === value ? <Check className="size-4" /> : null}
                       </button>
                     ))}
                   </div>
-                )}
-                {layout === "grid" ? (
-                  <>
-                    <button
-                      type="button"
-                      className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
-                      aria-expanded={settingsPanel === "columns"}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        stopBlockInteraction(event);
-                        setSettingsPanel((panel) =>
-                          panel === "columns" ? null : "columns",
-                        );
-                      }}
-                    >
-                    <span className="kb-gallery-menu-icon" aria-hidden>
-                      <Columns3 className="size-4" />
-                    </span>
-                      <span className="min-w-0 flex-1">Ряд</span>
-                      <span className="kb-gallery-menu-value">{columns}</span>
-                      <ChevronDown className="kb-gallery-menu-chevron size-4" />
-                    </button>
-                    {settingsPanel === "columns" && (
-                      <div className="kb-gallery-menu-option-list">
-                        {GALLERY_COLUMNS.map((value) => (
-                          <button
-                            key={value}
-                            type="button"
-                            className="kb-gallery-menu-option"
-                            data-active={columns === value || undefined}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              stopBlockInteraction(event);
-                              updateColumns(value);
-                              setSettingsPanel(null);
-                            }}
-                          >
-                            <span>{value}</span>
-                            {columns === value ? (
-                              <Check className="size-4" />
-                            ) : null}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
-                      aria-expanded={settingsPanel === "fit"}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        stopBlockInteraction(event);
-                        setSettingsPanel((panel) =>
-                          panel === "fit" ? null : "fit",
-                        );
-                      }}
-                    >
-                    <span className="kb-gallery-menu-icon" aria-hidden>
-                      <ImageIcon className="size-4" />
-                    </span>
-                      <span className="min-w-0 flex-1">Главное изображение</span>
-                      <span className="kb-gallery-menu-value">
-                        {imageFit === "cover" ? "Растянуть" : "Уместить"}
-                      </span>
-                      <ChevronDown className="kb-gallery-menu-chevron size-4" />
-                    </button>
-                    {settingsPanel === "fit" && (
-                      <div className="kb-gallery-menu-option-list">
-                        {[
-                          ["cover", "Растянуть"],
-                          ["contain", "Уместить"],
-                        ].map(([value, label]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            className="kb-gallery-menu-option"
-                            data-active={imageFit === value || undefined}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              stopBlockInteraction(event);
-                              updateImageFit(value as KbGalleryImageFit);
-                              setSettingsPanel(null);
-                            }}
-                          >
-                            <span>{label}</span>
-                            {imageFit === value ? (
-                              <Check className="size-4" />
-                            ) : null}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
                 )}
                 <button
                   type="button"
@@ -756,53 +615,36 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
             items={images.map((item) => item.id)}
             strategy={rectSortingStrategy}
           >
-            {layout === "spotlight" && spotlightItem ? (
-              <GallerySpotlight
-                images={images}
-                selectedItem={spotlightItem}
-                editable={editable}
-                imageFit={imageFit}
-                showCaptions={showCaptions}
-                onSelect={(id) => setSpotlightId(id)}
-                onOpen={() => setActiveLightboxId(spotlightItem.id)}
-                onUpdateCaption={updateCaption}
-                onReplace={replaceImage}
-                onReplaceUrl={replaceImageWithUrl}
-                onRemove={removeImage}
-                onOpenOriginal={openOriginalImage}
-              />
-            ) : (
-              <div
-                className="kb-gallery-grid"
-                style={{
-                  gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                }}
-                contentEditable={false}
-              >
-                {images.map((item) => (
-                  <SortableGalleryItem
-                    key={item.id}
-                    item={item}
-                    editable={editable}
-                    showCaptions={showCaptions}
-                    onOpen={() => {
-                      if (recentDragRef.current) return;
-                      setActiveLightboxId(item.id);
-                    }}
-                    onUpdateCaption={(caption) => updateCaption(item.id, caption)}
-                    onReplace={(file) => void replaceImage(item.id, file)}
-                    onReplaceUrl={(url) => replaceImageWithUrl(item.id, url)}
-                    onRemove={() => removeImage(item.id)}
-                    onOpenOriginal={() => openOriginalImage(item)}
-                    onPointerSettled={() => {
-                      window.setTimeout(() => {
-                        recentDragRef.current = false;
-                      }, 0);
-                    }}
-                  />
-                ))}
-              </div>
-            )}
+            <div
+              className="kb-gallery-grid"
+              style={{
+                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+              }}
+              contentEditable={false}
+            >
+              {images.map((item) => (
+                <SortableGalleryItem
+                  key={item.id}
+                  item={item}
+                  editable={editable}
+                  showCaptions={showCaptions}
+                  onOpen={() => {
+                    if (recentDragRef.current) return;
+                    setActiveLightboxId(item.id);
+                  }}
+                  onUpdateCaption={(caption) => updateCaption(item.id, caption)}
+                  onReplace={(file) => void replaceImage(item.id, file)}
+                  onReplaceUrl={(url) => replaceImageWithUrl(item.id, url)}
+                  onRemove={() => removeImage(item.id)}
+                  onOpenOriginal={() => openOriginalImage(item)}
+                  onPointerSettled={() => {
+                    window.setTimeout(() => {
+                      recentDragRef.current = false;
+                    }, 0);
+                  }}
+                />
+              ))}
+            </div>
           </SortableContext>
         </DndContext>
       )}
@@ -963,216 +805,6 @@ function SortableGalleryItem({
         </div>
       ) : null}
     </article>
-  );
-}
-
-function GallerySpotlight({
-  images,
-  selectedItem,
-  editable,
-  imageFit,
-  showCaptions,
-  onSelect,
-  onOpen,
-  onUpdateCaption,
-  onReplace,
-  onReplaceUrl,
-  onRemove,
-  onOpenOriginal,
-}: {
-  images: KbGalleryItem[];
-  selectedItem: KbGalleryItem;
-  editable: boolean;
-  imageFit: KbGalleryImageFit;
-  showCaptions: boolean;
-  onSelect: (id: string) => void;
-  onOpen: () => void;
-  onUpdateCaption: (id: string, caption: string) => void;
-  onReplace: (id: string, file: File) => void;
-  onReplaceUrl: (id: string, url: string) => void;
-  onRemove: (id: string) => void;
-  onOpenOriginal: (item: KbGalleryItem) => void;
-}) {
-  const selectedIndex = images.findIndex((item) => item.id === selectedItem.id);
-  const canNavigate = images.length > 1 && selectedIndex >= 0;
-  const selectPrevious = () => {
-    if (!canNavigate) return;
-    const previous = images[(selectedIndex - 1 + images.length) % images.length];
-    if (previous) onSelect(previous.id);
-  };
-  const selectNext = () => {
-    if (!canNavigate) return;
-    const next = images[(selectedIndex + 1) % images.length];
-    if (next) onSelect(next.id);
-  };
-
-  return (
-    <div
-      className="kb-gallery-spotlight"
-      data-fit={imageFit}
-      contentEditable={false}
-    >
-      <div className="kb-gallery-spotlight-main-wrap">
-        <button
-          type="button"
-          className="kb-gallery-spotlight-main"
-          onPointerDown={stopBlockInteraction}
-          onMouseDown={stopBlockInteraction}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onOpen();
-          }}
-        >
-          <GalleryResolvedImage item={selectedItem} variant="spotlight" />
-        </button>
-        {canNavigate && (
-          <>
-            <button
-              type="button"
-              className="kb-gallery-spotlight-nav is-left"
-              aria-label="Предыдущее изображение"
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                selectPrevious();
-              }}
-            >
-              <ChevronLeft className="size-5" />
-            </button>
-            <button
-              type="button"
-              className="kb-gallery-spotlight-nav is-right"
-              aria-label="Следующее изображение"
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                selectNext();
-              }}
-            >
-              <ChevronRight className="size-5" />
-            </button>
-          </>
-        )}
-        {editable && (
-          <div className="kb-gallery-item-actions" contentEditable={false}>
-            <GalleryImageMenu
-              item={selectedItem}
-              onUpdateCaption={(caption) =>
-                onUpdateCaption(selectedItem.id, caption)
-              }
-              onReplace={(file) => onReplace(selectedItem.id, file)}
-              onReplaceUrl={(url) => onReplaceUrl(selectedItem.id, url)}
-              onRemove={() => onRemove(selectedItem.id)}
-              onOpenOriginal={() => onOpenOriginal(selectedItem)}
-            />
-          </div>
-        )}
-      </div>
-      {showCaptions ? (
-        <div
-          className="kb-gallery-caption kb-gallery-spotlight-caption"
-          data-empty={!selectedItem.caption || undefined}
-        >
-          {selectedItem.caption || "\u00A0"}
-        </div>
-      ) : null}
-      {images.length > 1 && (
-        <div className="kb-gallery-spotlight-strip" aria-label="Изображения">
-          {images.map((item) => (
-            <SortableGalleryThumb
-              key={item.id}
-              item={item}
-              active={item.id === selectedItem.id}
-              editable={editable}
-              onSelect={() => onSelect(item.id)}
-              onUpdateCaption={(caption) => onUpdateCaption(item.id, caption)}
-              onReplace={(file) => onReplace(item.id, file)}
-              onReplaceUrl={(url) => onReplaceUrl(item.id, url)}
-              onRemove={() => onRemove(item.id)}
-              onOpenOriginal={() => onOpenOriginal(item)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SortableGalleryThumb({
-  item,
-  active,
-  editable,
-  onSelect,
-  onUpdateCaption,
-  onReplace,
-  onReplaceUrl,
-  onRemove,
-  onOpenOriginal,
-}: {
-  item: KbGalleryItem;
-  active: boolean;
-  editable: boolean;
-  onSelect: () => void;
-  onUpdateCaption: (caption: string) => void;
-  onReplace: (file: File) => void;
-  onReplaceUrl: (url: string) => void;
-  onRemove: () => void;
-  onOpenOriginal: () => void;
-}) {
-  const sortable = useSortable({ id: item.id, disabled: !editable });
-  const dragListeners = getPointerSortableListeners(sortable.listeners);
-  const style = {
-    transform: CSS.Transform.toString(sortable.transform),
-    transition: sortable.transition,
-  };
-
-  return (
-    <div
-      ref={sortable.setNodeRef}
-      style={style}
-      className={cn(
-        "kb-gallery-thumb",
-        active && "is-active",
-        sortable.isDragging && "is-dragging",
-      )}
-      {...sortable.attributes}
-      {...dragListeners}
-    >
-      <button
-        type="button"
-        className="kb-gallery-thumb-btn"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          onSelect();
-        }}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          event.stopPropagation();
-          onSelect();
-        }}
-      >
-        <GalleryResolvedImage item={item} variant="thumb" />
-      </button>
-      {editable && (
-        <div className="kb-gallery-thumb-actions" contentEditable={false}>
-          <GalleryImageMenu
-            item={item}
-            onUpdateCaption={onUpdateCaption}
-            onReplace={onReplace}
-            onReplaceUrl={onReplaceUrl}
-            onRemove={onRemove}
-            onOpenOriginal={onOpenOriginal}
-          />
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -1548,7 +1180,7 @@ function GalleryResolvedImage({
   variant,
 }: {
   item: KbGalleryItem;
-  variant: "thumb" | "spotlight" | "lightbox";
+  variant: "thumb" | "lightbox";
 }) {
   const [failed, setFailed] = useState(false);
   const resolved = useResolveUrl(item.url);
@@ -1589,7 +1221,6 @@ function GalleryResolvedImage({
     <img
       className={cn(
         "kb-gallery-image",
-        variant === "spotlight" && "kb-gallery-image-spotlight",
         variant === "lightbox" && "kb-gallery-image-lightbox",
       )}
       src={src}

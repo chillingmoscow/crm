@@ -17,7 +17,7 @@ export interface KbGalleryData {
 }
 
 export const KB_GALLERY_DEFAULT_COLUMNS: KbGalleryColumns = 3;
-export const KB_GALLERY_DEFAULT_LAYOUT: KbGalleryLayout = "spotlight";
+export const KB_GALLERY_DEFAULT_LAYOUT: KbGalleryLayout = "grid";
 export const KB_GALLERY_DEFAULT_IMAGE_FIT: KbGalleryImageFit = "cover";
 export const KB_GALLERY_EMPTY_JSON = JSON.stringify({
   version: 1,

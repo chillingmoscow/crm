@@ -1599,6 +1599,7 @@ input:-webkit-autofill {
   opacity: 1;
 }
 .bn-sheerly .kb-gallery-add-btn {
+  order: 1;
   height: 32px;
   gap: 7px;
   border: 1px solid hsl(var(--brand) / 0.2);
@@ -1613,6 +1614,7 @@ input:-webkit-autofill {
   color: hsl(var(--brand-foreground));
 }
 .bn-sheerly .kb-gallery-settings-btn {
+  order: 2;
   width: 32px;
   height: 32px;
   border: 1px solid hsl(var(--border));

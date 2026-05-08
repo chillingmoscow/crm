@@ -756,7 +756,7 @@ function SortableGalleryItem({
         }}
         onPointerUp={(event) => {
           event.stopPropagation();
-          if (isClickDistance(pointerStartRef.current, event)) onOpen();
+          if (isPrimaryClickDistance(pointerStartRef.current, event)) onOpen();
           pointerStartRef.current = null;
         }}
         onKeyDown={(event) => {
@@ -910,7 +910,9 @@ function SortableGalleryThumb({
         }}
         onPointerUp={(event) => {
           event.stopPropagation();
-          if (isClickDistance(pointerStartRef.current, event)) onSelect();
+          if (isPrimaryClickDistance(pointerStartRef.current, event)) {
+            onSelect();
+          }
           pointerStartRef.current = null;
         }}
         onKeyDown={(event) => {
@@ -962,11 +964,11 @@ function getPointerStart(event: React.PointerEvent): PointerStart {
   return { x: event.clientX, y: event.clientY };
 }
 
-function isClickDistance(
+function isPrimaryClickDistance(
   start: PointerStart | null,
   event: React.PointerEvent,
 ): boolean {
-  if (!start) return false;
+  if (!start || !event.isPrimary || event.button !== 0) return false;
   const x = event.clientX - start.x;
   const y = event.clientY - start.y;
   return Math.hypot(x, y) < 8;

@@ -27,6 +27,7 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  Columns3,
   ExternalLink,
   Image as ImageIcon,
   Link as LinkIcon,
@@ -34,7 +35,8 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
-  Settings2,
+  RefreshCw,
+  SlidersHorizontal,
   Trash2,
   UploadCloud,
 } from "lucide-react";
@@ -53,6 +55,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
   coerceGalleryColumns,
@@ -106,6 +115,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [spotlightId, setSpotlightId] = useState<string | null>(null);
   const [captionTarget, setCaptionTarget] = useState<KbGalleryItem | null>(null);
+  const recentDragRef = useRef(false);
 
   const images = useMemo(
     () => parseGalleryItemsJson(block.props.itemsJson).images,
@@ -309,6 +319,9 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
   const onDragEnd = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event;
+      window.setTimeout(() => {
+        recentDragRef.current = false;
+      }, 0);
       if (!over || active.id === over.id) return;
       const current = imagesRef.current;
       const oldIndex = current.findIndex((item) => item.id === active.id);
@@ -367,6 +380,30 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
       }
     },
     [editable, editor, updateImages],
+  );
+
+  const replaceImageWithUrl = useCallback(
+    (id: string, url: string) => {
+      const trimmedUrl = url.trim();
+      if (!isLikelyImageUrl(trimmedUrl)) {
+        toast.error("Вставьте прямую ссылку на JPG, PNG, GIF или WEBP");
+        return;
+      }
+      updateImages(
+        imagesRef.current.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                url: trimmedUrl,
+                source: "url",
+                name: filenameFromURL(trimmedUrl) || item.name || "image",
+              }
+            : item,
+        ),
+      );
+      toast.success("Изображение заменено");
+    },
+    [updateImages],
   );
 
   const removeImage = useCallback(
@@ -462,6 +499,8 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
               >
                 <GalleryImagePicker
                   canUpload={!!editor.uploadFile}
+                  mode="add"
+                  multiple
                   onFiles={(files) => {
                     handleFiles(files);
                     setPickerOpen(false);
@@ -485,7 +524,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                   onMouseDown={stopBlockInteraction}
                   onClick={stopBlockInteraction}
                 >
-                  <Settings2 className="size-4" />
+                  <SlidersHorizontal className="size-4" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent
@@ -500,51 +539,65 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 <div className="kb-gallery-menu-label">Настройки</div>
                 <button
                   type="button"
-                  className="kb-gallery-menu-item"
+                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                  aria-pressed={layout === "spotlight"}
                   data-active={layout === "spotlight" || undefined}
                   onClick={(event) => {
                     stopBlockInteraction(event);
                     updateLayout(layout === "spotlight" ? "grid" : "spotlight");
                   }}
                 >
-                  <span className="kb-gallery-menu-check" aria-hidden>
-                    {layout === "spotlight" ? "✓" : ""}
+                  <span className="kb-gallery-menu-icon" aria-hidden>
+                    <ImageIcon className="size-4" />
                   </span>
-                  Показывать главное изображение
+                  <span className="min-w-0 flex-1">Главное изображение</span>
+                  <GalleryMenuSwitchIndicator checked={layout === "spotlight"} />
                 </button>
                 <button
                   type="button"
-                  className="kb-gallery-menu-item"
+                  className="kb-gallery-menu-item kb-gallery-menu-item-with-control"
+                  aria-pressed={showCaptions}
                   data-active={showCaptions || undefined}
                   onClick={(event) => {
                     stopBlockInteraction(event);
                     updateShowCaptions(!showCaptions);
                   }}
                 >
-                  <span className="kb-gallery-menu-check" aria-hidden>
-                    {showCaptions ? "✓" : ""}
+                  <span className="kb-gallery-menu-icon" aria-hidden>
+                    <Pencil className="size-4" />
                   </span>
-                  Показывать подписи
+                  <span className="min-w-0 flex-1">Показывать подписи</span>
+                  <GalleryMenuSwitchIndicator checked={showCaptions} />
                 </button>
                 <div className="kb-gallery-menu-separator" />
-                <div className="kb-gallery-menu-label">Изображений в ряду</div>
-                {GALLERY_COLUMNS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    className="kb-gallery-menu-item"
-                    data-active={columns === value || undefined}
-                    onClick={(event) => {
-                      stopBlockInteraction(event);
-                      updateColumns(value);
-                    }}
+                <div className="kb-gallery-menu-item kb-gallery-menu-item-with-control">
+                  <span className="kb-gallery-menu-icon" aria-hidden>
+                    <Columns3 className="size-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">Изображений в ряду</span>
+                  <Select
+                    value={String(columns)}
+                    onValueChange={(value) =>
+                      updateColumns(Number(value) as KbGalleryColumns)
+                    }
                   >
-                    <span className="kb-gallery-menu-check" aria-hidden>
-                      {columns === value ? "✓" : ""}
-                    </span>
-                    {value}
-                  </button>
-                ))}
+                    <SelectTrigger
+                      className="kb-gallery-menu-select"
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={stopBlockInteraction}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {GALLERY_COLUMNS.map((value) => (
+                        <SelectItem key={value} value={String(value)}>
+                          {value}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </PopoverContent>
             </Popover>
           </div>
@@ -578,7 +631,15 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
+          onDragStart={() => {
+            recentDragRef.current = true;
+          }}
           onDragEnd={onDragEnd}
+          onDragCancel={() => {
+            window.setTimeout(() => {
+              recentDragRef.current = false;
+            }, 0);
+          }}
         >
           <SortableContext
             items={images.map((item) => item.id)}
@@ -594,6 +655,7 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                 onOpen={() => setActiveLightboxId(spotlightItem.id)}
                 onEditCaption={(item) => setCaptionTarget(item)}
                 onReplace={replaceImage}
+                onReplaceUrl={replaceImageWithUrl}
                 onRemove={removeImage}
                 onOpenOriginal={openOriginalImage}
               />
@@ -611,11 +673,20 @@ function KbGalleryBlock({ block, editor, contentRef }: GalleryRenderProps) {
                     item={item}
                     editable={editable}
                     showCaptions={showCaptions}
-                    onOpen={() => setActiveLightboxId(item.id)}
+                    onOpen={() => {
+                      if (recentDragRef.current) return;
+                      setActiveLightboxId(item.id);
+                    }}
                     onEditCaption={() => setCaptionTarget(item)}
                     onReplace={(file) => void replaceImage(item.id, file)}
+                    onReplaceUrl={(url) => replaceImageWithUrl(item.id, url)}
                     onRemove={() => removeImage(item.id)}
                     onOpenOriginal={() => openOriginalImage(item)}
+                    onPointerSettled={() => {
+                      window.setTimeout(() => {
+                        recentDragRef.current = false;
+                      }, 0);
+                    }}
                   />
                 ))}
               </div>
@@ -715,8 +786,10 @@ function SortableGalleryItem({
   onOpen,
   onEditCaption,
   onReplace,
+  onReplaceUrl,
   onRemove,
   onOpenOriginal,
+  onPointerSettled,
 }: {
   item: KbGalleryItem;
   editable: boolean;
@@ -724,12 +797,13 @@ function SortableGalleryItem({
   onOpen: () => void;
   onEditCaption: () => void;
   onReplace: (file: File) => void;
+  onReplaceUrl: (url: string) => void;
   onRemove: () => void;
   onOpenOriginal: () => void;
+  onPointerSettled: () => void;
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
   const dragListeners = getPointerSortableListeners(sortable.listeners);
-  const pointerStartRef = useRef<PointerStart | null>(null);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -743,21 +817,17 @@ function SortableGalleryItem({
         "kb-gallery-item",
         sortable.isDragging && "is-dragging",
       )}
+      {...sortable.attributes}
+      {...dragListeners}
+      onPointerUp={onPointerSettled}
     >
       <button
         type="button"
         className="kb-gallery-image-btn"
-        {...sortable.attributes}
-        {...dragListeners}
-        onPointerDown={(event) => {
+        onClick={(event) => {
+          event.preventDefault();
           event.stopPropagation();
-          pointerStartRef.current = getPointerStart(event);
-          dragListeners.onPointerDown?.(event);
-        }}
-        onPointerUp={(event) => {
-          event.stopPropagation();
-          if (isPrimaryClickDistance(pointerStartRef.current, event)) onOpen();
-          pointerStartRef.current = null;
+          onOpen();
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -774,6 +844,7 @@ function SortableGalleryItem({
             item={item}
             onEditCaption={onEditCaption}
             onReplace={onReplace}
+            onReplaceUrl={onReplaceUrl}
             onRemove={onRemove}
             onOpenOriginal={onOpenOriginal}
           />
@@ -795,6 +866,7 @@ function GallerySpotlight({
   onOpen,
   onEditCaption,
   onReplace,
+  onReplaceUrl,
   onRemove,
   onOpenOriginal,
 }: {
@@ -806,15 +878,31 @@ function GallerySpotlight({
   onOpen: () => void;
   onEditCaption: (item: KbGalleryItem) => void;
   onReplace: (id: string, file: File) => void;
+  onReplaceUrl: (id: string, url: string) => void;
   onRemove: (id: string) => void;
   onOpenOriginal: (item: KbGalleryItem) => void;
 }) {
+  const selectedIndex = images.findIndex((item) => item.id === selectedItem.id);
+  const canNavigate = images.length > 1 && selectedIndex >= 0;
+  const selectPrevious = () => {
+    if (!canNavigate) return;
+    const previous = images[(selectedIndex - 1 + images.length) % images.length];
+    if (previous) onSelect(previous.id);
+  };
+  const selectNext = () => {
+    if (!canNavigate) return;
+    const next = images[(selectedIndex + 1) % images.length];
+    if (next) onSelect(next.id);
+  };
+
   return (
     <div className="kb-gallery-spotlight" contentEditable={false}>
       <div className="kb-gallery-spotlight-main-wrap">
         <button
           type="button"
           className="kb-gallery-spotlight-main"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -823,12 +911,45 @@ function GallerySpotlight({
         >
           <GalleryResolvedImage item={selectedItem} variant="spotlight" />
         </button>
+        {canNavigate && (
+          <>
+            <button
+              type="button"
+              className="kb-gallery-spotlight-nav is-left"
+              aria-label="Предыдущее изображение"
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectPrevious();
+              }}
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <button
+              type="button"
+              className="kb-gallery-spotlight-nav is-right"
+              aria-label="Следующее изображение"
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                selectNext();
+              }}
+            >
+              <ChevronRight className="size-5" />
+            </button>
+          </>
+        )}
         {editable && (
           <div className="kb-gallery-item-actions" contentEditable={false}>
             <GalleryImageMenu
               item={selectedItem}
               onEditCaption={() => onEditCaption(selectedItem)}
               onReplace={(file) => onReplace(selectedItem.id, file)}
+              onReplaceUrl={(url) => onReplaceUrl(selectedItem.id, url)}
               onRemove={() => onRemove(selectedItem.id)}
               onOpenOriginal={() => onOpenOriginal(selectedItem)}
             />
@@ -851,6 +972,7 @@ function GallerySpotlight({
               onSelect={() => onSelect(item.id)}
               onEditCaption={() => onEditCaption(item)}
               onReplace={(file) => onReplace(item.id, file)}
+              onReplaceUrl={(url) => onReplaceUrl(item.id, url)}
               onRemove={() => onRemove(item.id)}
               onOpenOriginal={() => onOpenOriginal(item)}
             />
@@ -868,6 +990,7 @@ function SortableGalleryThumb({
   onSelect,
   onEditCaption,
   onReplace,
+  onReplaceUrl,
   onRemove,
   onOpenOriginal,
 }: {
@@ -877,12 +1000,12 @@ function SortableGalleryThumb({
   onSelect: () => void;
   onEditCaption: () => void;
   onReplace: (file: File) => void;
+  onReplaceUrl: (url: string) => void;
   onRemove: () => void;
   onOpenOriginal: () => void;
 }) {
   const sortable = useSortable({ id: item.id, disabled: !editable });
   const dragListeners = getPointerSortableListeners(sortable.listeners);
-  const pointerStartRef = useRef<PointerStart | null>(null);
   const style = {
     transform: CSS.Transform.toString(sortable.transform),
     transition: sortable.transition,
@@ -897,23 +1020,16 @@ function SortableGalleryThumb({
         active && "is-active",
         sortable.isDragging && "is-dragging",
       )}
+      {...sortable.attributes}
+      {...dragListeners}
     >
       <button
         type="button"
         className="kb-gallery-thumb-btn"
-        {...sortable.attributes}
-        {...dragListeners}
-        onPointerDown={(event) => {
+        onClick={(event) => {
+          event.preventDefault();
           event.stopPropagation();
-          pointerStartRef.current = getPointerStart(event);
-          dragListeners.onPointerDown?.(event);
-        }}
-        onPointerUp={(event) => {
-          event.stopPropagation();
-          if (isPrimaryClickDistance(pointerStartRef.current, event)) {
-            onSelect();
-          }
-          pointerStartRef.current = null;
+          onSelect();
         }}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
@@ -930,6 +1046,7 @@ function SortableGalleryThumb({
             item={item}
             onEditCaption={onEditCaption}
             onReplace={onReplace}
+            onReplaceUrl={onReplaceUrl}
             onRemove={onRemove}
             onOpenOriginal={onOpenOriginal}
           />
@@ -955,65 +1072,88 @@ function stopBlockInteraction(event: React.SyntheticEvent) {
   event.stopPropagation();
 }
 
-type PointerStart = {
-  x: number;
-  y: number;
-};
-
-function getPointerStart(event: React.PointerEvent): PointerStart {
-  return { x: event.clientX, y: event.clientY };
-}
-
-function isPrimaryClickDistance(
-  start: PointerStart | null,
-  event: React.PointerEvent,
-): boolean {
-  if (!start || !event.isPrimary || event.button !== 0) return false;
-  const x = event.clientX - start.x;
-  const y = event.clientY - start.y;
-  return Math.hypot(x, y) < 8;
+function GalleryMenuSwitchIndicator({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className="kb-gallery-menu-switch"
+      data-checked={checked || undefined}
+      aria-hidden
+    >
+      <span />
+    </span>
+  );
 }
 
 function GalleryImageMenu({
   item,
   onEditCaption,
   onReplace,
+  onReplaceUrl,
   onRemove,
   onOpenOriginal,
 }: {
   item: KbGalleryItem;
   onEditCaption: () => void;
   onReplace: (file: File) => void;
+  onReplaceUrl: (url: string) => void;
   onRemove: () => void;
   onOpenOriginal: () => void;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
 
   return (
-    <>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="kb-gallery-item-action"
-            aria-label="Открыть меню изображения"
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={stopBlockInteraction}
-          >
-            <MoreHorizontal className="size-4" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          sideOffset={6}
-          className="kb-gallery-popover-menu w-52"
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setReplaceOpen(false);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="kb-gallery-item-action"
+          aria-label="Открыть меню изображения"
           onPointerDown={stopBlockInteraction}
           onMouseDown={stopBlockInteraction}
           onClick={stopBlockInteraction}
-          onOpenAutoFocus={(event) => event.preventDefault()}
         >
+          <MoreHorizontal className="size-4" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className={cn(
+          "kb-gallery-popover-menu",
+          replaceOpen ? "w-auto p-0 border-0 bg-transparent shadow-none" : "w-52",
+        )}
+        onPointerDown={stopBlockInteraction}
+        onMouseDown={stopBlockInteraction}
+        onClick={stopBlockInteraction}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        {replaceOpen ? (
+          <GalleryImagePicker
+            canUpload
+            mode="replace"
+            multiple={false}
+            onFiles={(files) => {
+              const file = files[0];
+              if (file) onReplace(file);
+              setReplaceOpen(false);
+              setOpen(false);
+            }}
+            onUrls={(urls) => {
+              const url = urls[0];
+              if (url) onReplaceUrl(url);
+              setReplaceOpen(false);
+              setOpen(false);
+            }}
+          />
+        ) : (
+          <>
           <button
             type="button"
             className="kb-gallery-menu-item"
@@ -1031,10 +1171,10 @@ function GalleryImageMenu({
             className="kb-gallery-menu-item"
             onClick={(event) => {
               stopBlockInteraction(event);
-              inputRef.current?.click();
+              setReplaceOpen(true);
             }}
           >
-            <UploadCloud className="mr-2 size-4" />
+            <RefreshCw className="mr-2 size-4" />
             Заменить
           </button>
           <button
@@ -1049,7 +1189,6 @@ function GalleryImageMenu({
             <ExternalLink className="mr-2 size-4" />
             Показать оригинал
           </button>
-          <div className="kb-gallery-menu-separator" />
           <button
             type="button"
             className="kb-gallery-menu-item is-destructive"
@@ -1062,23 +1201,10 @@ function GalleryImageMenu({
             <Trash2 className="mr-2 size-4" />
             Удалить
           </button>
-        </PopoverContent>
-      </Popover>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        className="sr-only"
-        aria-hidden
-        tabIndex={-1}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) onReplace(file);
-          setOpen(false);
-          event.target.value = "";
-        }}
-      />
-    </>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -1144,10 +1270,14 @@ function GalleryCaptionDialog({
 
 function GalleryImagePicker({
   canUpload,
+  mode,
+  multiple = true,
   onFiles,
   onUrls,
 }: {
   canUpload: boolean;
+  mode: "add" | "replace";
+  multiple?: boolean;
   onFiles: (files: File[]) => void;
   onUrls: (urls: string[]) => void;
 }) {
@@ -1167,13 +1297,14 @@ function GalleryImagePicker({
       toast.error("Вставьте прямую ссылку на JPG, PNG, GIF или WEBP");
       return;
     }
-    onUrls(urls);
+    onUrls(multiple ? urls : urls.slice(0, 1));
     setUrlValue("");
   };
 
   const pickFiles = (fileList: FileList | null) => {
     const files = fileList ? Array.from(fileList) : [];
-    if (files.length > 0) onFiles(files);
+    const nextFiles = multiple ? files : files.slice(0, 1);
+    if (nextFiles.length > 0) onFiles(nextFiles);
   };
 
   return (
@@ -1229,16 +1360,20 @@ function GalleryImagePicker({
           >
             <UploadCloud className="size-7 text-muted-foreground" />
             <div className="kb-file-panel-dropzone-title">
-              Перетащите изображения сюда
+              {mode === "replace"
+                ? "Перетащите новое изображение сюда"
+                : "Перетащите изображения сюда"}
             </div>
             <div className="kb-file-panel-dropzone-sub">
-              или нажмите, чтобы выбрать файлы
+              {multiple
+                ? "или нажмите, чтобы выбрать файлы"
+                : "или нажмите, чтобы выбрать файл"}
             </div>
             <input
               ref={inputRef}
               type="file"
               accept="image/png,image/jpeg,image/gif,image/webp"
-              multiple
+              multiple={multiple}
               className="sr-only"
               aria-hidden
               tabIndex={-1}
@@ -1278,7 +1413,7 @@ function GalleryImagePicker({
               disabled={!urlValue.trim()}
               size="sm"
             >
-              Вставить
+              {mode === "replace" ? "Заменить" : "Вставить"}
             </Button>
           </div>
           <div className="kb-file-panel-hint kb-file-panel-hint-multiline">

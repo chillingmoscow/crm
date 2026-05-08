@@ -20,6 +20,7 @@ export const kbPageCreateSchema = z.object({
   parent_id: z.string().uuid().nullable().optional(),
   title: z.string().trim().max(200).optional(),
   icon: z.string().trim().max(64).nullable().optional(),
+  properties: z.lazy(() => kbPropertiesSchema).optional(),
 });
 
 export const kbPageSaveSchema = z.object({

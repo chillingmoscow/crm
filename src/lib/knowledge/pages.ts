@@ -401,6 +401,7 @@ export async function createKbPage(input: KbPageCreateInput): Promise<{
         slug,
         content: [],
         plain_text: "",
+        properties: (parsed.data.properties ?? []) as unknown as never,
         created_by: user.id,
       })
       .select("id, slug")

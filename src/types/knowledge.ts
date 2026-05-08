@@ -176,6 +176,8 @@ export type KbPageCreateInput = {
   parent_id?: string | null;
   title?: string;
   icon?: string | null;
+  /** Optional initial page properties, used by collection records/templates. */
+  properties?: KbProperty[];
 };
 
 export type KbPageSaveInput = {

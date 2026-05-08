@@ -51,6 +51,7 @@ import {
   ListChecks,
   ListCollapse,
   FilePlus,
+  Database,
   Smile,
   Images,
   type LucideIcon,
@@ -81,6 +82,10 @@ import { kbAudioBlockSpec } from "@/components/knowledge/blocks/kb-audio-block";
 import { kbFileBlockSpec } from "@/components/knowledge/blocks/kb-file-block";
 import { kbImageBlockSpec } from "@/components/knowledge/blocks/kb-image-block";
 import { kbGalleryBlockSpec } from "@/components/knowledge/blocks/kb-gallery-block";
+import {
+  KbCollectionRuntimeProvider,
+  kbCollectionBlockSpec,
+} from "@/components/knowledge/blocks/kb-collection-block";
 import { KbHeadingEnterExtension } from "@/components/knowledge/blocks/kb-heading-enter-extension";
 import { kbPageMentionInlineContent } from "@/components/knowledge/blocks/kb-page-mention";
 import { kbStaffMentionInlineContent } from "@/components/knowledge/blocks/kb-staff-mention";
@@ -106,6 +111,10 @@ import "@blocknote/shadcn/style.css";
 
 import type { KbBlock } from "@/types/knowledge";
 import { KB_GALLERY_EMPTY_JSON } from "@/lib/knowledge/gallery";
+import {
+  KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+  KB_COLLECTION_EMPTY_SCHEMA,
+} from "@/lib/knowledge/collection";
 
 /** Custom URL scheme used to mark uploaded KB files. The string after
  *  `kbfile://` is the storage_path inside `account-attachments`.
@@ -121,6 +130,8 @@ export type BlockNoteEditorProps = {
    * empty paragraph. Pass the previously-saved `kb_pages.content` jsonb.
    */
   initialContent?: KbBlock[] | null;
+  /** Current KB page id, used by collection-like custom blocks. */
+  pageId?: string | null;
   /**
    * Read-only preview mode (e.g. version history snapshots).
    * Disables editing and hides the side menu / formatting toolbar.
@@ -326,6 +337,26 @@ function getKbGallerySlashItem(editor: BlockNoteEditor<never, never, never>) {
   };
 }
 
+function getKbCollectionSlashItem(editor: BlockNoteEditor<never, never, never>) {
+  return {
+    title: "Коллекция",
+    subtext: "Список дочерних страниц со свойствами",
+    aliases: ["collection", "database", "db", "база", "коллекция", "список"],
+    group: "Базовые блоки",
+    icon: <Database className="size-4 text-brand" />,
+    onItemClick: () => {
+      insertOrUpdateBlockForSlashMenu(editor, {
+        type: "collection",
+        props: {
+          view: "list",
+          schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
+          visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+        },
+      } as never);
+    },
+  };
+}
+
 /**
  * BlockNote editor wrapped to plug into Sheerly DS. Uses the
  * `@blocknote/shadcn` variant — BlockNote renders its own UI through
@@ -504,6 +535,7 @@ function swapFileToolbarButtons(
 
 export function KbBlockNoteEditor({
   initialContent,
+  pageId = null,
   editable = true,
   onChange,
   uploadFile,
@@ -640,6 +672,7 @@ export function KbBlockNoteEditor({
           file: kbFileBlockSpec(),
           image: kbImageBlockSpec(),
           gallery: kbGalleryBlockSpec(),
+          collection: kbCollectionBlockSpec(),
         },
         inlineContentSpecs: {
           ...defaultInlineContentSpecs,
@@ -968,47 +1001,56 @@ export function KbBlockNoteEditor({
     return unsubscribe;
   }, [editor]);
 
+  const collectionRuntime = useMemo(
+    () => ({
+      pageId,
+      canCreatePages: Boolean(onCreateNestedPage),
+    }),
+    [pageId, onCreateNestedPage],
+  );
+
   return (
-    <BlockNoteView
-      editor={editor}
-      editable={editable}
-      theme={resolvedTheme === "dark" ? "dark" : "light"}
-      className={cn("bn-sheerly", className)}
-      sideMenu={customSideMenu ? false : undefined}
-      slashMenu={customSlashMenu ? false : undefined}
-      // Default formatting-toolbar отключаем когда мы добавляем свои
-      // кнопки через FormattingToolbarController (ниже): иначе
-      // BlockNote рендерит ОБА toolbar'а на выделение → дубликат
-      // всех контролов. Триггер кастомизации — aiSlashEnabled ИЛИ
-      // commentsBundle (любой включает кастомный controller).
-      // См. Codex #54 P2.
-      formattingToolbar={aiSlashEnabled || commentsBundle ? false : undefined}
-      // Default LinkToolbar отключаем — рендерим свой
-      // <LinkToolbarController> (ниже), который для KB-links возвращает
-      // null. Без этого флага BlockNote рендерил бы ОБА toolbar'а:
-      // дефолтный (показывает «Изменить ссылку» для всех URL'ов) +
-      // наш кастомный (null для kb-links). Юзер видел overlap. См.
-      // Codex #67 P1.
-      linkToolbar={false}
-      // Default Comments UI (FloatingComposer + FloatingThread от BN)
-      // отключаем когда есть commentsBundle — мы рендерим свой
-      // <FloatingComposerController floatingComposer={KbFloatingComposer}>
-      // ниже. Без этого флага BN'овский DefaultUI ВСЁ РАВНО монтирует
-      // свой default-FloatingComposerController параллельно нашему
-      // → юзер видел два composer'а одновременно (мой Notion-style
-      // сверху + дефолтный BN с «Save» снизу), что фрагментировало
-      // фокус и закрывало кастомный popover.
-      comments={commentsBundle ? false : undefined}
-      // Default FilePanel отключаем — рендерим свой `KbFilePanel`
-      // через `FilePanelController` ниже (Notion-style drop-zone +
-      // URL-tab под дизайн sheerly.pen frame 13 / 13b).
-      filePanel={false}
-    >
-      <FilePanelController filePanel={KbFilePanel} />
-      {customSlashMenu && (
-        <SuggestionMenuController
-          triggerCharacter="/"
-          getItems={async (query) => {
+    <KbCollectionRuntimeProvider value={collectionRuntime}>
+      <BlockNoteView
+        editor={editor}
+        editable={editable}
+        theme={resolvedTheme === "dark" ? "dark" : "light"}
+        className={cn("bn-sheerly", className)}
+        sideMenu={customSideMenu ? false : undefined}
+        slashMenu={customSlashMenu ? false : undefined}
+        // Default formatting-toolbar отключаем когда мы добавляем свои
+        // кнопки через FormattingToolbarController (ниже): иначе
+        // BlockNote рендерит ОБА toolbar'а на выделение → дубликат
+        // всех контролов. Триггер кастомизации — aiSlashEnabled ИЛИ
+        // commentsBundle (любой включает кастомный controller).
+        // См. Codex #54 P2.
+        formattingToolbar={aiSlashEnabled || commentsBundle ? false : undefined}
+        // Default LinkToolbar отключаем — рендерим свой
+        // <LinkToolbarController> (ниже), который для KB-links возвращает
+        // null. Без этого флага BlockNote рендерил бы ОБА toolbar'а:
+        // дефолтный (показывает «Изменить ссылку» для всех URL'ов) +
+        // наш кастомный (null для kb-links). Юзер видел overlap. См.
+        // Codex #67 P1.
+        linkToolbar={false}
+        // Default Comments UI (FloatingComposer + FloatingThread от BN)
+        // отключаем когда есть commentsBundle — мы рендерим свой
+        // <FloatingComposerController floatingComposer={KbFloatingComposer}>
+        // ниже. Без этого флага BN'овский DefaultUI ВСЁ РАВНО монтирует
+        // свой default-FloatingComposerController параллельно нашему
+        // → юзер видел два composer'а одновременно (мой Notion-style
+        // сверху + дефолтный BN с «Save» снизу), что фрагментировало
+        // фокус и закрывало кастомный popover.
+        comments={commentsBundle ? false : undefined}
+        // Default FilePanel отключаем — рендерим свой `KbFilePanel`
+        // через `FilePanelController` ниже (Notion-style drop-zone +
+        // URL-tab под дизайн sheerly.pen frame 13 / 13b).
+        filePanel={false}
+      >
+        <FilePanelController filePanel={KbFilePanel} />
+        {customSlashMenu && (
+          <SuggestionMenuController
+            triggerCharacter="/"
+            getItems={async (query) => {
             // Кастомный порядок групп под дизайн (sheerly.pen):
             //   Заголовки → Подзаголовки → Базовые блоки → Подсказки →
             //   Медиа → Прочее.
@@ -1020,6 +1062,7 @@ export function KbBlockNoteEditor({
             const defaults = getDefaultReactSlashMenuItems(editor);
             const callouts = getKbCalloutSlashItems(editor as never);
             const galleryItem = getKbGallerySlashItem(editor as never);
+            const collectionItem = getKbCollectionSlashItem(editor as never);
             // «Новая страница» — первая в группе «Базовые блоки», если
             // хост передал колбэк (= юзер имеет `kb.create_pages`).
             const newPageItem = onCreateNestedPage
@@ -1075,6 +1118,7 @@ export function KbBlockNoteEditor({
             const ordered = [
               ...headings,
               ...newPageItem,
+              collectionItem,
               ...basics,
               ...callouts,
               ...subheadings,
@@ -1087,19 +1131,19 @@ export function KbBlockNoteEditor({
               ordered as ReturnType<typeof getDefaultReactSlashMenuItems>,
               query,
             );
-          }}
-          // Custom render — KbSlashMenu добавляет hover-hold tooltip
-          // (1.2 sec) с описанием пункта + скрывает subtext в основном
-          // списке через wrapper-класс `.kb-slash-menu`. `@`-меню
-          // (kb-mention-menu.tsx) использует другой
-          // SuggestionMenuController и рендерит дефолтный
-          // SuggestionMenu — там subtext остаётся видимым.
-          suggestionMenuComponent={KbSlashMenu}
-        />
-      )}
-      {(aiSlashEnabled || commentsBundle) && (
-        <FormattingToolbarController
-          formattingToolbar={() => {
+            }}
+            // Custom render — KbSlashMenu добавляет hover-hold tooltip
+            // (1.2 sec) с описанием пункта + скрывает subtext в основном
+            // списке через wrapper-класс `.kb-slash-menu`. `@`-меню
+            // (kb-mention-menu.tsx) использует другой
+            // SuggestionMenuController и рендерит дефолтный
+            // SuggestionMenu — там subtext остаётся видимым.
+            suggestionMenuComponent={KbSlashMenu}
+          />
+        )}
+        {(aiSlashEnabled || commentsBundle) && (
+          <FormattingToolbarController
+            formattingToolbar={() => {
             // Locked-страница + юзер может комментировать:
             // toolbar НЕ показываем — composer открывается сам по
             // выделению (см. selectionUpdate-effect выше). Раньше тут
@@ -1135,9 +1179,9 @@ export function KbBlockNoteEditor({
                 ) : null}
               </FormattingToolbar>
             );
-          }}
-        />
-      )}
+            }}
+          />
+        )}
       {/* Custom LinkToolbar: для @-mention'ов на KB-страницы (URL'ы вида
           `/knowledge/...`) BN-овский toolbar бесполезен — «Изменить
           ссылку» сломал бы slug-binding @-mention'а, а у нас и так есть
@@ -1145,13 +1189,13 @@ export function KbBlockNoteEditor({
           Два поповера на один линк выглядели грязно (см. user-feedback).
           Для внешних URL'ов оставляем дефолт BN — там Edit/Open/Unlink
           реально нужны. */}
-      <LinkToolbarController
-        linkToolbar={(props) =>
-          props.url?.startsWith("/knowledge/") ? null : (
-            <LinkToolbar {...props} />
-          )
-        }
-      />
+        <LinkToolbarController
+          linkToolbar={(props) =>
+            props.url?.startsWith("/knowledge/") ? null : (
+              <LinkToolbar {...props} />
+            )
+          }
+        />
       {/* Comments controllers — рендерятся только если bundle передан.
           FloatingComposerController — pop-up «нового комментария» при
           клике на AddCommentButton. Дефолтный composer — голый
@@ -1159,28 +1203,29 @@ export function KbBlockNoteEditor({
           с avatar + send-button (см. kb-floating-composer.tsx).
           FloatingThreadController — открывает thread при клике по
           существующему comment-mark'у; пока default. */}
-      {commentsBundle && (
-        <>
-          <FloatingComposerController
-            floatingComposer={() => (
-              <KbFloatingComposer
-                currentUserName={commentsBundle.currentUserName}
-                currentUserAvatarUrl={commentsBundle.currentUserAvatarUrl}
-              />
-            )}
-          />
-          <FloatingThreadController
-            floatingThread={(props) => (
-              <KbFloatingThread
-                thread={props.thread}
-                selected={props.selected ?? false}
-              />
-            )}
-          />
-        </>
-      )}
-      {renderExtras?.(editor as unknown as BlockNoteEditor)}
-      <KbEmojiPickerOverlay />
-    </BlockNoteView>
+        {commentsBundle && (
+          <>
+            <FloatingComposerController
+              floatingComposer={() => (
+                <KbFloatingComposer
+                  currentUserName={commentsBundle.currentUserName}
+                  currentUserAvatarUrl={commentsBundle.currentUserAvatarUrl}
+                />
+              )}
+            />
+            <FloatingThreadController
+              floatingThread={(props) => (
+                <KbFloatingThread
+                  thread={props.thread}
+                  selected={props.selected ?? false}
+                />
+              )}
+            />
+          </>
+        )}
+        {renderExtras?.(editor as unknown as BlockNoteEditor)}
+        <KbEmojiPickerOverlay />
+      </BlockNoteView>
+    </KbCollectionRuntimeProvider>
   );
 }

@@ -137,6 +137,10 @@ const collectionBlockConfig = {
       default: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
       type: "string" as const,
     },
+    fieldOrderIdsJson: {
+      default: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+      type: "string" as const,
+    },
   },
   content: "none" as const,
 };
@@ -215,12 +219,20 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     () => parseVisibleFieldIdsJson(block.props.visibleFieldIdsJson),
     [block.props.visibleFieldIdsJson],
   );
+  const fieldOrderIds = useMemo(
+    () => parseVisibleFieldIdsJson(block.props.fieldOrderIdsJson),
+    [block.props.fieldOrderIdsJson],
+  );
+  const orderedFields = useMemo(
+    () => orderCollectionFields(schema.fields, fieldOrderIds),
+    [fieldOrderIds, schema.fields],
+  );
   const visibleFields = useMemo(
     () =>
-      schema.fields.filter((field) =>
+      orderedFields.filter((field) =>
         isCollectionFieldVisible(field.id, visibleFieldIds),
       ),
-    [schema.fields, visibleFieldIds],
+    [orderedFields, visibleFieldIds],
   );
   const inferredSchema = useMemo(
     () =>
@@ -342,6 +354,15 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     [block.id, editor],
   );
 
+  const updateFieldOrderIds = useCallback(
+    (next: string[] | null) => {
+      editor.updateBlock(block.id, {
+        props: { fieldOrderIdsJson: serializeVisibleFieldIds(next) },
+      } as never);
+    },
+    [block.id, editor],
+  );
+
   const updateSharedCollectionProps = useCallback(
     (patch: SharedCollectionProps) => {
       const blocks = getDocumentCollectionBlocks(editor);
@@ -379,11 +400,16 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     if (visibleFieldIds !== null) {
       updateVisibleFieldIds(inferredSchema.fields.map((field) => field.id));
     }
+    if (fieldOrderIds !== null) {
+      updateFieldOrderIds(inferredSchema.fields.map((field) => field.id));
+    }
   }, [
     editable,
+    fieldOrderIds,
     inferredSchema,
     itemsLoaded,
     schema.fields.length,
+    updateFieldOrderIds,
     updateSharedCollectionProps,
     updateVisibleFieldIds,
     visibleFieldIds,
@@ -419,8 +445,14 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
 
   const updateView = (nextView: KbCollectionView) => {
     if (nextView === view) return;
+    const nextProps: { view: KbCollectionView; viewTitle?: string } = {
+      view: nextView,
+    };
+    if (viewTitle === COLLECTION_VIEW_LABELS[view]) {
+      nextProps.viewTitle = COLLECTION_VIEW_LABELS[nextView];
+    }
     editor.updateBlock(block.id, {
-      props: { view: nextView },
+      props: nextProps,
     } as never);
   };
 
@@ -453,18 +485,15 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     placement: FieldDropPlacement = "before",
   ) => {
     if (activeId === targetId && placement === "before") return;
-    const fromIndex = schema.fields.findIndex((field) => field.id === activeId);
-    const targetIndex = schema.fields.findIndex((field) => field.id === targetId);
-    if (fromIndex < 0 || targetIndex < 0) return;
-
-    const nextFields = [...schema.fields];
-    const [moved] = nextFields.splice(fromIndex, 1);
-    const nextTargetIndex = nextFields.findIndex((field) => field.id === targetId);
-    if (nextTargetIndex < 0) return;
-    const insertIndex = placement === "after" ? nextTargetIndex + 1 : nextTargetIndex;
-    if (nextFields[insertIndex]?.id === moved.id) return;
-    nextFields.splice(insertIndex, 0, moved);
-    updateSchema({ version: 1, fields: nextFields });
+    const nextOrder = reorderCollectionFieldIds(
+      schema.fields,
+      fieldOrderIds,
+      activeId,
+      targetId,
+      placement,
+    );
+    if (!nextOrder) return;
+    updateFieldOrderIds(nextOrder);
   };
 
   const insertField = (
@@ -477,9 +506,16 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     if (targetIndex < 0) return;
 
     const field = createCollectionField(type, name?.trim() || undefined);
-    const nextFields = [...schema.fields];
-    nextFields.splice(placement === "after" ? targetIndex + 1 : targetIndex, 0, field);
-    updateSchema({ version: 1, fields: nextFields });
+    updateSchema({ version: 1, fields: [...schema.fields, field] });
+    updateFieldOrderIds(
+      insertCollectionFieldId(
+        schema.fields,
+        fieldOrderIds,
+        field.id,
+        targetId,
+        placement,
+      ),
+    );
     if (visibleFieldIds !== null) {
       const nextVisible = [...visibleFieldIds];
       const visibleTargetIndex = nextVisible.indexOf(targetId);
@@ -499,6 +535,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const addField = (type: KbPropertyType) => {
     const field = createCollectionField(type);
     updateSchema({ version: 1, fields: [...schema.fields, field] });
+    updateFieldOrderIds([
+      ...orderCollectionFields(schema.fields, fieldOrderIds).map(
+        (item) => item.id,
+      ),
+      field.id,
+    ]);
     if (visibleFieldIds !== null) {
       updateVisibleFieldIds([...visibleFieldIds, field.id]);
     }
@@ -527,6 +569,9 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     });
     if (visibleFieldIds !== null) {
       updateVisibleFieldIds(visibleFieldIds.filter((fieldId) => fieldId !== id));
+    }
+    if (fieldOrderIds !== null) {
+      updateFieldOrderIds(fieldOrderIds.filter((fieldId) => fieldId !== id));
     }
   };
 
@@ -700,7 +745,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                 <CollectionSettings
                   title={collectionTitle}
                   viewTitle={viewTitle}
-                  schema={schema}
+                  fields={orderedFields}
                   view={view}
                   visibleFieldIds={visibleFieldIds}
                   onRename={renameCollection}
@@ -1494,7 +1539,7 @@ function CollectionColumnInsertPanel({
 function CollectionSettings({
   title,
   viewTitle,
-  schema,
+  fields,
   view,
   visibleFieldIds,
   onRename,
@@ -1508,7 +1553,7 @@ function CollectionSettings({
 }: {
   title: string;
   viewTitle: string;
-  schema: KbCollectionSchema;
+  fields: KbCollectionField[];
   view: KbCollectionView;
   visibleFieldIds: KbCollectionVisibleFieldIds;
   onRename: (title: string) => void;
@@ -1529,7 +1574,7 @@ function CollectionSettings({
   const [viewTitleDraft, setViewTitleDraft] = useState(viewTitle);
   const skipTitleCommitRef = useRef(false);
   const skipViewTitleCommitRef = useRef(false);
-  const visibleCount = schema.fields.filter((field) =>
+  const visibleCount = fields.filter((field) =>
     isCollectionFieldVisible(field.id, visibleFieldIds),
   ).length;
 
@@ -1577,13 +1622,13 @@ function CollectionSettings({
           title="Свойства"
           onBack={() => setPanel("root")}
         />
-        {schema.fields.length === 0 ? (
+        {fields.length === 0 ? (
           <div className="kb-collection-settings-empty">
             Добавьте свойство, чтобы показывать его в коллекции.
           </div>
         ) : (
           <div className="kb-collection-properties-editor-list">
-            {schema.fields.map((field) => (
+            {fields.map((field) => (
               <CollectionFieldEditor
                 key={field.id}
                 field={field}
@@ -1892,6 +1937,77 @@ function normalizeCollectionViewTitle(
   if (typeof value !== "string") return COLLECTION_VIEW_LABELS[view];
   const title = value.trim();
   return title || COLLECTION_VIEW_LABELS[view];
+}
+
+function orderCollectionFields(
+  fields: KbCollectionField[],
+  fieldOrderIds: string[] | null,
+): KbCollectionField[] {
+  if (!fieldOrderIds || fieldOrderIds.length === 0) return fields;
+
+  const byId = new Map(fields.map((field) => [field.id, field]));
+  const ordered: KbCollectionField[] = [];
+  const usedIds = new Set<string>();
+
+  for (const fieldId of fieldOrderIds) {
+    const field = byId.get(fieldId);
+    if (!field || usedIds.has(fieldId)) continue;
+    ordered.push(field);
+    usedIds.add(fieldId);
+  }
+
+  for (const field of fields) {
+    if (!usedIds.has(field.id)) ordered.push(field);
+  }
+
+  return ordered;
+}
+
+function reorderCollectionFieldIds(
+  fields: KbCollectionField[],
+  fieldOrderIds: string[] | null,
+  activeId: string,
+  targetId: string,
+  placement: FieldDropPlacement,
+): string[] | null {
+  const ids = orderCollectionFields(fields, fieldOrderIds).map(
+    (field) => field.id,
+  );
+  const fromIndex = ids.indexOf(activeId);
+  const targetIndex = ids.indexOf(targetId);
+  if (fromIndex < 0 || targetIndex < 0) return null;
+
+  const nextIds = [...ids];
+  const [movedId] = nextIds.splice(fromIndex, 1);
+  const nextTargetIndex = nextIds.indexOf(targetId);
+  if (nextTargetIndex < 0) return null;
+
+  const insertIndex =
+    placement === "after" ? nextTargetIndex + 1 : nextTargetIndex;
+  if (nextIds[insertIndex] === movedId) return null;
+  nextIds.splice(insertIndex, 0, movedId);
+  return nextIds;
+}
+
+function insertCollectionFieldId(
+  fields: KbCollectionField[],
+  fieldOrderIds: string[] | null,
+  newFieldId: string,
+  targetId: string,
+  placement: FieldDropPlacement,
+): string[] {
+  const ids = orderCollectionFields(fields, fieldOrderIds)
+    .map((field) => field.id)
+    .filter((fieldId) => fieldId !== newFieldId);
+  const targetIndex = ids.indexOf(targetId);
+  const insertIndex =
+    targetIndex < 0
+      ? ids.length
+      : placement === "after"
+        ? targetIndex + 1
+        : targetIndex;
+  ids.splice(insertIndex, 0, newFieldId);
+  return ids;
 }
 
 function getDocumentCollectionBlocks(

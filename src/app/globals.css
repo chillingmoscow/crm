@@ -2060,8 +2060,8 @@ button.kb-gallery-menu-item {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 8px 0;
+  gap: 12px;
+  padding: 6px 0 10px;
   color: hsl(var(--foreground));
 }
 .bn-sheerly .kb-collection-block:focus,
@@ -2073,7 +2073,7 @@ button.kb-gallery-menu-item {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 36px;
+  min-height: 34px;
 }
 .bn-sheerly .kb-collection-title {
   display: inline-flex;
@@ -2086,12 +2086,12 @@ button.kb-gallery-menu-item {
 }
 .bn-sheerly .kb-collection-count {
   display: inline-flex;
-  min-width: 20px;
-  height: 20px;
+  min-width: 19px;
+  height: 19px;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background-color: hsl(var(--muted));
+  background-color: hsl(var(--muted) / 0.75);
   color: hsl(var(--muted-foreground));
   font-size: 11px;
   line-height: 1;
@@ -2110,14 +2110,16 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-icon-btn {
   width: 32px;
   height: 32px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid hsl(var(--border) / 0.82);
   border-radius: 8px;
   background-color: hsl(var(--background));
   color: hsl(var(--muted-foreground));
+  box-shadow: 0 1px 1px hsl(var(--foreground) / 0.04);
 }
 .bn-sheerly .kb-collection-icon-btn:hover,
 .bn-sheerly .kb-collection-icon-btn[data-state="open"] {
-  background-color: hsl(var(--accent));
+  border-color: hsl(var(--brand) / 0.26);
+  background-color: hsl(var(--accent) / 0.72);
   color: hsl(var(--foreground));
 }
 .bn-sheerly .kb-collection-add-btn {
@@ -2137,37 +2139,39 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 .bn-sheerly .kb-collection-row {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 8px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
+  border: 1px solid hsl(var(--border) / 0.78);
+  border-radius: 10px;
   background-color: hsl(var(--background));
-  padding: 10px 12px;
+  padding: 11px 12px;
   color: inherit;
   text-decoration: none;
   transition:
     background-color 120ms ease,
-    border-color 120ms ease;
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 .bn-sheerly .kb-collection-row:hover {
-  border-color: hsl(var(--brand) / 0.28);
-  background-color: hsl(var(--accent) / 0.55);
+  border-color: hsl(var(--brand) / 0.3);
+  background-color: hsl(var(--accent) / 0.42);
+  box-shadow: 0 1px 0 hsl(var(--foreground) / 0.03);
 }
 .bn-sheerly .kb-collection-row-main {
   display: flex;
   min-width: 0;
   align-items: flex-start;
-  gap: 9px;
+  gap: 10px;
 }
 .bn-sheerly .kb-collection-row-title {
   overflow: hidden;
   color: hsl(var(--foreground));
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 600;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -2178,7 +2182,7 @@ button.kb-gallery-menu-item {
   margin-top: 2px;
   overflow: hidden;
   color: hsl(var(--muted-foreground));
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -2194,9 +2198,9 @@ button.kb-gallery-menu-item {
   max-width: 100%;
   align-items: center;
   gap: 5px;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid transparent;
   border-radius: 999px;
-  background-color: hsl(var(--muted) / 0.42);
+  background-color: hsl(var(--muted) / 0.48);
   padding: 3px 8px;
   color: hsl(var(--foreground));
   font-size: 11px;
@@ -2233,14 +2237,14 @@ button.kb-gallery-menu-item {
   cursor: default;
 }
 .kb-collection-settings {
-  width: min(480px, calc(100vw - 24px));
-  border-radius: 14px;
-  padding: 14px;
-  box-shadow: 0 18px 46px hsl(var(--foreground) / 0.16);
+  width: min(440px, calc(100vw - 24px));
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 18px 44px hsl(var(--foreground) / 0.14);
 }
 .kb-collection-settings-title {
   color: hsl(var(--muted-foreground));
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 650;
 }
 .kb-collection-settings-empty {
@@ -2253,19 +2257,19 @@ button.kb-gallery-menu-item {
 }
 .kb-collection-field-editor {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) 128px auto auto;
+  grid-template-columns: 18px minmax(120px, 1fr) 116px auto auto;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   border-radius: 10px;
-  padding: 6px;
+  padding: 5px 6px;
 }
 .kb-collection-field-editor:hover {
-  background-color: hsl(var(--accent) / 0.55);
+  background-color: hsl(var(--accent) / 0.45);
 }
 .kb-collection-field-type,
 .kb-collection-native-select {
-  height: 32px;
-  border: 1px solid hsl(var(--border));
+  height: 30px;
+  border: 1px solid hsl(var(--border) / 0.82);
   border-radius: 8px;
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));

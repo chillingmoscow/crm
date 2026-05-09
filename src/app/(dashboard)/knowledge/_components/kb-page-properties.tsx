@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type CSSProperties,
 } from "react";
 import { nanoid } from "nanoid";
@@ -116,7 +117,7 @@ interface KbPagePropertiesProps {
   showAddButton?: boolean;
 }
 
-const TYPE_ICONS: Record<KbPropertyType, React.ComponentType<{ className?: string }>> = {
+const TYPE_ICONS: Record<KbPropertyType, ComponentType<{ className?: string }>> = {
   text: TypeIcon,
   number: Hash,
   date: CalendarIcon,
@@ -585,16 +586,18 @@ export function KbPageProperties({
   return (
     <section
       aria-label="Свойства страницы"
-      className="flex flex-col gap-1.5 px-2 -ml-2"
+      className="flex flex-col gap-2 px-2 -ml-2"
     >
       {collectionGroups.length > 0 && (
-        <div className="flex flex-col gap-1.5 pb-1">
+        <div className="flex flex-col gap-2 pb-1">
           {collectionGroups.map((group) => (
             <div key={group.id} className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 px-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                <Database className="size-3.5" />
-                <span>{group.title}</span>
-              </div>
+              <PropertyGroupHeader
+                icon={Database}
+                label="Поля коллекции"
+                meta={group.title}
+                count={group.properties.length}
+              />
               <ul className="flex flex-col gap-0.5">
                 {group.properties.map((prop) => (
                   <CollectionScopedPropertyRow
@@ -617,10 +620,13 @@ export function KbPageProperties({
       {pageProperties.length > 0 && (
         <>
           {collectionGroups.length > 0 && (
-            <div className="flex items-center gap-1.5 px-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
-              <TypeIcon className="size-3.5" />
-              <span>Свойства страницы</span>
-            </div>
+            <PropertyGroupHeader
+              icon={TypeIcon}
+              label="Свойства страницы"
+              meta="локальные"
+              count={pageProperties.length}
+              className="pt-1"
+            />
           )}
           <DndContext
             sensors={sensors}
@@ -778,6 +784,42 @@ export function KbPageProperties({
   );
 }
 
+function PropertyGroupHeader({
+  icon: Icon,
+  label,
+  meta,
+  count,
+  className,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  meta?: string;
+  count?: number;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-6 items-center gap-2 px-1.5 text-[12px] text-muted-foreground",
+        className,
+      )}
+    >
+      <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
+      <span className="font-medium leading-none">{label}</span>
+      {meta && (
+        <span className="min-w-0 truncate rounded-full bg-muted/55 px-1.5 py-0.5 text-[11px] leading-none text-muted-foreground/75">
+          {meta}
+        </span>
+      )}
+      {typeof count === "number" && (
+        <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-muted px-1 text-[10px] font-medium leading-none text-muted-foreground/70">
+          {count}
+        </span>
+      )}
+    </div>
+  );
+}
+
 interface PropertyRowProps {
   property: KbProperty;
   canEdit: boolean;
@@ -815,10 +857,17 @@ function CollectionScopedPropertyRow({
   const Icon = TYPE_ICONS[property.type];
 
   return (
-    <li className="flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md">
-      <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
+    <li className="group/collection-row flex min-h-[30px] items-center gap-1.5 rounded-md py-0.5">
+      <span
+        className="size-5 -ml-1 inline-flex shrink-0 items-center justify-center"
+        aria-hidden="true"
+        title="Поле коллекции"
+      >
+        <span className="size-1.5 rounded-full bg-brand/70 ring-4 ring-brand/10" />
+      </span>
       <div
-        className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 rounded-md"
+        className="flex items-center gap-1.5 -mx-1.5 rounded-md px-1.5 py-0.5 transition-colors
+                   hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
       >
         {property.icon ? (
           <KbPageIcon
@@ -829,7 +878,7 @@ function CollectionScopedPropertyRow({
         ) : (
           <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
         )}
-        <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
+        <span className="w-[140px] shrink-0 truncate text-[13px] text-muted-foreground">
           {property.name}
         </span>
       </div>

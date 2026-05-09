@@ -1287,6 +1287,7 @@ export type Database = {
           properties: Json
           required_reading: boolean
           search_tsv: unknown
+          show_children: boolean
           slug: string
           title: string
           updated_at: string | null
@@ -1312,6 +1313,7 @@ export type Database = {
           properties?: Json
           required_reading?: boolean
           search_tsv?: unknown
+          show_children?: boolean
           slug: string
           title?: string
           updated_at?: string | null
@@ -1337,6 +1339,7 @@ export type Database = {
           properties?: Json
           required_reading?: boolean
           search_tsv?: unknown
+          show_children?: boolean
           slug?: string
           title?: string
           updated_at?: string | null
@@ -2712,6 +2715,10 @@ export type Database = {
       }
       kb_set_page_lock: {
         Args: { p_page_id: string; p_locked: boolean }
+        Returns: undefined
+      }
+      kb_set_page_show_children: {
+        Args: { p_page_id: string; p_show_children: boolean }
         Returns: undefined
       }
       kb_get_page_view_data: {

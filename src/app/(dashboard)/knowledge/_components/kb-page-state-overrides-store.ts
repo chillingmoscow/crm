@@ -33,6 +33,8 @@ export interface KbPageStateOverride {
   localUnlocked?: boolean;
   /** Required-reading флаг (admin toggle). undefined = используем server. */
   requiredReading?: boolean;
+  /** Показывать автоматический нижний список прямых подстраниц. */
+  showChildren?: boolean;
 }
 
 let overrides = new Map<string, KbPageStateOverride>();
@@ -80,7 +82,10 @@ export function setKbPageStateOverride(
     const sameReq =
       patch.requiredReading === undefined ||
       prev.requiredReading === patch.requiredReading;
-    if (sameLock && sameLocalUnlock && sameReq) return;
+    const sameShowChildren =
+      patch.showChildren === undefined ||
+      prev.showChildren === patch.showChildren;
+    if (sameLock && sameLocalUnlock && sameReq && sameShowChildren) return;
   }
   overrides.set(pageId, { ...prev, ...patch });
   emit();

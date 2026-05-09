@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import type { KbPageTreeRow } from "@/types/knowledge";
 
 interface KbChildrenListProps {
@@ -10,6 +13,8 @@ interface KbChildrenListProps {
   /** Уже загруженный snapshot всех живых страниц (тот же что в `[slug]/page.tsx`
    *  для `countDescendants`) — чтобы не делать второй запрос в БД. */
   allPages: KbPageTreeRow[];
+  /** Server-side page setting. Override-store gives instant client toggle. */
+  initialVisible: boolean;
 }
 
 /**
@@ -26,7 +31,13 @@ interface KbChildrenListProps {
  * Если у страницы 0 children — секция не рендерится (без шума на
  * листовых страницах).
  */
-export function KbChildrenList({ pageId, allPages }: KbChildrenListProps) {
+export function KbChildrenList({
+  pageId,
+  allPages,
+  initialVisible,
+}: KbChildrenListProps) {
+  const stateOverride = useKbPageStateOverride(pageId);
+  const visible = stateOverride?.showChildren ?? initialVisible;
   const children = allPages
     .filter((p) => p.parent_id === pageId)
     .sort(
@@ -35,7 +46,7 @@ export function KbChildrenList({ pageId, allPages }: KbChildrenListProps) {
         a.title.localeCompare(b.title, "ru", { sensitivity: "base" }),
     );
 
-  if (children.length === 0) return null;
+  if (!visible || children.length === 0) return null;
 
   return (
     <section

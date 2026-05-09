@@ -401,6 +401,7 @@ export async function createKbPage(input: KbPageCreateInput): Promise<{
         slug,
         content: [],
         plain_text: "",
+        properties: (parsed.data.properties ?? []) as unknown as never,
         created_by: user.id,
       })
       .select("id, slug")
@@ -416,6 +417,21 @@ export async function createKbPage(input: KbPageCreateInput): Promise<{
     }
   }
   return { id: null, slug: null, error: "Не удалось сгенерировать уникальный slug" };
+}
+
+export async function setKbPageShowChildren(input: {
+  pageId: string;
+  showChildren: boolean;
+}): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("kb_set_page_show_children", {
+    p_page_id: input.pageId,
+    p_show_children: input.showChildren,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/knowledge");
+  return { error: null };
 }
 
 /**

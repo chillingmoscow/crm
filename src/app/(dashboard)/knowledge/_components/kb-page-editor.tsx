@@ -476,6 +476,7 @@ export function KbPageEditor({
           // Remount on page change so BlockNote loads the new doc.
           // (Otherwise its internal state stays anchored to the first mount.)
           key={pageId}
+          pageId={pageId}
           initialContent={initialContent}
           editable={canEdit}
           customSideMenu

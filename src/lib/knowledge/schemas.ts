@@ -60,6 +60,18 @@ export const kbSearchSchema = z.object({
 const kbPropertyBase = {
   id: z.string().min(1).max(32),
   name: z.string().trim().min(1).max(80),
+  // Logical ownership. Missing scope is legacy page-local.
+  scope: z
+    .discriminatedUnion("type", [
+      z.object({ type: z.literal("page") }),
+      z.object({
+        type: z.literal("collection"),
+        collectionId: z.string().trim().min(1).max(128),
+        collectionTitle: z.string().trim().min(1).max(120).optional(),
+        fieldId: z.string().trim().min(1).max(64),
+      }),
+    ])
+    .optional(),
   // Icon override (Stage 2): Lucide-name из реестра KB_ICONS. Если нет —
   // UI рендерит default TYPE_ICONS[type].
   icon: z.string().trim().max(64).optional(),

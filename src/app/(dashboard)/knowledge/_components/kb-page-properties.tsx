@@ -31,6 +31,7 @@ import {
   Star,
   Pencil,
   ToggleRight,
+  Database,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -235,6 +236,14 @@ function makeProperty(type: KbPropertyType, name?: string): KbProperty {
   }
 }
 
+function getCollectionScope(property: KbProperty) {
+  return property.scope?.type === "collection" ? property.scope : null;
+}
+
+function isPageProperty(property: KbProperty): boolean {
+  return property.scope?.type !== "collection";
+}
+
 export function KbPageProperties({
   targetId,
   mode,
@@ -245,6 +254,35 @@ export function KbPageProperties({
   const [properties, setProperties] = useState<KbProperty[]>(initialProperties);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>(JSON.stringify(initialProperties));
+  const pageProperties = useMemo(
+    () => properties.filter(isPageProperty),
+    [properties],
+  );
+  const collectionGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        id: string;
+        title: string;
+        properties: KbProperty[];
+      }
+    >();
+    for (const property of properties) {
+      const scope = getCollectionScope(property);
+      if (!scope) continue;
+      const group = groups.get(scope.collectionId);
+      if (group) {
+        group.properties.push(property);
+      } else {
+        groups.set(scope.collectionId, {
+          id: scope.collectionId,
+          title: scope.collectionTitle ?? "Коллекция",
+          properties: [property],
+        });
+      }
+    }
+    return Array.from(groups.values());
+  }, [properties]);
 
   // Debounced save: каждое изменение reset'ит таймер на 1.5s.
   const scheduleSave = (next: KbProperty[]) => {
@@ -478,15 +516,18 @@ export function KbPageProperties({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
-  const sortableIds = useMemo(() => properties.map((p) => p.id), [properties]);
+  const sortableIds = useMemo(
+    () => pageProperties.map((p) => p.id),
+    [pageProperties],
+  );
   // activeId — id property, который сейчас тащим. Используется для
   // рендеринга <DragOverlay> (см. ниже): drag-копия в портале с
   // фиксированной высотой / шириной избавляет от деформации соседей,
   // когда expanded text-property пролетает под/над ними.
   const [activeId, setActiveId] = useState<string | null>(null);
   const activeProperty = useMemo(
-    () => properties.find((p) => p.id === activeId) ?? null,
-    [activeId, properties],
+    () => pageProperties.find((p) => p.id === activeId) ?? null,
+    [activeId, pageProperties],
   );
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -496,10 +537,15 @@ export function KbPageProperties({
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     setProperties((prev) => {
-      const fromIdx = prev.findIndex((p) => p.id === active.id);
-      const toIdx = prev.findIndex((p) => p.id === over.id);
+      const collectionProperties = prev.filter((p) => !isPageProperty(p));
+      const localPageProperties = prev.filter(isPageProperty);
+      const fromIdx = localPageProperties.findIndex((p) => p.id === active.id);
+      const toIdx = localPageProperties.findIndex((p) => p.id === over.id);
       if (fromIdx === -1 || toIdx === -1) return prev;
-      const next = arrayMove(prev, fromIdx, toIdx);
+      const next = [
+        ...collectionProperties,
+        ...arrayMove(localPageProperties, fromIdx, toIdx),
+      ];
       scheduleSave(next);
       return next;
     });
@@ -541,111 +587,146 @@ export function KbPageProperties({
       aria-label="Свойства страницы"
       className="flex flex-col gap-1.5 px-2 -ml-2"
     >
-      {properties.length > 0 && (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={dndModifiers}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => setActiveId(null)}
-        >
-          <SortableContext
-            items={sortableIds}
-            strategy={verticalListSortingStrategy}
-          >
-            <ul className="flex flex-col gap-0.5">
-              {properties.map((prop) => (
-                <PropertyRow
-                  key={prop.id}
-                  property={prop}
-                  canEdit={canEdit}
-                  onRename={(name) => updateProperty(prop.id, { name })}
-                  onChangeValue={(value) =>
-                    updateProperty(prop.id, { value } as Partial<KbProperty>)
-                  }
-                  onChangeOptions={(options) => {
-                    // При удалении опций select / multi-select — чистим
-                    // соответствующие записи из optionColors (висячие
-                    // колоры безвредны, но платят лишние байты при
-                    // сохранении). Plus для multi-select убираем
-                    // удалённые опции из value-массива.
-                    const isOptionType =
-                      prop.type === "select" ||
-                      prop.type === "multi-select";
-                    if (isOptionType) {
-                      const currColors = (
-                        prop as
-                          | Extract<KbProperty, { type: "select" }>
-                          | Extract<KbProperty, { type: "multi-select" }>
-                      ).optionColors;
-                      let nextColors:
-                        | Partial<Record<string, KbPropertyColor>>
-                        | undefined = currColors;
-                      const allowed = new Set(options);
-                      if (currColors) {
-                        const filtered = Object.fromEntries(
-                          Object.entries(currColors).filter(([k]) =>
-                            allowed.has(k),
-                          ),
-                        );
-                        nextColors =
-                          Object.keys(filtered).length > 0
-                            ? filtered
-                            : undefined;
-                      }
-                      // Для multi-select также чистим value от удалённых.
-                      const patch: Partial<KbProperty> = {
-                        options,
-                        optionColors: nextColors,
-                      } as Partial<KbProperty>;
-                      if (prop.type === "multi-select") {
-                        const filteredValue = (prop.value as string[]).filter(
-                          (v) => allowed.has(v),
-                        );
-                        (patch as { value?: string[] }).value = filteredValue;
-                      }
-                      updateProperty(prop.id, patch);
-                    } else {
-                      updateProperty(prop.id, { options } as Partial<KbProperty>);
+      {collectionGroups.length > 0 && (
+        <div className="flex flex-col gap-1.5 pb-1">
+          {collectionGroups.map((group) => (
+            <div key={group.id} className="flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 px-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+                <Database className="size-3.5" />
+                <span>{group.title}</span>
+              </div>
+              <ul className="flex flex-col gap-0.5">
+                {group.properties.map((prop) => (
+                  <CollectionScopedPropertyRow
+                    key={prop.id}
+                    property={prop}
+                    canEdit={canEdit}
+                    onChangeValue={(value) =>
+                      updateProperty(prop.id, {
+                        value,
+                      } as Partial<KbProperty>)
                     }
-                  }}
-                  onChangeOptionColors={(optionColors) =>
-                    updateProperty(prop.id, {
-                      optionColors,
-                    } as Partial<KbProperty>)
-                  }
-                  onChangeIcon={(icon, iconColor) =>
-                    changePropertyIcon(prop.id, icon, iconColor)
-                  }
-                  onToggleCollapse={() => togglePropertyCollapse(prop.id)}
-                  onChangeUnit={(unit) => changePropertyUnit(prop.id, unit)}
-                  onChangeRatingScale={(max) =>
-                    changeRatingScale(prop.id, max)
-                  }
-                  onChangeDisplayVariant={(variant) =>
-                    changeDisplayVariant(prop.id, variant)
-                  }
-                  onRemove={() => removeProperty(prop.id)}
-                  onDuplicate={() => duplicateProperty(prop.id)}
-                  onChangeType={(t) => changePropertyType(prop.id, t)}
-                />
-              ))}
-            </ul>
-          </SortableContext>
-          {/* DragOverlay рендерит копию dragged-row в портале с
-           *  фиксированными габаритами. Это решает деформацию когда
-           *  таскаешь tall expanded text-property через короткие — у
-           *  соседей меняется их sortable-rect только по мере
-           *  реального reorder'а, не из-за visual-смещения dragged-
-           *  элемента. Оригинальный <li> в списке остаётся (faded)
-           *  чтобы держать своё место в layout'е. */}
-          <DragOverlay>
-            {activeProperty ? (
-              <PropertyRowDragPreview property={activeProperty} />
-            ) : null}
-          </DragOverlay>
-        </DndContext>
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pageProperties.length > 0 && (
+        <>
+          {collectionGroups.length > 0 && (
+            <div className="flex items-center gap-1.5 px-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+              <TypeIcon className="size-3.5" />
+              <span>Свойства страницы</span>
+            </div>
+          )}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={dndModifiers}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setActiveId(null)}
+          >
+            <SortableContext
+              items={sortableIds}
+              strategy={verticalListSortingStrategy}
+            >
+              <ul className="flex flex-col gap-0.5">
+                {pageProperties.map((prop) => (
+                  <PropertyRow
+                    key={prop.id}
+                    property={prop}
+                    canEdit={canEdit}
+                    onRename={(name) => updateProperty(prop.id, { name })}
+                    onChangeValue={(value) =>
+                      updateProperty(prop.id, { value } as Partial<KbProperty>)
+                    }
+                    onChangeOptions={(options) => {
+                      // При удалении опций select / multi-select — чистим
+                      // соответствующие записи из optionColors (висячие
+                      // колоры безвредны, но платят лишние байты при
+                      // сохранении). Plus для multi-select убираем
+                      // удалённые опции из value-массива.
+                      const isOptionType =
+                        prop.type === "select" ||
+                        prop.type === "multi-select";
+                      if (isOptionType) {
+                        const currColors = (
+                          prop as
+                            | Extract<KbProperty, { type: "select" }>
+                            | Extract<KbProperty, { type: "multi-select" }>
+                        ).optionColors;
+                        let nextColors:
+                          | Partial<Record<string, KbPropertyColor>>
+                          | undefined = currColors;
+                        const allowed = new Set(options);
+                        if (currColors) {
+                          const filtered = Object.fromEntries(
+                            Object.entries(currColors).filter(([k]) =>
+                              allowed.has(k),
+                            ),
+                          );
+                          nextColors =
+                            Object.keys(filtered).length > 0
+                              ? filtered
+                              : undefined;
+                        }
+                        // Для multi-select также чистим value от удалённых.
+                        const patch: Partial<KbProperty> = {
+                          options,
+                          optionColors: nextColors,
+                        } as Partial<KbProperty>;
+                        if (prop.type === "multi-select") {
+                          const filteredValue = (prop.value as string[]).filter(
+                            (v) => allowed.has(v),
+                          );
+                          (patch as { value?: string[] }).value = filteredValue;
+                        }
+                        updateProperty(prop.id, patch);
+                      } else {
+                        updateProperty(prop.id, { options } as Partial<KbProperty>);
+                      }
+                    }}
+                    onChangeOptionColors={(optionColors) =>
+                      updateProperty(prop.id, {
+                        optionColors,
+                      } as Partial<KbProperty>)
+                    }
+                    onChangeIcon={(icon, iconColor) =>
+                      changePropertyIcon(prop.id, icon, iconColor)
+                    }
+                    onToggleCollapse={() => togglePropertyCollapse(prop.id)}
+                    onChangeUnit={(unit) => changePropertyUnit(prop.id, unit)}
+                    onChangeRatingScale={(max) =>
+                      changeRatingScale(prop.id, max)
+                    }
+                    onChangeDisplayVariant={(variant) =>
+                      changeDisplayVariant(prop.id, variant)
+                    }
+                    onRemove={() => removeProperty(prop.id)}
+                    onDuplicate={() => duplicateProperty(prop.id)}
+                    onChangeType={(t) => changePropertyType(prop.id, t)}
+                  />
+                ))}
+              </ul>
+            </SortableContext>
+            {/* DragOverlay рендерит копию dragged-row в портале с
+             *  фиксированными габаритами. Это решает деформацию когда
+             *  таскаешь tall expanded text-property через короткие — у
+             *  соседей меняется их sortable-rect только по мере
+             *  реального reorder'а, не из-за visual-смещения dragged-
+             *  элемента. Оригинальный <li> в списке остаётся (faded)
+             *  чтобы держать своё место в layout'е. */}
+            <DragOverlay>
+              {activeProperty ? (
+                <PropertyRowDragPreview property={activeProperty} />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </>
       )}
       {showAddButton && (
         <div className="flex min-h-8 items-center gap-2 pt-1">
@@ -658,7 +739,10 @@ export function KbPageProperties({
                   size="sm"
                   className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <Plus className="size-3.5" /> Добавить свойство
+                  <Plus className="size-3.5" />
+                  {collectionGroups.length > 0
+                    ? "Добавить свойство страницы"
+                    : "Добавить свойство"}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[160px]">
@@ -682,7 +766,10 @@ export function KbPageProperties({
               aria-disabled="true"
               className="h-7 px-2 text-xs text-muted-foreground opacity-40"
             >
-              <Plus className="size-3.5" /> Добавить свойство
+              <Plus className="size-3.5" />
+              {collectionGroups.length > 0
+                ? "Добавить свойство страницы"
+                : "Добавить свойство"}
             </Button>
           )}
         </div>
@@ -714,6 +801,50 @@ interface PropertyRowProps {
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
+}
+
+function CollectionScopedPropertyRow({
+  property,
+  canEdit,
+  onChangeValue,
+}: {
+  property: KbProperty;
+  canEdit: boolean;
+  onChangeValue: (value: KbProperty["value"]) => void;
+}) {
+  const Icon = TYPE_ICONS[property.type];
+
+  return (
+    <li className="flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md">
+      <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
+      <div
+        className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 rounded-md"
+      >
+        {property.icon ? (
+          <KbPageIcon
+            icon={property.icon}
+            color={property.iconColor ?? null}
+            size={14}
+          />
+        ) : (
+          <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
+        )}
+        <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
+          {property.name}
+        </span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <PropertyValueControl
+          property={property}
+          canEdit={canEdit}
+          canEditOptions={false}
+          onChangeValue={onChangeValue}
+          onChangeOptions={() => {}}
+          onChangeOptionColors={() => {}}
+        />
+      </div>
+    </li>
+  );
 }
 
 function PropertyRow({
@@ -1077,12 +1208,14 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
 function PropertyValueControl({
   property,
   canEdit,
+  canEditOptions = true,
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
 }: {
   property: KbProperty;
   canEdit: boolean;
+  canEditOptions?: boolean;
   onChangeValue: (value: KbProperty["value"]) => void;
   onChangeOptions: (options: string[]) => void;
   onChangeOptionColors: (
@@ -1152,6 +1285,7 @@ function PropertyValueControl({
       return <SelectControl
         property={property}
         canEdit={canEdit}
+        canEditOptions={canEditOptions}
         onChangeValue={onChangeValue}
         onChangeOptions={onChangeOptions}
         onChangeOptionColors={onChangeOptionColors}
@@ -1175,6 +1309,7 @@ function PropertyValueControl({
       return <MultiSelectControl
         property={property}
         canEdit={canEdit}
+        canEditOptions={canEditOptions}
         onChangeValue={onChangeValue}
         onChangeOptions={onChangeOptions}
         onChangeOptionColors={onChangeOptionColors}
@@ -1427,12 +1562,14 @@ function UrlValueControl({
 function SelectControl({
   property,
   canEdit,
+  canEditOptions,
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
 }: {
   property: Extract<KbProperty, { type: "select" }>;
   canEdit: boolean;
+  canEditOptions: boolean;
   onChangeValue: (value: string | null) => void;
   onChangeOptions: (options: string[]) => void;
   onChangeOptionColors: (
@@ -1520,7 +1657,7 @@ function SelectControl({
           ))}
         </SelectContent>
       </Select>
-      {property.options.length > 0 && (
+      {canEditOptions && property.options.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1615,7 +1752,7 @@ function SelectControl({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      {(adding || property.options.length === 0) && (
+      {canEditOptions && (adding || property.options.length === 0) && (
         <Input
           autoFocus
           value={draft}
@@ -1723,12 +1860,14 @@ function PropertyIconButton({
 function MultiSelectControl({
   property,
   canEdit,
+  canEditOptions,
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
 }: {
   property: Extract<KbProperty, { type: "multi-select" }>;
   canEdit: boolean;
+  canEditOptions: boolean;
   onChangeValue: (value: string[]) => void;
   onChangeOptions: (options: string[]) => void;
   onChangeOptionColors: (
@@ -1859,7 +1998,7 @@ function MultiSelectControl({
       </Popover>
 
       {/* Кнопка «опции» — то же что у SelectControl, с палитрой. */}
-      {property.options.length > 0 && (
+      {canEditOptions && property.options.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1950,7 +2089,7 @@ function MultiSelectControl({
           </DropdownMenuContent>
         </DropdownMenu>
       )}
-      {(adding || property.options.length === 0) && (
+      {canEditOptions && (adding || property.options.length === 0) && (
         <Input
           autoFocus
           value={draft}

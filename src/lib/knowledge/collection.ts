@@ -25,6 +25,11 @@ export type KbCollectionSchema = {
   fields: KbCollectionField[];
 };
 
+export type KbCollectionPropertyContext = {
+  collectionId: string;
+  collectionTitle?: string;
+};
+
 export type KbCollectionVisibleFieldIds = string[] | null;
 
 export const KB_COLLECTION_EMPTY_SCHEMA = JSON.stringify({
@@ -55,6 +60,10 @@ export const KB_COLLECTION_FIELD_LABELS: Record<KbPropertyType, string> = {
   url: "Ссылка",
   rating: "Рейтинг",
 };
+
+export function createCollectionId(): string {
+  return `collection_${nanoid(10)}`;
+}
 
 export function parseCollectionSchemaJson(value: unknown): KbCollectionSchema {
   if (typeof value !== "string" || value.trim() === "") {
@@ -118,10 +127,12 @@ export function createCollectionField(
 
 export function collectionFieldToProperty(
   field: KbCollectionField,
+  context: KbCollectionPropertyContext,
 ): KbProperty {
   const base = {
     id: field.id,
     name: field.name,
+    scope: collectionPropertyScope(field, context),
     ...(field.icon ? { icon: field.icon } : {}),
     ...(field.iconColor ? { iconColor: field.iconColor } : {}),
   };
@@ -172,16 +183,24 @@ export function collectionFieldToProperty(
 
 export function collectionSchemaToProperties(
   schema: KbCollectionSchema,
+  context: KbCollectionPropertyContext,
 ): KbProperty[] {
-  return schema.fields.map(collectionFieldToProperty);
+  return schema.fields.map((field) => collectionFieldToProperty(field, context));
 }
 
 export function mergeCollectionSchemaProperties(
   existingProperties: KbProperty[],
   schema: KbCollectionSchema,
+  context: KbCollectionPropertyContext,
 ): { properties: KbProperty[]; changed: boolean } {
   if (schema.fields.length === 0) {
-    return { properties: existingProperties, changed: false };
+    const properties = existingProperties.filter(
+      (property) => !isPropertyFromCollection(property, context.collectionId),
+    );
+    return {
+      properties,
+      changed: !sameJson(existingProperties, properties),
+    };
   }
 
   const usedIndexes = new Set<number>();
@@ -189,20 +208,22 @@ export function mergeCollectionSchemaProperties(
   let changed = false;
 
   for (const field of schema.fields) {
-    const fallback = collectionFieldToProperty(field);
+    const fallback = collectionFieldToProperty(field, context);
     const byId = existingProperties.findIndex(
-      (property, index) => !usedIndexes.has(index) && property.id === field.id,
+      (property, index) =>
+        !usedIndexes.has(index) &&
+        isCollectionPropertyForField(property, field, context.collectionId),
     );
-    const byNameAndType =
+    const legacyById =
       byId >= 0
         ? -1
         : existingProperties.findIndex(
             (property, index) =>
               !usedIndexes.has(index) &&
-              property.name === field.name &&
-              property.type === field.type,
+              property.scope === undefined &&
+              property.id === field.id,
           );
-    const matchedIndex = byId >= 0 ? byId : byNameAndType;
+    const matchedIndex = byId >= 0 ? byId : legacyById;
 
     if (matchedIndex < 0) {
       collectionProperties.push(fallback);
@@ -212,17 +233,19 @@ export function mergeCollectionSchemaProperties(
 
     usedIndexes.add(matchedIndex);
     const existing = existingProperties[matchedIndex]!;
-    const adopted =
-      byNameAndType >= 0 && existing.id !== field.id
-        ? ({ ...existing, id: field.id } as KbProperty)
-        : existing;
-    const merged = mergeCollectionProperty(adopted, field, fallback);
+    const adopted = {
+      ...existing,
+      scope: collectionPropertyScope(field, context),
+    } as KbProperty;
+    const merged = mergeCollectionProperty(adopted, field, fallback, context);
     collectionProperties.push(merged);
     if (!sameJson(existing, merged)) changed = true;
   }
 
   const manualProperties = existingProperties.filter(
-    (_property, index) => !usedIndexes.has(index),
+    (property, index) =>
+      !usedIndexes.has(index) &&
+      !isPropertyFromCollection(property, context.collectionId),
   );
   const properties = [...collectionProperties, ...manualProperties];
   if (!sameJson(existingProperties, properties)) changed = true;
@@ -239,11 +262,14 @@ export function isCollectionFieldVisible(
 export function findPropertyForCollectionField(
   properties: KbProperty[],
   field: KbCollectionField,
+  collectionId: string,
 ): KbProperty | null {
   return (
-    properties.find((property) => property.id === field.id) ??
+    properties.find((property) =>
+      isCollectionPropertyForField(property, field, collectionId),
+    ) ??
     properties.find(
-      (property) => property.name === field.name && property.type === field.type,
+      (property) => property.scope === undefined && property.id === field.id,
     ) ??
     null
   );
@@ -304,6 +330,7 @@ function mergeCollectionProperty(
   property: KbProperty,
   field: KbCollectionField,
   fallback: KbProperty,
+  context: KbCollectionPropertyContext,
 ): KbProperty {
   if (property.type !== field.type) return fallback;
 
@@ -312,29 +339,29 @@ function mergeCollectionProperty(
     case "number":
     case "date":
     case "url":
-      return withCollectionBase(property, field);
+      return withCollectionBase(property, field, context);
     case "checkbox":
       return {
-        ...withCollectionBase(property, field),
+        ...withCollectionBase(property, field, context),
         ...(field.displayVariant === "switch"
           ? { displayVariant: "switch" as const }
           : {}),
       };
     case "select":
       return {
-        ...withCollectionBase(property, field),
+        ...withCollectionBase(property, field, context),
         options: field.options ?? property.options,
         ...(field.optionColors ? { optionColors: field.optionColors } : {}),
       };
     case "multi-select":
       return {
-        ...withCollectionBase(property, field),
+        ...withCollectionBase(property, field, context),
         options: field.options ?? property.options,
         ...(field.optionColors ? { optionColors: field.optionColors } : {}),
       };
     case "rating":
       return {
-        ...withCollectionBase(property, field),
+        ...withCollectionBase(property, field, context),
         ...(field.max ? { max: field.max } : {}),
       };
   }
@@ -343,11 +370,13 @@ function mergeCollectionProperty(
 function withCollectionBase<T extends KbProperty>(
   property: T,
   field: KbCollectionField,
+  context: KbCollectionPropertyContext,
 ): T {
   const next = { ...property, id: field.id, name: field.name } as T & {
     icon?: string;
     iconColor?: string;
   };
+  next.scope = collectionPropertyScope(field, context);
   if (field.icon) {
     next.icon = field.icon;
   } else {
@@ -359,6 +388,42 @@ function withCollectionBase<T extends KbProperty>(
     delete next.iconColor;
   }
   return next;
+}
+
+function collectionPropertyScope(
+  field: KbCollectionField,
+  context: KbCollectionPropertyContext,
+): Extract<NonNullable<KbProperty["scope"]>, { type: "collection" }> {
+  return {
+    type: "collection",
+    collectionId: context.collectionId,
+    ...(context.collectionTitle
+      ? { collectionTitle: context.collectionTitle }
+      : {}),
+    fieldId: field.id,
+  };
+}
+
+function isCollectionPropertyForField(
+  property: KbProperty,
+  field: KbCollectionField,
+  collectionId: string,
+): boolean {
+  return (
+    property.scope?.type === "collection" &&
+    property.scope.collectionId === collectionId &&
+    property.scope.fieldId === field.id
+  );
+}
+
+function isPropertyFromCollection(
+  property: KbProperty,
+  collectionId: string,
+): boolean {
+  return (
+    property.scope?.type === "collection" &&
+    property.scope.collectionId === collectionId
+  );
 }
 
 function sameJson(a: unknown, b: unknown): boolean {

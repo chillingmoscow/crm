@@ -98,6 +98,10 @@ const collectionBlockConfig = {
       default: "list" as const,
       values: ["list"] as const,
     },
+    collectionId: {
+      default: "",
+      type: "string" as const,
+    },
     schemaJson: {
       default: KB_COLLECTION_EMPTY_SCHEMA,
       type: "string" as const,
@@ -137,6 +141,8 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const collectionId = block.props.collectionId || block.id;
+  const collectionTitle = "Коллекция";
 
   const schema = useMemo(
     () => parseCollectionSchemaJson(block.props.schemaJson),
@@ -174,13 +180,15 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   }, [loadItems]);
 
   useEffect(() => {
-    if (!editable || !runtime.pageId || schema.fields.length === 0) return;
+    if (!editable || !runtime.pageId) return;
 
     const schemaJson = serializeCollectionSchema(schema);
     const timer = window.setTimeout(() => {
       void syncKbCollectionRecords({
         parentPageId: runtime.pageId!,
         schemaJson,
+        collectionId,
+        collectionTitle,
       }).then(({ updated, error }) => {
         if (error) {
           toast.error(`Не удалось применить поля коллекции: ${error}`);
@@ -191,7 +199,14 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     }, 350);
 
     return () => window.clearTimeout(timer);
-  }, [block.props.schemaJson, editable, loadItems, runtime.pageId, schema]);
+  }, [
+    block.props.schemaJson,
+    collectionId,
+    editable,
+    loadItems,
+    runtime.pageId,
+    schema,
+  ]);
 
   const updateSchema = (nextSchema: KbCollectionSchema) => {
     editor.updateBlock(block.id, {
@@ -255,6 +270,8 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     const { slug, error } = await createKbCollectionRecord({
       parentPageId: runtime.pageId,
       schemaJson: serializeCollectionSchema(schema),
+      collectionId,
+      collectionTitle,
     });
     setCreating(false);
     if (error || !slug) {
@@ -364,6 +381,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               key={item.id}
               item={item}
               fields={visibleFields}
+              collectionId={collectionId}
             />
           ))}
         </div>
@@ -375,9 +393,11 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
 function CollectionItemRow({
   item,
   fields,
+  collectionId,
 }: {
   item: KbCollectionItem;
   fields: KbCollectionField[];
+  collectionId: string;
 }) {
   const preview = item.plain_text.trim();
 
@@ -398,7 +418,11 @@ function CollectionItemRow({
             <CollectionPropertyChip
               key={field.id}
               field={field}
-              property={findPropertyForCollectionField(item.properties, field)}
+              property={findPropertyForCollectionField(
+                item.properties,
+                field,
+                collectionId,
+              )}
             />
           ))}
         </div>

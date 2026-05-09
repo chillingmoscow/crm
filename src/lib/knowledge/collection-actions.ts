@@ -64,20 +64,31 @@ export async function listKbCollectionItems(parentPageId: string): Promise<{
 export async function createKbCollectionRecord(input: {
   parentPageId: string;
   schemaJson: string;
+  collectionId: string;
+  collectionTitle?: string;
 }): Promise<{ id: string | null; slug: string | null; error: string | null }> {
   const schema = parseCollectionSchemaJson(input.schemaJson);
+  const context = {
+    collectionId: input.collectionId,
+    ...(input.collectionTitle ? { collectionTitle: input.collectionTitle } : {}),
+  };
   return createKbPage({
     parent_id: input.parentPageId,
-    properties: collectionSchemaToProperties(schema),
+    properties: collectionSchemaToProperties(schema, context),
   });
 }
 
 export async function syncKbCollectionRecords(input: {
   parentPageId: string;
   schemaJson: string;
+  collectionId: string;
+  collectionTitle?: string;
 }): Promise<{ updated: number; error: string | null }> {
   const schema = parseCollectionSchemaJson(input.schemaJson);
-  if (schema.fields.length === 0) return { updated: 0, error: null };
+  const context = {
+    collectionId: input.collectionId,
+    ...(input.collectionTitle ? { collectionTitle: input.collectionTitle } : {}),
+  };
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -95,7 +106,7 @@ export async function syncKbCollectionRecords(input: {
       (row as { properties?: unknown }).properties ?? [],
     );
     const current = parsed.success ? parsed.data : [];
-    const merged = mergeCollectionSchemaProperties(current, schema);
+    const merged = mergeCollectionSchemaProperties(current, schema, context);
     if (!merged.changed) continue;
 
     const valid = kbPropertiesSchema.safeParse(merged.properties);

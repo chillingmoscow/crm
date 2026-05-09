@@ -114,6 +114,7 @@ import { KB_GALLERY_EMPTY_JSON } from "@/lib/knowledge/gallery";
 import {
   KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
   KB_COLLECTION_EMPTY_SCHEMA,
+  createCollectionId,
 } from "@/lib/knowledge/collection";
 
 /** Custom URL scheme used to mark uploaded KB files. The string after
@@ -349,6 +350,7 @@ function getKbCollectionSlashItem(editor: BlockNoteEditor<never, never, never>) 
         type: "collection",
         props: {
           view: "list",
+          collectionId: createCollectionId(),
           schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
           visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
         },

@@ -90,6 +90,21 @@ interface KbPropertyIconOverride {
   iconColor?: string;
 }
 
+export type KbPropertyScope =
+  | { type: "page" }
+  | {
+      type: "collection";
+      collectionId: string;
+      collectionTitle?: string;
+      fieldId: string;
+    };
+
+interface KbPropertyOwnership {
+  /** Logical owner of the property. Missing scope is treated as page-local
+   *  for backwards compatibility with existing KB pages and templates. */
+  scope?: KbPropertyScope;
+}
+
 export type KbProperty =
   | ({
       id: string;
@@ -99,7 +114,8 @@ export type KbProperty =
       /** Сжатое отображение: одна строка с ellipsis. Default `false`
        *  (полное multi-line). Stage 3 polish — toggle в ⋯ menu. */
       collapsed?: boolean;
-    } & KbPropertyIconOverride)
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership)
   | ({
       id: string;
       name: string;
@@ -109,13 +125,15 @@ export type KbProperty =
        *  (просто число). Discriminated union из shared-слоя
        *  `src/lib/units/`. Хранится в jsonb как-есть. */
       unit?: Unit;
-    } & KbPropertyIconOverride)
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership)
   | ({
       id: string;
       name: string;
       type: "date";
       value: string | null; // ISO yyyy-mm-dd
-    } & KbPropertyIconOverride)
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership)
   | ({
       id: string;
       name: string;
@@ -126,7 +144,8 @@ export type KbProperty =
        *  только рендер. Rollback-safe: старый клиент игнорирует и
        *  показывает дефолтный чекбокс. */
       displayVariant?: "checkbox" | "switch";
-    } & KbPropertyIconOverride)
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership)
   | ({
       id: string;
       name: string;
@@ -136,7 +155,8 @@ export type KbProperty =
       /** Per-option override цвета. Map от option string → color name.
        *  Если опции нет в map'е — fallback на hash-derived цвет. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
-    } & KbPropertyIconOverride)
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership)
   | ({
       id: string;
       name: string;
@@ -145,7 +165,8 @@ export type KbProperty =
       options: string[];
       /** Тот же mapping что у select, переиспользуется. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
-    } & KbPropertyIconOverride)
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership)
   | ({
       id: string;
       name: string;
@@ -155,7 +176,8 @@ export type KbProperty =
        *  текста ссылки. Сама href остаётся полной. Default `false` =
        *  показывать как есть. */
       urlCollapsed?: boolean;
-    } & KbPropertyIconOverride)
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership)
   | ({
       id: string;
       name: string;
@@ -168,7 +190,8 @@ export type KbProperty =
        *  range-input от 0 до max. Семантика та же (число), меняется
        *  только рендер. Rollback-safe. */
       displayVariant?: "stars" | "slider";
-    } & KbPropertyIconOverride);
+    } & KbPropertyIconOverride &
+      KbPropertyOwnership);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────
 

@@ -127,6 +127,8 @@ const NON_TEXT_BLOCK_TYPES = new Set([
   "table",
   "divider",
   "pageBreak",
+  "gallery",
+  "collection",
 ]);
 
 /** Cheap извлечение plain-text из inline-content одного блока — для

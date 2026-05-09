@@ -424,13 +424,12 @@ export async function setKbPageShowChildren(input: {
   showChildren: boolean;
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase.rpc("kb_set_page_show_children", {
-    p_page_id: input.pageId,
-    p_show_children: input.showChildren,
-  });
+  const { error } = await supabase
+    .from("kb_pages")
+    .update({ show_children: input.showChildren })
+    .eq("id", input.pageId);
   if (error) return { error: error.message };
 
-  revalidatePath("/knowledge");
   return { error: null };
 }
 

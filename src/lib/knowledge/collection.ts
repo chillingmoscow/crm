@@ -6,7 +6,7 @@ import type {
   KbPropertyType,
 } from "@/types/knowledge";
 
-export type KbCollectionView = "list";
+export type KbCollectionView = "list" | "table";
 
 export type KbCollectionField = {
   id: string;
@@ -28,6 +28,13 @@ export type KbCollectionSchema = {
 export type KbCollectionPropertyContext = {
   collectionId: string;
   collectionTitle?: string;
+  /**
+   * v1 collections are page-scoped views over direct child pages. When true,
+   * properties from older block-scoped collection ids are treated as stale
+   * collection metadata for the same child rows and are adopted/removed during
+   * schema sync instead of being kept as a second collection group.
+   */
+  exclusive?: boolean;
 };
 
 export type KbCollectionVisibleFieldIds = string[] | null;
@@ -63,6 +70,10 @@ export const KB_COLLECTION_FIELD_LABELS: Record<KbPropertyType, string> = {
 
 export function createCollectionId(): string {
   return `collection_${nanoid(10)}`;
+}
+
+export function getPageCollectionId(pageId: string): string {
+  return `page_${pageId}`;
 }
 
 export function parseCollectionSchemaJson(value: unknown): KbCollectionSchema {
@@ -188,6 +199,60 @@ export function collectionSchemaToProperties(
   return schema.fields.map((field) => collectionFieldToProperty(field, context));
 }
 
+export function inferCollectionSchemaFromProperties(
+  propertySets: KbProperty[][],
+  preferredCollectionId?: string,
+): KbCollectionSchema {
+  const groups = new Map<
+    string,
+    {
+      fields: KbCollectionField[];
+      fieldIds: Set<string>;
+      firstSeen: number;
+      total: number;
+    }
+  >();
+  let seen = 0;
+
+  for (const properties of propertySets) {
+    for (const property of properties) {
+      const scope = property.scope?.type === "collection" ? property.scope : null;
+      if (!scope) continue;
+      const field = collectionFieldFromProperty(property);
+      if (!field) continue;
+
+      const group = groups.get(scope.collectionId) ?? {
+        fields: [],
+        fieldIds: new Set<string>(),
+        firstSeen: seen,
+        total: 0,
+      };
+      group.total += 1;
+      if (!group.fieldIds.has(field.id)) {
+        group.fieldIds.add(field.id);
+        group.fields.push(field);
+      }
+      groups.set(scope.collectionId, group);
+      seen += 1;
+    }
+  }
+
+  const preferred = preferredCollectionId
+    ? groups.get(preferredCollectionId)
+    : undefined;
+  const best =
+    preferred && preferred.fields.length > 0
+      ? preferred
+      : Array.from(groups.values()).sort(
+          (a, b) =>
+            b.fields.length - a.fields.length ||
+            b.total - a.total ||
+            a.firstSeen - b.firstSeen,
+        )[0];
+
+  return { version: 1, fields: best?.fields ?? [] };
+}
+
 export function mergeCollectionSchemaProperties(
   existingProperties: KbProperty[],
   schema: KbCollectionSchema,
@@ -195,7 +260,9 @@ export function mergeCollectionSchemaProperties(
 ): { properties: KbProperty[]; changed: boolean } {
   if (schema.fields.length === 0) {
     const properties = existingProperties.filter(
-      (property) => !isPropertyFromCollection(property, context.collectionId),
+      (property) =>
+        !isPropertyFromCollection(property, context.collectionId) &&
+        !(context.exclusive && property.scope?.type === "collection"),
     );
     return {
       properties,
@@ -223,7 +290,36 @@ export function mergeCollectionSchemaProperties(
               property.scope === undefined &&
               property.id === field.id,
           );
-    const matchedIndex = byId >= 0 ? byId : legacyById;
+    const orphanedCollectionByField =
+      byId >= 0 || legacyById >= 0 || !context.exclusive
+        ? -1
+        : existingProperties.findIndex(
+            (property, index) =>
+              !usedIndexes.has(index) &&
+              property.scope?.type === "collection" &&
+              property.scope.fieldId === field.id,
+          );
+    const orphanedCollectionByName =
+      byId >= 0 ||
+      legacyById >= 0 ||
+      orphanedCollectionByField >= 0 ||
+      !context.exclusive
+        ? -1
+        : existingProperties.findIndex(
+            (property, index) =>
+              !usedIndexes.has(index) &&
+              property.scope?.type === "collection" &&
+              property.name === field.name &&
+              property.type === field.type,
+          );
+    const matchedIndex =
+      byId >= 0
+        ? byId
+        : legacyById >= 0
+          ? legacyById
+          : orphanedCollectionByField >= 0
+            ? orphanedCollectionByField
+            : orphanedCollectionByName;
 
     if (matchedIndex < 0) {
       collectionProperties.push(fallback);
@@ -245,7 +341,8 @@ export function mergeCollectionSchemaProperties(
   const manualProperties = existingProperties.filter(
     (property, index) =>
       !usedIndexes.has(index) &&
-      !isPropertyFromCollection(property, context.collectionId),
+      !isPropertyFromCollection(property, context.collectionId) &&
+      !(context.exclusive && property.scope?.type === "collection"),
   );
   const properties = [...collectionProperties, ...manualProperties];
   if (!sameJson(existingProperties, properties)) changed = true;
@@ -271,7 +368,57 @@ export function findPropertyForCollectionField(
     properties.find(
       (property) => property.scope === undefined && property.id === field.id,
     ) ??
+    properties.find(
+      (property) =>
+        property.scope?.type === "collection" &&
+        property.scope.fieldId === field.id,
+    ) ??
+    properties.find(
+      (property) =>
+        property.scope?.type === "collection" &&
+        property.name === field.name &&
+        property.type === field.type,
+    ) ??
     null
+  );
+}
+
+export function setCollectionFieldPropertyValue(
+  properties: KbProperty[],
+  field: KbCollectionField,
+  context: KbCollectionPropertyContext,
+  value: KbProperty["value"],
+): KbProperty[] {
+  const fallback = collectionFieldToProperty(field, context);
+  const index = properties.findIndex(
+    (property) =>
+      isCollectionPropertyForField(property, field, context.collectionId) ||
+      (property.scope === undefined && property.id === field.id) ||
+      (property.scope?.type === "collection" &&
+        (property.scope.fieldId === field.id ||
+          (property.name === field.name && property.type === field.type))),
+  );
+  const current = index >= 0 ? properties[index]! : fallback;
+  const normalized =
+    current.type === field.type
+      ? mergeCollectionProperty(
+          {
+            ...current,
+            scope: collectionPropertyScope(field, context),
+          } as KbProperty,
+          field,
+          fallback,
+          context,
+        )
+      : fallback;
+  const updated = {
+    ...normalized,
+    value,
+  } as KbProperty;
+
+  if (index < 0) return [updated, ...properties];
+  return properties.map((property, propertyIndex) =>
+    propertyIndex === index ? updated : property,
   );
 }
 
@@ -316,6 +463,35 @@ function normalizeCollectionField(value: unknown): KbCollectionField | null {
   }
 
   return normalized;
+}
+
+function collectionFieldFromProperty(property: KbProperty): KbCollectionField | null {
+  const scope = property.scope?.type === "collection" ? property.scope : null;
+  if (!scope) return null;
+
+  const field: KbCollectionField = {
+    id: scope.fieldId || property.id,
+    name: property.name,
+    type: property.type,
+  };
+  if (property.icon) field.icon = property.icon;
+  if (property.iconColor) field.iconColor = property.iconColor;
+
+  if (property.type === "select" || property.type === "multi-select") {
+    field.options = property.options ?? [];
+    if (property.optionColors) field.optionColors = property.optionColors;
+  }
+  if (property.type === "checkbox" && property.displayVariant === "switch") {
+    field.displayVariant = "switch";
+  }
+  if (
+    property.type === "rating" &&
+    (property.max === 3 || property.max === 5 || property.max === 10)
+  ) {
+    field.max = property.max;
+  }
+
+  return normalizeCollectionField(field);
 }
 
 function fallbackFieldId(seed: string): string {

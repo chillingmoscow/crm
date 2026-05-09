@@ -4,7 +4,14 @@
 -- ============================================================
 
 alter table public.kb_pages
-  add column if not exists show_children boolean not null default true;
+  add column if not exists show_children boolean not null default false;
+
+alter table public.kb_pages
+  alter column show_children set default false;
+
+update public.kb_pages
+   set show_children = false
+ where show_children is true;
 
 comment on column public.kb_pages.show_children is
   'Whether the automatic direct-children section is shown under the KB page body.';
@@ -46,10 +53,10 @@ begin
   end if;
 
   update public.kb_pages
-     set show_children = coalesce(p_show_children, true),
+     set show_children = coalesce(p_show_children, false),
          updated_by = v_uid
    where id = p_page_id
-     and show_children is distinct from coalesce(p_show_children, true);
+     and show_children is distinct from coalesce(p_show_children, false);
 end;
 $$;
 

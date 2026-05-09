@@ -259,7 +259,7 @@ export default async function KbPageView({ params }: PageProps) {
           pageSlug={row.slug}
           pageTitle={row.title}
           childCount={descendantsCount}
-          initialShowChildren={row.show_children !== false}
+          initialShowChildren={row.show_children === true}
           initialFavorited={favorited}
           initialRequiredReading={readStatus.required}
           initialLocked={isLocked}
@@ -333,7 +333,7 @@ export default async function KbPageView({ params }: PageProps) {
           <KbChildrenList
             pageId={row.id}
             allPages={allPages}
-            initialVisible={row.show_children !== false}
+            initialVisible={row.show_children === true}
           />
           <KbBacklinks rows={backlinkRows} />
         </div>

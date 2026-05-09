@@ -115,6 +115,7 @@ import {
   KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
   KB_COLLECTION_EMPTY_SCHEMA,
   createCollectionId,
+  getPageCollectionId,
 } from "@/lib/knowledge/collection";
 
 /** Custom URL scheme used to mark uploaded KB files. The string after
@@ -338,7 +339,10 @@ function getKbGallerySlashItem(editor: BlockNoteEditor<never, never, never>) {
   };
 }
 
-function getKbCollectionSlashItem(editor: BlockNoteEditor<never, never, never>) {
+function getKbCollectionSlashItem(
+  editor: BlockNoteEditor<never, never, never>,
+  pageId?: string | null,
+) {
   return {
     title: "Коллекция",
     subtext: "Список дочерних страниц со свойствами",
@@ -350,7 +354,11 @@ function getKbCollectionSlashItem(editor: BlockNoteEditor<never, never, never>) 
         type: "collection",
         props: {
           view: "list",
-          collectionId: createCollectionId(),
+          title: "Коллекция",
+          viewTitle: "Галерея",
+          collectionId: pageId
+            ? getPageCollectionId(pageId)
+            : createCollectionId(),
           schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
           visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
         },
@@ -391,6 +399,8 @@ const NON_COMMENTABLE_BLOCK_TYPES = new Set([
   "audio",
   "file",
   "divider",
+  "gallery",
+  "collection",
 ]);
 
 /** Locked-режим: дополнительно к выше — `table`. На locked auto-
@@ -403,6 +413,19 @@ const NON_COMMENTABLE_LOCKED_BLOCK_TYPES = new Set([
   ...NON_COMMENTABLE_BLOCK_TYPES,
   "table",
 ]);
+
+const NO_FORMATTING_TOOLBAR_BLOCK_TYPES = new Set(["gallery", "collection"]);
+
+function getActiveBlockType(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  editor: BlockNoteEditor<any, any, any>,
+): string | undefined {
+  try {
+    return editor.getTextCursorPosition().block?.type;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Lucide-иконка как IconType (react-icons-совместимый shape) — BN'ный
  *  `BlockTypeSelectItem.icon` ждёт react-icons. Default react-icons/ri
@@ -466,15 +489,7 @@ function filterToolbarItemsForBlock(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   editor: BlockNoteEditor<any, any, any>,
 ): ReturnType<typeof getFormattingToolbarItems> {
-  let blockType: string | undefined;
-  try {
-    const block = editor.getTextCursorPosition().block;
-    blockType = block?.type;
-  } catch {
-    // No active selection (toolbar showing for other reason) — keep
-    // all items, conservative default.
-    return items;
-  }
+  const blockType = getActiveBlockType(editor);
   if (!blockType) return items;
 
   // Leaf-блоки без inline-content (image/video/audio/file/divider) +
@@ -1064,7 +1079,10 @@ export function KbBlockNoteEditor({
             const defaults = getDefaultReactSlashMenuItems(editor);
             const callouts = getKbCalloutSlashItems(editor as never);
             const galleryItem = getKbGallerySlashItem(editor as never);
-            const collectionItem = getKbCollectionSlashItem(editor as never);
+            const collectionItem = getKbCollectionSlashItem(
+              editor as never,
+              pageId,
+            );
             // «Новая страница» — первая в группе «Базовые блоки», если
             // хост передал колбэк (= юзер имеет `kb.create_pages`).
             const newPageItem = onCreateNestedPage
@@ -1152,6 +1170,13 @@ export function KbBlockNoteEditor({
             // была кнопка AddCommentButton, юзеру неудобно: select →
             // видеть toolbar → клик. Теперь Notion-style: select → composer.
             if (!editable && commentsBundle?.canComment) return null;
+            const blockType = getActiveBlockType(editor);
+            if (
+              blockType &&
+              NO_FORMATTING_TOOLBAR_BLOCK_TYPES.has(blockType)
+            ) {
+              return null;
+            }
             return (
               <FormattingToolbar>
                 {editable ? (

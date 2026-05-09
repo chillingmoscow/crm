@@ -71,6 +71,7 @@ export async function createKbCollectionRecord(input: {
   const context = {
     collectionId: input.collectionId,
     ...(input.collectionTitle ? { collectionTitle: input.collectionTitle } : {}),
+    exclusive: true,
   };
   return createKbPage({
     parent_id: input.parentPageId,
@@ -88,6 +89,7 @@ export async function syncKbCollectionRecords(input: {
   const context = {
     collectionId: input.collectionId,
     ...(input.collectionTitle ? { collectionTitle: input.collectionTitle } : {}),
+    exclusive: true,
   };
 
   const supabase = await createClient();

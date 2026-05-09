@@ -1254,7 +1254,7 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
   );
 }
 
-function PropertyValueControl({
+export function PropertyValueControl({
   property,
   canEdit,
   canEditOptions = true,

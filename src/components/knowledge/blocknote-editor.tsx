@@ -355,6 +355,7 @@ function getKbCollectionSlashItem(
         props: {
           view: "list",
           title: "Коллекция",
+          viewTitle: "Галерея",
           collectionId: pageId
             ? getPageCollectionId(pageId)
             : createCollectionId(),

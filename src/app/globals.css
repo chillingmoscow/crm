@@ -2111,6 +2111,19 @@ button.kb-gallery-menu-item {
   font-size: 13px;
   font-weight: 600;
 }
+.bn-sheerly .kb-collection-view-name {
+  max-width: 180px;
+  overflow: hidden;
+  border-radius: 999px;
+  background-color: hsl(var(--muted) / 0.72);
+  padding: 2px 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .bn-sheerly .kb-collection-count {
   display: inline-flex;
   min-width: 19px;

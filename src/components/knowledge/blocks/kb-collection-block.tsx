@@ -121,6 +121,10 @@ const collectionBlockConfig = {
       default: "Коллекция",
       type: "string" as const,
     },
+    viewTitle: {
+      default: "",
+      type: "string" as const,
+    },
     collectionId: {
       default: "",
       type: "string" as const,
@@ -201,6 +205,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const collectionTitle = normalizeCollectionTitle(block.props.title);
   const view: KbCollectionView =
     block.props.view === "table" ? "table" : "list";
+  const viewTitle = normalizeCollectionViewTitle(block.props.viewTitle, view);
 
   const schema = useMemo(
     () => parseCollectionSchemaJson(block.props.schemaJson),
@@ -416,6 +421,13 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     if (nextView === view) return;
     editor.updateBlock(block.id, {
       props: { view: nextView },
+    } as never);
+  };
+
+  const updateViewTitle = (nextTitle: string) => {
+    const title = normalizeCollectionViewTitle(nextTitle, view);
+    editor.updateBlock(block.id, {
+      props: { viewTitle: title },
     } as never);
   };
 
@@ -656,6 +668,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               {collectionTitle}
             </button>
           )}
+          <span className="kb-collection-view-name">{viewTitle}</span>
           <span className="kb-collection-count">{items.length}</span>
         </div>
         {editable && (
@@ -686,10 +699,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               >
                 <CollectionSettings
                   title={collectionTitle}
+                  viewTitle={viewTitle}
                   schema={schema}
                   view={view}
                   visibleFieldIds={visibleFieldIds}
                   onRename={renameCollection}
+                  onRenameView={updateViewTitle}
                   onChangeView={updateView}
                   onAddField={addField}
                   onUpdateField={updateField}
@@ -1478,10 +1493,12 @@ function CollectionColumnInsertPanel({
 
 function CollectionSettings({
   title,
+  viewTitle,
   schema,
   view,
   visibleFieldIds,
   onRename,
+  onRenameView,
   onChangeView,
   onAddField,
   onUpdateField,
@@ -1490,10 +1507,12 @@ function CollectionSettings({
   onSetFieldVisible,
 }: {
   title: string;
+  viewTitle: string;
   schema: KbCollectionSchema;
   view: KbCollectionView;
   visibleFieldIds: KbCollectionVisibleFieldIds;
   onRename: (title: string) => void;
+  onRenameView: (title: string) => void;
   onChangeView: (view: KbCollectionView) => void;
   onAddField: (type: KbPropertyType) => void;
   onUpdateField: (id: string, patch: Partial<KbCollectionField>) => void;
@@ -1507,7 +1526,9 @@ function CollectionSettings({
 }) {
   const [panel, setPanel] = useState<"root" | "view" | "properties">("root");
   const [titleDraft, setTitleDraft] = useState(title);
+  const [viewTitleDraft, setViewTitleDraft] = useState(viewTitle);
   const skipTitleCommitRef = useRef(false);
+  const skipViewTitleCommitRef = useRef(false);
   const visibleCount = schema.fields.filter((field) =>
     isCollectionFieldVisible(field.id, visibleFieldIds),
   ).length;
@@ -1515,6 +1536,10 @@ function CollectionSettings({
   useEffect(() => {
     setTitleDraft(title);
   }, [title]);
+
+  useEffect(() => {
+    setViewTitleDraft(viewTitle);
+  }, [viewTitle]);
 
   const commitTitle = (value = titleDraft) => {
     if (skipTitleCommitRef.current) {
@@ -1524,6 +1549,16 @@ function CollectionSettings({
     const nextTitle = normalizeCollectionTitle(value);
     setTitleDraft(nextTitle);
     onRename(nextTitle);
+  };
+
+  const commitViewTitle = (value = viewTitleDraft) => {
+    if (skipViewTitleCommitRef.current) {
+      skipViewTitleCommitRef.current = false;
+      return;
+    }
+    const nextTitle = normalizeCollectionViewTitle(value, view);
+    setViewTitleDraft(nextTitle);
+    onRenameView(nextTitle);
   };
 
   if (panel === "view") {
@@ -1613,6 +1648,36 @@ function CollectionSettings({
               event.preventDefault();
               skipTitleCommitRef.current = true;
               setTitleDraft(title);
+              event.currentTarget.blur();
+            }
+          }}
+        />
+      </div>
+      <div className="kb-collection-settings-name-row">
+        {view === "table" ? (
+          <Table2 className="size-4" />
+        ) : (
+          <GalleryHorizontalEnd className="size-4" />
+        )}
+        <Input
+          value={viewTitleDraft}
+          className="kb-collection-settings-name-input"
+          aria-label="Название вида"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={stopBlockInteraction}
+          onChange={(event) => setViewTitleDraft(event.currentTarget.value)}
+          onBlur={(event) => commitViewTitle(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitViewTitle(event.currentTarget.value);
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              skipViewTitleCommitRef.current = true;
+              setViewTitleDraft(viewTitle);
               event.currentTarget.blur();
             }
           }}
@@ -1818,6 +1883,15 @@ function normalizeCollectionTitle(value: unknown): string {
   if (typeof value !== "string") return DEFAULT_COLLECTION_TITLE;
   const title = value.trim();
   return title || DEFAULT_COLLECTION_TITLE;
+}
+
+function normalizeCollectionViewTitle(
+  value: unknown,
+  view: KbCollectionView,
+): string {
+  if (typeof value !== "string") return COLLECTION_VIEW_LABELS[view];
+  const title = value.trim();
+  return title || COLLECTION_VIEW_LABELS[view];
 }
 
 function getDocumentCollectionBlocks(

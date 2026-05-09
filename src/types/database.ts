@@ -1287,7 +1287,7 @@ export type Database = {
           properties: Json
           required_reading: boolean
           search_tsv: unknown
-          show_children: boolean
+          show_children: boolean | null
           slug: string
           title: string
           updated_at: string | null
@@ -1313,7 +1313,7 @@ export type Database = {
           properties?: Json
           required_reading?: boolean
           search_tsv?: unknown
-          show_children?: boolean
+          show_children?: boolean | null
           slug: string
           title?: string
           updated_at?: string | null
@@ -1339,7 +1339,7 @@ export type Database = {
           properties?: Json
           required_reading?: boolean
           search_tsv?: unknown
-          show_children?: boolean
+          show_children?: boolean | null
           slug?: string
           title?: string
           updated_at?: string | null

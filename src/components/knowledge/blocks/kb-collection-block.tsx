@@ -103,6 +103,12 @@ import {
   type KbCollectionVisibleFieldIds,
 } from "@/lib/knowledge/collection";
 import {
+  createCollectionGrouping,
+  groupCollectionItems,
+  type KbCollectionGrouping,
+  type KbCollectionItemGroup,
+} from "@/lib/knowledge/collection-group";
+import {
   createCollectionSort,
   sortCollectionItems,
   type KbCollectionSort,
@@ -280,6 +286,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   );
   const activeFilters = activeView?.filters ?? [];
   const activeSorts = activeView?.sorts ?? [];
+  const activeGrouping = activeView?.grouping ?? null;
   const filteredItems = useMemo(
     () => filterCollectionItems(items, schema.fields, activeFilters, collectionId),
     [activeFilters, collectionId, items, schema.fields],
@@ -287,6 +294,16 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const sortedItems = useMemo(
     () => sortCollectionItems(filteredItems, schema.fields, activeSorts, collectionId),
     [activeSorts, collectionId, filteredItems, schema.fields],
+  );
+  const groupedItems = useMemo(
+    () =>
+      groupCollectionItems(
+        sortedItems,
+        schema.fields,
+        activeGrouping,
+        collectionId,
+      ),
+    [activeGrouping, collectionId, schema.fields, sortedItems],
   );
   const inferredSchema = useMemo(
     () =>
@@ -890,6 +907,40 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     });
   };
 
+  const updateGrouping = (nextGrouping: KbCollectionGrouping | null) => {
+    if (!activeView) return;
+    const viewId = activeView.id;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, grouping: nextGrouping } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      grouping: nextGrouping,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить группировку: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
   const createRecord = async () => {
     if (!runtime.pageId || !canCreate) return;
     setCreating(true);
@@ -1132,6 +1183,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   visibleFieldIds={visibleFieldIds}
                   filters={activeFilters}
                   sorts={activeSorts}
+                  grouping={activeGrouping}
                   onRename={renameCollection}
                   onRenameView={updateViewTitle}
                   onChangeViewType={updateViewType}
@@ -1146,6 +1198,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   onSetFieldVisible={setFieldVisible}
                   onUpdateFilters={updateFilters}
                   onUpdateSorts={updateSorts}
+                  onUpdateGrouping={updateGrouping}
                 />
               </PopoverContent>
             </Popover>
@@ -1201,31 +1254,54 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       ) : (
         <>
           {view === "table" ? (
-            <CollectionTableView
+            groupedItems.length > 0 ? (
+              <div className="kb-collection-grouped-stack">
+                {groupedItems.map((group) => (
+                  <section key={group.key} className="kb-collection-group">
+                    <CollectionGroupHeader
+                      label={group.label}
+                      count={group.items.length}
+                    />
+                    <CollectionTableView
+                      items={group.items}
+                      fields={visibleFields}
+                      collectionId={collectionId}
+                      collectionTitle={collectionTitle}
+                      canEdit={editable}
+                      visibleFieldIds={visibleFieldIds}
+                      onChangeValue={updateItemPropertyValue}
+                      onUpdateField={updateField}
+                      onRemoveField={removeField}
+                      onReorderField={reorderField}
+                      onInsertField={insertField}
+                      onSetFieldVisible={setFieldVisible}
+                    />
+                  </section>
+                ))}
+              </div>
+            ) : (
+              <CollectionTableView
+                items={sortedItems}
+                fields={visibleFields}
+                collectionId={collectionId}
+                collectionTitle={collectionTitle}
+                canEdit={editable}
+                visibleFieldIds={visibleFieldIds}
+                onChangeValue={updateItemPropertyValue}
+                onUpdateField={updateField}
+                onRemoveField={removeField}
+                onReorderField={reorderField}
+                onInsertField={insertField}
+                onSetFieldVisible={setFieldVisible}
+              />
+            )
+          ) : (
+            <CollectionListView
               items={sortedItems}
+              groups={groupedItems}
               fields={visibleFields}
               collectionId={collectionId}
-              collectionTitle={collectionTitle}
-              canEdit={editable}
-              visibleFieldIds={visibleFieldIds}
-              onChangeValue={updateItemPropertyValue}
-              onUpdateField={updateField}
-              onRemoveField={removeField}
-              onReorderField={reorderField}
-              onInsertField={insertField}
-              onSetFieldVisible={setFieldVisible}
             />
-          ) : (
-            <div className="kb-collection-list">
-              {sortedItems.map((item) => (
-                <CollectionItemRow
-                  key={item.id}
-                  item={item}
-                  fields={visibleFields}
-                  collectionId={collectionId}
-                />
-              ))}
-            </div>
           )}
         </>
       )}
@@ -1338,6 +1414,69 @@ function CollectionViewsEditor({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function CollectionListView({
+  items,
+  groups,
+  fields,
+  collectionId,
+}: {
+  items: KbCollectionItem[];
+  groups: KbCollectionItemGroup<KbCollectionItem>[];
+  fields: KbCollectionField[];
+  collectionId: string;
+}) {
+  if (groups.length > 0) {
+    return (
+      <div className="kb-collection-grouped-stack">
+        {groups.map((group) => (
+          <section key={group.key} className="kb-collection-group">
+            <CollectionGroupHeader label={group.label} count={group.items.length} />
+            <div className="kb-collection-list">
+              {group.items.map((item) => (
+                <CollectionItemRow
+                  key={item.id}
+                  item={item}
+                  fields={fields}
+                  collectionId={collectionId}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="kb-collection-list">
+      {items.map((item) => (
+        <CollectionItemRow
+          key={item.id}
+          item={item}
+          fields={fields}
+          collectionId={collectionId}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CollectionGroupHeader({
+  label,
+  count,
+}: {
+  label: string;
+  count: number;
+}) {
+  return (
+    <div className="kb-collection-group-header">
+      <ChevronDown className="size-4" />
+      <span>{label}</span>
+      <span className="kb-collection-group-count">{count}</span>
     </div>
   );
 }
@@ -2015,6 +2154,7 @@ function CollectionSettings({
   visibleFieldIds,
   filters,
   sorts,
+  grouping,
   onRename,
   onRenameView,
   onChangeViewType,
@@ -2029,6 +2169,7 @@ function CollectionSettings({
   onSetFieldVisible,
   onUpdateFilters,
   onUpdateSorts,
+  onUpdateGrouping,
 }: {
   title: string;
   viewTitle: string;
@@ -2039,6 +2180,7 @@ function CollectionSettings({
   visibleFieldIds: KbCollectionVisibleFieldIds;
   filters: KbCollectionFilter[];
   sorts: KbCollectionSort[];
+  grouping: KbCollectionGrouping | null;
   onRename: (title: string) => void;
   onRenameView: (title: string) => void;
   onChangeViewType: (view: KbCollectionView) => void;
@@ -2057,9 +2199,17 @@ function CollectionSettings({
   onSetFieldVisible: (id: string, visible: boolean) => void;
   onUpdateFilters: (filters: KbCollectionFilter[]) => void;
   onUpdateSorts: (sorts: KbCollectionSort[]) => void;
+  onUpdateGrouping: (grouping: KbCollectionGrouping | null) => void;
 }) {
   const [panel, setPanel] = useState<
-    "root" | "view" | "layout" | "views" | "properties" | "filters" | "sorts"
+    | "root"
+    | "view"
+    | "layout"
+    | "views"
+    | "properties"
+    | "filters"
+    | "sorts"
+    | "grouping"
   >("root");
   const visibleFilterCount = filters.filter((filter) =>
     fields.some((field) => field.id === filter.fieldId),
@@ -2067,6 +2217,7 @@ function CollectionSettings({
   const visibleSortCount = sorts.filter((sort) =>
     fields.some((field) => field.id === sort.fieldId),
   ).length;
+  const groupingField = fields.find((field) => field.id === grouping?.fieldId);
   const [titleDraft, setTitleDraft] = useState(title);
   const [viewTitleDraft, setViewTitleDraft] = useState(viewTitle);
   const skipTitleCommitRef = useRef(false);
@@ -2203,6 +2354,23 @@ function CollectionSettings({
             </span>
             <ChevronRight className="size-4" />
           </button>
+          <button
+            type="button"
+            className="kb-collection-settings-nav-row"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("grouping");
+            }}
+          >
+            <ListChecks className="size-4" />
+            <span>Группировка</span>
+            <span className="kb-collection-settings-row-value">
+              {groupingField?.name ?? "Нет"}
+            </span>
+            <ChevronRight className="size-4" />
+          </button>
           {activeViewId && (
             <>
               <button
@@ -2283,6 +2451,22 @@ function CollectionSettings({
           fields={fields}
           sorts={sorts}
           onChange={onUpdateSorts}
+        />
+      </div>
+    );
+  }
+
+  if (panel === "grouping") {
+    return (
+      <div className="kb-collection-settings-panel">
+        <SettingsPanelHeader
+          title="Группировка"
+          onBack={() => setPanel("view")}
+        />
+        <CollectionGroupingEditor
+          fields={fields}
+          grouping={grouping}
+          onChange={onUpdateGrouping}
         />
       </div>
     );
@@ -2708,6 +2892,97 @@ function CollectionSortsEditor({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function CollectionGroupingEditor({
+  fields,
+  grouping,
+  onChange,
+}: {
+  fields: KbCollectionField[];
+  grouping: KbCollectionGrouping | null;
+  onChange: (grouping: KbCollectionGrouping | null) => void;
+}) {
+  const currentField = fields.find((field) => field.id === grouping?.fieldId);
+  const direction = grouping?.direction ?? "asc";
+
+  if (fields.length === 0) {
+    return (
+      <div className="kb-collection-settings-empty">
+        Добавьте свойства, чтобы группировать записи.
+      </div>
+    );
+  }
+
+  return (
+    <div className="kb-collection-grouping-editor">
+      <div className="kb-collection-grouping-row">
+        <ListChecks className="size-4 text-muted-foreground" />
+        <select
+          className="kb-collection-grouping-select"
+          value={currentField?.id ?? ""}
+          aria-label="Поле группировки"
+          onChange={(event) => {
+            const fieldId = event.currentTarget.value;
+            onChange(fieldId ? createCollectionGrouping(fieldId, direction) : null);
+          }}
+        >
+          <option value="">Без группировки</option>
+          {fields.map((field) => (
+            <option key={field.id} value={field.id}>
+              {field.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {currentField ? (
+        <>
+          <div className="kb-collection-grouping-row">
+            <ArrowDownAZ className="size-4 text-muted-foreground" />
+            <select
+              className="kb-collection-grouping-select"
+              value={direction}
+              aria-label="Направление группировки"
+              onChange={(event) =>
+                onChange(
+                  createCollectionGrouping(
+                    currentField.id,
+                    event.currentTarget.value as KbCollectionSortDirection,
+                  ),
+                )
+              }
+            >
+              <option value="asc">
+                {sortDirectionLabel(currentField, "asc")}
+              </option>
+              <option value="desc">
+                {sortDirectionLabel(currentField, "desc")}
+              </option>
+            </select>
+          </div>
+          <button
+            type="button"
+            className="kb-collection-settings-nav-row text-destructive"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              onChange(null);
+            }}
+          >
+            <Trash2 className="size-4" />
+            <span>Убрать группировку</span>
+            <span />
+            <span />
+          </button>
+        </>
+      ) : (
+        <div className="kb-collection-settings-empty">
+          View показывает записи без группировки.
+        </div>
+      )}
     </div>
   );
 }

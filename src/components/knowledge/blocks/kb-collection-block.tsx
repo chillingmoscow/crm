@@ -95,7 +95,6 @@ import {
   KB_COLLECTION_DEFAULT_TITLE,
   createCollectionField,
   createCollectionFilter,
-  collectionFieldToProperty,
   findPropertyForCollectionField,
   getPageCollectionId,
   inferCollectionSchemaFromProperties,
@@ -118,7 +117,6 @@ import {
   type KbCollectionField,
   type KbCollectionFilter,
   type KbCollectionFilterOperator,
-  type KbCollectionLegacyBlock,
   type KbCollectionSchema,
   type KbCollectionView,
   type KbCollectionViewConfig,
@@ -139,6 +137,29 @@ import {
   type KbCollectionSort,
   type KbCollectionSortDirection,
 } from "@/lib/knowledge/collection-sort";
+import {
+  defaultFilterOperator,
+  filterCollectionItems,
+  filterOperatorNeedsValue,
+  filterOperatorsForField,
+  normalizeFilterInputValue,
+  normalizeFilterOperatorForField,
+} from "@/lib/knowledge/collection-filter";
+import {
+  formatPropertyValue,
+  sortDirectionLabel,
+} from "@/lib/knowledge/collection-format";
+import {
+  buildLegacyCollectionBlocks,
+  collectionFieldDisplayProperty,
+  collectionFieldTypeOptions,
+  insertCollectionFieldId,
+  MIN_TABLE_COLUMN_WIDTH,
+  minTableColumnWidthForField,
+  orderCollectionFields,
+  reorderCollectionFieldIds,
+  type FieldDropPlacement,
+} from "@/lib/knowledge/collection-fields";
 import { saveKbPageProperties } from "@/lib/knowledge/properties";
 import type { KbProperty, KbPropertyType } from "@/types/knowledge";
 
@@ -238,28 +259,8 @@ function getCollectionViewFallbackIcon(viewConfig: {
 
 const SAVE_CELL_DEBOUNCE_MS = 650;
 const TABLE_TITLE_COLUMN_WIDTH_ID = "__title";
-const MIN_TABLE_COLUMN_WIDTH = 96;
 const MAX_TABLE_COLUMN_WIDTH = 640;
 
-function minTableColumnWidthForField(field: KbCollectionField): number {
-  if (field.type === "number" && field.displayVariant === "rating") {
-    if (field.ratingVariant === "slider") {
-      return field.ratingShowValue === false ? 150 : 190;
-    }
-    const max = field.max ?? 5;
-    return Math.max(112, max * 20 + Math.max(0, max - 1) * 2 + 20);
-  }
-  if (field.type === "rating") {
-    if (field.ratingVariant === "slider") {
-      return field.ratingShowValue === false ? 150 : 190;
-    }
-    const max = field.max ?? 5;
-    return Math.max(112, max * 20 + Math.max(0, max - 1) * 2 + 20);
-  }
-  if (field.type === "checkbox") return 96;
-  return MIN_TABLE_COLUMN_WIDTH;
-}
-type FieldDropPlacement = "before" | "after";
 type CollectionSettingsPanel =
   | "layout"
   | "display"
@@ -272,136 +273,6 @@ type CollectionTableCellId = "title" | string;
 type CollectionTableSelection = {
   itemId: string;
   cellId: CollectionTableCellId;
-};
-
-function collectionFieldTypeOptions(current?: KbPropertyType): KbPropertyType[] {
-  if (
-    current &&
-    !KB_COLLECTION_CREATABLE_FIELD_TYPES.includes(current)
-  ) {
-    return [...KB_COLLECTION_CREATABLE_FIELD_TYPES, current];
-  }
-  return KB_COLLECTION_CREATABLE_FIELD_TYPES;
-}
-
-function collectionFieldDisplayProperty(
-  property: KbProperty | null,
-  field: KbCollectionField,
-  context: Parameters<typeof collectionFieldToProperty>[1],
-): KbProperty {
-  const fallback = collectionFieldToProperty(field, context);
-  if (!property || property.type !== field.type) return fallback;
-
-  if (field.type === "number") {
-    const next = {
-      ...property,
-      id: fallback.id,
-      name: fallback.name,
-      scope: fallback.scope,
-      ...(fallback.description ? { description: fallback.description } : {}),
-      ...(fallback.icon ? { icon: fallback.icon } : {}),
-      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
-    } as Extract<KbProperty, { type: "number" }>;
-    if (field.displayVariant === "rating") {
-      next.displayVariant = "rating";
-      next.max = field.max ?? 5;
-      if (field.ratingVariant === "slider") next.ratingVariant = "slider";
-      else delete next.ratingVariant;
-      if (field.ratingShowValue === false) next.ratingShowValue = false;
-      else delete next.ratingShowValue;
-      delete next.unit;
-    } else {
-      delete next.displayVariant;
-      delete next.max;
-      delete next.ratingVariant;
-      delete next.ratingShowValue;
-    }
-    return next;
-  }
-
-  if (field.type === "checkbox") {
-    const checkboxProperty = property as Extract<KbProperty, { type: "checkbox" }>;
-    const { displayVariant, ...rest } = checkboxProperty;
-    void displayVariant;
-    return {
-      ...rest,
-      id: fallback.id,
-      name: fallback.name,
-      scope: fallback.scope,
-      ...(fallback.description ? { description: fallback.description } : {}),
-      ...(fallback.icon ? { icon: fallback.icon } : {}),
-      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
-      ...(field.displayVariant === "switch"
-        ? { displayVariant: "switch" as const }
-        : {}),
-    };
-  }
-
-  if (field.type === "text") {
-    const textProperty = property as Extract<KbProperty, { type: "text" }>;
-    const { collapsed, ...rest } = textProperty;
-    void collapsed;
-    return {
-      ...rest,
-      id: fallback.id,
-      name: fallback.name,
-      scope: fallback.scope,
-      ...(fallback.description ? { description: fallback.description } : {}),
-      ...(fallback.icon ? { icon: fallback.icon } : {}),
-      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
-      ...(field.collapsed ? { collapsed: true } : {}),
-    };
-  }
-
-  if (field.type === "url") {
-    const urlProperty = property as Extract<KbProperty, { type: "url" }>;
-    const { urlCollapsed, ...rest } = urlProperty;
-    void urlCollapsed;
-    return {
-      ...rest,
-      id: fallback.id,
-      name: fallback.name,
-      scope: fallback.scope,
-      ...(fallback.description ? { description: fallback.description } : {}),
-      ...(fallback.icon ? { icon: fallback.icon } : {}),
-      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
-      ...(field.urlCollapsed ? { urlCollapsed: true } : {}),
-    };
-  }
-
-  if (field.type === "rating") {
-    const ratingProperty = property as Extract<KbProperty, { type: "rating" }>;
-    const { displayVariant, ...rest } = ratingProperty;
-    void displayVariant;
-    return {
-      ...rest,
-      id: fallback.id,
-      name: fallback.name,
-      scope: fallback.scope,
-      ...(fallback.description ? { description: fallback.description } : {}),
-      ...(fallback.icon ? { icon: fallback.icon } : {}),
-      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
-      ...(field.max ? { max: field.max } : {}),
-      ...(field.ratingVariant === "slider"
-        ? { displayVariant: "slider" as const }
-        : {}),
-      ...(field.ratingShowValue === false ? { ratingShowValue: false } : {}),
-    };
-  }
-
-  return {
-    ...property,
-    id: fallback.id,
-    name: fallback.name,
-    scope: fallback.scope,
-  } as KbProperty;
-}
-
-type CollectionDocumentBlock = {
-  id: string;
-  type: string;
-  props?: Record<string, unknown>;
-  children?: CollectionDocumentBlock[];
 };
 
 function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
@@ -6662,339 +6533,6 @@ function CollectionFieldEditor({
       </Button>
     </div>
   );
-}
-
-function formatPropertyValue(property: KbProperty): string {
-  switch (property.type) {
-    case "text":
-    case "url":
-      return property.value.trim();
-    case "number":
-      if (property.displayVariant === "rating") {
-        if (property.value === null) return "";
-        return `${property.value}/${property.max ?? 5}`;
-      }
-      return property.value === null ? "" : String(property.value);
-    case "date":
-      return property.value ?? "";
-    case "checkbox":
-      return property.value ? "Да" : "Нет";
-    case "select":
-      return property.value ?? "";
-    case "multi-select":
-      return property.value.join(", ");
-    case "rating": {
-      if (property.value === null) return "";
-      const max = property.max ?? 5;
-      return `${property.value}/${max}`;
-    }
-  }
-}
-
-function filterCollectionItems(
-  items: KbCollectionItem[],
-  fields: KbCollectionField[],
-  filters: KbCollectionFilter[],
-  collectionId: string,
-): KbCollectionItem[] {
-  const validFilters = filters.filter((filter) =>
-    fields.some((field) => field.id === filter.fieldId),
-  );
-  if (validFilters.length === 0) return items;
-
-  return items.filter((item) =>
-    validFilters.every((filter) => {
-      const field = fields.find((candidate) => candidate.id === filter.fieldId);
-      if (!field) return true;
-      const property = findPropertyForCollectionField(
-        item.properties,
-        field,
-        collectionId,
-      );
-      return matchesCollectionFilter(property, field, filter);
-    }),
-  );
-}
-
-function matchesCollectionFilter(
-  property: KbProperty | null,
-  field: KbCollectionField,
-  filter: KbCollectionFilter,
-): boolean {
-  const value = property?.value ?? null;
-  const empty = isFilterValueEmpty(value);
-  const operator = normalizeFilterOperatorForField(field, filter.operator);
-  switch (operator) {
-    case "is_empty":
-      return empty;
-    case "is_not_empty":
-      return !empty;
-    case "is_checked":
-      return value === true;
-    case "is_unchecked":
-      return value !== true;
-    case "contains": {
-      const needle = String(filter.value ?? "").trim().toLowerCase();
-      if (!needle) return true;
-      if (Array.isArray(value)) {
-        return value.some((item) => String(item).toLowerCase().includes(needle));
-      }
-      return String(value ?? "").toLowerCase().includes(needle);
-    }
-    case "not_contains": {
-      const needle = String(filter.value ?? "").trim().toLowerCase();
-      if (!needle) return true;
-      if (Array.isArray(value)) {
-        return !value.some((item) => String(item).toLowerCase().includes(needle));
-      }
-      return !String(value ?? "").toLowerCase().includes(needle);
-    }
-    case "equals":
-      if (field.type === "number" || field.type === "rating") {
-        if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
-        return Number(value) === Number(filter.value);
-      }
-      return String(value ?? "").toLowerCase() ===
-        String(filter.value ?? "").trim().toLowerCase();
-    case "not_equals":
-      if (field.type === "number" || field.type === "rating") {
-        if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
-        return Number(value) !== Number(filter.value);
-      }
-      return String(value ?? "").toLowerCase() !==
-        String(filter.value ?? "").trim().toLowerCase();
-    case "greater_than":
-      if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
-      return Number(value) > Number(filter.value);
-    case "less_than":
-      if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
-      return Number(value) < Number(filter.value);
-  }
-}
-
-function isFilterValueEmpty(value: KbProperty["value"] | null): boolean {
-  return (
-    value === null ||
-    value === "" ||
-    (Array.isArray(value) && value.length === 0)
-  );
-}
-
-function defaultFilterOperator(
-  field: KbCollectionField,
-): KbCollectionFilterOperator {
-  if (field.type === "checkbox") return "is_checked";
-  if (field.type === "text" || field.type === "url") return "contains";
-  if (field.type === "multi-select") return "contains";
-  return "equals";
-}
-
-function filterOperatorsForField(field: KbCollectionField): {
-  value: KbCollectionFilterOperator;
-  label: string;
-}[] {
-  if (field.type === "checkbox") {
-    return [
-      { value: "is_checked", label: "включён" },
-      { value: "is_unchecked", label: "выключен" },
-    ];
-  }
-  const emptyOperators = [
-    { value: "is_empty" as const, label: "пусто" },
-    { value: "is_not_empty" as const, label: "не пусто" },
-  ];
-  if (field.type === "number" || field.type === "rating") {
-    return [
-      { value: "equals", label: "=" },
-      { value: "not_equals", label: "!=" },
-      { value: "greater_than", label: ">" },
-      { value: "less_than", label: "<" },
-      ...emptyOperators,
-    ];
-  }
-  if (field.type === "text" || field.type === "url" || field.type === "multi-select") {
-    return [
-      { value: "contains", label: "содержит" },
-      { value: "not_contains", label: "не содержит" },
-      ...emptyOperators,
-    ];
-  }
-  return [
-    { value: "equals", label: "равно" },
-    { value: "not_equals", label: "не равно" },
-    ...emptyOperators,
-  ];
-}
-
-function normalizeFilterOperatorForField(
-  field: KbCollectionField,
-  operator: KbCollectionFilterOperator,
-): KbCollectionFilterOperator {
-  return filterOperatorsForField(field).some((item) => item.value === operator)
-    ? operator
-    : defaultFilterOperator(field);
-}
-
-function sortDirectionLabel(
-  field: KbCollectionField,
-  direction: KbCollectionSortDirection,
-): string {
-  if (field.type === "number" || field.type === "rating") {
-    return direction === "asc" ? "по возрастанию" : "по убыванию";
-  }
-  if (field.type === "date") {
-    return direction === "asc" ? "сначала ранние" : "сначала поздние";
-  }
-  if (field.type === "checkbox") {
-    return direction === "asc" ? "выключенные выше" : "включённые выше";
-  }
-  return direction === "asc" ? "А → Я" : "Я → А";
-}
-
-function filterOperatorNeedsValue(
-  field: KbCollectionField,
-  operator: KbCollectionFilterOperator,
-): boolean {
-  if (field.type === "checkbox") return false;
-  return operator !== "is_empty" && operator !== "is_not_empty";
-}
-
-function normalizeFilterInputValue(
-  field: KbCollectionField,
-  value: string,
-): string | number {
-  if (field.type !== "number" && field.type !== "rating") return value;
-  if (value.trim() === "") return "";
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : value;
-}
-
-function orderCollectionFields(
-  fields: KbCollectionField[],
-  fieldOrderIds: string[] | null,
-): KbCollectionField[] {
-  if (!fieldOrderIds || fieldOrderIds.length === 0) return fields;
-
-  const byId = new Map(fields.map((field) => [field.id, field]));
-  const ordered: KbCollectionField[] = [];
-  const usedIds = new Set<string>();
-
-  for (const fieldId of fieldOrderIds) {
-    const field = byId.get(fieldId);
-    if (!field || usedIds.has(fieldId)) continue;
-    ordered.push(field);
-    usedIds.add(fieldId);
-  }
-
-  for (const field of fields) {
-    if (!usedIds.has(field.id)) ordered.push(field);
-  }
-
-  return ordered;
-}
-
-function reorderCollectionFieldIds(
-  fields: KbCollectionField[],
-  fieldOrderIds: string[] | null,
-  activeId: string,
-  targetId: string,
-  placement: FieldDropPlacement,
-): string[] | null {
-  const ids = orderCollectionFields(fields, fieldOrderIds).map(
-    (field) => field.id,
-  );
-  const fromIndex = ids.indexOf(activeId);
-  const targetIndex = ids.indexOf(targetId);
-  if (fromIndex < 0 || targetIndex < 0) return null;
-
-  const nextIds = [...ids];
-  const [movedId] = nextIds.splice(fromIndex, 1);
-  const nextTargetIndex = nextIds.indexOf(targetId);
-  if (nextTargetIndex < 0) return null;
-
-  const insertIndex =
-    placement === "after" ? nextTargetIndex + 1 : nextTargetIndex;
-  if (nextIds[insertIndex] === movedId) return null;
-  nextIds.splice(insertIndex, 0, movedId);
-  return nextIds;
-}
-
-function insertCollectionFieldId(
-  fields: KbCollectionField[],
-  fieldOrderIds: string[] | null,
-  newFieldId: string,
-  targetId: string,
-  placement: FieldDropPlacement,
-): string[] {
-  const ids = orderCollectionFields(fields, fieldOrderIds)
-    .map((field) => field.id)
-    .filter((fieldId) => fieldId !== newFieldId);
-  const targetIndex = ids.indexOf(targetId);
-  const insertIndex =
-    targetIndex < 0
-      ? ids.length
-      : placement === "after"
-        ? targetIndex + 1
-        : targetIndex;
-  ids.splice(insertIndex, 0, newFieldId);
-  return ids;
-}
-
-function getDocumentCollectionBlocks(
-  editor: unknown,
-): CollectionDocumentBlock[] {
-  const documentBlocks = (editor as { document?: unknown }).document;
-  if (!Array.isArray(documentBlocks)) return [];
-
-  const collectionBlocks: CollectionDocumentBlock[] = [];
-  walkDocumentBlocks(
-    documentBlocks as CollectionDocumentBlock[],
-    (documentBlock) => {
-      if (documentBlock.type === "collection") {
-        collectionBlocks.push(documentBlock);
-      }
-    },
-  );
-  return collectionBlocks;
-}
-
-function buildLegacyCollectionBlocks(
-  editor: unknown,
-): KbCollectionLegacyBlock[] {
-  return getDocumentCollectionBlocks(editor).map((documentBlock) => {
-    const props = documentBlock.props ?? {};
-    return {
-      blockId: documentBlock.id,
-      title: typeof props.title === "string" ? props.title : undefined,
-      view: normalizeCollectionViewType(props.view),
-      viewTitle:
-        typeof props.viewTitle === "string" ? props.viewTitle : undefined,
-      schemaJson:
-        typeof props.schemaJson === "string"
-          ? props.schemaJson
-          : KB_COLLECTION_EMPTY_SCHEMA,
-      visibleFieldIdsJson:
-        typeof props.visibleFieldIdsJson === "string"
-          ? props.visibleFieldIdsJson
-          : KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-      fieldOrderIdsJson:
-        typeof props.fieldOrderIdsJson === "string"
-          ? props.fieldOrderIdsJson
-          : KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-    };
-  });
-}
-
-function walkDocumentBlocks(
-  blocks: CollectionDocumentBlock[],
-  visit: (block: CollectionDocumentBlock) => void,
-) {
-  for (const block of blocks) {
-    visit(block);
-    if (Array.isArray(block.children) && block.children.length > 0) {
-      walkDocumentBlocks(block.children, visit);
-    }
-  }
 }
 
 function stopBlockInteraction(event: React.SyntheticEvent) {

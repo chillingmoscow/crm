@@ -33,6 +33,7 @@ import {
   Pencil,
   ToggleRight,
   Database,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -87,6 +88,7 @@ import {
 } from "@/lib/palette";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
+import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import {
   formatWithUnit,
   unitSuffix,
@@ -138,6 +140,17 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   url: "Ссылка",
   rating: "Рейтинг",
 };
+
+const CREATABLE_PROPERTY_TYPES: KbPropertyType[] = (
+  Object.keys(TYPE_LABELS) as KbPropertyType[]
+).filter((type) => type !== "rating");
+
+function propertyTypeOptions(current?: KbPropertyType): KbPropertyType[] {
+  if (current && !CREATABLE_PROPERTY_TYPES.includes(current)) {
+    return [...CREATABLE_PROPERTY_TYPES, current];
+  }
+  return CREATABLE_PROPERTY_TYPES;
+}
 
 // Палитра option-chip'ов берётся из единого 10-цветного источника
 // `@/lib/palette` (Notion-style). Раньше тут жил отдельный 10-цветный
@@ -349,7 +362,11 @@ export function KbPageProperties({
       const idx = prev.findIndex((p) => p.id === id);
       if (idx === -1) return prev;
       const orig = prev[idx];
-      const copy = { ...orig, id: nanoid(8), name: `${orig.name} (копия)` };
+      const copy = {
+        ...orig,
+        id: nanoid(8),
+        name: orig.name ? `${orig.name} (копия)` : "Копия",
+      };
       const next = [...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)];
       scheduleSave(next);
       return next;
@@ -365,11 +382,30 @@ export function KbPageProperties({
       const next = prev.map((p) => {
         if (p.id !== id) return p;
         if (p.type === newType) return p;
+        if (p.type === "rating" && newType === "number") {
+          return {
+            id: p.id,
+            name: p.name,
+            type: "number",
+            value: p.value,
+            displayVariant: "rating",
+            max: p.max ?? 5,
+            ...(p.displayVariant === "slider"
+              ? { ratingVariant: "slider" as const }
+              : {}),
+            ...(p.icon !== undefined ? { icon: p.icon } : {}),
+            ...(p.iconColor !== undefined ? { iconColor: p.iconColor } : {}),
+            ...(p.description !== undefined
+              ? { description: p.description }
+              : {}),
+          } as KbProperty;
+        }
         const fresh = makeProperty(newType, p.name);
         // Перенос icon override из старого property.
         const carriedIcon = {
           ...(p.icon !== undefined ? { icon: p.icon } : {}),
           ...(p.iconColor !== undefined ? { iconColor: p.iconColor } : {}),
+          ...(p.description !== undefined ? { description: p.description } : {}),
         };
         // Перенос options/optionColors при select ↔ multi-select.
         const isCurrentOption =
@@ -455,7 +491,13 @@ export function KbPageProperties({
   const changeRatingScale = (id: string, max: number) => {
     setProperties((prev) => {
       const next = prev.map((p) => {
-        if (p.id !== id || p.type !== "rating") return p;
+        if (
+          p.id !== id ||
+          (p.type !== "rating" &&
+            !(p.type === "number" && p.displayVariant === "rating"))
+        ) {
+          return p;
+        }
         const updated: typeof p = { ...p, max };
         if (updated.value !== null && updated.value > max) {
           updated.value = max;
@@ -476,11 +518,76 @@ export function KbPageProperties({
     setProperties((prev) => {
       const next = prev.map((p) => {
         if (p.id !== id) return p;
-        if (p.type !== "checkbox" && p.type !== "rating") return p;
+        if (p.type !== "checkbox" && p.type !== "rating" && p.type !== "number") {
+          return p;
+        }
         const updated = { ...p } as KbProperty & { displayVariant?: string };
+        if (p.type === "number") {
+          if (variant === "rating") {
+            updated.displayVariant = "rating";
+            (updated as Extract<KbProperty, { type: "number" }>).max =
+              (p as Extract<KbProperty, { type: "number" }>).max ?? 5;
+            (updated as Extract<KbProperty, { type: "number" }>).ratingVariant =
+              (p as Extract<KbProperty, { type: "number" }>).ratingVariant ??
+              "stars";
+            (updated as Extract<KbProperty, { type: "number" }>).ratingShowValue =
+              (p as Extract<KbProperty, { type: "number" }>).ratingShowValue ??
+              true;
+            delete (updated as Extract<KbProperty, { type: "number" }>).unit;
+          } else {
+            delete updated.displayVariant;
+            delete (updated as Extract<KbProperty, { type: "number" }>).max;
+            delete (updated as Extract<KbProperty, { type: "number" }>).ratingVariant;
+            delete (updated as Extract<KbProperty, { type: "number" }>).ratingShowValue;
+          }
+          return updated as KbProperty;
+        }
         if (variant === undefined) delete updated.displayVariant;
         else updated.displayVariant = variant;
         return updated as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  const changeNumberRatingVariant = (
+    id: string,
+    variant: "stars" | "slider",
+  ) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (
+          p.id !== id ||
+          p.type !== "number" ||
+          p.displayVariant !== "rating"
+        ) {
+          return p;
+        }
+        return {
+          ...p,
+          ratingVariant: variant,
+        } as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  const changeNumberRatingShowValue = (id: string, showValue: boolean) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (
+          p.id !== id ||
+          p.type !== "number" ||
+          p.displayVariant !== "rating"
+        ) {
+          return p;
+        }
+        return {
+          ...p,
+          ratingShowValue: showValue,
+        } as KbProperty;
       });
       scheduleSave(next);
       return next;
@@ -510,6 +617,11 @@ export function KbPageProperties({
       scheduleSave(next);
       return next;
     });
+  };
+
+  const changePropertyDescription = (id: string, description: string) => {
+    const nextDescription = description.trim().slice(0, 280);
+    updateProperty(id, { description: nextDescription || undefined } as Partial<KbProperty>);
   };
 
   // DnD reorder: arrayMove + scheduleSave. distance=4 — чтобы scroll
@@ -704,6 +816,9 @@ export function KbPageProperties({
                     onChangeIcon={(icon, iconColor) =>
                       changePropertyIcon(prop.id, icon, iconColor)
                     }
+                    onChangeDescription={(description) =>
+                      changePropertyDescription(prop.id, description)
+                    }
                     onToggleCollapse={() => togglePropertyCollapse(prop.id)}
                     onChangeUnit={(unit) => changePropertyUnit(prop.id, unit)}
                     onChangeRatingScale={(max) =>
@@ -711,6 +826,12 @@ export function KbPageProperties({
                     }
                     onChangeDisplayVariant={(variant) =>
                       changeDisplayVariant(prop.id, variant)
+                    }
+                    onChangeNumberRatingVariant={(variant) =>
+                      changeNumberRatingVariant(prop.id, variant)
+                    }
+                    onChangeNumberRatingShowValue={(showValue) =>
+                      changeNumberRatingShowValue(prop.id, showValue)
                     }
                     onRemove={() => removeProperty(prop.id)}
                     onDuplicate={() => duplicateProperty(prop.id)}
@@ -752,7 +873,7 @@ export function KbPageProperties({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[160px]">
-                {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
+                {CREATABLE_PROPERTY_TYPES.map((t) => {
                   const Icon = TYPE_ICONS[t];
                   return (
                     <DropdownMenuItem key={t} onSelect={() => addProperty(t)}>
@@ -830,6 +951,7 @@ interface PropertyRowProps {
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
   onChangeIcon: (icon: string | null, iconColor: string | null) => void;
+  onChangeDescription: (description: string) => void;
   /** Toggle для text-property: collapsed (single-line truncate) ↔
    *  expanded (full multi-line). Применимо только к type === "text". */
   onToggleCollapse: () => void;
@@ -840,6 +962,8 @@ interface PropertyRowProps {
   /** Меняет displayVariant для checkbox ("checkbox" | "switch") и
    *  rating ("stars" | "slider"). undefined = вернуть default. */
   onChangeDisplayVariant: (variant: string | undefined) => void;
+  onChangeNumberRatingVariant: (variant: "stars" | "slider") => void;
+  onChangeNumberRatingShowValue: (showValue: boolean) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -904,18 +1028,27 @@ function PropertyRow({
   onChangeOptions,
   onChangeOptionColors,
   onChangeIcon,
+  onChangeDescription,
   onToggleCollapse,
   onChangeUnit,
   onChangeRatingScale,
   onChangeDisplayVariant,
+  onChangeNumberRatingVariant,
+  onChangeNumberRatingShowValue,
   onRemove,
   onDuplicate,
   onChangeType,
 }: PropertyRowProps) {
   const [name, setName] = useState(property.name);
+  const [descriptionDraft, setDescriptionDraft] = useState(
+    property.description ?? "",
+  );
   // Sync external rename (e.g., другой клиент) на случай контролируемой
   // mutation сверху.
   useEffect(() => setName(property.name), [property.name]);
+  useEffect(() => {
+    setDescriptionDraft(property.description ?? "");
+  }, [property.description]);
 
   // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
   // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
@@ -990,8 +1123,8 @@ function PropertyRow({
             onChange={(e) => setName(e.target.value)}
             onBlur={() => {
               const trimmed = name.trim();
-              if (trimmed && trimmed !== property.name) onRename(trimmed);
-              else setName(property.name);
+              if (trimmed !== property.name) onRename(trimmed);
+              setName(trimmed);
             }}
             className="w-[140px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
             aria-label="Имя свойства"
@@ -1000,6 +1133,51 @@ function PropertyRow({
           <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
             {property.name}
           </span>
+        )}
+        {canEdit && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "size-5 shrink-0 inline-flex items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+                  property.description && "text-foreground",
+                )}
+                aria-label="Описание свойства"
+              >
+                <Info className="size-3.5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              sideOffset={6}
+              className="w-[260px] p-2"
+              onOpenAutoFocus={(event) => event.preventDefault()}
+            >
+              <Input
+                value={descriptionDraft}
+                placeholder="Описание свойства"
+                className="h-8"
+                aria-label="Описание свойства"
+                onChange={(event) =>
+                  setDescriptionDraft(event.currentTarget.value)
+                }
+                onBlur={() => onChangeDescription(descriptionDraft)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onChangeDescription(event.currentTarget.value);
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setDescriptionDraft(property.description ?? "");
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </PopoverContent>
+          </Popover>
         )}
       </div>
       <div className="flex-1 min-w-0">
@@ -1032,7 +1210,7 @@ function PropertyRow({
                   Изменить тип
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[160px]">
-                  {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
+                  {propertyTypeOptions(property.type).map((t) => {
                     const TIcon = TYPE_ICONS[t];
                     const isCurrent = t === property.type;
                     return (
@@ -1086,7 +1264,7 @@ function PropertyRow({
             {/* Единица измерения — только для number (Stage 4).
              *  Submenu с группами: Без единицы / Валюта (CURRENCIES) /
              *  Масса / Объём / Штук. */}
-            {property.type === "number" && (
+            {property.type === "number" && property.displayVariant !== "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <Ruler className="size-3.5 text-muted-foreground" />
@@ -1100,11 +1278,85 @@ function PropertyRow({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             )}
+            {property.type === "number" && property.displayVariant === "rating" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
+                  Шкала
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[120px]">
+                  {[3, 5, 10].map((max) => {
+                    const isCurrent = (property.max ?? 5) === max;
+                    return (
+                      <DropdownMenuItem
+                        key={max}
+                        onSelect={() => onChangeRatingScale(max)}
+                      >
+                        <span className="text-[13px] tabular-nums w-6 shrink-0">
+                          {max}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {max === 3 ? "звезды" : "звёзд"}
+                        </span>
+                        {isCurrent && (
+                          <Check className="ml-auto size-3.5" />
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {property.type === "number" && property.displayVariant === "rating" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <KB_PROPERTY_UI_ICONS.rating className="size-3.5 text-muted-foreground" />
+                  Рейтинг
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[140px]">
+                  {(
+                    [
+                      ["stars", "Звёзды"],
+                      ["slider", "Слайдер"],
+                    ] as const
+                  ).map(([variant, label]) => {
+                    const isCurrent =
+                      (property.ratingVariant ?? "stars") === variant;
+                    return (
+                      <DropdownMenuItem
+                        key={variant}
+                        onSelect={() => onChangeNumberRatingVariant(variant)}
+                      >
+                        {label}
+                        {isCurrent && <Check className="ml-auto size-3.5" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {property.type === "number" &&
+              property.displayVariant === "rating" &&
+              property.ratingVariant === "slider" && (
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onChangeNumberRatingShowValue(
+                      property.ratingShowValue === false,
+                    )
+                  }
+                >
+                  <KB_PROPERTY_UI_ICONS.showValue className="size-3.5 text-muted-foreground" />
+                  Показывать число
+                  {(property.ratingShowValue ?? true) && (
+                    <Check className="ml-auto size-3.5" />
+                  )}
+                </DropdownMenuItem>
+              )}
             {/* Шкала — только для rating (Stage 5). 3 / 5 / 10. */}
             {property.type === "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <Star className="size-3.5 text-muted-foreground" />
+                  <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
                   Шкала
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[120px]">
@@ -1133,6 +1385,38 @@ function PropertyRow({
             {/* Внешний вид — для checkbox (Чекбокс / Триггер) и rating
              *  (Звёзды / Слайдер). Семантика значения та же; меняется
              *  только рендер. */}
+            {property.type === "number" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ToggleRight className="size-3.5 text-muted-foreground" />
+                  Внешний вид
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[140px]">
+                  {(
+                    [
+                      ["number", "Число"],
+                      ["rating", "Рейтинг"],
+                    ] as const
+                  ).map(([variant, label]) => {
+                    const isCurrent =
+                      (property.displayVariant ?? "number") === variant;
+                    return (
+                      <DropdownMenuItem
+                        key={variant}
+                        onSelect={() =>
+                          onChangeDisplayVariant(
+                            variant === "number" ? undefined : variant,
+                          )
+                        }
+                      >
+                        {label}
+                        {isCurrent && <Check className="ml-auto size-3.5" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
             {property.type === "checkbox" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
@@ -1351,6 +1635,7 @@ export function PropertyValueControl({
         value={property.value}
         max={property.max ?? 5}
         variant={property.displayVariant ?? "stars"}
+        showValue={property.ratingShowValue ?? true}
         canEdit={canEdit}
         onChange={onChangeValue}
       />;
@@ -1878,7 +2163,6 @@ function PropertyIconButton({
         <button
           type="button"
           aria-label="Изменить иконку свойства"
-          title="Иконка"
           className="size-5 shrink-0 inline-flex items-center justify-center rounded
                      hover:bg-accent transition-colors"
         >
@@ -2192,9 +2476,25 @@ function NumberValueControl({
   canEdit: boolean;
   onChangeValue: (value: number | null) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+
+  if (property.displayVariant === "rating") {
+    return (
+      <RatingValueControl
+        value={
+          property.value === null ? null : Math.trunc(property.value)
+        }
+        max={property.max ?? 5}
+        variant={property.ratingVariant ?? "stars"}
+        showValue={property.ratingShowValue ?? true}
+        canEdit={canEdit}
+        onChange={onChangeValue}
+      />
+    );
+  }
+
   const unit: Unit = property.unit ?? { kind: "none" };
   const suffix = unitSuffix(unit);
-  const [editing, setEditing] = useState(false);
 
   const display =
     property.value === null ? "—" : formatWithUnit(property.value, unit);
@@ -2271,12 +2571,14 @@ function RatingValueControl({
   value,
   max,
   variant,
+  showValue = true,
   canEdit,
   onChange,
 }: {
   value: number | null;
   max: number;
   variant: "stars" | "slider";
+  showValue?: boolean;
   canEdit: boolean;
   onChange: (value: number | null) => void;
 }) {
@@ -2305,9 +2607,11 @@ function RatingValueControl({
             canEdit ? "cursor-pointer" : "cursor-default",
           )}
         />
-        <span className="text-[13px] tabular-nums text-muted-foreground min-w-[40px]">
-          {value === null ? "—" : `${value} / ${max}`}
-        </span>
+        {showValue && (
+          <span className="text-[13px] tabular-nums text-muted-foreground min-w-[40px]">
+            {value === null ? "—" : `${value} / ${max}`}
+          </span>
+        )}
       </div>
     );
   }

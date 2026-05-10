@@ -5,24 +5,102 @@ import type {
   KbPropertyColor,
   KbPropertyType,
 } from "@/types/knowledge";
+import type { KbCollectionGrouping } from "./collection-group";
+import type { KbCollectionSort } from "./collection-sort";
 
 export type KbCollectionView = "list" | "table";
+export type KbCollectionViewIcon = string;
+export type KbCollectionViewTabDisplay = "text-icon" | "text" | "icon";
+export type KbCollectionViewLayoutSettings = {
+  showDataSourceTitle: boolean;
+  showVerticalLines: boolean;
+  showPageIcon: boolean;
+  wrapContent: boolean;
+};
+
+export const KB_COLLECTION_DEFAULT_TITLE = "Коллекция";
+
+export const KB_COLLECTION_VIEW_LABELS: Record<KbCollectionView, string> = {
+  list: "Список",
+  table: "Таблица",
+};
 
 export type KbCollectionField = {
   id: string;
   name: string;
   type: KbPropertyType;
+  description?: string;
   icon?: string;
   iconColor?: string;
   options?: string[];
   optionColors?: Partial<Record<string, KbPropertyColor>>;
   displayVariant?: string;
+  ratingVariant?: "stars" | "slider";
+  ratingShowValue?: boolean;
+  collapsed?: boolean;
+  urlCollapsed?: boolean;
   max?: 3 | 5 | 10;
 };
 
 export type KbCollectionSchema = {
   version: 1;
   fields: KbCollectionField[];
+};
+
+export type KbCollection = {
+  id: string;
+  pageId: string;
+  collectionKey: string;
+  title: string;
+  schema: KbCollectionSchema;
+};
+
+export type KbCollectionViewConfig = {
+  id: string;
+  collectionId: string;
+  name: string;
+  description: string;
+  icon: KbCollectionViewIcon;
+  tabDisplay: KbCollectionViewTabDisplay;
+  layoutSettings: KbCollectionViewLayoutSettings;
+  viewType: KbCollectionView;
+  visibleFieldIds: KbCollectionVisibleFieldIds;
+  fieldOrderIds: KbCollectionVisibleFieldIds;
+  columnWidths: KbCollectionColumnWidths;
+  filters: KbCollectionFilter[];
+  sorts: KbCollectionSort[];
+  grouping: KbCollectionGrouping | null;
+  position: number;
+  sourceBlockId?: string | null;
+};
+
+export type KbCollectionFilterOperator =
+  | "is_empty"
+  | "is_not_empty"
+  | "contains"
+  | "not_contains"
+  | "equals"
+  | "not_equals"
+  | "greater_than"
+  | "less_than"
+  | "is_checked"
+  | "is_unchecked";
+
+export type KbCollectionFilter = {
+  id: string;
+  fieldId: string;
+  operator: KbCollectionFilterOperator;
+  value?: string | number | boolean | null;
+};
+
+export type KbCollectionLegacyBlock = {
+  blockId: string;
+  title?: string;
+  view?: KbCollectionView;
+  viewTitle?: string;
+  schemaJson?: string;
+  visibleFieldIdsJson?: string;
+  fieldOrderIdsJson?: string;
 };
 
 export type KbCollectionPropertyContext = {
@@ -38,6 +116,7 @@ export type KbCollectionPropertyContext = {
 };
 
 export type KbCollectionVisibleFieldIds = string[] | null;
+export type KbCollectionColumnWidths = Record<string, number>;
 
 export const KB_COLLECTION_EMPTY_SCHEMA = JSON.stringify({
   version: 1,
@@ -56,6 +135,9 @@ export const KB_COLLECTION_FIELD_TYPES: KbPropertyType[] = [
   "url",
   "rating",
 ];
+
+export const KB_COLLECTION_CREATABLE_FIELD_TYPES: KbPropertyType[] =
+  KB_COLLECTION_FIELD_TYPES.filter((type) => type !== "rating");
 
 export const KB_COLLECTION_FIELD_LABELS: Record<KbPropertyType, string> = {
   text: "Текст",
@@ -77,12 +159,15 @@ export function getPageCollectionId(pageId: string): string {
 }
 
 export function parseCollectionSchemaJson(value: unknown): KbCollectionSchema {
-  if (typeof value !== "string" || value.trim() === "") {
+  if (typeof value === "string" && value.trim() === "") {
     return { version: 1, fields: [] };
   }
 
   try {
-    const raw = JSON.parse(value) as { fields?: unknown };
+    const raw = (
+      typeof value === "string" ? JSON.parse(value) : value
+    ) as { fields?: unknown } | null;
+    if (!raw || typeof raw !== "object") return { version: 1, fields: [] };
     if (!Array.isArray(raw.fields)) return { version: 1, fields: [] };
     return {
       version: 1,
@@ -109,6 +194,9 @@ export function serializeCollectionSchema(
 export function parseVisibleFieldIdsJson(
   value: unknown,
 ): KbCollectionVisibleFieldIds {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
   if (typeof value !== "string" || value.trim() === "") return null;
   try {
     const raw = JSON.parse(value);
@@ -121,6 +209,153 @@ export function parseVisibleFieldIdsJson(
 
 export function serializeVisibleFieldIds(ids: string[] | null): string {
   return ids === null ? KB_COLLECTION_DEFAULT_VISIBLE_FIELDS : JSON.stringify(ids);
+}
+
+export function collectionVisibleFieldIdsToJsonValue(
+  ids: KbCollectionVisibleFieldIds,
+): string[] | null {
+  return ids === null ? null : ids;
+}
+
+export function parseCollectionColumnWidthsJson(
+  value: unknown,
+): KbCollectionColumnWidths {
+  const raw = parseJsonObject(value);
+  const widths: KbCollectionColumnWidths = {};
+  for (const [key, rawWidth] of Object.entries(raw)) {
+    if (typeof rawWidth !== "number" || !Number.isFinite(rawWidth)) continue;
+    widths[key] = Math.min(640, Math.max(96, Math.round(rawWidth)));
+  }
+  return widths;
+}
+
+export function collectionColumnWidthsToJsonValue(
+  widths: KbCollectionColumnWidths,
+): Record<string, number> {
+  return parseCollectionColumnWidthsJson(widths);
+}
+
+export function parseCollectionFiltersJson(value: unknown): KbCollectionFilter[] {
+  const raw = parseJsonArray(value);
+  return raw
+    .map(normalizeCollectionFilter)
+    .filter((filter): filter is KbCollectionFilter => filter !== null);
+}
+
+export function serializeCollectionFilters(filters: KbCollectionFilter[]): string {
+  return JSON.stringify(
+    filters
+      .map(normalizeCollectionFilter)
+      .filter((filter): filter is KbCollectionFilter => filter !== null),
+  );
+}
+
+export function collectionFiltersToJsonValue(
+  filters: KbCollectionFilter[],
+): unknown[] {
+  return JSON.parse(serializeCollectionFilters(filters)) as unknown[];
+}
+
+export function createCollectionFilter(
+  fieldId: string,
+  operator: KbCollectionFilterOperator = "is_not_empty",
+): KbCollectionFilter {
+  return {
+    id: nanoid(8),
+    fieldId,
+    operator,
+  };
+}
+
+export function normalizeCollectionTitle(value: unknown): string {
+  if (typeof value !== "string") return KB_COLLECTION_DEFAULT_TITLE;
+  const title = value.trim();
+  return title || KB_COLLECTION_DEFAULT_TITLE;
+}
+
+export function normalizeCollectionViewType(value: unknown): KbCollectionView {
+  return value === "table" ? "table" : "list";
+}
+
+export function normalizeCollectionViewName(
+  value: unknown,
+  view: KbCollectionView,
+): string {
+  if (typeof value !== "string") return KB_COLLECTION_VIEW_LABELS[view];
+  const title = value.trim();
+  return title || KB_COLLECTION_VIEW_LABELS[view];
+}
+
+export function normalizeCollectionViewDescription(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 280) : "";
+}
+
+export function normalizeCollectionViewIcon(
+  value: unknown,
+  view: KbCollectionView,
+): KbCollectionViewIcon {
+  if (typeof value === "string") {
+    const icon = value.trim().slice(0, 64);
+    if (icon === "table") return "database";
+    if (icon === "list" || icon === "gallery") return "list-checks";
+    if (icon) return icon;
+  }
+  return view === "table" ? "database" : "list-checks";
+}
+
+export function normalizeCollectionViewTabDisplay(
+  value: unknown,
+): KbCollectionViewTabDisplay {
+  if (value === "text" || value === "icon") return value;
+  return "text-icon";
+}
+
+export function createDefaultCollectionViewLayoutSettings(
+  view: KbCollectionView,
+): KbCollectionViewLayoutSettings {
+  return {
+    showDataSourceTitle: true,
+    showVerticalLines: view === "table",
+    showPageIcon: true,
+    wrapContent: false,
+  };
+}
+
+export function parseCollectionViewLayoutSettingsJson(
+  value: unknown,
+  view: KbCollectionView,
+): KbCollectionViewLayoutSettings {
+  const defaults = createDefaultCollectionViewLayoutSettings(view);
+  const raw = parseJsonObject(value);
+  return {
+    showDataSourceTitle:
+      typeof raw.showDataSourceTitle === "boolean"
+        ? raw.showDataSourceTitle
+        : defaults.showDataSourceTitle,
+    showVerticalLines:
+      typeof raw.showVerticalLines === "boolean"
+        ? raw.showVerticalLines
+        : defaults.showVerticalLines,
+    showPageIcon:
+      typeof raw.showPageIcon === "boolean"
+        ? raw.showPageIcon
+        : defaults.showPageIcon,
+    wrapContent:
+      typeof raw.wrapContent === "boolean"
+        ? raw.wrapContent
+        : defaults.wrapContent,
+  };
+}
+
+export function collectionViewLayoutSettingsToJsonValue(
+  settings: KbCollectionViewLayoutSettings,
+): Record<string, boolean> {
+  return {
+    showDataSourceTitle: settings.showDataSourceTitle === true,
+    showVerticalLines: settings.showVerticalLines === true,
+    showPageIcon: settings.showPageIcon === true,
+    wrapContent: settings.wrapContent === true,
+  };
 }
 
 export function createCollectionField(
@@ -144,15 +379,37 @@ export function collectionFieldToProperty(
     id: field.id,
     name: field.name,
     scope: collectionPropertyScope(field, context),
+    ...(field.description ? { description: field.description } : {}),
     ...(field.icon ? { icon: field.icon } : {}),
     ...(field.iconColor ? { iconColor: field.iconColor } : {}),
   };
 
   switch (field.type) {
     case "text":
-      return { ...base, type: "text", value: "" };
+      return {
+        ...base,
+        type: "text",
+        value: "",
+        ...(field.collapsed ? { collapsed: true } : {}),
+      };
     case "number":
-      return { ...base, type: "number", value: null };
+      return {
+        ...base,
+        type: "number",
+        value: null,
+        ...(field.displayVariant === "rating"
+          ? {
+              displayVariant: "rating" as const,
+              ...(field.max ? { max: field.max } : {}),
+              ...(field.ratingVariant === "slider"
+                ? { ratingVariant: "slider" as const }
+                : {}),
+              ...(field.ratingShowValue === false
+                ? { ratingShowValue: false }
+                : {}),
+            }
+          : {}),
+      };
     case "date":
       return { ...base, type: "date", value: null };
     case "checkbox":
@@ -181,13 +438,22 @@ export function collectionFieldToProperty(
         ...(field.optionColors ? { optionColors: field.optionColors } : {}),
       };
     case "url":
-      return { ...base, type: "url", value: "" };
+      return {
+        ...base,
+        type: "url",
+        value: "",
+        ...(field.urlCollapsed ? { urlCollapsed: true } : {}),
+      };
     case "rating":
       return {
         ...base,
         type: "rating",
         value: null,
         ...(field.max ? { max: field.max } : {}),
+        ...(field.ratingVariant === "slider"
+          ? { displayVariant: "slider" as const }
+          : {}),
+        ...(field.ratingShowValue === false ? { ratingShowValue: false } : {}),
       };
   }
 }
@@ -429,17 +695,19 @@ function normalizeCollectionField(value: unknown): KbCollectionField | null {
   if (!KB_COLLECTION_FIELD_TYPES.includes(type as KbPropertyType)) return null;
 
   const name = raw.name.trim();
-  if (!name) return null;
 
   const normalized: KbCollectionField = {
     id:
       typeof raw.id === "string" && raw.id.trim()
         ? raw.id.trim()
-        : fallbackFieldId(`${name}:${type}`),
+        : fallbackFieldId(`${name || type}:${type}`),
     name,
     type: type as KbPropertyType,
   };
 
+  if (typeof raw.description === "string" && raw.description.trim()) {
+    normalized.description = raw.description.trim().slice(0, 280);
+  }
   if (typeof raw.icon === "string" && raw.icon.trim()) {
     normalized.icon = raw.icon.trim();
   }
@@ -458,11 +726,107 @@ function normalizeCollectionField(value: unknown): KbCollectionField | null {
   if (raw.type === "checkbox" && raw.displayVariant === "switch") {
     normalized.displayVariant = "switch";
   }
+  if (raw.type === "number" && raw.displayVariant === "rating") {
+    normalized.displayVariant = "rating";
+    if (raw.ratingVariant === "slider") normalized.ratingVariant = "slider";
+    if (raw.ratingShowValue === false) normalized.ratingShowValue = false;
+  }
+  if (
+    raw.type === "rating" &&
+    (raw.displayVariant === "slider" || raw.ratingVariant === "slider")
+  ) {
+    normalized.ratingVariant = "slider";
+    if (raw.ratingShowValue === false) normalized.ratingShowValue = false;
+  }
+  if (raw.type === "text" && raw.collapsed === true) {
+    normalized.collapsed = true;
+  }
+  if (raw.type === "url" && raw.urlCollapsed === true) {
+    normalized.urlCollapsed = true;
+  }
   if (raw.type === "rating" && (raw.max === 3 || raw.max === 5 || raw.max === 10)) {
+    normalized.max = raw.max;
+  }
+  if (
+    raw.type === "number" &&
+    raw.displayVariant === "rating" &&
+    (raw.max === 3 || raw.max === 5 || raw.max === 10)
+  ) {
     normalized.max = raw.max;
   }
 
   return normalized;
+}
+
+function normalizeCollectionFilter(value: unknown): KbCollectionFilter | null {
+  const raw = value as Partial<KbCollectionFilter> | null;
+  if (!raw || typeof raw.fieldId !== "string" || !raw.fieldId.trim()) {
+    return null;
+  }
+  if (!isCollectionFilterOperator(raw.operator)) return null;
+
+  const filter: KbCollectionFilter = {
+    id:
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : nanoid(8),
+    fieldId: raw.fieldId.trim(),
+    operator: raw.operator,
+  };
+
+  if (
+    raw.value === null ||
+    typeof raw.value === "string" ||
+    typeof raw.value === "number" ||
+    typeof raw.value === "boolean"
+  ) {
+    filter.value = raw.value;
+  }
+
+  return filter;
+}
+
+function isCollectionFilterOperator(
+  value: unknown,
+): value is KbCollectionFilterOperator {
+  return (
+    value === "is_empty" ||
+    value === "is_not_empty" ||
+    value === "contains" ||
+    value === "not_contains" ||
+    value === "equals" ||
+    value === "not_equals" ||
+    value === "greater_than" ||
+    value === "less_than" ||
+    value === "is_checked" ||
+    value === "is_unchecked"
+  );
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || value.trim() === "") return [];
+  try {
+    const raw = JSON.parse(value);
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string" || value.trim() === "") return {};
+  try {
+    const raw = JSON.parse(value);
+    return raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 function collectionFieldFromProperty(property: KbProperty): KbCollectionField | null {
@@ -474,6 +838,7 @@ function collectionFieldFromProperty(property: KbProperty): KbCollectionField | 
     name: property.name,
     type: property.type,
   };
+  if (property.description) field.description = property.description;
   if (property.icon) field.icon = property.icon;
   if (property.iconColor) field.iconColor = property.iconColor;
 
@@ -484,11 +849,31 @@ function collectionFieldFromProperty(property: KbProperty): KbCollectionField | 
   if (property.type === "checkbox" && property.displayVariant === "switch") {
     field.displayVariant = "switch";
   }
+  if (property.type === "number" && property.displayVariant === "rating") {
+    field.displayVariant = "rating";
+    if (property.ratingVariant === "slider") field.ratingVariant = "slider";
+    if (property.ratingShowValue === false) field.ratingShowValue = false;
+    if (property.max === 3 || property.max === 5 || property.max === 10) {
+      field.max = property.max;
+    }
+  }
+  if (property.type === "text" && property.collapsed === true) {
+    field.collapsed = true;
+  }
+  if (property.type === "url" && property.urlCollapsed === true) {
+    field.urlCollapsed = true;
+  }
   if (
     property.type === "rating" &&
     (property.max === 3 || property.max === 5 || property.max === 10)
   ) {
     field.max = property.max;
+  }
+  if (property.type === "rating" && property.displayVariant === "slider") {
+    field.ratingVariant = "slider";
+  }
+  if (property.type === "rating" && property.ratingShowValue === false) {
+    field.ratingShowValue = false;
   }
 
   return normalizeCollectionField(field);
@@ -511,18 +896,44 @@ function mergeCollectionProperty(
   if (property.type !== field.type) return fallback;
 
   switch (property.type) {
-    case "text":
-    case "number":
+    case "text": {
+      const next = withCollectionBase(property, field, context);
+      if (field.collapsed) next.collapsed = true;
+      else delete next.collapsed;
+      return next;
+    }
     case "date":
-    case "url":
       return withCollectionBase(property, field, context);
-    case "checkbox":
-      return {
-        ...withCollectionBase(property, field, context),
-        ...(field.displayVariant === "switch"
-          ? { displayVariant: "switch" as const }
-          : {}),
-      };
+    case "url": {
+      const next = withCollectionBase(property, field, context);
+      if (field.urlCollapsed) next.urlCollapsed = true;
+      else delete next.urlCollapsed;
+      return next;
+    }
+    case "number": {
+      const next = withCollectionBase(property, field, context);
+      if (field.displayVariant === "rating") {
+        next.displayVariant = "rating";
+        if (field.max) next.max = field.max;
+        if (field.ratingVariant === "slider") next.ratingVariant = "slider";
+        else delete next.ratingVariant;
+        if (field.ratingShowValue === false) next.ratingShowValue = false;
+        else delete next.ratingShowValue;
+        delete next.unit;
+      } else {
+        delete next.displayVariant;
+        delete next.max;
+        delete next.ratingVariant;
+        delete next.ratingShowValue;
+      }
+      return next;
+    }
+    case "checkbox": {
+      const next = withCollectionBase(property, field, context);
+      if (field.displayVariant === "switch") next.displayVariant = "switch";
+      else delete next.displayVariant;
+      return next;
+    }
     case "select":
       return {
         ...withCollectionBase(property, field, context),
@@ -535,11 +946,15 @@ function mergeCollectionProperty(
         options: field.options ?? property.options,
         ...(field.optionColors ? { optionColors: field.optionColors } : {}),
       };
-    case "rating":
-      return {
-        ...withCollectionBase(property, field, context),
-        ...(field.max ? { max: field.max } : {}),
-      };
+    case "rating": {
+      const next = withCollectionBase(property, field, context);
+      if (field.max) next.max = field.max;
+      if (field.ratingVariant === "slider") next.displayVariant = "slider";
+      else delete next.displayVariant;
+      if (field.ratingShowValue === false) next.ratingShowValue = false;
+      else delete next.ratingShowValue;
+      return next;
+    }
   }
 }
 
@@ -549,10 +964,16 @@ function withCollectionBase<T extends KbProperty>(
   context: KbCollectionPropertyContext,
 ): T {
   const next = { ...property, id: field.id, name: field.name } as T & {
+    description?: string;
     icon?: string;
     iconColor?: string;
   };
   next.scope = collectionPropertyScope(field, context);
+  if (field.description) {
+    next.description = field.description;
+  } else {
+    delete next.description;
+  }
   if (field.icon) {
     next.icon = field.icon;
   } else {

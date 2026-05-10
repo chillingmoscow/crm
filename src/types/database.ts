@@ -1266,6 +1266,140 @@ export type Database = {
           },
         ]
       }
+      kb_collection_views: {
+        Row: {
+          account_id: string
+          column_widths_json: Json
+          collection_id: string
+          created_at: string
+          created_by: string | null
+          description: string
+          field_order_ids: Json | null
+          filters_json: Json
+          grouping_json: Json
+          icon: string | null
+          layout_settings_json: Json
+          sorts_json: Json
+          id: string
+          name: string
+          position: number
+          source_block_id: string | null
+          tab_display: string
+          updated_at: string | null
+          updated_by: string | null
+          view_type: string
+          visible_field_ids: Json | null
+        }
+        Insert: {
+          account_id: string
+          column_widths_json?: Json
+          collection_id: string
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          field_order_ids?: Json | null
+          filters_json?: Json
+          grouping_json?: Json
+          icon?: string | null
+          layout_settings_json?: Json
+          sorts_json?: Json
+          id?: string
+          name?: string
+          position?: number
+          source_block_id?: string | null
+          tab_display?: string
+          updated_at?: string | null
+          updated_by?: string | null
+          view_type?: string
+          visible_field_ids?: Json | null
+        }
+        Update: {
+          account_id?: string
+          column_widths_json?: Json
+          collection_id?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          field_order_ids?: Json | null
+          filters_json?: Json
+          grouping_json?: Json
+          icon?: string | null
+          layout_settings_json?: Json
+          sorts_json?: Json
+          id?: string
+          name?: string
+          position?: number
+          source_block_id?: string | null
+          tab_display?: string
+          updated_at?: string | null
+          updated_by?: string | null
+          view_type?: string
+          visible_field_ids?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_collection_views_collection_tenant_fkey"
+            columns: ["account_id", "collection_id"]
+            isOneToOne: false
+            referencedRelation: "kb_collections"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
+      kb_collections: {
+        Row: {
+          account_id: string
+          collection_key: string
+          created_at: string
+          created_by: string | null
+          id: string
+          page_id: string
+          schema_json: Json
+          title: string
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          collection_key: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          page_id: string
+          schema_json?: Json
+          title?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          collection_key?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          page_id?: string
+          schema_json?: Json
+          title?: string
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kb_collections_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kb_collections_page_tenant_fkey"
+            columns: ["account_id", "page_id"]
+            isOneToOne: false
+            referencedRelation: "kb_pages"
+            referencedColumns: ["account_id", "id"]
+          },
+        ]
+      }
       kb_pages: {
         Row: {
           account_id: string

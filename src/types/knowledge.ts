@@ -90,6 +90,10 @@ interface KbPropertyIconOverride {
   iconColor?: string;
 }
 
+interface KbPropertyMetadata {
+  description?: string;
+}
+
 export type KbPropertyScope =
   | { type: "page" }
   | {
@@ -115,17 +119,28 @@ export type KbProperty =
        *  (полное multi-line). Stage 3 polish — toggle в ⋯ menu. */
       collapsed?: boolean;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
       name: string;
       type: "number";
       value: number | null;
+      /** Визуальный variant. Default/undefined = обычное число,
+       *  `rating` = целочисленный рейтинг от 0 до max. */
+      displayVariant?: "number" | "rating";
+      /** Шкала для displayVariant=rating. По дефолту 5. */
+      max?: number;
+      /** Отображение rating-вида числа: звёзды или слайдер. */
+      ratingVariant?: "stars" | "slider";
+      /** Показывать подпись значения рядом со слайдером рейтинга. */
+      ratingShowValue?: boolean;
       /** Единица измерения (Stage 4). Default отсутствие = `kind: "none"`
        *  (просто число). Discriminated union из shared-слоя
        *  `src/lib/units/`. Хранится в jsonb как-есть. */
       unit?: Unit;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -133,6 +148,7 @@ export type KbProperty =
       type: "date";
       value: string | null; // ISO yyyy-mm-dd
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -145,6 +161,7 @@ export type KbProperty =
        *  показывает дефолтный чекбокс. */
       displayVariant?: "checkbox" | "switch";
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -156,6 +173,7 @@ export type KbProperty =
        *  Если опции нет в map'е — fallback на hash-derived цвет. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -166,6 +184,7 @@ export type KbProperty =
       /** Тот же mapping что у select, переиспользуется. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -177,6 +196,7 @@ export type KbProperty =
        *  показывать как есть. */
       urlCollapsed?: boolean;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -190,7 +210,9 @@ export type KbProperty =
        *  range-input от 0 до max. Семантика та же (число), меняется
        *  только рендер. Rollback-safe. */
       displayVariant?: "stars" | "slider";
+      ratingShowValue?: boolean;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────

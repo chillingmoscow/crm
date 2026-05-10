@@ -59,7 +59,8 @@ export const kbSearchSchema = z.object({
 
 const kbPropertyBase = {
   id: z.string().min(1).max(32),
-  name: z.string().trim().min(1).max(80),
+  name: z.string().trim().max(80),
+  description: z.string().trim().max(280).optional(),
   // Logical ownership. Missing scope is legacy page-local.
   scope: z
     .discriminatedUnion("type", [
@@ -149,6 +150,10 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     type: z.literal("number"),
     value: z.number().nullable(),
     unit: unitSchema.optional(),
+    displayVariant: z.enum(["number", "rating"]).optional(),
+    ratingVariant: z.enum(["stars", "slider"]).optional(),
+    ratingShowValue: z.boolean().optional(),
+    max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
   }),
   z.object({
     ...kbPropertyBase,
@@ -194,6 +199,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     // произвольный max и получить inconsistent data (Codex P2 на #144).
     max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
     displayVariant: z.enum(["stars", "slider"]).optional(),
+    ratingShowValue: z.boolean().optional(),
   }),
 ]).superRefine((p, ctx) => {
   // Cross-field invariant для rating: `value` не может превышать `max`.
@@ -201,7 +207,8 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
   // через `.superRefine` на discriminated-union'е (а не `.refine`
   // внутри option'а) — иначе ZodEffects ломает type-resolution union'а.
   if (
-    p.type === "rating" &&
+    (p.type === "rating" ||
+      (p.type === "number" && p.displayVariant === "rating")) &&
     p.value !== null &&
     p.value > (p.max ?? 5)
   ) {

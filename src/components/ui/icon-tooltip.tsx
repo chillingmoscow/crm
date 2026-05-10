@@ -24,10 +24,12 @@ import {
  */
 export function IconTooltip({
   label,
+  description,
   children,
   side = "bottom",
 }: {
   label: string;
+  description?: string;
   children: ReactNode;
   side?: "top" | "right" | "bottom" | "left";
 }) {
@@ -35,7 +37,14 @@ export function IconTooltip({
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
       <TooltipContent side={side} sideOffset={6} className="text-xs px-2 py-1">
-        {label}
+        <div className="grid gap-0.5">
+          <strong className="font-semibold leading-tight">{label}</strong>
+          {description && (
+            <span className="text-muted-foreground leading-tight">
+              {description}
+            </span>
+          )}
+        </div>
       </TooltipContent>
     </Tooltip>
   );

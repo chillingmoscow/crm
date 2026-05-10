@@ -362,6 +362,7 @@ function getKbCollectionSlashItem(
           schemaJson: KB_COLLECTION_EMPTY_SCHEMA,
           visibleFieldIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
           fieldOrderIdsJson: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+          viewId: "",
         },
       } as never);
     },

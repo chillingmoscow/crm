@@ -25,6 +25,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronRight,
+  Copy,
   Database,
   Eye,
   EyeOff,
@@ -57,12 +58,20 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import {
+  createKbCollectionView,
   createKbCollectionRecord,
+  deleteKbCollectionView,
+  duplicateKbCollectionView,
+  getOrCreateKbPageCollection,
   listKbCollectionItems,
   syncKbCollectionRecords,
+  updateKbCollection,
+  updateKbCollectionView,
+  type KbCollectionState,
   type KbCollectionItem,
 } from "@/lib/knowledge/collection-actions";
 import {
+  KB_COLLECTION_DEFAULT_TITLE,
   createCollectionField,
   collectionFieldToProperty,
   findPropertyForCollectionField,
@@ -73,14 +82,20 @@ import {
   KB_COLLECTION_EMPTY_SCHEMA,
   KB_COLLECTION_FIELD_LABELS,
   KB_COLLECTION_FIELD_TYPES,
+  KB_COLLECTION_VIEW_LABELS,
+  normalizeCollectionTitle,
+  normalizeCollectionViewName,
+  normalizeCollectionViewType,
   parseCollectionSchemaJson,
   parseVisibleFieldIdsJson,
   serializeCollectionSchema,
   serializeVisibleFieldIds,
   setCollectionFieldPropertyValue,
   type KbCollectionField,
+  type KbCollectionLegacyBlock,
   type KbCollectionSchema,
   type KbCollectionView,
+  type KbCollectionViewConfig,
   type KbCollectionVisibleFieldIds,
 } from "@/lib/knowledge/collection";
 import { saveKbPageProperties } from "@/lib/knowledge/properties";
@@ -141,6 +156,10 @@ const collectionBlockConfig = {
       default: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
       type: "string" as const,
     },
+    viewId: {
+      default: "",
+      type: "string" as const,
+    },
   },
   content: "none" as const,
 };
@@ -163,13 +182,7 @@ const FIELD_ICONS: Record<
   rating: Star,
 };
 
-const COLLECTION_VIEW_LABELS: Record<KbCollectionView, string> = {
-  list: "Галерея",
-  table: "Таблица",
-};
-
 const SAVE_CELL_DEBOUNCE_MS = 650;
-const DEFAULT_COLLECTION_TITLE = "Коллекция";
 type FieldDropPlacement = "before" | "after";
 
 type CollectionDocumentBlock = {
@@ -179,49 +192,70 @@ type CollectionDocumentBlock = {
   children?: CollectionDocumentBlock[];
 };
 
-type SharedCollectionProps = Partial<{
-  title: string;
-  collectionId: string;
-  schemaJson: string;
-}>;
-
 function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const router = useRouter();
   const runtime = useContext(KbCollectionRuntimeContext);
   const editable = editor.isEditable;
   const canCreate = editable && runtime.canCreatePages && Boolean(runtime.pageId);
   const [items, setItems] = useState<KbCollectionItem[]>([]);
+  const [collectionState, setCollectionState] =
+    useState<KbCollectionState | null>(null);
   const [loading, setLoading] = useState(false);
+  const [collectionLoading, setCollectionLoading] = useState(false);
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [renamingTitle, setRenamingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(DEFAULT_COLLECTION_TITLE);
+  const [titleDraft, setTitleDraft] = useState(KB_COLLECTION_DEFAULT_TITLE);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
   const blockRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const itemsRef = useRef<KbCollectionItem[]>([]);
   const cancelTitleRenameRef = useRef(false);
   const saveTimersRef = useRef<Map<string, number>>(new Map());
-  const collectionId = runtime.pageId
+  const legacyCollectionId = runtime.pageId
     ? getPageCollectionId(runtime.pageId)
     : block.props.collectionId || block.id;
-  const collectionTitle = normalizeCollectionTitle(block.props.title);
-  const view: KbCollectionView =
-    block.props.view === "table" ? "table" : "list";
-  const viewTitle = normalizeCollectionViewTitle(block.props.viewTitle, view);
+  const legacyCollectionTitle = normalizeCollectionTitle(block.props.title);
+  const legacyView = normalizeCollectionViewType(block.props.view);
+  const legacyViewTitle = normalizeCollectionViewName(
+    block.props.viewTitle,
+    legacyView,
+  );
+  const activeView =
+    collectionState?.views.find(
+      (item) => item.id === collectionState.activeViewId,
+    ) ??
+    collectionState?.views[0] ??
+    null;
+  const collectionId =
+    collectionState?.collection.collectionKey ?? legacyCollectionId;
+  const collectionTitle =
+    collectionState?.collection.title ?? legacyCollectionTitle;
+  const dbCollectionId = collectionState?.collection.id ?? null;
+  const view: KbCollectionView = activeView?.viewType ?? legacyView;
+  const viewTitle = activeView?.name ?? legacyViewTitle;
+  const ActiveViewIcon = view === "table" ? Table2 : GalleryHorizontalEnd;
 
   const schema = useMemo(
-    () => parseCollectionSchemaJson(block.props.schemaJson),
-    [block.props.schemaJson],
+    () =>
+      collectionState?.collection.schema ??
+      parseCollectionSchemaJson(block.props.schemaJson),
+    [block.props.schemaJson, collectionState?.collection.schema],
   );
   const visibleFieldIds = useMemo(
-    () => parseVisibleFieldIdsJson(block.props.visibleFieldIdsJson),
-    [block.props.visibleFieldIdsJson],
+    () =>
+      activeView
+        ? activeView.visibleFieldIds
+        : parseVisibleFieldIdsJson(block.props.visibleFieldIdsJson),
+    [activeView, block.props.visibleFieldIdsJson],
   );
   const fieldOrderIds = useMemo(
-    () => parseVisibleFieldIdsJson(block.props.fieldOrderIdsJson),
-    [block.props.fieldOrderIdsJson],
+    () =>
+      activeView
+        ? activeView.fieldOrderIds
+        : parseVisibleFieldIdsJson(block.props.fieldOrderIdsJson),
+    [activeView, block.props.fieldOrderIdsJson],
   );
   const orderedFields = useMemo(
     () => orderCollectionFields(schema.fields, fieldOrderIds),
@@ -309,16 +343,71 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   }, [renamingTitle]);
 
   useEffect(() => {
+    if (!runtime.pageId) {
+      setCollectionState(null);
+      return;
+    }
+
+    let cancelled = false;
+    setCollectionLoading(true);
+    const legacyBlocks = buildLegacyCollectionBlocks(editor);
+    void getOrCreateKbPageCollection({
+      pageId: runtime.pageId,
+      blockId: block.id,
+      preferredViewId: block.props.viewId || null,
+      legacyBlocks,
+    }).then((result) => {
+      if (cancelled) return;
+      setCollectionLoading(false);
+      if (result.error || !result.state) {
+        if (editable) {
+          toast.error(
+            `Не удалось загрузить настройки коллекции: ${result.error}`,
+          );
+        }
+        return;
+      }
+
+      setCollectionState(result.state);
+      const nextProps: Record<string, string> = {};
+      if (block.props.collectionId !== result.state.collection.collectionKey) {
+        nextProps.collectionId = result.state.collection.collectionKey;
+      }
+      if (block.props.viewId !== result.state.activeViewId) {
+        nextProps.viewId = result.state.activeViewId;
+      }
+      if (Object.keys(nextProps).length > 0 && editable) {
+        editor.updateBlock(block.id, { props: nextProps } as never);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    block.id,
+    block.props.collectionId,
+    block.props.viewId,
+    editable,
+    editor,
+    runtime.pageId,
+  ]);
+
+  useEffect(() => {
     if (!editable || !runtime.pageId || !itemsLoaded) return;
     if (schema.fields.length === 0 && inferredSchema.fields.length > 0) return;
+    if (!dbCollectionId && collectionState !== null) return;
 
-    const schemaJson = serializeCollectionSchema(schema);
     const timer = window.setTimeout(() => {
       void syncKbCollectionRecords({
         parentPageId: runtime.pageId!,
-        schemaJson,
-        collectionId,
-        collectionTitle,
+        ...(dbCollectionId
+          ? { collectionDbId: dbCollectionId }
+          : {
+              schemaJson: serializeCollectionSchema(schema),
+              collectionId,
+              collectionTitle,
+            }),
       }).then((result) => {
         const error = result?.error ?? null;
         if (error) {
@@ -329,9 +418,10 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
 
     return () => window.clearTimeout(timer);
   }, [
-    block.props.schemaJson,
     collectionId,
     collectionTitle,
+    collectionState,
+    dbCollectionId,
     editable,
     inferredSchema.fields.length,
     itemsLoaded,
@@ -340,63 +430,132 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   ]);
 
   const updateSchema = (nextSchema: KbCollectionSchema) => {
-    updateSharedCollectionProps({
+    if (!dbCollectionId) {
+      editor.updateBlock(block.id, {
+        props: { schemaJson: serializeCollectionSchema(nextSchema) },
+      } as never);
+      return;
+    }
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            collection: { ...current.collection, schema: nextSchema },
+          }
+        : current,
+    );
+    void updateKbCollection({
+      collectionId: dbCollectionId,
       schemaJson: serializeCollectionSchema(nextSchema),
+    }).then((result) => {
+      if (result.error || !result.collection) {
+        toast.error(`Не удалось сохранить схему: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? { ...current, collection: result.collection! }
+          : current,
+      );
+      if (runtime.pageId) {
+        void syncKbCollectionRecords({
+          parentPageId: runtime.pageId,
+          collectionDbId: result.collection.id,
+        }).then(({ error }) => {
+          if (error) toast.error(`Не удалось применить поля: ${error}`);
+        });
+      }
     });
   };
 
   const updateVisibleFieldIds = useCallback(
     (next: KbCollectionVisibleFieldIds) => {
-      editor.updateBlock(block.id, {
-        props: { visibleFieldIdsJson: serializeVisibleFieldIds(next) },
-      } as never);
+      if (!activeView) {
+        editor.updateBlock(block.id, {
+          props: { visibleFieldIdsJson: serializeVisibleFieldIds(next) },
+        } as never);
+        return;
+      }
+      const viewId = activeView.id;
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === viewId ? { ...item, visibleFieldIds: next } : item,
+              ),
+            }
+          : current,
+      );
+      void updateKbCollectionView({
+        viewId,
+        visibleFieldIds: next,
+      }).then((result) => {
+        if (result.error || !result.view) {
+          toast.error(`Не удалось сохранить видимость полей: ${result.error}`);
+          return;
+        }
+        setCollectionState((current) =>
+          current
+            ? {
+                ...current,
+                views: current.views.map((item) =>
+                  item.id === result.view!.id ? result.view! : item,
+                ),
+              }
+            : current,
+        );
+      });
     },
-    [block.id, editor],
+    [activeView, block.id, editor],
   );
 
   const updateFieldOrderIds = useCallback(
     (next: string[] | null) => {
-      editor.updateBlock(block.id, {
-        props: { fieldOrderIdsJson: serializeVisibleFieldIds(next) },
-      } as never);
-    },
-    [block.id, editor],
-  );
-
-  const updateSharedCollectionProps = useCallback(
-    (patch: SharedCollectionProps) => {
-      const blocks = getDocumentCollectionBlocks(editor);
-      const targetIds = blocks.length > 0 ? blocks.map((item) => item.id) : [block.id];
-
-      for (const targetId of targetIds) {
-        editor.updateBlock(targetId, { props: patch } as never);
+      if (!activeView) {
+        editor.updateBlock(block.id, {
+          props: { fieldOrderIdsJson: serializeVisibleFieldIds(next) },
+        } as never);
+        return;
       }
+      const viewId = activeView.id;
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === viewId ? { ...item, fieldOrderIds: next } : item,
+              ),
+            }
+          : current,
+      );
+      void updateKbCollectionView({
+        viewId,
+        fieldOrderIds: next,
+      }).then((result) => {
+        if (result.error || !result.view) {
+          toast.error(`Не удалось сохранить порядок полей: ${result.error}`);
+          return;
+        }
+        setCollectionState((current) =>
+          current
+            ? {
+                ...current,
+                views: current.views.map((item) =>
+                  item.id === result.view!.id ? result.view! : item,
+                ),
+              }
+            : current,
+        );
+      });
     },
-    [block.id, editor],
+    [activeView, block.id, editor],
   );
-
-  useEffect(() => {
-    if (!editable || !runtime.pageId) return;
-    const blocks = getDocumentCollectionBlocks(editor);
-    const needsSync =
-      blocks.length === 0 ||
-      blocks.some((item) => item.props?.collectionId !== collectionId);
-    if (!needsSync) return;
-    updateSharedCollectionProps({ collectionId });
-  }, [
-    collectionId,
-    editable,
-    editor,
-    runtime.pageId,
-    updateSharedCollectionProps,
-  ]);
 
   useEffect(() => {
     if (!editable || !itemsLoaded || schema.fields.length > 0) return;
     if (inferredSchema.fields.length === 0) return;
-    updateSharedCollectionProps({
-      schemaJson: serializeCollectionSchema(inferredSchema),
-    });
+    updateSchema(inferredSchema);
     if (visibleFieldIds !== null) {
       updateVisibleFieldIds(inferredSchema.fields.map((field) => field.id));
     }
@@ -410,64 +569,122 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     itemsLoaded,
     schema.fields.length,
     updateFieldOrderIds,
-    updateSharedCollectionProps,
     updateVisibleFieldIds,
     visibleFieldIds,
   ]);
 
-  useEffect(() => {
-    if (!editable || !runtime.pageId) return;
-    const blocks = getDocumentCollectionBlocks(editor);
-    if (blocks.length < 2) return;
-
-    const currentSchemaJson = serializeCollectionSchema(schema);
-    const bestSchemaJson = pickCanonicalCollectionSchemaJson(
-      blocks,
-      currentSchemaJson,
+  const updateViewType = (nextView: KbCollectionView) => {
+    if (nextView === view || !activeView) return;
+    const nextName =
+      viewTitle === KB_COLLECTION_VIEW_LABELS[view]
+        ? KB_COLLECTION_VIEW_LABELS[nextView]
+        : viewTitle;
+    const viewId = activeView.id;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId
+                ? { ...item, viewType: nextView, name: nextName }
+                : item,
+            ),
+          }
+        : current,
     );
-    if (bestSchemaJson !== currentSchemaJson) {
-      updateSharedCollectionProps({ schemaJson: bestSchemaJson });
-      return;
-    }
-
-    const bestTitle = pickCanonicalCollectionTitle(blocks, collectionTitle);
-    if (bestTitle !== collectionTitle) {
-      updateSharedCollectionProps({ title: bestTitle });
-    }
-  }, [
-    collectionTitle,
-    editable,
-    editor,
-    runtime.pageId,
-    schema,
-    updateSharedCollectionProps,
-  ]);
-
-  const updateView = (nextView: KbCollectionView) => {
-    if (nextView === view) return;
-    const nextProps: { view: KbCollectionView; viewTitle?: string } = {
-      view: nextView,
-    };
-    if (viewTitle === COLLECTION_VIEW_LABELS[view]) {
-      nextProps.viewTitle = COLLECTION_VIEW_LABELS[nextView];
-    }
-    editor.updateBlock(block.id, {
-      props: nextProps,
-    } as never);
+    void updateKbCollectionView({
+      viewId,
+      viewType: nextView,
+      name: nextName,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось изменить тип вида: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
   };
 
   const updateViewTitle = (nextTitle: string) => {
-    const title = normalizeCollectionViewTitle(nextTitle, view);
-    editor.updateBlock(block.id, {
-      props: { viewTitle: title },
-    } as never);
+    if (!activeView) return;
+    const title = normalizeCollectionViewName(nextTitle, view);
+    const viewId = activeView.id;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, name: title } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      viewType: view,
+      name: title,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось переименовать вид: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
   };
 
   const renameCollection = (nextTitle: string) => {
     const title = normalizeCollectionTitle(nextTitle);
     setTitleDraft(title);
     if (title === collectionTitle) return;
-    updateSharedCollectionProps({ title });
+    if (!dbCollectionId) {
+      editor.updateBlock(block.id, { props: { title } } as never);
+      return;
+    }
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            collection: { ...current.collection, title },
+          }
+        : current,
+    );
+    void updateKbCollection({ collectionId: dbCollectionId, title }).then(
+      (result) => {
+        if (result.error || !result.collection) {
+          toast.error(`Не удалось переименовать коллекцию: ${result.error}`);
+          return;
+        }
+        setCollectionState((current) =>
+          current ? { ...current, collection: result.collection! } : current,
+        );
+        if (runtime.pageId) {
+          void syncKbCollectionRecords({
+            parentPageId: runtime.pageId,
+            collectionDbId: result.collection.id,
+          }).then(({ error }) => {
+            if (error) toast.error(`Не удалось применить название: ${error}`);
+          });
+        }
+      },
+    );
   };
 
   const commitTitleRename = (nextTitle = titleDraft) => {
@@ -590,9 +807,13 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     setCreating(true);
     const result = await createKbCollectionRecord({
       parentPageId: runtime.pageId,
-      schemaJson: serializeCollectionSchema(schema),
-      collectionId,
-      collectionTitle,
+      ...(dbCollectionId
+        ? { collectionDbId: dbCollectionId }
+        : {
+            schemaJson: serializeCollectionSchema(schema),
+            collectionId,
+            collectionTitle,
+          }),
     });
     setCreating(false);
     const slug = result?.slug ?? null;
@@ -652,6 +873,78 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     }
   };
 
+  const switchView = (viewId: string) => {
+    if (!collectionState?.views.some((item) => item.id === viewId)) return;
+    setCollectionState((current) =>
+      current ? { ...current, activeViewId: viewId } : current,
+    );
+    if (editable) {
+      editor.updateBlock(block.id, { props: { viewId } } as never);
+    }
+  };
+
+  const createView = async (viewType: KbCollectionView) => {
+    if (!dbCollectionId) return;
+    const result = await createKbCollectionView({
+      collectionId: dbCollectionId,
+      viewType,
+    });
+    if (result.error || !result.view) {
+      toast.error(`Не удалось создать вид: ${result.error}`);
+      return;
+    }
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: [...current.views, result.view!],
+            activeViewId: result.view!.id,
+          }
+        : current,
+    );
+    editor.updateBlock(block.id, { props: { viewId: result.view.id } } as never);
+  };
+
+  const duplicateView = async (viewId: string) => {
+    const result = await duplicateKbCollectionView({ viewId });
+    if (result.error || !result.view) {
+      toast.error(`Не удалось дублировать вид: ${result.error}`);
+      return;
+    }
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: [...current.views, result.view!],
+            activeViewId: result.view!.id,
+          }
+        : current,
+    );
+    editor.updateBlock(block.id, { props: { viewId: result.view.id } } as never);
+  };
+
+  const deleteView = async (viewId: string) => {
+    const result = await deleteKbCollectionView({ viewId });
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: result.views,
+            activeViewId: result.activeViewId ?? current.activeViewId,
+          }
+        : current,
+    );
+    if (result.activeViewId) {
+      editor.updateBlock(block.id, {
+        props: { viewId: result.activeViewId },
+      } as never);
+    }
+  };
+
   const blockStyle = (
     previewWidth
       ? { "--kb-collection-preview-width": `${previewWidth}px` }
@@ -670,7 +963,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     >
       <div className="kb-collection-header">
         <div className="kb-collection-title">
-          <Database className="size-4 text-brand" />
+          <ActiveViewIcon className="size-4 text-brand" />
           {renamingTitle ? (
             <Input
               ref={titleInputRef}
@@ -713,7 +1006,6 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               {collectionTitle}
             </button>
           )}
-          <span className="kb-collection-view-name">{viewTitle}</span>
           <span className="kb-collection-count">{items.length}</span>
         </div>
         {editable && (
@@ -747,10 +1039,16 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   viewTitle={viewTitle}
                   fields={orderedFields}
                   view={view}
+                  views={collectionState?.views ?? []}
+                  activeViewId={collectionState?.activeViewId ?? null}
                   visibleFieldIds={visibleFieldIds}
                   onRename={renameCollection}
                   onRenameView={updateViewTitle}
-                  onChangeView={updateView}
+                  onChangeViewType={updateViewType}
+                  onSwitchView={switchView}
+                  onCreateView={createView}
+                  onDuplicateView={duplicateView}
+                  onDeleteView={deleteView}
                   onAddField={addField}
                   onUpdateField={updateField}
                   onRemoveField={removeField}
@@ -782,7 +1080,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
         )}
       </div>
 
-      {loading ? (
+      {loading || collectionLoading ? (
         <div className="kb-collection-state">
           <Loader2 className="size-4 animate-spin" />
           Загружаем записи
@@ -838,7 +1136,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   );
 }
 
-function CollectionViewOptions({
+function CollectionLayoutOptions({
   view,
   onChange,
 }: {
@@ -846,15 +1144,19 @@ function CollectionViewOptions({
   onChange: (view: KbCollectionView) => void;
 }) {
   return (
-    <div className="kb-collection-view-options" role="group" aria-label="Вид">
-      {(["list", "table"] as const).map((nextView) => {
+    <div
+      className="kb-collection-layout-grid"
+      role="group"
+      aria-label="Layout"
+    >
+      {(["table", "list"] as const).map((nextView) => {
         const active = view === nextView;
-        const Icon = nextView === "list" ? GalleryHorizontalEnd : Table2;
+        const Icon = nextView === "table" ? Table2 : GalleryHorizontalEnd;
         return (
           <button
             key={nextView}
             type="button"
-            className="kb-collection-view-card"
+            className="kb-collection-layout-card"
             data-active={active || undefined}
             aria-pressed={active}
             onPointerDown={stopBlockInteraction}
@@ -865,10 +1167,80 @@ function CollectionViewOptions({
             }}
           >
             <Icon className="size-5" />
-            <span>{COLLECTION_VIEW_LABELS[nextView]}</span>
+            <span>{KB_COLLECTION_VIEW_LABELS[nextView]}</span>
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function CollectionViewsEditor({
+  views,
+  activeViewId,
+  onSwitchView,
+  onCreateView,
+}: {
+  views: KbCollectionViewConfig[];
+  activeViewId: string | null;
+  onSwitchView: (viewId: string) => void;
+  onCreateView: (view: KbCollectionView) => void;
+}) {
+  return (
+    <div className="kb-collection-views-editor">
+      <div className="kb-collection-view-list">
+        {views.map((view) => {
+          const Icon = view.viewType === "table" ? Table2 : GalleryHorizontalEnd;
+          const active = view.id === activeViewId;
+          return (
+            <button
+              key={view.id}
+              type="button"
+              className="kb-collection-view-row"
+              data-active={active || undefined}
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onSwitchView(view.id);
+              }}
+            >
+              <Icon className="size-4" />
+              <span>{view.name}</span>
+              <span className="kb-collection-settings-row-value">
+                {KB_COLLECTION_VIEW_LABELS[view.viewType]}
+              </span>
+              {active && <Check className="size-4" />}
+            </button>
+          );
+        })}
+      </div>
+      <div className="kb-collection-column-menu-separator" />
+      <div className="kb-collection-view-list">
+        {(["list", "table"] as const).map((viewType) => {
+          const Icon = viewType === "table" ? Table2 : GalleryHorizontalEnd;
+          return (
+            <button
+              key={viewType}
+              type="button"
+              className="kb-collection-view-row"
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onCreateView(viewType);
+              }}
+            >
+              <Plus className="size-4" />
+              <span>Создать {KB_COLLECTION_VIEW_LABELS[viewType].toLowerCase()}</span>
+              <span className="kb-collection-settings-row-value">
+                <Icon className="size-4" />
+              </span>
+              <span />
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1541,10 +1913,16 @@ function CollectionSettings({
   viewTitle,
   fields,
   view,
+  views,
+  activeViewId,
   visibleFieldIds,
   onRename,
   onRenameView,
-  onChangeView,
+  onChangeViewType,
+  onSwitchView,
+  onCreateView,
+  onDuplicateView,
+  onDeleteView,
   onAddField,
   onUpdateField,
   onRemoveField,
@@ -1555,10 +1933,16 @@ function CollectionSettings({
   viewTitle: string;
   fields: KbCollectionField[];
   view: KbCollectionView;
+  views: KbCollectionViewConfig[];
+  activeViewId: string | null;
   visibleFieldIds: KbCollectionVisibleFieldIds;
   onRename: (title: string) => void;
   onRenameView: (title: string) => void;
-  onChangeView: (view: KbCollectionView) => void;
+  onChangeViewType: (view: KbCollectionView) => void;
+  onSwitchView: (viewId: string) => void;
+  onCreateView: (view: KbCollectionView) => void;
+  onDuplicateView: (viewId: string) => void;
+  onDeleteView: (viewId: string) => void;
   onAddField: (type: KbPropertyType) => void;
   onUpdateField: (id: string, patch: Partial<KbCollectionField>) => void;
   onRemoveField: (id: string) => void;
@@ -1569,7 +1953,9 @@ function CollectionSettings({
   ) => void;
   onSetFieldVisible: (id: string, visible: boolean) => void;
 }) {
-  const [panel, setPanel] = useState<"root" | "view" | "properties">("root");
+  const [panel, setPanel] = useState<
+    "root" | "view" | "layout" | "views" | "properties"
+  >("root");
   const [titleDraft, setTitleDraft] = useState(title);
   const [viewTitleDraft, setViewTitleDraft] = useState(viewTitle);
   const skipTitleCommitRef = useRef(false);
@@ -1601,16 +1987,132 @@ function CollectionSettings({
       skipViewTitleCommitRef.current = false;
       return;
     }
-    const nextTitle = normalizeCollectionViewTitle(value, view);
+    const nextTitle = normalizeCollectionViewName(value, view);
     setViewTitleDraft(nextTitle);
     onRenameView(nextTitle);
   };
 
   if (panel === "view") {
+    const ViewIcon = view === "table" ? Table2 : GalleryHorizontalEnd;
     return (
       <div className="kb-collection-settings-panel">
         <SettingsPanelHeader title="Вид" onBack={() => setPanel("root")} />
-        <CollectionViewOptions view={view} onChange={onChangeView} />
+        <div className="kb-collection-settings-name-row">
+          <ViewIcon className="size-4" />
+          <Input
+            value={viewTitleDraft}
+            className="kb-collection-settings-name-input"
+            aria-label="Название вида"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={stopBlockInteraction}
+            onChange={(event) => setViewTitleDraft(event.currentTarget.value)}
+            onBlur={(event) => commitViewTitle(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitViewTitle(event.currentTarget.value);
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                skipViewTitleCommitRef.current = true;
+                setViewTitleDraft(viewTitle);
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </div>
+        <div className="kb-collection-settings-root-list">
+          <button
+            type="button"
+            className="kb-collection-settings-nav-row"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("layout");
+            }}
+          >
+            <ViewIcon className="size-4" />
+            <span>Layout</span>
+            <span className="kb-collection-settings-row-value">
+              {KB_COLLECTION_VIEW_LABELS[view]}
+            </span>
+            <ChevronRight className="size-4" />
+          </button>
+          <button
+            type="button"
+            className="kb-collection-settings-nav-row"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("views");
+            }}
+          >
+            <ListChecks className="size-4" />
+            <span>Все виды</span>
+            <span className="kb-collection-settings-row-value">
+              {views.length}
+            </span>
+            <ChevronRight className="size-4" />
+          </button>
+          {activeViewId && (
+            <>
+              <button
+                type="button"
+                className="kb-collection-settings-nav-row"
+                onClick={(event) => {
+                  stopBlockMenuAction(event);
+                  onDuplicateView(activeViewId);
+                }}
+              >
+                <Copy className="size-4" />
+                <span>Дублировать вид</span>
+                <span />
+                <span />
+              </button>
+              <button
+                type="button"
+                className="kb-collection-settings-nav-row text-destructive"
+                disabled={views.length <= 1}
+                onClick={(event) => {
+                  stopBlockMenuAction(event);
+                  onDeleteView(activeViewId);
+                }}
+              >
+                <Trash2 className="size-4" />
+                <span>Удалить вид</span>
+                <span />
+                <span />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (panel === "layout") {
+    return (
+      <div className="kb-collection-settings-panel">
+        <SettingsPanelHeader title="Layout" onBack={() => setPanel("view")} />
+        <CollectionLayoutOptions view={view} onChange={onChangeViewType} />
+      </div>
+    );
+  }
+
+  if (panel === "views") {
+    return (
+      <div className="kb-collection-settings-panel">
+        <SettingsPanelHeader title="Все виды" onBack={() => setPanel("view")} />
+        <CollectionViewsEditor
+          views={views}
+          activeViewId={activeViewId}
+          onSwitchView={onSwitchView}
+          onCreateView={onCreateView}
+        />
       </div>
     );
   }
@@ -1698,36 +2200,6 @@ function CollectionSettings({
           }}
         />
       </div>
-      <div className="kb-collection-settings-name-row">
-        {view === "table" ? (
-          <Table2 className="size-4" />
-        ) : (
-          <GalleryHorizontalEnd className="size-4" />
-        )}
-        <Input
-          value={viewTitleDraft}
-          className="kb-collection-settings-name-input"
-          aria-label="Название вида"
-          onPointerDown={stopBlockInteraction}
-          onMouseDown={stopBlockInteraction}
-          onClick={stopBlockInteraction}
-          onChange={(event) => setViewTitleDraft(event.currentTarget.value)}
-          onBlur={(event) => commitViewTitle(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitViewTitle(event.currentTarget.value);
-              event.currentTarget.blur();
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              skipViewTitleCommitRef.current = true;
-              setViewTitleDraft(viewTitle);
-              event.currentTarget.blur();
-            }
-          }}
-        />
-      </div>
       <div className="kb-collection-settings-root-list">
         <button
           type="button"
@@ -1739,10 +2211,14 @@ function CollectionSettings({
             setPanel("view");
           }}
         >
-          <GalleryHorizontalEnd className="size-4" />
+          {view === "table" ? (
+            <Table2 className="size-4" />
+          ) : (
+            <GalleryHorizontalEnd className="size-4" />
+          )}
           <span>Вид</span>
           <span className="kb-collection-settings-row-value">
-            {COLLECTION_VIEW_LABELS[view]}
+            {viewTitle}
           </span>
           <ChevronRight className="size-4" />
         </button>
@@ -1924,21 +2400,6 @@ function formatPropertyValue(property: KbProperty): string {
   }
 }
 
-function normalizeCollectionTitle(value: unknown): string {
-  if (typeof value !== "string") return DEFAULT_COLLECTION_TITLE;
-  const title = value.trim();
-  return title || DEFAULT_COLLECTION_TITLE;
-}
-
-function normalizeCollectionViewTitle(
-  value: unknown,
-  view: KbCollectionView,
-): string {
-  if (typeof value !== "string") return COLLECTION_VIEW_LABELS[view];
-  const title = value.trim();
-  return title || COLLECTION_VIEW_LABELS[view];
-}
-
 function orderCollectionFields(
   fields: KbCollectionField[],
   fieldOrderIds: string[] | null,
@@ -2028,6 +2489,33 @@ function getDocumentCollectionBlocks(
   return collectionBlocks;
 }
 
+function buildLegacyCollectionBlocks(
+  editor: unknown,
+): KbCollectionLegacyBlock[] {
+  return getDocumentCollectionBlocks(editor).map((documentBlock) => {
+    const props = documentBlock.props ?? {};
+    return {
+      blockId: documentBlock.id,
+      title: typeof props.title === "string" ? props.title : undefined,
+      view: normalizeCollectionViewType(props.view),
+      viewTitle:
+        typeof props.viewTitle === "string" ? props.viewTitle : undefined,
+      schemaJson:
+        typeof props.schemaJson === "string"
+          ? props.schemaJson
+          : KB_COLLECTION_EMPTY_SCHEMA,
+      visibleFieldIdsJson:
+        typeof props.visibleFieldIdsJson === "string"
+          ? props.visibleFieldIdsJson
+          : KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+      fieldOrderIdsJson:
+        typeof props.fieldOrderIdsJson === "string"
+          ? props.fieldOrderIdsJson
+          : KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
+    };
+  });
+}
+
 function walkDocumentBlocks(
   blocks: CollectionDocumentBlock[],
   visit: (block: CollectionDocumentBlock) => void,
@@ -2038,45 +2526,6 @@ function walkDocumentBlocks(
       walkDocumentBlocks(block.children, visit);
     }
   }
-}
-
-function pickCanonicalCollectionSchemaJson(
-  blocks: CollectionDocumentBlock[],
-  currentSchemaJson: string,
-): string {
-  let bestJson = currentSchemaJson;
-  let bestFieldCount = parseCollectionSchemaJson(currentSchemaJson).fields.length;
-
-  for (const block of blocks) {
-    const schemaJson =
-      typeof block.props?.schemaJson === "string"
-        ? block.props.schemaJson
-        : KB_COLLECTION_EMPTY_SCHEMA;
-    const normalizedJson = serializeCollectionSchema(
-      parseCollectionSchemaJson(schemaJson),
-    );
-    const fieldCount = parseCollectionSchemaJson(normalizedJson).fields.length;
-    if (fieldCount > bestFieldCount) {
-      bestJson = normalizedJson;
-      bestFieldCount = fieldCount;
-    }
-  }
-
-  return bestJson;
-}
-
-function pickCanonicalCollectionTitle(
-  blocks: CollectionDocumentBlock[],
-  currentTitle: string,
-): string {
-  if (currentTitle !== DEFAULT_COLLECTION_TITLE) return currentTitle;
-
-  for (const block of blocks) {
-    const title = normalizeCollectionTitle(block.props?.title);
-    if (title !== DEFAULT_COLLECTION_TITLE) return title;
-  }
-
-  return currentTitle;
 }
 
 function stopBlockInteraction(event: React.SyntheticEvent) {

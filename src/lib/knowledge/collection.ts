@@ -8,6 +8,13 @@ import type {
 
 export type KbCollectionView = "list" | "table";
 
+export const KB_COLLECTION_DEFAULT_TITLE = "Коллекция";
+
+export const KB_COLLECTION_VIEW_LABELS: Record<KbCollectionView, string> = {
+  list: "Галерея",
+  table: "Таблица",
+};
+
 export type KbCollectionField = {
   id: string;
   name: string;
@@ -23,6 +30,35 @@ export type KbCollectionField = {
 export type KbCollectionSchema = {
   version: 1;
   fields: KbCollectionField[];
+};
+
+export type KbCollection = {
+  id: string;
+  pageId: string;
+  collectionKey: string;
+  title: string;
+  schema: KbCollectionSchema;
+};
+
+export type KbCollectionViewConfig = {
+  id: string;
+  collectionId: string;
+  name: string;
+  viewType: KbCollectionView;
+  visibleFieldIds: KbCollectionVisibleFieldIds;
+  fieldOrderIds: KbCollectionVisibleFieldIds;
+  position: number;
+  sourceBlockId?: string | null;
+};
+
+export type KbCollectionLegacyBlock = {
+  blockId: string;
+  title?: string;
+  view?: KbCollectionView;
+  viewTitle?: string;
+  schemaJson?: string;
+  visibleFieldIdsJson?: string;
+  fieldOrderIdsJson?: string;
 };
 
 export type KbCollectionPropertyContext = {
@@ -77,12 +113,15 @@ export function getPageCollectionId(pageId: string): string {
 }
 
 export function parseCollectionSchemaJson(value: unknown): KbCollectionSchema {
-  if (typeof value !== "string" || value.trim() === "") {
+  if (typeof value === "string" && value.trim() === "") {
     return { version: 1, fields: [] };
   }
 
   try {
-    const raw = JSON.parse(value) as { fields?: unknown };
+    const raw = (
+      typeof value === "string" ? JSON.parse(value) : value
+    ) as { fields?: unknown } | null;
+    if (!raw || typeof raw !== "object") return { version: 1, fields: [] };
     if (!Array.isArray(raw.fields)) return { version: 1, fields: [] };
     return {
       version: 1,
@@ -109,6 +148,9 @@ export function serializeCollectionSchema(
 export function parseVisibleFieldIdsJson(
   value: unknown,
 ): KbCollectionVisibleFieldIds {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string");
+  }
   if (typeof value !== "string" || value.trim() === "") return null;
   try {
     const raw = JSON.parse(value);
@@ -121,6 +163,31 @@ export function parseVisibleFieldIdsJson(
 
 export function serializeVisibleFieldIds(ids: string[] | null): string {
   return ids === null ? KB_COLLECTION_DEFAULT_VISIBLE_FIELDS : JSON.stringify(ids);
+}
+
+export function collectionVisibleFieldIdsToJsonValue(
+  ids: KbCollectionVisibleFieldIds,
+): string[] | null {
+  return ids === null ? null : ids;
+}
+
+export function normalizeCollectionTitle(value: unknown): string {
+  if (typeof value !== "string") return KB_COLLECTION_DEFAULT_TITLE;
+  const title = value.trim();
+  return title || KB_COLLECTION_DEFAULT_TITLE;
+}
+
+export function normalizeCollectionViewType(value: unknown): KbCollectionView {
+  return value === "table" ? "table" : "list";
+}
+
+export function normalizeCollectionViewName(
+  value: unknown,
+  view: KbCollectionView,
+): string {
+  if (typeof value !== "string") return KB_COLLECTION_VIEW_LABELS[view];
+  const title = value.trim();
+  return title || KB_COLLECTION_VIEW_LABELS[view];
 }
 
 export function createCollectionField(

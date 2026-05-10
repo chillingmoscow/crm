@@ -26,6 +26,11 @@ import {
   type KbCollectionViewConfig,
   type KbCollectionVisibleFieldIds,
 } from "@/lib/knowledge/collection";
+import {
+  collectionSortsToJsonValue,
+  parseCollectionSortsJson,
+  type KbCollectionSort,
+} from "@/lib/knowledge/collection-sort";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type { Json } from "@/types/database";
 import type { KbProperty } from "@/types/knowledge";
@@ -66,12 +71,13 @@ type CollectionViewRow = {
   visible_field_ids: Json | null;
   field_order_ids: Json | null;
   filters_json: Json;
+  sorts_json: Json;
   position: number;
   source_block_id: string | null;
 };
 
 const COLLECTION_VIEW_SELECT =
-  "id, collection_id, name, view_type, visible_field_ids, field_order_ids, filters_json, position, source_block_id" as const;
+  "id, collection_id, name, view_type, visible_field_ids, field_order_ids, filters_json, sorts_json, position, source_block_id" as const;
 
 export async function listKbCollectionItems(parentPageId: string): Promise<{
   rows: KbCollectionItem[];
@@ -240,6 +246,7 @@ export async function getOrCreateKbPageCollection(input: {
         parseVisibleFieldIdsJson(legacy.fieldOrderIdsJson),
       ) as unknown as Json | null,
       filters_json: [],
+      sorts_json: [],
       position: index,
       source_block_id: legacy.blockId,
     }));
@@ -328,6 +335,7 @@ export async function updateKbCollectionView(input: {
   visibleFieldIds?: KbCollectionVisibleFieldIds;
   fieldOrderIds?: KbCollectionVisibleFieldIds;
   filters?: KbCollectionFilter[];
+  sorts?: KbCollectionSort[];
 }): Promise<{ view: KbCollectionViewConfig | null; error: string | null }> {
   const patch: {
     name?: string;
@@ -335,6 +343,7 @@ export async function updateKbCollectionView(input: {
     visible_field_ids?: Json | null;
     field_order_ids?: Json | null;
     filters_json?: Json;
+    sorts_json?: Json;
   } = {};
   if (input.viewType !== undefined) {
     patch.view_type = normalizeCollectionViewType(input.viewType);
@@ -359,6 +368,9 @@ export async function updateKbCollectionView(input: {
     patch.filters_json = collectionFiltersToJsonValue(
       input.filters,
     ) as Json;
+  }
+  if (input.sorts !== undefined) {
+    patch.sorts_json = collectionSortsToJsonValue(input.sorts) as Json;
   }
   if (Object.keys(patch).length === 0) {
     return { view: null, error: "Нет изменений" };
@@ -452,6 +464,7 @@ export async function duplicateKbCollectionView(input: {
       visible_field_ids: source.visible_field_ids,
       field_order_ids: source.field_order_ids,
       filters_json: source.filters_json,
+      sorts_json: source.sorts_json,
       position,
     })
     .select(COLLECTION_VIEW_SELECT)
@@ -652,6 +665,7 @@ function mapCollectionViewRow(row: CollectionViewRow): KbCollectionViewConfig {
     visibleFieldIds: parseVisibleFieldIdsJson(row.visible_field_ids),
     fieldOrderIds: parseVisibleFieldIdsJson(row.field_order_ids),
     filters: parseCollectionFiltersJson(row.filters_json),
+    sorts: parseCollectionSortsJson(row.sorts_json),
     position: row.position,
     sourceBlockId: row.source_block_id,
   };

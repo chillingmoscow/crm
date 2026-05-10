@@ -2616,12 +2616,14 @@ button.kb-gallery-menu-item {
 .kb-collection-view-row[data-active] svg {
   color: hsl(var(--brand));
 }
-.kb-collection-filters-editor {
+.kb-collection-filters-editor,
+.kb-collection-sorts-editor {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-.kb-collection-filter-row {
+.kb-collection-filter-row,
+.kb-collection-sort-row {
   display: grid;
   grid-template-columns: 18px minmax(92px, 1fr) minmax(92px, 0.9fr) minmax(90px, 1fr) 30px;
   min-height: 38px;
@@ -2630,11 +2632,16 @@ button.kb-gallery-menu-item {
   border-radius: 9px;
   padding: 4px 5px;
 }
-.kb-collection-filter-row:hover {
+.kb-collection-sort-row {
+  grid-template-columns: 18px minmax(120px, 1fr) minmax(120px, 1fr) 30px;
+}
+.kb-collection-filter-row:hover,
+.kb-collection-sort-row:hover {
   background-color: hsl(var(--accent) / 0.45);
 }
 .kb-collection-filter-select,
-.kb-collection-filter-input {
+.kb-collection-filter-input,
+.kb-collection-sort-select {
   min-width: 0;
   height: 30px;
   border: 1px solid hsl(var(--border) / 0.82);

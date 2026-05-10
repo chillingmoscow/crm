@@ -1274,6 +1274,7 @@ export type Database = {
           created_by: string | null
           field_order_ids: Json | null
           filters_json: Json
+          sorts_json: Json
           id: string
           name: string
           position: number
@@ -1290,6 +1291,7 @@ export type Database = {
           created_by?: string | null
           field_order_ids?: Json | null
           filters_json?: Json
+          sorts_json?: Json
           id?: string
           name?: string
           position?: number
@@ -1306,6 +1308,7 @@ export type Database = {
           created_by?: string | null
           field_order_ids?: Json | null
           filters_json?: Json
+          sorts_json?: Json
           id?: string
           name?: string
           position?: number

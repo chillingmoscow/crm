@@ -5,6 +5,7 @@ import type {
   KbPropertyColor,
   KbPropertyType,
 } from "@/types/knowledge";
+import type { KbCollectionSort } from "./collection-sort";
 
 export type KbCollectionView = "list" | "table";
 
@@ -48,6 +49,7 @@ export type KbCollectionViewConfig = {
   visibleFieldIds: KbCollectionVisibleFieldIds;
   fieldOrderIds: KbCollectionVisibleFieldIds;
   filters: KbCollectionFilter[];
+  sorts: KbCollectionSort[];
   position: number;
   sourceBlockId?: string | null;
 };

@@ -20,6 +20,7 @@ import {
 } from "@blocknote/react";
 import {
   ArrowLeft,
+  ArrowDownAZ,
   Calendar,
   Check,
   CheckSquare,
@@ -101,6 +102,12 @@ import {
   type KbCollectionViewConfig,
   type KbCollectionVisibleFieldIds,
 } from "@/lib/knowledge/collection";
+import {
+  createCollectionSort,
+  sortCollectionItems,
+  type KbCollectionSort,
+  type KbCollectionSortDirection,
+} from "@/lib/knowledge/collection-sort";
 import { saveKbPageProperties } from "@/lib/knowledge/properties";
 import type { KbProperty, KbPropertyType } from "@/types/knowledge";
 
@@ -272,9 +279,14 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     [orderedFields, visibleFieldIds],
   );
   const activeFilters = activeView?.filters ?? [];
+  const activeSorts = activeView?.sorts ?? [];
   const filteredItems = useMemo(
     () => filterCollectionItems(items, schema.fields, activeFilters, collectionId),
     [activeFilters, collectionId, items, schema.fields],
+  );
+  const sortedItems = useMemo(
+    () => sortCollectionItems(filteredItems, schema.fields, activeSorts, collectionId),
+    [activeSorts, collectionId, filteredItems, schema.fields],
   );
   const inferredSchema = useMemo(
     () =>
@@ -844,6 +856,40 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     });
   };
 
+  const updateSorts = (nextSorts: KbCollectionSort[]) => {
+    if (!activeView) return;
+    const viewId = activeView.id;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, sorts: nextSorts } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      sorts: nextSorts,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить сортировки: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
   const createRecord = async () => {
     if (!runtime.pageId || !canCreate) return;
     setCreating(true);
@@ -1048,7 +1094,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               {collectionTitle}
             </button>
           )}
-          <span className="kb-collection-count">{filteredItems.length}</span>
+          <span className="kb-collection-count">{sortedItems.length}</span>
         </div>
         {editable && (
           <div className="kb-collection-actions">
@@ -1085,6 +1131,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   activeViewId={collectionState?.activeViewId ?? null}
                   visibleFieldIds={visibleFieldIds}
                   filters={activeFilters}
+                  sorts={activeSorts}
                   onRename={renameCollection}
                   onRenameView={updateViewTitle}
                   onChangeViewType={updateViewType}
@@ -1098,6 +1145,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   onReorderField={reorderField}
                   onSetFieldVisible={setFieldVisible}
                   onUpdateFilters={updateFilters}
+                  onUpdateSorts={updateSorts}
                 />
               </PopoverContent>
             </Popover>
@@ -1145,7 +1193,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           <span className="font-medium">Нет записей</span>
           {canCreate && <span>Создать первую запись</span>}
         </button>
-      ) : filteredItems.length === 0 ? (
+      ) : sortedItems.length === 0 ? (
         <div className="kb-collection-state">
           <EyeOff className="size-4" />
           Нет записей по фильтрам
@@ -1154,7 +1202,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
         <>
           {view === "table" ? (
             <CollectionTableView
-              items={filteredItems}
+              items={sortedItems}
               fields={visibleFields}
               collectionId={collectionId}
               collectionTitle={collectionTitle}
@@ -1169,7 +1217,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
             />
           ) : (
             <div className="kb-collection-list">
-              {filteredItems.map((item) => (
+              {sortedItems.map((item) => (
                 <CollectionItemRow
                   key={item.id}
                   item={item}
@@ -1966,6 +2014,7 @@ function CollectionSettings({
   activeViewId,
   visibleFieldIds,
   filters,
+  sorts,
   onRename,
   onRenameView,
   onChangeViewType,
@@ -1979,6 +2028,7 @@ function CollectionSettings({
   onReorderField,
   onSetFieldVisible,
   onUpdateFilters,
+  onUpdateSorts,
 }: {
   title: string;
   viewTitle: string;
@@ -1988,6 +2038,7 @@ function CollectionSettings({
   activeViewId: string | null;
   visibleFieldIds: KbCollectionVisibleFieldIds;
   filters: KbCollectionFilter[];
+  sorts: KbCollectionSort[];
   onRename: (title: string) => void;
   onRenameView: (title: string) => void;
   onChangeViewType: (view: KbCollectionView) => void;
@@ -2005,12 +2056,16 @@ function CollectionSettings({
   ) => void;
   onSetFieldVisible: (id: string, visible: boolean) => void;
   onUpdateFilters: (filters: KbCollectionFilter[]) => void;
+  onUpdateSorts: (sorts: KbCollectionSort[]) => void;
 }) {
   const [panel, setPanel] = useState<
-    "root" | "view" | "layout" | "views" | "properties" | "filters"
+    "root" | "view" | "layout" | "views" | "properties" | "filters" | "sorts"
   >("root");
   const visibleFilterCount = filters.filter((filter) =>
     fields.some((field) => field.id === filter.fieldId),
+  ).length;
+  const visibleSortCount = sorts.filter((sort) =>
+    fields.some((field) => field.id === sort.fieldId),
   ).length;
   const [titleDraft, setTitleDraft] = useState(title);
   const [viewTitleDraft, setViewTitleDraft] = useState(viewTitle);
@@ -2131,6 +2186,23 @@ function CollectionSettings({
             </span>
             <ChevronRight className="size-4" />
           </button>
+          <button
+            type="button"
+            className="kb-collection-settings-nav-row"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("sorts");
+            }}
+          >
+            <ArrowDownAZ className="size-4" />
+            <span>Сортировки</span>
+            <span className="kb-collection-settings-row-value">
+              {visibleSortCount}
+            </span>
+            <ChevronRight className="size-4" />
+          </button>
           {activeViewId && (
             <>
               <button
@@ -2198,6 +2270,19 @@ function CollectionSettings({
           fields={fields}
           filters={filters}
           onChange={onUpdateFilters}
+        />
+      </div>
+    );
+  }
+
+  if (panel === "sorts") {
+    return (
+      <div className="kb-collection-settings-panel">
+        <SettingsPanelHeader title="Сортировки" onBack={() => setPanel("view")} />
+        <CollectionSortsEditor
+          fields={fields}
+          sorts={sorts}
+          onChange={onUpdateSorts}
         />
       </div>
     );
@@ -2510,6 +2595,123 @@ function CollectionFiltersEditor({
   );
 }
 
+function CollectionSortsEditor({
+  fields,
+  sorts,
+  onChange,
+}: {
+  fields: KbCollectionField[];
+  sorts: KbCollectionSort[];
+  onChange: (sorts: KbCollectionSort[]) => void;
+}) {
+  const validSorts = sorts.filter((sort) =>
+    fields.some((field) => field.id === sort.fieldId),
+  );
+
+  const updateSort = (id: string, patch: Partial<KbCollectionSort>) => {
+    onChange(
+      validSorts.map((sort) =>
+        sort.id === id ? { ...sort, ...patch } : sort,
+      ),
+    );
+  };
+
+  const addSort = (fieldId: string) => {
+    if (!fieldId) return;
+    const field = fields.find((item) => item.id === fieldId);
+    if (!field) return;
+    onChange([...validSorts, createCollectionSort(field.id, "asc")]);
+  };
+
+  if (fields.length === 0) {
+    return (
+      <div className="kb-collection-settings-empty">
+        Добавьте свойства, чтобы сортировать записи.
+      </div>
+    );
+  }
+
+  return (
+    <div className="kb-collection-sorts-editor">
+      {validSorts.length === 0 ? (
+        <div className="kb-collection-settings-empty">
+          Сортировки не заданы. View использует порядок страниц.
+        </div>
+      ) : (
+        validSorts.map((sort) => {
+          const field = fields.find((item) => item.id === sort.fieldId);
+          if (!field) return null;
+          const Icon = FIELD_ICONS[field.type];
+
+          return (
+            <div key={sort.id} className="kb-collection-sort-row">
+              <Icon className="size-4 text-muted-foreground" />
+              <select
+                className="kb-collection-sort-select"
+                value={field.id}
+                aria-label="Поле сортировки"
+                onChange={(event) =>
+                  updateSort(sort.id, { fieldId: event.currentTarget.value })
+                }
+              >
+                {fields.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="kb-collection-sort-select"
+                value={sort.direction}
+                aria-label="Направление сортировки"
+                onChange={(event) =>
+                  updateSort(sort.id, {
+                    direction: event.currentTarget
+                      .value as KbCollectionSortDirection,
+                  })
+                }
+              >
+                <option value="asc">{sortDirectionLabel(field, "asc")}</option>
+                <option value="desc">{sortDirectionLabel(field, "desc")}</option>
+              </select>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:text-destructive"
+                onClick={() =>
+                  onChange(validSorts.filter((item) => item.id !== sort.id))
+                }
+                aria-label="Удалить сортировку"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          );
+        })
+      )}
+      <select
+        className="kb-collection-native-select"
+        defaultValue=""
+        aria-label="Добавить сортировку"
+        onChange={(event) => {
+          addSort(event.currentTarget.value);
+          event.currentTarget.value = "";
+        }}
+      >
+        <option value="" disabled>
+          Добавить сортировку
+        </option>
+        {fields.map((field) => (
+          <option key={field.id} value={field.id}>
+            {field.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function CollectionFieldEditor({
   field,
   visible,
@@ -2781,6 +2983,22 @@ function normalizeFilterOperatorForField(
   return filterOperatorsForField(field).some((item) => item.value === operator)
     ? operator
     : defaultFilterOperator(field);
+}
+
+function sortDirectionLabel(
+  field: KbCollectionField,
+  direction: KbCollectionSortDirection,
+): string {
+  if (field.type === "number" || field.type === "rating") {
+    return direction === "asc" ? "по возрастанию" : "по убыванию";
+  }
+  if (field.type === "date") {
+    return direction === "asc" ? "сначала ранние" : "сначала поздние";
+  }
+  if (field.type === "checkbox") {
+    return direction === "asc" ? "выключенные выше" : "включённые выше";
+  }
+  return direction === "asc" ? "А → Я" : "Я → А";
 }
 
 function filterOperatorNeedsValue(

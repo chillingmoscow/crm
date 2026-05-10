@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -21,6 +20,7 @@ import {
 import {
   ArrowLeft,
   ArrowDownAZ,
+  ArrowRight,
   Calendar,
   Check,
   CheckSquare,
@@ -34,22 +34,35 @@ import {
   GalleryHorizontalEnd,
   GripVertical,
   Hash,
+  ArrowUpDown,
   Link as LinkIcon,
+  ListFilter,
   ListChecks,
   Loader2,
+  MoreHorizontal,
+  Paintbrush,
+  Pencil,
+  Pin,
   Plus,
-  PlusSquare,
+  ChevronsLeft,
+  ChevronsRight,
+  Search,
   Settings2,
   Star,
   Table2,
+  ToggleRight,
   Trash2,
   Type,
+  WrapText,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
 import { PropertyValueControl } from "@/app/(dashboard)/knowledge/_components/kb-page-properties";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -57,6 +70,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   createKbCollectionView,
@@ -65,8 +83,10 @@ import {
   duplicateKbCollectionView,
   getOrCreateKbPageCollection,
   listKbCollectionItems,
+  restoreKbCollectionView,
   syncKbCollectionRecords,
   updateKbCollection,
+  updateKbCollectionRecordTitle,
   updateKbCollectionView,
   type KbCollectionState,
   type KbCollectionItem,
@@ -82,8 +102,8 @@ import {
   isCollectionFieldVisible,
   KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
   KB_COLLECTION_EMPTY_SCHEMA,
+  KB_COLLECTION_CREATABLE_FIELD_TYPES,
   KB_COLLECTION_FIELD_LABELS,
-  KB_COLLECTION_FIELD_TYPES,
   KB_COLLECTION_VIEW_LABELS,
   normalizeCollectionTitle,
   normalizeCollectionViewName,
@@ -93,6 +113,8 @@ import {
   serializeCollectionSchema,
   serializeVisibleFieldIds,
   setCollectionFieldPropertyValue,
+  createDefaultCollectionViewLayoutSettings,
+  type KbCollectionColumnWidths,
   type KbCollectionField,
   type KbCollectionFilter,
   type KbCollectionFilterOperator,
@@ -100,6 +122,9 @@ import {
   type KbCollectionSchema,
   type KbCollectionView,
   type KbCollectionViewConfig,
+  type KbCollectionViewIcon,
+  type KbCollectionViewLayoutSettings,
+  type KbCollectionViewTabDisplay,
   type KbCollectionVisibleFieldIds,
 } from "@/lib/knowledge/collection";
 import {
@@ -198,8 +223,132 @@ const FIELD_ICONS: Record<
   rating: Star,
 };
 
+const VIEW_TAB_DISPLAY_LABELS: Record<KbCollectionViewTabDisplay, string> = {
+  "text-icon": "Текст и иконка",
+  text: "Только текст",
+  icon: "Только иконка",
+};
+
+function getCollectionViewFallbackIcon(viewConfig: {
+  icon?: KbCollectionViewIcon;
+  viewType: KbCollectionView;
+}) {
+  return viewConfig.viewType === "table" ? Database : ListChecks;
+}
+
 const SAVE_CELL_DEBOUNCE_MS = 650;
+const TABLE_TITLE_COLUMN_WIDTH_ID = "__title";
+const MIN_TABLE_COLUMN_WIDTH = 96;
+const MAX_TABLE_COLUMN_WIDTH = 640;
 type FieldDropPlacement = "before" | "after";
+type CollectionSettingsPanel = "layout" | "filters" | "sorts" | "views";
+type CollectionTableCellId = "title" | string;
+type CollectionTableSelection = {
+  itemId: string;
+  cellId: CollectionTableCellId;
+};
+
+function collectionFieldTypeOptions(current?: KbPropertyType): KbPropertyType[] {
+  if (
+    current &&
+    !KB_COLLECTION_CREATABLE_FIELD_TYPES.includes(current)
+  ) {
+    return [...KB_COLLECTION_CREATABLE_FIELD_TYPES, current];
+  }
+  return KB_COLLECTION_CREATABLE_FIELD_TYPES;
+}
+
+function collectionFieldDisplayProperty(
+  property: KbProperty | null,
+  field: KbCollectionField,
+  context: Parameters<typeof collectionFieldToProperty>[1],
+): KbProperty {
+  const fallback = collectionFieldToProperty(field, context);
+  if (!property || property.type !== field.type) return fallback;
+
+  if (field.type === "number") {
+    const next = {
+      ...property,
+      id: fallback.id,
+      name: fallback.name,
+      scope: fallback.scope,
+      ...(fallback.icon ? { icon: fallback.icon } : {}),
+      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
+    } as Extract<KbProperty, { type: "number" }>;
+    if (field.displayVariant === "rating") {
+      next.displayVariant = "rating";
+      next.max = field.max ?? 5;
+      if (field.ratingVariant === "slider") next.ratingVariant = "slider";
+      else delete next.ratingVariant;
+      delete next.unit;
+    } else {
+      delete next.displayVariant;
+      delete next.max;
+      delete next.ratingVariant;
+    }
+    return next;
+  }
+
+  if (field.type === "checkbox") {
+    const checkboxProperty = property as Extract<KbProperty, { type: "checkbox" }>;
+    const { displayVariant: _displayVariant, ...rest } = checkboxProperty;
+    return {
+      ...rest,
+      id: fallback.id,
+      name: fallback.name,
+      scope: fallback.scope,
+      ...(field.displayVariant === "switch"
+        ? { displayVariant: "switch" as const }
+        : {}),
+    };
+  }
+
+  if (field.type === "text") {
+    const textProperty = property as Extract<KbProperty, { type: "text" }>;
+    const { collapsed: _collapsed, ...rest } = textProperty;
+    return {
+      ...rest,
+      id: fallback.id,
+      name: fallback.name,
+      scope: fallback.scope,
+      ...(field.collapsed ? { collapsed: true } : {}),
+    };
+  }
+
+  if (field.type === "url") {
+    const urlProperty = property as Extract<KbProperty, { type: "url" }>;
+    const { urlCollapsed: _urlCollapsed, ...rest } = urlProperty;
+    return {
+      ...rest,
+      id: fallback.id,
+      name: fallback.name,
+      scope: fallback.scope,
+      ...(field.urlCollapsed ? { urlCollapsed: true } : {}),
+    };
+  }
+
+  if (field.type === "rating") {
+    const ratingProperty = property as Extract<KbProperty, { type: "rating" }>;
+    const { displayVariant: _displayVariant, ...rest } = ratingProperty;
+    return {
+      ...rest,
+      id: fallback.id,
+      name: fallback.name,
+      scope: fallback.scope,
+      ...(field.max ? { max: field.max } : {}),
+      ...(field.ratingVariant === "slider"
+        ? { displayVariant: "slider" as const }
+        : {}),
+    };
+  }
+
+  return {
+    ...property,
+    id: fallback.id,
+    name: fallback.name,
+    scope: fallback.scope,
+  } as KbProperty;
+}
 
 type CollectionDocumentBlock = {
   id: string;
@@ -209,7 +358,6 @@ type CollectionDocumentBlock = {
 };
 
 function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
-  const router = useRouter();
   const runtime = useContext(KbCollectionRuntimeContext);
   const editable = editor.isEditable;
   const canCreate = editable && runtime.canCreatePages && Boolean(runtime.pageId);
@@ -221,10 +369,32 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const [itemsLoaded, setItemsLoaded] = useState(false);
   const [creating, setCreating] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPanel, setSettingsPanel] =
+    useState<CollectionSettingsPanel | null>(null);
+  const [viewMenuId, setViewMenuId] = useState<string | null>(null);
+  const [moreViewsOpen, setMoreViewsOpen] = useState(false);
+  const [createViewMenuOpen, setCreateViewMenuOpen] = useState(false);
+  const [viewSearch, setViewSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [toolbarCollapsed, setToolbarCollapsed] = useState(false);
+  const [pendingTitleEditItemId, setPendingTitleEditItemId] = useState<
+    string | null
+  >(null);
+  const [visibleViewTabCount, setVisibleViewTabCount] = useState<number | null>(
+    null,
+  );
+  const [draggingViewId, setDraggingViewId] = useState<string | null>(null);
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(KB_COLLECTION_DEFAULT_TITLE);
+  const deletedViewUndoRef = useRef<KbCollectionViewConfig | null>(null);
   const [previewWidth, setPreviewWidth] = useState<number | null>(null);
   const blockRef = useRef<HTMLDivElement>(null);
+  const viewTabsRef = useRef<HTMLDivElement>(null);
+  const viewTabsMeasureRef = useRef<HTMLDivElement>(null);
+  const collectionStateRef = useRef<KbCollectionState | null>(null);
+  const pendingViewOrderRef = useRef<KbCollectionViewConfig[] | null>(null);
+  const viewDragMovedRef = useRef(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const itemsRef = useRef<KbCollectionItem[]>([]);
   const cancelTitleRenameRef = useRef(false);
@@ -251,7 +421,10 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const dbCollectionId = collectionState?.collection.id ?? null;
   const view: KbCollectionView = activeView?.viewType ?? legacyView;
   const viewTitle = activeView?.name ?? legacyViewTitle;
-  const ActiveViewIcon = view === "table" ? Table2 : GalleryHorizontalEnd;
+  const ActiveViewIcon = view === "table" ? Table2 : ListChecks;
+  const activeColumnWidths = activeView?.columnWidths ?? {};
+  const activeLayoutSettings =
+    activeView?.layoutSettings ?? createDefaultCollectionViewLayoutSettings(view);
 
   const schema = useMemo(
     () =>
@@ -287,13 +460,42 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const activeFilters = activeView?.filters ?? [];
   const activeSorts = activeView?.sorts ?? [];
   const activeGrouping = activeView?.grouping ?? null;
+  const viewTabs = collectionState?.views ?? [];
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredItems = useMemo(
     () => filterCollectionItems(items, schema.fields, activeFilters, collectionId),
     [activeFilters, collectionId, items, schema.fields],
   );
+  const searchedItems = useMemo(() => {
+    if (!normalizedSearchQuery) return filteredItems;
+    return filteredItems.filter((item) => {
+      const values = [
+        item.title,
+        item.plain_text,
+        ...visibleFields.map((field) =>
+          formatPropertyValue(
+            collectionFieldDisplayProperty(
+              findPropertyForCollectionField(item.properties, field, collectionId),
+              field,
+              { collectionId, collectionTitle },
+            ),
+          ),
+        ),
+      ];
+      return values.some((value) =>
+        value.toLowerCase().includes(normalizedSearchQuery),
+      );
+    });
+  }, [
+    collectionId,
+    collectionTitle,
+    filteredItems,
+    normalizedSearchQuery,
+    visibleFields,
+  ]);
   const sortedItems = useMemo(
-    () => sortCollectionItems(filteredItems, schema.fields, activeSorts, collectionId),
-    [activeSorts, collectionId, filteredItems, schema.fields],
+    () => sortCollectionItems(searchedItems, schema.fields, activeSorts, collectionId),
+    [activeSorts, collectionId, schema.fields, searchedItems],
   );
   const groupedItems = useMemo(
     () =>
@@ -305,6 +507,32 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       ),
     [activeGrouping, collectionId, schema.fields, sortedItems],
   );
+  const visibleViewTabs = useMemo(() => {
+    if (visibleViewTabCount === null || visibleViewTabCount >= viewTabs.length) {
+      return viewTabs;
+    }
+    const count = Math.max(1, visibleViewTabCount);
+    const visible = viewTabs.slice(0, count);
+    if (
+      collectionState?.activeViewId &&
+      !visible.some((item) => item.id === collectionState.activeViewId)
+    ) {
+      const active = viewTabs.find(
+        (item) => item.id === collectionState.activeViewId,
+      );
+      if (active) return [...visible.slice(0, Math.max(0, count - 1)), active];
+    }
+    return visible;
+  }, [collectionState?.activeViewId, viewTabs, visibleViewTabCount]);
+  const hiddenViewTabs = useMemo(
+    () => viewTabs.filter((item) => !visibleViewTabs.some((tab) => tab.id === item.id)),
+    [viewTabs, visibleViewTabs],
+  );
+  const searchedViewTabs = useMemo(() => {
+    const query = viewSearch.trim().toLowerCase();
+    if (!query) return viewTabs;
+    return viewTabs.filter((item) => item.name.toLowerCase().includes(query));
+  }, [viewSearch, viewTabs]);
   const inferredSchema = useMemo(
     () =>
       inferCollectionSchemaFromProperties(
@@ -359,6 +587,62 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    collectionStateRef.current = collectionState;
+  }, [collectionState]);
+
+  useLayoutEffect(() => {
+    const container = viewTabsRef.current;
+    const measure = viewTabsMeasureRef.current;
+    if (!container || !measure) return;
+
+    const updateVisibleTabs = () => {
+      const containerWidth = container.getBoundingClientRect().width;
+      const tabNodes = Array.from(
+        measure.querySelectorAll<HTMLElement>("[data-kb-view-tab-measure]"),
+      );
+      if (containerWidth <= 0 || tabNodes.length === 0) {
+        setVisibleViewTabCount(null);
+        return;
+      }
+      const moreNode = measure.querySelector<HTMLElement>(
+        "[data-kb-view-more-measure]",
+      );
+      const addNode = measure.querySelector<HTMLElement>(
+        "[data-kb-view-add-measure]",
+      );
+      const gap = 6;
+      const moreWidth = (moreNode?.getBoundingClientRect().width ?? 86) + gap;
+      const addWidth =
+        editable && tabNodes.length > 0
+          ? (addNode?.getBoundingClientRect().width ?? 36) + gap
+          : 0;
+      let usedWidth = 0;
+      let nextCount = tabNodes.length;
+
+      for (let index = 0; index < tabNodes.length; index += 1) {
+        const width = tabNodes[index]!.getBoundingClientRect().width;
+        const hasHiddenTabs = index < tabNodes.length - 1;
+        const reserve = hasHiddenTabs ? moreWidth : addWidth;
+        if (usedWidth + width + reserve <= containerWidth || index === 0) {
+          usedWidth += width + gap;
+          nextCount = index + 1;
+          continue;
+        }
+        break;
+      }
+
+      setVisibleViewTabCount((current) =>
+        current === nextCount ? current : nextCount,
+      );
+    };
+
+    updateVisibleTabs();
+    const resizeObserver = new ResizeObserver(updateVisibleTabs);
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
+  }, [editable, viewTabs.length, viewTabs.map((item) => item.name).join("\u0000")]);
 
   useEffect(() => {
     const timers = saveTimersRef.current;
@@ -687,6 +971,275 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     });
   };
 
+  const updateViewTitleById = (viewId: string, nextTitle: string) => {
+    const targetView = collectionState?.views.find((item) => item.id === viewId);
+    if (!targetView) return;
+    const title = normalizeCollectionViewName(nextTitle, targetView.viewType);
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, name: title } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      viewType: targetView.viewType,
+      name: title,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось переименовать вид: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
+  const updateViewDescriptionById = (viewId: string, description: string) => {
+    const targetView = collectionState?.views.find((item) => item.id === viewId);
+    if (!targetView || targetView.description === description.trim()) return;
+    const nextDescription = description.trim().slice(0, 280);
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId
+                ? { ...item, description: nextDescription }
+                : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      description: nextDescription,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить описание вида: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
+  const updateActiveViewDescription = (description: string) => {
+    if (!activeView) return;
+    updateViewDescriptionById(activeView.id, description);
+  };
+
+  const updateViewIconById = (viewId: string, icon: KbCollectionViewIcon) => {
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, icon } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({ viewId, icon }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить иконку вида: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
+  const updateActiveViewIcon = (icon: KbCollectionViewIcon) => {
+    if (!activeView) return;
+    updateViewIconById(activeView.id, icon);
+  };
+
+  const updateViewTabDisplayById = (
+    viewId: string,
+    tabDisplay: KbCollectionViewTabDisplay,
+  ) => {
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, tabDisplay } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({ viewId, tabDisplay }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить отображение вида: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
+  const updateActiveViewTabDisplay = (
+    tabDisplay: KbCollectionViewTabDisplay,
+  ) => {
+    if (!activeView) return;
+    updateViewTabDisplayById(activeView.id, tabDisplay);
+  };
+
+  const updateActiveViewLayoutSettings = (
+    patch: Partial<KbCollectionViewLayoutSettings>,
+  ) => {
+    if (!activeView) return;
+    const viewId = activeView.id;
+    const nextSettings = {
+      ...createDefaultCollectionViewLayoutSettings(activeView.viewType),
+      ...activeView.layoutSettings,
+      ...patch,
+    };
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId
+                ? { ...item, layoutSettings: nextSettings }
+                : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      layoutSettings: nextSettings,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить настройки вида: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
+  const updateColumnWidths = (nextWidths: KbCollectionColumnWidths) => {
+    if (!activeView) return;
+    const viewId = activeView.id;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, columnWidths: nextWidths } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      columnWidths: nextWidths,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить ширину столбцов: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
+  const updateViewTypeById = (viewId: string, nextView: KbCollectionView) => {
+    const targetView = collectionState?.views.find((item) => item.id === viewId);
+    if (!targetView || targetView.viewType === nextView) return;
+    const nextName =
+      targetView.name === KB_COLLECTION_VIEW_LABELS[targetView.viewType]
+        ? KB_COLLECTION_VIEW_LABELS[nextView]
+        : targetView.name;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId
+                ? { ...item, viewType: nextView, name: nextName }
+                : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      viewType: nextView,
+      name: nextName,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось изменить тип вида: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
   const renameCollection = (nextTitle: string) => {
     const title = normalizeCollectionTitle(nextTitle);
     setTitleDraft(title);
@@ -788,6 +1341,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
 
   const addField = (type: KbPropertyType) => {
     const field = createCollectionField(type);
+    const previousFieldIds = schema.fields.map((item) => item.id);
     updateSchema({ version: 1, fields: [...schema.fields, field] });
     updateFieldOrderIds([
       ...orderCollectionFields(schema.fields, fieldOrderIds).map(
@@ -795,8 +1349,43 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       ),
       field.id,
     ]);
-    if (visibleFieldIds !== null) {
-      updateVisibleFieldIds([...visibleFieldIds, field.id]);
+    updateVisibleFieldIds([
+      ...(visibleFieldIds ?? previousFieldIds),
+      field.id,
+    ]);
+
+    if (activeView && collectionState) {
+      const viewsToFreeze = collectionState.views.filter(
+        (viewConfig) =>
+          viewConfig.id !== activeView.id &&
+          viewConfig.visibleFieldIds === null,
+      );
+      if (viewsToFreeze.length > 0) {
+        setCollectionState((current) =>
+          current
+            ? {
+                ...current,
+                views: current.views.map((viewConfig) =>
+                  viewsToFreeze.some((item) => item.id === viewConfig.id)
+                    ? { ...viewConfig, visibleFieldIds: previousFieldIds }
+                    : viewConfig,
+                ),
+              }
+            : current,
+        );
+        for (const viewConfig of viewsToFreeze) {
+          void updateKbCollectionView({
+            viewId: viewConfig.id,
+            visibleFieldIds: previousFieldIds,
+          }).then((result) => {
+            if (result.error) {
+              toast.error(
+                `Не удалось сохранить видимость полей: ${result.error}`,
+              );
+            }
+          });
+        }
+      }
     }
   };
 
@@ -814,6 +1403,38 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
         return { ...field, ...patch };
       }),
     });
+  };
+
+  const duplicateField = (id: string) => {
+    const fieldIndex = schema.fields.findIndex((field) => field.id === id);
+    if (fieldIndex < 0) return;
+    const field = schema.fields[fieldIndex]!;
+    const duplicate = {
+      ...field,
+      id: createCollectionField(field.type).id,
+      name: `${field.name} копия`,
+    };
+    updateSchema({
+      version: 1,
+      fields: [
+        ...schema.fields.slice(0, fieldIndex + 1),
+        duplicate,
+        ...schema.fields.slice(fieldIndex + 1),
+      ],
+    });
+    updateFieldOrderIds(
+      insertCollectionFieldId(
+        schema.fields,
+        fieldOrderIds,
+        duplicate.id,
+        id,
+        "after",
+      ),
+    );
+    updateVisibleFieldIds([
+      ...(visibleFieldIds ?? schema.fields.map((item) => item.id)),
+      duplicate.id,
+    ]);
   };
 
   const removeField = (id: string) => {
@@ -871,6 +1492,13 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           : current,
       );
     });
+  };
+
+  const sortField = (fieldId: string, direction: KbCollectionSortDirection) => {
+    updateSorts([
+      createCollectionSort(fieldId, direction),
+      ...activeSorts.filter((sort) => sort.fieldId !== fieldId),
+    ]);
   };
 
   const updateSorts = (nextSorts: KbCollectionSort[]) => {
@@ -955,13 +1583,39 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           }),
     });
     setCreating(false);
-    const slug = result?.slug ?? null;
+    const row = result?.row ?? null;
     const error = result?.error ?? null;
-    if (error || !slug) {
+    if (error || !row) {
       toast.error(error ?? "Не удалось создать запись");
       return;
     }
-    router.push(`/knowledge/${slug}`);
+    setItems((current) =>
+      current.some((item) => item.id === row.id) ? current : [...current, row],
+    );
+    setPendingTitleEditItemId(row.id);
+  };
+
+  const updateItemTitle = (pageId: string, title: string) => {
+    const nextTitle = title.trim() || "Без названия";
+    setItems((current) =>
+      current.map((item) =>
+        item.id === pageId ? { ...item, title: nextTitle } : item,
+      ),
+    );
+    void updateKbCollectionRecordTitle({
+      pageId,
+      title: nextTitle,
+    }).then((result) => {
+      if (result.error || !result.title) {
+        toast.error(`Не удалось переименовать запись: ${result.error}`);
+        return;
+      }
+      setItems((current) =>
+        current.map((item) =>
+          item.id === pageId ? { ...item, title: result.title! } : item,
+        ),
+      );
+    });
   };
 
   const scheduleSaveItemProperties = (
@@ -1022,6 +1676,45 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     }
   };
 
+  const reorderViewTabs = (activeId: string, targetId: string) => {
+    if (activeId === targetId) return;
+    setCollectionState((current) => {
+      if (!current) return current;
+      const activeIndex = current.views.findIndex((item) => item.id === activeId);
+      const targetIndex = current.views.findIndex((item) => item.id === targetId);
+      if (activeIndex === -1 || targetIndex === -1) return current;
+      const nextViews = [...current.views];
+      const [moved] = nextViews.splice(activeIndex, 1);
+      if (!moved) return current;
+      nextViews.splice(targetIndex, 0, moved);
+      const positionedViews = nextViews.map((item, index) => ({
+        ...item,
+        position: index,
+      }));
+      pendingViewOrderRef.current = positionedViews;
+      return {
+        ...current,
+        views: positionedViews,
+      };
+    });
+  };
+
+  const persistViewTabOrder = () => {
+    const views =
+      pendingViewOrderRef.current ?? collectionStateRef.current?.views ?? [];
+    pendingViewOrderRef.current = null;
+    for (const [index, viewConfig] of views.entries()) {
+      void updateKbCollectionView({
+        viewId: viewConfig.id,
+        position: index,
+      }).then((result) => {
+        if (result.error) {
+          toast.error(`Не удалось сохранить порядок видов: ${result.error}`);
+        }
+      });
+    }
+  };
+
   const createView = async (viewType: KbCollectionView) => {
     if (!dbCollectionId) return;
     const result = await createKbCollectionView({
@@ -1062,7 +1755,61 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     editor.updateBlock(block.id, { props: { viewId: result.view.id } } as never);
   };
 
+  const restoreDeletedView = useCallback(async () => {
+    const deletedView = deletedViewUndoRef.current;
+    if (!deletedView) return;
+
+    const restoreResult = await restoreKbCollectionView({ view: deletedView });
+    if (restoreResult.error || !restoreResult.view) {
+      toast.error(`Не удалось вернуть вид: ${restoreResult.error}`);
+      return;
+    }
+
+    deletedViewUndoRef.current = null;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: [...current.views, restoreResult.view!].sort(
+              (a, b) => a.position - b.position,
+            ),
+            activeViewId: restoreResult.view!.id,
+          }
+        : current,
+    );
+    editor.updateBlock(block.id, {
+      props: { viewId: restoreResult.view.id },
+    } as never);
+  }, [block.id, editor]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.shiftKey ||
+        event.key.toLowerCase() !== "z"
+      ) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest("input, textarea, select, [contenteditable='true']")
+      ) {
+        return;
+      }
+      if (!deletedViewUndoRef.current) return;
+
+      event.preventDefault();
+      void restoreDeletedView();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [restoreDeletedView]);
+
   const deleteView = async (viewId: string) => {
+    const deletedView = collectionState?.views.find((item) => item.id === viewId);
     const result = await deleteKbCollectionView({ viewId });
     if (result.error) {
       toast.error(result.error);
@@ -1082,6 +1829,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
         props: { viewId: result.activeViewId },
       } as never);
     }
+    deletedViewUndoRef.current = deletedView ?? null;
   };
 
   const blockStyle = (
@@ -1089,6 +1837,208 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       ? { "--kb-collection-preview-width": `${previewWidth}px` }
       : undefined
   ) as CSSProperties | undefined;
+
+  const openSettingsPanel = (panel: CollectionSettingsPanel | null = null) => {
+    setSettingsPanel(panel);
+    setSettingsOpen(true);
+  };
+
+  const openSettingsForView = (
+    viewId: string,
+    panel: CollectionSettingsPanel | null = null,
+  ) => {
+    if (viewId !== collectionState?.activeViewId) switchView(viewId);
+    setViewMenuId(null);
+    setMoreViewsOpen(false);
+    window.setTimeout(() => openSettingsPanel(panel), 0);
+  };
+
+  const startViewTabDrag = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    item: KbCollectionViewConfig,
+    measure: boolean,
+  ) => {
+    if (!editable || measure || event.button !== 0) return;
+
+    event.stopPropagation();
+    const row = viewTabsRef.current;
+    if (!row) return;
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const rowRect = row.getBoundingClientRect();
+    const rowCenterY = rowRect.top + rowRect.height / 2;
+    let started = false;
+
+    const cleanup = () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerCancel);
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const deltaY = moveEvent.clientY - startY;
+      if (!started && Math.hypot(deltaX, deltaY) < 7) return;
+
+      if (!started) {
+        started = true;
+        viewDragMovedRef.current = true;
+        setDraggingViewId(item.id);
+        setViewMenuId(null);
+        setMoreViewsOpen(false);
+      }
+
+      moveEvent.preventDefault();
+      const constrainedX = Math.min(
+        Math.max(moveEvent.clientX, rowRect.left + 1),
+        rowRect.right - 1,
+      );
+      const target = document
+        .elementFromPoint(constrainedX, rowCenterY)
+        ?.closest<HTMLElement>("[data-kb-view-tab-id]");
+      const targetId = target?.dataset.kbViewTabId;
+      if (targetId && targetId !== item.id) {
+        reorderViewTabs(item.id, targetId);
+      }
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      cleanup();
+      if (started) {
+        upEvent.preventDefault();
+        persistViewTabOrder();
+      }
+      setDraggingViewId(null);
+      window.setTimeout(() => {
+        viewDragMovedRef.current = false;
+      }, 0);
+    };
+
+    const handlePointerCancel = () => {
+      cleanup();
+      setDraggingViewId(null);
+      viewDragMovedRef.current = false;
+    };
+
+    document.addEventListener("pointermove", handlePointerMove, {
+      passive: false,
+    });
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
+  };
+
+  const renderViewTab = (item: KbCollectionViewConfig, measure = false) => {
+    const active = item.id === collectionState?.activeViewId;
+    const tabDisplay = item.tabDisplay ?? "text-icon";
+    const showTabIcon = tabDisplay !== "text";
+    const showTabText = tabDisplay !== "icon";
+    const tooltipDescription =
+      item.description ||
+      `${KB_COLLECTION_VIEW_LABELS[item.viewType]} view of ${collectionTitle}`;
+    const tabButton = (
+      <button
+        key={item.id}
+        type="button"
+        className="kb-collection-view-tab"
+        data-active={active || undefined}
+        data-dragging={draggingViewId === item.id || undefined}
+        data-kb-view-tab-measure={measure || undefined}
+        data-kb-view-tab-id={measure ? undefined : item.id}
+        aria-pressed={active}
+        aria-label={item.name}
+        onPointerDown={(event) => startViewTabDrag(event, item, measure)}
+        onMouseDown={stopBlockInteraction}
+        onContextMenu={(event) => {
+          if (measure) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setViewMenuId(item.id);
+        }}
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          if (measure) return;
+          if (viewDragMovedRef.current) return;
+          if (active) {
+            setViewMenuId(item.id);
+            return;
+          }
+          switchView(item.id);
+        }}
+      >
+        {showTabIcon && (
+          <KbPageIcon
+            icon={item.icon}
+            color={null}
+            size={16}
+            fallback={getCollectionViewFallbackIcon(item)}
+          />
+        )}
+        {showTabText && <span>{item.name}</span>}
+      </button>
+    );
+
+    if (measure) return tabButton;
+    return (
+      <Popover
+        key={item.id}
+        open={viewMenuId === item.id}
+        onOpenChange={(open) =>
+          setViewMenuId((current) => (open ? item.id : current === item.id ? null : current))
+        }
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>{tabButton}</PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
+            <div className="grid gap-0.5">
+              <strong className="font-semibold">{item.name}</strong>
+              <span className="text-muted-foreground">
+                {tooltipDescription}
+              </span>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          className="kb-collection-view-menu"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={stopBlockInteraction}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <CollectionViewMenu
+            viewName={item.name}
+            description={item.description}
+            icon={item.icon}
+            tabDisplay={item.tabDisplay}
+            viewType={item.viewType}
+            canDelete={viewTabs.length > 1}
+            onRename={(name) => updateViewTitleById(item.id, name)}
+            onChangeDescription={(description) =>
+              updateViewDescriptionById(item.id, description)
+            }
+            onChangeIcon={(icon) => updateViewIconById(item.id, icon)}
+            onChangeTabDisplay={(display) =>
+              updateViewTabDisplayById(item.id, display)
+            }
+            onChangeLayout={(nextView) => updateViewTypeById(item.id, nextView)}
+            onEdit={() => openSettingsForView(item.id)}
+            onDuplicate={() => {
+              setViewMenuId(null);
+              void duplicateView(item.id);
+            }}
+            onDelete={() => {
+              setViewMenuId(null);
+              void deleteView(item.id);
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+    );
+  };
 
   return (
     <div
@@ -1101,69 +2051,453 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       style={blockStyle}
     >
       <div className="kb-collection-header">
-        <div className="kb-collection-title">
-          <ActiveViewIcon className="size-4 text-brand" />
-          {renamingTitle ? (
-            <Input
-              ref={titleInputRef}
-              value={titleDraft}
-              autoFocus
-              className="kb-collection-title-input"
-              aria-label="Название коллекции"
-              onFocus={(event) => event.currentTarget.select()}
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={stopBlockInteraction}
-              onChange={(event) => setTitleDraft(event.currentTarget.value)}
-              onBlur={(event) => commitTitleRename(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  commitTitleRename(event.currentTarget.value);
-                }
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  cancelTitleRenameRef.current = true;
-                  setTitleDraft(collectionTitle);
-                  setRenamingTitle(false);
-                }
-              }}
-            />
-          ) : (
-            <button
-              type="button"
-              className="kb-collection-title-button"
-              disabled={!editable}
-              aria-label="Переименовать коллекцию"
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={(event) => {
-                stopBlockMenuAction(event);
-                if (editable) setRenamingTitle(true);
-              }}
-            >
-              {collectionTitle}
-            </button>
-          )}
-          <span className="kb-collection-count">{sortedItems.length}</span>
+        {activeLayoutSettings.showDataSourceTitle && (
+        <div className="kb-collection-title-row">
+          <div className="kb-collection-title">
+            {renamingTitle ? (
+              <Input
+                ref={titleInputRef}
+                value={titleDraft}
+                autoFocus
+                className="kb-collection-title-input"
+                aria-label="Название базы"
+                onFocus={(event) => event.currentTarget.select()}
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={stopBlockInteraction}
+                onChange={(event) => setTitleDraft(event.currentTarget.value)}
+                onBlur={(event) => commitTitleRename(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitTitleRename(event.currentTarget.value);
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelTitleRenameRef.current = true;
+                    setTitleDraft(collectionTitle);
+                    setRenamingTitle(false);
+                  }
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className="kb-collection-title-button"
+                disabled={!editable}
+                aria-label="Переименовать базу"
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={(event) => {
+                  stopBlockMenuAction(event);
+                  if (editable) setRenamingTitle(true);
+                }}
+              >
+                {collectionTitle}
+              </button>
+            )}
+            <span className="kb-collection-count">{sortedItems.length}</span>
+          </div>
         </div>
-        {editable && (
-          <div className="kb-collection-actions">
-            <Popover open={settingsOpen} onOpenChange={setSettingsOpen}>
-              <PopoverTrigger asChild>
+        )}
+        <div className="kb-collection-toolbar">
+          <div
+            ref={viewTabsRef}
+            className="kb-collection-view-tabs"
+            aria-label="Виды коллекции"
+          >
+            {viewTabs.length > 0 ? (
+              visibleViewTabs.map((item) => renderViewTab(item))
+            ) : (
+              <div className="kb-collection-view-tab" data-active>
+                <ActiveViewIcon className="size-4" />
+                <span>{viewTitle}</span>
+              </div>
+            )}
+            {hiddenViewTabs.length > 0 && (
+              <Popover open={moreViewsOpen} onOpenChange={setMoreViewsOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="kb-collection-view-tab kb-collection-view-more"
+                    aria-label="Еще виды"
+                    onPointerDown={stopBlockInteraction}
+                    onMouseDown={stopBlockInteraction}
+                    onClick={stopBlockInteraction}
+                  >
+                    {hiddenViewTabs.length} еще...
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="start"
+                  sideOffset={6}
+                  className="kb-collection-view-overflow-menu"
+                  onPointerDown={stopBlockInteraction}
+                  onMouseDown={stopBlockInteraction}
+                  onClick={stopBlockInteraction}
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                >
+                  <div className="kb-collection-view-overflow-panel">
+                    <Input
+                      value={viewSearch}
+                      className="kb-collection-view-overflow-search"
+                      placeholder="Найти вид..."
+                      aria-label="Найти вид"
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={stopBlockInteraction}
+                      onChange={(event) =>
+                        setViewSearch(event.currentTarget.value)
+                      }
+                    />
+                    <div className="kb-collection-view-overflow-list">
+                      {searchedViewTabs.map((item) => {
+                        const active = item.id === collectionState?.activeViewId;
+                        return (
+                          <div
+                            key={item.id}
+                            className="kb-collection-view-overflow-row"
+                            data-active={active || undefined}
+                            data-dragging={draggingViewId === item.id || undefined}
+                            role="button"
+                            tabIndex={0}
+                            draggable={editable}
+                            onPointerDown={stopBlockInteraction}
+                            onMouseDown={stopBlockInteraction}
+                            onDragStart={(event) => {
+                              if (!editable) return;
+                              setDraggingViewId(item.id);
+                              viewDragMovedRef.current = false;
+                              event.dataTransfer.effectAllowed = "move";
+                              event.dataTransfer.setData("text/plain", item.id);
+                            }}
+                            onDragOver={(event) => {
+                              if (!draggingViewId || draggingViewId === item.id) {
+                                return;
+                              }
+                              event.preventDefault();
+                              viewDragMovedRef.current = true;
+                              reorderViewTabs(draggingViewId, item.id);
+                            }}
+                            onDrop={(event) => event.preventDefault()}
+                            onDragEnd={() => {
+                              if (viewDragMovedRef.current) persistViewTabOrder();
+                              setDraggingViewId(null);
+                              window.setTimeout(() => {
+                                viewDragMovedRef.current = false;
+                              }, 0);
+                            }}
+                            onClick={(event) => {
+                              stopBlockMenuAction(event);
+                              if (viewDragMovedRef.current) return;
+                              switchView(item.id);
+                              setMoreViewsOpen(false);
+                            }}
+                          >
+                            <GripVertical className="size-4" />
+                            <KbPageIcon
+                              icon={item.icon}
+                              color={null}
+                              size={16}
+                              fallback={getCollectionViewFallbackIcon(item)}
+                            />
+                            <span>{item.name}</span>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="kb-collection-view-overflow-more-btn"
+                                  aria-label="Действия вида"
+                                  onPointerDown={stopBlockInteraction}
+                                  onMouseDown={stopBlockInteraction}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                  }}
+                                >
+                                  <MoreHorizontal className="size-4" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                align="end"
+                                sideOffset={6}
+                                className="kb-collection-view-menu"
+                                onPointerDown={stopBlockInteraction}
+                                onMouseDown={stopBlockInteraction}
+                                onClick={stopBlockInteraction}
+                                onOpenAutoFocus={(event) =>
+                                  event.preventDefault()
+                                }
+                              >
+                                <CollectionViewMenu
+                                  viewName={item.name}
+                                  description={item.description}
+                                  icon={item.icon}
+                                  tabDisplay={item.tabDisplay}
+                                  viewType={item.viewType}
+                                  canDelete={viewTabs.length > 1}
+                                  onRename={(name) =>
+                                    updateViewTitleById(item.id, name)
+                                  }
+                                  onChangeDescription={(description) =>
+                                    updateViewDescriptionById(
+                                      item.id,
+                                      description,
+                                    )
+                                  }
+                                  onChangeIcon={(icon) =>
+                                    updateViewIconById(item.id, icon)
+                                  }
+                                  onChangeTabDisplay={(display) =>
+                                    updateViewTabDisplayById(item.id, display)
+                                  }
+                                  onChangeLayout={(nextView) =>
+                                    updateViewTypeById(item.id, nextView)
+                                  }
+                                  onEdit={() => openSettingsForView(item.id)}
+                                  onDuplicate={() => {
+                                    setMoreViewsOpen(false);
+                                    void duplicateView(item.id);
+                                  }}
+                                  onDelete={() => {
+                                    setMoreViewsOpen(false);
+                                    void deleteView(item.id);
+                                  }}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      className="kb-collection-view-overflow-new"
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={(event) => {
+                        stopBlockMenuAction(event);
+                        setMoreViewsOpen(false);
+                        openSettingsPanel("views");
+                      }}
+                    >
+                      <Plus className="size-4" />
+                      <span>Новый вид</span>
+                    </button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+            {editable && hiddenViewTabs.length === 0 && viewTabs.length > 0 && (
+              <Popover
+                open={createViewMenuOpen}
+                onOpenChange={setCreateViewMenuOpen}
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="kb-collection-view-add-inline"
+                        aria-label="Добавить вид"
+                        onPointerDown={stopBlockInteraction}
+                        onMouseDown={stopBlockInteraction}
+                        onClick={stopBlockInteraction}
+                      >
+                        <Plus className="size-4" />
+                      </button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
+                    Добавить вид
+                  </TooltipContent>
+                </Tooltip>
+                <PopoverContent
+                  align="start"
+                  sideOffset={8}
+                  className="kb-collection-create-view-menu"
+                  onPointerDown={stopBlockInteraction}
+                  onMouseDown={stopBlockInteraction}
+                  onClick={stopBlockInteraction}
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                >
+                  <CollectionCreateViewPanel
+                    onCreate={(nextView) => {
+                      setCreateViewMenuOpen(false);
+                      void createView(nextView);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+            )}
+            <div
+              ref={viewTabsMeasureRef}
+              className="kb-collection-view-tabs-measure"
+              aria-hidden
+            >
+              {viewTabs.map((item) => renderViewTab(item, true))}
+              <span
+                className="kb-collection-view-tab kb-collection-view-more"
+                data-kb-view-more-measure
+              >
+                99 еще...
+              </span>
+              <span
+                className="kb-collection-view-add-inline"
+                data-kb-view-add-measure
+              >
+                <Plus className="size-4" />
+              </span>
+            </div>
+          </div>
+          {editable && (
+          <div
+            className="kb-collection-actions"
+            data-collapsed={toolbarCollapsed || undefined}
+          >
+            <IconTooltip label={toolbarCollapsed ? "Раскрыть" : "Скрыть"}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="kb-collection-icon-btn kb-collection-toolbar-toggle"
+                aria-label={toolbarCollapsed ? "Раскрыть панель" : "Скрыть панель"}
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={(event) => {
+                  stopBlockMenuAction(event);
+                  setToolbarCollapsed((current) => !current);
+                }}
+              >
+                {toolbarCollapsed ? (
+                  <ChevronsLeft className="size-4" />
+                ) : (
+                  <ChevronsRight className="size-4" />
+                )}
+              </Button>
+            </IconTooltip>
+            {!toolbarCollapsed && (
+              <>
+            <div
+              className="kb-collection-search"
+              data-open={searchOpen || undefined}
+            >
+              <Input
+                value={searchQuery}
+                className="kb-collection-search-input"
+                placeholder="Поиск"
+                aria-label="Поиск по коллекции"
+                tabIndex={searchOpen ? 0 : -1}
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={stopBlockInteraction}
+                onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setSearchQuery("");
+                    setSearchOpen(false);
+                  }
+                }}
+              />
+              {(searchOpen || searchQuery.trim()) && (
+                <button
+                  type="button"
+                  className="kb-collection-search-clear"
+                  aria-label="Очистить поиск"
+                  onPointerDown={stopBlockInteraction}
+                  onMouseDown={stopBlockInteraction}
+                  onClick={(event) => {
+                    stopBlockMenuAction(event);
+                    setSearchQuery("");
+                    setSearchOpen(false);
+                  }}
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+              <IconTooltip label="Поиск">
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
                   className="kb-collection-icon-btn"
-                  aria-label="Настройки коллекции"
+                  data-active={searchOpen || searchQuery.trim() ? true : undefined}
+                  aria-label="Поиск"
                   onPointerDown={stopBlockInteraction}
                   onMouseDown={stopBlockInteraction}
-                  onClick={stopBlockInteraction}
+                  onClick={(event) => {
+                    stopBlockMenuAction(event);
+                    setSearchOpen((current) => !current);
+                  }}
                 >
-                  <Settings2 className="size-4" />
+                  <Search className="size-4" />
                 </Button>
-              </PopoverTrigger>
+              </IconTooltip>
+            </div>
+            <IconTooltip label="Фильтры">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="kb-collection-icon-btn"
+                data-active={activeFilters.length > 0 || undefined}
+                aria-label="Фильтры"
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={(event) => {
+                  stopBlockMenuAction(event);
+                  openSettingsPanel("filters");
+                }}
+              >
+                <ListFilter className="size-4" />
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="Сортировки">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="kb-collection-icon-btn"
+                data-active={activeSorts.length > 0 || undefined}
+                aria-label="Сортировки"
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={(event) => {
+                  stopBlockMenuAction(event);
+                  openSettingsPanel("sorts");
+                }}
+              >
+                <ArrowUpDown className="size-4" />
+              </Button>
+            </IconTooltip>
+            <Popover
+              open={settingsOpen}
+              onOpenChange={(open) => {
+                setSettingsOpen(open);
+                if (!open) setSettingsPanel(null);
+              }}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="kb-collection-icon-btn"
+                      aria-label="Настройки вида"
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={stopBlockInteraction}
+                    >
+                      <Settings2 className="size-4" />
+                    </Button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
+                  Настройки вида
+                </TooltipContent>
+              </Tooltip>
               <PopoverContent
                 align="end"
                 sideOffset={8}
@@ -1174,8 +2508,11 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                 onOpenAutoFocus={(event) => event.preventDefault()}
               >
                 <CollectionSettings
-                  title={collectionTitle}
                   viewTitle={viewTitle}
+                  viewDescription={activeView?.description ?? ""}
+                  viewIcon={activeView?.icon ?? (view === "table" ? "database" : "list-checks")}
+                  viewTabDisplay={activeView?.tabDisplay ?? "text-icon"}
+                  layoutSettings={activeLayoutSettings}
                   fields={orderedFields}
                   view={view}
                   views={collectionState?.views ?? []}
@@ -1184,8 +2521,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   filters={activeFilters}
                   sorts={activeSorts}
                   grouping={activeGrouping}
-                  onRename={renameCollection}
+                  initialPanel={settingsPanel}
                   onRenameView={updateViewTitle}
+                  onUpdateViewDescription={updateActiveViewDescription}
+                  onUpdateViewIcon={updateActiveViewIcon}
+                  onUpdateViewTabDisplay={updateActiveViewTabDisplay}
+                  onUpdateViewLayoutSettings={updateActiveViewLayoutSettings}
                   onChangeViewType={updateViewType}
                   onSwitchView={switchView}
                   onCreateView={createView}
@@ -1219,10 +2560,88 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               ) : (
                 <Plus className="size-4" />
               )}
-              Новая запись
+              Добавить
             </Button>
+              </>
+            )}
+            {toolbarCollapsed && (
+            <Popover
+              open={settingsOpen}
+              onOpenChange={(open) => {
+                setSettingsOpen(open);
+                if (!open) setSettingsPanel(null);
+              }}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="kb-collection-icon-btn"
+                      aria-label="Настройки вида"
+                      onPointerDown={stopBlockInteraction}
+                      onMouseDown={stopBlockInteraction}
+                      onClick={stopBlockInteraction}
+                    >
+                      <Settings2 className="size-4" />
+                    </Button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
+                  Настройки вида
+                </TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                align="end"
+                sideOffset={8}
+                className="kb-collection-settings"
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={stopBlockInteraction}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+              >
+                <CollectionSettings
+                  viewTitle={viewTitle}
+                  viewDescription={activeView?.description ?? ""}
+                  viewIcon={activeView?.icon ?? (view === "table" ? "database" : "list-checks")}
+                  viewTabDisplay={activeView?.tabDisplay ?? "text-icon"}
+                  layoutSettings={activeLayoutSettings}
+                  fields={orderedFields}
+                  view={view}
+                  views={collectionState?.views ?? []}
+                  activeViewId={collectionState?.activeViewId ?? null}
+                  visibleFieldIds={visibleFieldIds}
+                  filters={activeFilters}
+                  sorts={activeSorts}
+                  grouping={activeGrouping}
+                  initialPanel={settingsPanel}
+                  onRenameView={updateViewTitle}
+                  onUpdateViewDescription={updateActiveViewDescription}
+                  onUpdateViewIcon={updateActiveViewIcon}
+                  onUpdateViewTabDisplay={updateActiveViewTabDisplay}
+                  onUpdateViewLayoutSettings={updateActiveViewLayoutSettings}
+                  onChangeViewType={updateViewType}
+                  onSwitchView={switchView}
+                  onCreateView={createView}
+                  onDuplicateView={duplicateView}
+                  onDeleteView={deleteView}
+                  onAddField={addField}
+                  onUpdateField={updateField}
+                  onRemoveField={removeField}
+                  onReorderField={reorderField}
+                  onSetFieldVisible={setFieldVisible}
+                  onUpdateFilters={updateFilters}
+                  onUpdateSorts={updateSorts}
+                  onUpdateGrouping={updateGrouping}
+                />
+              </PopoverContent>
+            </Popover>
+            )}
           </div>
-        )}
+          )}
+        </div>
       </div>
 
       {loading || collectionLoading ? (
@@ -1230,7 +2649,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           <Loader2 className="size-4 animate-spin" />
           Загружаем записи
         </div>
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && view !== "table" ? (
         <button
           type="button"
           className="kb-collection-empty"
@@ -1246,10 +2665,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           <span className="font-medium">Нет записей</span>
           {canCreate && <span>Создать первую запись</span>}
         </button>
-      ) : sortedItems.length === 0 ? (
+      ) : items.length > 0 && sortedItems.length === 0 ? (
         <div className="kb-collection-state">
           <EyeOff className="size-4" />
-          Нет записей по фильтрам
+          {normalizedSearchQuery
+            ? "Нет записей по поиску"
+            : "Нет записей по фильтрам"}
         </div>
       ) : (
         <>
@@ -1268,13 +2689,26 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                       collectionId={collectionId}
                       collectionTitle={collectionTitle}
                       canEdit={editable}
+                      columnWidths={activeColumnWidths}
+                      layoutSettings={activeLayoutSettings}
+                      autoEditTitleItemId={pendingTitleEditItemId}
                       visibleFieldIds={visibleFieldIds}
                       onChangeValue={updateItemPropertyValue}
                       onUpdateField={updateField}
                       onRemoveField={removeField}
+                      onDuplicateField={duplicateField}
                       onReorderField={reorderField}
                       onInsertField={insertField}
                       onSetFieldVisible={setFieldVisible}
+                      onSortField={sortField}
+                      onResizeColumns={updateColumnWidths}
+                      onConsumeAutoEditTitle={() =>
+                        setPendingTitleEditItemId(null)
+                      }
+                      onAddField={addField}
+                      onCreateRecord={createRecord}
+                      onRenameItemTitle={updateItemTitle}
+                      creating={creating}
                     />
                   </section>
                 ))}
@@ -1286,13 +2720,24 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                 collectionId={collectionId}
                 collectionTitle={collectionTitle}
                 canEdit={editable}
+                columnWidths={activeColumnWidths}
+                layoutSettings={activeLayoutSettings}
+                autoEditTitleItemId={pendingTitleEditItemId}
                 visibleFieldIds={visibleFieldIds}
                 onChangeValue={updateItemPropertyValue}
                 onUpdateField={updateField}
                 onRemoveField={removeField}
+                onDuplicateField={duplicateField}
                 onReorderField={reorderField}
                 onInsertField={insertField}
                 onSetFieldVisible={setFieldVisible}
+                onSortField={sortField}
+                onResizeColumns={updateColumnWidths}
+                onConsumeAutoEditTitle={() => setPendingTitleEditItemId(null)}
+                onAddField={addField}
+                onCreateRecord={createRecord}
+                onRenameItemTitle={updateItemTitle}
+                creating={creating}
               />
             )
           ) : (
@@ -1301,6 +2746,10 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               groups={groupedItems}
               fields={visibleFields}
               collectionId={collectionId}
+              collectionTitle={collectionTitle}
+              canEdit={editable}
+              layoutSettings={activeLayoutSettings}
+              onChangeValue={updateItemPropertyValue}
             />
           )}
         </>
@@ -1311,40 +2760,100 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
 
 function CollectionLayoutOptions({
   view,
+  settings,
   onChange,
+  onUpdateSettings,
 }: {
   view: KbCollectionView;
+  settings: KbCollectionViewLayoutSettings;
   onChange: (view: KbCollectionView) => void;
+  onUpdateSettings: (patch: Partial<KbCollectionViewLayoutSettings>) => void;
 }) {
   return (
-    <div
-      className="kb-collection-layout-grid"
-      role="group"
-      aria-label="Layout"
-    >
-      {(["table", "list"] as const).map((nextView) => {
-        const active = view === nextView;
-        const Icon = nextView === "table" ? Table2 : GalleryHorizontalEnd;
-        return (
-          <button
-            key={nextView}
-            type="button"
-            className="kb-collection-layout-card"
-            data-active={active || undefined}
-            aria-pressed={active}
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={(event) => {
-              stopBlockMenuAction(event);
-              onChange(nextView);
-            }}
-          >
-            <Icon className="size-5" />
-            <span>{KB_COLLECTION_VIEW_LABELS[nextView]}</span>
-          </button>
-        );
-      })}
+    <div className="kb-collection-layout-panel">
+      <div
+        className="kb-collection-layout-grid"
+        role="group"
+        aria-label="Layout"
+      >
+        {(["table", "list"] as const).map((nextView) => {
+          const active = view === nextView;
+          const Icon = nextView === "table" ? Table2 : ListChecks;
+          return (
+            <button
+              key={nextView}
+              type="button"
+              className="kb-collection-layout-card"
+              data-active={active || undefined}
+              aria-pressed={active}
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onChange(nextView);
+              }}
+            >
+              <Icon className="size-5" />
+              <span>{KB_COLLECTION_VIEW_LABELS[nextView]}</span>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          className="kb-collection-layout-card"
+          disabled
+          aria-disabled
+        >
+          <GalleryHorizontalEnd className="size-5" />
+          <span>Галерея</span>
+        </button>
+      </div>
+      <div className="kb-collection-layout-switches">
+        <CollectionLayoutSwitch
+          label="Показывать название базы"
+          checked={settings.showDataSourceTitle}
+          onChange={(checked) =>
+            onUpdateSettings({ showDataSourceTitle: checked })
+          }
+        />
+        {view === "table" && (
+          <CollectionLayoutSwitch
+            label="Показывать вертикальные линии"
+            checked={settings.showVerticalLines}
+            onChange={(checked) =>
+              onUpdateSettings({ showVerticalLines: checked })
+            }
+          />
+        )}
+        <CollectionLayoutSwitch
+          label="Показывать иконку страницы"
+          checked={settings.showPageIcon}
+          onChange={(checked) => onUpdateSettings({ showPageIcon: checked })}
+        />
+        <CollectionLayoutSwitch
+          label="Сворачивать весь текст"
+          checked={!settings.wrapContent}
+          onChange={(checked) => onUpdateSettings({ wrapContent: !checked })}
+        />
+      </div>
     </div>
+  );
+}
+
+function CollectionLayoutSwitch({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="kb-collection-layout-switch">
+      <span>{label}</span>
+      <Switch checked={checked} onCheckedChange={onChange} />
+    </label>
   );
 }
 
@@ -1363,7 +2872,6 @@ function CollectionViewsEditor({
     <div className="kb-collection-views-editor">
       <div className="kb-collection-view-list">
         {views.map((view) => {
-          const Icon = view.viewType === "table" ? Table2 : GalleryHorizontalEnd;
           const active = view.id === activeViewId;
           return (
             <button
@@ -1378,7 +2886,12 @@ function CollectionViewsEditor({
                 onSwitchView(view.id);
               }}
             >
-              <Icon className="size-4" />
+              <KbPageIcon
+                icon={view.icon}
+                color={null}
+                size={16}
+                fallback={getCollectionViewFallbackIcon(view)}
+              />
               <span>{view.name}</span>
               <span className="kb-collection-settings-row-value">
                 {KB_COLLECTION_VIEW_LABELS[view.viewType]}
@@ -1418,16 +2931,395 @@ function CollectionViewsEditor({
   );
 }
 
+function CollectionCreateViewPanel({
+  onCreate,
+}: {
+  onCreate: (view: KbCollectionView) => void;
+}) {
+  const options: Array<{
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    view?: KbCollectionView;
+  }> = [
+    { label: "Таблица", icon: Table2, view: "table" },
+    { label: "Список", icon: ListChecks, view: "list" },
+    { label: "Галерея", icon: GalleryHorizontalEnd },
+  ];
+
+  return (
+    <div className="kb-collection-create-view-panel">
+      <div className="kb-collection-create-view-title">Добавить вид</div>
+      <div className="kb-collection-create-view-grid">
+        {options.map((option) => {
+          const Icon = option.icon;
+          return (
+            <button
+              key={option.label}
+              type="button"
+              className="kb-collection-create-view-option"
+              disabled={!option.view}
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                if (option.view) onCreate(option.view);
+              }}
+            >
+              <Icon className="size-6" />
+              <span>{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CollectionViewIconPicker({
+  value,
+  onChange,
+}: {
+  value: KbCollectionViewIcon;
+  onChange: (icon: KbCollectionViewIcon) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="kb-collection-view-icon-picker"
+          aria-label="Изменить иконку вида"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={stopBlockInteraction}
+        >
+          <KbPageIcon icon={value} color={null} size={18} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="w-[380px] p-0 rounded-[10px]"
+        onPointerDown={stopBlockInteraction}
+        onMouseDown={stopBlockInteraction}
+        onClick={stopBlockInteraction}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <KbIconPickerBody
+          value={value}
+          color={null}
+          onChange={(next) => onChange(next.icon ?? "database")}
+          onCommitClose={() => setOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function CollectionViewMenu({
+  viewName,
+  description,
+  icon,
+  tabDisplay,
+  viewType,
+  canDelete,
+  onRename,
+  onChangeDescription,
+  onChangeIcon,
+  onChangeTabDisplay,
+  onChangeLayout,
+  onEdit,
+  onDuplicate,
+  onDelete,
+}: {
+  viewName: string;
+  description: string;
+  icon: KbCollectionViewIcon;
+  tabDisplay: KbCollectionViewTabDisplay;
+  viewType: KbCollectionView;
+  canDelete: boolean;
+  onRename: (name: string) => void;
+  onChangeDescription: (description: string) => void;
+  onChangeIcon: (icon: KbCollectionViewIcon) => void;
+  onChangeTabDisplay: (display: KbCollectionViewTabDisplay) => void;
+  onChangeLayout: (view: KbCollectionView) => void;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}) {
+  const [panel, setPanel] = useState<
+    "root" | "rename" | "layout" | "display"
+  >("root");
+  const [nameDraft, setNameDraft] = useState(viewName);
+  const [descriptionDraft, setDescriptionDraft] = useState(description);
+
+  useEffect(() => {
+    setNameDraft(viewName);
+  }, [viewName]);
+
+  useEffect(() => {
+    setDescriptionDraft(description);
+  }, [description]);
+
+  if (panel === "rename") {
+    return (
+      <div className="kb-collection-column-menu-panel">
+        <div className="kb-collection-column-insert-head">
+          <button
+            type="button"
+            className="kb-collection-settings-back"
+            aria-label="Назад"
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("root");
+            }}
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+          <div className="kb-collection-column-insert-subtitle">
+            Переименовать вид
+          </div>
+        </div>
+        <div className="kb-collection-column-menu-name">
+          <CollectionViewIconPicker
+            value={icon}
+            onChange={onChangeIcon}
+          />
+          <Input
+            value={nameDraft}
+            className="h-9 min-w-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
+            aria-label="Название вида"
+            autoFocus
+            onChange={(event) => setNameDraft(event.currentTarget.value)}
+            onBlur={() => onRename(nameDraft)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onRename(event.currentTarget.value);
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setNameDraft(viewName);
+                setPanel("root");
+              }
+            }}
+          />
+        </div>
+        <label className="kb-collection-view-description-field">
+          <span>Описание</span>
+          <textarea
+            value={descriptionDraft}
+            className="kb-collection-view-description-input"
+            placeholder="Описание вида"
+            rows={3}
+            onChange={(event) =>
+              setDescriptionDraft(event.currentTarget.value)
+            }
+            onBlur={() => onChangeDescription(descriptionDraft)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setDescriptionDraft(description);
+                setPanel("root");
+              }
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                onChangeDescription(event.currentTarget.value);
+                setPanel("root");
+              }
+            }}
+          />
+        </label>
+      </div>
+    );
+  }
+
+  if (panel === "display") {
+    const DisplayIcon = getCollectionViewFallbackIcon({ icon, viewType });
+    return (
+      <div className="kb-collection-column-menu-panel">
+        <div className="kb-collection-column-insert-head">
+          <button
+            type="button"
+            className="kb-collection-settings-back"
+            aria-label="Назад"
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("root");
+            }}
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+          <div className="kb-collection-column-insert-subtitle">
+            Отображение
+          </div>
+        </div>
+        {(["text-icon", "text", "icon"] as const).map((display) => {
+          const Icon =
+            display === "text"
+              ? Type
+              : display === "icon"
+                ? DisplayIcon
+                : Paintbrush;
+          return (
+            <button
+              key={display}
+              type="button"
+              className="kb-collection-column-menu-row"
+              data-active={tabDisplay === display || undefined}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onChangeTabDisplay(display);
+              }}
+            >
+              <Icon className="size-4" />
+              <span>{VIEW_TAB_DISPLAY_LABELS[display]}</span>
+              {tabDisplay === display && <Check className="size-4" />}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (panel === "layout") {
+    return (
+      <div className="kb-collection-column-menu-panel">
+        <div className="kb-collection-column-insert-head">
+          <button
+            type="button"
+            className="kb-collection-settings-back"
+            aria-label="Назад"
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("root");
+            }}
+          >
+            <ArrowLeft className="size-4" />
+          </button>
+          <div className="kb-collection-column-insert-subtitle">
+            Отображать как
+          </div>
+        </div>
+        {(["table", "list"] as const).map((nextView) => {
+          const Icon = nextView === "table" ? Table2 : ListChecks;
+          const active = viewType === nextView;
+          return (
+            <button
+              key={nextView}
+              type="button"
+              className="kb-collection-column-menu-row"
+              data-active={active || undefined}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onChangeLayout(nextView);
+              }}
+            >
+              <Icon className="size-4" />
+              <span>{KB_COLLECTION_VIEW_LABELS[nextView]}</span>
+              {active && <Check className="size-4" />}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="kb-collection-column-menu-panel">
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          setPanel("rename");
+        }}
+      >
+        <Pencil className="size-4" />
+        <span>Переименовать</span>
+        <span />
+      </button>
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          setPanel("display");
+        }}
+      >
+        <Paintbrush className="size-4" />
+        <span>Отображение</span>
+        <span className="kb-collection-settings-row-value">
+          {VIEW_TAB_DISPLAY_LABELS[tabDisplay]}
+        </span>
+      </button>
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          onEdit();
+        }}
+      >
+        <Settings2 className="size-4" />
+        <span>Настроить вид</span>
+        <span />
+      </button>
+      <div className="kb-collection-column-menu-separator" />
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          onDuplicate();
+        }}
+      >
+        <Copy className="size-4" />
+        <span>Дублировать вид</span>
+        <span />
+      </button>
+      <button
+        type="button"
+        className="kb-collection-column-menu-row text-destructive"
+        disabled={!canDelete}
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          onDelete();
+        }}
+      >
+        <Trash2 className="size-4" />
+        <span>Удалить вид</span>
+        <span />
+      </button>
+    </div>
+  );
+}
+
 function CollectionListView({
   items,
   groups,
   fields,
   collectionId,
+  collectionTitle,
+  canEdit,
+  layoutSettings,
+  onChangeValue,
 }: {
   items: KbCollectionItem[];
   groups: KbCollectionItemGroup<KbCollectionItem>[];
   fields: KbCollectionField[];
   collectionId: string;
+  collectionTitle: string;
+  canEdit: boolean;
+  layoutSettings: KbCollectionViewLayoutSettings;
+  onChangeValue: (
+    pageId: string,
+    field: KbCollectionField,
+    value: KbProperty["value"],
+  ) => void;
 }) {
   if (groups.length > 0) {
     return (
@@ -1442,6 +3334,10 @@ function CollectionListView({
                   item={item}
                   fields={fields}
                   collectionId={collectionId}
+                  collectionTitle={collectionTitle}
+                  canEdit={canEdit}
+                  layoutSettings={layoutSettings}
+                  onChangeValue={onChangeValue}
                 />
               ))}
             </div>
@@ -1459,6 +3355,10 @@ function CollectionListView({
           item={item}
           fields={fields}
           collectionId={collectionId}
+          collectionTitle={collectionTitle}
+          canEdit={canEdit}
+          layoutSettings={layoutSettings}
+          onChangeValue={onChangeValue}
         />
       ))}
     </div>
@@ -1485,26 +3385,43 @@ function CollectionItemRow({
   item,
   fields,
   collectionId,
+  collectionTitle,
+  canEdit,
+  layoutSettings,
+  onChangeValue,
 }: {
   item: KbCollectionItem;
   fields: KbCollectionField[];
   collectionId: string;
+  collectionTitle: string;
+  canEdit: boolean;
+  layoutSettings: KbCollectionViewLayoutSettings;
+  onChangeValue: (
+    pageId: string,
+    field: KbCollectionField,
+    value: KbProperty["value"],
+  ) => void;
 }) {
   const preview = item.plain_text.trim();
 
   return (
-    <Link href={`/knowledge/${item.slug}`} className="kb-collection-row">
-      <div className="kb-collection-row-main">
-        <KbPageIcon icon={item.icon} color={item.icon_color} size={18} />
+    <div className="kb-collection-row">
+      <Link href={`/knowledge/${item.slug}`} className="kb-collection-row-main">
+        {layoutSettings.showPageIcon && (
+          <KbPageIcon icon={item.icon} color={item.icon_color} size={18} />
+        )}
         <div className="min-w-0 flex-1">
           <div className="kb-collection-row-title">
             {item.title || "Без названия"}
           </div>
           {preview && <div className="kb-collection-preview">{preview}</div>}
         </div>
-      </div>
+      </Link>
       {fields.length > 0 && (
-        <div className="kb-collection-properties">
+        <div
+          className="kb-collection-properties"
+          data-wrap={layoutSettings.wrapContent || undefined}
+        >
           {fields.map((field) => (
             <CollectionPropertyChip
               key={field.id}
@@ -1514,37 +3431,236 @@ function CollectionItemRow({
                 field,
                 collectionId,
               )}
+              collectionId={collectionId}
+              collectionTitle={collectionTitle}
+              canEdit={canEdit}
+              onChangeValue={(value) => onChangeValue(item.id, field, value)}
             />
           ))}
         </div>
       )}
-    </Link>
+    </div>
   );
 }
 
 function CollectionPropertyChip({
   field,
   property,
+  collectionId,
+  collectionTitle,
+  canEdit,
+  onChangeValue,
 }: {
   field: KbCollectionField;
   property: KbProperty | null;
+  collectionId: string;
+  collectionTitle: string;
+  canEdit: boolean;
+  onChangeValue: (value: KbProperty["value"]) => void;
 }) {
   const Icon = FIELD_ICONS[field.type];
-  const value = property ? formatPropertyValue(property) : "";
+  const displayProperty = collectionFieldDisplayProperty(property, field, {
+    collectionId,
+    collectionTitle,
+  });
 
   return (
-    <span className="kb-collection-property">
-      <Icon className="size-3.5 text-muted-foreground" />
-      <span className="kb-collection-property-name">{field.name}</span>
-      <span
-        className={cn(
-          "kb-collection-property-value",
-          !value && "text-muted-foreground/55",
-        )}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className="kb-collection-property"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={stopBlockInteraction}
+        >
+          <Icon className="size-3.5 text-muted-foreground" />
+          <span className="kb-collection-property-name">{field.name}</span>
+          <PropertyValueControl
+            property={displayProperty}
+            canEdit={canEdit}
+            canEditOptions={false}
+            onChangeValue={onChangeValue}
+            onChangeOptions={() => {}}
+            onChangeOptionColors={() => {}}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
+        {field.name}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function CollectionAddFieldMenu({
+  onAdd,
+}: {
+  onAdd: (type: KbPropertyType) => void;
+}) {
+  return (
+    <div className="kb-collection-column-menu-panel">
+      <div className="kb-collection-column-insert-subtitle">
+        Добавить свойство
+      </div>
+      <div className="kb-collection-column-type-list">
+        {KB_COLLECTION_CREATABLE_FIELD_TYPES.map((type) => {
+          const Icon = FIELD_ICONS[type];
+          return (
+            <button
+              key={type}
+              type="button"
+              className="kb-collection-column-type-option"
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onAdd(type);
+              }}
+            >
+              <Icon className="size-4" />
+              <span>{KB_COLLECTION_FIELD_LABELS[type]}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CollectionTableTitleCell({
+  item,
+  selected,
+  editing,
+  showPageIcon,
+  onSelect,
+  onEdit,
+  onCancel,
+  onCommit,
+}: {
+  item: KbCollectionItem;
+  selected: boolean;
+  editing: boolean;
+  showPageIcon: boolean;
+  onSelect: () => void;
+  onEdit: () => void;
+  onCancel: () => void;
+  onCommit: (title: string) => void;
+}) {
+  const [draft, setDraft] = useState(item.title || "Без названия");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(item.title || "Без названия");
+  }, [editing, item.title]);
+
+  useEffect(() => {
+    if (!editing) return;
+    window.requestAnimationFrame(() => {
+      inputRef.current?.select();
+    });
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <Input
+        ref={inputRef}
+        value={draft}
+        className="kb-collection-table-title-input"
+        aria-label="Название записи"
+        onPointerDown={stopBlockInteraction}
+        onMouseDown={stopBlockInteraction}
+        onClick={stopBlockInteraction}
+        onChange={(event) => setDraft(event.currentTarget.value)}
+        onBlur={() => onCommit(draft)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            onCommit(event.currentTarget.value);
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setDraft(item.title || "Без названия");
+            onCancel();
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="kb-collection-table-title-interactive"
+      data-selected={selected || undefined}
+      onClick={(event) => {
+        stopBlockMenuAction(event);
+        if (selected) {
+          onEdit();
+        } else {
+          onSelect();
+        }
+      }}
+    >
+      <Link
+        href={`/knowledge/${item.slug}`}
+        className="kb-collection-table-title-link"
+        onClick={(event) => event.stopPropagation()}
       >
-        {value || "Пусто"}
-      </span>
-    </span>
+        {showPageIcon && (
+          <KbPageIcon icon={item.icon} color={item.icon_color} size={17} />
+        )}
+        <span className="kb-collection-table-title-text">
+          {item.title || "Без названия"}
+        </span>
+      </Link>
+    </div>
+  );
+}
+
+function CollectionTableNewRow({
+  rowStyle,
+  fields,
+  creating,
+  onCreate,
+}: {
+  rowStyle: CSSProperties;
+  fields: KbCollectionField[];
+  creating: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <div
+      className="kb-collection-table-row kb-collection-table-new-row"
+      role="row"
+      style={rowStyle}
+    >
+      <button
+        type="button"
+        className="kb-collection-table-title-cell kb-collection-table-new-cell"
+        role="cell"
+        disabled={creating}
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          onCreate();
+        }}
+      >
+        {creating ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Plus className="size-4" />
+        )}
+        <span>Добавить</span>
+      </button>
+      {fields.map((field) => (
+        <div
+          key={field.id}
+          className="kb-collection-table-cell"
+          role="cell"
+        />
+      ))}
+      <div
+        className="kb-collection-table-cell kb-collection-table-add-field-spacer"
+        role="cell"
+        aria-hidden
+      />
+    </div>
   );
 }
 
@@ -1554,19 +3670,33 @@ function CollectionTableView({
   collectionId,
   collectionTitle,
   canEdit,
+  columnWidths,
+  layoutSettings,
+  autoEditTitleItemId,
   visibleFieldIds,
   onChangeValue,
   onUpdateField,
   onRemoveField,
+  onDuplicateField,
   onReorderField,
   onInsertField,
   onSetFieldVisible,
+  onSortField,
+  onResizeColumns,
+  onConsumeAutoEditTitle,
+  onAddField,
+  onCreateRecord,
+  onRenameItemTitle,
+  creating,
 }: {
   items: KbCollectionItem[];
   fields: KbCollectionField[];
   collectionId: string;
   collectionTitle: string;
   canEdit: boolean;
+  columnWidths: KbCollectionColumnWidths;
+  layoutSettings: KbCollectionViewLayoutSettings;
+  autoEditTitleItemId: string | null;
   visibleFieldIds: KbCollectionVisibleFieldIds;
   onChangeValue: (
     pageId: string,
@@ -1575,6 +3705,7 @@ function CollectionTableView({
   ) => void;
   onUpdateField: (id: string, patch: Partial<KbCollectionField>) => void;
   onRemoveField: (id: string) => void;
+  onDuplicateField: (id: string) => void;
   onReorderField: (
     activeId: string,
     targetId: string,
@@ -1587,11 +3718,30 @@ function CollectionTableView({
     name?: string,
   ) => void;
   onSetFieldVisible: (id: string, visible: boolean) => void;
+  onSortField: (id: string, direction: KbCollectionSortDirection) => void;
+  onResizeColumns: (widths: KbCollectionColumnWidths) => void;
+  onConsumeAutoEditTitle: () => void;
+  onAddField: (type: KbPropertyType) => void;
+  onCreateRecord: () => void;
+  onRenameItemTitle: (pageId: string, title: string) => void;
+  creating: boolean;
 }) {
   const tableRef = useRef<HTMLDivElement>(null);
   const fieldsRef = useRef(fields);
   const suppressHeaderClickRef = useRef(false);
   const [openFieldMenuId, setOpenFieldMenuId] = useState<string | null>(null);
+  const [titleColumnMenuOpen, setTitleColumnMenuOpen] = useState(false);
+  const [titleColumnName, setTitleColumnName] = useState("Страница");
+  const [titleColumnPinned, setTitleColumnPinned] = useState(false);
+  const [titleColumnWrap, setTitleColumnWrap] = useState(false);
+  const [addFieldOpen, setAddFieldOpen] = useState(false);
+  const [selectedCell, setSelectedCell] =
+    useState<CollectionTableSelection | null>(null);
+  const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
+  const [draftColumnWidths, setDraftColumnWidths] =
+    useState<KbCollectionColumnWidths>(columnWidths);
+  const [resizeIndicatorX, setResizeIndicatorX] = useState<number | null>(null);
+  const consumedAutoEditTitleRef = useRef<string | null>(null);
   const [columnDrag, setColumnDrag] = useState<{
     activeId: string;
     indicatorIndex: number;
@@ -1599,16 +3749,102 @@ function CollectionTableView({
     previewX: number;
     previewWidth: number;
   } | null>(null);
-  const gridTemplateColumns =
-    fields.length > 0
-      ? `minmax(220px, 240px) repeat(${fields.length}, minmax(150px, 1fr))`
-      : "minmax(220px, 1fr)";
+  const getDraftColumnWidth = (columnId: string, fallback: number) => {
+    const value = draftColumnWidths[columnId];
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(
+      Math.max(value, MIN_TABLE_COLUMN_WIDTH),
+      MAX_TABLE_COLUMN_WIDTH,
+    );
+  };
+  const titleColumnWidth = getDraftColumnWidth(
+    TABLE_TITLE_COLUMN_WIDTH_ID,
+    320,
+  );
+  const fieldColumnWidths = fields.map((field) =>
+    getDraftColumnWidth(field.id, 220),
+  );
+  const gridTemplateColumns = [
+    `${titleColumnWidth}px`,
+    ...fieldColumnWidths.map((width) => `${width}px`),
+    ...(canEdit ? ["44px"] : []),
+  ].join(" ");
   const rowStyle: CSSProperties = { gridTemplateColumns };
   const draggingColumnId = columnDrag?.activeId ?? null;
 
   useEffect(() => {
     fieldsRef.current = fields;
   }, [fields]);
+
+  useEffect(() => {
+    setDraftColumnWidths(columnWidths);
+  }, [columnWidths]);
+
+  const blurActiveCellEditor = useCallback(() => {
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      tableRef.current?.contains(active)
+    ) {
+      active.blur();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!autoEditTitleItemId) return;
+    if (consumedAutoEditTitleRef.current === autoEditTitleItemId) return;
+    if (!items.some((item) => item.id === autoEditTitleItemId)) return;
+
+    consumedAutoEditTitleRef.current = autoEditTitleItemId;
+    setSelectedCell({ itemId: autoEditTitleItemId, cellId: "title" });
+    setEditingTitleId(autoEditTitleItemId);
+    onConsumeAutoEditTitle();
+  }, [autoEditTitleItemId, items, onConsumeAutoEditTitle]);
+
+  useEffect(() => {
+    if (!selectedCell && !editingTitleId) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest("[data-kb-collection-cell]")) return;
+      setSelectedCell(null);
+      setEditingTitleId(null);
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [editingTitleId, selectedCell]);
+
+  useEffect(() => {
+    if (!openFieldMenuId && !titleColumnMenuOpen && !addFieldOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        target.closest(
+          ".kb-collection-column-menu, .kb-collection-table-head-cell, .kb-collection-table-add-field",
+        )
+      ) {
+        return;
+      }
+      setOpenFieldMenuId(null);
+      setTitleColumnMenuOpen(false);
+      setAddFieldOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [addFieldOpen, openFieldMenuId, titleColumnMenuOpen]);
+
+  const isCellSelected = useCallback(
+    (itemId: string, cellId: CollectionTableCellId) =>
+      selectedCell?.itemId === itemId && selectedCell.cellId === cellId,
+    [selectedCell],
+  );
 
   const getColumnDropTarget = useCallback(
     (clientX: number, previewWidth = 0, grabOffset = 0) => {
@@ -1750,26 +3986,171 @@ function CollectionTableView({
     document.addEventListener("pointercancel", handlePointerCancel);
   };
 
+  const startColumnResize = (
+    event: React.PointerEvent<HTMLElement>,
+    columnId: string,
+  ) => {
+    if (!canEdit || event.button !== 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    suppressHeaderClickRef.current = true;
+
+    const table = tableRef.current;
+    const headerCell = event.currentTarget.closest<HTMLElement>(
+      ".kb-collection-table-head-cell",
+    );
+    if (!table || !headerCell) return;
+
+    const tableRect = table.getBoundingClientRect();
+    const headerRect = headerCell.getBoundingClientRect();
+    const startX = event.clientX;
+    const startWidth = headerRect.width;
+    let latestWidth = startWidth;
+
+    const updateIndicator = (width: number) => {
+      setResizeIndicatorX(headerRect.left - tableRect.left + width);
+    };
+
+    updateIndicator(startWidth);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault();
+      latestWidth = Math.min(
+        Math.max(startWidth + moveEvent.clientX - startX, MIN_TABLE_COLUMN_WIDTH),
+        MAX_TABLE_COLUMN_WIDTH,
+      );
+      setDraftColumnWidths((current) => ({
+        ...current,
+        [columnId]: latestWidth,
+      }));
+      updateIndicator(latestWidth);
+    };
+
+    const cleanup = () => {
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerCancel);
+      document.body.style.cursor = "";
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      cleanup();
+      upEvent.preventDefault();
+      setResizeIndicatorX(null);
+      onResizeColumns({
+        ...draftColumnWidths,
+        [columnId]: latestWidth,
+      });
+      window.setTimeout(() => {
+        suppressHeaderClickRef.current = false;
+      }, 0);
+    };
+
+    const handlePointerCancel = () => {
+      cleanup();
+      setResizeIndicatorX(null);
+      setDraftColumnWidths(columnWidths);
+      suppressHeaderClickRef.current = false;
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.addEventListener("pointermove", handlePointerMove, {
+      passive: false,
+    });
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
+  };
+
   return (
-    <div className="kb-collection-table-scroll" role="region">
+    <div
+      className="kb-collection-table-scroll"
+      role="region"
+      data-menu-open={
+        openFieldMenuId || titleColumnMenuOpen || addFieldOpen
+          ? true
+          : undefined
+      }
+    >
       <div
         ref={tableRef}
         className="kb-collection-table"
         role="table"
         aria-label="Записи коллекции"
         data-column-dragging={columnDrag ? true : undefined}
+        data-title-pinned={titleColumnPinned || undefined}
+        data-title-wrap={
+          titleColumnWrap || layoutSettings.wrapContent || undefined
+        }
+        data-vertical-lines={layoutSettings.showVerticalLines || undefined}
+        data-wrap-content={layoutSettings.wrapContent || undefined}
       >
         <div
           className="kb-collection-table-row kb-collection-table-row-head"
           role="row"
           style={rowStyle}
         >
-          <div
-            className="kb-collection-table-head-cell kb-collection-table-title-col"
-            role="columnheader"
+          <Popover
+            open={titleColumnMenuOpen}
+            onOpenChange={setTitleColumnMenuOpen}
           >
-            Страница
-          </div>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="kb-collection-table-head-cell kb-collection-table-title-col kb-collection-table-title-head"
+                role="columnheader"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!suppressHeaderClickRef.current) return;
+                  event.preventDefault();
+                  suppressHeaderClickRef.current = false;
+                }}
+              >
+                <span className="kb-collection-table-heading">
+                  <Type className="size-3.5" />
+                  <span>{titleColumnName}</span>
+                  {titleColumnPinned && <Pin className="size-3.5" />}
+                </span>
+                {canEdit && (
+                  <span
+                    className="kb-collection-column-resizer"
+                    aria-hidden
+                    onPointerDown={(event) =>
+                      startColumnResize(event, TABLE_TITLE_COLUMN_WIDTH_ID)
+                    }
+                  />
+                )}
+              </button>
+            </PopoverTrigger>
+            {canEdit && (
+              <PopoverContent
+                align="start"
+                sideOffset={6}
+                className="kb-collection-column-menu"
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={stopBlockInteraction}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+              >
+                <CollectionTitleColumnMenu
+                  name={titleColumnName}
+                  pinned={titleColumnPinned}
+                  wrap={titleColumnWrap}
+                  onRename={setTitleColumnName}
+                  onPinnedChange={setTitleColumnPinned}
+                  onWrapChange={setTitleColumnWrap}
+                  onInsertRight={(type, name) => {
+                    if (fields[0]) {
+                      onInsertField(type, fields[0].id, "before", name);
+                    } else {
+                      onAddField(type);
+                    }
+                    setTitleColumnMenuOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            )}
+          </Popover>
           {fields.map((field) => {
             const Icon = FIELD_ICONS[field.type];
             return (
@@ -1801,6 +4182,15 @@ function CollectionTableView({
                       <Icon className="size-3.5" />
                       <span>{field.name}</span>
                     </span>
+                    {canEdit && (
+                      <span
+                        className="kb-collection-column-resizer"
+                        aria-hidden
+                        onPointerDown={(event) =>
+                          startColumnResize(event, field.id)
+                        }
+                      />
+                    )}
                   </button>
                 </PopoverTrigger>
                 {canEdit && (
@@ -1824,6 +4214,14 @@ function CollectionTableView({
                         onRemoveField(field.id);
                         setOpenFieldMenuId(null);
                       }}
+                      onDuplicate={() => {
+                        onDuplicateField(field.id);
+                        setOpenFieldMenuId(null);
+                      }}
+                      onSort={(direction) => {
+                        onSortField(field.id, direction);
+                        setOpenFieldMenuId(null);
+                      }}
                       onInsert={(type, name, placement) => {
                         onInsertField(type, field.id, placement, name);
                         setOpenFieldMenuId(null);
@@ -1837,6 +4235,37 @@ function CollectionTableView({
               </Popover>
             );
           })}
+          {canEdit && (
+            <Popover open={addFieldOpen} onOpenChange={setAddFieldOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="kb-collection-table-head-cell kb-collection-table-add-field"
+                  role="columnheader"
+                  aria-label="Добавить свойство"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <Plus className="size-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                sideOffset={6}
+                className="kb-collection-column-menu"
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={stopBlockInteraction}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+              >
+                <CollectionAddFieldMenu
+                  onAdd={(type) => {
+                    onAddField(type);
+                    setAddFieldOpen(false);
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
         {items.map((item) => (
           <div
@@ -1845,28 +4274,65 @@ function CollectionTableView({
             role="row"
             style={rowStyle}
           >
-            <div className="kb-collection-table-title-cell" role="cell">
-              <Link href={`/knowledge/${item.slug}`}>
-                <KbPageIcon icon={item.icon} color={item.icon_color} size={17} />
-                <span>{item.title || "Без названия"}</span>
-              </Link>
+            <div
+              className="kb-collection-table-title-cell"
+              role="cell"
+              data-kb-collection-cell
+              data-selected={isCellSelected(item.id, "title") || undefined}
+            >
+              <CollectionTableTitleCell
+                item={item}
+                selected={isCellSelected(item.id, "title")}
+                editing={editingTitleId === item.id}
+                showPageIcon={layoutSettings.showPageIcon}
+                onSelect={() => {
+                  blurActiveCellEditor();
+                  setSelectedCell({ itemId: item.id, cellId: "title" });
+                  setEditingTitleId(null);
+                }}
+                onEdit={() => {
+                  blurActiveCellEditor();
+                  setSelectedCell({ itemId: item.id, cellId: "title" });
+                  setEditingTitleId(item.id);
+                }}
+                onCancel={() => setEditingTitleId(null)}
+                onCommit={(title) => {
+                  setEditingTitleId(null);
+                  onRenameItemTitle(item.id, title);
+                }}
+              />
             </div>
             {fields.map((field) => {
-              const property =
+              const property = collectionFieldDisplayProperty(
                 findPropertyForCollectionField(
                   item.properties,
                   field,
                   collectionId,
-                ) ??
-                collectionFieldToProperty(field, {
+                ),
+                field,
+                {
                   collectionId,
                   collectionTitle,
-                });
+                },
+              );
+              const selected = isCellSelected(item.id, field.id);
               return (
                 <div
                   key={field.id}
                   className="kb-collection-table-cell"
                   role="cell"
+                  data-kb-collection-cell
+                  data-selected={selected || undefined}
+                  onPointerDownCapture={(event) => {
+                    blurActiveCellEditor();
+                    setEditingTitleId(null);
+                    if (selected) return;
+                    stopBlockMenuAction(event);
+                    setSelectedCell({ itemId: item.id, cellId: field.id });
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
                 >
                   <PropertyValueControl
                     property={property}
@@ -1881,8 +4347,47 @@ function CollectionTableView({
                 </div>
               );
             })}
+            {canEdit && (
+              <div
+                className="kb-collection-table-cell kb-collection-table-add-field-spacer"
+                role="cell"
+                aria-hidden
+              />
+            )}
           </div>
         ))}
+        {canEdit && (
+          <CollectionTableNewRow
+            rowStyle={rowStyle}
+            fields={fields}
+            creating={creating}
+            onCreate={onCreateRecord}
+          />
+        )}
+        {canEdit &&
+          items.length === 0 &&
+          Array.from({ length: 2 }).map((_, index) => (
+            <div
+              key={`blank-${index}`}
+              className="kb-collection-table-row kb-collection-table-blank-row"
+              role="row"
+              style={rowStyle}
+              aria-hidden
+            >
+              <div className="kb-collection-table-title-cell" role="cell" />
+              {fields.map((field) => (
+                <div
+                  key={field.id}
+                  className="kb-collection-table-cell"
+                  role="cell"
+                />
+              ))}
+              <div
+                className="kb-collection-table-cell kb-collection-table-add-field-spacer"
+                role="cell"
+              />
+            </div>
+          ))}
         {columnDrag && (
           <>
             {(() => {
@@ -1910,7 +4415,120 @@ function CollectionTableView({
             />
           </>
         )}
+        {resizeIndicatorX !== null && (
+          <div
+            className="kb-collection-column-resize-indicator"
+            style={{ left: resizeIndicatorX }}
+            aria-hidden
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function CollectionTitleColumnMenu({
+  name,
+  pinned,
+  wrap,
+  onRename,
+  onPinnedChange,
+  onWrapChange,
+  onInsertRight,
+}: {
+  name: string;
+  pinned: boolean;
+  wrap: boolean;
+  onRename: (name: string) => void;
+  onPinnedChange: (pinned: boolean) => void;
+  onWrapChange: (wrap: boolean) => void;
+  onInsertRight: (type: KbPropertyType, name: string) => void;
+}) {
+  const [panel, setPanel] = useState<"root" | "after">("root");
+  const [nameDraft, setNameDraft] = useState(name);
+  const [newFieldName, setNewFieldName] = useState("");
+  const [newFieldType, setNewFieldType] = useState<KbPropertyType>("text");
+
+  useEffect(() => {
+    setNameDraft(name);
+  }, [name]);
+
+  const commitName = () => {
+    const nextName = nameDraft.trim() || "Страница";
+    setNameDraft(nextName);
+    onRename(nextName);
+  };
+
+  if (panel === "after") {
+    return (
+      <CollectionColumnInsertPanel
+        placement="after"
+        name={newFieldName}
+        type={newFieldType}
+        onBack={() => setPanel("root")}
+        onNameChange={setNewFieldName}
+        onTypeChange={setNewFieldType}
+        onCreate={() => onInsertRight(newFieldType, newFieldName)}
+      />
+    );
+  }
+
+  return (
+    <div className="kb-collection-column-menu-panel">
+      <div className="kb-collection-column-menu-name">
+        <Type className="size-4" />
+        <Input
+          value={nameDraft}
+          onChange={(event) => setNameDraft(event.currentTarget.value)}
+          onBlur={commitName}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitName();
+              event.currentTarget.blur();
+            }
+          }}
+          className="h-9 min-w-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
+          aria-label="Название колонки страницы"
+        />
+      </div>
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          onPinnedChange(!pinned);
+        }}
+      >
+        <Pin className="size-4" />
+        <span>{pinned ? "Открепить" : "Закрепить"}</span>
+        {pinned && <Check className="size-4" />}
+      </button>
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          onWrapChange(!wrap);
+        }}
+      >
+        <WrapText className="size-4" />
+        <span>Сворачивать текст</span>
+        {wrap && <Check className="size-4" />}
+      </button>
+      <div className="kb-collection-column-menu-separator" />
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          setPanel("after");
+        }}
+      >
+        <ArrowRight className="size-4" />
+        <span>Вставить справа</span>
+        <span />
+      </button>
     </div>
   );
 }
@@ -1920,6 +4538,8 @@ function CollectionColumnMenu({
   visible,
   onUpdate,
   onRemove,
+  onDuplicate,
+  onSort,
   onInsert,
   onVisibleChange,
 }: {
@@ -1927,6 +4547,8 @@ function CollectionColumnMenu({
   visible: boolean;
   onUpdate: (patch: Partial<KbCollectionField>) => void;
   onRemove: () => void;
+  onDuplicate: () => void;
+  onSort: (direction: KbCollectionSortDirection) => void;
   onInsert: (
     type: KbPropertyType,
     name: string,
@@ -1934,7 +4556,7 @@ function CollectionColumnMenu({
   ) => void;
   onVisibleChange: (visible: boolean) => void;
 }) {
-  const [panel, setPanel] = useState<"root" | FieldDropPlacement>("root");
+  const [panel, setPanel] = useState<"root" | FieldDropPlacement | "sort">("root");
   const [name, setName] = useState(field.name);
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState<KbPropertyType>("text");
@@ -1950,6 +4572,53 @@ function CollectionColumnMenu({
   };
 
   if (panel !== "root") {
+    if (panel === "sort") {
+      return (
+        <div className="kb-collection-column-menu-panel">
+          <div className="kb-collection-column-insert-head">
+            <button
+              type="button"
+              className="kb-collection-settings-back"
+              aria-label="Назад"
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                setPanel("root");
+              }}
+            >
+              <ArrowLeft className="size-4" />
+            </button>
+            <div className="kb-collection-column-insert-subtitle">
+              Сортировать
+            </div>
+          </div>
+          <button
+            type="button"
+            className="kb-collection-column-menu-row"
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              onSort("asc");
+            }}
+          >
+            <ArrowDownAZ className="size-4" />
+            <span>По возрастанию</span>
+            <span />
+          </button>
+          <button
+            type="button"
+            className="kb-collection-column-menu-row"
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              onSort("desc");
+            }}
+          >
+            <ArrowDownAZ className="size-4 rotate-180" />
+            <span>По убыванию</span>
+            <span />
+          </button>
+        </div>
+      );
+    }
+
     return (
       <CollectionColumnInsertPanel
         placement={panel}
@@ -1994,13 +4663,136 @@ function CollectionColumnMenu({
             onUpdate({ type: event.currentTarget.value as KbPropertyType })
           }
         >
-          {KB_COLLECTION_FIELD_TYPES.map((type) => (
+          {collectionFieldTypeOptions(field.type).map((type) => (
             <option key={type} value={type}>
               {KB_COLLECTION_FIELD_LABELS[type]}
             </option>
           ))}
         </select>
       </label>
+      {field.type === "number" && (
+        <>
+          <label className="kb-collection-column-menu-row">
+            <ToggleRight className="size-4" />
+            <span>Вид</span>
+            <select
+              className="kb-collection-column-menu-select"
+              value={field.displayVariant === "rating" ? "rating" : "number"}
+              aria-label="Вид числа"
+              onChange={(event) =>
+                onUpdate({
+                  displayVariant:
+                    event.currentTarget.value === "rating"
+                      ? "rating"
+                      : undefined,
+                  ratingVariant:
+                    event.currentTarget.value === "rating"
+                      ? field.ratingVariant ?? "stars"
+                      : undefined,
+                  max:
+                    event.currentTarget.value === "rating"
+                      ? field.max ?? 5
+                      : undefined,
+                })
+              }
+            >
+              <option value="number">Число</option>
+              <option value="rating">Рейтинг</option>
+            </select>
+          </label>
+          {field.displayVariant === "rating" && (
+            <>
+              <label className="kb-collection-column-menu-row">
+                <Star className="size-4" />
+                <span>Максимум</span>
+                <select
+                  className="kb-collection-column-menu-select"
+                  value={field.max ?? 5}
+                  aria-label="Максимум рейтинга"
+                  onChange={(event) =>
+                    onUpdate({
+                      max: Number(event.currentTarget.value) as 3 | 5 | 10,
+                    })
+                  }
+                >
+                  {[3, 5, 10].map((max) => (
+                    <option key={max} value={max}>
+                      {max}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="kb-collection-column-menu-row">
+                <ToggleRight className="size-4" />
+                <span>Вид рейтинга</span>
+                <select
+                  className="kb-collection-column-menu-select"
+                  value={field.ratingVariant ?? "stars"}
+                  aria-label="Вид рейтинга"
+                  onChange={(event) =>
+                    onUpdate({
+                      ratingVariant: event.currentTarget.value as "stars" | "slider",
+                    })
+                  }
+                >
+                  <option value="stars">Звёзды</option>
+                  <option value="slider">Слайдер</option>
+                </select>
+              </label>
+            </>
+          )}
+        </>
+      )}
+      {field.type === "checkbox" && (
+        <label className="kb-collection-column-menu-row">
+          <ToggleRight className="size-4" />
+          <span>Вид</span>
+          <select
+            className="kb-collection-column-menu-select"
+            value={field.displayVariant === "switch" ? "switch" : "checkbox"}
+            aria-label="Вид чекбокса"
+            onChange={(event) =>
+              onUpdate({
+                displayVariant:
+                  event.currentTarget.value === "switch"
+                    ? "switch"
+                    : undefined,
+              })
+            }
+          >
+            <option value="checkbox">Чекбокс</option>
+            <option value="switch">Триггер</option>
+          </select>
+        </label>
+      )}
+      {field.type === "text" && (
+        <button
+          type="button"
+          className="kb-collection-column-menu-row"
+          onClick={(event) => {
+            stopBlockMenuAction(event);
+            onUpdate({ collapsed: !field.collapsed });
+          }}
+        >
+          <WrapText className="size-4" />
+          <span>Сворачивать текст</span>
+          {field.collapsed && <Check className="size-4" />}
+        </button>
+      )}
+      {field.type === "url" && (
+        <button
+          type="button"
+          className="kb-collection-column-menu-row"
+          onClick={(event) => {
+            stopBlockMenuAction(event);
+            onUpdate({ urlCollapsed: !field.urlCollapsed });
+          }}
+        >
+          <WrapText className="size-4" />
+          <span>Сокращать ссылку</span>
+          {field.urlCollapsed && <Check className="size-4" />}
+        </button>
+      )}
       <button
         type="button"
         className="kb-collection-column-menu-row"
@@ -2018,10 +4810,34 @@ function CollectionColumnMenu({
         className="kb-collection-column-menu-row"
         onClick={(event) => {
           stopBlockMenuAction(event);
+          onDuplicate();
+        }}
+      >
+        <Copy className="size-4" />
+        <span>Дублировать</span>
+        <span />
+      </button>
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
+          setPanel("sort");
+        }}
+      >
+        <ArrowUpDown className="size-4" />
+        <span>Сортировать</span>
+        <ChevronRight className="size-4" />
+      </button>
+      <button
+        type="button"
+        className="kb-collection-column-menu-row"
+        onClick={(event) => {
+          stopBlockMenuAction(event);
           setPanel("before");
         }}
       >
-        <PlusSquare className="size-4" />
+        <ArrowLeft className="size-4" />
         <span>Вставить слева</span>
       </button>
       <button
@@ -2032,7 +4848,7 @@ function CollectionColumnMenu({
           setPanel("after");
         }}
       >
-        <PlusSquare className="size-4" />
+        <ArrowRight className="size-4" />
         <span>Вставить справа</span>
       </button>
       <button
@@ -2108,7 +4924,7 @@ function CollectionColumnInsertPanel({
         Выберите тип
       </div>
       <div className="kb-collection-column-type-grid">
-        {KB_COLLECTION_FIELD_TYPES.map((fieldType) => {
+        {KB_COLLECTION_CREATABLE_FIELD_TYPES.map((fieldType) => {
           const Icon = FIELD_ICONS[fieldType];
           const active = type === fieldType;
           return (
@@ -2145,8 +4961,11 @@ function CollectionColumnInsertPanel({
 }
 
 function CollectionSettings({
-  title,
   viewTitle,
+  viewDescription,
+  viewIcon,
+  viewTabDisplay,
+  layoutSettings,
   fields,
   view,
   views,
@@ -2155,8 +4974,12 @@ function CollectionSettings({
   filters,
   sorts,
   grouping,
-  onRename,
+  initialPanel,
   onRenameView,
+  onUpdateViewDescription,
+  onUpdateViewIcon,
+  onUpdateViewTabDisplay,
+  onUpdateViewLayoutSettings,
   onChangeViewType,
   onSwitchView,
   onCreateView,
@@ -2171,8 +4994,11 @@ function CollectionSettings({
   onUpdateSorts,
   onUpdateGrouping,
 }: {
-  title: string;
   viewTitle: string;
+  viewDescription: string;
+  viewIcon: KbCollectionViewIcon;
+  viewTabDisplay: KbCollectionViewTabDisplay;
+  layoutSettings: KbCollectionViewLayoutSettings;
   fields: KbCollectionField[];
   view: KbCollectionView;
   views: KbCollectionViewConfig[];
@@ -2181,8 +5007,14 @@ function CollectionSettings({
   filters: KbCollectionFilter[];
   sorts: KbCollectionSort[];
   grouping: KbCollectionGrouping | null;
-  onRename: (title: string) => void;
+  initialPanel: CollectionSettingsPanel | null;
   onRenameView: (title: string) => void;
+  onUpdateViewDescription: (description: string) => void;
+  onUpdateViewIcon: (icon: KbCollectionViewIcon) => void;
+  onUpdateViewTabDisplay: (display: KbCollectionViewTabDisplay) => void;
+  onUpdateViewLayoutSettings: (
+    patch: Partial<KbCollectionViewLayoutSettings>,
+  ) => void;
   onChangeViewType: (view: KbCollectionView) => void;
   onSwitchView: (viewId: string) => void;
   onCreateView: (view: KbCollectionView) => void;
@@ -2203,13 +5035,13 @@ function CollectionSettings({
 }) {
   const [panel, setPanel] = useState<
     | "root"
-    | "view"
     | "layout"
     | "views"
     | "properties"
     | "filters"
     | "sorts"
     | "grouping"
+    | "display"
   >("root");
   const visibleFilterCount = filters.filter((filter) =>
     fields.some((field) => field.id === filter.fieldId),
@@ -2218,31 +5050,26 @@ function CollectionSettings({
     fields.some((field) => field.id === sort.fieldId),
   ).length;
   const groupingField = fields.find((field) => field.id === grouping?.fieldId);
-  const [titleDraft, setTitleDraft] = useState(title);
   const [viewTitleDraft, setViewTitleDraft] = useState(viewTitle);
-  const skipTitleCommitRef = useRef(false);
+  const [viewDescriptionDraft, setViewDescriptionDraft] =
+    useState(viewDescription);
+  const [descriptionOpen, setDescriptionOpen] = useState(Boolean(viewDescription));
   const skipViewTitleCommitRef = useRef(false);
   const visibleCount = fields.filter((field) =>
     isCollectionFieldVisible(field.id, visibleFieldIds),
   ).length;
 
   useEffect(() => {
-    setTitleDraft(title);
-  }, [title]);
+    if (initialPanel) setPanel(initialPanel);
+  }, [initialPanel]);
 
   useEffect(() => {
     setViewTitleDraft(viewTitle);
   }, [viewTitle]);
 
-  const commitTitle = (value = titleDraft) => {
-    if (skipTitleCommitRef.current) {
-      skipTitleCommitRef.current = false;
-      return;
-    }
-    const nextTitle = normalizeCollectionTitle(value);
-    setTitleDraft(nextTitle);
-    onRename(nextTitle);
-  };
+  useEffect(() => {
+    setViewDescriptionDraft(viewDescription);
+  }, [viewDescription]);
 
   const commitViewTitle = (value = viewTitleDraft) => {
     if (skipViewTitleCommitRef.current) {
@@ -2254,164 +5081,66 @@ function CollectionSettings({
     onRenameView(nextTitle);
   };
 
-  if (panel === "view") {
-    const ViewIcon = view === "table" ? Table2 : GalleryHorizontalEnd;
-    return (
-      <div className="kb-collection-settings-panel">
-        <SettingsPanelHeader title="Вид" onBack={() => setPanel("root")} />
-        <div className="kb-collection-settings-name-row">
-          <ViewIcon className="size-4" />
-          <Input
-            value={viewTitleDraft}
-            className="kb-collection-settings-name-input"
-            aria-label="Название вида"
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={stopBlockInteraction}
-            onChange={(event) => setViewTitleDraft(event.currentTarget.value)}
-            onBlur={(event) => commitViewTitle(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                commitViewTitle(event.currentTarget.value);
-                event.currentTarget.blur();
-              }
-              if (event.key === "Escape") {
-                event.preventDefault();
-                skipViewTitleCommitRef.current = true;
-                setViewTitleDraft(viewTitle);
-                event.currentTarget.blur();
-              }
-            }}
-          />
-        </div>
-        <div className="kb-collection-settings-root-list">
-          <button
-            type="button"
-            className="kb-collection-settings-nav-row"
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={(event) => {
-              stopBlockMenuAction(event);
-              setPanel("layout");
-            }}
-          >
-            <ViewIcon className="size-4" />
-            <span>Layout</span>
-            <span className="kb-collection-settings-row-value">
-              {KB_COLLECTION_VIEW_LABELS[view]}
-            </span>
-            <ChevronRight className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="kb-collection-settings-nav-row"
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={(event) => {
-              stopBlockMenuAction(event);
-              setPanel("views");
-            }}
-          >
-            <ListChecks className="size-4" />
-            <span>Все виды</span>
-            <span className="kb-collection-settings-row-value">
-              {views.length}
-            </span>
-            <ChevronRight className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="kb-collection-settings-nav-row"
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={(event) => {
-              stopBlockMenuAction(event);
-              setPanel("filters");
-            }}
-          >
-            <ListChecks className="size-4" />
-            <span>Фильтры</span>
-            <span className="kb-collection-settings-row-value">
-              {visibleFilterCount}
-            </span>
-            <ChevronRight className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="kb-collection-settings-nav-row"
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={(event) => {
-              stopBlockMenuAction(event);
-              setPanel("sorts");
-            }}
-          >
-            <ArrowDownAZ className="size-4" />
-            <span>Сортировки</span>
-            <span className="kb-collection-settings-row-value">
-              {visibleSortCount}
-            </span>
-            <ChevronRight className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="kb-collection-settings-nav-row"
-            onPointerDown={stopBlockInteraction}
-            onMouseDown={stopBlockInteraction}
-            onClick={(event) => {
-              stopBlockMenuAction(event);
-              setPanel("grouping");
-            }}
-          >
-            <ListChecks className="size-4" />
-            <span>Группировка</span>
-            <span className="kb-collection-settings-row-value">
-              {groupingField?.name ?? "Нет"}
-            </span>
-            <ChevronRight className="size-4" />
-          </button>
-          {activeViewId && (
-            <>
-              <button
-                type="button"
-                className="kb-collection-settings-nav-row"
-                onClick={(event) => {
-                  stopBlockMenuAction(event);
-                  onDuplicateView(activeViewId);
-                }}
-              >
-                <Copy className="size-4" />
-                <span>Дублировать вид</span>
-                <span />
-                <span />
-              </button>
-              <button
-                type="button"
-                className="kb-collection-settings-nav-row text-destructive"
-                disabled={views.length <= 1}
-                onClick={(event) => {
-                  stopBlockMenuAction(event);
-                  onDeleteView(activeViewId);
-                }}
-              >
-                <Trash2 className="size-4" />
-                <span>Удалить вид</span>
-                <span />
-                <span />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
+  const commitViewDescription = (value = viewDescriptionDraft) => {
+    const nextDescription = value.trim().slice(0, 280);
+    setViewDescriptionDraft(nextDescription);
+    onUpdateViewDescription(nextDescription);
+  };
+  const ViewIcon = getCollectionViewFallbackIcon({
+    icon: viewIcon,
+    viewType: view,
+  });
 
   if (panel === "layout") {
     return (
       <div className="kb-collection-settings-panel">
-        <SettingsPanelHeader title="Layout" onBack={() => setPanel("view")} />
-        <CollectionLayoutOptions view={view} onChange={onChangeViewType} />
+        <SettingsPanelHeader title="Вид" onBack={() => setPanel("root")} />
+        <CollectionLayoutOptions
+          view={view}
+          settings={layoutSettings}
+          onChange={onChangeViewType}
+          onUpdateSettings={onUpdateViewLayoutSettings}
+        />
+      </div>
+    );
+  }
+
+  if (panel === "display") {
+    return (
+      <div className="kb-collection-settings-panel">
+        <SettingsPanelHeader
+          title="Отображение"
+          onBack={() => setPanel("root")}
+        />
+        <div className="kb-collection-view-list">
+          {(["text-icon", "text", "icon"] as const).map((display) => {
+            const Icon =
+              display === "text"
+                ? Type
+                : display === "icon"
+                  ? ViewIcon
+                  : Paintbrush;
+            return (
+              <button
+                key={display}
+                type="button"
+                className="kb-collection-view-row"
+                data-active={viewTabDisplay === display || undefined}
+                onPointerDown={stopBlockInteraction}
+                onMouseDown={stopBlockInteraction}
+                onClick={(event) => {
+                  stopBlockMenuAction(event);
+                  onUpdateViewTabDisplay(display);
+                }}
+              >
+                <Icon className="size-4" />
+                <span>{VIEW_TAB_DISPLAY_LABELS[display]}</span>
+                <span />
+                {viewTabDisplay === display && <Check className="size-4" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -2419,7 +5148,7 @@ function CollectionSettings({
   if (panel === "views") {
     return (
       <div className="kb-collection-settings-panel">
-        <SettingsPanelHeader title="Все виды" onBack={() => setPanel("view")} />
+        <SettingsPanelHeader title="Виды" onBack={() => setPanel("root")} />
         <CollectionViewsEditor
           views={views}
           activeViewId={activeViewId}
@@ -2433,7 +5162,7 @@ function CollectionSettings({
   if (panel === "filters") {
     return (
       <div className="kb-collection-settings-panel">
-        <SettingsPanelHeader title="Фильтры" onBack={() => setPanel("view")} />
+        <SettingsPanelHeader title="Фильтры" onBack={() => setPanel("root")} />
         <CollectionFiltersEditor
           fields={fields}
           filters={filters}
@@ -2446,7 +5175,7 @@ function CollectionSettings({
   if (panel === "sorts") {
     return (
       <div className="kb-collection-settings-panel">
-        <SettingsPanelHeader title="Сортировки" onBack={() => setPanel("view")} />
+        <SettingsPanelHeader title="Сортировки" onBack={() => setPanel("root")} />
         <CollectionSortsEditor
           fields={fields}
           sorts={sorts}
@@ -2461,7 +5190,7 @@ function CollectionSettings({
       <div className="kb-collection-settings-panel">
         <SettingsPanelHeader
           title="Группировка"
-          onBack={() => setPanel("view")}
+          onBack={() => setPanel("root")}
         />
         <CollectionGroupingEditor
           fields={fields}
@@ -2515,7 +5244,7 @@ function CollectionSettings({
             <option value="" disabled>
               Добавить свойство
             </option>
-            {KB_COLLECTION_FIELD_TYPES.map((type) => (
+            {KB_COLLECTION_CREATABLE_FIELD_TYPES.map((type) => (
               <option key={type} value={type}>
                 {KB_COLLECTION_FIELD_LABELS[type]}
               </option>
@@ -2528,33 +5257,78 @@ function CollectionSettings({
 
   return (
     <div className="kb-collection-settings-panel">
-      <div className="kb-collection-settings-title">Настройки коллекции</div>
+      <div className="kb-collection-settings-title">Настройки вида</div>
       <div className="kb-collection-settings-name-row">
-        <Database className="size-4" />
+        <CollectionViewIconPicker
+          value={viewIcon}
+          onChange={onUpdateViewIcon}
+        />
+        <div className="kb-collection-settings-name-input-wrap">
+          <Input
+            value={viewTitleDraft}
+            className="kb-collection-settings-name-input"
+            aria-label="Название вида"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={stopBlockInteraction}
+            onChange={(event) => setViewTitleDraft(event.currentTarget.value)}
+            onBlur={(event) => commitViewTitle(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitViewTitle(event.currentTarget.value);
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                skipViewTitleCommitRef.current = true;
+                setViewTitleDraft(viewTitle);
+                event.currentTarget.blur();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="kb-collection-view-description-trigger"
+            aria-label="Добавить описание вида"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setDescriptionOpen((current) => !current);
+            }}
+          >
+            <span>i</span>
+          </button>
+        </div>
+      </div>
+      {descriptionOpen && (
         <Input
-          value={titleDraft}
-          className="kb-collection-settings-name-input"
-          aria-label="Название коллекции"
+          value={viewDescriptionDraft}
+          className="kb-collection-settings-description-compact"
+          placeholder="Добавить описание..."
+          aria-label="Описание вида"
           onPointerDown={stopBlockInteraction}
           onMouseDown={stopBlockInteraction}
           onClick={stopBlockInteraction}
-          onChange={(event) => setTitleDraft(event.currentTarget.value)}
-          onBlur={(event) => commitTitle(event.currentTarget.value)}
+          onChange={(event) =>
+            setViewDescriptionDraft(event.currentTarget.value)
+          }
+          onBlur={(event) => commitViewDescription(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
-              commitTitle(event.currentTarget.value);
+              commitViewDescription(event.currentTarget.value);
               event.currentTarget.blur();
             }
             if (event.key === "Escape") {
               event.preventDefault();
-              skipTitleCommitRef.current = true;
-              setTitleDraft(title);
+              setViewDescriptionDraft(viewDescription);
               event.currentTarget.blur();
             }
           }}
         />
-      </div>
+      )}
       <div className="kb-collection-settings-root-list">
         <button
           type="button"
@@ -2563,17 +5337,30 @@ function CollectionSettings({
           onMouseDown={stopBlockInteraction}
           onClick={(event) => {
             stopBlockMenuAction(event);
-            setPanel("view");
+            setPanel("layout");
           }}
         >
-          {view === "table" ? (
-            <Table2 className="size-4" />
-          ) : (
-            <GalleryHorizontalEnd className="size-4" />
-          )}
+          <ViewIcon className="size-4" />
           <span>Вид</span>
           <span className="kb-collection-settings-row-value">
-            {viewTitle}
+            {KB_COLLECTION_VIEW_LABELS[view]}
+          </span>
+          <ChevronRight className="size-4" />
+        </button>
+        <button
+          type="button"
+          className="kb-collection-settings-nav-row"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={(event) => {
+            stopBlockMenuAction(event);
+            setPanel("display");
+          }}
+        >
+          <Paintbrush className="size-4" />
+          <span>Отображение</span>
+          <span className="kb-collection-settings-row-value">
+            {VIEW_TAB_DISPLAY_LABELS[viewTabDisplay]}
           </span>
           <ChevronRight className="size-4" />
         </button>
@@ -2594,6 +5381,92 @@ function CollectionSettings({
           </span>
           <ChevronRight className="size-4" />
         </button>
+        <button
+          type="button"
+          className="kb-collection-settings-nav-row"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={(event) => {
+            stopBlockMenuAction(event);
+            setPanel("filters");
+          }}
+        >
+          <ListFilter className="size-4" />
+          <span>Фильтры</span>
+          <span className="kb-collection-settings-row-value">
+            {visibleFilterCount}
+          </span>
+          <ChevronRight className="size-4" />
+        </button>
+        <button
+          type="button"
+          className="kb-collection-settings-nav-row"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={(event) => {
+            stopBlockMenuAction(event);
+            setPanel("sorts");
+          }}
+        >
+          <ArrowDownAZ className="size-4" />
+          <span>Сортировки</span>
+          <span className="kb-collection-settings-row-value">
+            {visibleSortCount}
+          </span>
+          <ChevronRight className="size-4" />
+        </button>
+        <button
+          type="button"
+          className="kb-collection-settings-nav-row"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={(event) => {
+            stopBlockMenuAction(event);
+            setPanel("grouping");
+          }}
+        >
+          <ListChecks className="size-4" />
+          <span>Группировка</span>
+          <span className="kb-collection-settings-row-value">
+            {groupingField?.name ?? "Нет"}
+          </span>
+          <ChevronRight className="size-4" />
+        </button>
+        {activeViewId && (
+          <>
+            <button
+              type="button"
+              className="kb-collection-settings-nav-row"
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onDuplicateView(activeViewId);
+              }}
+            >
+              <Copy className="size-4" />
+              <span>Дублировать вид</span>
+              <span />
+              <span />
+            </button>
+            <button
+              type="button"
+              className="kb-collection-settings-nav-row text-destructive"
+              disabled={views.length <= 1}
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={(event) => {
+                stopBlockMenuAction(event);
+                onDeleteView(activeViewId);
+              }}
+            >
+              <Trash2 className="size-4" />
+              <span>Удалить вид</span>
+              <span />
+              <span />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -3067,12 +5940,109 @@ function CollectionFieldEditor({
           onUpdate({ type: event.currentTarget.value as KbPropertyType })
         }
       >
-        {KB_COLLECTION_FIELD_TYPES.map((type) => (
+        {collectionFieldTypeOptions(field.type).map((type) => (
           <option key={type} value={type}>
             {KB_COLLECTION_FIELD_LABELS[type]}
           </option>
         ))}
       </select>
+      {field.type === "number" && (
+        <select
+          className="kb-collection-field-type"
+          value={field.displayVariant === "rating" ? "rating" : "number"}
+          aria-label="Вид числа"
+          onChange={(event) =>
+            onUpdate({
+              displayVariant:
+                event.currentTarget.value === "rating"
+                  ? "rating"
+                  : undefined,
+              ratingVariant:
+                event.currentTarget.value === "rating"
+                  ? field.ratingVariant ?? "stars"
+                  : undefined,
+              max:
+                event.currentTarget.value === "rating"
+                  ? field.max ?? 5
+                  : undefined,
+            })
+          }
+        >
+          <option value="number">Число</option>
+          <option value="rating">Рейтинг</option>
+        </select>
+      )}
+      {field.type === "number" && field.displayVariant === "rating" && (
+        <>
+          <select
+            className="kb-collection-field-type"
+            value={field.max ?? 5}
+            aria-label="Максимум рейтинга"
+            onChange={(event) =>
+              onUpdate({
+                max: Number(event.currentTarget.value) as 3 | 5 | 10,
+              })
+            }
+          >
+            {[3, 5, 10].map((max) => (
+              <option key={max} value={max}>
+                {max}
+              </option>
+            ))}
+          </select>
+          <select
+            className="kb-collection-field-type"
+            value={field.ratingVariant ?? "stars"}
+            aria-label="Вид рейтинга"
+            onChange={(event) =>
+              onUpdate({
+                ratingVariant: event.currentTarget.value as "stars" | "slider",
+              })
+            }
+          >
+            <option value="stars">Звёзды</option>
+            <option value="slider">Слайдер</option>
+          </select>
+        </>
+      )}
+      {field.type === "checkbox" && (
+        <select
+          className="kb-collection-field-type"
+          value={field.displayVariant === "switch" ? "switch" : "checkbox"}
+          aria-label="Вид чекбокса"
+          onChange={(event) =>
+            onUpdate({
+              displayVariant:
+                event.currentTarget.value === "switch" ? "switch" : undefined,
+            })
+          }
+        >
+          <option value="checkbox">Чекбокс</option>
+          <option value="switch">Триггер</option>
+        </select>
+      )}
+      {field.type === "text" && (
+        <label className="kb-collection-field-toggle">
+          <input
+            type="checkbox"
+            checked={field.collapsed === true}
+            onChange={(event) => onUpdate({ collapsed: event.currentTarget.checked })}
+          />
+          Свернуть
+        </label>
+      )}
+      {field.type === "url" && (
+        <label className="kb-collection-field-toggle">
+          <input
+            type="checkbox"
+            checked={field.urlCollapsed === true}
+            onChange={(event) =>
+              onUpdate({ urlCollapsed: event.currentTarget.checked })
+            }
+          />
+          Сократить
+        </label>
+      )}
       <Switch
         checked={visible}
         onCheckedChange={onVisibleChange}
@@ -3099,6 +6069,10 @@ function formatPropertyValue(property: KbProperty): string {
     case "url":
       return property.value.trim();
     case "number":
+      if (property.displayVariant === "rating") {
+        if (property.value === null) return "";
+        return `${property.value}/${property.max ?? 5}`;
+      }
       return property.value === null ? "" : String(property.value);
     case "date":
       return property.value ?? "";

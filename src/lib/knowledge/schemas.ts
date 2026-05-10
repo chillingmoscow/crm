@@ -149,6 +149,9 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     type: z.literal("number"),
     value: z.number().nullable(),
     unit: unitSchema.optional(),
+    displayVariant: z.enum(["number", "rating"]).optional(),
+    ratingVariant: z.enum(["stars", "slider"]).optional(),
+    max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
   }),
   z.object({
     ...kbPropertyBase,
@@ -201,7 +204,8 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
   // через `.superRefine` на discriminated-union'е (а не `.refine`
   // внутри option'а) — иначе ZodEffects ломает type-resolution union'а.
   if (
-    p.type === "rating" &&
+    (p.type === "rating" ||
+      (p.type === "number" && p.displayVariant === "rating")) &&
     p.value !== null &&
     p.value > (p.max ?? 5)
   ) {

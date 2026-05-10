@@ -1269,17 +1269,22 @@ export type Database = {
       kb_collection_views: {
         Row: {
           account_id: string
+          column_widths_json: Json
           collection_id: string
           created_at: string
           created_by: string | null
+          description: string
           field_order_ids: Json | null
           filters_json: Json
           grouping_json: Json
+          icon: string | null
+          layout_settings_json: Json
           sorts_json: Json
           id: string
           name: string
           position: number
           source_block_id: string | null
+          tab_display: string
           updated_at: string | null
           updated_by: string | null
           view_type: string
@@ -1287,17 +1292,22 @@ export type Database = {
         }
         Insert: {
           account_id: string
+          column_widths_json?: Json
           collection_id: string
           created_at?: string
           created_by?: string | null
+          description?: string
           field_order_ids?: Json | null
           filters_json?: Json
           grouping_json?: Json
+          icon?: string | null
+          layout_settings_json?: Json
           sorts_json?: Json
           id?: string
           name?: string
           position?: number
           source_block_id?: string | null
+          tab_display?: string
           updated_at?: string | null
           updated_by?: string | null
           view_type?: string
@@ -1305,17 +1315,22 @@ export type Database = {
         }
         Update: {
           account_id?: string
+          column_widths_json?: Json
           collection_id?: string
           created_at?: string
           created_by?: string | null
+          description?: string
           field_order_ids?: Json | null
           filters_json?: Json
           grouping_json?: Json
+          icon?: string | null
+          layout_settings_json?: Json
           sorts_json?: Json
           id?: string
           name?: string
           position?: number
           source_block_id?: string | null
+          tab_display?: string
           updated_at?: string | null
           updated_by?: string | null
           view_type?: string

@@ -121,6 +121,13 @@ export type KbProperty =
       name: string;
       type: "number";
       value: number | null;
+      /** Визуальный variant. Default/undefined = обычное число,
+       *  `rating` = целочисленный рейтинг от 0 до max. */
+      displayVariant?: "number" | "rating";
+      /** Шкала для displayVariant=rating. По дефолту 5. */
+      max?: number;
+      /** Отображение rating-вида числа: звёзды или слайдер. */
+      ratingVariant?: "stars" | "slider";
       /** Единица измерения (Stage 4). Default отсутствие = `kind: "none"`
        *  (просто число). Discriminated union из shared-слоя
        *  `src/lib/units/`. Хранится в jsonb как-есть. */

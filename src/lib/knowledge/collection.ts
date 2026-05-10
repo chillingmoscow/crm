@@ -9,11 +9,19 @@ import type { KbCollectionGrouping } from "./collection-group";
 import type { KbCollectionSort } from "./collection-sort";
 
 export type KbCollectionView = "list" | "table";
+export type KbCollectionViewIcon = string;
+export type KbCollectionViewTabDisplay = "text-icon" | "text" | "icon";
+export type KbCollectionViewLayoutSettings = {
+  showDataSourceTitle: boolean;
+  showVerticalLines: boolean;
+  showPageIcon: boolean;
+  wrapContent: boolean;
+};
 
 export const KB_COLLECTION_DEFAULT_TITLE = "Коллекция";
 
 export const KB_COLLECTION_VIEW_LABELS: Record<KbCollectionView, string> = {
-  list: "Галерея",
+  list: "Список",
   table: "Таблица",
 };
 
@@ -26,6 +34,9 @@ export type KbCollectionField = {
   options?: string[];
   optionColors?: Partial<Record<string, KbPropertyColor>>;
   displayVariant?: string;
+  ratingVariant?: "stars" | "slider";
+  collapsed?: boolean;
+  urlCollapsed?: boolean;
   max?: 3 | 5 | 10;
 };
 
@@ -46,9 +57,14 @@ export type KbCollectionViewConfig = {
   id: string;
   collectionId: string;
   name: string;
+  description: string;
+  icon: KbCollectionViewIcon;
+  tabDisplay: KbCollectionViewTabDisplay;
+  layoutSettings: KbCollectionViewLayoutSettings;
   viewType: KbCollectionView;
   visibleFieldIds: KbCollectionVisibleFieldIds;
   fieldOrderIds: KbCollectionVisibleFieldIds;
+  columnWidths: KbCollectionColumnWidths;
   filters: KbCollectionFilter[];
   sorts: KbCollectionSort[];
   grouping: KbCollectionGrouping | null;
@@ -98,6 +114,7 @@ export type KbCollectionPropertyContext = {
 };
 
 export type KbCollectionVisibleFieldIds = string[] | null;
+export type KbCollectionColumnWidths = Record<string, number>;
 
 export const KB_COLLECTION_EMPTY_SCHEMA = JSON.stringify({
   version: 1,
@@ -116,6 +133,9 @@ export const KB_COLLECTION_FIELD_TYPES: KbPropertyType[] = [
   "url",
   "rating",
 ];
+
+export const KB_COLLECTION_CREATABLE_FIELD_TYPES: KbPropertyType[] =
+  KB_COLLECTION_FIELD_TYPES.filter((type) => type !== "rating");
 
 export const KB_COLLECTION_FIELD_LABELS: Record<KbPropertyType, string> = {
   text: "Текст",
@@ -195,6 +215,24 @@ export function collectionVisibleFieldIdsToJsonValue(
   return ids === null ? null : ids;
 }
 
+export function parseCollectionColumnWidthsJson(
+  value: unknown,
+): KbCollectionColumnWidths {
+  const raw = parseJsonObject(value);
+  const widths: KbCollectionColumnWidths = {};
+  for (const [key, rawWidth] of Object.entries(raw)) {
+    if (typeof rawWidth !== "number" || !Number.isFinite(rawWidth)) continue;
+    widths[key] = Math.min(640, Math.max(96, Math.round(rawWidth)));
+  }
+  return widths;
+}
+
+export function collectionColumnWidthsToJsonValue(
+  widths: KbCollectionColumnWidths,
+): Record<string, number> {
+  return parseCollectionColumnWidthsJson(widths);
+}
+
 export function parseCollectionFiltersJson(value: unknown): KbCollectionFilter[] {
   const raw = parseJsonArray(value);
   return raw
@@ -246,6 +284,78 @@ export function normalizeCollectionViewName(
   return title || KB_COLLECTION_VIEW_LABELS[view];
 }
 
+export function normalizeCollectionViewDescription(value: unknown): string {
+  return typeof value === "string" ? value.trim().slice(0, 280) : "";
+}
+
+export function normalizeCollectionViewIcon(
+  value: unknown,
+  view: KbCollectionView,
+): KbCollectionViewIcon {
+  if (typeof value === "string") {
+    const icon = value.trim().slice(0, 64);
+    if (icon === "table") return "database";
+    if (icon === "list" || icon === "gallery") return "list-checks";
+    if (icon) return icon;
+  }
+  return view === "table" ? "database" : "list-checks";
+}
+
+export function normalizeCollectionViewTabDisplay(
+  value: unknown,
+): KbCollectionViewTabDisplay {
+  if (value === "text" || value === "icon") return value;
+  return "text-icon";
+}
+
+export function createDefaultCollectionViewLayoutSettings(
+  view: KbCollectionView,
+): KbCollectionViewLayoutSettings {
+  return {
+    showDataSourceTitle: true,
+    showVerticalLines: view === "table",
+    showPageIcon: true,
+    wrapContent: false,
+  };
+}
+
+export function parseCollectionViewLayoutSettingsJson(
+  value: unknown,
+  view: KbCollectionView,
+): KbCollectionViewLayoutSettings {
+  const defaults = createDefaultCollectionViewLayoutSettings(view);
+  const raw = parseJsonObject(value);
+  return {
+    showDataSourceTitle:
+      typeof raw.showDataSourceTitle === "boolean"
+        ? raw.showDataSourceTitle
+        : defaults.showDataSourceTitle,
+    showVerticalLines:
+      typeof raw.showVerticalLines === "boolean"
+        ? raw.showVerticalLines
+        : defaults.showVerticalLines,
+    showPageIcon:
+      typeof raw.showPageIcon === "boolean"
+        ? raw.showPageIcon
+        : defaults.showPageIcon,
+    wrapContent:
+      typeof raw.wrapContent === "boolean"
+        ? raw.wrapContent
+        : defaults.wrapContent,
+  };
+}
+
+export function collectionViewLayoutSettingsToJsonValue(
+  settings: KbCollectionViewLayoutSettings,
+): Record<string, boolean> {
+  return {
+    showDataSourceTitle: settings.showDataSourceTitle === true,
+    showVerticalLines: settings.showVerticalLines === true,
+    showPageIcon: settings.showPageIcon === true,
+    wrapContent: settings.wrapContent === true,
+  };
+}
+
 export function createCollectionField(
   type: KbPropertyType,
   name = KB_COLLECTION_FIELD_LABELS[type],
@@ -273,9 +383,27 @@ export function collectionFieldToProperty(
 
   switch (field.type) {
     case "text":
-      return { ...base, type: "text", value: "" };
+      return {
+        ...base,
+        type: "text",
+        value: "",
+        ...(field.collapsed ? { collapsed: true } : {}),
+      };
     case "number":
-      return { ...base, type: "number", value: null };
+      return {
+        ...base,
+        type: "number",
+        value: null,
+        ...(field.displayVariant === "rating"
+          ? {
+              displayVariant: "rating" as const,
+              ...(field.max ? { max: field.max } : {}),
+              ...(field.ratingVariant === "slider"
+                ? { ratingVariant: "slider" as const }
+                : {}),
+            }
+          : {}),
+      };
     case "date":
       return { ...base, type: "date", value: null };
     case "checkbox":
@@ -304,13 +432,21 @@ export function collectionFieldToProperty(
         ...(field.optionColors ? { optionColors: field.optionColors } : {}),
       };
     case "url":
-      return { ...base, type: "url", value: "" };
+      return {
+        ...base,
+        type: "url",
+        value: "",
+        ...(field.urlCollapsed ? { urlCollapsed: true } : {}),
+      };
     case "rating":
       return {
         ...base,
         type: "rating",
         value: null,
         ...(field.max ? { max: field.max } : {}),
+        ...(field.ratingVariant === "slider"
+          ? { displayVariant: "slider" as const }
+          : {}),
       };
   }
 }
@@ -581,7 +717,30 @@ function normalizeCollectionField(value: unknown): KbCollectionField | null {
   if (raw.type === "checkbox" && raw.displayVariant === "switch") {
     normalized.displayVariant = "switch";
   }
+  if (raw.type === "number" && raw.displayVariant === "rating") {
+    normalized.displayVariant = "rating";
+    if (raw.ratingVariant === "slider") normalized.ratingVariant = "slider";
+  }
+  if (
+    raw.type === "rating" &&
+    (raw.displayVariant === "slider" || raw.ratingVariant === "slider")
+  ) {
+    normalized.ratingVariant = "slider";
+  }
+  if (raw.type === "text" && raw.collapsed === true) {
+    normalized.collapsed = true;
+  }
+  if (raw.type === "url" && raw.urlCollapsed === true) {
+    normalized.urlCollapsed = true;
+  }
   if (raw.type === "rating" && (raw.max === 3 || raw.max === 5 || raw.max === 10)) {
+    normalized.max = raw.max;
+  }
+  if (
+    raw.type === "number" &&
+    raw.displayVariant === "rating" &&
+    (raw.max === 3 || raw.max === 5 || raw.max === 10)
+  ) {
     normalized.max = raw.max;
   }
 
@@ -644,6 +803,21 @@ function parseJsonArray(value: unknown): unknown[] {
   }
 }
 
+function parseJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string" || value.trim() === "") return {};
+  try {
+    const raw = JSON.parse(value);
+    return raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function collectionFieldFromProperty(property: KbProperty): KbCollectionField | null {
   const scope = property.scope?.type === "collection" ? property.scope : null;
   if (!scope) return null;
@@ -663,11 +837,27 @@ function collectionFieldFromProperty(property: KbProperty): KbCollectionField | 
   if (property.type === "checkbox" && property.displayVariant === "switch") {
     field.displayVariant = "switch";
   }
+  if (property.type === "number" && property.displayVariant === "rating") {
+    field.displayVariant = "rating";
+    if (property.ratingVariant === "slider") field.ratingVariant = "slider";
+    if (property.max === 3 || property.max === 5 || property.max === 10) {
+      field.max = property.max;
+    }
+  }
+  if (property.type === "text" && property.collapsed === true) {
+    field.collapsed = true;
+  }
+  if (property.type === "url" && property.urlCollapsed === true) {
+    field.urlCollapsed = true;
+  }
   if (
     property.type === "rating" &&
     (property.max === 3 || property.max === 5 || property.max === 10)
   ) {
     field.max = property.max;
+  }
+  if (property.type === "rating" && property.displayVariant === "slider") {
+    field.ratingVariant = "slider";
   }
 
   return normalizeCollectionField(field);
@@ -690,18 +880,41 @@ function mergeCollectionProperty(
   if (property.type !== field.type) return fallback;
 
   switch (property.type) {
-    case "text":
-    case "number":
+    case "text": {
+      const next = withCollectionBase(property, field, context);
+      if (field.collapsed) next.collapsed = true;
+      else delete next.collapsed;
+      return next;
+    }
     case "date":
-    case "url":
       return withCollectionBase(property, field, context);
-    case "checkbox":
-      return {
-        ...withCollectionBase(property, field, context),
-        ...(field.displayVariant === "switch"
-          ? { displayVariant: "switch" as const }
-          : {}),
-      };
+    case "url": {
+      const next = withCollectionBase(property, field, context);
+      if (field.urlCollapsed) next.urlCollapsed = true;
+      else delete next.urlCollapsed;
+      return next;
+    }
+    case "number": {
+      const next = withCollectionBase(property, field, context);
+      if (field.displayVariant === "rating") {
+        next.displayVariant = "rating";
+        if (field.max) next.max = field.max;
+        if (field.ratingVariant === "slider") next.ratingVariant = "slider";
+        else delete next.ratingVariant;
+        delete next.unit;
+      } else {
+        delete next.displayVariant;
+        delete next.max;
+        delete next.ratingVariant;
+      }
+      return next;
+    }
+    case "checkbox": {
+      const next = withCollectionBase(property, field, context);
+      if (field.displayVariant === "switch") next.displayVariant = "switch";
+      else delete next.displayVariant;
+      return next;
+    }
     case "select":
       return {
         ...withCollectionBase(property, field, context),
@@ -714,11 +927,13 @@ function mergeCollectionProperty(
         options: field.options ?? property.options,
         ...(field.optionColors ? { optionColors: field.optionColors } : {}),
       };
-    case "rating":
-      return {
-        ...withCollectionBase(property, field, context),
-        ...(field.max ? { max: field.max } : {}),
-      };
+    case "rating": {
+      const next = withCollectionBase(property, field, context);
+      if (field.max) next.max = field.max;
+      if (field.ratingVariant === "slider") next.displayVariant = "slider";
+      else delete next.displayVariant;
+      return next;
+    }
   }
 }
 

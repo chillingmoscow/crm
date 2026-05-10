@@ -139,6 +139,17 @@ const TYPE_LABELS: Record<KbPropertyType, string> = {
   rating: "Рейтинг",
 };
 
+const CREATABLE_PROPERTY_TYPES: KbPropertyType[] = (
+  Object.keys(TYPE_LABELS) as KbPropertyType[]
+).filter((type) => type !== "rating");
+
+function propertyTypeOptions(current?: KbPropertyType): KbPropertyType[] {
+  if (current && !CREATABLE_PROPERTY_TYPES.includes(current)) {
+    return [...CREATABLE_PROPERTY_TYPES, current];
+  }
+  return CREATABLE_PROPERTY_TYPES;
+}
+
 // Палитра option-chip'ов берётся из единого 10-цветного источника
 // `@/lib/palette` (Notion-style). Раньше тут жил отдельный 10-цветный
 // набор (stone/amber/sky/teal/indigo + …), не совпадающий ни с
@@ -365,6 +376,21 @@ export function KbPageProperties({
       const next = prev.map((p) => {
         if (p.id !== id) return p;
         if (p.type === newType) return p;
+        if (p.type === "rating" && newType === "number") {
+          return {
+            id: p.id,
+            name: p.name,
+            type: "number",
+            value: p.value,
+            displayVariant: "rating",
+            max: p.max ?? 5,
+            ...(p.displayVariant === "slider"
+              ? { ratingVariant: "slider" as const }
+              : {}),
+            ...(p.icon !== undefined ? { icon: p.icon } : {}),
+            ...(p.iconColor !== undefined ? { iconColor: p.iconColor } : {}),
+          } as KbProperty;
+        }
         const fresh = makeProperty(newType, p.name);
         // Перенос icon override из старого property.
         const carriedIcon = {
@@ -455,7 +481,13 @@ export function KbPageProperties({
   const changeRatingScale = (id: string, max: number) => {
     setProperties((prev) => {
       const next = prev.map((p) => {
-        if (p.id !== id || p.type !== "rating") return p;
+        if (
+          p.id !== id ||
+          (p.type !== "rating" &&
+            !(p.type === "number" && p.displayVariant === "rating"))
+        ) {
+          return p;
+        }
         const updated: typeof p = { ...p, max };
         if (updated.value !== null && updated.value > max) {
           updated.value = max;
@@ -476,11 +508,52 @@ export function KbPageProperties({
     setProperties((prev) => {
       const next = prev.map((p) => {
         if (p.id !== id) return p;
-        if (p.type !== "checkbox" && p.type !== "rating") return p;
+        if (p.type !== "checkbox" && p.type !== "rating" && p.type !== "number") {
+          return p;
+        }
         const updated = { ...p } as KbProperty & { displayVariant?: string };
+        if (p.type === "number") {
+          if (variant === "rating") {
+            updated.displayVariant = "rating";
+            (updated as Extract<KbProperty, { type: "number" }>).max =
+              (p as Extract<KbProperty, { type: "number" }>).max ?? 5;
+            (updated as Extract<KbProperty, { type: "number" }>).ratingVariant =
+              (p as Extract<KbProperty, { type: "number" }>).ratingVariant ??
+              "stars";
+            delete (updated as Extract<KbProperty, { type: "number" }>).unit;
+          } else {
+            delete updated.displayVariant;
+            delete (updated as Extract<KbProperty, { type: "number" }>).max;
+            delete (updated as Extract<KbProperty, { type: "number" }>).ratingVariant;
+          }
+          return updated as KbProperty;
+        }
         if (variant === undefined) delete updated.displayVariant;
         else updated.displayVariant = variant;
         return updated as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  const changeNumberRatingVariant = (
+    id: string,
+    variant: "stars" | "slider",
+  ) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (
+          p.id !== id ||
+          p.type !== "number" ||
+          p.displayVariant !== "rating"
+        ) {
+          return p;
+        }
+        return {
+          ...p,
+          ratingVariant: variant,
+        } as KbProperty;
       });
       scheduleSave(next);
       return next;
@@ -712,6 +785,9 @@ export function KbPageProperties({
                     onChangeDisplayVariant={(variant) =>
                       changeDisplayVariant(prop.id, variant)
                     }
+                    onChangeNumberRatingVariant={(variant) =>
+                      changeNumberRatingVariant(prop.id, variant)
+                    }
                     onRemove={() => removeProperty(prop.id)}
                     onDuplicate={() => duplicateProperty(prop.id)}
                     onChangeType={(t) => changePropertyType(prop.id, t)}
@@ -752,7 +828,7 @@ export function KbPageProperties({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-[160px]">
-                {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
+                {CREATABLE_PROPERTY_TYPES.map((t) => {
                   const Icon = TYPE_ICONS[t];
                   return (
                     <DropdownMenuItem key={t} onSelect={() => addProperty(t)}>
@@ -840,6 +916,7 @@ interface PropertyRowProps {
   /** Меняет displayVariant для checkbox ("checkbox" | "switch") и
    *  rating ("stars" | "slider"). undefined = вернуть default. */
   onChangeDisplayVariant: (variant: string | undefined) => void;
+  onChangeNumberRatingVariant: (variant: "stars" | "slider") => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -908,6 +985,7 @@ function PropertyRow({
   onChangeUnit,
   onChangeRatingScale,
   onChangeDisplayVariant,
+  onChangeNumberRatingVariant,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -1032,7 +1110,7 @@ function PropertyRow({
                   Изменить тип
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[160px]">
-                  {(Object.keys(TYPE_LABELS) as KbPropertyType[]).map((t) => {
+                  {propertyTypeOptions(property.type).map((t) => {
                     const TIcon = TYPE_ICONS[t];
                     const isCurrent = t === property.type;
                     return (
@@ -1086,7 +1164,7 @@ function PropertyRow({
             {/* Единица измерения — только для number (Stage 4).
              *  Submenu с группами: Без единицы / Валюта (CURRENCIES) /
              *  Масса / Объём / Штук. */}
-            {property.type === "number" && (
+            {property.type === "number" && property.displayVariant !== "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <Ruler className="size-3.5 text-muted-foreground" />
@@ -1097,6 +1175,63 @@ function PropertyRow({
                     current={property.unit}
                     onChange={onChangeUnit}
                   />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {property.type === "number" && property.displayVariant === "rating" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Star className="size-3.5 text-muted-foreground" />
+                  Шкала
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[120px]">
+                  {[3, 5, 10].map((max) => {
+                    const isCurrent = (property.max ?? 5) === max;
+                    return (
+                      <DropdownMenuItem
+                        key={max}
+                        onSelect={() => onChangeRatingScale(max)}
+                      >
+                        <span className="text-[13px] tabular-nums w-6 shrink-0">
+                          {max}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {max === 3 ? "звезды" : "звёзд"}
+                        </span>
+                        {isCurrent && (
+                          <Check className="ml-auto size-3.5" />
+                        )}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            {property.type === "number" && property.displayVariant === "rating" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ToggleRight className="size-3.5 text-muted-foreground" />
+                  Вид рейтинга
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[140px]">
+                  {(
+                    [
+                      ["stars", "Звёзды"],
+                      ["slider", "Слайдер"],
+                    ] as const
+                  ).map(([variant, label]) => {
+                    const isCurrent =
+                      (property.ratingVariant ?? "stars") === variant;
+                    return (
+                      <DropdownMenuItem
+                        key={variant}
+                        onSelect={() => onChangeNumberRatingVariant(variant)}
+                      >
+                        {label}
+                        {isCurrent && <Check className="ml-auto size-3.5" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             )}
@@ -1133,6 +1268,38 @@ function PropertyRow({
             {/* Внешний вид — для checkbox (Чекбокс / Триггер) и rating
              *  (Звёзды / Слайдер). Семантика значения та же; меняется
              *  только рендер. */}
+            {property.type === "number" && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ToggleRight className="size-3.5 text-muted-foreground" />
+                  Внешний вид
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="min-w-[140px]">
+                  {(
+                    [
+                      ["number", "Число"],
+                      ["rating", "Рейтинг"],
+                    ] as const
+                  ).map(([variant, label]) => {
+                    const isCurrent =
+                      (property.displayVariant ?? "number") === variant;
+                    return (
+                      <DropdownMenuItem
+                        key={variant}
+                        onSelect={() =>
+                          onChangeDisplayVariant(
+                            variant === "number" ? undefined : variant,
+                          )
+                        }
+                      >
+                        {label}
+                        {isCurrent && <Check className="ml-auto size-3.5" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
             {property.type === "checkbox" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
@@ -2192,6 +2359,20 @@ function NumberValueControl({
   canEdit: boolean;
   onChangeValue: (value: number | null) => void;
 }) {
+  if (property.displayVariant === "rating") {
+    return (
+      <RatingValueControl
+        value={
+          property.value === null ? null : Math.trunc(property.value)
+        }
+        max={property.max ?? 5}
+        variant={property.ratingVariant ?? "stars"}
+        canEdit={canEdit}
+        onChange={onChangeValue}
+      />
+    );
+  }
+
   const unit: Unit = property.unit ?? { kind: "none" };
   const suffix = unitSuffix(unit);
   const [editing, setEditing] = useState(false);

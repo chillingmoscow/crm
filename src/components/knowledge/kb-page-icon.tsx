@@ -45,7 +45,7 @@ export function KbPageIcon({
     return (
       <span
         className={cn(
-          "inline-flex items-center justify-center shrink-0",
+          "kb-page-icon inline-flex items-center justify-center shrink-0",
           // colorTextClass возвращает "" для null / "default" /
           // неизвестных значений — в этом случае иконка наследует
           // muted-foreground (серый). Это согласует «По умолчанию» в
@@ -66,7 +66,10 @@ export function KbPageIcon({
     // Emoji / свободный текст — игнорируем color (emoji уже цветной).
     return (
       <span
-        className={cn("inline-flex items-center justify-center shrink-0 leading-none", className)}
+        className={cn(
+          "kb-page-icon inline-flex items-center justify-center shrink-0 leading-none",
+          className,
+        )}
         style={{ width: size, height: size, fontSize: size }}
       >
         {icon}
@@ -78,7 +81,7 @@ export function KbPageIcon({
   return (
     <span
       className={cn(
-        "inline-flex items-center justify-center shrink-0 text-muted-foreground",
+        "kb-page-icon inline-flex items-center justify-center shrink-0 text-muted-foreground",
         className,
       )}
       style={{ width: size, height: size }}

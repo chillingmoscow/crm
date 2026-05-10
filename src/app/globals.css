@@ -2231,9 +2231,17 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-view-tab[data-dragging] {
   opacity: 0.62;
 }
-.bn-sheerly .kb-collection-view-tab > span {
+.bn-sheerly .kb-collection-view-tab > span:not(.kb-page-icon) {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.bn-sheerly .kb-collection-view-tab > .kb-page-icon,
+.bn-sheerly .kb-collection-table-heading .kb-page-icon,
+.kb-collection-view-icon-picker .kb-page-icon,
+.kb-collection-field-select-trigger .kb-page-icon,
+.kb-collection-field-select-option .kb-page-icon,
+.kb-collection-property-visibility-row .kb-page-icon {
+  overflow: visible;
 }
 .bn-sheerly .kb-collection-view-more {
   max-width: none;
@@ -2927,7 +2935,7 @@ button.kb-gallery-menu-item {
   flex-shrink: 0;
   color: hsl(var(--muted-foreground) / 0.78);
 }
-.bn-sheerly .kb-collection-table-heading span {
+.bn-sheerly .kb-collection-table-heading span:not(.kb-page-icon) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -1925,12 +1925,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     panel: CollectionSettingsPanel | null = null,
   ) => {
     if (viewId !== collectionState?.activeViewId) switchView(viewId);
-    settingsOpenGuardUntilRef.current = 0;
-    setViewMenuId(null);
-    setMoreViewsOpen(false);
+    settingsOpenGuardUntilRef.current = Date.now() + 180;
+    setSettingsPanel(panel);
+    setSettingsOpen(true);
     window.setTimeout(() => {
-      setSettingsPanel(panel);
-      setSettingsOpen(true);
+      setViewMenuId(null);
+      setMoreViewsOpen(false);
     }, 0);
   };
 

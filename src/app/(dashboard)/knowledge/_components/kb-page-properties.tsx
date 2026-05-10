@@ -33,7 +33,6 @@ import {
   Pencil,
   ToggleRight,
   Database,
-  Gauge,
   Info,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -2477,6 +2476,8 @@ function NumberValueControl({
   canEdit: boolean;
   onChangeValue: (value: number | null) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+
   if (property.displayVariant === "rating") {
     return (
       <RatingValueControl
@@ -2494,7 +2495,6 @@ function NumberValueControl({
 
   const unit: Unit = property.unit ?? { kind: "none" };
   const suffix = unitSuffix(unit);
-  const [editing, setEditing] = useState(false);
 
   const display =
     property.value === null ? "—" : formatWithUnit(property.value, unit);

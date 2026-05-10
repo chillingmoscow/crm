@@ -143,7 +143,22 @@ create policy "kb_collections_update"
         )
     )
   )
-  with check (account_id = public.get_active_account_id());
+  with check (
+    account_id = public.get_active_account_id()
+    and exists (
+      select 1 from public.kb_pages p
+      where p.account_id = kb_collections.account_id
+        and p.id = kb_collections.page_id
+        and p.deleted_at is null
+        and (
+          public.has_permission('kb.edit_any_page')
+          or (
+            public.has_permission('kb.edit_own_pages')
+            and p.created_by = auth.uid()
+          )
+        )
+    )
+  );
 
 create policy "kb_collection_views_select"
   on public.kb_collection_views for select
@@ -207,7 +222,26 @@ create policy "kb_collection_views_update"
         )
     )
   )
-  with check (account_id = public.get_active_account_id());
+  with check (
+    account_id = public.get_active_account_id()
+    and exists (
+      select 1
+      from public.kb_collections c
+      join public.kb_pages p
+        on p.account_id = c.account_id
+       and p.id = c.page_id
+      where c.account_id = kb_collection_views.account_id
+        and c.id = kb_collection_views.collection_id
+        and p.deleted_at is null
+        and (
+          public.has_permission('kb.edit_any_page')
+          or (
+            public.has_permission('kb.edit_own_pages')
+            and p.created_by = auth.uid()
+          )
+        )
+    )
+  );
 
 create policy "kb_collection_views_delete"
   on public.kb_collection_views for delete

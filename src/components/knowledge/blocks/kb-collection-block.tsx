@@ -28,11 +28,9 @@ import {
   ChevronRight,
   Copy,
   Database,
-  Eye,
   EyeOff,
   FileText,
   GalleryHorizontalEnd,
-  Gauge,
   GripVertical,
   Hash,
   Info,
@@ -52,7 +50,6 @@ import {
   Settings2,
   Star,
   Table2,
-  ToggleRight,
   Trash2,
   Type,
   WrapText,
@@ -324,7 +321,8 @@ function collectionFieldDisplayProperty(
 
   if (field.type === "checkbox") {
     const checkboxProperty = property as Extract<KbProperty, { type: "checkbox" }>;
-    const { displayVariant: _displayVariant, ...rest } = checkboxProperty;
+    const { displayVariant, ...rest } = checkboxProperty;
+    void displayVariant;
     return {
       ...rest,
       id: fallback.id,
@@ -341,7 +339,8 @@ function collectionFieldDisplayProperty(
 
   if (field.type === "text") {
     const textProperty = property as Extract<KbProperty, { type: "text" }>;
-    const { collapsed: _collapsed, ...rest } = textProperty;
+    const { collapsed, ...rest } = textProperty;
+    void collapsed;
     return {
       ...rest,
       id: fallback.id,
@@ -356,7 +355,8 @@ function collectionFieldDisplayProperty(
 
   if (field.type === "url") {
     const urlProperty = property as Extract<KbProperty, { type: "url" }>;
-    const { urlCollapsed: _urlCollapsed, ...rest } = urlProperty;
+    const { urlCollapsed, ...rest } = urlProperty;
+    void urlCollapsed;
     return {
       ...rest,
       id: fallback.id,
@@ -371,7 +371,8 @@ function collectionFieldDisplayProperty(
 
   if (field.type === "rating") {
     const ratingProperty = property as Extract<KbProperty, { type: "rating" }>;
-    const { displayVariant: _displayVariant, ...rest } = ratingProperty;
+    const { displayVariant, ...rest } = ratingProperty;
+    void displayVariant;
     return {
       ...rest,
       id: fallback.id,
@@ -2613,9 +2614,6 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   onCreateView={createView}
                   onDuplicateView={duplicateView}
                   onDeleteView={deleteView}
-                  onAddField={addField}
-                  onUpdateField={updateField}
-                  onRemoveField={removeField}
                   onReorderField={reorderField}
                   onSetFieldVisible={setFieldVisible}
                   onUpdateFilters={updateFilters}
@@ -2707,9 +2705,6 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   onCreateView={createView}
                   onDuplicateView={duplicateView}
                   onDeleteView={deleteView}
-                  onAddField={addField}
-                  onUpdateField={updateField}
-                  onRemoveField={removeField}
                   onReorderField={reorderField}
                   onSetFieldVisible={setFieldVisible}
                   onUpdateFilters={updateFilters}
@@ -5330,9 +5325,6 @@ function CollectionSettings({
   onCreateView,
   onDuplicateView,
   onDeleteView,
-  onAddField,
-  onUpdateField,
-  onRemoveField,
   onReorderField,
   onSetFieldVisible,
   onUpdateFilters,
@@ -5365,9 +5357,6 @@ function CollectionSettings({
   onCreateView: (view: KbCollectionView) => void;
   onDuplicateView: (viewId: string) => void;
   onDeleteView: (viewId: string) => void;
-  onAddField: (type: KbPropertyType) => void;
-  onUpdateField: (id: string, patch: Partial<KbCollectionField>) => void;
-  onRemoveField: (id: string) => void;
   onReorderField: (
     activeId: string,
     targetId: string,
@@ -6410,6 +6399,7 @@ function CollectionGroupingEditor({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function CollectionFieldEditor({
   field,
   visible,

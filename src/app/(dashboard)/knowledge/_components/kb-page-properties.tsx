@@ -89,6 +89,7 @@ import {
 } from "@/lib/palette";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
+import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import {
   formatWithUnit,
   unitSuffix,
@@ -1281,7 +1282,7 @@ function PropertyRow({
             {property.type === "number" && property.displayVariant === "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <Hash className="size-3.5 text-muted-foreground" />
+                  <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
                   Шкала
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[120px]">
@@ -1310,7 +1311,7 @@ function PropertyRow({
             {property.type === "number" && property.displayVariant === "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <Gauge className="size-3.5 text-muted-foreground" />
+                  <KB_PROPERTY_UI_ICONS.rating className="size-3.5 text-muted-foreground" />
                   Рейтинг
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[140px]">
@@ -1345,7 +1346,7 @@ function PropertyRow({
                     )
                   }
                 >
-                  <Info className="size-3.5 text-muted-foreground" />
+                  <KB_PROPERTY_UI_ICONS.showValue className="size-3.5 text-muted-foreground" />
                   Показывать число
                   {(property.ratingShowValue ?? true) && (
                     <Check className="ml-auto size-3.5" />
@@ -1356,7 +1357,7 @@ function PropertyRow({
             {property.type === "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <Star className="size-3.5 text-muted-foreground" />
+                  <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
                   Шкала
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[120px]">

@@ -32,8 +32,10 @@ import {
   EyeOff,
   FileText,
   GalleryHorizontalEnd,
+  Gauge,
   GripVertical,
   Hash,
+  Info,
   ArrowUpDown,
   Link as LinkIcon,
   ListFilter,
@@ -240,6 +242,23 @@ const SAVE_CELL_DEBOUNCE_MS = 650;
 const TABLE_TITLE_COLUMN_WIDTH_ID = "__title";
 const MIN_TABLE_COLUMN_WIDTH = 96;
 const MAX_TABLE_COLUMN_WIDTH = 640;
+
+function minTableColumnWidthForField(field: KbCollectionField): number {
+  if (field.type === "number" && field.displayVariant === "rating") {
+    if (field.ratingVariant === "slider") {
+      return field.ratingShowValue === false ? 150 : 190;
+    }
+    return Math.max(132, (field.max ?? 5) * 24 + 42);
+  }
+  if (field.type === "rating") {
+    if (field.ratingVariant === "slider") {
+      return field.ratingShowValue === false ? 150 : 190;
+    }
+    return Math.max(132, (field.max ?? 5) * 24 + 42);
+  }
+  if (field.type === "checkbox") return 68;
+  return MIN_TABLE_COLUMN_WIDTH;
+}
 type FieldDropPlacement = "before" | "after";
 type CollectionSettingsPanel = "layout" | "filters" | "sorts" | "views";
 type CollectionTableCellId = "title" | string;
@@ -272,6 +291,7 @@ function collectionFieldDisplayProperty(
       id: fallback.id,
       name: fallback.name,
       scope: fallback.scope,
+      ...(fallback.description ? { description: fallback.description } : {}),
       ...(fallback.icon ? { icon: fallback.icon } : {}),
       ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
     } as Extract<KbProperty, { type: "number" }>;
@@ -300,6 +320,9 @@ function collectionFieldDisplayProperty(
       id: fallback.id,
       name: fallback.name,
       scope: fallback.scope,
+      ...(fallback.description ? { description: fallback.description } : {}),
+      ...(fallback.icon ? { icon: fallback.icon } : {}),
+      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
       ...(field.displayVariant === "switch"
         ? { displayVariant: "switch" as const }
         : {}),
@@ -314,6 +337,9 @@ function collectionFieldDisplayProperty(
       id: fallback.id,
       name: fallback.name,
       scope: fallback.scope,
+      ...(fallback.description ? { description: fallback.description } : {}),
+      ...(fallback.icon ? { icon: fallback.icon } : {}),
+      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
       ...(field.collapsed ? { collapsed: true } : {}),
     };
   }
@@ -326,6 +352,9 @@ function collectionFieldDisplayProperty(
       id: fallback.id,
       name: fallback.name,
       scope: fallback.scope,
+      ...(fallback.description ? { description: fallback.description } : {}),
+      ...(fallback.icon ? { icon: fallback.icon } : {}),
+      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
       ...(field.urlCollapsed ? { urlCollapsed: true } : {}),
     };
   }
@@ -338,6 +367,9 @@ function collectionFieldDisplayProperty(
       id: fallback.id,
       name: fallback.name,
       scope: fallback.scope,
+      ...(fallback.description ? { description: fallback.description } : {}),
+      ...(fallback.icon ? { icon: fallback.icon } : {}),
+      ...(fallback.iconColor ? { iconColor: fallback.iconColor } : {}),
       ...(field.max ? { max: field.max } : {}),
       ...(field.ratingVariant === "slider"
         ? { displayVariant: "slider" as const }
@@ -397,8 +429,10 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   const viewTabsRef = useRef<HTMLDivElement>(null);
   const viewTabsMeasureRef = useRef<HTMLDivElement>(null);
   const collectionStateRef = useRef<KbCollectionState | null>(null);
+  const collectionStatePageIdRef = useRef<string | null>(null);
   const pendingViewOrderRef = useRef<KbCollectionViewConfig[] | null>(null);
   const viewDragMovedRef = useRef(false);
+  const settingsOpenGuardUntilRef = useRef(0);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const itemsRef = useRef<KbCollectionItem[]>([]);
   const cancelTitleRenameRef = useRef(false);
@@ -670,6 +704,25 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   useEffect(() => {
     if (!runtime.pageId) {
       setCollectionState(null);
+      collectionStatePageIdRef.current = null;
+      return;
+    }
+
+    const currentState = collectionStateRef.current;
+    if (
+      collectionStatePageIdRef.current === runtime.pageId &&
+      currentState
+    ) {
+      if (
+        block.props.viewId &&
+        currentState.views.some((item) => item.id === block.props.viewId) &&
+        currentState.activeViewId !== block.props.viewId
+      ) {
+        setCollectionState({
+          ...currentState,
+          activeViewId: block.props.viewId,
+        });
+      }
       return;
     }
 
@@ -694,6 +747,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       }
 
       setCollectionState(result.state);
+      collectionStatePageIdRef.current = runtime.pageId;
       const nextProps: Record<string, string> = {};
       if (block.props.collectionId !== result.state.collection.collectionKey) {
         nextProps.collectionId = result.state.collection.collectionKey;
@@ -1402,6 +1456,9 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           return {
             ...createCollectionField(patch.type, field.name),
             id: field.id,
+            description: field.description,
+            icon: field.icon,
+            iconColor: field.iconColor,
           };
         }
         return { ...field, ...patch };
@@ -1416,7 +1473,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     const duplicate = {
       ...field,
       id: createCollectionField(field.type).id,
-      name: `${field.name} копия`,
+      name: field.name ? `${field.name} копия` : "Копия",
     };
     updateSchema({
       version: 1,
@@ -1847,6 +1904,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     setSettingsOpen(true);
   };
 
+  const handleSettingsOpenChange = (open: boolean) => {
+    if (!open && Date.now() < settingsOpenGuardUntilRef.current) return;
+    setSettingsOpen(open);
+    if (!open) setSettingsPanel(null);
+  };
+
   const openSettingsForView = (
     viewId: string,
     panel: CollectionSettingsPanel | null = null,
@@ -1854,6 +1917,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     if (viewId !== collectionState?.activeViewId) switchView(viewId);
     setViewMenuId(null);
     setMoreViewsOpen(false);
+    settingsOpenGuardUntilRef.current = Date.now() + 450;
     window.requestAnimationFrame(() => {
       setSettingsPanel(panel);
       setSettingsOpen(true);
@@ -2480,10 +2544,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
             </IconTooltip>
             <Popover
               open={settingsOpen}
-              onOpenChange={(open) => {
-                setSettingsOpen(open);
-                if (!open) setSettingsPanel(null);
-              }}
+              onOpenChange={handleSettingsOpenChange}
             >
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -2577,10 +2638,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
             {toolbarCollapsed && (
             <Popover
               open={settingsOpen}
-              onOpenChange={(open) => {
-                setSettingsOpen(open);
-                if (!open) setSettingsPanel(null);
-              }}
+              onOpenChange={handleSettingsOpenChange}
             >
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -3023,6 +3081,63 @@ function CollectionViewIconPicker({
           value={value}
           color={null}
           onChange={(next) => onChange(next.icon ?? "database")}
+          onCommitClose={() => setOpen(false)}
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function CollectionFieldIconPicker({
+  field,
+  onChange,
+}: {
+  field: KbCollectionField;
+  onChange: (patch: Partial<KbCollectionField>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const FallbackIcon = FIELD_ICONS[field.type];
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="kb-collection-view-icon-picker"
+          aria-label="Изменить иконку свойства"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={stopBlockInteraction}
+        >
+          {field.icon ? (
+            <KbPageIcon
+              icon={field.icon}
+              color={field.iconColor ?? null}
+              size={18}
+            />
+          ) : (
+            <FallbackIcon className="size-4 text-muted-foreground" />
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="w-[380px] p-0 rounded-[10px]"
+        onPointerDown={stopBlockInteraction}
+        onMouseDown={stopBlockInteraction}
+        onClick={stopBlockInteraction}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
+        <KbIconPickerBody
+          value={field.icon ?? null}
+          color={field.iconColor ?? null}
+          onChange={(next) =>
+            onChange({
+              icon: next.icon ?? undefined,
+              iconColor: next.color ?? undefined,
+            })
+          }
           onCommitClose={() => setOpen(false)}
         />
       </PopoverContent>
@@ -3780,9 +3895,17 @@ function CollectionTableView({
   } | null>(null);
   const getDraftColumnWidth = (columnId: string, fallback: number) => {
     const value = draftColumnWidths[columnId];
+    const minWidth =
+      columnId === TABLE_TITLE_COLUMN_WIDTH_ID
+        ? MIN_TABLE_COLUMN_WIDTH
+        : fields.find((field) => field.id === columnId)
+          ? minTableColumnWidthForField(
+              fields.find((field) => field.id === columnId)!,
+            )
+          : MIN_TABLE_COLUMN_WIDTH;
     if (!Number.isFinite(value)) return fallback;
     return Math.min(
-      Math.max(value, MIN_TABLE_COLUMN_WIDTH),
+      Math.max(value, minWidth),
       MAX_TABLE_COLUMN_WIDTH,
     );
   };
@@ -3791,7 +3914,7 @@ function CollectionTableView({
     320,
   );
   const fieldColumnWidths = fields.map((field) =>
-    getDraftColumnWidth(field.id, 220),
+    getDraftColumnWidth(field.id, Math.max(220, minTableColumnWidthForField(field))),
   );
   const gridTemplateColumns = [
     `${titleColumnWidth}px`,
@@ -4045,8 +4168,16 @@ function CollectionTableView({
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
+      const minWidth =
+        columnId === TABLE_TITLE_COLUMN_WIDTH_ID
+          ? MIN_TABLE_COLUMN_WIDTH
+          : fieldsRef.current.find((field) => field.id === columnId)
+            ? minTableColumnWidthForField(
+                fieldsRef.current.find((field) => field.id === columnId)!,
+              )
+            : MIN_TABLE_COLUMN_WIDTH;
       latestWidth = Math.min(
-        Math.max(startWidth + moveEvent.clientX - startX, MIN_TABLE_COLUMN_WIDTH),
+        Math.max(startWidth + moveEvent.clientX - startX, minWidth),
         MAX_TABLE_COLUMN_WIDTH,
       );
       setDraftColumnWidths((current) => ({
@@ -4208,8 +4339,16 @@ function CollectionTableView({
                     }}
                   >
                     <span className="kb-collection-table-heading">
-                      <Icon className="size-3.5" />
-                      <span>{field.name}</span>
+                      {field.icon ? (
+                        <KbPageIcon
+                          icon={field.icon}
+                          color={field.iconColor ?? null}
+                          size={14}
+                        />
+                      ) : (
+                        <Icon className="size-3.5" />
+                      )}
+                      {field.name && <span>{field.name}</span>}
                     </span>
                     {canEdit && (
                       <span
@@ -4350,6 +4489,7 @@ function CollectionTableView({
                   key={field.id}
                   className="kb-collection-table-cell"
                   role="cell"
+                  data-field-type={field.type}
                   data-kb-collection-cell
                   data-selected={selected || undefined}
                   onPointerDownCapture={(event) => {
@@ -4587,15 +4727,21 @@ function CollectionColumnMenu({
 }) {
   const [panel, setPanel] = useState<"root" | FieldDropPlacement | "sort">("root");
   const [name, setName] = useState(field.name);
+  const [descriptionDraft, setDescriptionDraft] = useState(
+    field.description ?? "",
+  );
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState<KbPropertyType>("text");
 
   useEffect(() => {
     setName(field.name);
   }, [field.id, field.name]);
+  useEffect(() => {
+    setDescriptionDraft(field.description ?? "");
+  }, [field.id, field.description]);
 
   const commitName = () => {
-    const nextName = name.trim() || KB_COLLECTION_FIELD_LABELS[field.type];
+    const nextName = name.trim();
     setName(nextName);
     if (nextName !== field.name) onUpdate({ name: nextName });
   };
@@ -4661,14 +4807,13 @@ function CollectionColumnMenu({
     );
   }
 
-  const Icon = FIELD_ICONS[field.type];
-
   return (
     <div className="kb-collection-column-menu-panel">
       <div className="kb-collection-column-menu-name">
-        <Icon className="size-4" />
+        <CollectionFieldIconPicker field={field} onChange={onUpdate} />
         <Input
           value={name}
+          placeholder="Свойство"
           onChange={(event) => setName(event.currentTarget.value)}
           onBlur={commitName}
           onKeyDown={(event) => {
@@ -4680,6 +4825,47 @@ function CollectionColumnMenu({
           className="h-9 min-w-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
           aria-label="Название свойства"
         />
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "kb-collection-view-description-trigger",
+                field.description && "text-foreground",
+              )}
+              aria-label="Описание свойства"
+              onPointerDown={stopBlockInteraction}
+              onMouseDown={stopBlockInteraction}
+              onClick={stopBlockInteraction}
+            >
+              <Info className="size-4" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={6}
+            className="w-[260px] p-2"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={stopBlockInteraction}
+            onOpenAutoFocus={(event) => event.preventDefault()}
+          >
+            <Input
+              value={descriptionDraft}
+              placeholder="Описание свойства"
+              className="h-8"
+              aria-label="Описание свойства"
+              onChange={(event) =>
+                setDescriptionDraft(event.currentTarget.value)
+              }
+              onBlur={() =>
+                onUpdate({
+                  description: descriptionDraft.trim().slice(0, 280) || undefined,
+                })
+              }
+            />
+          </PopoverContent>
+        </Popover>
       </div>
       <label className="kb-collection-column-menu-row">
         <Type className="size-4" />
@@ -4702,7 +4888,7 @@ function CollectionColumnMenu({
       {field.type === "number" && (
         <>
           <label className="kb-collection-column-menu-row">
-            <ToggleRight className="size-4" />
+            <Eye className="size-4" />
             <span>Вид</span>
             <select
               className="kb-collection-column-menu-select"
@@ -4736,7 +4922,7 @@ function CollectionColumnMenu({
           {field.displayVariant === "rating" && (
             <>
               <label className="kb-collection-column-menu-row">
-                <Star className="size-4" />
+                <Hash className="size-4" />
                 <span>Максимум</span>
                 <select
                   className="kb-collection-column-menu-select"
@@ -4756,8 +4942,8 @@ function CollectionColumnMenu({
                 </select>
               </label>
               <label className="kb-collection-column-menu-row">
-                <ToggleRight className="size-4" />
-                <span>Вид рейтинга</span>
+                <Gauge className="size-4" />
+                <span>Рейтинг</span>
                 <select
                   className="kb-collection-column-menu-select"
                   value={field.ratingVariant ?? "stars"}
@@ -4783,7 +4969,7 @@ function CollectionColumnMenu({
                     });
                   }}
                 >
-                  <ToggleRight className="size-4" />
+                  <Eye className="size-4" />
                   <span>Показывать число</span>
                   {(field.ratingShowValue ?? true) && (
                     <Check className="size-4" />
@@ -5930,15 +6116,20 @@ function CollectionFieldEditor({
   ) => void;
   onVisibleChange: (visible: boolean) => void;
 }) {
-  const Icon = FIELD_ICONS[field.type];
   const [name, setName] = useState(field.name);
+  const [descriptionDraft, setDescriptionDraft] = useState(
+    field.description ?? "",
+  );
 
   useEffect(() => {
     setName(field.name);
   }, [field.id, field.name]);
+  useEffect(() => {
+    setDescriptionDraft(field.description ?? "");
+  }, [field.id, field.description]);
 
   const commitName = () => {
-    const nextName = name.trim() || KB_COLLECTION_FIELD_LABELS[field.type];
+    const nextName = name.trim();
     setName(nextName);
     if (nextName !== field.name) onUpdate({ name: nextName });
   };
@@ -5969,9 +6160,10 @@ function CollectionFieldEditor({
       >
         <GripVertical className="size-4" />
       </span>
-      <Icon className="size-4 text-muted-foreground" />
+      <CollectionFieldIconPicker field={field} onChange={onUpdate} />
       <Input
         value={name}
+        placeholder="Свойство"
         onChange={(event) => setName(event.currentTarget.value)}
         onBlur={commitName}
         onKeyDown={(event) => {
@@ -5983,6 +6175,45 @@ function CollectionFieldEditor({
         className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
         aria-label="Название свойства"
       />
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "kb-collection-view-description-trigger",
+              field.description && "text-foreground",
+            )}
+            aria-label="Описание свойства"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={stopBlockInteraction}
+          >
+            <Info className="size-4" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="start"
+          sideOffset={6}
+          className="w-[260px] p-2"
+          onPointerDown={stopBlockInteraction}
+          onMouseDown={stopBlockInteraction}
+          onClick={stopBlockInteraction}
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
+          <Input
+            value={descriptionDraft}
+            placeholder="Описание свойства"
+            className="h-8"
+            aria-label="Описание свойства"
+            onChange={(event) => setDescriptionDraft(event.currentTarget.value)}
+            onBlur={() =>
+              onUpdate({
+                description: descriptionDraft.trim().slice(0, 280) || undefined,
+              })
+            }
+          />
+        </PopoverContent>
+      </Popover>
       <select
         className="kb-collection-field-type"
         value={field.type}

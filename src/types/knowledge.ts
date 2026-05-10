@@ -90,6 +90,10 @@ interface KbPropertyIconOverride {
   iconColor?: string;
 }
 
+interface KbPropertyMetadata {
+  description?: string;
+}
+
 export type KbPropertyScope =
   | { type: "page" }
   | {
@@ -115,6 +119,7 @@ export type KbProperty =
        *  (полное multi-line). Stage 3 polish — toggle в ⋯ menu. */
       collapsed?: boolean;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -135,6 +140,7 @@ export type KbProperty =
        *  `src/lib/units/`. Хранится в jsonb как-есть. */
       unit?: Unit;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -142,6 +148,7 @@ export type KbProperty =
       type: "date";
       value: string | null; // ISO yyyy-mm-dd
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -154,6 +161,7 @@ export type KbProperty =
        *  показывает дефолтный чекбокс. */
       displayVariant?: "checkbox" | "switch";
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -165,6 +173,7 @@ export type KbProperty =
        *  Если опции нет в map'е — fallback на hash-derived цвет. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -175,6 +184,7 @@ export type KbProperty =
       /** Тот же mapping что у select, переиспользуется. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -186,6 +196,7 @@ export type KbProperty =
        *  показывать как есть. */
       urlCollapsed?: boolean;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership)
   | ({
       id: string;
@@ -201,6 +212,7 @@ export type KbProperty =
       displayVariant?: "stars" | "slider";
       ratingShowValue?: boolean;
     } & KbPropertyIconOverride &
+      KbPropertyMetadata &
       KbPropertyOwnership);
 
 // ─── Form / server-action input shapes ───────────────────────────────────────

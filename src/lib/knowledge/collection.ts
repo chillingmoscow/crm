@@ -29,6 +29,7 @@ export type KbCollectionField = {
   id: string;
   name: string;
   type: KbPropertyType;
+  description?: string;
   icon?: string;
   iconColor?: string;
   options?: string[];
@@ -378,6 +379,7 @@ export function collectionFieldToProperty(
     id: field.id,
     name: field.name,
     scope: collectionPropertyScope(field, context),
+    ...(field.description ? { description: field.description } : {}),
     ...(field.icon ? { icon: field.icon } : {}),
     ...(field.iconColor ? { iconColor: field.iconColor } : {}),
   };
@@ -693,17 +695,19 @@ function normalizeCollectionField(value: unknown): KbCollectionField | null {
   if (!KB_COLLECTION_FIELD_TYPES.includes(type as KbPropertyType)) return null;
 
   const name = raw.name.trim();
-  if (!name) return null;
 
   const normalized: KbCollectionField = {
     id:
       typeof raw.id === "string" && raw.id.trim()
         ? raw.id.trim()
-        : fallbackFieldId(`${name}:${type}`),
+        : fallbackFieldId(`${name || type}:${type}`),
     name,
     type: type as KbPropertyType,
   };
 
+  if (typeof raw.description === "string" && raw.description.trim()) {
+    normalized.description = raw.description.trim().slice(0, 280);
+  }
   if (typeof raw.icon === "string" && raw.icon.trim()) {
     normalized.icon = raw.icon.trim();
   }
@@ -834,6 +838,7 @@ function collectionFieldFromProperty(property: KbProperty): KbCollectionField | 
     name: property.name,
     type: property.type,
   };
+  if (property.description) field.description = property.description;
   if (property.icon) field.icon = property.icon;
   if (property.iconColor) field.iconColor = property.iconColor;
 
@@ -959,10 +964,16 @@ function withCollectionBase<T extends KbProperty>(
   context: KbCollectionPropertyContext,
 ): T {
   const next = { ...property, id: field.id, name: field.name } as T & {
+    description?: string;
     icon?: string;
     iconColor?: string;
   };
   next.scope = collectionPropertyScope(field, context);
+  if (field.description) {
+    next.description = field.description;
+  } else {
+    delete next.description;
+  }
   if (field.icon) {
     next.icon = field.icon;
   } else {

@@ -59,7 +59,8 @@ export const kbSearchSchema = z.object({
 
 const kbPropertyBase = {
   id: z.string().min(1).max(32),
-  name: z.string().trim().min(1).max(80),
+  name: z.string().trim().max(80),
+  description: z.string().trim().max(280).optional(),
   // Logical ownership. Missing scope is legacy page-local.
   scope: z
     .discriminatedUnion("type", [

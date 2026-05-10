@@ -33,6 +33,8 @@ import {
   Pencil,
   ToggleRight,
   Database,
+  Gauge,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -360,7 +362,11 @@ export function KbPageProperties({
       const idx = prev.findIndex((p) => p.id === id);
       if (idx === -1) return prev;
       const orig = prev[idx];
-      const copy = { ...orig, id: nanoid(8), name: `${orig.name} (копия)` };
+      const copy = {
+        ...orig,
+        id: nanoid(8),
+        name: orig.name ? `${orig.name} (копия)` : "Копия",
+      };
       const next = [...prev.slice(0, idx + 1), copy, ...prev.slice(idx + 1)];
       scheduleSave(next);
       return next;
@@ -389,6 +395,9 @@ export function KbPageProperties({
               : {}),
             ...(p.icon !== undefined ? { icon: p.icon } : {}),
             ...(p.iconColor !== undefined ? { iconColor: p.iconColor } : {}),
+            ...(p.description !== undefined
+              ? { description: p.description }
+              : {}),
           } as KbProperty;
         }
         const fresh = makeProperty(newType, p.name);
@@ -396,6 +405,7 @@ export function KbPageProperties({
         const carriedIcon = {
           ...(p.icon !== undefined ? { icon: p.icon } : {}),
           ...(p.iconColor !== undefined ? { iconColor: p.iconColor } : {}),
+          ...(p.description !== undefined ? { description: p.description } : {}),
         };
         // Перенос options/optionColors при select ↔ multi-select.
         const isCurrentOption =
@@ -609,6 +619,11 @@ export function KbPageProperties({
     });
   };
 
+  const changePropertyDescription = (id: string, description: string) => {
+    const nextDescription = description.trim().slice(0, 280);
+    updateProperty(id, { description: nextDescription || undefined } as Partial<KbProperty>);
+  };
+
   // DnD reorder: arrayMove + scheduleSave. distance=4 — чтобы scroll
   // на мобиле / случайный микро-drag не запускали реорганизацию.
   const sensors = useSensors(
@@ -801,6 +816,9 @@ export function KbPageProperties({
                     onChangeIcon={(icon, iconColor) =>
                       changePropertyIcon(prop.id, icon, iconColor)
                     }
+                    onChangeDescription={(description) =>
+                      changePropertyDescription(prop.id, description)
+                    }
                     onToggleCollapse={() => togglePropertyCollapse(prop.id)}
                     onChangeUnit={(unit) => changePropertyUnit(prop.id, unit)}
                     onChangeRatingScale={(max) =>
@@ -933,6 +951,7 @@ interface PropertyRowProps {
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
   onChangeIcon: (icon: string | null, iconColor: string | null) => void;
+  onChangeDescription: (description: string) => void;
   /** Toggle для text-property: collapsed (single-line truncate) ↔
    *  expanded (full multi-line). Применимо только к type === "text". */
   onToggleCollapse: () => void;
@@ -1009,6 +1028,7 @@ function PropertyRow({
   onChangeOptions,
   onChangeOptionColors,
   onChangeIcon,
+  onChangeDescription,
   onToggleCollapse,
   onChangeUnit,
   onChangeRatingScale,
@@ -1020,9 +1040,15 @@ function PropertyRow({
   onChangeType,
 }: PropertyRowProps) {
   const [name, setName] = useState(property.name);
+  const [descriptionDraft, setDescriptionDraft] = useState(
+    property.description ?? "",
+  );
   // Sync external rename (e.g., другой клиент) на случай контролируемой
   // mutation сверху.
   useEffect(() => setName(property.name), [property.name]);
+  useEffect(() => {
+    setDescriptionDraft(property.description ?? "");
+  }, [property.description]);
 
   // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
   // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
@@ -1097,8 +1123,8 @@ function PropertyRow({
             onChange={(e) => setName(e.target.value)}
             onBlur={() => {
               const trimmed = name.trim();
-              if (trimmed && trimmed !== property.name) onRename(trimmed);
-              else setName(property.name);
+              if (trimmed !== property.name) onRename(trimmed);
+              setName(trimmed);
             }}
             className="w-[140px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
             aria-label="Имя свойства"
@@ -1107,6 +1133,51 @@ function PropertyRow({
           <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
             {property.name}
           </span>
+        )}
+        {canEdit && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  "size-5 shrink-0 inline-flex items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+                  property.description && "text-foreground",
+                )}
+                aria-label="Описание свойства"
+              >
+                <Info className="size-3.5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              sideOffset={6}
+              className="w-[260px] p-2"
+              onOpenAutoFocus={(event) => event.preventDefault()}
+            >
+              <Input
+                value={descriptionDraft}
+                placeholder="Описание свойства"
+                className="h-8"
+                aria-label="Описание свойства"
+                onChange={(event) =>
+                  setDescriptionDraft(event.currentTarget.value)
+                }
+                onBlur={() => onChangeDescription(descriptionDraft)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onChangeDescription(event.currentTarget.value);
+                    event.currentTarget.blur();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setDescriptionDraft(property.description ?? "");
+                    event.currentTarget.blur();
+                  }
+                }}
+              />
+            </PopoverContent>
+          </Popover>
         )}
       </div>
       <div className="flex-1 min-w-0">
@@ -1210,7 +1281,7 @@ function PropertyRow({
             {property.type === "number" && property.displayVariant === "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <Star className="size-3.5 text-muted-foreground" />
+                  <Hash className="size-3.5 text-muted-foreground" />
                   Шкала
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[120px]">
@@ -1239,8 +1310,8 @@ function PropertyRow({
             {property.type === "number" && property.displayVariant === "rating" && (
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
-                  <ToggleRight className="size-3.5 text-muted-foreground" />
-                  Вид рейтинга
+                  <Gauge className="size-3.5 text-muted-foreground" />
+                  Рейтинг
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="min-w-[140px]">
                   {(
@@ -1274,7 +1345,7 @@ function PropertyRow({
                     )
                   }
                 >
-                  <ToggleRight className="size-3.5 text-muted-foreground" />
+                  <Info className="size-3.5 text-muted-foreground" />
                   Показывать число
                   {(property.ratingShowValue ?? true) && (
                     <Check className="ml-auto size-3.5" />
@@ -2092,7 +2163,6 @@ function PropertyIconButton({
         <button
           type="button"
           aria-label="Изменить иконку свойства"
-          title="Иконка"
           className="size-5 shrink-0 inline-flex items-center justify-center rounded
                      hover:bg-accent transition-colors"
         >

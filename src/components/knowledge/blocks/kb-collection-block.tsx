@@ -280,11 +280,14 @@ function collectionFieldDisplayProperty(
       next.max = field.max ?? 5;
       if (field.ratingVariant === "slider") next.ratingVariant = "slider";
       else delete next.ratingVariant;
+      if (field.ratingShowValue === false) next.ratingShowValue = false;
+      else delete next.ratingShowValue;
       delete next.unit;
     } else {
       delete next.displayVariant;
       delete next.max;
       delete next.ratingVariant;
+      delete next.ratingShowValue;
     }
     return next;
   }
@@ -339,6 +342,7 @@ function collectionFieldDisplayProperty(
       ...(field.ratingVariant === "slider"
         ? { displayVariant: "slider" as const }
         : {}),
+      ...(field.ratingShowValue === false ? { ratingShowValue: false } : {}),
     };
   }
 
@@ -1850,7 +1854,10 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     if (viewId !== collectionState?.activeViewId) switchView(viewId);
     setViewMenuId(null);
     setMoreViewsOpen(false);
-    window.setTimeout(() => openSettingsPanel(panel), 0);
+    window.requestAnimationFrame(() => {
+      setSettingsPanel(panel);
+      setSettingsOpen(true);
+    });
   };
 
   const startViewTabDrag = (
@@ -1933,9 +1940,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     const tabDisplay = item.tabDisplay ?? "text-icon";
     const showTabIcon = tabDisplay !== "text";
     const showTabText = tabDisplay !== "icon";
-    const tooltipDescription =
-      item.description ||
-      `${KB_COLLECTION_VIEW_LABELS[item.viewType]} view of ${collectionTitle}`;
+    const tooltipDescription = item.description.trim();
     const tabButton = (
       <button
         key={item.id}
@@ -1987,19 +1992,20 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           setViewMenuId((current) => (open ? item.id : current === item.id ? null : current))
         }
       >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>{tabButton}</PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
-            <div className="grid gap-0.5">
-              <strong className="font-semibold">{item.name}</strong>
-              <span className="text-muted-foreground">
+        {tooltipDescription ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>{tabButton}</PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
+              <strong className="font-semibold leading-tight">
                 {tooltipDescription}
-              </span>
-            </div>
-          </TooltipContent>
-        </Tooltip>
+              </strong>
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <PopoverTrigger asChild>{tabButton}</PopoverTrigger>
+        )}
         <PopoverContent
           align="start"
           sideOffset={6}
@@ -2308,7 +2314,9 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                     </PopoverTrigger>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
-                    Добавить вид
+                    <strong className="font-semibold leading-tight">
+                      Добавить вид
+                    </strong>
                   </TooltipContent>
                 </Tooltip>
                 <PopoverContent
@@ -2495,7 +2503,9 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   </PopoverTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
-                  Настройки вида
+                  <strong className="font-semibold leading-tight">
+                    Настройки вида
+                  </strong>
                 </TooltipContent>
               </Tooltip>
               <PopoverContent
@@ -2590,7 +2600,9 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   </PopoverTrigger>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
-                  Настройки вида
+                  <strong className="font-semibold leading-tight">
+                    Настройки вида
+                  </strong>
                 </TooltipContent>
               </Tooltip>
               <PopoverContent
@@ -3458,11 +3470,11 @@ function CollectionPropertyChip({
   canEdit: boolean;
   onChangeValue: (value: KbProperty["value"]) => void;
 }) {
-  const Icon = FIELD_ICONS[field.type];
   const displayProperty = collectionFieldDisplayProperty(property, field, {
     collectionId,
     collectionTitle,
   });
+  if (!hasCollectionPropertyDisplayValue(displayProperty)) return null;
 
   return (
     <Tooltip>
@@ -3473,8 +3485,6 @@ function CollectionPropertyChip({
           onMouseDown={stopBlockInteraction}
           onClick={stopBlockInteraction}
         >
-          <Icon className="size-3.5 text-muted-foreground" />
-          <span className="kb-collection-property-name">{field.name}</span>
           <PropertyValueControl
             property={displayProperty}
             canEdit={canEdit}
@@ -3486,10 +3496,29 @@ function CollectionPropertyChip({
         </span>
       </TooltipTrigger>
       <TooltipContent side="bottom" sideOffset={6} className="px-2 py-1 text-xs">
-        {field.name}
+        <strong className="font-semibold leading-tight">{field.name}</strong>
       </TooltipContent>
     </Tooltip>
   );
+}
+
+function hasCollectionPropertyDisplayValue(property: KbProperty): boolean {
+  switch (property.type) {
+    case "text":
+    case "url":
+      return property.value.trim().length > 0;
+    case "number":
+    case "rating":
+      return property.value !== null;
+    case "date":
+      return Boolean(property.value);
+    case "checkbox":
+      return property.value === true;
+    case "select":
+      return Boolean(property.value);
+    case "multi-select":
+      return property.value.length > 0;
+  }
 }
 
 function CollectionAddFieldMenu({
@@ -4689,6 +4718,10 @@ function CollectionColumnMenu({
                     event.currentTarget.value === "rating"
                       ? field.ratingVariant ?? "stars"
                       : undefined,
+                  ratingShowValue:
+                    event.currentTarget.value === "rating"
+                      ? field.ratingShowValue ?? true
+                      : undefined,
                   max:
                     event.currentTarget.value === "rating"
                       ? field.max ?? 5
@@ -4739,6 +4772,24 @@ function CollectionColumnMenu({
                   <option value="slider">Слайдер</option>
                 </select>
               </label>
+              {field.ratingVariant === "slider" && (
+                <button
+                  type="button"
+                  className="kb-collection-column-menu-row"
+                  onClick={(event) => {
+                    stopBlockMenuAction(event);
+                    onUpdate({
+                      ratingShowValue: field.ratingShowValue === false,
+                    });
+                  }}
+                >
+                  <ToggleRight className="size-4" />
+                  <span>Показывать число</span>
+                  {(field.ratingShowValue ?? true) && (
+                    <Check className="size-4" />
+                  )}
+                </button>
+              )}
             </>
           )}
         </>
@@ -5961,6 +6012,10 @@ function CollectionFieldEditor({
                 event.currentTarget.value === "rating"
                   ? field.ratingVariant ?? "stars"
                   : undefined,
+              ratingShowValue:
+                event.currentTarget.value === "rating"
+                  ? field.ratingShowValue ?? true
+                  : undefined,
               max:
                 event.currentTarget.value === "rating"
                   ? field.max ?? 5
@@ -6003,6 +6058,18 @@ function CollectionFieldEditor({
             <option value="stars">Звёзды</option>
             <option value="slider">Слайдер</option>
           </select>
+          {field.ratingVariant === "slider" && (
+            <label className="kb-collection-field-toggle">
+              <input
+                type="checkbox"
+                checked={field.ratingShowValue !== false}
+                onChange={(event) =>
+                  onUpdate({ ratingShowValue: event.currentTarget.checked })
+                }
+              />
+              Число
+            </label>
+          )}
         </>
       )}
       {field.type === "checkbox" && (

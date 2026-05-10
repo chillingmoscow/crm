@@ -520,11 +520,15 @@ export function KbPageProperties({
             (updated as Extract<KbProperty, { type: "number" }>).ratingVariant =
               (p as Extract<KbProperty, { type: "number" }>).ratingVariant ??
               "stars";
+            (updated as Extract<KbProperty, { type: "number" }>).ratingShowValue =
+              (p as Extract<KbProperty, { type: "number" }>).ratingShowValue ??
+              true;
             delete (updated as Extract<KbProperty, { type: "number" }>).unit;
           } else {
             delete updated.displayVariant;
             delete (updated as Extract<KbProperty, { type: "number" }>).max;
             delete (updated as Extract<KbProperty, { type: "number" }>).ratingVariant;
+            delete (updated as Extract<KbProperty, { type: "number" }>).ratingShowValue;
           }
           return updated as KbProperty;
         }
@@ -553,6 +557,26 @@ export function KbPageProperties({
         return {
           ...p,
           ratingVariant: variant,
+        } as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  const changeNumberRatingShowValue = (id: string, showValue: boolean) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (
+          p.id !== id ||
+          p.type !== "number" ||
+          p.displayVariant !== "rating"
+        ) {
+          return p;
+        }
+        return {
+          ...p,
+          ratingShowValue: showValue,
         } as KbProperty;
       });
       scheduleSave(next);
@@ -788,6 +812,9 @@ export function KbPageProperties({
                     onChangeNumberRatingVariant={(variant) =>
                       changeNumberRatingVariant(prop.id, variant)
                     }
+                    onChangeNumberRatingShowValue={(showValue) =>
+                      changeNumberRatingShowValue(prop.id, showValue)
+                    }
                     onRemove={() => removeProperty(prop.id)}
                     onDuplicate={() => duplicateProperty(prop.id)}
                     onChangeType={(t) => changePropertyType(prop.id, t)}
@@ -917,6 +944,7 @@ interface PropertyRowProps {
    *  rating ("stars" | "slider"). undefined = вернуть default. */
   onChangeDisplayVariant: (variant: string | undefined) => void;
   onChangeNumberRatingVariant: (variant: "stars" | "slider") => void;
+  onChangeNumberRatingShowValue: (showValue: boolean) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -986,6 +1014,7 @@ function PropertyRow({
   onChangeRatingScale,
   onChangeDisplayVariant,
   onChangeNumberRatingVariant,
+  onChangeNumberRatingShowValue,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -1235,6 +1264,23 @@ function PropertyRow({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             )}
+            {property.type === "number" &&
+              property.displayVariant === "rating" &&
+              property.ratingVariant === "slider" && (
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onChangeNumberRatingShowValue(
+                      property.ratingShowValue === false,
+                    )
+                  }
+                >
+                  <ToggleRight className="size-3.5 text-muted-foreground" />
+                  Показывать число
+                  {(property.ratingShowValue ?? true) && (
+                    <Check className="ml-auto size-3.5" />
+                  )}
+                </DropdownMenuItem>
+              )}
             {/* Шкала — только для rating (Stage 5). 3 / 5 / 10. */}
             {property.type === "rating" && (
               <DropdownMenuSub>
@@ -1518,6 +1564,7 @@ export function PropertyValueControl({
         value={property.value}
         max={property.max ?? 5}
         variant={property.displayVariant ?? "stars"}
+        showValue={property.ratingShowValue ?? true}
         canEdit={canEdit}
         onChange={onChangeValue}
       />;
@@ -2367,6 +2414,7 @@ function NumberValueControl({
         }
         max={property.max ?? 5}
         variant={property.ratingVariant ?? "stars"}
+        showValue={property.ratingShowValue ?? true}
         canEdit={canEdit}
         onChange={onChangeValue}
       />
@@ -2452,12 +2500,14 @@ function RatingValueControl({
   value,
   max,
   variant,
+  showValue = true,
   canEdit,
   onChange,
 }: {
   value: number | null;
   max: number;
   variant: "stars" | "slider";
+  showValue?: boolean;
   canEdit: boolean;
   onChange: (value: number | null) => void;
 }) {
@@ -2486,9 +2536,11 @@ function RatingValueControl({
             canEdit ? "cursor-pointer" : "cursor-default",
           )}
         />
-        <span className="text-[13px] tabular-nums text-muted-foreground min-w-[40px]">
-          {value === null ? "—" : `${value} / ${max}`}
-        </span>
+        {showValue && (
+          <span className="text-[13px] tabular-nums text-muted-foreground min-w-[40px]">
+            {value === null ? "—" : `${value} / ${max}`}
+          </span>
+        )}
       </div>
     );
   }

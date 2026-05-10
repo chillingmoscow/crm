@@ -151,6 +151,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     unit: unitSchema.optional(),
     displayVariant: z.enum(["number", "rating"]).optional(),
     ratingVariant: z.enum(["stars", "slider"]).optional(),
+    ratingShowValue: z.boolean().optional(),
     max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
   }),
   z.object({
@@ -197,6 +198,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     // произвольный max и получить inconsistent data (Codex P2 на #144).
     max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
     displayVariant: z.enum(["stars", "slider"]).optional(),
+    ratingShowValue: z.boolean().optional(),
   }),
 ]).superRefine((p, ctx) => {
   // Cross-field invariant для rating: `value` не может превышать `max`.

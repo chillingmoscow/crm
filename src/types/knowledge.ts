@@ -128,6 +128,8 @@ export type KbProperty =
       max?: number;
       /** Отображение rating-вида числа: звёзды или слайдер. */
       ratingVariant?: "stars" | "slider";
+      /** Показывать подпись значения рядом со слайдером рейтинга. */
+      ratingShowValue?: boolean;
       /** Единица измерения (Stage 4). Default отсутствие = `kind: "none"`
        *  (просто число). Discriminated union из shared-слоя
        *  `src/lib/units/`. Хранится в jsonb как-есть. */
@@ -197,6 +199,7 @@ export type KbProperty =
        *  range-input от 0 до max. Семантика та же (число), меняется
        *  только рендер. Rollback-safe. */
       displayVariant?: "stars" | "slider";
+      ratingShowValue?: boolean;
     } & KbPropertyIconOverride &
       KbPropertyOwnership);
 

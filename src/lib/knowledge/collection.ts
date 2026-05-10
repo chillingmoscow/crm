@@ -35,6 +35,7 @@ export type KbCollectionField = {
   optionColors?: Partial<Record<string, KbPropertyColor>>;
   displayVariant?: string;
   ratingVariant?: "stars" | "slider";
+  ratingShowValue?: boolean;
   collapsed?: boolean;
   urlCollapsed?: boolean;
   max?: 3 | 5 | 10;
@@ -401,6 +402,9 @@ export function collectionFieldToProperty(
               ...(field.ratingVariant === "slider"
                 ? { ratingVariant: "slider" as const }
                 : {}),
+              ...(field.ratingShowValue === false
+                ? { ratingShowValue: false }
+                : {}),
             }
           : {}),
       };
@@ -447,6 +451,7 @@ export function collectionFieldToProperty(
         ...(field.ratingVariant === "slider"
           ? { displayVariant: "slider" as const }
           : {}),
+        ...(field.ratingShowValue === false ? { ratingShowValue: false } : {}),
       };
   }
 }
@@ -720,12 +725,14 @@ function normalizeCollectionField(value: unknown): KbCollectionField | null {
   if (raw.type === "number" && raw.displayVariant === "rating") {
     normalized.displayVariant = "rating";
     if (raw.ratingVariant === "slider") normalized.ratingVariant = "slider";
+    if (raw.ratingShowValue === false) normalized.ratingShowValue = false;
   }
   if (
     raw.type === "rating" &&
     (raw.displayVariant === "slider" || raw.ratingVariant === "slider")
   ) {
     normalized.ratingVariant = "slider";
+    if (raw.ratingShowValue === false) normalized.ratingShowValue = false;
   }
   if (raw.type === "text" && raw.collapsed === true) {
     normalized.collapsed = true;
@@ -840,6 +847,7 @@ function collectionFieldFromProperty(property: KbProperty): KbCollectionField | 
   if (property.type === "number" && property.displayVariant === "rating") {
     field.displayVariant = "rating";
     if (property.ratingVariant === "slider") field.ratingVariant = "slider";
+    if (property.ratingShowValue === false) field.ratingShowValue = false;
     if (property.max === 3 || property.max === 5 || property.max === 10) {
       field.max = property.max;
     }
@@ -858,6 +866,9 @@ function collectionFieldFromProperty(property: KbProperty): KbCollectionField | 
   }
   if (property.type === "rating" && property.displayVariant === "slider") {
     field.ratingVariant = "slider";
+  }
+  if (property.type === "rating" && property.ratingShowValue === false) {
+    field.ratingShowValue = false;
   }
 
   return normalizeCollectionField(field);
@@ -901,11 +912,14 @@ function mergeCollectionProperty(
         if (field.max) next.max = field.max;
         if (field.ratingVariant === "slider") next.ratingVariant = "slider";
         else delete next.ratingVariant;
+        if (field.ratingShowValue === false) next.ratingShowValue = false;
+        else delete next.ratingShowValue;
         delete next.unit;
       } else {
         delete next.displayVariant;
         delete next.max;
         delete next.ratingVariant;
+        delete next.ratingShowValue;
       }
       return next;
     }
@@ -932,6 +946,8 @@ function mergeCollectionProperty(
       if (field.max) next.max = field.max;
       if (field.ratingVariant === "slider") next.displayVariant = "slider";
       else delete next.displayVariant;
+      if (field.ratingShowValue === false) next.ratingShowValue = false;
+      else delete next.ratingShowValue;
       return next;
     }
   }

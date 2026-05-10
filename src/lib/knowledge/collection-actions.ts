@@ -6,6 +6,7 @@ import {
   KB_COLLECTION_DEFAULT_TITLE,
   KB_COLLECTION_EMPTY_SCHEMA,
   KB_COLLECTION_VIEW_LABELS,
+  collectionFiltersToJsonValue,
   collectionVisibleFieldIdsToJsonValue,
   collectionSchemaToProperties,
   getPageCollectionId,
@@ -14,9 +15,11 @@ import {
   normalizeCollectionViewName,
   normalizeCollectionViewType,
   parseCollectionSchemaJson,
+  parseCollectionFiltersJson,
   parseVisibleFieldIdsJson,
   serializeCollectionSchema,
   type KbCollection,
+  type KbCollectionFilter,
   type KbCollectionLegacyBlock,
   type KbCollectionSchema,
   type KbCollectionView,
@@ -62,9 +65,13 @@ type CollectionViewRow = {
   view_type: string;
   visible_field_ids: Json | null;
   field_order_ids: Json | null;
+  filters_json: Json;
   position: number;
   source_block_id: string | null;
 };
+
+const COLLECTION_VIEW_SELECT =
+  "id, collection_id, name, view_type, visible_field_ids, field_order_ids, filters_json, position, source_block_id" as const;
 
 export async function listKbCollectionItems(parentPageId: string): Promise<{
   rows: KbCollectionItem[];
@@ -232,6 +239,7 @@ export async function getOrCreateKbPageCollection(input: {
       field_order_ids: collectionVisibleFieldIdsToJsonValue(
         parseVisibleFieldIdsJson(legacy.fieldOrderIdsJson),
       ) as unknown as Json | null,
+      filters_json: [],
       position: index,
       source_block_id: legacy.blockId,
     }));
@@ -239,9 +247,7 @@ export async function getOrCreateKbPageCollection(input: {
     const insertViews = await supabase
       .from("kb_collection_views")
       .insert(rows)
-      .select(
-        "id, collection_id, name, view_type, visible_field_ids, field_order_ids, position, source_block_id",
-      )
+      .select(COLLECTION_VIEW_SELECT)
       .order("position", { ascending: true });
 
     if (insertViews.error) {
@@ -321,12 +327,14 @@ export async function updateKbCollectionView(input: {
   viewType?: KbCollectionView;
   visibleFieldIds?: KbCollectionVisibleFieldIds;
   fieldOrderIds?: KbCollectionVisibleFieldIds;
+  filters?: KbCollectionFilter[];
 }): Promise<{ view: KbCollectionViewConfig | null; error: string | null }> {
   const patch: {
     name?: string;
     view_type?: string;
     visible_field_ids?: Json | null;
     field_order_ids?: Json | null;
+    filters_json?: Json;
   } = {};
   if (input.viewType !== undefined) {
     patch.view_type = normalizeCollectionViewType(input.viewType);
@@ -347,6 +355,11 @@ export async function updateKbCollectionView(input: {
       input.fieldOrderIds,
     ) as unknown as Json | null;
   }
+  if (input.filters !== undefined) {
+    patch.filters_json = collectionFiltersToJsonValue(
+      input.filters,
+    ) as Json;
+  }
   if (Object.keys(patch).length === 0) {
     return { view: null, error: "Нет изменений" };
   }
@@ -356,9 +369,7 @@ export async function updateKbCollectionView(input: {
     .from("kb_collection_views")
     .update(patch)
     .eq("id", input.viewId)
-    .select(
-      "id, collection_id, name, view_type, visible_field_ids, field_order_ids, position, source_block_id",
-    )
+    .select(COLLECTION_VIEW_SELECT)
     .single();
 
   if (error) return { view: null, error: error.message };
@@ -396,9 +407,7 @@ export async function createKbCollectionView(input: {
       view_type: viewType,
       position,
     })
-    .select(
-      "id, collection_id, name, view_type, visible_field_ids, field_order_ids, position, source_block_id",
-    )
+    .select(COLLECTION_VIEW_SELECT)
     .single();
 
   if (error) return { view: null, error: error.message };
@@ -421,9 +430,7 @@ export async function duplicateKbCollectionView(input: {
 
   const { data: source, error: sourceError } = await supabase
     .from("kb_collection_views")
-    .select(
-      "id, collection_id, name, view_type, visible_field_ids, field_order_ids, position, source_block_id",
-    )
+    .select(COLLECTION_VIEW_SELECT)
     .eq("id", input.viewId)
     .single();
   if (sourceError || !source) {
@@ -444,11 +451,10 @@ export async function duplicateKbCollectionView(input: {
       view_type: source.view_type,
       visible_field_ids: source.visible_field_ids,
       field_order_ids: source.field_order_ids,
+      filters_json: source.filters_json,
       position,
     })
-    .select(
-      "id, collection_id, name, view_type, visible_field_ids, field_order_ids, position, source_block_id",
-    )
+    .select(COLLECTION_VIEW_SELECT)
     .single();
 
   if (error) return { view: null, error: error.message };
@@ -465,9 +471,7 @@ export async function deleteKbCollectionView(input: {
   const supabase = await createClient();
   const { data: source, error: sourceError } = await supabase
     .from("kb_collection_views")
-    .select(
-      "id, collection_id, name, view_type, visible_field_ids, field_order_ids, position, source_block_id",
-    )
+    .select(COLLECTION_VIEW_SELECT)
     .eq("id", input.viewId)
     .single();
   if (sourceError || !source) {
@@ -620,9 +624,7 @@ async function listCollectionViewRows(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("kb_collection_views")
-    .select(
-      "id, collection_id, name, view_type, visible_field_ids, field_order_ids, position, source_block_id",
-    )
+    .select(COLLECTION_VIEW_SELECT)
     .eq("collection_id", collectionId)
     .order("position", { ascending: true });
 
@@ -649,6 +651,7 @@ function mapCollectionViewRow(row: CollectionViewRow): KbCollectionViewConfig {
     viewType,
     visibleFieldIds: parseVisibleFieldIdsJson(row.visible_field_ids),
     fieldOrderIds: parseVisibleFieldIdsJson(row.field_order_ids),
+    filters: parseCollectionFiltersJson(row.filters_json),
     position: row.position,
     sourceBlockId: row.source_block_id,
   };

@@ -2616,6 +2616,37 @@ button.kb-gallery-menu-item {
 .kb-collection-view-row[data-active] svg {
   color: hsl(var(--brand));
 }
+.kb-collection-filters-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kb-collection-filter-row {
+  display: grid;
+  grid-template-columns: 18px minmax(92px, 1fr) minmax(92px, 0.9fr) minmax(90px, 1fr) 30px;
+  min-height: 38px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 9px;
+  padding: 4px 5px;
+}
+.kb-collection-filter-row:hover {
+  background-color: hsl(var(--accent) / 0.45);
+}
+.kb-collection-filter-select,
+.kb-collection-filter-input {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid hsl(var(--border) / 0.82);
+  border-radius: 8px;
+  background-color: hsl(var(--background));
+  padding-inline: 8px;
+  color: hsl(var(--foreground));
+  font-size: 12.5px;
+}
+.kb-collection-filter-placeholder {
+  min-width: 0;
+}
 .kb-collection-settings-empty {
   border: 1px dashed hsl(var(--border));
   border-radius: 10px;

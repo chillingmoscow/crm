@@ -47,8 +47,28 @@ export type KbCollectionViewConfig = {
   viewType: KbCollectionView;
   visibleFieldIds: KbCollectionVisibleFieldIds;
   fieldOrderIds: KbCollectionVisibleFieldIds;
+  filters: KbCollectionFilter[];
   position: number;
   sourceBlockId?: string | null;
+};
+
+export type KbCollectionFilterOperator =
+  | "is_empty"
+  | "is_not_empty"
+  | "contains"
+  | "not_contains"
+  | "equals"
+  | "not_equals"
+  | "greater_than"
+  | "less_than"
+  | "is_checked"
+  | "is_unchecked";
+
+export type KbCollectionFilter = {
+  id: string;
+  fieldId: string;
+  operator: KbCollectionFilterOperator;
+  value?: string | number | boolean | null;
 };
 
 export type KbCollectionLegacyBlock = {
@@ -169,6 +189,38 @@ export function collectionVisibleFieldIdsToJsonValue(
   ids: KbCollectionVisibleFieldIds,
 ): string[] | null {
   return ids === null ? null : ids;
+}
+
+export function parseCollectionFiltersJson(value: unknown): KbCollectionFilter[] {
+  const raw = parseJsonArray(value);
+  return raw
+    .map(normalizeCollectionFilter)
+    .filter((filter): filter is KbCollectionFilter => filter !== null);
+}
+
+export function serializeCollectionFilters(filters: KbCollectionFilter[]): string {
+  return JSON.stringify(
+    filters
+      .map(normalizeCollectionFilter)
+      .filter((filter): filter is KbCollectionFilter => filter !== null),
+  );
+}
+
+export function collectionFiltersToJsonValue(
+  filters: KbCollectionFilter[],
+): unknown[] {
+  return JSON.parse(serializeCollectionFilters(filters)) as unknown[];
+}
+
+export function createCollectionFilter(
+  fieldId: string,
+  operator: KbCollectionFilterOperator = "is_not_empty",
+): KbCollectionFilter {
+  return {
+    id: nanoid(8),
+    fieldId,
+    operator,
+  };
 }
 
 export function normalizeCollectionTitle(value: unknown): string {
@@ -530,6 +582,62 @@ function normalizeCollectionField(value: unknown): KbCollectionField | null {
   }
 
   return normalized;
+}
+
+function normalizeCollectionFilter(value: unknown): KbCollectionFilter | null {
+  const raw = value as Partial<KbCollectionFilter> | null;
+  if (!raw || typeof raw.fieldId !== "string" || !raw.fieldId.trim()) {
+    return null;
+  }
+  if (!isCollectionFilterOperator(raw.operator)) return null;
+
+  const filter: KbCollectionFilter = {
+    id:
+      typeof raw.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : nanoid(8),
+    fieldId: raw.fieldId.trim(),
+    operator: raw.operator,
+  };
+
+  if (
+    raw.value === null ||
+    typeof raw.value === "string" ||
+    typeof raw.value === "number" ||
+    typeof raw.value === "boolean"
+  ) {
+    filter.value = raw.value;
+  }
+
+  return filter;
+}
+
+function isCollectionFilterOperator(
+  value: unknown,
+): value is KbCollectionFilterOperator {
+  return (
+    value === "is_empty" ||
+    value === "is_not_empty" ||
+    value === "contains" ||
+    value === "not_contains" ||
+    value === "equals" ||
+    value === "not_equals" ||
+    value === "greater_than" ||
+    value === "less_than" ||
+    value === "is_checked" ||
+    value === "is_unchecked"
+  );
+}
+
+function parseJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || value.trim() === "") return [];
+  try {
+    const raw = JSON.parse(value);
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
 }
 
 function collectionFieldFromProperty(property: KbProperty): KbCollectionField | null {

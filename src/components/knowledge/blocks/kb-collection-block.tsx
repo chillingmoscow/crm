@@ -73,6 +73,7 @@ import {
 import {
   KB_COLLECTION_DEFAULT_TITLE,
   createCollectionField,
+  createCollectionFilter,
   collectionFieldToProperty,
   findPropertyForCollectionField,
   getPageCollectionId,
@@ -92,6 +93,8 @@ import {
   serializeVisibleFieldIds,
   setCollectionFieldPropertyValue,
   type KbCollectionField,
+  type KbCollectionFilter,
+  type KbCollectionFilterOperator,
   type KbCollectionLegacyBlock,
   type KbCollectionSchema,
   type KbCollectionView,
@@ -267,6 +270,11 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
         isCollectionFieldVisible(field.id, visibleFieldIds),
       ),
     [orderedFields, visibleFieldIds],
+  );
+  const activeFilters = activeView?.filters ?? [];
+  const filteredItems = useMemo(
+    () => filterCollectionItems(items, schema.fields, activeFilters, collectionId),
+    [activeFilters, collectionId, items, schema.fields],
   );
   const inferredSchema = useMemo(
     () =>
@@ -802,6 +810,40 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     updateVisibleFieldIds(next);
   };
 
+  const updateFilters = (nextFilters: KbCollectionFilter[]) => {
+    if (!activeView) return;
+    const viewId = activeView.id;
+    setCollectionState((current) =>
+      current
+        ? {
+            ...current,
+            views: current.views.map((item) =>
+              item.id === viewId ? { ...item, filters: nextFilters } : item,
+            ),
+          }
+        : current,
+    );
+    void updateKbCollectionView({
+      viewId,
+      filters: nextFilters,
+    }).then((result) => {
+      if (result.error || !result.view) {
+        toast.error(`Не удалось сохранить фильтры: ${result.error}`);
+        return;
+      }
+      setCollectionState((current) =>
+        current
+          ? {
+              ...current,
+              views: current.views.map((item) =>
+                item.id === result.view!.id ? result.view! : item,
+              ),
+            }
+          : current,
+      );
+    });
+  };
+
   const createRecord = async () => {
     if (!runtime.pageId || !canCreate) return;
     setCreating(true);
@@ -1006,7 +1048,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
               {collectionTitle}
             </button>
           )}
-          <span className="kb-collection-count">{items.length}</span>
+          <span className="kb-collection-count">{filteredItems.length}</span>
         </div>
         {editable && (
           <div className="kb-collection-actions">
@@ -1042,6 +1084,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   views={collectionState?.views ?? []}
                   activeViewId={collectionState?.activeViewId ?? null}
                   visibleFieldIds={visibleFieldIds}
+                  filters={activeFilters}
                   onRename={renameCollection}
                   onRenameView={updateViewTitle}
                   onChangeViewType={updateViewType}
@@ -1054,6 +1097,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
                   onRemoveField={removeField}
                   onReorderField={reorderField}
                   onSetFieldVisible={setFieldVisible}
+                  onUpdateFilters={updateFilters}
                 />
               </PopoverContent>
             </Popover>
@@ -1101,11 +1145,16 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           <span className="font-medium">Нет записей</span>
           {canCreate && <span>Создать первую запись</span>}
         </button>
+      ) : filteredItems.length === 0 ? (
+        <div className="kb-collection-state">
+          <EyeOff className="size-4" />
+          Нет записей по фильтрам
+        </div>
       ) : (
         <>
           {view === "table" ? (
             <CollectionTableView
-              items={items}
+              items={filteredItems}
               fields={visibleFields}
               collectionId={collectionId}
               collectionTitle={collectionTitle}
@@ -1120,7 +1169,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
             />
           ) : (
             <div className="kb-collection-list">
-              {items.map((item) => (
+              {filteredItems.map((item) => (
                 <CollectionItemRow
                   key={item.id}
                   item={item}
@@ -1916,6 +1965,7 @@ function CollectionSettings({
   views,
   activeViewId,
   visibleFieldIds,
+  filters,
   onRename,
   onRenameView,
   onChangeViewType,
@@ -1928,6 +1978,7 @@ function CollectionSettings({
   onRemoveField,
   onReorderField,
   onSetFieldVisible,
+  onUpdateFilters,
 }: {
   title: string;
   viewTitle: string;
@@ -1936,6 +1987,7 @@ function CollectionSettings({
   views: KbCollectionViewConfig[];
   activeViewId: string | null;
   visibleFieldIds: KbCollectionVisibleFieldIds;
+  filters: KbCollectionFilter[];
   onRename: (title: string) => void;
   onRenameView: (title: string) => void;
   onChangeViewType: (view: KbCollectionView) => void;
@@ -1952,10 +2004,14 @@ function CollectionSettings({
     placement?: FieldDropPlacement,
   ) => void;
   onSetFieldVisible: (id: string, visible: boolean) => void;
+  onUpdateFilters: (filters: KbCollectionFilter[]) => void;
 }) {
   const [panel, setPanel] = useState<
-    "root" | "view" | "layout" | "views" | "properties"
+    "root" | "view" | "layout" | "views" | "properties" | "filters"
   >("root");
+  const visibleFilterCount = filters.filter((filter) =>
+    fields.some((field) => field.id === filter.fieldId),
+  ).length;
   const [titleDraft, setTitleDraft] = useState(title);
   const [viewTitleDraft, setViewTitleDraft] = useState(viewTitle);
   const skipTitleCommitRef = useRef(false);
@@ -2058,6 +2114,23 @@ function CollectionSettings({
             </span>
             <ChevronRight className="size-4" />
           </button>
+          <button
+            type="button"
+            className="kb-collection-settings-nav-row"
+            onPointerDown={stopBlockInteraction}
+            onMouseDown={stopBlockInteraction}
+            onClick={(event) => {
+              stopBlockMenuAction(event);
+              setPanel("filters");
+            }}
+          >
+            <ListChecks className="size-4" />
+            <span>Фильтры</span>
+            <span className="kb-collection-settings-row-value">
+              {visibleFilterCount}
+            </span>
+            <ChevronRight className="size-4" />
+          </button>
           {activeViewId && (
             <>
               <button
@@ -2112,6 +2185,19 @@ function CollectionSettings({
           activeViewId={activeViewId}
           onSwitchView={onSwitchView}
           onCreateView={onCreateView}
+        />
+      </div>
+    );
+  }
+
+  if (panel === "filters") {
+    return (
+      <div className="kb-collection-settings-panel">
+        <SettingsPanelHeader title="Фильтры" onBack={() => setPanel("view")} />
+        <CollectionFiltersEditor
+          fields={fields}
+          filters={filters}
+          onChange={onUpdateFilters}
         />
       </div>
     );
@@ -2271,6 +2357,159 @@ function SettingsPanelHeader({
   );
 }
 
+function CollectionFiltersEditor({
+  fields,
+  filters,
+  onChange,
+}: {
+  fields: KbCollectionField[];
+  filters: KbCollectionFilter[];
+  onChange: (filters: KbCollectionFilter[]) => void;
+}) {
+  const validFilters = filters.filter((filter) =>
+    fields.some((field) => field.id === filter.fieldId),
+  );
+
+  const updateFilter = (id: string, patch: Partial<KbCollectionFilter>) => {
+    onChange(
+      validFilters.map((filter) => {
+        if (filter.id !== id) return filter;
+        const next = { ...filter, ...patch };
+        const field = fields.find((item) => item.id === next.fieldId);
+        if (field && !filterOperatorNeedsValue(field, next.operator)) {
+          delete next.value;
+        }
+        return next;
+      }),
+    );
+  };
+
+  const addFilter = (fieldId: string) => {
+    if (!fieldId) return;
+    const field = fields.find((item) => item.id === fieldId);
+    if (!field) return;
+    onChange([...validFilters, createCollectionFilter(field.id, defaultFilterOperator(field))]);
+  };
+
+  if (fields.length === 0) {
+    return (
+      <div className="kb-collection-settings-empty">
+        Добавьте свойства, чтобы фильтровать записи.
+      </div>
+    );
+  }
+
+  return (
+    <div className="kb-collection-filters-editor">
+      {validFilters.length === 0 ? (
+        <div className="kb-collection-settings-empty">
+          Фильтры не заданы. View показывает все записи коллекции.
+        </div>
+      ) : (
+        validFilters.map((filter) => {
+          const field = fields.find((item) => item.id === filter.fieldId);
+          if (!field) return null;
+          const operators = filterOperatorsForField(field);
+          const operator = normalizeFilterOperatorForField(field, filter.operator);
+          const needsValue = filterOperatorNeedsValue(field, operator);
+          const Icon = FIELD_ICONS[field.type];
+
+          return (
+            <div key={filter.id} className="kb-collection-filter-row">
+              <Icon className="size-4 text-muted-foreground" />
+              <select
+                className="kb-collection-filter-select"
+                value={field.id}
+                aria-label="Поле фильтра"
+                onChange={(event) => {
+                  const nextField = fields.find(
+                    (item) => item.id === event.currentTarget.value,
+                  );
+                  if (!nextField) return;
+                  updateFilter(filter.id, {
+                    fieldId: nextField.id,
+                    operator: defaultFilterOperator(nextField),
+                    value: undefined,
+                  });
+                }}
+              >
+                {fields.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="kb-collection-filter-select"
+                value={operator}
+                aria-label="Оператор фильтра"
+                onChange={(event) =>
+                  updateFilter(filter.id, {
+                    operator: event.currentTarget.value as KbCollectionFilterOperator,
+                  })
+                }
+              >
+                {operators.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              {needsValue ? (
+                <Input
+                  value={filter.value == null ? "" : String(filter.value)}
+                  className="kb-collection-filter-input"
+                  aria-label="Значение фильтра"
+                  onChange={(event) =>
+                    updateFilter(filter.id, {
+                      value: normalizeFilterInputValue(
+                        field,
+                        event.currentTarget.value,
+                      ),
+                    })
+                  }
+                />
+              ) : (
+                <span className="kb-collection-filter-placeholder" />
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:text-destructive"
+                onClick={() =>
+                  onChange(validFilters.filter((item) => item.id !== filter.id))
+                }
+                aria-label="Удалить фильтр"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          );
+        })
+      )}
+      <select
+        className="kb-collection-native-select"
+        defaultValue=""
+        aria-label="Добавить фильтр"
+        onChange={(event) => {
+          addFilter(event.currentTarget.value);
+          event.currentTarget.value = "";
+        }}
+      >
+        <option value="" disabled>
+          Добавить фильтр
+        </option>
+        {fields.map((field) => (
+          <option key={field.id} value={field.id}>
+            {field.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function CollectionFieldEditor({
   field,
   visible,
@@ -2398,6 +2637,168 @@ function formatPropertyValue(property: KbProperty): string {
       return `${property.value}/${max}`;
     }
   }
+}
+
+function filterCollectionItems(
+  items: KbCollectionItem[],
+  fields: KbCollectionField[],
+  filters: KbCollectionFilter[],
+  collectionId: string,
+): KbCollectionItem[] {
+  const validFilters = filters.filter((filter) =>
+    fields.some((field) => field.id === filter.fieldId),
+  );
+  if (validFilters.length === 0) return items;
+
+  return items.filter((item) =>
+    validFilters.every((filter) => {
+      const field = fields.find((candidate) => candidate.id === filter.fieldId);
+      if (!field) return true;
+      const property = findPropertyForCollectionField(
+        item.properties,
+        field,
+        collectionId,
+      );
+      return matchesCollectionFilter(property, field, filter);
+    }),
+  );
+}
+
+function matchesCollectionFilter(
+  property: KbProperty | null,
+  field: KbCollectionField,
+  filter: KbCollectionFilter,
+): boolean {
+  const value = property?.value ?? null;
+  const empty = isFilterValueEmpty(value);
+  const operator = normalizeFilterOperatorForField(field, filter.operator);
+  switch (operator) {
+    case "is_empty":
+      return empty;
+    case "is_not_empty":
+      return !empty;
+    case "is_checked":
+      return value === true;
+    case "is_unchecked":
+      return value !== true;
+    case "contains": {
+      const needle = String(filter.value ?? "").trim().toLowerCase();
+      if (!needle) return true;
+      if (Array.isArray(value)) {
+        return value.some((item) => String(item).toLowerCase().includes(needle));
+      }
+      return String(value ?? "").toLowerCase().includes(needle);
+    }
+    case "not_contains": {
+      const needle = String(filter.value ?? "").trim().toLowerCase();
+      if (!needle) return true;
+      if (Array.isArray(value)) {
+        return !value.some((item) => String(item).toLowerCase().includes(needle));
+      }
+      return !String(value ?? "").toLowerCase().includes(needle);
+    }
+    case "equals":
+      if (field.type === "number" || field.type === "rating") {
+        if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
+        return Number(value) === Number(filter.value);
+      }
+      return String(value ?? "").toLowerCase() ===
+        String(filter.value ?? "").trim().toLowerCase();
+    case "not_equals":
+      if (field.type === "number" || field.type === "rating") {
+        if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
+        return Number(value) !== Number(filter.value);
+      }
+      return String(value ?? "").toLowerCase() !==
+        String(filter.value ?? "").trim().toLowerCase();
+    case "greater_than":
+      if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
+      return Number(value) > Number(filter.value);
+    case "less_than":
+      if (empty || isFilterValueEmpty(filter.value ?? null)) return false;
+      return Number(value) < Number(filter.value);
+  }
+}
+
+function isFilterValueEmpty(value: KbProperty["value"] | null): boolean {
+  return (
+    value === null ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
+  );
+}
+
+function defaultFilterOperator(
+  field: KbCollectionField,
+): KbCollectionFilterOperator {
+  if (field.type === "checkbox") return "is_checked";
+  if (field.type === "text" || field.type === "url") return "contains";
+  if (field.type === "multi-select") return "contains";
+  return "equals";
+}
+
+function filterOperatorsForField(field: KbCollectionField): {
+  value: KbCollectionFilterOperator;
+  label: string;
+}[] {
+  if (field.type === "checkbox") {
+    return [
+      { value: "is_checked", label: "включён" },
+      { value: "is_unchecked", label: "выключен" },
+    ];
+  }
+  const emptyOperators = [
+    { value: "is_empty" as const, label: "пусто" },
+    { value: "is_not_empty" as const, label: "не пусто" },
+  ];
+  if (field.type === "number" || field.type === "rating") {
+    return [
+      { value: "equals", label: "=" },
+      { value: "not_equals", label: "!=" },
+      { value: "greater_than", label: ">" },
+      { value: "less_than", label: "<" },
+      ...emptyOperators,
+    ];
+  }
+  if (field.type === "text" || field.type === "url" || field.type === "multi-select") {
+    return [
+      { value: "contains", label: "содержит" },
+      { value: "not_contains", label: "не содержит" },
+      ...emptyOperators,
+    ];
+  }
+  return [
+    { value: "equals", label: "равно" },
+    { value: "not_equals", label: "не равно" },
+    ...emptyOperators,
+  ];
+}
+
+function normalizeFilterOperatorForField(
+  field: KbCollectionField,
+  operator: KbCollectionFilterOperator,
+): KbCollectionFilterOperator {
+  return filterOperatorsForField(field).some((item) => item.value === operator)
+    ? operator
+    : defaultFilterOperator(field);
+}
+
+function filterOperatorNeedsValue(
+  field: KbCollectionField,
+  operator: KbCollectionFilterOperator,
+): boolean {
+  if (field.type === "checkbox") return false;
+  return operator !== "is_empty" && operator !== "is_not_empty";
+}
+
+function normalizeFilterInputValue(
+  field: KbCollectionField,
+  value: string,
+): string | number {
+  if (field.type !== "number" && field.type !== "rating") return value;
+  if (value.trim() === "") return "";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : value;
 }
 
 function orderCollectionFields(

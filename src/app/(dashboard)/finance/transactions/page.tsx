@@ -13,6 +13,7 @@ import {
 } from "@/lib/finance/counterparties";
 import { listTransactions } from "@/lib/finance/transactions";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
+import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import type { TransactionListFilters, TransactionRow } from "@/types/finance";
 
 import { TransactionsPage } from "./_components/transactions-page";
@@ -107,6 +108,7 @@ export default async function TransactionsServerPage({
     { rows: categoryGroups },
     { rows: counterparties },
     { rows: counterpartyGroups },
+    amountRoundingScale,
   ] = await Promise.all([
     listTransactions({
       filters: effectiveFilters,
@@ -121,6 +123,7 @@ export default async function TransactionsServerPage({
     listFinanceCategoryGroups(),
     listCounterparties({ include_deleted: false }),
     listCounterpartyGroups(),
+    getActiveAccountAmountRoundingScale(),
   ]);
 
   // Final page bounded above by totalPages → ?page=999 doesn't show
@@ -148,6 +151,7 @@ export default async function TransactionsServerPage({
       canCreate={!!canCreate}
       canDelete={!!canDelete}
       canExport={!!canExport}
+      amountRoundingScale={amountRoundingScale}
     />
   );
 }

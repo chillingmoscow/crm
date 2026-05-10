@@ -24,6 +24,8 @@ import {
   getRecentTransactions,
   getTopExpenseCategories,
 } from "@/lib/finance/statistics";
+import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
+import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import { DashboardPeriodFilter } from "./_components/dashboard-period-filter";
 import type { TransactionRow } from "@/types/finance";
 
@@ -67,6 +69,7 @@ export default async function FinanceDashboardPage({
     summaryResult,
     topResult,
     recentResult,
+    amountRoundingScale,
   ] = await Promise.all([
     listLegalEntities(),
     listAccountVenues(),
@@ -79,6 +82,7 @@ export default async function FinanceDashboardPage({
       5
     ),
     getRecentTransactions(10),
+    getActiveAccountAmountRoundingScale(),
   ]);
 
   const leNameById = new Map(legalEntities.map((le) => [le.id, le.short_name ?? le.name]));
@@ -141,7 +145,7 @@ export default async function FinanceDashboardPage({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold tabular-nums">
-              {formatRub(totalBalance)}
+              {formatRub(totalBalance, amountRoundingScale)}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               Сумма по всем активным счетам
@@ -158,7 +162,7 @@ export default async function FinanceDashboardPage({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold tabular-nums text-emerald-700">
-              {formatRub(summary.income)}
+              {formatRub(summary.income, amountRoundingScale)}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {summary.count} транзакций без переводов
@@ -175,12 +179,12 @@ export default async function FinanceDashboardPage({
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold tabular-nums text-rose-700">
-              {formatRub(summary.expense)}
+              {formatRub(summary.expense, amountRoundingScale)}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {/* Net = income - expense; negative means в минус. */}
               Чистый поток: {summary.net >= 0 ? "+" : "−"}
-              {formatRub(Math.abs(summary.net))}
+              {formatRub(Math.abs(summary.net), amountRoundingScale)}
             </p>
           </CardContent>
         </Card>
@@ -226,7 +230,7 @@ export default async function FinanceDashboardPage({
                       {leNameById.get(row.legal_entity_id) ?? "—"}
                     </Link>
                     <span className="tabular-nums font-medium">
-                      {formatRub(row.balance)}
+                      {formatRub(row.balance, amountRoundingScale)}
                     </span>
                   </li>
                 ))}
@@ -259,6 +263,7 @@ export default async function FinanceDashboardPage({
                   count:  c.count,
                 }))}
                 total={topCategories.reduce((a, c) => a + c.amount, 0)}
+                amountRoundingScale={amountRoundingScale}
               />
             )}
           </CardContent>
@@ -314,7 +319,7 @@ export default async function FinanceDashboardPage({
                         }`}
                       >
                         {tx.type === "income" ? "+" : tx.type === "expense" ? "−" : ""}
-                        {formatRub(Number(tx.amount))}
+                        {formatRub(Number(tx.amount), amountRoundingScale)}
                       </div>
                     </Link>
                   </li>
@@ -333,9 +338,11 @@ export default async function FinanceDashboardPage({
 function CategoryBars({
   rows,
   total,
+  amountRoundingScale,
 }: {
   rows: { id: string | null; label: string; amount: number; count: number }[];
   total: number;
+  amountRoundingScale: AmountRoundingScale;
 }) {
   return (
     <ul className="space-y-3">
@@ -351,7 +358,7 @@ function CategoryBars({
                 </Badge>
               </span>
               <span className="tabular-nums font-medium shrink-0">
-                {formatRub(row.amount)}
+                {formatRub(row.amount, amountRoundingScale)}
               </span>
             </div>
             <div className="h-1.5 rounded-full bg-muted overflow-hidden">
@@ -443,10 +450,6 @@ function formatRange(from: string, to: string): string {
   return `${fmt(fromD)} — ${fmt(toD)}`;
 }
 
-function formatRub(value: number): string {
-  const formatted = value.toLocaleString("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-  return `${formatted} ₽`;
+function formatRub(value: number, scale: AmountRoundingScale): string {
+  return formatMoney(value, "RUB", scale);
 }

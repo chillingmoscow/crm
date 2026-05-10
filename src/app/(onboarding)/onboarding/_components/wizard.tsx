@@ -9,6 +9,9 @@ import { StepAccount } from "./step-account";
 import { StepVenue } from "./step-venue";
 import { StepStaff } from "./step-staff";
 import { StepDone } from "./step-done";
+import { StepQuickRestoBackOfficeCredentials } from "./step-quickresto-backoffice-credentials";
+import { StepQuickRestoBotEmployee } from "./step-quickresto-bot-employee";
+import { StepQuickRestoBotRole } from "./step-quickresto-bot-role";
 import { StepQuickRestoCredentials } from "./step-quickresto-credentials";
 import { StepQuickRestoOptions } from "./step-quickresto-options";
 import { StepQuickRestoImport } from "./step-quickresto-import";
@@ -42,9 +45,15 @@ export interface WizardData {
 
   quickRestoLogin: string;
   quickRestoConnectionId: string | null;
+  quickRestoBackOfficeLogin: string;
+  quickRestoBotRoleExternalId: number | null;
+  quickRestoBotEmployeeExternalId: number | null;
   importVenues: boolean;
   importRoles: boolean;
   importEmployees: boolean;
+  importStores: boolean;
+  importIngredientGroups: boolean;
+  importIngredients: boolean;
   selectedVenueExternalIds: number[];
   selectedRoleExternalIds: number[];
   selectedEmployeeExternalIds: number[];
@@ -83,9 +92,15 @@ const INITIAL_DATA: WizardData = {
 
   quickRestoLogin: "",
   quickRestoConnectionId: null,
+  quickRestoBackOfficeLogin: "",
+  quickRestoBotRoleExternalId: null,
+  quickRestoBotEmployeeExternalId: null,
   importVenues: true,
   importRoles: true,
   importEmployees: true,
+  importStores: true,
+  importIngredientGroups: true,
+  importIngredients: true,
   selectedVenueExternalIds: [],
   selectedRoleExternalIds: [],
   selectedEmployeeExternalIds: [],
@@ -136,7 +151,7 @@ export function OnboardingWizard({
 
   useEffect(() => {
     const saved = loadFromStorage(storageKey);
-    const safeStep = saved.step <= 7 ? saved.step : 1;
+    const safeStep = saved.step <= 10 ? saved.step : 1;
     const preparedData = {
       ...saved.data,
       accountId: initialAccount.id ?? null,
@@ -161,7 +176,7 @@ export function OnboardingWizard({
 
   const saveToStorage = useCallback((nextStep: number, nextData: WizardData) => {
     if (typeof window === "undefined") return;
-    const finishStep = nextData.mode === "quickresto" ? 7 : 6;
+    const finishStep = nextData.mode === "quickresto" ? 10 : 6;
     if (nextStep >= finishStep) {
       localStorage.removeItem(storageKey);
       return;
@@ -190,7 +205,7 @@ export function OnboardingWizard({
     setStep(nextStep);
   }, [saveToStorage]);
 
-  const totalSteps = data.mode === "quickresto" ? 7 : 6;
+  const totalSteps = data.mode === "quickresto" ? 10 : 6;
   const progressPct = Math.round((step / totalSteps) * 100);
 
   if (!hydrated) {
@@ -249,6 +264,9 @@ export function OnboardingWizard({
                       mode,
                       venueId: null,
                       quickRestoConnectionId: null,
+                      quickRestoBackOfficeLogin: "",
+                      quickRestoBotRoleExternalId: null,
+                      quickRestoBotEmployeeExternalId: null,
                       selectedVenueExternalIds: [],
                       selectedRoleExternalIds: [],
                       selectedEmployeeExternalIds: [],
@@ -271,6 +289,9 @@ export function OnboardingWizard({
                     accountId: result.accountId,
                     venueId: null,
                     quickRestoConnectionId: null,
+                    quickRestoBackOfficeLogin: "",
+                    quickRestoBotRoleExternalId: null,
+                    quickRestoBotEmployeeExternalId: null,
                     selectedVenueExternalIds: [],
                     selectedRoleExternalIds: [],
                     selectedEmployeeExternalIds: [],
@@ -282,6 +303,9 @@ export function OnboardingWizard({
                   mode,
                   venueId: null,
                   quickRestoConnectionId: null,
+                  quickRestoBackOfficeLogin: "",
+                  quickRestoBotRoleExternalId: null,
+                  quickRestoBotEmployeeExternalId: null,
                   selectedVenueExternalIds: [],
                   selectedRoleExternalIds: [],
                   selectedEmployeeExternalIds: [],
@@ -322,9 +346,15 @@ export function OnboardingWizard({
                 goTo(4, {
                   mode: "manual",
                   quickRestoConnectionId: null,
+                  quickRestoBackOfficeLogin: "",
+                  quickRestoBotRoleExternalId: null,
+                  quickRestoBotEmployeeExternalId: null,
                   selectedVenueExternalIds: [],
                   selectedRoleExternalIds: [],
                   selectedEmployeeExternalIds: [],
+                  importStores: false,
+                  importIngredientGroups: false,
+                  importIngredients: false,
                 })
               }
               onNext={({ login, connectionId }) =>
@@ -337,50 +367,154 @@ export function OnboardingWizard({
           )}
 
           {step === 5 && data.mode === "quickresto" && (
-            <StepQuickRestoOptions
+            <StepQuickRestoBotRole
               accountId={data.accountId}
               connectionId={data.quickRestoConnectionId}
               stepLabel={`Шаг 5 из ${totalSteps}`}
-              importVenues={data.importVenues}
-              importRoles={data.importRoles}
-              importEmployees={data.importEmployees}
-              selectedVenueExternalIds={data.selectedVenueExternalIds}
-              selectedRoleExternalIds={data.selectedRoleExternalIds}
-              selectedEmployeeExternalIds={data.selectedEmployeeExternalIds}
-              onUpdate={update}
               onBack={() => goTo(4)}
               onSkipIntegration={() =>
                 goTo(4, {
                   mode: "manual",
                   quickRestoConnectionId: null,
+                  quickRestoBackOfficeLogin: "",
+                  quickRestoBotRoleExternalId: null,
+                  quickRestoBotEmployeeExternalId: null,
                   selectedVenueExternalIds: [],
                   selectedRoleExternalIds: [],
                   selectedEmployeeExternalIds: [],
+                  importStores: false,
+                  importIngredientGroups: false,
+                  importIngredients: false,
                 })
               }
-              onNext={() => goTo(6)}
+              onNext={({ roleId }) => goTo(6, { quickRestoBotRoleExternalId: roleId })}
             />
           )}
 
           {step === 6 && data.mode === "quickresto" && (
-            <StepQuickRestoImport
+            <StepQuickRestoBotEmployee
               accountId={data.accountId}
               connectionId={data.quickRestoConnectionId}
+              roleExternalId={data.quickRestoBotRoleExternalId}
               stepLabel={`Шаг 6 из ${totalSteps}`}
-              importVenues={data.importVenues}
-              importRoles={data.importRoles}
-              importEmployees={data.importEmployees}
-              selectedVenueExternalIds={data.selectedVenueExternalIds}
-              selectedRoleExternalIds={data.selectedRoleExternalIds}
-              selectedEmployeeExternalIds={data.selectedEmployeeExternalIds}
               onBack={() => goTo(5)}
               onSkipIntegration={() =>
                 goTo(4, {
                   mode: "manual",
                   quickRestoConnectionId: null,
+                  quickRestoBackOfficeLogin: "",
+                  quickRestoBotRoleExternalId: null,
+                  quickRestoBotEmployeeExternalId: null,
                   selectedVenueExternalIds: [],
                   selectedRoleExternalIds: [],
                   selectedEmployeeExternalIds: [],
+                  importStores: false,
+                  importIngredientGroups: false,
+                  importIngredients: false,
+                })
+              }
+              onNext={({ employeeId, login }) =>
+                goTo(7, {
+                  quickRestoBotEmployeeExternalId: employeeId,
+                  quickRestoBackOfficeLogin: login ?? data.quickRestoBackOfficeLogin,
+                })
+              }
+            />
+          )}
+
+          {step === 7 && data.mode === "quickresto" && (
+            <StepQuickRestoBackOfficeCredentials
+              accountId={data.accountId}
+              connectionId={data.quickRestoConnectionId}
+              initialLogin={data.quickRestoBackOfficeLogin}
+              stepLabel={`Шаг 7 из ${totalSteps}`}
+              onBack={() => goTo(6)}
+              onSkipIntegration={() =>
+                goTo(4, {
+                  mode: "manual",
+                  quickRestoConnectionId: null,
+                  quickRestoBackOfficeLogin: "",
+                  quickRestoBotRoleExternalId: null,
+                  quickRestoBotEmployeeExternalId: null,
+                  selectedVenueExternalIds: [],
+                  selectedRoleExternalIds: [],
+                  selectedEmployeeExternalIds: [],
+                  importStores: false,
+                  importIngredientGroups: false,
+                  importIngredients: false,
+                })
+              }
+              onNext={({ login }) =>
+                goTo(8, {
+                  quickRestoBackOfficeLogin: login,
+                })
+              }
+            />
+          )}
+
+          {step === 8 && data.mode === "quickresto" && (
+            <StepQuickRestoOptions
+              accountId={data.accountId}
+              connectionId={data.quickRestoConnectionId}
+              stepLabel={`Шаг 8 из ${totalSteps}`}
+              importVenues={data.importVenues}
+              importRoles={data.importRoles}
+              importEmployees={data.importEmployees}
+              importStores={data.importStores}
+              importIngredientGroups={data.importIngredientGroups}
+              importIngredients={data.importIngredients}
+              selectedVenueExternalIds={data.selectedVenueExternalIds}
+              selectedRoleExternalIds={data.selectedRoleExternalIds}
+              selectedEmployeeExternalIds={data.selectedEmployeeExternalIds}
+              onUpdate={update}
+              onBack={() => goTo(7)}
+              onSkipIntegration={() =>
+                goTo(4, {
+                  mode: "manual",
+                  quickRestoConnectionId: null,
+                  quickRestoBackOfficeLogin: "",
+                  quickRestoBotRoleExternalId: null,
+                  quickRestoBotEmployeeExternalId: null,
+                  selectedVenueExternalIds: [],
+                  selectedRoleExternalIds: [],
+                  selectedEmployeeExternalIds: [],
+                  importStores: false,
+                  importIngredientGroups: false,
+                  importIngredients: false,
+                })
+              }
+              onNext={() => goTo(9)}
+            />
+          )}
+
+          {step === 9 && data.mode === "quickresto" && (
+            <StepQuickRestoImport
+              accountId={data.accountId}
+              connectionId={data.quickRestoConnectionId}
+              stepLabel={`Шаг 9 из ${totalSteps}`}
+              importVenues={data.importVenues}
+              importRoles={data.importRoles}
+              importEmployees={data.importEmployees}
+              importStores={data.importStores}
+              importIngredientGroups={data.importIngredientGroups}
+              importIngredients={data.importIngredients}
+              selectedVenueExternalIds={data.selectedVenueExternalIds}
+              selectedRoleExternalIds={data.selectedRoleExternalIds}
+              selectedEmployeeExternalIds={data.selectedEmployeeExternalIds}
+              onBack={() => goTo(8)}
+              onSkipIntegration={() =>
+                goTo(4, {
+                  mode: "manual",
+                  quickRestoConnectionId: null,
+                  quickRestoBackOfficeLogin: "",
+                  quickRestoBotRoleExternalId: null,
+                  quickRestoBotEmployeeExternalId: null,
+                  selectedVenueExternalIds: [],
+                  selectedRoleExternalIds: [],
+                  selectedEmployeeExternalIds: [],
+                  importStores: false,
+                  importIngredientGroups: false,
+                  importIngredients: false,
                 })
               }
               onDone={(payload) => {
@@ -393,12 +527,12 @@ export function OnboardingWizard({
                   });
                   return;
                 }
-                goTo(7);
+                goTo(10);
               }}
             />
           )}
 
-          {step === 7 && data.mode === "quickresto" && <StepDone />}
+          {step === 10 && data.mode === "quickresto" && <StepDone />}
         </div>
       </main>
     </div>

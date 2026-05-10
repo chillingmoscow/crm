@@ -10,6 +10,7 @@ import {
 } from "@/lib/finance/bank-accounts";
 import { listAuditEvents } from "@/lib/audit/list";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
+import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import { BankAccountDetail } from "./_components/bank-account-detail";
 import { BankAccountDetailTabs } from "./_components/bank-account-tabs";
 
@@ -40,11 +41,12 @@ export default async function BankAccountDetailPage({
   const { row, error } = await getBankAccount(id);
   if (error || !row) redirect("/finance/accounts");
 
-  const [{ rows: legalEntities }, { rows: venues }, { rows: groups }] =
+  const [{ rows: legalEntities }, { rows: venues }, { rows: groups }, amountRoundingScale] =
     await Promise.all([
       listLegalEntities(),
       listAccountVenues(),
       listBankAccountGroups(),
+      getActiveAccountAmountRoundingScale(),
     ]);
 
   const auditResult = canViewAudit
@@ -83,6 +85,7 @@ export default async function BankAccountDetailPage({
             venues={venues}
             groups={groups}
             canManage={!!canManage}
+            amountRoundingScale={amountRoundingScale}
           />
         }
         history={

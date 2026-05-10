@@ -62,7 +62,7 @@ end;
 $$;
 
 -- ────────────────────────────────────────────────────────────
--- 2. Permissions catalogue: 48 codes in 5 namespaces, no platform.* leftovers.
+-- 2. Permissions catalogue: current module counts, no platform.* leftovers.
 -- ────────────────────────────────────────────────────────────
 do $$
 declare
@@ -70,7 +70,7 @@ declare
   v_platform int;
 begin
   select count(*) into v_total from public.permissions;
-  perform public.test_assert(v_total = 48, 'expected 48 permissions, got ' || v_total);
+  perform public.test_assert(v_total = 72, 'expected 72 permissions, got ' || v_total);
 
   select count(*) into v_platform from public.permissions where module = 'platform';
   perform public.test_assert(v_platform = 0, 'platform.* leftovers in permissions: ' || v_platform);
@@ -86,6 +86,14 @@ begin
   perform public.test_assert(
     (select count(*) from public.permissions where module = 'finance')  = 18,
     'expected 18 finance.* perms'
+  );
+  perform public.test_assert(
+    (select count(*) from public.permissions where module = 'inventory') = 9,
+    'expected 9 inventory.* perms'
+  );
+  perform public.test_assert(
+    (select count(*) from public.permissions where module = 'kb') = 15,
+    'expected 15 kb.* perms'
   );
   perform public.test_assert(
     (select count(*) from public.permissions where module = 'crm')      = 9,
@@ -120,13 +128,13 @@ do $$
 declare
   v_owner_grants int;
 begin
-  -- Owner has all 48 perms.
+  -- Owner has all current perms.
   select count(*) into v_owner_grants
   from public.role_permissions rp
   join public.roles r on r.id = rp.role_id
   where r.code = 'owner' and r.account_id is null and rp.granted = true;
-  perform public.test_assert(v_owner_grants = 48,
-    'owner expected 48 grants, got ' || v_owner_grants);
+  perform public.test_assert(v_owner_grants = 72,
+    'owner expected 72 grants, got ' || v_owner_grants);
 
   -- Accountant has org.manage_legal_entities (key permission for the role).
   perform public.test_assert(

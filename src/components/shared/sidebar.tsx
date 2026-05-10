@@ -24,6 +24,7 @@ import {
   LifeBuoy,
   Moon,
   Sun,
+  SlidersHorizontal,
   Tags,
   Users,
   Wallet,
@@ -31,6 +32,9 @@ import {
   BookOpen,
   Boxes,
   ScrollText,
+  ClipboardList,
+  PackageSearch,
+  Warehouse,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -61,6 +65,9 @@ type NavItem = {
    *  "kb.view_pages"). Если задан — фильтрация идёт по нему вместо
    *  `roles`. Чёткое предпочтение: задавать permission, не roles. */
   permission?: string;
+  /** Any-of permission gate for pages that have several valid access
+   *  paths, for example owner view + assigned employee fill access. */
+  permissions?: string[];
   /** Legacy: список role-кодов. Используется только если permission
    *  не задан. Постепенно мигрируем все пункты на permission и потом
    *  это поле уберём. */
@@ -127,6 +134,33 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "Инвентаризация",
+    icon: ClipboardList,
+    items: [
+      {
+        title: "Акты",
+        href: "/inventory/documents",
+        icon: ClipboardList,
+        permissions: ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"],
+        roles: ["owner", "admin", "manager", "hostess", "waiter"],
+      },
+      {
+        title: "Ингредиенты",
+        href: "/inventory/products",
+        icon: PackageSearch,
+        permission: "inventory.view_products",
+        roles: ["owner", "admin", "manager"],
+      },
+      {
+        title: "Склады",
+        href: "/inventory/stores",
+        icon: Warehouse,
+        permission: "inventory.view_stores",
+        roles: ["owner", "admin", "manager"],
+      },
+    ],
+  },
+  {
     // База знаний (стадия 8). Flat-section — клик по самому пункту
     // ведёт на /knowledge, без вложенных подпунктов и chevron'а.
     // permission — на section-уровне, потому что items пустой.
@@ -140,6 +174,7 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Настройки",
     icon: Settings,
     items: [
+      { title: "Общее", href: "/settings/general", icon: SlidersHorizontal, permission: "settings.manage_integrations" },
       { title: "Интеграции", href: "/settings/integrations", icon: Settings, permission: "settings.manage_integrations" },
     ],
   },
@@ -244,11 +279,16 @@ function SidebarBody({
 
   // Item visible iff:
   //  - permission задан И входит в userPermissions, ИЛИ
+  //  - permissions задан И хотя бы один code входит в userPermissions, ИЛИ
   //  - legacy roles задан И activeRoleCode входит в roles, ИЛИ
   //  - ни permission, ни roles не заданы (показываем всем)
   const isItemVisible = (item: NavItem): boolean => {
-    if (item.permission) return userPermissionsSet.has(item.permission);
+    const permissionCodes = item.permissions ?? (item.permission ? [item.permission] : []);
+    if (permissionCodes.length > 0 && permissionCodes.some((code) => userPermissionsSet.has(code))) {
+      return true;
+    }
     if (item.roles) return !activeRoleCode || item.roles.includes(activeRoleCode);
+    if (permissionCodes.length > 0) return false;
     return true;
   };
 
@@ -851,4 +891,3 @@ function ThemeSwitcher() {
     </div>
   );
 }
-

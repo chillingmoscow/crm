@@ -16,6 +16,7 @@ import {
   restoreBankAccount,
   softDeleteBankAccount,
 } from "@/lib/finance/bank-accounts";
+import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { BankAccountForm } from "../../_components/bank-account-form";
 import type {
   BankAccountGroupRow,
@@ -40,6 +41,7 @@ type Props = {
   venues: VenueOption[];
   groups: BankAccountGroupRow[];
   canManage: boolean;
+  amountRoundingScale: AmountRoundingScale;
 };
 
 export function BankAccountDetail({
@@ -48,6 +50,7 @@ export function BankAccountDetail({
   venues,
   groups,
   canManage,
+  amountRoundingScale,
 }: Props) {
   const router = useRouter();
   const [busy, setBusy] = useState<"delete" | "restore" | null>(null);
@@ -102,7 +105,7 @@ export function BankAccountDetail({
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-semibold tabular-nums">
-            {formatRub(Number(row.balance), row.currency)}
+            {formatRub(Number(row.balance), row.currency, amountRoundingScale)}
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Изменяется только через транзакции.
@@ -176,13 +179,6 @@ export function BankAccountDetail({
   );
 }
 
-function formatRub(value: number, currency = "RUB"): string {
-  const formatted = value.toLocaleString("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-  if (currency === "RUB") return `${formatted} ₽`;
-  if (currency === "USD") return `${formatted} $`;
-  if (currency === "EUR") return `${formatted} €`;
-  return `${formatted} ${currency}`;
+function formatRub(value: number, currency: string, scale: AmountRoundingScale): string {
+  return formatMoney(value, currency, scale);
 }

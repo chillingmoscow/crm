@@ -10,6 +10,9 @@ interface ImportSummary {
   venuesUpdated: number;
   rolesCreated: number;
   rolesUpdated: number;
+  inventoryStoresSynced: number;
+  inventoryGroupsSynced: number;
+  inventoryProductsSynced: number;
   employeeInvitationsSent: number;
   employeesAutoCreated: number;
   employeesAutoUpdated: number;
@@ -27,6 +30,9 @@ interface Props {
   importVenues: boolean;
   importRoles: boolean;
   importEmployees: boolean;
+  importStores: boolean;
+  importIngredientGroups: boolean;
+  importIngredients: boolean;
   selectedVenueExternalIds: number[];
   selectedRoleExternalIds: number[];
   selectedEmployeeExternalIds: number[];
@@ -42,6 +48,9 @@ export function StepQuickRestoImport({
   importVenues,
   importRoles,
   importEmployees,
+  importStores,
+  importIngredientGroups,
+  importIngredients,
   selectedVenueExternalIds,
   selectedRoleExternalIds,
   selectedEmployeeExternalIds,
@@ -56,6 +65,9 @@ export function StepQuickRestoImport({
     venuesUpdated: 0,
     rolesCreated: 0,
     rolesUpdated: 0,
+    inventoryStoresSynced: 0,
+    inventoryGroupsSynced: 0,
+    inventoryProductsSynced: 0,
     employeeInvitationsSent: 0,
     employeesAutoCreated: 0,
     employeesAutoUpdated: 0,
@@ -68,7 +80,10 @@ export function StepQuickRestoImport({
   const selectedAny =
     (importVenues && selectedVenueExternalIds.length > 0) ||
     (importRoles && selectedRoleExternalIds.length > 0) ||
-    (importEmployees && selectedEmployeeExternalIds.length > 0);
+    (importEmployees && selectedEmployeeExternalIds.length > 0) ||
+    importStores ||
+    importIngredientGroups ||
+    importIngredients;
 
   const needsVenueSetup =
     summary !== null && summary.venuesCreated + summary.venuesUpdated === 0;
@@ -88,6 +103,9 @@ export function StepQuickRestoImport({
       importVenues,
       importRoles,
       importEmployees,
+      importStores,
+      importIngredientGroups,
+      importIngredients,
       selectedVenueExternalIds,
       selectedRoleExternalIds,
       selectedEmployeeExternalIds,
@@ -130,6 +148,9 @@ export function StepQuickRestoImport({
             <p>Заведения: создано {summaryView.venuesCreated}, обновлено {summaryView.venuesUpdated}</p>
             <p>Должности: создано {summaryView.rolesCreated}, обновлено {summaryView.rolesUpdated}</p>
             <p>Сотрудники: создано {summaryView.employeesAutoCreated}, обновлено {summaryView.employeesAutoUpdated}</p>
+            <p>Склады: синхронизировано {summaryView.inventoryStoresSynced}</p>
+            <p>Группы ингредиентов: синхронизировано {summaryView.inventoryGroupsSynced}</p>
+            <p>Ингредиенты: синхронизировано {summaryView.inventoryProductsSynced}</p>
             {summaryView.errors.length > 0 ? (
               <div>
                 <p className="font-medium text-red-600">Ошибки:</p>

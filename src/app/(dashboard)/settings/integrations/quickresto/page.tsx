@@ -6,6 +6,9 @@ import { QuickRestoIntegrationFlow } from "./_components/quickresto-integration-
 type IntegrationConnection = {
   id: string;
   login: string;
+  backoffice_login: string | null;
+  quickresto_bot_role_external_id: string | null;
+  quickresto_bot_employee_external_id: string | null;
 };
 
 export default async function QuickRestoIntegrationPage() {
@@ -41,12 +44,18 @@ export default async function QuickRestoIntegrationPage() {
 
   const connectionResult = (await db
     .from("integration_connections")
-    .select("id, login")
+    .select("id, login, backoffice_login, quickresto_bot_role_external_id, quickresto_bot_employee_external_id")
     .eq("account_id", account.id)
     .eq("provider", "quickresto")
     .maybeSingle()) as unknown as { data: IntegrationConnection | null };
 
   const connection = connectionResult.data;
+  const botRoleExternalId = connection?.quickresto_bot_role_external_id
+    ? Number(connection.quickresto_bot_role_external_id)
+    : null;
+  const botEmployeeExternalId = connection?.quickresto_bot_employee_external_id
+    ? Number(connection.quickresto_bot_employee_external_id)
+    : null;
 
   return (
     <div className="p-6 md:p-8 w-full">
@@ -59,7 +68,7 @@ export default async function QuickRestoIntegrationPage() {
         </Link>
         <h1 className="text-2xl font-semibold mt-2">Quick Resto</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Подключите API и выберите, какие данные импортировать
+          Подключите API, сервисного back-office пользователя и выберите, какие данные импортировать.
         </p>
       </div>
 
@@ -67,6 +76,9 @@ export default async function QuickRestoIntegrationPage() {
         accountId={account.id}
         initialLogin={connection?.login ?? ""}
         initialConnectionId={connection?.id ?? null}
+        initialBackOfficeLogin={connection?.backoffice_login ?? ""}
+        initialBotRoleExternalId={Number.isFinite(botRoleExternalId) ? botRoleExternalId : null}
+        initialBotEmployeeExternalId={Number.isFinite(botEmployeeExternalId) ? botEmployeeExternalId : null}
       />
     </div>
   );

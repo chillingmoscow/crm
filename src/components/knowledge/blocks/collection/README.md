@@ -1,6 +1,6 @@
 # `collection/` — KB Collection block components
 
-Carved out of `src/components/knowledge/blocks/kb-collection-block.tsx` (started at 7019 lines; ongoing decomposition). This directory holds the leaf / supporting components and shared utilities used by the main `KbCollectionBlock`. The main block file itself still lives at `../kb-collection-block.tsx` and owns the heavy state machinery (items, views, schema, save pipeline) plus the BlockNote spec — it will keep shrinking as more sub-components migrate here.
+Carved out of `src/components/knowledge/blocks/kb-collection-block.tsx` (started at 7019 lines; now ~2577). This directory holds every sub-component the Collection block renders. The main block file at `../kb-collection-block.tsx` keeps only the orchestrator (`KbCollectionBlock` — owns items, views, schema, save pipeline) and the BlockNote spec.
 
 ## Layout
 
@@ -14,7 +14,11 @@ collection/
   layout-options.tsx         CollectionLayoutOptions + CollectionCreateViewPanel
   views-editor.tsx           CollectionViewsEditor (switch / create view list)
   list-view.tsx              CollectionListView + GroupHeader + ItemRow + PropertyChip
+  table-view.tsx             CollectionTableView + TitleCell + NewRow (+ DnD/resize machinery)
+  view-menu.tsx              CollectionViewMenu (per-view ⋯ — rename/display/layout/duplicate/delete)
+  column-menu.tsx            CollectionColumnMenu + TitleColumnMenu + InsertPanel
   settings/
+    settings-panel.tsx               CollectionSettings (slide-out drawer) + SettingsPanelHeader
     field-select.tsx                 dropdown of fields (used by filters/sorts/grouping)
     field-visibility-editor.tsx      shown/hidden two-list + DnD reorder
     filters-editor.tsx               adds/edits per-view filters
@@ -22,14 +26,9 @@ collection/
     grouping-editor.tsx              single grouping field + direction
 ```
 
-Still inside `kb-collection-block.tsx` (planned for follow-up extraction):
+Still inside `kb-collection-block.tsx`:
 
-- `KbCollectionBlock` (~2400 lines, the orchestrator — owns all state)
-- `CollectionViewMenu` (per-view ⋯ menu)
-- `CollectionTableView` + `CollectionTableTitleCell` + `CollectionTableNewRow`
-- `CollectionTitleColumnMenu` + `CollectionColumnMenu` + `CollectionColumnInsertPanel`
-- `CollectionSettings` + `SettingsPanelHeader` (the slide-out settings drawer)
-- `CollectionFieldEditor` — **dead code**; nobody calls it. `eslint-disable` is masking the unused warning. Slated for deletion (separate PR).
+- `KbCollectionBlock` (~2400 lines, the orchestrator — owns all state and wires every sub-component above). Decomposing it would require splitting the state machine itself; deferred to a separate refactor.
 
 ## Data flow
 

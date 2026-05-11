@@ -53,7 +53,6 @@ import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { createClient } from "@/lib/supabase/client";
 import {
   fireStaff,
-  inviteImportedStaffByCurrentEmail,
   setImportedStaffEmailAndInvite,
   updateStaffProfile,
   updateStaffAccountDetails,

@@ -382,6 +382,15 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     collectionStateRef.current = collectionState;
   }, [collectionState]);
 
+  // Fingerprint of viewTabs names — re-measure when the set of visible
+  // tab labels changes. Extracted to a memoized scalar so lint can
+  // statically check the useLayoutEffect dep array (complex expressions
+  // inline are blocked by react-hooks/exhaustive-deps).
+  const viewTabsLabelFingerprint = useMemo(
+    () => viewTabs.map((item) => item.name).join("\u0000"),
+    [viewTabs],
+  );
+
   useLayoutEffect(() => {
     const container = viewTabsRef.current;
     const measure = viewTabsMeasureRef.current;
@@ -432,7 +441,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     const resizeObserver = new ResizeObserver(updateVisibleTabs);
     resizeObserver.observe(container);
     return () => resizeObserver.disconnect();
-  }, [editable, viewTabs.length, viewTabs.map((item) => item.name).join("\u0000")]);
+  }, [editable, viewTabs.length, viewTabsLabelFingerprint]);
 
   useEffect(() => {
     const timers = saveTimersRef.current;
@@ -560,44 +569,47 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     schema,
   ]);
 
-  const updateSchema = (nextSchema: KbCollectionSchema) => {
-    if (!dbCollectionId) {
-      editor.updateBlock(block.id, {
-        props: { schemaJson: serializeCollectionSchema(nextSchema) },
-      } as never);
-      return;
-    }
-    setCollectionState((current) =>
-      current
-        ? {
-            ...current,
-            collection: { ...current.collection, schema: nextSchema },
-          }
-        : current,
-    );
-    void updateKbCollection({
-      collectionId: dbCollectionId,
-      schemaJson: serializeCollectionSchema(nextSchema),
-    }).then((result) => {
-      if (result.error || !result.collection) {
-        toast.error(`Не удалось сохранить схему: ${result.error}`);
+  const updateSchema = useCallback(
+    (nextSchema: KbCollectionSchema) => {
+      if (!dbCollectionId) {
+        editor.updateBlock(block.id, {
+          props: { schemaJson: serializeCollectionSchema(nextSchema) },
+        } as never);
         return;
       }
       setCollectionState((current) =>
         current
-          ? { ...current, collection: result.collection! }
+          ? {
+              ...current,
+              collection: { ...current.collection, schema: nextSchema },
+            }
           : current,
       );
-      if (runtime.pageId) {
-        void syncKbCollectionRecords({
-          parentPageId: runtime.pageId,
-          collectionDbId: result.collection.id,
-        }).then(({ error }) => {
-          if (error) toast.error(`Не удалось применить поля: ${error}`);
-        });
-      }
-    });
-  };
+      void updateKbCollection({
+        collectionId: dbCollectionId,
+        schemaJson: serializeCollectionSchema(nextSchema),
+      }).then((result) => {
+        if (result.error || !result.collection) {
+          toast.error(`Не удалось сохранить схему: ${result.error}`);
+          return;
+        }
+        setCollectionState((current) =>
+          current
+            ? { ...current, collection: result.collection! }
+            : current,
+        );
+        if (runtime.pageId) {
+          void syncKbCollectionRecords({
+            parentPageId: runtime.pageId,
+            collectionDbId: result.collection.id,
+          }).then(({ error }) => {
+            if (error) toast.error(`Не удалось применить поля: ${error}`);
+          });
+        }
+      });
+    },
+    [block.id, dbCollectionId, editor, runtime.pageId],
+  );
 
   const updateVisibleFieldIds = useCallback(
     (next: KbCollectionVisibleFieldIds) => {
@@ -700,6 +712,7 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     itemsLoaded,
     schema.fields.length,
     updateFieldOrderIds,
+    updateSchema,
     updateVisibleFieldIds,
     visibleFieldIds,
   ]);

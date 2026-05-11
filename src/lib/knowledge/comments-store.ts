@@ -2,12 +2,10 @@
 
 import {
   ThreadStore,
-  ThreadStoreAuth,
   type CommentBody,
   type CommentData,
   type CommentReactionData,
   type ThreadData,
-  type User,
 } from "@blocknote/core/comments";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 
@@ -15,6 +13,16 @@ import { createClient } from "@/lib/supabase/client";
 import { extractMentionedUserIds } from "@/lib/knowledge/mention-extract";
 import type { Database } from "@/types/database";
 import type { KbBlock } from "@/types/knowledge";
+
+import { KbThreadStoreAuth } from "./comments-auth";
+import {
+  buildDocCharMap,
+  readDocTextBetween,
+} from "./comments-doc-utils";
+
+// Re-export resolveKbUsers for back-compat — it moved to a dedicated
+// module but existing callers still import from "comments-store".
+export { resolveKbUsers } from "./resolve-kb-users";
 
 /**
  * SupabaseThreadStore — реализация BlockNote `ThreadStore` поверх
@@ -54,70 +62,6 @@ interface SupabaseThreadStoreOptions {
   isEditor: boolean;
 }
 
-/** Кастомная auth-политика для KB:
- *   • create / addComment / addReaction — true (доступ к комментам уже
- *     gate'нут на mount'е через canComment).
- *   • update comment — только автор.
- *   • delete comment — автор ИЛИ editor.
- *   • resolve / unresolve / delete thread — автор треда ИЛИ editor.
- *
- * BN-default (`DefaultThreadStoreAuth`) пускал ВСЕХ резолвить тред и
- * блокировал автора, если он не editor. Это противоречит ожиданиям
- * юзера: «решить может либо автор, либо должность с правами». */
-class KbThreadStoreAuth extends ThreadStoreAuth {
-  private userId: string;
-  private isEditor: boolean;
-  private isThreadCreator: (threadId: string) => boolean;
-
-  constructor(opts: {
-    userId: string;
-    isEditor: boolean;
-    isThreadCreator: (threadId: string) => boolean;
-  }) {
-    super();
-    this.userId = opts.userId;
-    this.isEditor = opts.isEditor;
-    this.isThreadCreator = opts.isThreadCreator;
-  }
-
-  setEditor(isEditor: boolean): void {
-    this.isEditor = isEditor;
-  }
-
-  canCreateThread(): boolean {
-    return true;
-  }
-  canAddComment(): boolean {
-    return true;
-  }
-  canUpdateComment(comment: CommentData): boolean {
-    return comment.userId === this.userId;
-  }
-  canDeleteComment(comment: CommentData): boolean {
-    return comment.userId === this.userId || this.isEditor;
-  }
-  canDeleteThread(thread: ThreadData): boolean {
-    return this.isThreadCreator(thread.id) || this.isEditor;
-  }
-  canResolveThread(thread: ThreadData): boolean {
-    return this.isThreadCreator(thread.id) || this.isEditor;
-  }
-  canUnresolveThread(thread: ThreadData): boolean {
-    return this.isThreadCreator(thread.id) || this.isEditor;
-  }
-  canAddReaction(comment: CommentData, emoji?: string): boolean {
-    if (!emoji) return true;
-    const r = (comment.reactions ?? []).find((x) => x.emoji === emoji);
-    if (!r) return true;
-    return !r.userIds.includes(this.userId);
-  }
-  canDeleteReaction(comment: CommentData, emoji?: string): boolean {
-    if (!emoji) return true;
-    const r = (comment.reactions ?? []).find((x) => x.emoji === emoji);
-    if (!r) return false;
-    return r.userIds.includes(this.userId);
-  }
-}
 
 export class SupabaseThreadStore extends ThreadStore {
   private kbAuth!: KbThreadStoreAuth;
@@ -1580,61 +1524,6 @@ export class SupabaseThreadStore extends ThreadStore {
  *  Block-separator = "\n" (если выделение пересекает границу блоков),
  *  leafText = "" — атомарные leaf-ноды (mention chip и т.п.) не
  *  считаем char'ами, чтобы fingerprint фокусировался на text-content. */
-function readDocTextBetween(
-  editor: unknown,
-  from: number,
-  to: number,
-): string | null {
-  const view = (editor as
-    | {
-        _tiptapEditor?: {
-          view?: {
-            state: {
-              doc: {
-                content: { size: number };
-                textBetween: (from: number, to: number, blockSeparator?: string, leafText?: string) => string;
-              };
-            };
-          };
-        }
-      } | null)?._tiptapEditor?.view;
-  if (!view) return null;
-  const doc = view.state.doc;
-  const docSize = doc.content.size;
-  if (from < 0 || to > docSize || from >= to) return null;
-  try {
-    return doc.textBetween(from, to, "\n", "");
-  } catch {
-    return null;
-  }
-}
-
-/** Перебирает все text-узлы doc'а и склеивает их в плоскую строку
- *  с маппингом каждого char'а в абсолютную PM-позицию. Используется
- *  в applyAllMarksToEditor для re-anchor'а: если metadata.text не
- *  совпадает с текстом по сохранённым PM-позициям, ищем text в
- *  плоской строке и пересчитываем PM-позиции для marka.
- *
- *  Атомарные leaf-ноды (mentions, attachment-chips) не вносят char'ов
- *  — flat string содержит ТОЛЬКО реальные text-content символы из
- *  text-узлов. Это совпадает с поведением `readDocTextBetween` без
- *  leafText. */
-function buildDocCharMap(doc: {
-  descendants: (
-    cb: (node: { isText: boolean; text?: string }, pos: number) => void,
-  ) => void;
-}): { flat: string; pmPositions: number[] } {
-  const flat: string[] = [];
-  const pmPositions: number[] = [];
-  doc.descendants((node, pos) => {
-    if (!node.isText || typeof node.text !== "string") return;
-    for (let i = 0; i < node.text.length; i++) {
-      flat.push(node.text[i]);
-      pmPositions.push(pos + i);
-    }
-  });
-  return { flat: flat.join(""), pmPositions };
-}
 
 /** Resolve user info для CommentsExtension `resolveUsers` callback.
  *  BlockNote передаёт массив userIds — возвращаем User[] с avatar.
@@ -1649,29 +1538,3 @@ function buildDocCharMap(doc: {
  *  КАЖДОГО userId в request'е (internal useUsers Map-lookup). Если
  *  юзер удалён / off-boarded / выбыл из аккаунта — placeholder
  *  гарантирует, что BN не падает. */
-export async function resolveKbUsers(userIds: string[]): Promise<User[]> {
-  if (userIds.length === 0) return [];
-  const supabase = createClient();
-  const { data } = await supabase.rpc("kb_resolve_users_by_ids", {
-    p_user_ids: userIds,
-  });
-  const found = new Map<string, User>();
-  for (const m of data ?? []) {
-    const fullName =
-      [m.first_name, m.last_name].filter(Boolean).join(" ").trim() ||
-      "Без имени";
-    found.set(m.id, {
-      id: m.id,
-      username: fullName,
-      avatarUrl: m.avatar_url ?? "",
-    });
-  }
-  return userIds.map(
-    (id): User =>
-      found.get(id) ?? {
-        id,
-        username: "Удалённый пользователь",
-        avatarUrl: "",
-      },
-  );
-}

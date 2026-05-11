@@ -407,6 +407,35 @@ export class SupabaseThreadStore extends ThreadStore {
     for (const cb of this.listeners) cb(snapshot);
   }
 
+  /** Immutable patch для ThreadData в кэше. Раньше mutating-сайты
+   *  делали `thread.comments = ...; thread.updatedAt = ...;` — Map snapshot
+   *  через `new Map(...)` ставил новый Map-reference, но листенеры
+   *  получали тот же ThreadData-объект. React-consumer'ы, сравнивающие
+   *  по ссылке (React.memo / useMemo с ThreadData как dep), пропускали
+   *  бы обновления. Сейчас работает только потому что BN'овский UI
+   *  re-render'ит на каждый notify безусловно — это «fragile but works»
+   *  по auditor'у.
+   *
+   *  `patch` принимается либо как Partial<ThreadData>, либо как
+   *  функция (current → patch) — нужна, например, чтобы добавить
+   *  комментарий в массив на основе текущего значения.
+   *
+   *  Возвращает true если поток был в кэше и пропатчен; false если
+   *  поток уже отсутствует (gracefully: caller'ы делали такой же
+   *  `if (thread)` guard перед мутацией). */
+  private patchThread(
+    threadId: string,
+    patch:
+      | Partial<ThreadData>
+      | ((current: ThreadData) => Partial<ThreadData>),
+  ): boolean {
+    const current = this.threadCache.get(threadId);
+    if (!current) return false;
+    const partial = typeof patch === "function" ? patch(current) : patch;
+    this.threadCache.set(threadId, { ...current, ...partial });
+    return true;
+  }
+
   private toThreadData(row: ThreadRow, comments: CommentRow[]): ThreadData {
     // Запоминаем автора треда — KbThreadStoreAuth.canResolveThread
     // и canDeleteThread смотрят сюда чтобы пускать автора независимо
@@ -645,12 +674,11 @@ export class SupabaseThreadStore extends ThreadStore {
 
     // Optimistic + self-broadcast filter (Sprint D Phase 5).
     this.localCommentIds.add(commentId);
-    const thread = this.threadCache.get(opts.threadId);
-    if (thread) {
-      thread.comments = [...thread.comments, commentData];
-      thread.updatedAt = now;
-      this.notify();
-    }
+    const optimisticallyAdded = this.patchThread(opts.threadId, (cur) => ({
+      comments: [...cur.comments, commentData],
+      updatedAt: now,
+    }));
+    if (optimisticallyAdded) this.notify();
 
     const { error } = await this.supabase.from("kb_comments").insert({
       id: commentRow.id,
@@ -662,9 +690,11 @@ export class SupabaseThreadStore extends ThreadStore {
       metadata: commentRow.metadata,
     });
     if (error) {
-      if (thread) {
-        thread.comments = thread.comments.filter((c) => c.id !== commentId);
-        this.notify();
+      if (optimisticallyAdded) {
+        const reverted = this.patchThread(opts.threadId, (cur) => ({
+          comments: cur.comments.filter((c) => c.id !== commentId),
+        }));
+        if (reverted) this.notify();
       }
       throw new Error(`Не удалось добавить комментарий: ${error.message}`);
     }
@@ -721,22 +751,22 @@ export class SupabaseThreadStore extends ThreadStore {
     // добавить @-mention edit'ом и получатель ничего не узнал бы.
     this.emitCommentMentions(opts.commentId, opts.comment.body);
 
-    const thread = this.threadCache.get(opts.threadId);
-    if (thread) {
-      const idx = thread.comments.findIndex((c) => c.id === opts.commentId);
-      if (idx !== -1) {
-        const cur = thread.comments[idx];
-        thread.comments[idx] = {
-          ...cur,
-          body: opts.comment.body,
-          deletedAt: undefined,
-          updatedAt: new Date(),
-          metadata:
-            (opts.comment.metadata as Record<string, unknown>) ?? cur.metadata,
-        } as CommentData;
-        this.notify();
-      }
-    }
+    const patched = this.patchThread(opts.threadId, (cur) => {
+      const idx = cur.comments.findIndex((c) => c.id === opts.commentId);
+      if (idx === -1) return {};
+      const nextComments = [...cur.comments];
+      const target = nextComments[idx]!;
+      nextComments[idx] = {
+        ...target,
+        body: opts.comment.body,
+        deletedAt: undefined,
+        updatedAt: new Date(),
+        metadata:
+          (opts.comment.metadata as Record<string, unknown>) ?? target.metadata,
+      } as CommentData;
+      return { comments: nextComments };
+    });
+    if (patched) this.notify();
   }
 
   async deleteComment(opts: {
@@ -752,19 +782,19 @@ export class SupabaseThreadStore extends ThreadStore {
       throw new Error(`Не удалось удалить комментарий: ${error.message}`);
     }
 
-    const thread = this.threadCache.get(opts.threadId);
-    if (thread) {
-      const idx = thread.comments.findIndex((c) => c.id === opts.commentId);
-      if (idx !== -1) {
-        const cur = thread.comments[idx];
-        thread.comments[idx] = {
-          ...cur,
-          deletedAt: new Date(nowIso),
-          body: undefined,
-        } as CommentData;
-        this.notify();
-      }
-    }
+    const patched = this.patchThread(opts.threadId, (cur) => {
+      const idx = cur.comments.findIndex((c) => c.id === opts.commentId);
+      if (idx === -1) return {};
+      const nextComments = [...cur.comments];
+      const target = nextComments[idx]!;
+      nextComments[idx] = {
+        ...target,
+        deletedAt: new Date(nowIso),
+        body: undefined,
+      } as CommentData;
+      return { comments: nextComments };
+    });
+    if (patched) this.notify();
   }
 
   async deleteThread(opts: { threadId: string }): Promise<void> {
@@ -794,14 +824,13 @@ export class SupabaseThreadStore extends ThreadStore {
     if (error) {
       throw new Error(`Не удалось закрыть обсуждение: ${error.message}`);
     }
-    const thread = this.threadCache.get(opts.threadId);
-    if (thread) {
-      thread.resolved = true;
-      thread.resolvedUpdatedAt = new Date(nowIso);
-      thread.resolvedBy = this.userId;
-      thread.updatedAt = new Date(nowIso);
-      this.notify();
-    }
+    const patched = this.patchThread(opts.threadId, {
+      resolved: true,
+      resolvedUpdatedAt: new Date(nowIso),
+      resolvedBy: this.userId,
+      updatedAt: new Date(nowIso),
+    });
+    if (patched) this.notify();
   }
 
   async unresolveThread(opts: { threadId: string }): Promise<void> {
@@ -818,14 +847,13 @@ export class SupabaseThreadStore extends ThreadStore {
     if (error) {
       throw new Error(`Не удалось переоткрыть обсуждение: ${error.message}`);
     }
-    const thread = this.threadCache.get(opts.threadId);
-    if (thread) {
-      thread.resolved = false;
-      thread.resolvedUpdatedAt = undefined;
-      thread.resolvedBy = undefined;
-      thread.updatedAt = new Date(nowIso);
-      this.notify();
-    }
+    const patched = this.patchThread(opts.threadId, {
+      resolved: false,
+      resolvedUpdatedAt: undefined,
+      resolvedBy: undefined,
+      updatedAt: new Date(nowIso),
+    });
+    if (patched) this.notify();
   }
 
   async addReaction(opts: {
@@ -869,12 +897,15 @@ export class SupabaseThreadStore extends ThreadStore {
       .eq("id", commentId)
       .maybeSingle();
     if (!data) return;
-    const thread = this.threadCache.get(threadId);
-    if (!thread) return;
-    const idx = thread.comments.findIndex((c) => c.id === commentId);
-    if (idx === -1) return;
-    thread.comments[idx] = this.toCommentData(data as CommentRow);
-    this.notify();
+    const fresh = this.toCommentData(data as CommentRow);
+    const patched = this.patchThread(threadId, (cur) => {
+      const idx = cur.comments.findIndex((c) => c.id === commentId);
+      if (idx === -1) return {};
+      const nextComments = [...cur.comments];
+      nextComments[idx] = fresh;
+      return { comments: nextComments };
+    });
+    if (patched) this.notify();
   }
 
   // ─── Position-persistence для comment-mark'ов ──────────────────

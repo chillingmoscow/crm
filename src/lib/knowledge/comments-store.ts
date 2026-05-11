@@ -8,6 +8,7 @@ import {
   type ThreadData,
 } from "@blocknote/core/comments";
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
+import { toast } from "sonner";
 
 import { createClient } from "@/lib/supabase/client";
 import { extractMentionedUserIds } from "@/lib/knowledge/mention-extract";
@@ -134,7 +135,20 @@ export class SupabaseThreadStore extends ThreadStore {
     // завершении. setupRealtime() сам проверит destroyed-флаг — если
     // юзер успел уйти со страницы пока loadInitial pending'ует, мы
     // НЕ создаём orphaned channel.
-    void this.loadInitial().then(() => this.setupRealtime());
+    //
+    // Note: loadInitial uses an internal try/catch to surface SELECT
+    // errors via toast; if it rejects despite that (logic bug), we
+    // still want setupRealtime to run so a recovered store can pick up
+    // late activity. Hence `.catch` instead of `.then`.
+    void this.loadInitial()
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[comments-store] loadInitial rejected", err);
+        toast.error(`Не удалось загрузить комментарии: ${msg}`);
+      })
+      .finally(() => {
+        if (!this.destroyed) this.setupRealtime();
+      });
   }
 
   /** Lock/unlock меняет права на admin-действия с комментариями, но не
@@ -323,22 +337,54 @@ export class SupabaseThreadStore extends ThreadStore {
   private async loadInitial(): Promise<void> {
     if (this.loadingPromise) return this.loadingPromise;
     this.loadingPromise = (async () => {
-      const { data: threads } = await this.supabase
+      // Surface SELECT failures (RLS denial, network) as a toast so the
+      // user knows comments are missing instead of seeing "пока ничего
+      // не написали" — silent empty cache previously masked auth bugs.
+      const { data: threads, error: threadsError } = await this.supabase
         .from("kb_threads")
         .select("*")
         .eq("page_id", this.pageId)
         .is("deleted_at", null);
+      if (threadsError) {
+        console.error(
+          "[comments-store] failed to load threads",
+          threadsError,
+        );
+        toast.error(
+          `Не удалось загрузить треды комментариев: ${threadsError.message}`,
+        );
+        // Even on failure mark loaded so getThreads() returns an empty
+        // Map instead of stalling subscribers indefinitely. Realtime
+        // will still attach in the finally-branch of the constructor;
+        // a recovered SELECT later will surface via realtime updates.
+        this.loaded = true;
+        this.notify();
+        return;
+      }
       const threadIds = (threads ?? []).map((t) => t.id);
       if (threadIds.length === 0) {
         this.loaded = true;
         this.notify();
         return;
       }
-      const { data: comments } = await this.supabase
+      const { data: comments, error: commentsError } = await this.supabase
         .from("kb_comments")
         .select("*")
         .in("thread_id", threadIds)
         .order("created_at", { ascending: true });
+      if (commentsError) {
+        console.error(
+          "[comments-store] failed to load comments",
+          commentsError,
+        );
+        toast.error(
+          `Не удалось загрузить комментарии: ${commentsError.message}`,
+        );
+        // Threads loaded fine but comments didn't — populate threads
+        // with empty comment arrays so the threads themselves render
+        // (resolve/delete still works); comments will hydrate via
+        // realtime if/when SELECT recovers.
+      }
       const commentsByThread = new Map<string, CommentRow[]>();
       for (const c of (comments ?? []) as CommentRow[]) {
         const arr = commentsByThread.get(c.thread_id) ?? [];

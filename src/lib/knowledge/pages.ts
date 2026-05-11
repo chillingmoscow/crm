@@ -640,7 +640,11 @@ export async function setKbPageParent(input: {
   const supabase = await createClient();
 
   // Position = max(siblings под новым parent) + 1.
-  const { data: maxRow } = await supabase
+  // Раньше error не проверялся — на RLS/сетевом сбое maxRow становился
+  // null, nextPosition тихо падал в 0 и страница «прыгала наверх»
+  // без сигнала caller'у. Теперь возвращаем error явно — UI покажет
+  // toast вместо неожиданного перемещения.
+  const { data: maxRow, error: maxError } = await supabase
     .from("kb_pages")
     .select("position")
     .is("deleted_at", null)
@@ -649,6 +653,7 @@ export async function setKbPageParent(input: {
     .order("position", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (maxError) return { error: maxError.message };
   const nextPosition = (maxRow?.position ?? -1) + 1;
 
   const { error } = await supabase

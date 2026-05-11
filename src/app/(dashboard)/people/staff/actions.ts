@@ -578,28 +578,29 @@ export async function setImportedStaffEmailAndInvite(data: {
     venue_name: venueRow.name,
     role_name: roleName,
   };
+  const redirectTo = `${siteUrl}/dashboard`;
 
-  // Шаг 3: magic link на новый email (юзер уже существует, тип magiclink).
-  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-    type: "magiclink",
-    email: nextEmail,
-    options: {
-      data: linkPayload,
-      redirectTo: `${siteUrl}/dashboard`,
-    },
-  });
-  if (linkError || !linkData?.properties?.action_link) {
-    return {
-      error: linkError?.message ?? "Не удалось сгенерировать ссылку для входа",
-      invitation: null,
-    };
-  }
-
-  // Шаг 4: отправляем письмо.
-  // Если есть custom mailer (SMTP) — наше брендированное письмо.
-  // Иначе на локали остаётся Supabase Inbucket (письмо уже создаётся
-  // вместе с generateLink — оно попадает в Inbucket).
+  // Шаг 3: отправка письма.
+  //   • с кастомным SMTP — генерируем link через generateLink, кладём его
+  //     в наш брендированный шаблон и отправляем сами;
+  //   • без SMTP (локально / без env) — Supabase встроенным mailer'ом
+  //     через signInWithOtp(shouldCreateUser=false). generateLink тут не
+  //     годится — он только создаёт payload, доставкой не занимается.
   if (hasCustomMailerConfig()) {
+    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email: nextEmail,
+      options: {
+        data: linkPayload,
+        redirectTo,
+      },
+    });
+    if (linkError || !linkData?.properties?.action_link) {
+      return {
+        error: linkError?.message ?? "Не удалось сгенерировать ссылку для входа",
+        invitation: null,
+      };
+    }
     try {
       await sendInvitationEmail({
         to: nextEmail,
@@ -617,6 +618,18 @@ export async function setImportedStaffEmailAndInvite(data: {
           : "Не удалось отправить письмо",
         invitation: null,
       };
+    }
+  } else {
+    const { error: otpError } = await admin.auth.signInWithOtp({
+      email: nextEmail,
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: redirectTo,
+        data: linkPayload,
+      },
+    });
+    if (otpError) {
+      return { error: otpError.message, invitation: null };
     }
   }
 

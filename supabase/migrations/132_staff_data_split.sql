@@ -158,6 +158,12 @@ create trigger trg_profiles_birth_date
 
 -- ── 4. Backfill staff_account_details из profiles ─────────
 
+-- Берём ВСЕ UVR (active + fired), не фильтруем по статусу: иначе
+-- сотрудники, у которых в момент миграции остались только
+-- fired-membership'ы, потеряют HR-данные после drop columns ниже
+-- (документы, медкнижка, дата трудоустройства, заметка). Восстановить
+-- потом будет неоткуда — колонки в profiles снесутся в шаге 5.
+--
 -- distinct on (account_id, user_id): если юзер работает в N venues
 -- одного account_id, берём первую попавшуюся запись (значения уже
 -- идентичны — они из шаренного profiles ряда).
@@ -176,7 +182,7 @@ select distinct on (v.account_id, p.id)
 from public.profiles p
 join public.user_venue_roles uvr on uvr.user_id = p.id
 join public.venues v on v.id = uvr.venue_id
-where uvr.status = 'active'
+where uvr.status in ('active', 'fired')
   and (
     p.employment_date is not null
     or p.medical_book_number is not null
@@ -186,14 +192,14 @@ where uvr.status = 'active'
   )
 on conflict (account_id, user_id) do nothing;
 
--- terminal_pin → UVR. Обходим триггер obновления updated_at тут не
--- нужен — UVR его не имеет; просто SET.
+-- terminal_pin → UVR. Также копируем для fired-membership'ов, чтобы
+-- при «Восстановить» сотрудника PIN остался у его venue.
 update public.user_venue_roles uvr
 set terminal_pin = p.terminal_pin
 from public.profiles p
 where uvr.user_id = p.id
   and p.terminal_pin is not null
-  and uvr.status = 'active';
+  and uvr.status in ('active', 'fired');
 
 -- birth_date_set_at: для уже заполненных ДР ставим created_at профиля
 -- (триггер из шага 3 на UPDATE не сработает — мы НЕ меняем birth_date).

@@ -6,10 +6,18 @@
  *  медленно), ни запустить `Promise.all` (исчерпывает Supabase/PgBouncer
  *  pool на больших N). Типичный кейс: bulk-save N записей по одному RPC.
  *
- *  Если `worker` бросает — promise возвращается rejected, остальные
- *  worker'ы завершают текущую итерацию и не подхватывают новых. Caller
- *  получает первую ошибку. (Использовать try/catch внутри worker'а если
- *  нужен «best effort».)
+ *  **Abort-on-throw semantics**: если worker бросает (например, fetch-
+ *  failure внутри supabase.rpc), общий `aborted`-флаг устанавливается
+ *  немедленно. Остальные runner'ы завершают свой **текущий** item, но
+ *  **больше не подхватывают** новые из очереди. Caller получает первую
+ *  возникшую ошибку через rejected promise. Это совпадает с поведением
+ *  serial `for await` — оригинальный код останавливался на первой
+ *  failing record.
+ *
+ *  Если нужен «best effort» (партиальные сбои не должны прерывать
+ *  обработку остальных) — оборачивай тело worker'а в try/catch и не
+ *  re-throw'ай, а собирай ошибки в side-array. См. notion-import как
+ *  пример.
  */
 export async function runWithConcurrency<T>(
   items: T[],
@@ -18,13 +26,19 @@ export async function runWithConcurrency<T>(
 ): Promise<void> {
   if (items.length === 0) return;
   let nextIndex = 0;
+  let aborted = false;
   const runners = Array.from(
     { length: Math.min(limit, items.length) },
     async () => {
-      while (nextIndex < items.length) {
+      while (!aborted && nextIndex < items.length) {
         const index = nextIndex;
         nextIndex += 1;
-        await worker(items[index]!);
+        try {
+          await worker(items[index]!);
+        } catch (err) {
+          aborted = true;
+          throw err;
+        }
       }
     },
   );

@@ -70,6 +70,35 @@ test("runWithConcurrency: worker rejection bubbles up as Promise.all rejects", a
   );
 });
 
+test("runWithConcurrency: stops dispatching new items after a worker throws", async () => {
+  // Once worker for item 5 throws, no worker should start a new item.
+  // In-flight workers (here: limit=2 so at most 1 other peer) finish
+  // their current item and then loop-exits via the aborted flag.
+  const items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const started: number[] = [];
+
+  await assert.rejects(
+    () =>
+      runWithConcurrency(items, 2, async (item) => {
+        started.push(item);
+        if (item === 5) throw new Error("boom");
+        // Tiny delay so peers have a chance to pick up next items
+        // if we *weren't* aborting properly.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }),
+    /boom/,
+  );
+
+  // The serial baseline (limit=1) would have started exactly 5 items.
+  // With limit=2 a single peer may have been in flight when item 5
+  // threw — so up to ~6 items max. The point is we shouldn't see
+  // every item dispatched (10) as we would without the abort gate.
+  assert.ok(
+    started.length <= 6,
+    `expected ≤6 dispatched after abort, got ${started.length}: ${started.join(",")}`,
+  );
+});
+
 test("runWithConcurrency: concurrent workers really run in parallel", async () => {
   // Each worker takes its own deferred; runner only completes when
   // the deferred resolves. If concurrency is honoured (limit=3),

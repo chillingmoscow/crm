@@ -167,7 +167,11 @@ export function KbPageProperties({
   const flushSave = async (next: KbProperty[]) => {
     const serialized = JSON.stringify(next);
     if (serialized === lastSavedRef.current) {
-      pendingNextRef.current = null;
+      // Only clear the pending pointer if it still refers to the value
+      // we just no-op'd on. Otherwise a newer schedule (call sequence:
+      // schedule A → fire A → schedule B → A resolves) has updated
+      // pendingNextRef to B and we must not lose that reference.
+      if (pendingNextRef.current === next) pendingNextRef.current = null;
       return;
     }
     const action =
@@ -182,7 +186,11 @@ export function KbPageProperties({
       return;
     }
     lastSavedRef.current = serialized;
-    pendingNextRef.current = null;
+    // Identity guard: don't clobber a newer scheduled payload. Codex
+    // flagged the unconditional clear: stale save A finishing after a
+    // fresh schedule B would null out pendingNextRef and the unmount
+    // cleanup would drop B silently.
+    if (pendingNextRef.current === next) pendingNextRef.current = null;
   };
 
   useEffect(() => {

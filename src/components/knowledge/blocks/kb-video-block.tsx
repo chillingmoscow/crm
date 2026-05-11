@@ -23,6 +23,7 @@ import {
 import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
 import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
 import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
+import { safeHref } from "@/lib/knowledge/safe-href";
 
 // ─── URL detection ────────────────────────────────────────────────
 
@@ -272,6 +273,8 @@ function VideoToExternalHTML(
   if (!url) return <p>Add video</p>;
   const embed = detectVideoEmbed(url);
   if (embed) {
+    // embed.embedUrl is built by detectVideoEmbed from a host allowlist
+    // (youtube/vimeo/loom/vidyard), so it's already trusted.
     return (
       <iframe src={embed.embedUrl} title="video" frameBorder={0} allowFullScreen loading="lazy" />
     );
@@ -279,7 +282,12 @@ function VideoToExternalHTML(
   if (props.block.props.showPreview) {
     return <video src={url} />;
   }
-  return <a href={url}>{props.block.props.name || url}</a>;
+  // Plain link fallback — apply safeHref so a stored `javascript:` URL
+  // does not become an exploit in exported HTML.
+  const href = safeHref(url);
+  const label = props.block.props.name || url;
+  if (!href) return <span>{label}</span>;
+  return <a href={href}>{label}</a>;
 }
 
 export const kbVideoBlockSpec = createReactBlockSpec(

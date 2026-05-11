@@ -22,6 +22,7 @@ import { KbMediaChip } from "@/components/knowledge/blocks/kb-media-chip";
 import { KbUploadProgressOverlay } from "@/app/(dashboard)/knowledge/_components/kb-upload-progress-overlay";
 import { useUploadQueueEntry } from "@/app/(dashboard)/knowledge/_components/kb-upload-queue-store";
 import { splitFileName } from "@/lib/knowledge/file-name";
+import { safeHref } from "@/lib/knowledge/safe-href";
 
 function KbFileBlock(
   props: ReactCustomBlockRenderProps<typeof createFileBlockConfig>,
@@ -120,12 +121,15 @@ function FileToExternalHTML(
     "contentRef"
   >,
 ) {
-  if (!props.block.props.url) return <p>Add file</p>;
-  return (
-    <a href={props.block.props.url}>
-      {props.block.props.name || props.block.props.url}
-    </a>
-  );
+  const rawUrl = props.block.props.url;
+  if (!rawUrl) return <p>Add file</p>;
+  // safeHref blocks `javascript:`/`data:` schemes that would otherwise
+  // execute in exported HTML. Falls back to plain text label when the
+  // stored URL is unsafe.
+  const href = safeHref(rawUrl);
+  const label = props.block.props.name || rawUrl;
+  if (!href) return <span>{label}</span>;
+  return <a href={href}>{label}</a>;
 }
 
 export const kbFileBlockSpec = createReactBlockSpec(createFileBlockConfig, () => ({

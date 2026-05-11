@@ -23,18 +23,17 @@ const URL_VALID_PREFIX_RE = /^(https?:\/\/|mailto:|tel:)/i;
  *  не пишем такие значения в БД, чтобы экспорт / share / любой другой
  *  потребитель не обошёл фильтр случайно.
  *
- *  Тонкость (codex feedback на PR #227): `host:port`-формат (например
- *  `data:8080`, который в collapsed-режиме нормализуется в
- *  `https://data:8080`) НЕ должен распознаваться как опасная схема.
- *  Поэтому проверки специфичные:
- *    - `javascript:` / `vbscript:` — всегда payload-код, блок безусловно
- *    - `data:` — опасен только при MIME-content (`data:text/html,...`,
- *      `data:image/svg+xml,...`); `data:1234` (без буквы/слэша после
- *      двоеточия) — обычный port-like ввод
- *    - `file:` — опасен при `file:///path`; `file:hostname` — host:port
+ *  Блокируются **все** перечисленные схемы безусловно. Промежуточная
+ *  версия (PR #230) пыталась пропускать `host:port`-формы вида
+ *  `data:8080` через scheme-specific лookahead'ы, но codex P1
+ *  feedback справедливо указал на дыры: после послабления `data:`
+ *  без буквы/слэша после двоеточия и `file:` без слэша валидные
+ *  data-URI'ы (`data:,payload`, `data:;base64,xxx`, `file:C:/...`)
+ *  проходили в БД. Безопасность важнее редкого случая «сервер с
+ *  hostname=data на порту 8080» — юзер всегда может ввести
+ *  `https://data:8080` явно, если такой случай вообще встретится.
  */
-const BLOCKED_SCHEME_RE =
-  /^\s*(javascript|vbscript):|^\s*data:[a-zA-Z/]|^\s*file:\//i;
+const BLOCKED_SCHEME_RE = /^\s*(javascript|data|vbscript|file):/i;
 
 /** Убирает `https://` / `http://` префикс для display-режима когда
  *  `urlCollapsed === true`. Сама href остаётся полной. mailto: / tel:

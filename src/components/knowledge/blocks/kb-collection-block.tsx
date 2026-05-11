@@ -234,10 +234,23 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       ),
     [orderedFields, visibleFieldIds],
   );
-  const activeFilters = activeView?.filters ?? [];
-  const activeSorts = activeView?.sorts ?? [];
+  // Wrap nullish-default fallbacks in useMemo: without this, every render
+  // creates a fresh `[]` reference, which forces downstream useMemos
+  // (filteredItems / sortedItems / groupedItems) to recompute on every
+  // render even when the underlying view didn't change.
+  const activeFilters = useMemo(
+    () => activeView?.filters ?? [],
+    [activeView?.filters],
+  );
+  const activeSorts = useMemo(
+    () => activeView?.sorts ?? [],
+    [activeView?.sorts],
+  );
   const activeGrouping = activeView?.grouping ?? null;
-  const viewTabs = collectionState?.views ?? [];
+  const viewTabs = useMemo(
+    () => collectionState?.views ?? [],
+    [collectionState?.views],
+  );
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
   const filteredItems = useMemo(
     () => filterCollectionItems(items, schema.fields, activeFilters, collectionId),

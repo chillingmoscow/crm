@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  Check,
-  GalleryHorizontalEnd,
-  Plus,
-  Table2,
-} from "lucide-react";
+import { Check, ListChecks, Plus, Table2 } from "lucide-react";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import {
@@ -67,7 +62,7 @@ export function CollectionViewsEditor({
       <div className="kb-collection-column-menu-separator" />
       <div className="kb-collection-view-list">
         {(["list", "table"] as const).map((viewType) => {
-          const Icon = viewType === "table" ? Table2 : GalleryHorizontalEnd;
+          const Icon = viewType === "table" ? Table2 : ListChecks;
           return (
             <button
               key={viewType}

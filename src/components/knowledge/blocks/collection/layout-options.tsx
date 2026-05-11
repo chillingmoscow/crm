@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  GalleryHorizontalEnd,
-  ListChecks,
-  Table2,
-} from "lucide-react";
+import { ListChecks, Table2 } from "lucide-react";
 
 import { Switch } from "@/components/ui/switch";
 import {
@@ -58,15 +54,6 @@ export function CollectionLayoutOptions({
             </button>
           );
         })}
-        <button
-          type="button"
-          className="kb-collection-layout-card"
-          disabled
-          aria-disabled
-        >
-          <GalleryHorizontalEnd className="size-5" />
-          <span>Галерея</span>
-        </button>
       </div>
       <div className="kb-collection-layout-switches">
         <CollectionLayoutSwitch
@@ -125,11 +112,10 @@ export function CollectionCreateViewPanel({
   const options: Array<{
     label: string;
     icon: React.ComponentType<{ className?: string }>;
-    view?: KbCollectionView;
+    view: KbCollectionView;
   }> = [
     { label: "Таблица", icon: Table2, view: "table" },
     { label: "Список", icon: ListChecks, view: "list" },
-    { label: "Галерея", icon: GalleryHorizontalEnd },
   ];
 
   return (
@@ -143,12 +129,11 @@ export function CollectionCreateViewPanel({
               key={option.label}
               type="button"
               className="kb-collection-create-view-option"
-              disabled={!option.view}
               onPointerDown={stopBlockInteraction}
               onMouseDown={stopBlockInteraction}
               onClick={(event) => {
                 stopBlockMenuAction(event);
-                if (option.view) onCreate(option.view);
+                onCreate(option.view);
               }}
             >
               <Icon className="size-6" />

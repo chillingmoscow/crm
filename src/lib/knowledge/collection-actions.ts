@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import { createKbPage } from "@/lib/knowledge/pages";
 import {
   KB_COLLECTION_DEFAULT_TITLE,
@@ -749,7 +750,14 @@ export async function syncKbCollectionRecords(input: {
 
   if (error) return { updated: 0, error: error.message };
 
-  let updated = 0;
+  // Phase 1: вычисляем merged properties для каждой строки. Чистая
+  // CPU-работа (JSON parse + merge), нет смысла параллелить — это
+  // дешевле round-trip'а в pool. Собираем только реально изменившиеся
+  // записи в `tasks`, остальные пропускаем (sync — no-op).
+  const tasks: Array<{
+    id: string;
+    properties: ReturnType<typeof kbPropertiesSchema.safeParse>["data"];
+  }> = [];
   for (const row of data ?? []) {
     const parsed = kbPropertiesSchema.safeParse(
       (row as { properties?: unknown }).properties ?? [],
@@ -761,23 +769,43 @@ export async function syncKbCollectionRecords(input: {
     const valid = kbPropertiesSchema.safeParse(merged.properties);
     if (!valid.success) {
       return {
-        updated,
+        updated: 0,
         error:
           valid.error.issues[0]?.message ??
           "Не удалось синхронизировать свойства коллекции",
       };
     }
-
-    const { error: saveError } = await supabase.rpc("kb_save_page_properties", {
-      p_id: row.id,
-      p_properties: valid.data as unknown as never,
-      p_force_new_version: false,
-    } as never);
-    if (saveError) return { updated, error: saveError.message };
-    updated += 1;
+    tasks.push({ id: row.id, properties: valid.data });
   }
 
-  return { updated, error: null };
+  // Phase 2: bulk-save с bounded concurrency. Был serial цикл — N
+  // round-trip'ов к PgBouncer pool за время сохранения, ощутимая
+  // задержка для коллекций с N > 10 элементов. Concurrency=4 даёт ~4×
+  // speed-up при сохранении уважительной нагрузки на pool (default
+  // size 20, см. self_hosted_supabase memo). Полный bulk-RPC (один
+  // запрос на N записей) — отдельная фаза, требует Postgres-функцию
+  // `kb_save_collection_records_bulk(jsonb)`; здесь обходимся без
+  // миграции.
+  let updated = 0;
+  let firstError: string | null = null;
+  await runWithConcurrency(tasks, 4, async (task) => {
+    if (firstError) return;
+    const { error: saveError } = await supabase.rpc(
+      "kb_save_page_properties",
+      {
+        p_id: task.id,
+        p_properties: task.properties as unknown as never,
+        p_force_new_version: false,
+      } as never,
+    );
+    if (saveError) {
+      if (!firstError) firstError = saveError.message;
+      return;
+    }
+    updated += 1;
+  });
+
+  return { updated, error: firstError };
 }
 
 async function getCollectionForSync(collectionId: string): Promise<

@@ -67,6 +67,7 @@ import {
   type KbGalleryItem,
 } from "@/lib/knowledge/gallery";
 import { validateKnowledgeFile } from "@/lib/knowledge/media-file-validation";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
 
 import { GalleryImagePicker } from "./gallery/image-picker";
 import { GalleryMenuSwitchIndicator } from "./gallery/menu-switch-indicator";
@@ -806,24 +807,6 @@ function GalleryToExternalHTML(props: GalleryRenderProps) {
   );
 }
 
-async function runWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  worker: (item: T) => Promise<void>,
-): Promise<void> {
-  let nextIndex = 0;
-  const runners = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (nextIndex < items.length) {
-        const item = items[nextIndex];
-        nextIndex += 1;
-        await worker(item);
-      }
-    },
-  );
-  await Promise.all(runners);
-}
 
 function uploadResultToUrl(result: string | Record<string, unknown>): string {
   if (typeof result === "string") return result;

@@ -185,8 +185,13 @@ export function CollectionColumnMenu({
   useEffect(() => {
     setDescriptionDraft(field.description ?? "");
   }, [field.id, field.description]);
+  // Sync `descriptionOpen` ONLY when switching to a different field, not
+  // when the user edits the current field's description. Including
+  // `field.description` here would slam the input closed on every
+  // keystroke (or reopen it as soon as it gets a non-empty value).
   useEffect(() => {
     setDescriptionOpen(Boolean(field.description));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: re-sync only on field id change
   }, [field.id]);
 
   const commitName = () => {

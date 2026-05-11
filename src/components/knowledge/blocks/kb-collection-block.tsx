@@ -2,40 +2,29 @@
 
 import Link from "next/link";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
-  type ReactNode,
 } from "react";
-import {
-  createReactBlockSpec,
-  type ReactCustomBlockRenderProps,
-} from "@blocknote/react";
+import { createReactBlockSpec } from "@blocknote/react";
 import {
   ArrowLeft,
   ArrowDownAZ,
   ArrowRight,
-  Calendar,
   Check,
-  CheckSquare,
   ChevronDown,
   ChevronRight,
   Copy,
-  Database,
   EyeOff,
   FileText,
   GalleryHorizontalEnd,
   GripVertical,
-  Hash,
   Info,
   ArrowUpDown,
-  Link as LinkIcon,
   ListFilter,
   ListChecks,
   Loader2,
@@ -48,7 +37,6 @@ import {
   ChevronsRight,
   Search,
   Settings2,
-  Star,
   Table2,
   Trash2,
   Type,
@@ -99,8 +87,6 @@ import {
   getPageCollectionId,
   inferCollectionSchemaFromProperties,
   isCollectionFieldVisible,
-  KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-  KB_COLLECTION_EMPTY_SCHEMA,
   KB_COLLECTION_CREATABLE_FIELD_TYPES,
   KB_COLLECTION_FIELD_LABELS,
   KB_COLLECTION_VIEW_LABELS,
@@ -163,120 +149,31 @@ import {
 import { saveKbPageProperties } from "@/lib/knowledge/properties";
 import type { KbProperty, KbPropertyType } from "@/types/knowledge";
 
-type KbCollectionRuntime = {
-  pageId: string | null;
-  canCreatePages: boolean;
-};
+import { collectionBlockConfig, type CollectionRenderProps } from "./collection/block-config";
+import {
+  KbCollectionRuntimeProvider,
+  useKbCollectionRuntime,
+} from "./collection/runtime-provider";
+import {
+  FIELD_ICONS,
+  MAX_TABLE_COLUMN_WIDTH,
+  SAVE_CELL_DEBOUNCE_MS,
+  TABLE_TITLE_COLUMN_WIDTH_ID,
+  VIEW_TAB_DISPLAY_LABELS,
+  collectionFieldMenuLabel,
+  getCollectionViewFallbackIcon,
+  hasCollectionPropertyDisplayValue,
+  stopBlockInteraction,
+  stopBlockMenuAction,
+  type CollectionSettingsPanel,
+  type CollectionTableCellId,
+  type CollectionTableSelection,
+} from "./collection/shared";
 
-const KbCollectionRuntimeContext = createContext<KbCollectionRuntime>({
-  pageId: null,
-  canCreatePages: false,
-});
-
-export function KbCollectionRuntimeProvider({
-  value,
-  children,
-}: {
-  value: KbCollectionRuntime;
-  children: ReactNode;
-}) {
-  return (
-    <KbCollectionRuntimeContext.Provider value={value}>
-      {children}
-    </KbCollectionRuntimeContext.Provider>
-  );
-}
-
-const collectionBlockConfig = {
-  type: "collection",
-  propSchema: {
-    view: {
-      default: "list" as const,
-      values: ["list", "table"] as const,
-    },
-    title: {
-      default: "Коллекция",
-      type: "string" as const,
-    },
-    viewTitle: {
-      default: "",
-      type: "string" as const,
-    },
-    collectionId: {
-      default: "",
-      type: "string" as const,
-    },
-    schemaJson: {
-      default: KB_COLLECTION_EMPTY_SCHEMA,
-      type: "string" as const,
-    },
-    visibleFieldIdsJson: {
-      default: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-      type: "string" as const,
-    },
-    fieldOrderIdsJson: {
-      default: KB_COLLECTION_DEFAULT_VISIBLE_FIELDS,
-      type: "string" as const,
-    },
-    viewId: {
-      default: "",
-      type: "string" as const,
-    },
-  },
-  content: "none" as const,
-};
-
-type CollectionRenderProps = ReactCustomBlockRenderProps<
-  typeof collectionBlockConfig
->;
-
-const FIELD_ICONS: Record<
-  KbPropertyType,
-  React.ComponentType<{ className?: string }>
-> = {
-  text: Type,
-  number: Hash,
-  date: Calendar,
-  checkbox: CheckSquare,
-  select: ChevronDown,
-  "multi-select": ListChecks,
-  url: LinkIcon,
-  rating: Star,
-};
-
-const VIEW_TAB_DISPLAY_LABELS: Record<KbCollectionViewTabDisplay, string> = {
-  "text-icon": "Текст и иконка",
-  text: "Только текст",
-  icon: "Только иконка",
-};
-
-function getCollectionViewFallbackIcon(viewConfig: {
-  icon?: KbCollectionViewIcon;
-  viewType: KbCollectionView;
-}) {
-  return viewConfig.viewType === "table" ? Database : ListChecks;
-}
-
-const SAVE_CELL_DEBOUNCE_MS = 650;
-const TABLE_TITLE_COLUMN_WIDTH_ID = "__title";
-const MAX_TABLE_COLUMN_WIDTH = 640;
-
-type CollectionSettingsPanel =
-  | "layout"
-  | "display"
-  | "properties"
-  | "filters"
-  | "sorts"
-  | "grouping"
-  | "views";
-type CollectionTableCellId = "title" | string;
-type CollectionTableSelection = {
-  itemId: string;
-  cellId: CollectionTableCellId;
-};
+export { KbCollectionRuntimeProvider };
 
 function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
-  const runtime = useContext(KbCollectionRuntimeContext);
+  const runtime = useKbCollectionRuntime();
   const editable = editor.isEditable;
   const canCreate = editable && runtime.canCreatePages && Boolean(runtime.pageId);
   const [items, setItems] = useState<KbCollectionItem[]>([]);
@@ -3493,25 +3390,6 @@ function CollectionPropertyChip({
   );
 }
 
-function hasCollectionPropertyDisplayValue(property: KbProperty): boolean {
-  switch (property.type) {
-    case "text":
-    case "url":
-      return property.value.trim().length > 0;
-    case "number":
-    case "rating":
-      return property.value !== null;
-    case "date":
-      return Boolean(property.value);
-    case "checkbox":
-      return property.value === true;
-    case "select":
-      return Boolean(property.value);
-    case "multi-select":
-      return property.value.length > 0;
-  }
-}
-
 function CollectionAddFieldMenu({
   onAdd,
 }: {
@@ -5667,10 +5545,6 @@ function SettingsPanelHeader({
   );
 }
 
-function collectionFieldMenuLabel(field: KbCollectionField): string {
-  return field.name.trim() || KB_COLLECTION_FIELD_LABELS[field.type];
-}
-
 function CollectionFieldVisibilityEditor({
   fields,
   visibleFieldIds,
@@ -6533,15 +6407,6 @@ function CollectionFieldEditor({
       </Button>
     </div>
   );
-}
-
-function stopBlockInteraction(event: React.SyntheticEvent) {
-  event.stopPropagation();
-}
-
-function stopBlockMenuAction(event: React.SyntheticEvent) {
-  event.preventDefault();
-  event.stopPropagation();
 }
 
 function CollectionToExternalHTML() {

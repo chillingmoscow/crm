@@ -412,25 +412,42 @@ export default function KbImportDialogBody({
         // storage.upload + RPC kb_register_attachment = 2 round-trip'а
         // (см. migration 107). limit=4 даёт ~4× speedup без перегрузки
         // pool'а (default 20 connections, 1-2 на upload).
+        //
+        // Best-effort: внутренний try/catch на каждый worker. Если
+        // одна картинка упадёт с throw'ом (сеть, etc), мы не хотим
+        // прерывать остальные uploads и пропускать block-remap +
+        // saveKbPage этой страницы — иначе страница останется с
+        // placeholder-блоками. Пушим в `failures`, продолжаем.
         await runWithConcurrency(uploadTasks, 4, async (task) => {
-          const { storage_path, error: upErr } = await uploadKbAttachment({
-            pageId: row.id,
-            file: task.imgFile,
-            name: task.imgFile.name,
-            mime_type: task.imgFile.type || "application/octet-stream",
-          });
-          if (upErr || !storage_path) {
+          try {
+            const { storage_path, error: upErr } = await uploadKbAttachment({
+              pageId: row.id,
+              file: task.imgFile,
+              name: task.imgFile.name,
+              mime_type: task.imgFile.type || "application/octet-stream",
+            });
+            if (upErr || !storage_path) {
+              console.error(
+                "[kb-notion-import] upload failed",
+                task.imgFile.name,
+                upErr,
+              );
+              failures.push(
+                `«${task.imgFile.name}»: ${upErr ?? "не удалось загрузить"}`,
+              );
+              return;
+            }
+            urlMap.set(task.resolvedKey, `kbfile://${storage_path}`);
+          } catch (err) {
             console.error(
-              "[kb-notion-import] upload failed",
+              "[kb-notion-import] upload threw",
               task.imgFile.name,
-              upErr,
+              err,
             );
             failures.push(
-              `«${task.imgFile.name}»: ${upErr ?? "не удалось загрузить"}`,
+              `«${task.imgFile.name}»: ${err instanceof Error ? err.message : "ошибка загрузки"}`,
             );
-            return;
           }
-          urlMap.set(task.resolvedKey, `kbfile://${storage_path}`);
         });
 
         const blocksWithImages =
@@ -686,21 +703,30 @@ export default function KbImportDialogBody({
 
         // Phase 2 (bounded concurrent): see parallel comment in the
         // zip branch above — same trade-off, limit=4 keeps pool happy.
+        // Best-effort: try/catch на worker'е по той же причине что и
+        // в zip-импорте.
         await runWithConcurrency(flatTasks, 4, async (task) => {
-          const { storage_path, error: upErr } = await uploadKbAttachment({
-            pageId: row.id,
-            file: task.imgFile,
-            name: task.imgFile.name,
-            mime_type: task.imgFile.type || "application/octet-stream",
-          });
-          if (upErr || !storage_path) {
-            console.error("[kb-import] upload failed", task.imgFile.name, upErr);
+          try {
+            const { storage_path, error: upErr } = await uploadKbAttachment({
+              pageId: row.id,
+              file: task.imgFile,
+              name: task.imgFile.name,
+              mime_type: task.imgFile.type || "application/octet-stream",
+            });
+            if (upErr || !storage_path) {
+              console.error("[kb-import] upload failed", task.imgFile.name, upErr);
+              failures.push(
+                `«${task.imgFile.name}»: ${upErr ?? "не удалось загрузить"}`,
+              );
+              return;
+            }
+            urlMap.set(task.basename, `kbfile://${storage_path}`);
+          } catch (err) {
+            console.error("[kb-import] upload threw", task.imgFile.name, err);
             failures.push(
-              `«${task.imgFile.name}»: ${upErr ?? "не удалось загрузить"}`,
+              `«${task.imgFile.name}»: ${err instanceof Error ? err.message : "ошибка загрузки"}`,
             );
-            return;
           }
-          urlMap.set(task.basename, `kbfile://${storage_path}`);
         });
 
         if (urlMap.size > 0) {

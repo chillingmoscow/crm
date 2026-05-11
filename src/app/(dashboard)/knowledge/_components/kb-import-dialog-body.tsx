@@ -36,6 +36,7 @@ import {
 } from "@/lib/knowledge/import";
 import { uploadKbAttachment } from "@/lib/knowledge/attachments";
 import { saveKbPage, setKbPageParent } from "@/lib/knowledge/pages";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
   parseNotionZip,
   stripNotionProperties,
@@ -374,6 +375,11 @@ export default function KbImportDialogBody({
         // (а не по basename'у) — две картинки с одинаковым именем из
         // разных папок (`assets/image.png` и `screens/image.png`)
         // больше не сольются в один upload (Codex P1).
+        //
+        // Phase 1 (serial): dedup + resolve File handle. Чисто-CPU
+        // работа, нет смысла параллелить.
+        type UploadTask = { resolvedKey: string; imgFile: File };
+        const uploadTasks: UploadTask[] = [];
         for (const ref of refs) {
           const decodedRef = (() => {
             try { return decodeURIComponent(ref); } catch { return ref; }
@@ -398,19 +404,34 @@ export default function KbImportDialogBody({
             }
           }
           if (!imgFile) continue;
+          uploadTasks.push({ resolvedKey, imgFile });
+        }
+
+        // Phase 2 (bounded concurrent): N images × ~30s (upload + RPC) серийно
+        // — главный bottleneck импорта. uploadKbAttachment делает
+        // storage.upload + RPC kb_register_attachment = 2 round-trip'а
+        // (см. migration 107). limit=4 даёт ~4× speedup без перегрузки
+        // pool'а (default 20 connections, 1-2 на upload).
+        await runWithConcurrency(uploadTasks, 4, async (task) => {
           const { storage_path, error: upErr } = await uploadKbAttachment({
             pageId: row.id,
-            file: imgFile,
-            name: imgFile.name,
-            mime_type: imgFile.type || "application/octet-stream",
+            file: task.imgFile,
+            name: task.imgFile.name,
+            mime_type: task.imgFile.type || "application/octet-stream",
           });
           if (upErr || !storage_path) {
-            console.error("[kb-notion-import] upload failed", imgFile.name, upErr);
-            failures.push(`«${imgFile.name}»: ${upErr ?? "не удалось загрузить"}`);
-            continue;
+            console.error(
+              "[kb-notion-import] upload failed",
+              task.imgFile.name,
+              upErr,
+            );
+            failures.push(
+              `«${task.imgFile.name}»: ${upErr ?? "не удалось загрузить"}`,
+            );
+            return;
           }
-          urlMap.set(resolvedKey, `kbfile://${storage_path}`);
-        }
+          urlMap.set(task.resolvedKey, `kbfile://${storage_path}`);
+        });
 
         const blocksWithImages =
           urlMap.size > 0
@@ -640,6 +661,9 @@ export default function KbImportDialogBody({
 
         const urlMap = new Map<string, string>();
         const seen = new Set<string>();
+        // Phase 1 (serial): dedup + resolve File handle.
+        type FlatUploadTask = { basename: string; imgFile: File };
+        const flatTasks: FlatUploadTask[] = [];
         for (const ref of refs) {
           const rawBasename = ref.split(/[/\\]/).pop() ?? "";
           let decoded: string;
@@ -657,20 +681,27 @@ export default function KbImportDialogBody({
             unmatchedRefs.add(decoded);
             continue;
           }
+          flatTasks.push({ basename, imgFile });
+        }
 
+        // Phase 2 (bounded concurrent): see parallel comment in the
+        // zip branch above — same trade-off, limit=4 keeps pool happy.
+        await runWithConcurrency(flatTasks, 4, async (task) => {
           const { storage_path, error: upErr } = await uploadKbAttachment({
             pageId: row.id,
-            file: imgFile,
-            name: imgFile.name,
-            mime_type: imgFile.type || "application/octet-stream",
+            file: task.imgFile,
+            name: task.imgFile.name,
+            mime_type: task.imgFile.type || "application/octet-stream",
           });
           if (upErr || !storage_path) {
-            console.error("[kb-import] upload failed", imgFile.name, upErr);
-            failures.push(`«${imgFile.name}»: ${upErr ?? "не удалось загрузить"}`);
-            continue;
+            console.error("[kb-import] upload failed", task.imgFile.name, upErr);
+            failures.push(
+              `«${task.imgFile.name}»: ${upErr ?? "не удалось загрузить"}`,
+            );
+            return;
           }
-          urlMap.set(basename, `kbfile://${storage_path}`);
-        }
+          urlMap.set(task.basename, `kbfile://${storage_path}`);
+        });
 
         if (urlMap.size > 0) {
           const remappedBlocks = applyMediaUrlMap(rawBlocks, urlMap);

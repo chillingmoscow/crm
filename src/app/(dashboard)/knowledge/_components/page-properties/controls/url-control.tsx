@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Pencil } from "lucide-react";
+import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 
@@ -16,6 +17,12 @@ import { cn } from "@/lib/utils";
  *  что juyer возможно опечатался. Жёсткой валидации нет (Notion-style:
  *  принимаем любую строку, помечаем подозрительные). */
 const URL_VALID_PREFIX_RE = /^(https?:\/\/|mailto:|tel:)/i;
+
+/** Schemes that могут стать XSS-вектором если попадут в `<a href>`.
+ *  Display-сторона уже фильтрует через safeHref, но defence-in-depth:
+ *  не пишем такие значения в БД, чтобы экспорт / share / любой другой
+ *  потребитель не обошёл фильтр случайно. */
+const BLOCKED_SCHEME_RE = /^\s*(javascript|data|vbscript|file):/i;
 
 /** Убирает `https://` / `http://` префикс для display-режима когда
  *  `urlCollapsed === true`. Сама href остаётся полной. mailto: / tel:
@@ -82,6 +89,16 @@ export function UrlValueControl({
   const commit = (raw: string) => {
     const v = raw.trim();
     if (v === display) {
+      setDraft(display);
+      return;
+    }
+    // Defence-in-depth: never persist a value that starts with an
+    // active-content scheme. Display gates via `looksValid`, but if any
+    // downstream consumer (export, email, copy-paste reader) drops that
+    // gate, the URL becomes an XSS vector. Same allowlist principle as
+    // safeHref in @/lib/knowledge/safe-href.
+    if (BLOCKED_SCHEME_RE.test(v)) {
+      toast.warning("Эта схема URL не поддерживается");
       setDraft(display);
       return;
     }

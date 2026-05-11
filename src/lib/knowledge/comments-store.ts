@@ -591,10 +591,25 @@ export class SupabaseThreadStore extends ThreadStore {
       // loadInitial фильтрует `.is("deleted_at", null)` так что
       // orphan не вернётся в кэш и не повлияет на UI. См. Codex
       // #54 P1.
-      await this.supabase
+      const { error: rollbackError } = await this.supabase
         .from("kb_threads")
         .update({ deleted_at: new Date().toISOString() })
         .eq("id", threadId);
+      if (rollbackError) {
+        // Rollback failed → orphan thread (no comments) stays in DB.
+        // It's hidden from loadInitial via the deleted_at filter, BUT
+        // realtime broadcasts and `kb_threads_update_feed` may surface
+        // it elsewhere. Log loudly and tell the user; the next safe
+        // recovery is admin-side cleanup (DELETE by id) or a retry of
+        // soft-delete on the next page load.
+        console.error(
+          "[comments-store] failed to soft-delete orphan thread",
+          { threadId, originalError: cErr.message, rollbackError },
+        );
+        toast.error(
+          `Тред создан, но комментарий не сохранился, и откат не прошёл. Перезагрузите страницу.`,
+        );
+      }
       this.threadCache.delete(threadId);
       this.notify();
       throw new Error(`Не удалось создать комментарий: ${cErr.message}`);

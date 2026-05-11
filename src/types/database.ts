@@ -2120,60 +2120,45 @@ export type Database = {
           address: string | null
           avatar_url: string | null
           birth_date: string | null
-          comment: string | null
+          birth_date_set_at: string | null
           created_at: string
-          employment_date: string | null
           first_name: string | null
           gender: string | null
           id: string
           last_name: string | null
-          medical_book_date: string | null
-          medical_book_number: string | null
-          passport_photos: string[] | null
           phone: string | null
           photo_url: string | null
           telegram_id: string | null
-          terminal_pin: string | null
         }
         Insert: {
           active_venue_id?: string | null
           address?: string | null
           avatar_url?: string | null
           birth_date?: string | null
-          comment?: string | null
+          birth_date_set_at?: string | null
           created_at?: string
-          employment_date?: string | null
           first_name?: string | null
           gender?: string | null
           id: string
           last_name?: string | null
-          medical_book_date?: string | null
-          medical_book_number?: string | null
-          passport_photos?: string[] | null
           phone?: string | null
           photo_url?: string | null
           telegram_id?: string | null
-          terminal_pin?: string | null
         }
         Update: {
           active_venue_id?: string | null
           address?: string | null
           avatar_url?: string | null
           birth_date?: string | null
-          comment?: string | null
+          birth_date_set_at?: string | null
           created_at?: string
-          employment_date?: string | null
           first_name?: string | null
           gender?: string | null
           id?: string
           last_name?: string | null
-          medical_book_date?: string | null
-          medical_book_number?: string | null
-          passport_photos?: string[] | null
           phone?: string | null
           photo_url?: string | null
           telegram_id?: string | null
-          terminal_pin?: string | null
         }
         Relationships: [
           {
@@ -2468,6 +2453,63 @@ export type Database = {
           },
         ]
       }
+      staff_account_details: {
+        Row: {
+          account_id: string
+          comment: string | null
+          created_at: string
+          created_by: string | null
+          employment_date: string | null
+          medical_book_date: string | null
+          medical_book_number: string | null
+          passport_photos: string[]
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          employment_date?: string | null
+          medical_book_date?: string | null
+          medical_book_number?: string | null
+          passport_photos?: string[]
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          comment?: string | null
+          created_at?: string
+          created_by?: string | null
+          employment_date?: string | null
+          medical_book_date?: string | null
+          medical_book_number?: string | null
+          passport_photos?: string[]
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_account_details_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_account_details_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_venue_roles: {
         Row: {
           created_at: string
@@ -2476,6 +2518,7 @@ export type Database = {
           invited_by: string | null
           role_id: string
           status: string
+          terminal_pin: string | null
           user_id: string
           venue_id: string
         }
@@ -2486,6 +2529,7 @@ export type Database = {
           invited_by?: string | null
           role_id: string
           status?: string
+          terminal_pin?: string | null
           user_id: string
           venue_id: string
         }
@@ -2496,6 +2540,7 @@ export type Database = {
           invited_by?: string | null
           role_id?: string
           status?: string
+          terminal_pin?: string | null
           user_id?: string
           venue_id?: string
         }

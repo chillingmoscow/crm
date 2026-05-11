@@ -2,13 +2,19 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { StaffDetailPage } from "./_components/staff-detail-page";
-import type { FullStaffProfile } from "../actions";
+import type { StaffProfile, StaffAccountDetails } from "../actions";
 
 type TargetVenueRole = {
   id: string;
   role_id: string;
+  terminal_pin: string | null;
+  // Колонка в БД называется created_at — это «когда сотрудник попал в
+  // команду» (RPC get_venue_staff алиасит её в joined_at для фронта).
+  created_at: string | null;
   roles: { name: string; code: string } | null;
 };
+
+type VenueRow = { account_id: string | null };
 
 export default async function StaffMemberPage({
   params,
@@ -19,12 +25,12 @@ export default async function StaffMemberPage({
 
   const supabase = await createClient();
   type LooseQueryBuilder = {
-  select: (columns: string) => LooseQueryBuilder;
-  eq: (column: string, value: unknown) => LooseQueryBuilder;
-  maybeSingle: () => Promise<{ data: unknown }>;
-};
+    select: (columns: string) => LooseQueryBuilder;
+    eq: (column: string, value: unknown) => LooseQueryBuilder;
+    maybeSingle: () => Promise<{ data: unknown }>;
+  };
+  const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
 
-const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -50,6 +56,17 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   const activeRoleCode = (uvr?.roles as { code: string } | null)?.code ?? null;
   const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
 
+  // Текущее заведение → account_id (для запроса staff_account_details).
+  const { data: venueRow } = await supabase
+    .from("venues")
+    .select("account_id")
+    .eq("id", venueId)
+    .returns<VenueRow[]>()
+    .maybeSingle();
+
+  if (!venueRow?.account_id) redirect("/onboarding");
+  const accountId = venueRow.account_id;
+
   // Use admin client to bypass RLS for target user data
   const admin = createAdminClient();
 
@@ -59,58 +76,84 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   } = await admin.auth.admin.getUserById(userId);
   if (!targetAuthUser) redirect("/people/staff");
 
-  const { data: profileRow } = await admin
-    .from("profiles")
-    .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment, terminal_pin"
-    )
-    .eq("id", userId)
-    .returns<FullStaffProfile[]>()
-    .maybeSingle();
+  // Параллелим: персональный профиль (тир 1+2), UVR (terminal_pin + role),
+  // тенант-данные (тир 3), QR-link, список ролей.
+  const [
+    { data: profileRow },
+    { data: targetUvr },
+    { data: accountDetailsRow },
+    { data: importedLink },
+    { data: roles },
+  ] = await Promise.all([
+    admin
+      .from("profiles")
+      .select(
+        "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, avatar_url"
+      )
+      .eq("id", userId)
+      .returns<StaffProfile[]>()
+      .maybeSingle(),
+    admin
+      .from("user_venue_roles")
+      .select("id, role_id, terminal_pin, created_at, roles(name, code)")
+      .eq("user_id", userId)
+      .eq("venue_id", venueId)
+      .eq("status", "active")
+      .returns<TargetVenueRole[]>()
+      .maybeSingle(),
+    admin
+      .from("staff_account_details")
+      .select(
+        "account_id, user_id, employment_date, medical_book_number, medical_book_date, passport_photos, comment"
+      )
+      .eq("account_id", accountId)
+      .eq("user_id", userId)
+      .returns<StaffAccountDetails[]>()
+      .maybeSingle(),
+    db
+      .from("external_entity_links")
+      .select("id")
+      .eq("provider", "quickresto")
+      .eq("entity_type", "staff")
+      .eq("local_id", userId)
+      .maybeSingle(),
+    supabase.from("roles").select("id, name, code").order("name"),
+  ]);
 
   if (!profileRow) redirect("/people/staff");
-
-  // Target user's active UVR in this venue
-  const { data: targetUvr } = await admin
-    .from("user_venue_roles")
-    .select("id, role_id, roles(name, code)")
-    .eq("user_id", userId)
-    .eq("venue_id", venueId)
-    .eq("status", "active")
-    .returns<TargetVenueRole[]>()
-    .maybeSingle();
-
   if (!targetUvr) redirect("/people/staff");
 
-  const { data: importedLink } = await db
-    .from("external_entity_links")
-    .select("id")
-    .eq("provider", "quickresto")
-    .eq("entity_type", "staff")
-    .eq("local_id", userId)
-    .maybeSingle();
-
-  // Available roles
-  const { data: roles } = await supabase
-    .from("roles")
-    .select("id, name, code")
-    .order("name");
+  // Если для пары (account_id, user_id) ещё нет ряда в staff_account_details
+  // — это норма (свежий сотрудник, тенант-данные пусты). Подсовываем
+  // дефолты, чтобы UI знал «нечего показывать».
+  const accountDetails: StaffAccountDetails = accountDetailsRow ?? {
+    account_id:          accountId,
+    user_id:             userId,
+    employment_date:     null,
+    medical_book_number: null,
+    medical_book_date:   null,
+    passport_photos:     [],
+    comment:             null,
+  };
 
   return (
     <StaffDetailPage
-      profile={{
-        ...profileRow,
-        passport_photos: profileRow.passport_photos ?? [],
-      }}
+      profile={profileRow}
+      accountDetails={accountDetails}
+      accountId={accountId}
       email={targetAuthUser.email ?? ""}
       uvrId={targetUvr.id}
       roleId={targetUvr.role_id}
       roleName={targetUvr.roles?.name ?? ""}
+      terminalPin={targetUvr.terminal_pin}
       venueId={venueId}
       roles={roles ?? []}
       canEdit={canEdit}
       isMe={user.id === userId}
       importedFromQuickResto={Boolean(importedLink)}
+      joinedAt={targetUvr.created_at}
+      userCreatedAt={targetAuthUser.created_at ?? null}
+      emailConfirmed={Boolean(targetAuthUser.email_confirmed_at)}
     />
   );
 }

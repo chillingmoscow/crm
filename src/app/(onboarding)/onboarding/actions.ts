@@ -1326,10 +1326,10 @@ export async function runQuickRestoImport(data: {
             phone: name.phone,
             telegram_id: name.telegramId,
             birth_date: name.birthDate,
-            terminal_pin: pin,
           })
           .eq("id", localUserId);
 
+        // PIN терминала — venue-specific, кладётся в UVR (не в profiles).
         for (const localVenueId of localVenueIds) {
           const { error: membershipError } = await adminClient
             .from("user_venue_roles")
@@ -1340,6 +1340,7 @@ export async function runQuickRestoImport(data: {
                 role_id: localRoleId,
                 status: "active",
                 invited_by: user.id,
+                terminal_pin: pin,
               },
               { onConflict: "user_id,venue_id" }
             );

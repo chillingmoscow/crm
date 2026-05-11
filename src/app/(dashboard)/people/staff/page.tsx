@@ -52,32 +52,22 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
 
   const userIds = staff.map((member) => member.user_id);
   let importedLinks: { local_id: string }[] = [];
-  let profilePins: { id: string; terminal_pin: string | null }[] = [];
 
   if (userIds.length > 0) {
-    const [importedResult, pinResult] = await Promise.all([
-      (await db
-        .from("external_entity_links")
-        .select("local_id")
-        .eq("provider", "quickresto")
-        .eq("entity_type", "staff")
-        .in("local_id", userIds)) as unknown as { data: { local_id: string }[] | null },
-      supabase
-        .from("profiles")
-        .select("id, terminal_pin")
-        .in("id", userIds),
-    ]);
+    const importedResult = (await db
+      .from("external_entity_links")
+      .select("local_id")
+      .eq("provider", "quickresto")
+      .eq("entity_type", "staff")
+      .in("local_id", userIds)) as unknown as { data: { local_id: string }[] | null };
 
     importedLinks = importedResult.data ?? [];
-    profilePins = (pinResult.data as { id: string; terminal_pin: string | null }[] | null) ?? [];
   }
 
   const importedIds = new Set(importedLinks.map((row) => row.local_id));
-  const pinByUserId = new Map(profilePins.map((row) => [row.id, row.terminal_pin]));
   const enrichedStaff = staff.map((member) => ({
     ...member,
     imported_from_quickresto: importedIds.has(member.user_id),
-    terminal_pin: pinByUserId.get(member.user_id) ?? null,
   }));
 
   return (

@@ -36,6 +36,9 @@ export type StaffMember = {
   first_name:      string | null;
   last_name:       string | null;
   email:           string;
+  /** auth.users.email_confirmed_at !== null. false = invite ещё не принят
+   *  или сотрудник создан без email (placeholder). */
+  email_confirmed: boolean;
   avatar_url:      string | null;
   phone:           string | null;
   telegram_id:     string | null;
@@ -43,29 +46,39 @@ export type StaffMember = {
   birth_date:      string | null;
   employment_date: string | null;
   joined_at:       string;
-  terminal_pin?:   string | null;
   imported_from_quickresto?: boolean;
 };
 
-export type FullStaffProfile = {
-  id:                  string;
-  first_name:          string | null;
-  last_name:           string | null;
-  phone:               string | null;
-  telegram_id:         string | null;
-  gender:              string | null;
-  birth_date:          string | null;
-  address:             string | null;
+// Тир 1+2 — персональный профиль (user-owned). Видно во всех заведениях.
+export type StaffProfile = {
+  id:          string;
+  first_name:  string | null;
+  last_name:   string | null;
+  phone:       string | null;
+  telegram_id: string | null;
+  gender:      string | null;
+  birth_date:  string | null;
+  address:     string | null;
+  avatar_url:  string | null;
+};
+
+// Тир 3 — account-scoped HR-данные. Видно только админам этого аккаунта.
+export type StaffAccountDetails = {
+  account_id:          string;
+  user_id:             string;
   employment_date:     string | null;
-  avatar_url:          string | null;
   medical_book_number: string | null;
   medical_book_date:   string | null;
   passport_photos:     string[];
   comment:             string | null;
-  terminal_pin:        string | null;
 };
 
-export type ProfileUpdate = Omit<FullStaffProfile, "id" | "passport_photos">;
+export type ProfileUpdate = Omit<StaffProfile, "id">;
+
+export type AccountDetailsUpdate = Omit<
+  StaffAccountDetails,
+  "account_id" | "user_id"
+>;
 
 export async function getStaff(venueId: string): Promise<StaffMember[]> {
   const supabase = await createClient();
@@ -78,32 +91,64 @@ export async function getStaff(venueId: string): Promise<StaffMember[]> {
 
 export async function getStaffProfile(
   userId: string
-): Promise<FullStaffProfile | null> {
+): Promise<StaffProfile | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("profiles")
     .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, employment_date, avatar_url, medical_book_number, medical_book_date, passport_photos, comment, terminal_pin"
+      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, avatar_url"
     )
     .eq("id", userId)
-    .returns<FullStaffProfile[]>()
+    .returns<StaffProfile[]>()
     .maybeSingle();
-  if (!data) return null;
-  return {
-    ...data,
-    passport_photos: data.passport_photos ?? [],
-  };
+  return data ?? null;
 }
 
 export async function updateStaffProfile(
   userId: string,
-  data: Partial<ProfileUpdate> & { passport_photos?: string[] }
+  data: Partial<ProfileUpdate>
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { error } = await supabase
     .from("profiles")
     .update(data)
     .eq("id", userId);
+  if (error) return { error: error.message };
+  revalidatePath("/people/staff");
+  return { error: null };
+}
+
+// Account-scoped HR-данные сотрудника: апсерт в staff_account_details.
+// account_id — активный аккаунт админа (RLS гарантирует, что он не запишет
+// в чужой). passport_photos дописывается полностью (массив целиком).
+export async function updateStaffAccountDetails(
+  userId: string,
+  accountId: string,
+  data: Partial<AccountDetailsUpdate>,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("staff_account_details")
+    .upsert(
+      { account_id: accountId, user_id: userId, ...data },
+      { onConflict: "account_id,user_id" },
+    );
+  if (error) return { error: error.message };
+  revalidatePath("/people/staff");
+  return { error: null };
+}
+
+// PIN терминала — venue-specific, лежит на UVR.
+export async function updateStaffTerminalPin(
+  uvrId: string,
+  pin: string | null,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const trimmed = pin?.trim() || null;
+  const { error } = await supabase
+    .from("user_venue_roles")
+    .update({ terminal_pin: trimmed })
+    .eq("id", uvrId);
   if (error) return { error: error.message };
   revalidatePath("/people/staff");
   return { error: null };
@@ -322,6 +367,139 @@ function isImportedPlaceholderEmail(value: string): boolean {
   return value.toLowerCase().endsWith("@import.local");
 }
 
+// Создаёт сотрудника БЕЗ email (placeholder-auth-user). Используется когда
+// сотруднику не нужен личный кабинет — уборщица, повар, кассир — но он
+// должен быть в системе для расчётов смен, ЗП, статистики и т.д. Админ
+// сам ведёт его карточку. Когда понадобится дать доступ — апгрейдим через
+// `setImportedStaffEmailAndInvite` (тот же механизм что и QR-импорт).
+export async function createStaffWithoutEmail(data: {
+  firstName: string;
+  lastName:  string;
+  phone:     string | null;
+  roleId:    string;
+  venueId:   string;
+}): Promise<{ error: string | null; member: StaffMember | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован", member: null };
+
+  const firstName = data.firstName.trim();
+  const lastName  = data.lastName.trim();
+  if (!firstName || !lastName) {
+    return { error: "Имя и фамилия обязательны", member: null };
+  }
+
+  // Проверка прав: вызывающий должен быть owner/manager/admin в этом venue.
+  const { data: callerUvr } = await supabase
+    .from("user_venue_roles")
+    .select("roles(code)")
+    .eq("user_id", user.id)
+    .eq("venue_id", data.venueId)
+    .eq("status", "active")
+    .maybeSingle();
+  const callerCode = (callerUvr?.roles as { code: string } | null)?.code ?? null;
+  if (!["owner", "manager", "admin"].includes(callerCode ?? "")) {
+    return { error: "Недостаточно прав", member: null };
+  }
+
+  // Случайный placeholder email и пароль. Email-домен @import.local — тот
+  // же что у QR-импорта; UI воспринимает такого юзера как «не зарегистрирован»
+  // и разрешает админу править личные поля. Пароль никогда не используется —
+  // login через email-OTP при апгрейде до реального email.
+  const admin = createAdminClient();
+  const random = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const placeholderEmail = `noemail_${random}@import.local`;
+  const randomPassword = crypto.randomUUID() + crypto.randomUUID();
+
+  const { data: created, error: createError } = await admin.auth.admin.createUser({
+    email: placeholderEmail,
+    password: randomPassword,
+    email_confirm: true,
+    user_metadata: { placeholder: true, created_by: user.id },
+  });
+
+  if (createError || !created?.user) {
+    return { error: createError?.message ?? "Не удалось создать пользователя", member: null };
+  }
+
+  const newUserId = created.user.id;
+
+  // Profile (личные данные). Триггер `handle_new_user` мог создать запись
+  // автоматически — поэтому upsert.
+  const { error: profileError } = await admin
+    .from("profiles")
+    .upsert({
+      id:          newUserId,
+      first_name:  firstName,
+      last_name:   lastName,
+      phone:       data.phone?.trim() || null,
+    }, { onConflict: "id" });
+
+  if (profileError) {
+    // Откатываем созданного auth user'а если профиль не легёг.
+    await admin.auth.admin.deleteUser(newUserId);
+    return { error: profileError.message, member: null };
+  }
+
+  // UVR (статус active). employment_date в карточке выведется через
+  // coalesce(sad.employment_date, uvr.created_at::date) в get_venue_staff.
+  const { data: uvrInsert, error: uvrError } = await admin
+    .from("user_venue_roles")
+    .insert({
+      user_id:    newUserId,
+      venue_id:   data.venueId,
+      role_id:    data.roleId,
+      status:     "active",
+      invited_by: user.id,
+    })
+    .select("id, created_at")
+    .maybeSingle();
+
+  if (uvrError || !uvrInsert) {
+    await admin.auth.admin.deleteUser(newUserId);
+    return { error: uvrError?.message ?? "Не удалось добавить в команду", member: null };
+  }
+
+  // Дотягиваем имя роли — нужно для оптимистичного рендера в списке.
+  const { data: roleRow } = await admin
+    .from("roles")
+    .select("name, code")
+    .eq("id", data.roleId)
+    .maybeSingle();
+
+  revalidatePath("/people/staff");
+
+  const member: StaffMember = {
+    uvr_id:          uvrInsert.id,
+    user_id:         newUserId,
+    role_id:         data.roleId,
+    role_name:       roleRow?.name ?? "",
+    role_code:       roleRow?.code ?? "",
+    first_name:      firstName,
+    last_name:       lastName,
+    email:           placeholderEmail,
+    // email_confirmed = true (createUser выставил email_confirmed_at).
+    // UI определяет «placeholder» по домену *@import.local — этот флаг
+    // здесь только чтобы тип совпадал с DB-реальностью.
+    email_confirmed: true,
+    avatar_url:      null,
+    phone:           data.phone?.trim() || null,
+    telegram_id:     null,
+    gender:          null,
+    birth_date:      null,
+    employment_date: uvrInsert.created_at?.slice(0, 10) ?? null,
+    joined_at:       uvrInsert.created_at ?? new Date().toISOString(),
+  };
+
+  return { error: null, member };
+}
+
+// Апгрейд existing placeholder/pending-юзера до реального email + invite.
+// Ключевое отличие от inviteStaff: НЕ создаёт ряд в `invitations` (юзер уже
+// существует с активным UVR и виден в списке staff). Просто меняет email и
+// шлёт magic link для подтверждения.
 export async function setImportedStaffEmailAndInvite(data: {
   userId: string;
   email: string;
@@ -356,23 +534,96 @@ export async function setImportedStaffEmailAndInvite(data: {
   }
 
   const admin = createAdminClient();
+
+  // Шаг 1: меняем email в auth.users, сбрасываем email_confirmed_at.
   const { error: updateAuthError } = await admin.auth.admin.updateUserById(data.userId, {
     email: nextEmail,
     email_confirm: false,
   });
-
   if (updateAuthError) {
     return { error: updateAuthError.message, invitation: null };
   }
 
-  const inviteResult = await inviteStaff({
+  // Шаг 2: контекст для письма (имя заведения, аккаунта, приглашающего, роли).
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const [{ data: venueRow }, { data: inviterProfile }, { data: roleRow }] = await Promise.all([
+    supabase
+      .from("venues")
+      .select("name, accounts(name)")
+      .eq("id", data.venueId)
+      .maybeSingle(),
+    supabase
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("roles")
+      .select("name")
+      .eq("id", data.roleId)
+      .maybeSingle(),
+  ]);
+
+  if (!venueRow?.name) {
+    return { error: "Не удалось определить заведение для приглашения", invitation: null };
+  }
+  const accountName = ((venueRow.accounts as { name?: string } | null)?.name ?? null) || null;
+  const inviterName = [inviterProfile?.first_name, inviterProfile?.last_name]
+    .filter(Boolean).join(" ") || null;
+  const roleName = roleRow?.name ?? null;
+
+  const linkPayload = {
+    venue_id: data.venueId,
+    role_id: data.roleId,
+    venue_name: venueRow.name,
+    role_name: roleName,
+  };
+
+  // Шаг 3: magic link на новый email (юзер уже существует, тип magiclink).
+  const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+    type: "magiclink",
     email: nextEmail,
-    roleId: data.roleId,
-    venueId: data.venueId,
+    options: {
+      data: linkPayload,
+      redirectTo: `${siteUrl}/dashboard`,
+    },
   });
+  if (linkError || !linkData?.properties?.action_link) {
+    return {
+      error: linkError?.message ?? "Не удалось сгенерировать ссылку для входа",
+      invitation: null,
+    };
+  }
+
+  // Шаг 4: отправляем письмо.
+  // Если есть custom mailer (SMTP) — наше брендированное письмо.
+  // Иначе на локали остаётся Supabase Inbucket (письмо уже создаётся
+  // вместе с generateLink — оно попадает в Inbucket).
+  if (hasCustomMailerConfig()) {
+    try {
+      await sendInvitationEmail({
+        to: nextEmail,
+        actionLink: linkData.properties.action_link,
+        venueName: venueRow.name,
+        accountName,
+        inviterName,
+        roleName,
+        existingUser: true,
+      });
+    } catch (emailError) {
+      return {
+        error: emailError instanceof Error
+          ? emailError.message
+          : "Не удалось отправить письмо",
+        invitation: null,
+      };
+    }
+  }
 
   revalidatePath("/people/staff");
-  return inviteResult;
+  // Возвращаем invitation = null, т.к. строки в `invitations` мы не создавали —
+  // юзер уже в списке staff, отдельная "Ожидает"-строка не нужна.
+  return { error: null, invitation: null };
 }
 
 export async function inviteImportedStaffByCurrentEmail(data: {

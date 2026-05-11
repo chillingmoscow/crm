@@ -254,7 +254,7 @@ export function RoleDetailPage({
           <div className="flex items-center gap-3 flex-wrap">
             {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
             <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-              {nameValue || role.name}
+              {role.name}
             </h1>
             {role.account_id === null && (
               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
@@ -265,9 +265,9 @@ export function RoleDetailPage({
               </span>
             )}
           </div>
-          {(commentValue || role.comment) && (
+          {role.comment && (
             <p className="text-sm text-muted-foreground leading-snug">
-              {commentValue || role.comment}
+              {role.comment}
             </p>
           )}
         </div>

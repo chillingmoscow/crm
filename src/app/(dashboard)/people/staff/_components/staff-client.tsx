@@ -8,14 +8,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
-  UserPlus, Calendar, Clock, X, Settings2,
-  ChevronDown, RotateCcw, Search, Filter, AlertTriangle,
+  UserPlus, Calendar, Clock, X, Check, Settings2,
+  ChevronDown, ChevronRight, RotateCcw, Search, Filter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -29,10 +28,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   inviteStaff,
   restoreStaff,
   cancelInvitation,
+  createStaffWithoutEmail,
 } from "../actions";
 import type { StaffMember, PendingInvitation, FiredStaffMember } from "../actions";
 
@@ -43,25 +44,30 @@ type ColKey =
 
 const COL_DEFS: {
   key: ColKey; label: string; width: string; required?: boolean;
-  headerClass?: string;
+  /** "center" centers both header label and cell content */
+  align?: "center";
 }[] = [
-  { key: "avatar",          label: "Фото",                 width: "44px" },
-  { key: "name",            label: "Имя",                  width: "1fr",   required: true },
-  { key: "email",           label: "Email",                width: "1fr" },
+  // Точно по дизайну u16dak/NQk5c (frame WcQJN):
+  // avatar 40, name 1fr, email 1fr, role 180, qr_import 140 center,
+  // employment_date 180. Trailing chevron — 24px колонка после визибл-сета.
+  { key: "avatar",          label: "Фото",                 width: "40px" },
+  { key: "name",            label: "Имя",                  width: "minmax(180px, 1fr)", required: true },
+  { key: "email",           label: "Email",                width: "minmax(180px, 1fr)" },
   { key: "phone",           label: "Телефон",              width: "140px" },
   { key: "telegram",        label: "Telegram",             width: "120px" },
   { key: "gender",          label: "Пол",                  width: "60px" },
   { key: "birth_date",      label: "Дата рождения",        width: "120px" },
-  { key: "role",            label: "Должность",            width: "140px" },
-  { key: "qr_import",       label: "Импорт из QR",         width: "120px" },
-  { key: "employment_date", label: "Трудоустройство",      width: "160px", headerClass: "text-right" },
+  { key: "role",            label: "Должность",            width: "180px" },
+  { key: "qr_import",       label: "Импорт из QR",         width: "140px", align: "center" },
+  { key: "employment_date", label: "Трудоустройство",      width: "180px" },
 ];
 
 const DEFAULT_COLS: ColKey[] = ["avatar", "name", "email", "role", "qr_import", "employment_date"];
 
 function buildGrid(visible: Set<ColKey>) {
   const cols = COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width);
-  return [...cols, "40px"].join(" ");
+  // Trailing 24px col for chevron-right (design AAgr3) / cancel × on pending rows.
+  return [...cols, "24px"].join(" ");
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -70,6 +76,14 @@ const inviteSchema = z.object({
   roleId: z.string().min(1, "Выберите должность"),
 });
 type InviteForm = z.infer<typeof inviteSchema>;
+
+const createSchema = z.object({
+  firstName: z.string().min(1, "Укажите имя"),
+  lastName:  z.string().min(1, "Укажите фамилию"),
+  phone:     z.string().optional(),
+  roleId:    z.string().min(1, "Выберите должность"),
+});
+type CreateForm = z.infer<typeof createSchema>;
 
 type Role = { id: string; name: string; code: string };
 
@@ -286,6 +300,7 @@ export function StaffClient({
   const [invitations, setInvitations] = useState(initialInvitations);
   const [fired, setFired]             = useState(initialFired);
   const [inviteOpen, setInviteOpen]   = useState(false);
+  const [addMode, setAddMode]         = useState<"email" | "manual">("manual");
   const [isPending, startTransition]  = useTransition();
   const [firedOpen, setFiredOpen]     = useState(false);
 
@@ -330,6 +345,12 @@ export function StaffClient({
     formState: { errors },
   } = useForm<InviteForm>({ resolver: zodResolver(inviteSchema) });
 
+  // Отдельная форма для «Добавить без email».
+  const createFormHook = useForm<CreateForm>({
+    resolver: zodResolver(createSchema),
+    defaultValues: { firstName: "", lastName: "", phone: "", roleId: "" },
+  });
+
   // ── Filtering logic ────────────────────────────────────────
   const q = searchQuery.toLowerCase().trim();
 
@@ -367,6 +388,28 @@ export function StaffClient({
     });
   };
 
+  const onCreateWithoutEmail = (values: CreateForm) => {
+    startTransition(async () => {
+      const result = await createStaffWithoutEmail({
+        firstName: values.firstName,
+        lastName:  values.lastName,
+        phone:     values.phone || null,
+        roleId:    values.roleId,
+        venueId,
+      });
+      if (result.error) { toast.error(result.error); return; }
+      // Оптимистично добавляем нового сотрудника в список, чтобы не ждать
+      // полного refresh от сервера.
+      if (result.member) {
+        const member = { ...result.member, imported_from_quickresto: false };
+        setStaff((prev) => [...prev, member]);
+      }
+      toast.success(`Сотрудник «${values.firstName} ${values.lastName}» добавлен`);
+      createFormHook.reset();
+      setInviteOpen(false);
+    });
+  };
+
   const onRestore = (uvrId: string) => {
     startTransition(async () => {
       const result = await restoreStaff(uvrId);
@@ -382,6 +425,10 @@ export function StaffClient({
           first_name:      member.first_name,
           last_name:       member.last_name,
           email:           member.email,
+          // Восстановленный сотрудник — статус подтверждения email с сервера
+          // подтянется при следующем refresh; пока считаем true (он уже был
+          // подтверждённым раньше, иначе не смогли бы fire).
+          email_confirmed: true,
           avatar_url:      member.avatar_url,
           phone:           null,
           telegram_id:     null,
@@ -419,27 +466,38 @@ export function StaffClient({
             <StaffAvatar member={member} />
           </div>
         );
-      case "name":
+      case "name": {
+        const isPlaceholder = member.email.toLowerCase().endsWith("@import.local");
+        const isPendingInvite = !isPlaceholder && !member.email_confirmed;
         return (
           <div className="min-w-0">
             <p className="font-medium text-sm truncate">
               {displayName(member)}
               {isMe && <span className="ml-2 text-xs text-muted-foreground font-normal">(вы)</span>}
             </p>
-            {member.imported_from_quickresto && member.email.toLowerCase().endsWith("@import.local") ? (
+            {isPlaceholder && (
               <span
-                className="inline-flex mt-1 items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700"
-                title="Нужно указать e-mail сотрудника и пригласить его в систему."
+                className="inline-flex mt-1 items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground"
+                title="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
               >
-                <AlertTriangle className="w-3 h-3" />
-                Требуется e-mail
+                Без аккаунта
               </span>
-            ) : null}
+            )}
+            {isPendingInvite && (
+              <span
+                className="inline-flex mt-1 items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                title="Приглашение отправлено, но сотрудник ещё не подтвердил email."
+              >
+                <Clock className="w-3 h-3" />
+                Ожидает подтверждения
+              </span>
+            )}
           </div>
         );
+      }
       case "email":
         return (
-          <div className="text-sm text-muted-foreground min-w-0 truncate">
+          <div className="text-[13px] text-muted-foreground min-w-0 truncate">
             {member.email.toLowerCase().endsWith("@import.local") ? "Email не указан" : member.email}
           </div>
         );
@@ -451,7 +509,10 @@ export function StaffClient({
         return <div className="text-sm text-muted-foreground">{genderShort(member.gender)}</div>;
       case "birth_date":
         return <div className="text-sm text-muted-foreground">{formatDate(member.birth_date)}</div>;
-      case "role":
+      case "role": {
+        // Owner — brand-tinted badge per design (descendants override на zHpCv: fill #1570EF).
+        // Остальные — стандартный secondary.
+        const isOwner = member.role_code === "owner";
         return (
           <button
             onClick={(e) => {
@@ -462,22 +523,35 @@ export function StaffClient({
           >
             <Badge
               variant="secondary"
-              className="text-xs cursor-pointer hover:bg-accent"
+              className={`text-xs cursor-pointer hover:bg-accent ${
+                isOwner ? "text-brand" : ""
+              }`}
             >
               {member.role_name}
             </Badge>
           </button>
         );
+      }
       case "qr_import":
         return (
-          <div className="text-sm text-muted-foreground">
-            {member.imported_from_quickresto ? "Да" : "Нет"}
+          <div
+            className="flex items-center justify-center"
+            aria-label={member.imported_from_quickresto ? "Да" : "Нет"}
+          >
+            {member.imported_from_quickresto ? (
+              <Check className="w-4 h-4 text-brand" />
+            ) : (
+              <X className="w-4 h-4 text-muted-foreground" />
+            )}
           </div>
         );
       case "employment_date":
         return (
-          <div className="flex items-center gap-1 justify-end text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
-            <Calendar className="w-3 h-3 shrink-0" />
+          <div
+            className="flex items-center gap-1.5 text-[13px] text-foreground"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Calendar className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
             {formatDate(member.employment_date ?? member.joined_at)}
           </div>
         );
@@ -506,11 +580,15 @@ export function StaffClient({
       case "role":
         return <Badge variant="secondary" className="text-xs cursor-default">{inv.role_name}</Badge>;
       case "qr_import":
-        return <div className="text-sm text-muted-foreground">—</div>;
+        return (
+          <div className="flex items-center justify-center text-sm text-muted-foreground">
+            —
+          </div>
+        );
       case "employment_date":
         return (
-          <div className="flex items-center gap-1 justify-end text-xs text-muted-foreground">
-            <Calendar className="w-3 h-3 shrink-0" />
+          <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
             {formatDate(inv.invited_at)}
           </div>
         );
@@ -522,10 +600,10 @@ export function StaffClient({
   // ── Render ─────────────────────────────────────────────────
   return (
     <div className="p-6 md:p-8 w-full">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Header — типографика и spacing совпадают с roles-client (DS «Page header») */}
+      <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold">Сотрудники</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Сотрудники</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {totalCount > 0
               ? `${totalCount} ${totalCount === 1 ? "сотрудник" : totalCount < 5 ? "сотрудника" : "сотрудников"}`
@@ -574,7 +652,7 @@ export function StaffClient({
           {canEdit && (
             <Button onClick={() => setInviteOpen(true)} size="sm">
               <UserPlus className="w-4 h-4 mr-1.5" />
-              Пригласить
+              Добавить
             </Button>
           )}
         </div>
@@ -585,77 +663,89 @@ export function StaffClient({
         <div className="rounded-lg border border-dashed flex flex-col items-center justify-center p-16 text-center">
           <UserPlus className="w-10 h-10 text-muted-foreground mb-3" />
           <p className="text-sm font-medium">Нет сотрудников</p>
-          <p className="text-sm text-muted-foreground mt-1">Пригласите первого сотрудника в заведение</p>
+          <p className="text-sm text-muted-foreground mt-1">Добавьте первого сотрудника</p>
           {canEdit && (
             <Button onClick={() => setInviteOpen(true)} size="sm" className="mt-4">
               <UserPlus className="w-4 h-4 mr-1.5" />
-              Пригласить
+              Добавить
             </Button>
           )}
         </div>
       )}
 
-      {/* Staff table */}
+      {/* Staff table — карточка по дизайну NQk5c (frame SolGg):
+          rounded-xl, border, header bg-muted/60, row padding [14, 20] */}
       {(staff.length > 0 || invitations.length > 0) && (
-        <div className="rounded-lg border overflow-hidden">
+        <div className="rounded-xl border bg-card overflow-hidden">
           {/* Table header */}
           <div
-            className="grid gap-3 px-4 py-3 bg-muted/50 text-xs font-medium text-muted-foreground uppercase tracking-wide border-b"
+            className="grid gap-4 px-5 py-3 bg-muted/60 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b"
             style={{ gridTemplateColumns: template }}
           >
             {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
-              <span key={col.key} className={col.headerClass ?? ""}>{col.label}</span>
+              <span
+                key={col.key}
+                className={col.align === "center" ? "text-center" : ""}
+              >
+                {col.label}
+              </span>
             ))}
-            <span />
+            <span aria-hidden />
           </div>
 
           {/* Active staff rows */}
-          {filteredStaff.map((member, i) => (
-            <div key={member.uvr_id}>
-              {i > 0 && <Separator />}
-              <div
-                className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors cursor-pointer"
-                style={{ gridTemplateColumns: template }}
-                onClick={() => router.push(`/people/staff/${member.user_id}`)}
-              >
-                {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
-                  <div key={col.key}>{renderCell(col.key, member)}</div>
-                ))}
-                <div />
-              </div>
+          {filteredStaff.map((member) => (
+            <div
+              key={member.uvr_id}
+              className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
+              style={{ gridTemplateColumns: template }}
+              onClick={() => router.push(`/people/staff/${member.user_id}`)}
+            >
+              {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
+                <div
+                  key={col.key}
+                  className={`min-w-0 ${col.align === "center" ? "flex items-center justify-center" : ""}`}
+                >
+                  {renderCell(col.key, member)}
+                </div>
+              ))}
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
             </div>
           ))}
 
           {/* Pending invitation rows */}
           {filteredInvitations.map((inv) => (
-            <div key={inv.inv_id}>
-              <Separator />
-              <div
-                className="grid gap-3 items-center px-4 py-3 hover:bg-muted/30 transition-colors"
-                style={{ gridTemplateColumns: template }}
-              >
-                {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
-                  <div key={col.key}>{renderInvCell(col.key, inv)}</div>
-                ))}
-                <div className="flex justify-end">
-                  {canEdit && (
-                    <Button
-                      size="icon" variant="ghost"
-                      className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                      disabled={isPending}
-                      onClick={() => onCancelInvitation(inv.inv_id)}
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </Button>
-                  )}
+            <div
+              key={inv.inv_id}
+              className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors"
+              style={{ gridTemplateColumns: template }}
+            >
+              {COL_DEFS.filter((c) => visibleCols.has(c.key)).map((col) => (
+                <div
+                  key={col.key}
+                  className={`min-w-0 ${col.align === "center" ? "flex items-center justify-center" : ""}`}
+                >
+                  {renderInvCell(col.key, inv)}
                 </div>
+              ))}
+              <div className="flex justify-end">
+                {canEdit && (
+                  <Button
+                    size="icon" variant="ghost"
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    disabled={isPending}
+                    onClick={() => onCancelInvitation(inv.inv_id)}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                )}
               </div>
             </div>
           ))}
 
           {/* No results from filter */}
           {isFiltered && filteredStaff.length === 0 && filteredInvitations.length === 0 && (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
               Нет сотрудников, соответствующих фильтрам
             </div>
           )}
@@ -673,32 +763,32 @@ export function StaffClient({
             Уволенные сотрудники ({fired.length})
           </button>
           {firedOpen && (
-            <div className="rounded-lg border overflow-hidden">
-              {fired.map((member, i) => (
-                <div key={member.uvr_id}>
-                  {i > 0 && <Separator />}
-                  <div className="grid grid-cols-[44px_1fr_auto] gap-3 items-center px-4 py-3">
-                    <div className="flex items-center justify-center">
-                      <StaffAvatar member={member} faded />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate text-muted-foreground">{displayName(member)}</p>
-                      <p className="text-xs text-muted-foreground/70 mt-0.5">
-                        {member.role_name} · уволен {formatDate(member.fired_at)}
-                      </p>
-                    </div>
-                    {canEdit && (
-                      <Button
-                        size="sm" variant="outline"
-                        className="h-7 text-xs gap-1"
-                        disabled={isPending}
-                        onClick={() => onRestore(member.uvr_id)}
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        Восстановить
-                      </Button>
-                    )}
+            <div className="rounded-xl border bg-card overflow-hidden">
+              {fired.map((member) => (
+                <div
+                  key={member.uvr_id}
+                  className="grid grid-cols-[40px_1fr_auto] gap-4 items-center px-5 py-3.5 border-b last:border-b-0"
+                >
+                  <div className="flex items-center justify-center">
+                    <StaffAvatar member={member} faded />
                   </div>
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate text-muted-foreground">{displayName(member)}</p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">
+                      {member.role_name} · уволен {formatDate(member.fired_at)}
+                    </p>
+                  </div>
+                  {canEdit && (
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-7 text-xs gap-1"
+                      disabled={isPending}
+                      onClick={() => onRestore(member.uvr_id)}
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      Восстановить
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
@@ -706,34 +796,136 @@ export function StaffClient({
         </div>
       )}
 
-      {/* Invite sheet */}
+      {/* Add staff sheet — два режима: «По email» (отсылает invite, юзер
+          логинится сам) и «Без email» (placeholder-аккаунт, админ ведёт карточку). */}
       <Sheet open={inviteOpen} onOpenChange={setInviteOpen}>
         <SheetContent className="w-full sm:max-w-md">
-          <SheetHeader><SheetTitle>Пригласить сотрудника</SheetTitle></SheetHeader>
-          <form onSubmit={handleSubmit(onInvite)} className="mt-6 space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="inv-email">Email сотрудника *</Label>
-              <Input id="inv-email" type="email" placeholder="employee@example.com" {...register("email")} />
-              {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label>Должность *</Label>
-              <Select onValueChange={(v) => setValue("roleId", v)}>
-                <SelectTrigger><SelectValue placeholder="Выберите должность" /></SelectTrigger>
-                <SelectContent>
-                  {roles.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {errors.roleId && <p className="text-sm text-destructive">{errors.roleId.message}</p>}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Сотруднику будет отправлено приглашение на указанный email.
-            </p>
-            <div className="flex gap-3">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setInviteOpen(false)}>Отмена</Button>
-              <Button type="submit" className="flex-1" disabled={isPending}>Отправить приглашение</Button>
-            </div>
-          </form>
+          <SheetHeader>
+            <SheetTitle>Добавить сотрудника</SheetTitle>
+          </SheetHeader>
+
+          <Tabs
+            value={addMode}
+            onValueChange={(v) => setAddMode(v as "email" | "manual")}
+            className="mt-6"
+          >
+            <TabsList className="grid grid-cols-2">
+              <TabsTrigger value="manual">Создать</TabsTrigger>
+              <TabsTrigger value="email">Пригласить</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="manual" className="mt-5">
+              <form
+                onSubmit={createFormHook.handleSubmit(onCreateWithoutEmail)}
+                className="space-y-5"
+              >
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="create-first" className="text-[13px] font-medium">
+                      Имя <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="create-first"
+                      placeholder="Иван"
+                      {...createFormHook.register("firstName")}
+                    />
+                    {createFormHook.formState.errors.firstName && (
+                      <p className="text-xs text-destructive">
+                        {createFormHook.formState.errors.firstName.message}
+                      </p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="create-last" className="text-[13px] font-medium">
+                      Фамилия <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="create-last"
+                      placeholder="Иванов"
+                      {...createFormHook.register("lastName")}
+                    />
+                    {createFormHook.formState.errors.lastName && (
+                      <p className="text-xs text-destructive">
+                        {createFormHook.formState.errors.lastName.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="create-phone" className="text-[13px] font-medium">Телефон</Label>
+                  <Input
+                    id="create-phone"
+                    type="tel"
+                    placeholder="+7 (999) 000-00-00"
+                    {...createFormHook.register("phone")}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[13px] font-medium">
+                    Должность <span className="text-destructive">*</span>
+                  </Label>
+                  <Select onValueChange={(v) => createFormHook.setValue("roleId", v)}>
+                    <SelectTrigger><SelectValue placeholder="Выберите должность" /></SelectTrigger>
+                    <SelectContent>
+                      {roles.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {createFormHook.formState.errors.roleId && (
+                    <p className="text-xs text-destructive">
+                      {createFormHook.formState.errors.roleId.message}
+                    </p>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Вы создаёте карточку сотрудника и ведёте её сами. Когда понадобится дать ему доступ к системе — впишите email на карточке и отправьте приглашение. После этого сотрудник возьмёт управление профилем в свои руки.
+                </p>
+                <div className="flex gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setInviteOpen(false)}
+                  >
+                    Отмена
+                  </Button>
+                  <Button type="submit" className="flex-1" disabled={isPending}>
+                    Создать
+                  </Button>
+                </div>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="email" className="mt-5">
+              <form onSubmit={handleSubmit(onInvite)} className="space-y-5">
+                <div className="space-y-1.5">
+                  <Label htmlFor="inv-email" className="text-[13px] font-medium">
+                    Email сотрудника <span className="text-destructive">*</span>
+                  </Label>
+                  <Input id="inv-email" type="email" placeholder="employee@example.com" {...register("email")} />
+                  {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[13px] font-medium">
+                    Должность <span className="text-destructive">*</span>
+                  </Label>
+                  <Select onValueChange={(v) => setValue("roleId", v)}>
+                    <SelectTrigger><SelectValue placeholder="Выберите должность" /></SelectTrigger>
+                    <SelectContent>
+                      {roles.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {errors.roleId && <p className="text-sm text-destructive">{errors.roleId.message}</p>}
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Сотрудник получит приглашение на указанный email, зарегистрируется сам и будет вести свой профиль самостоятельно.
+                </p>
+                <div className="flex gap-3">
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setInviteOpen(false)}>Отмена</Button>
+                  <Button type="submit" className="flex-1" disabled={isPending}>Отправить приглашение</Button>
+                </div>
+              </form>
+            </TabsContent>
+          </Tabs>
         </SheetContent>
       </Sheet>
     </div>

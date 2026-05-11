@@ -112,6 +112,7 @@ test("number → rating variant: copies max, drops unit, applies ratingVariant",
   });
   const result = collectionFieldDisplayProperty(stored, f, context);
   assert.equal(result.type, "number");
+  assert.equal(result.type, "number");
   if (result.type !== "number") return;
   assert.equal(result.displayVariant, "rating");
   assert.equal(result.max, 10);
@@ -131,6 +132,7 @@ test("number → rating variant: max defaults to 5 if field.max not set", () => 
   };
   const f = field("n", "number", { displayVariant: "rating" });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "number");
   if (result.type !== "number") return;
   assert.equal(result.max, 5);
 });
@@ -150,6 +152,7 @@ test("number → rating: stars variant clears ratingVariant key", () => {
     ratingShowValue: true,
   });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "number");
   if (result.type !== "number") return;
   // ratingVariant === "stars" → key absent (default)
   assert.equal(result.ratingVariant, undefined);
@@ -170,6 +173,7 @@ test("number → plain: strips rating-related keys", () => {
   };
   const f = field("n", "number", { displayVariant: undefined });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "number");
   if (result.type !== "number") return;
   assert.equal(result.displayVariant, undefined);
   assert.equal(result.max, undefined);
@@ -190,6 +194,7 @@ test("checkbox: applies switch variant from field, strips stored one", () => {
   };
   const f = field("c", "checkbox", { displayVariant: "switch" });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "checkbox");
   if (result.type !== "checkbox") return;
   assert.equal(result.displayVariant, "switch");
   assert.equal(result.value, true);
@@ -205,6 +210,7 @@ test("checkbox: no displayVariant when field is plain", () => {
   };
   const f = field("c", "checkbox");
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "checkbox");
   if (result.type !== "checkbox") return;
   // Stored displayVariant=switch must be stripped because field has none.
   assert.equal(result.displayVariant, undefined);
@@ -222,6 +228,7 @@ test("text: collapsed flag propagates from field, stored value preserved", () =>
   };
   const f = field("t", "text", { collapsed: true });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "text");
   if (result.type !== "text") return;
   assert.equal(result.collapsed, true);
   assert.equal(result.value, "Hello world");
@@ -237,6 +244,7 @@ test("text: collapsed=false on field strips stored collapsed key", () => {
   };
   const f = field("t", "text", { collapsed: false });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "text");
   if (result.type !== "text") return;
   assert.equal(result.collapsed, undefined);
 });
@@ -252,6 +260,7 @@ test("url: urlCollapsed flag propagates from field", () => {
   };
   const f = field("u", "url", { urlCollapsed: true });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "url");
   if (result.type !== "url") return;
   assert.equal(result.urlCollapsed, true);
   assert.equal(result.value, "https://example.com");
@@ -272,6 +281,7 @@ test("rating: copies max, ratingVariant=slider sets displayVariant=slider", () =
     ratingShowValue: false,
   });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "rating");
   if (result.type !== "rating") return;
   assert.equal(result.max, 10);
   assert.equal(result.displayVariant, "slider");
@@ -289,6 +299,7 @@ test("rating: stars variant doesn't set displayVariant key", () => {
   };
   const f = field("r", "rating", { ratingVariant: "stars" });
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "rating");
   if (result.type !== "rating") return;
   // Stored displayVariant must be discarded; field doesn't request slider.
   assert.equal(result.displayVariant, undefined);
@@ -307,6 +318,7 @@ test("date: keeps stored value, only rewrites id/name/scope", () => {
   const result = collectionFieldDisplayProperty(stored, f, context);
   assert.equal(result.id, "new_d");
   assert.equal(result.name, "Дедлайн");
+  assert.equal(result.type, "date");
   if (result.type !== "date") return;
   assert.equal(result.value, "2026-05-11");
 });
@@ -321,6 +333,7 @@ test("select: keeps options array, rewrites identity", () => {
   };
   const f = field("new_s", "select");
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "select");
   if (result.type !== "select") return;
   assert.equal(result.id, "new_s");
   assert.deepEqual(result.options, ["Active", "Done"]);
@@ -337,6 +350,7 @@ test("multi-select: keeps options + value array", () => {
   };
   const f = field("m", "multi-select");
   const result = collectionFieldDisplayProperty(stored, f, context);
+  assert.equal(result.type, "multi-select");
   if (result.type !== "multi-select") return;
   assert.deepEqual(result.value, ["A", "C"]);
   assert.deepEqual(result.options, ["A", "B", "C"]);

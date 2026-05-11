@@ -119,6 +119,12 @@ export function KbPageProperties({
   const [properties, setProperties] = useState<KbProperty[]>(initialProperties);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>(JSON.stringify(initialProperties));
+  // Latest payload scheduled for save but not yet flushed. Cleared by
+  // `flushSave` on success. Read on unmount to flush in-flight edits
+  // synchronously (before the debounce timer fires), otherwise a user
+  // who edits a property and navigates within SAVE_DEBOUNCE_MS loses
+  // the change.
+  const pendingNextRef = useRef<KbProperty[] | null>(null);
   const pageProperties = useMemo(
     () => properties.filter(isPageProperty),
     [properties],
@@ -152,6 +158,7 @@ export function KbPageProperties({
   // Debounced save: каждое изменение reset'ит таймер на 1.5s.
   const scheduleSave = (next: KbProperty[]) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    pendingNextRef.current = next;
     saveTimer.current = setTimeout(() => {
       void flushSave(next);
     }, SAVE_DEBOUNCE_MS);
@@ -159,7 +166,10 @@ export function KbPageProperties({
 
   const flushSave = async (next: KbProperty[]) => {
     const serialized = JSON.stringify(next);
-    if (serialized === lastSavedRef.current) return;
+    if (serialized === lastSavedRef.current) {
+      pendingNextRef.current = null;
+      return;
+    }
     const action =
       mode === "page" ? saveKbPageProperties : saveKbTemplateProperties;
     const payload =
@@ -172,12 +182,21 @@ export function KbPageProperties({
       return;
     }
     lastSavedRef.current = serialized;
+    pendingNextRef.current = null;
   };
 
   useEffect(() => {
     return () => {
+      // Cancel the debounce timer and fire any pending save synchronously
+      // so edits aren't lost when the user navigates within
+      // SAVE_DEBOUNCE_MS of their last keystroke. The Promise is allowed
+      // to settle after unmount — the server action carries its own
+      // request context.
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      const pending = pendingNextRef.current;
+      if (pending) void flushSave(pending);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount/unmount only; flushSave reads refs, no captured stale state
   }, []);
 
   const updateProperty = (id: string, patch: Partial<KbProperty>) => {

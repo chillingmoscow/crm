@@ -1020,12 +1020,17 @@ export function KbBlockNoteEditor({
     return unsubscribe;
   }, [editor]);
 
+  // Derive the primitive canCreatePages first, then memoize the runtime
+  // object on the primitive. If we put `onCreateNestedPage` directly in
+  // the dep array, a parent that passes an inline callback re-creates
+  // the runtime object every render, and every consumer of
+  // KbCollectionRuntimeContext (CollectionViewMenu, CollectionTableView,
+  // CollectionLayoutOptions, etc.) re-renders alongside. The boolean
+  // value is what consumers actually need.
+  const canCreatePages = Boolean(onCreateNestedPage);
   const collectionRuntime = useMemo(
-    () => ({
-      pageId,
-      canCreatePages: Boolean(onCreateNestedPage),
-    }),
-    [pageId, onCreateNestedPage],
+    () => ({ pageId, canCreatePages }),
+    [pageId, canCreatePages],
   );
 
   return (

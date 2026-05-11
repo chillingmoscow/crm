@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -251,7 +252,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
     () => collectionState?.views ?? [],
     [collectionState?.views],
   );
-  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  // Deferred copy: the input stays bound to `searchQuery` for snappy
+  // keystrokes, but the heavy `searchedItems` filter (O(items × fields))
+  // reads `deferredSearchQuery`. React schedules the filter pass at a
+  // lower priority and discards intermediate values on fast typing.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const normalizedSearchQuery = deferredSearchQuery.trim().toLowerCase();
   const filteredItems = useMemo(
     () => filterCollectionItems(items, schema.fields, activeFilters, collectionId),
     [activeFilters, collectionId, items, schema.fields],

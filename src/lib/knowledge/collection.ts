@@ -627,6 +627,11 @@ export function findPropertyForCollectionField(
   field: KbCollectionField,
   collectionId: string,
 ): KbProperty | null {
+  // Fallback chain — each step checks `scope.collectionId === collectionId`
+  // (or skips scope entirely for legacy unscoped properties). Earlier
+  // revisions of this function dropped the collectionId check in the
+  // last two fallbacks, which made a page with two collections sharing
+  // a fieldId or (name+type) pair leak the wrong row across collections.
   return (
     properties.find((property) =>
       isCollectionPropertyForField(property, field, collectionId),
@@ -637,11 +642,13 @@ export function findPropertyForCollectionField(
     properties.find(
       (property) =>
         property.scope?.type === "collection" &&
+        property.scope.collectionId === collectionId &&
         property.scope.fieldId === field.id,
     ) ??
     properties.find(
       (property) =>
         property.scope?.type === "collection" &&
+        property.scope.collectionId === collectionId &&
         property.name === field.name &&
         property.type === field.type,
     ) ??
@@ -656,11 +663,16 @@ export function setCollectionFieldPropertyValue(
   value: KbProperty["value"],
 ): KbProperty[] {
   const fallback = collectionFieldToProperty(field, context);
+  // Same fallback chain as findPropertyForCollectionField — each
+  // scope-based fallback also requires collectionId match to avoid
+  // overwriting a property from a sibling collection that happens to
+  // share fieldId or (name + type).
   const index = properties.findIndex(
     (property) =>
       isCollectionPropertyForField(property, field, context.collectionId) ||
       (property.scope === undefined && property.id === field.id) ||
       (property.scope?.type === "collection" &&
+        property.scope.collectionId === context.collectionId &&
         (property.scope.fieldId === field.id ||
           (property.name === field.name && property.type === field.type))),
   );

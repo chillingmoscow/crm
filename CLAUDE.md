@@ -62,7 +62,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Трёхуровневая модель **Account → LegalEntity → Venue**. Действующая модель описана в [`docs/CURRENT_TENANCY.md`](docs/CURRENT_TENANCY.md); план слияния finance-tracker — [`docs/MERGE_PLAN.md`](docs/MERGE_PLAN.md). Старые URL (`/staff`, `/settings/roles`, `/settings/venues`, `/settings/account`, `/settings/profile`) — **301-redirect**ы в [`next.config.ts`](next.config.ts) на новые `/people/*`, `/org/*`, `/profile`.
 
 ### Supabase: миграции и тесты
-- `supabase/migrations/` — линейная нумерация `NNN_*.sql` (на момент написания 001–131 + один с timestamp-префиксом). Не переставлять и не редактировать применённые миграции; новые — через `pnpm db:migrate <name>`.
+- `supabase/migrations/` — линейная нумерация `NNN_*.sql` (на момент написания 001–131 + один с timestamp-префиксом, оставленный для истории). Не переставлять и не редактировать применённые миграции.
+- **Создание новой**: `pnpm db:migrate <name>` запускает `supabase migration new`, который кладёт файл в формате `<timestamp>_<name>.sql`. Сразу **переименовать** в следующий по порядку `NNN_<name>.sql` (например `132_<name>.sql`), чтобы сохранить convention. Линейная нумерация — не косметика: она нужна, чтобы reviewer мог проверить «не разъехалась ли последовательность» и для self-hosted apply-флоу.
 - `supabase/seed.sql` — тестовые данные для локальной разработки (применяется автоматически при `pnpm db:reset`).
 - `supabase/tests/` — SQL-тесты (legal_entities, finance_module).
 - Прод — **self-hosted**, миграции катятся через SSH (см. memory `self_hosted_supabase.md`).

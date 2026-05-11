@@ -21,8 +21,20 @@ const URL_VALID_PREFIX_RE = /^(https?:\/\/|mailto:|tel:)/i;
 /** Schemes that могут стать XSS-вектором если попадут в `<a href>`.
  *  Display-сторона уже фильтрует через safeHref, но defence-in-depth:
  *  не пишем такие значения в БД, чтобы экспорт / share / любой другой
- *  потребитель не обошёл фильтр случайно. */
-const BLOCKED_SCHEME_RE = /^\s*(javascript|data|vbscript|file):/i;
+ *  потребитель не обошёл фильтр случайно.
+ *
+ *  Тонкость (codex feedback на PR #227): `host:port`-формат (например
+ *  `data:8080`, который в collapsed-режиме нормализуется в
+ *  `https://data:8080`) НЕ должен распознаваться как опасная схема.
+ *  Поэтому проверки специфичные:
+ *    - `javascript:` / `vbscript:` — всегда payload-код, блок безусловно
+ *    - `data:` — опасен только при MIME-content (`data:text/html,...`,
+ *      `data:image/svg+xml,...`); `data:1234` (без буквы/слэша после
+ *      двоеточия) — обычный port-like ввод
+ *    - `file:` — опасен при `file:///path`; `file:hostname` — host:port
+ */
+const BLOCKED_SCHEME_RE =
+  /^\s*(javascript|vbscript):|^\s*data:[a-zA-Z/]|^\s*file:\//i;
 
 /** Убирает `https://` / `http://` префикс для display-режима когда
  *  `urlCollapsed === true`. Сама href остаётся полной. mailto: / tel:

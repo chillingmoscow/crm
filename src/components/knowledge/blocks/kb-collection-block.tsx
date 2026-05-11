@@ -21,7 +21,6 @@ import {
   Copy,
   EyeOff,
   FileText,
-  GalleryHorizontalEnd,
   GripVertical,
   Info,
   ArrowUpDown,
@@ -149,7 +148,17 @@ import {
 import { saveKbPageProperties } from "@/lib/knowledge/properties";
 import type { KbProperty, KbPropertyType } from "@/types/knowledge";
 
+import { CollectionAddFieldMenu } from "./collection/add-field-menu";
 import { collectionBlockConfig, type CollectionRenderProps } from "./collection/block-config";
+import {
+  CollectionFieldIconPicker,
+  CollectionViewIconPicker,
+} from "./collection/icon-pickers";
+import {
+  CollectionCreateViewPanel,
+  CollectionLayoutOptions,
+} from "./collection/layout-options";
+import { CollectionViewsEditor } from "./collection/views-editor";
 import {
   KbCollectionRuntimeProvider,
   useKbCollectionRuntime,
@@ -2601,322 +2610,6 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
   );
 }
 
-function CollectionLayoutOptions({
-  view,
-  settings,
-  onChange,
-  onUpdateSettings,
-}: {
-  view: KbCollectionView;
-  settings: KbCollectionViewLayoutSettings;
-  onChange: (view: KbCollectionView) => void;
-  onUpdateSettings: (patch: Partial<KbCollectionViewLayoutSettings>) => void;
-}) {
-  return (
-    <div className="kb-collection-layout-panel">
-      <div
-        className="kb-collection-layout-grid"
-        role="group"
-        aria-label="Layout"
-      >
-        {(["table", "list"] as const).map((nextView) => {
-          const active = view === nextView;
-          const Icon = nextView === "table" ? Table2 : ListChecks;
-          return (
-            <button
-              key={nextView}
-              type="button"
-              className="kb-collection-layout-card"
-              data-active={active || undefined}
-              aria-pressed={active}
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={(event) => {
-                stopBlockMenuAction(event);
-                onChange(nextView);
-              }}
-            >
-              <Icon className="size-5" />
-              <span>{KB_COLLECTION_VIEW_LABELS[nextView]}</span>
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          className="kb-collection-layout-card"
-          disabled
-          aria-disabled
-        >
-          <GalleryHorizontalEnd className="size-5" />
-          <span>Галерея</span>
-        </button>
-      </div>
-      <div className="kb-collection-layout-switches">
-        <CollectionLayoutSwitch
-          label="Показывать название базы"
-          checked={settings.showDataSourceTitle}
-          onChange={(checked) =>
-            onUpdateSettings({ showDataSourceTitle: checked })
-          }
-        />
-        {view === "table" && (
-          <CollectionLayoutSwitch
-            label="Показывать вертикальные линии"
-            checked={settings.showVerticalLines}
-            onChange={(checked) =>
-              onUpdateSettings({ showVerticalLines: checked })
-            }
-          />
-        )}
-        <CollectionLayoutSwitch
-          label="Показывать иконку страницы"
-          checked={settings.showPageIcon}
-          onChange={(checked) => onUpdateSettings({ showPageIcon: checked })}
-        />
-        <CollectionLayoutSwitch
-          label="Сворачивать весь текст"
-          checked={!settings.wrapContent}
-          onChange={(checked) => onUpdateSettings({ wrapContent: !checked })}
-        />
-      </div>
-    </div>
-  );
-}
-
-function CollectionLayoutSwitch({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="kb-collection-layout-switch">
-      <span>{label}</span>
-      <Switch checked={checked} onCheckedChange={onChange} />
-    </label>
-  );
-}
-
-function CollectionViewsEditor({
-  views,
-  activeViewId,
-  onSwitchView,
-  onCreateView,
-}: {
-  views: KbCollectionViewConfig[];
-  activeViewId: string | null;
-  onSwitchView: (viewId: string) => void;
-  onCreateView: (view: KbCollectionView) => void;
-}) {
-  return (
-    <div className="kb-collection-views-editor">
-      <div className="kb-collection-view-list">
-        {views.map((view) => {
-          const active = view.id === activeViewId;
-          return (
-            <button
-              key={view.id}
-              type="button"
-              className="kb-collection-view-row"
-              data-active={active || undefined}
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={(event) => {
-                stopBlockMenuAction(event);
-                onSwitchView(view.id);
-              }}
-            >
-              <KbPageIcon
-                icon={view.icon}
-                color={null}
-                size={16}
-                fallback={getCollectionViewFallbackIcon(view)}
-              />
-              <span>{view.name}</span>
-              <span className="kb-collection-settings-row-value">
-                {KB_COLLECTION_VIEW_LABELS[view.viewType]}
-              </span>
-              {active && <Check className="size-4" />}
-            </button>
-          );
-        })}
-      </div>
-      <div className="kb-collection-column-menu-separator" />
-      <div className="kb-collection-view-list">
-        {(["list", "table"] as const).map((viewType) => {
-          const Icon = viewType === "table" ? Table2 : GalleryHorizontalEnd;
-          return (
-            <button
-              key={viewType}
-              type="button"
-              className="kb-collection-view-row"
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={(event) => {
-                stopBlockMenuAction(event);
-                onCreateView(viewType);
-              }}
-            >
-              <Plus className="size-4" />
-              <span>Создать {KB_COLLECTION_VIEW_LABELS[viewType].toLowerCase()}</span>
-              <span className="kb-collection-settings-row-value">
-                <Icon className="size-4" />
-              </span>
-              <span />
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function CollectionCreateViewPanel({
-  onCreate,
-}: {
-  onCreate: (view: KbCollectionView) => void;
-}) {
-  const options: Array<{
-    label: string;
-    icon: React.ComponentType<{ className?: string }>;
-    view?: KbCollectionView;
-  }> = [
-    { label: "Таблица", icon: Table2, view: "table" },
-    { label: "Список", icon: ListChecks, view: "list" },
-    { label: "Галерея", icon: GalleryHorizontalEnd },
-  ];
-
-  return (
-    <div className="kb-collection-create-view-panel">
-      <div className="kb-collection-create-view-title">Добавить вид</div>
-      <div className="kb-collection-create-view-grid">
-        {options.map((option) => {
-          const Icon = option.icon;
-          return (
-            <button
-              key={option.label}
-              type="button"
-              className="kb-collection-create-view-option"
-              disabled={!option.view}
-              onPointerDown={stopBlockInteraction}
-              onMouseDown={stopBlockInteraction}
-              onClick={(event) => {
-                stopBlockMenuAction(event);
-                if (option.view) onCreate(option.view);
-              }}
-            >
-              <Icon className="size-6" />
-              <span>{option.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function CollectionViewIconPicker({
-  value,
-  onChange,
-}: {
-  value: KbCollectionViewIcon;
-  onChange: (icon: KbCollectionViewIcon) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="kb-collection-view-icon-picker"
-          aria-label="Изменить иконку вида"
-          onPointerDown={stopBlockInteraction}
-          onMouseDown={stopBlockInteraction}
-          onClick={stopBlockInteraction}
-        >
-          <KbPageIcon icon={value} color={null} size={18} />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-[380px] p-0 rounded-[10px]"
-        onPointerDown={stopBlockInteraction}
-        onMouseDown={stopBlockInteraction}
-        onClick={stopBlockInteraction}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
-        <KbIconPickerBody
-          value={value}
-          color={null}
-          onChange={(next) => onChange(next.icon ?? "database")}
-          onCommitClose={() => setOpen(false)}
-        />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function CollectionFieldIconPicker({
-  field,
-  onChange,
-}: {
-  field: KbCollectionField;
-  onChange: (patch: Partial<KbCollectionField>) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const FallbackIcon = FIELD_ICONS[field.type];
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="kb-collection-view-icon-picker"
-          aria-label="Изменить иконку свойства"
-          onPointerDown={stopBlockInteraction}
-          onMouseDown={stopBlockInteraction}
-          onClick={stopBlockInteraction}
-        >
-          {field.icon ? (
-            <KbPageIcon
-              icon={field.icon}
-              color={field.iconColor ?? null}
-              size={18}
-            />
-          ) : (
-            <FallbackIcon className="size-4 text-muted-foreground" />
-          )}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="w-[380px] p-0 rounded-[10px]"
-        onPointerDown={stopBlockInteraction}
-        onMouseDown={stopBlockInteraction}
-        onClick={stopBlockInteraction}
-        onOpenAutoFocus={(event) => event.preventDefault()}
-      >
-        <KbIconPickerBody
-          value={field.icon ?? null}
-          color={field.iconColor ?? null}
-          onChange={(next) =>
-            onChange({
-              icon: next.icon ?? undefined,
-              iconColor: next.color ?? undefined,
-            })
-          }
-          onCommitClose={() => setOpen(false)}
-        />
-      </PopoverContent>
-    </Popover>
-  );
-}
 
 function CollectionViewMenu({
   viewName,
@@ -3387,39 +3080,6 @@ function CollectionPropertyChip({
         <strong className="font-semibold leading-tight">{field.name}</strong>
       </TooltipContent>
     </Tooltip>
-  );
-}
-
-function CollectionAddFieldMenu({
-  onAdd,
-}: {
-  onAdd: (type: KbPropertyType) => void;
-}) {
-  return (
-    <div className="kb-collection-column-menu-panel">
-      <div className="kb-collection-column-insert-subtitle">
-        Добавить свойство
-      </div>
-      <div className="kb-collection-column-type-list">
-        {KB_COLLECTION_CREATABLE_FIELD_TYPES.map((type) => {
-          const Icon = FIELD_ICONS[type];
-          return (
-            <button
-              key={type}
-              type="button"
-              className="kb-collection-column-type-option"
-              onClick={(event) => {
-                stopBlockMenuAction(event);
-                onAdd(type);
-              }}
-            >
-              <Icon className="size-4" />
-              <span>{KB_COLLECTION_FIELD_LABELS[type]}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 

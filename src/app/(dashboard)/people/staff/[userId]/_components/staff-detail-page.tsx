@@ -51,6 +51,7 @@ import {
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { createClient } from "@/lib/supabase/client";
+import { translateError } from "@/lib/i18n/translate-error";
 import {
   fireStaff,
   setImportedStaffEmailAndInvite,
@@ -315,20 +316,52 @@ export function StaffDetailPage({
   const submitAvatarModal = async () => {
     if (!photoFile) return;
     setUploadingAvatar(true);
-    const supabase = createClient();
-    const path = `${profile.id}/avatar`;
-    const { error } = await supabase.storage
-      .from("avatars")
-      .upload(path, photoFile, { upsert: true, contentType: photoFile.type });
-    if (error) { toast.error(error.message); setUploadingAvatar(false); return; }
-    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-    const newUrl = `${urlData.publicUrl}?t=${Date.now()}`;
-    await updateStaffProfile(profile.id, { avatar_url: newUrl });
-    setAvatarUrl(newUrl);
-    setUploadingAvatar(false);
-    setPhotoModalOpen(false);
-    setPhotoFile(null);
-    toast.success("Фото обновлено");
+    try {
+      const supabase = createClient();
+      const path = `${profile.id}/avatar`;
+      // 60s timeout — защита от «зависает на загрузке» (Supabase storage
+      // не отвечает): юзер получит понятный тост вместо вечного спиннера.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60_000);
+      let uploadError: Error | null = null;
+      try {
+        const { error } = await supabase.storage
+          .from("avatars")
+          .upload(path, photoFile, {
+            upsert: true,
+            contentType: photoFile.type,
+            // @ts-expect-error — supabase-js v2 поддерживает signal через
+            // fetch-init; типы пока не покрывают это поле.
+            signal: ctrl.signal,
+          });
+        if (error) uploadError = new Error(error.message);
+      } catch (e) {
+        uploadError = e instanceof Error ? e : new Error(String(e));
+      } finally {
+        clearTimeout(timer);
+      }
+      if (uploadError) {
+        toast.error(
+          ctrl.signal.aborted
+            ? "Загрузка заняла больше минуты. Проверьте подключение и попробуйте снова."
+            : translateError(uploadError.message),
+        );
+        return;
+      }
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+      const newUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+      const result = await updateStaffProfile(profile.id, { avatar_url: newUrl });
+      if (result.error) {
+        toast.error(translateError(result.error));
+        return;
+      }
+      setAvatarUrl(newUrl);
+      setPhotoModalOpen(false);
+      setPhotoFile(null);
+      toast.success("Фото обновлено");
+    } finally {
+      setUploadingAvatar(false);
+    }
   };
 
   // Имя документа кодируется в filename: ${ts}__${encName}__${origFile}.

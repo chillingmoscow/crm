@@ -90,8 +90,14 @@ grant execute on function public.get_venue_staff(uuid) to authenticated;
 -- ── Daily worker: enqueue medbook-expiry notifications ────────
 -- Targets staff whose medical_book_date is non-null AND (already expired
 -- OR expires within 30 days) AND we haven't notified for this exact date.
--- Inserts one row per affected (account_id, user_id). Returns count of
--- notifications created for observability.
+--
+-- Concurrency: claim-via-UPDATE ... RETURNING is atomic — overlapping cron
+-- invocations (retry while previous run is still finishing) will not
+-- double-emit. The UPDATE acquires row locks; the second concurrent
+-- transaction blocks until the first commits, then re-evaluates the
+-- WHERE clause and sees `medical_book_expiry_notified_for = medical_book_date`
+-- — so it skips the row. Notification INSERT happens only for rows that
+-- this transaction successfully claimed.
 create or replace function public.enqueue_medical_book_expiry_notifications()
 returns integer
 language plpgsql
@@ -106,29 +112,25 @@ declare
   v_body  text;
 begin
   for r in
-    select
-      sad.account_id,
-      sad.user_id,
-      sad.medical_book_date,
-      coalesce(p.first_name, '') as first_name
-    from public.staff_account_details sad
-    join public.profiles p on p.id = sad.user_id
-    where sad.medical_book_date is not null
-      and sad.medical_book_date <= current_date + interval '30 days'
-      and (
-        sad.medical_book_expiry_notified_for is null
-        or sad.medical_book_expiry_notified_for <> sad.medical_book_date
-      )
-      -- Only notify users who still hold an active role somewhere in the
-      -- same account — no point pinging fully-exited staff.
-      and exists (
-        select 1
-        from public.user_venue_roles uvr
-        join public.venues v on v.id = uvr.venue_id
-        where uvr.user_id = sad.user_id
-          and uvr.status  = 'active'
-          and v.account_id = sad.account_id
-      )
+    update public.staff_account_details sad
+       set medical_book_expiry_notified_for = sad.medical_book_date
+     where sad.medical_book_date is not null
+       and sad.medical_book_date <= current_date + interval '30 days'
+       and (
+         sad.medical_book_expiry_notified_for is null
+         or sad.medical_book_expiry_notified_for <> sad.medical_book_date
+       )
+       -- Only notify users who still hold an active role somewhere in the
+       -- same account — no point pinging fully-exited staff.
+       and exists (
+         select 1
+         from public.user_venue_roles uvr
+         join public.venues v on v.id = uvr.venue_id
+         where uvr.user_id  = sad.user_id
+           and uvr.status   = 'active'
+           and v.account_id = sad.account_id
+       )
+     returning sad.account_id, sad.user_id, sad.medical_book_date
   loop
     v_days_left := (r.medical_book_date - current_date)::integer;
     if v_days_left < 0 then
@@ -155,11 +157,6 @@ begin
       v_body,
       '/profile'
     );
-
-    update public.staff_account_details
-       set medical_book_expiry_notified_for = r.medical_book_date
-     where account_id = r.account_id
-       and user_id    = r.user_id;
 
     v_inserted := v_inserted + 1;
   end loop;

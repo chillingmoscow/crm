@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -13,8 +13,22 @@ import { createClient } from "@/lib/supabase/client";
  * timed out (видимо, server-side GoTrue endpoint иногда долго отвечает,
  * + Next.js RSC-prefetch шлёт side-effecting GET). Теперь client:
  * мгновенно чистит куки на стороне браузера, потом router.replace.
+ *
+ * Suspense-wrapper: Next 15 требует чтобы `useSearchParams()` жил под
+ * Suspense — иначе static-prerender падает с «missing-suspense-with-csr-
+ * bailout» (Coolify build #260 поймал именно это). Само ожидание params
+ * мгновенно (это client-side bailout, не data-fetch), так что fallback
+ * показывает тот же спиннер.
  */
 export default function SignOutPage() {
+  return (
+    <Suspense fallback={<SignOutShell />}>
+      <SignOutInner />
+    </Suspense>
+  );
+}
+
+function SignOutInner() {
   const router = useRouter();
   const params = useSearchParams();
   const ranRef = useRef(false);
@@ -32,6 +46,10 @@ export default function SignOutPage() {
       .finally(() => router.replace(next));
   }, [params, router]);
 
+  return <SignOutShell />;
+}
+
+function SignOutShell() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
       {/* eslint-disable-next-line @next/next/no-img-element */}

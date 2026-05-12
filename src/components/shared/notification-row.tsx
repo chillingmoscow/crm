@@ -121,12 +121,19 @@ export function KbNotificationRow({
           )}
         </div>
 
-        {/* Preview-snippet убран по UX-feedback'у юзера: дублировал
-            entity-chip; для notif'ов «упомянули в странице» preview
-            это просто плейн-текст самой страницы, не добавляет ценности.
-            Поле payload.preview оставлено в схеме — может пригодиться
-            для finance/schedule emit'еров где snippet ≠ entity title
-            (например, transaction amount + counterparty). */}
+        {/* Preview-snippet:
+            • Для actor+verb notif'ов (KB @mentions, kb.comment_replied):
+              убран — дублировал entity-chip.
+            • Для system-emit'ов без actor'а (staff.birthday_self /
+              .medical_book_expiring) — нужен: это и есть полезный
+              текст уведомления. notification.body содержит AI-генерацию
+              для birthday или динамический текст про срок медкнижки.
+              Без рендера body — юзер видит только заголовок. */}
+        {!useStructuredTitle && notification.body && (
+          <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">
+            {notification.body}
+          </p>
+        )}
 
         {/* Inline custom-actions (payload.actions[]) — пока не
             используются KB-эмиттерами; reserved для будущих finance/

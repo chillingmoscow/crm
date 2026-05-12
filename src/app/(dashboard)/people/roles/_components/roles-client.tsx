@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
+import { paletteText, type PaletteColor } from "@/lib/palette";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
@@ -39,6 +40,7 @@ type Role = {
   code: string;
   comment: string | null;
   icon: string | null;
+  icon_color: string | null;
 };
 
 type Permission = {
@@ -261,6 +263,7 @@ export function RolesClient({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [newRoleName, setNewRoleName] = useState("");
   const [newRoleIcon, setNewRoleIcon] = useState<string | null>(null);
+  const [newRoleIconColor, setNewRoleIconColor] = useState<string | null>(null);
   // "" = create from scratch; otherwise = source role id to copy permissions from
   const [copyFromRoleId, setCopyFromRoleId] = useState<string>("");
 
@@ -299,6 +302,7 @@ export function RolesClient({
         name,
         copyFromRoleId: copyFromRoleId || undefined,
         icon: newRoleIcon,
+        iconColor: newRoleIconColor,
       });
       if (result.error) {
         toast.error(result.error);
@@ -321,11 +325,13 @@ export function RolesClient({
             .substring(0, 40)}`,
           comment: null,
           icon: newRoleIcon,
+          icon_color: newRoleIconColor,
         };
         setRoles((prev) => [...prev, created]);
         setSheetOpen(false);
         setNewRoleName("");
         setNewRoleIcon(null);
+        setNewRoleIconColor(null);
         setCopyFromRoleId("");
         router.push(`/people/roles/${result.id}`);
       }
@@ -551,6 +557,7 @@ export function RolesClient({
             {filteredRoles.map((role) => {
               const isOwner = role.code === "owner";
               const RoleIcon = iconForRole(role.code, role.icon);
+              const tintClass = paletteText(role.icon_color as PaletteColor | null);
               return (
                 <div
                   key={role.id}
@@ -558,12 +565,13 @@ export function RolesClient({
                   style={{ gridTemplateColumns: gridTemplate }}
                   onClick={() => router.push(`/people/roles/${role.id}`)}
                 >
-                  {/* Icon */}
+                  {/* Icon — owner всегда brand-tinted (системная роль),
+                      остальные — palette tint поверх muted фона (или default). */}
                   <div
                     className={`flex items-center justify-center size-9 rounded-lg ${
                       isOwner
                         ? "bg-brand/10 text-brand"
-                        : "bg-muted text-muted-foreground"
+                        : `bg-muted ${tintClass || "text-muted-foreground"}`
                     }`}
                   >
                     <RoleIcon className="w-4 h-4" />
@@ -602,6 +610,7 @@ export function RolesClient({
           if (!open) {
             setNewRoleName("");
             setNewRoleIcon(null);
+            setNewRoleIconColor(null);
             setCopyFromRoleId("");
           }
         }}
@@ -641,8 +650,12 @@ export function RolesClient({
           </div>
           <IconPicker
             value={newRoleIcon}
+            color={newRoleIconColor}
             roleCode=""
-            onChange={setNewRoleIcon}
+            onChange={({ icon, color }) => {
+              setNewRoleIcon(icon);
+              setNewRoleIconColor(color);
+            }}
           />
         </div>
 

@@ -22,6 +22,8 @@ export async function createRole(input: {
   copyFromRoleId?: string | null;
   /** Optional lucide icon name from ICON_REGISTRY. */
   icon?: string | null;
+  /** Optional palette tint name from `@/lib/palette` (gray/blue/…). */
+  iconColor?: string | null;
 }): Promise<{ id: string | null; error: string | null; warning?: string }> {
   const supabase = await createClient();
   const {
@@ -39,14 +41,18 @@ export async function createRole(input: {
     .replace(/[^a-z0-9_]/g, "")
     .substring(0, 40)}`;
 
+  // icon_color column requires migration 136 — types are still being generated.
+  // Cast keeps strict-null-check happy without disabling typing elsewhere.
+  const insertPayload = {
+    account_id: accountId,
+    name: trimmed,
+    code,
+    icon: input.icon && input.icon.trim() ? input.icon : null,
+    icon_color: input.iconColor && input.iconColor.trim() ? input.iconColor : null,
+  };
   const { data, error } = await supabase
     .from("roles")
-    .insert({
-      account_id: accountId,
-      name: trimmed,
-      code,
-      icon: input.icon && input.icon.trim() ? input.icon : null,
-    })
+    .insert(insertPayload as never)
     .select("id")
     .single();
 
@@ -69,7 +75,12 @@ export async function createRole(input: {
 
 export async function updateRole(
   roleId: string,
-  data: { name: string; comment: string | null; icon?: string | null }
+  data: {
+    name: string;
+    comment: string | null;
+    icon?: string | null;
+    iconColor?: string | null;
+  }
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const {
@@ -91,17 +102,26 @@ export async function updateRole(
 
   // Whitelist on icon: empty string → null (clear). Other validation
   // happens client-side via ICON_REGISTRY — backend just stores.
-  const updatePayload: { name: string; comment: string | null; icon?: string | null } = {
+  const updatePayload: {
+    name: string;
+    comment: string | null;
+    icon?: string | null;
+    icon_color?: string | null;
+  } = {
     name: trimmed,
     comment: data.comment,
   };
   if (data.icon !== undefined) {
     updatePayload.icon = data.icon && data.icon.trim() ? data.icon : null;
   }
+  if (data.iconColor !== undefined) {
+    updatePayload.icon_color =
+      data.iconColor && data.iconColor.trim() ? data.iconColor : null;
+  }
 
   const { error } = await supabase
     .from("roles")
-    .update(updatePayload)
+    .update(updatePayload as never)
     .eq("id", roleId);
 
   if (error) return { error: error.message };

@@ -123,9 +123,20 @@ export const PICKABLE_ICONS: { name: string; icon: LucideIcon; label: string }[]
   { name: "phone",             icon: Phone,            label: "Телефон" },
 ];
 
-export const ICON_REGISTRY: Record<string, LucideIcon> = Object.fromEntries(
-  PICKABLE_ICONS.map((it) => [it.name, it.icon]),
-);
+/**
+ * Registry для resolve'а `roles.icon` строки в lucide-компонент.
+ *
+ * Union — сначала PICKABLE_ICONS (legacy: 8 имён вроде "crown", "shield-alert",
+ * "circle-user-round", которые исторически писались в БД), затем KB_ICONS
+ * (новый источник иконок — KB picker, ~130 имён). KB-имена побеждают
+ * пересекающиеся ключи: для новых ролей единый набор иконок с базой знаний.
+ */
+import { KB_ICONS } from "@/lib/knowledge/icons";
+
+export const ICON_REGISTRY: Record<string, LucideIcon> = {
+  ...Object.fromEntries(PICKABLE_ICONS.map((it) => [it.name, it.icon])),
+  ...Object.fromEntries(KB_ICONS.map((it) => [it.name, it.icon])),
+};
 
 const SYSTEM_ROLE_ICONS: Record<string, LucideIcon> = {
   owner:      Shield,

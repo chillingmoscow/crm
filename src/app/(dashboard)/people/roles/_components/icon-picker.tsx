@@ -1,27 +1,47 @@
 "use client";
 
+import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { PICKABLE_ICONS, iconForRole } from "./role-icons";
+import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
+import { paletteText, type PaletteColor } from "@/lib/palette";
+import { iconForRole } from "./role-icons";
 import { cn } from "@/lib/utils";
 
 interface IconPickerProps {
-  /** Текущее имя иконки (из ICON_REGISTRY) или null = «по умолчанию» */
+  /** Имя иконки (KB_ICONS / legacy role-icons) или null = «по умолчанию» */
   value: string | null;
+  /** Цвет тинта из палитры (`@/lib/palette`). null = muted-foreground. */
+  color: string | null;
   /** Системный код роли — для preview дефолтной иконки. Для новой роли передайте "". */
   roleCode: string;
-  onChange: (iconName: string | null) => void;
+  onChange: (next: { icon: string | null; color: string | null }) => void;
   disabled?: boolean;
 }
 
-export function IconPicker({ value, roleCode, onChange, disabled }: IconPickerProps) {
+/**
+ * Icon picker для ролей. Триггер совпадает с прежним 40px-стилем
+ * (border + chevron), но popover-content переиспользует
+ * `<KbIconPickerBody>` из базы знаний: общий набор иконок (KB_ICONS),
+ * палитра цветов, поиск, random, clear.
+ *
+ * `value` может быть как именем из KB_ICONS, так и legacy-именем из
+ * `PICKABLE_ICONS` (crown / shield-alert / building / …). `iconForRole`
+ * резолвит оба через расширенный `ICON_REGISTRY`.
+ */
+export function IconPicker({
+  value,
+  color,
+  roleCode,
+  onChange,
+  disabled,
+}: IconPickerProps) {
+  const [open, setOpen] = useState(false);
   const CurrentIcon = iconForRole(roleCode, value);
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        {/* Compact 40px trigger per design (S361n / iconTrigger3):
-            input-style border + padding [0,8] + gap 6, current icon (16) + chevron (13). */}
         <button
           type="button"
           disabled={disabled}
@@ -32,7 +52,12 @@ export function IconPicker({ value, roleCode, onChange, disabled }: IconPickerPr
             "data-[state=open]:bg-accent",
           )}
         >
-          <CurrentIcon className="w-4 h-4 text-foreground" />
+          <CurrentIcon
+            className={cn(
+              "w-4 h-4",
+              paletteText(color as PaletteColor | null) || "text-foreground",
+            )}
+          />
           <ChevronDown className="w-3 h-3 text-muted-foreground" />
         </button>
       </PopoverTrigger>
@@ -40,33 +65,14 @@ export function IconPicker({ value, roleCode, onChange, disabled }: IconPickerPr
         align="start"
         side="bottom"
         sideOffset={6}
-        className="w-[280px] p-2 rounded-[10px]"
+        className="w-[380px] p-0 rounded-[10px]"
       >
-        <div className="grid grid-cols-6 gap-1 max-h-[280px] overflow-y-auto pr-1 -mr-1">
-          {PICKABLE_ICONS.map(({ name, icon: Icon, label }) => {
-            const isActive = value === name;
-            return (
-              <button
-                key={name}
-                type="button"
-                onClick={() => onChange(isActive ? null : name)}
-                aria-label={label}
-                title={label}
-                className={cn(
-                  "flex items-center justify-center size-10 rounded-lg transition-colors",
-                  isActive
-                    ? "bg-brand/10 text-brand"
-                    : "text-foreground hover:bg-accent",
-                )}
-              >
-                <Icon className="w-4 h-4" />
-              </button>
-            );
-          })}
-        </div>
-        <div className="px-2 py-2 mt-1 border-t text-[11px] text-muted-foreground leading-relaxed">
-          Клик по выбранной иконке — сбросить к иконке по умолчанию.
-        </div>
+        <KbIconPickerBody
+          value={value}
+          color={color}
+          onChange={onChange}
+          onCommitClose={() => setOpen(false)}
+        />
       </PopoverContent>
     </Popover>
   );

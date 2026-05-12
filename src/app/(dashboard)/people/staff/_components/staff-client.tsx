@@ -519,10 +519,10 @@ export function StaffClient({
         const medbook = medbookStatus(member.medical_book_date);
         return (
           <div className="min-w-0 flex items-center gap-2">
-            <span className="font-medium text-sm truncate">
+            <p className="font-medium text-sm truncate min-w-0">
               {displayName(member)}
               {isMe && <span className="ml-2 text-xs text-muted-foreground font-normal">(вы)</span>}
-            </span>
+            </p>
             {isPlaceholder && (
               <span
                 className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"

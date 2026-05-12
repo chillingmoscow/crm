@@ -38,6 +38,7 @@ type Role = {
   code: string;
   comment: string | null;
   icon: string | null;
+  icon_color: string | null;
   created_at: string | null;
   updated_at: string | null;
   created_by: string | null;
@@ -91,10 +92,14 @@ export function RoleDetailPage({
   const [nameValue, setNameValue] = useState(role.name);
   const [commentValue, setCommentValue] = useState(role.comment ?? "");
   const [iconValue, setIconValue] = useState<string | null>(role.icon);
+  const [iconColorValue, setIconColorValue] = useState<string | null>(
+    role.icon_color ?? null,
+  );
   const dirty =
     nameValue.trim() !== role.name ||
     (commentValue || null) !== role.comment ||
-    iconValue !== role.icon;
+    iconValue !== role.icon ||
+    iconColorValue !== (role.icon_color ?? null);
 
   // Permissions search
   const [permQuery, setPermQuery] = useState("");
@@ -168,6 +173,7 @@ export function RoleDetailPage({
         name: nameValue,
         comment: commentValue || null,
         icon: iconValue,
+        iconColor: iconColorValue,
       });
       if (result.error) {
         toast.error(result.error);
@@ -458,8 +464,12 @@ export function RoleDetailPage({
                   </div>
                   <IconPicker
                     value={iconValue}
+                    color={iconColorValue}
                     roleCode={role.code}
-                    onChange={setIconValue}
+                    onChange={({ icon, color }) => {
+                      setIconValue(icon);
+                      setIconColorValue(color);
+                    }}
                     disabled={!canEdit}
                   />
                 </div>

@@ -718,16 +718,22 @@ export async function updateStaffRole(
 
 export async function fireStaff(
   uvrId: string,
-  reason?: string | null,
+  reason: string,
 ): Promise<{ error: string | null }> {
+  const trimmed = reason?.trim() ?? "";
+  // Server-side guard: причина увольнения обязательна — UI-кнопка
+  // дизейблится при пустом поле, но не полагаемся только на это
+  // (request может прилететь и не из нашего dialog'а).
+  if (trimmed.length === 0) {
+    return { error: "Укажите причину увольнения" };
+  }
   const supabase = await createClient();
-  const trimmed = reason?.trim();
   const { error } = await supabase
     .from("user_venue_roles")
     .update({
       status: "fired",
       fired_at: new Date().toISOString(),
-      fired_reason: trimmed && trimmed.length > 0 ? trimmed : null,
+      fired_reason: trimmed,
     } as Record<string, unknown>)
     .eq("id", uvrId);
 

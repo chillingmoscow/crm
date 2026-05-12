@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import {
   UserPlus, Calendar, Clock, X, Check, Settings2,
   ChevronDown, ChevronRight, RotateCcw, Search, Filter, Lock,
-  HeartPulse,
+  HeartPulse, MessageSquareQuote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -856,9 +856,10 @@ export function StaffClient({
                       {member.role_name} · уволен {formatDate(member.fired_at)}
                     </p>
                     {member.fired_reason && (
-                      <p className="text-xs text-muted-foreground/70 mt-1 line-clamp-2">
-                        {member.fired_reason}
-                      </p>
+                      <div className="mt-2 flex items-start gap-2 rounded-md bg-secondary/60 px-2.5 py-1.5 text-[13px] text-foreground/80 leading-snug">
+                        <MessageSquareQuote className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 line-clamp-3">{member.fired_reason}</span>
+                      </div>
                     )}
                   </div>
                   {canEdit && (

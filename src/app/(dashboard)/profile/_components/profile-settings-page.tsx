@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
+import { translateError } from "@/lib/i18n/translate-error";
 import { updateOwnProfile, type OwnProfile } from "../actions";
 
 const schema = z.object({
@@ -276,25 +277,54 @@ export function ProfileSettingsPage({
   const submitAvatarModal = async () => {
     if (!photoFile) return;
     setUploadingAvatar(true);
-    const supabase = createClient();
-    const path = `${profile.id}/avatar`;
-    const { error } = await supabase.storage
-      .from("avatars")
-      .upload(path, photoFile, { upsert: true, contentType: photoFile.type });
-    if (error) { toast.error(error.message); setUploadingAvatar(false); return; }
-    const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
-    const newUrl = `${urlData.publicUrl}?t=${Date.now()}`;
-    const result = await updateOwnProfile({ avatar_url: newUrl });
-    if (result.error) {
-      toast.error(result.error);
+    try {
+      const supabase = createClient();
+      const path = `${profile.id}/avatar`;
+      // 60s timeout — если Supabase storage не отвечает (типичный
+      // симптом «зависает на загрузке файла»), показываем понятную
+      // ошибку вместо вечного спиннера.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 60_000);
+      let uploadError: Error | null = null;
+      try {
+        const { error } = await supabase.storage
+          .from("avatars")
+          .upload(path, photoFile, {
+            upsert: true,
+            contentType: photoFile.type,
+            // @ts-expect-error — supabase-js v2 поддерживает signal через
+            // fetch-init; типы пока не покрывают это поле.
+            signal: ctrl.signal,
+          });
+        if (error) uploadError = new Error(error.message);
+      } catch (e) {
+        uploadError = e instanceof Error ? e : new Error(String(e));
+      } finally {
+        clearTimeout(timer);
+      }
+      if (uploadError) {
+        toast.error(
+          ctrl.signal.aborted
+            ? "Загрузка заняла больше минуты. Проверьте подключение и попробуйте снова."
+            : translateError(uploadError.message),
+        );
+        return;
+      }
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+      const newUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+      const result = await updateOwnProfile({ avatar_url: newUrl });
+      if (result.error) {
+        toast.error(translateError(result.error));
+        return;
+      }
+      setAvatarUrl(newUrl);
+      setPhotoModalOpen(false);
+      setPhotoFile(null);
+      toast.success("Фото обновлено");
+    } finally {
+      // Гарантия: спиннер всегда снимается, даже если что-то выше throw'нуло.
       setUploadingAvatar(false);
-      return;
     }
-    setAvatarUrl(newUrl);
-    setUploadingAvatar(false);
-    setPhotoModalOpen(false);
-    setPhotoFile(null);
-    toast.success("Фото обновлено");
   };
 
   const handleEmailChange = async () => {
@@ -305,7 +335,7 @@ export function ProfileSettingsPage({
     const { error } = await supabase.auth.updateUser({ email: next });
     setPendingEmailChange(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(translateError(error.message));
       return;
     }
     toast.success(

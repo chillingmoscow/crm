@@ -28,6 +28,14 @@ interface KbIconPickerBodyProps {
   onChange: (next: { icon: string | null; color: string | null }) => void;
   /** Зовётся когда юзер сделал commit'ящий выбор (icon / random / clear). */
   onCommitClose?: () => void;
+  /**
+   * По умолчанию выбор цвета без иконки только обновляет `pendingColor`
+   * и коммитится позже, когда юзер выберет иконку. Для случаев, где
+   * есть fallback-иконка (роли — иконка по `code`), это значит, что
+   * tint без явного выбора иконки терялся. Опт-ин `commitColorWithoutIcon`
+   * меняет поведение: цвет применяется немедленно даже при `value === null`.
+   */
+  commitColorWithoutIcon?: boolean;
 }
 
 /**
@@ -43,6 +51,7 @@ export function KbIconPickerBody({
   color,
   onChange,
   onCommitClose,
+  commitColorWithoutIcon = false,
 }: KbIconPickerBodyProps) {
   const [colorOpen, setColorOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -101,8 +110,14 @@ export function KbIconPickerBody({
   const onPickColor = (c: PaletteColor) => {
     setPendingColor(c);
     // Если иконка уже выбрана — применяем цвет немедленно
-    // (preview = commit для существующей иконки).
-    if (value) onChange({ icon: value, color: c });
+    // (preview = commit для существующей иконки). Также коммитим
+    // если caller включил `commitColorWithoutIcon` — это нужно
+    // call-site'ам с fallback-иконкой (например, роли с системной
+    // иконкой по `code`), где tint без явного icon-override всё
+    // ещё имеет визуальный смысл.
+    if (value || commitColorWithoutIcon) {
+      onChange({ icon: value, color: c });
+    }
   };
 
   /** Random реролит и иконку, и цвет (любой кроме default). */

@@ -72,6 +72,9 @@ export function IconPicker({
           color={color}
           onChange={onChange}
           onCommitClose={() => setOpen(false)}
+          // Роль всегда имеет fallback-иконку по `code`, поэтому tint
+          // без явно выбранной иконки нужно сохранять.
+          commitColorWithoutIcon
         />
       </PopoverContent>
     </Popover>

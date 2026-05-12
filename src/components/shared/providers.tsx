@@ -13,7 +13,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
       disableTransitionOnChange
     >
       {children}
-      <Toaster richColors position="top-center" theme="system" />
+      {/* `expand` — все одновременные тосты разворачиваются в вертикальный
+          стек, а не складываются в одну точку с эффектом «стопка карт»
+          (default sonner). Так юзер видит каждое уведомление отдельно
+          без необходимости hover'ом раскрывать стопку. */}
+      <Toaster
+        richColors
+        position="top-center"
+        theme="system"
+        expand
+        visibleToasts={4}
+      />
     </ThemeProvider>
   );
 }

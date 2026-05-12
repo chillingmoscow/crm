@@ -200,7 +200,14 @@ values (
   }'
 );
 
--- Привязываем владельца к заведению (роль owner)
+-- После миграции 138 единственная системная роль — owner. Остальные
+-- (Управляющий / Официант / …) — кастомные per-account. Сеем их через
+-- штатную функцию (она же вызывается онбордингом).
+select public.seed_default_account_roles(
+  'cccccccc-0000-0000-0000-000000000001'::uuid
+);
+
+-- Привязываем владельца к заведению (роль owner — единственная системная)
 insert into public.user_venue_roles (user_id, venue_id, role_id)
 values (
   'aaaaaaaa-0000-0000-0000-000000000001',
@@ -208,21 +215,29 @@ values (
   '00000000-0000-0000-0000-000000000001' -- системная роль owner
 );
 
--- Привязываем управляющего к заведению (роль manager)
+-- Привязываем управляющего к заведению (per-account custom_manager)
 insert into public.user_venue_roles (user_id, venue_id, role_id, invited_by)
 values (
   'bbbbbbbb-0000-0000-0000-000000000002',
   'dddddddd-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000002', -- системная роль manager
+  (
+    select id from public.roles
+    where account_id = 'cccccccc-0000-0000-0000-000000000001'::uuid
+      and code       = 'custom_manager'
+  ),
   'aaaaaaaa-0000-0000-0000-000000000001'
 );
 
--- Привязываем официанта к заведению (роль waiter)
+-- Привязываем официанта к заведению (per-account custom_waiter)
 insert into public.user_venue_roles (user_id, venue_id, role_id, invited_by)
 values (
   'cccccccc-0000-0000-0000-000000000003',
   'dddddddd-0000-0000-0000-000000000001',
-  '00000000-0000-0000-0000-000000000005', -- системная роль waiter
+  (
+    select id from public.roles
+    where account_id = 'cccccccc-0000-0000-0000-000000000001'::uuid
+      and code       = 'custom_waiter'
+  ),
   'aaaaaaaa-0000-0000-0000-000000000001'
 );
 
@@ -235,28 +250,39 @@ where id in (
   'cccccccc-0000-0000-0000-000000000003'
 );
 
--- Дополнительные данные профилей для демонстрации
+-- Дополнительные данные профилей для демонстрации.
+-- employment_date после миграции 132 переехал в staff_account_details
+-- (account-scoped). Заполняем там же через upsert.
 update public.profiles set
-  phone           = '+7 (999) 111-11-11',
-  gender          = 'male',
-  birth_date      = '1985-03-15',
-  employment_date = '2023-01-10'
+  phone       = '+7 (999) 111-11-11',
+  gender      = 'male',
+  birth_date  = '1985-03-15'
 where id = 'aaaaaaaa-0000-0000-0000-000000000001';
 
 update public.profiles set
-  phone           = '+7 (999) 222-22-22',
-  telegram_id     = '@manager_test',
-  gender          = 'female',
-  birth_date      = '1990-07-22',
-  employment_date = '2023-06-01'
+  phone       = '+7 (999) 222-22-22',
+  telegram_id = '@manager_test',
+  gender      = 'female',
+  birth_date  = '1990-07-22'
 where id = 'bbbbbbbb-0000-0000-0000-000000000002';
 
 update public.profiles set
-  phone           = '+7 (999) 333-33-33',
-  gender          = 'male',
-  birth_date      = '1998-11-05',
-  employment_date = '2024-03-15'
+  phone       = '+7 (999) 333-33-33',
+  gender      = 'male',
+  birth_date  = '1998-11-05'
 where id = 'cccccccc-0000-0000-0000-000000000003';
+
+-- Account-scoped HR-данные: дата трудоустройства в staff_account_details.
+insert into public.staff_account_details (account_id, user_id, employment_date)
+values
+  ('cccccccc-0000-0000-0000-000000000001'::uuid,
+   'aaaaaaaa-0000-0000-0000-000000000001'::uuid, '2023-01-10'),
+  ('cccccccc-0000-0000-0000-000000000001'::uuid,
+   'bbbbbbbb-0000-0000-0000-000000000002'::uuid, '2023-06-01'),
+  ('cccccccc-0000-0000-0000-000000000001'::uuid,
+   'cccccccc-0000-0000-0000-000000000003'::uuid, '2024-03-15')
+on conflict (account_id, user_id) do update
+  set employment_date = excluded.employment_date;
 
 -- Тестовые уведомления для владельца
 insert into public.notifications (user_id, venue_id, type, title, body, read, created_at)

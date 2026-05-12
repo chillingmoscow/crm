@@ -66,16 +66,40 @@ begin
       )
       returning id into v_new_role_id;
 
-      -- b) Permissions: base role_permissions + merge account-scoped override.
+      -- b) Permissions: эффективный набор = base role_permissions с
+      --    override'ами account_role_permissions поверх + override-only
+      --    permissions (которых нет в базовом наборе системной роли,
+      --    но юзер их явно включил per-account — поведение, добавленное
+      --    миграцией 103). NOT EXISTS гарантирует отсутствие дублей
+      --    между двумя UNION-ветками.
       insert into public.role_permissions (role_id, permission_id, granted)
-      select v_new_role_id, rp.permission_id,
-             coalesce(arp.granted, rp.granted)
-      from public.role_permissions rp
-      left join public.account_role_permissions arp
-        on arp.role_id       = v_old_role.id
-       and arp.account_id    = v_acc.id
-       and arp.permission_id = rp.permission_id
-      where rp.role_id = v_old_role.id;
+      select v_new_role_id, permission_id, granted
+      from (
+        -- base + overlaid override (если override был)
+        select rp.permission_id,
+               coalesce(arp.granted, rp.granted) as granted
+        from public.role_permissions rp
+        left join public.account_role_permissions arp
+          on arp.role_id       = v_old_role.id
+         and arp.account_id    = v_acc.id
+         and arp.permission_id = rp.permission_id
+        where rp.role_id = v_old_role.id
+
+        union all
+
+        -- override-only: permission, которого не было в базовом
+        -- role_permissions системной роли, но включён через
+        -- account_role_permissions для этого аккаунта.
+        select arp.permission_id, arp.granted
+        from public.account_role_permissions arp
+        where arp.role_id    = v_old_role.id
+          and arp.account_id = v_acc.id
+          and not exists (
+            select 1 from public.role_permissions rp
+            where rp.role_id       = v_old_role.id
+              and rp.permission_id = arp.permission_id
+          )
+      ) merged;
 
       -- c) Перенаправляем UVR (любого статуса — active / fired) в venues
       --    этого аккаунта.
@@ -134,6 +158,87 @@ as $$
   );
 $$;
 
+-- list_my_permissions (миграция 065 + 103) — упрощаем: после drop'а
+-- account_role_permissions overrides больше нет, читаем напрямую из
+-- role_permissions активного UVR. Без этого RPC падает в рантайме
+-- (sidebar в layout.tsx завязан на cached call).
+create or replace function public.list_my_permissions()
+returns text[]
+language sql stable security definer set search_path = public
+as $$
+  select coalesce(array_agg(distinct p.code order by p.code), '{}')
+  from public.user_venue_roles uvr
+  join public.role_permissions rp on rp.role_id = uvr.role_id
+  join public.permissions p on p.id = rp.permission_id
+  where uvr.user_id  = auth.uid()
+    and uvr.venue_id = public.get_active_venue_id()
+    and uvr.status   = 'active'
+    and rp.granted   = true;
+$$;
+
+-- copy_role_permissions (миграция 049) — раньше для system-source мерджила
+-- account_role_permissions поверх role_permissions. После drop'а overrides
+-- нет, просто копируем granted=true rows из источника. Также чиним
+-- комментарий про people.manage_roles (был корректен) и логику —
+-- упрощённую и без отсылок к dropped table.
+drop function if exists public.copy_role_permissions(uuid, uuid);
+create or replace function public.copy_role_permissions(
+  p_source_role_id uuid,
+  p_target_role_id uuid
+)
+returns void
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_account_id        uuid;
+  v_source_account_id uuid;
+  v_target_account_id uuid;
+  v_target_code       text;
+begin
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+  if not public.has_permission('people.manage_roles') then
+    raise exception 'Insufficient permissions';
+  end if;
+
+  v_account_id := public.get_active_account_id();
+  if v_account_id is null then
+    raise exception 'Active account is not set';
+  end if;
+
+  -- Source: owner (system) или роль активного аккаунта
+  select r.account_id into v_source_account_id
+  from public.roles r where r.id = p_source_role_id;
+  if not found then raise exception 'Source role not found'; end if;
+  if v_source_account_id is not null and v_source_account_id <> v_account_id then
+    raise exception 'Source role is outside active account';
+  end if;
+
+  -- Target: custom + active account + не owner
+  select r.account_id, r.code into v_target_account_id, v_target_code
+  from public.roles r where r.id = p_target_role_id;
+  if not found then raise exception 'Target role not found'; end if;
+  if v_target_account_id is null then
+    raise exception 'Target must be a custom (account-scoped) role';
+  end if;
+  if v_target_account_id <> v_account_id then
+    raise exception 'Target role is outside active account';
+  end if;
+  if v_target_code = 'owner' then
+    raise exception 'Owner role cannot be modified';
+  end if;
+
+  insert into public.role_permissions (role_id, permission_id, granted)
+  select p_target_role_id, rp.permission_id, true
+  from public.role_permissions rp
+  where rp.role_id = p_source_role_id
+    and rp.granted = true
+  on conflict (role_id, permission_id)
+  do update set granted = true;
+end;
+$$;
+
 create or replace function public.get_effective_role_permissions(p_role_ids uuid[] default null)
 returns table (role_id uuid, permission_id uuid, granted boolean)
 language sql stable security definer set search_path = public
@@ -164,7 +269,9 @@ begin
   if auth.uid() is null then
     raise exception 'Not authenticated';
   end if;
-  if not public.has_permission('platform.manage_roles') then
+  -- Permission catalog был мигрирован на people.* ещё в 034 —
+  -- platform.manage_roles больше нет. Используем people.manage_roles.
+  if not public.has_permission('people.manage_roles') then
     raise exception 'Insufficient permissions';
   end if;
 

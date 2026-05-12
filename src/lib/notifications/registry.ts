@@ -3,6 +3,8 @@ import {
   AtSign,
   Bell,
   BookOpen,
+  Cake,
+  Gift,
   HeartPulse,
   Info,
   MessageCircle,
@@ -72,6 +74,18 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     category: "staff",
     icon: HeartPulse,
     iconColor: "text-rose-500",
+    verb: null,
+  },
+  "staff.birthday_self": {
+    category: "staff",
+    icon: Cake,
+    iconColor: "text-pink-500",
+    verb: null,
+  },
+  "staff.birthday_colleague": {
+    category: "staff",
+    icon: Gift,
+    iconColor: "text-purple-500",
     verb: null,
   },
 

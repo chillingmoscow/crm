@@ -42,7 +42,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       <div className="p-8">
         <h1 className="text-2xl font-semibold">Заведения</h1>
         <p className="text-muted-foreground mt-2">
-          Управление заведениями доступно только владельцу аккаунта.
+          Управление заведениями доступно только владельцу аккаунта
         </p>
       </div>
     );

@@ -33,7 +33,7 @@ export default async function QuickRestoIntegrationPage() {
       <div className="p-6 md:p-8 w-full">
         <h1 className="text-2xl font-semibold">Quick Resto</h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Интеграция доступна только владельцу аккаунта.
+          Интеграция доступна только владельцу аккаунта
         </p>
       </div>
     );
@@ -59,7 +59,7 @@ export default async function QuickRestoIntegrationPage() {
         </Link>
         <h1 className="text-2xl font-semibold mt-2">Quick Resto</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Подключите API и выберите, какие данные импортировать.
+          Подключите API и выберите, какие данные импортировать
         </p>
       </div>
 

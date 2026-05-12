@@ -470,27 +470,28 @@ export function StaffClient({
         const isPlaceholder = member.email.toLowerCase().endsWith("@import.local");
         const isPendingInvite = !isPlaceholder && !member.email_confirmed;
         return (
-          <div className="min-w-0">
-            <p className="font-medium text-sm truncate">
+          <div className="min-w-0 flex items-center gap-2">
+            <span className="font-medium text-sm truncate">
               {displayName(member)}
               {isMe && <span className="ml-2 text-xs text-muted-foreground font-normal">(вы)</span>}
-            </p>
+            </span>
             {isPlaceholder && (
-              <span
-                className="inline-flex mt-1 items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground"
+              <Badge
+                variant="outline"
+                className="text-xs text-muted-foreground bg-secondary border-border shrink-0"
                 title="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
               >
                 Без аккаунта
-              </span>
+              </Badge>
             )}
             {isPendingInvite && (
-              <span
-                className="inline-flex mt-1 items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+              <Badge
+                variant="outline"
+                className="text-xs text-amber-600 border-amber-300 bg-amber-50 shrink-0"
                 title="Приглашение отправлено, но сотрудник ещё не подтвердил email."
               >
-                <Clock className="w-3 h-3" />
-                Ожидает подтверждения
-              </span>
+                Ожидает
+              </Badge>
             )}
           </div>
         );

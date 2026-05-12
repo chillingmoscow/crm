@@ -26,7 +26,7 @@ export default async function IntegrationsPage({
     return (
       <div className="p-6 md:p-8 w-full">
         <h1 className="text-2xl font-semibold">Интеграции</h1>
-        <p className="text-sm text-muted-foreground mt-2">Интеграции доступны владельцу аккаунта.</p>
+        <p className="text-sm text-muted-foreground mt-2">Интеграции доступны владельцу аккаунта</p>
       </div>
     );
   }
@@ -34,7 +34,7 @@ export default async function IntegrationsPage({
   return (
     <div className="p-6 md:p-8 w-full">
       <h1 className="text-2xl font-semibold">Интеграции</h1>
-      <p className="text-sm text-muted-foreground mt-1">Подключайте внешние системы и повторяйте импорт данных.</p>
+      <p className="text-sm text-muted-foreground mt-1">Подключайте внешние системы и повторяйте импорт данных</p>
 
       {params.quickresto === "done" ? (
         <div className="mt-4 max-w-xl rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">

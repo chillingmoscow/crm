@@ -88,5 +88,8 @@ export default async function InvitePage({
     !!profile?.phone &&
     !!profile?.telegram_id;
 
-  redirect(profileComplete ? "/dashboard" : "/onboarding/employee");
+  // Только что приглашённого сотрудника без заполненного профиля шлём на
+  // /profile?welcome=1 — там welcome-баннер + completion meter с
+  // подсказками. Старая /onboarding/employee оставлена как fallback.
+  redirect(profileComplete ? "/dashboard" : "/profile?welcome=1");
 }

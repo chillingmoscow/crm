@@ -77,7 +77,7 @@ export default async function KbAnalyticsPage({
             </h1>
             <p className="text-sm text-muted-foreground">
               Сколько времени сотрудники проводят на страницах. Учитывается
-              активное время — без учёта неактивных вкладок и idle-периодов.
+              активное время — без учёта неактивных вкладок и idle-периодов
             </p>
             <div>
               <KbAnalyticsPeriodTabs

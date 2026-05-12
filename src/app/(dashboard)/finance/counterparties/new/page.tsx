@@ -30,8 +30,8 @@ export default async function NewCounterpartyPage() {
       <h1 className="text-2xl font-semibold mb-1">Новый контрагент</h1>
       <p className="text-muted-foreground text-sm mb-6">
         {dadataEnabled
-          ? "Введите ИНН и нажмите «Из DaData» — поля заполнятся автоматически."
-          : "DaData не настроена — заполните поля вручную."}
+          ? "Введите ИНН и нажмите «Из DaData» — поля заполнятся автоматически"
+          : "DaData не настроена — заполните поля вручную"}
       </p>
 
       <CounterpartyForm mode="create" groups={groups} dadataEnabled={dadataEnabled} />

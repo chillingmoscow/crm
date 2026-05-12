@@ -57,7 +57,12 @@ export default async function RevokeEmailChangePage({ searchParams }: PageProps)
     };
     update: (patch: Record<string, unknown>) => {
       eq: (col: string, v: string) => {
-        is: (col: string, v: null) => Promise<{ error: { message: string } | null }>;
+        is: (col: string, v: null) => {
+          select: (s: string) => Promise<{
+            data: { id: string }[] | null;
+            error: { message: string } | null;
+          }>;
+        };
       };
     };
   };
@@ -104,16 +109,36 @@ export default async function RevokeEmailChangePage({ searchParams }: PageProps)
   // Помечаем consumed (с гардом против race с confirm): тот же
   // `is consumed_at null` что и в confirm-роуте — гарантирует что
   // одна из двух операций победит, а не обе.
-  const { error: updateError } = await ecr
+  //
+  // КРИТИЧНО: `.select("id")` обязательно — PostgREST'овский UPDATE
+  // без `Prefer: return=representation` отвечает 204 No Content и НЕ
+  // даёт узнать сколько строк затронуто. Если confirm успел прокатить
+  // тот же row между нашим SELECT и UPDATE — UPDATE вернёт 0 затронутых
+  // строк БЕЗ ошибки, и мы покажем «отозвано» при реально успешной
+  // смене email. Это и был Codex P1 на #261. `select("id")` форсит
+  // `return=representation`, и пустой data сигналит что race проигран.
+  const { data: updatedRows, error: updateError } = await ecr
     .update({ consumed_at: new Date().toISOString() })
     .eq("id", row.id)
-    .is("consumed_at", null);
+    .is("consumed_at", null)
+    .select("id");
 
   if (updateError) {
     return (
       <Failure
         title="Не удалось отозвать"
         message={updateError.message}
+      />
+    );
+  }
+
+  // Race lost: confirm успел consume'нуть row между SELECT и UPDATE.
+  // На момент рендеринга email уже сменён. Сообщаем что revoke не успел.
+  if (!updatedRows || updatedRows.length === 0) {
+    return (
+      <Failure
+        title="Слишком поздно"
+        message="Смена email уже подтверждена параллельно. Если это были не вы — обратитесь в поддержку и поменяйте пароль."
       />
     );
   }

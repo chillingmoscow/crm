@@ -37,12 +37,46 @@ grant usage, select on all sequences in schema public to service_role;
 grant execute on all routines in schema public to service_role;
 
 -- 4. Default privileges для будущих таблиц / sequences / routines.
-alter default privileges in schema public
-  grant select, insert, update, delete on tables to service_role;
-alter default privileges in schema public
-  grant usage, select on sequences to service_role;
-alter default privileges in schema public
-  grant execute on routines to service_role;
+--
+-- КРИТИЧНО: alter default privileges scope'ится по current_role и
+-- работает ТОЛЬКО для объектов, создаваемых ЭТОЙ ролью. У нас два
+-- источника DDL:
+--   • локально через supabase CLI — current_role = postgres
+--   • на проде через psql -U supabase_admin (SSH) — = supabase_admin
+-- Чтобы будущие таблицы получали service_role-грант независимо от того,
+-- кто их создал, выставляем default для обеих ролей. Если current_role
+-- не может ALTER FOR другую (например postgres не имеет права alter для
+-- supabase_admin) — DO-block глотает insufficient_privilege и идёт
+-- дальше. Тот же паттерн уже использован в миграции 047 (Codex P1
+-- на #267).
+
+-- Default для объектов, создаваемых supabase_admin (= prod-flow).
+do $$
+begin
+  alter default privileges for role supabase_admin in schema public
+    grant select, insert, update, delete on tables to service_role;
+  alter default privileges for role supabase_admin in schema public
+    grant usage, select on sequences to service_role;
+  alter default privileges for role supabase_admin in schema public
+    grant execute on routines to service_role;
+exception when insufficient_privilege then
+  raise notice 'Skipping ALTER DEFAULT PRIVILEGES for supabase_admin (current role lacks privilege).';
+end;
+$$;
+
+-- Default для объектов, создаваемых postgres (= local supabase CLI).
+do $$
+begin
+  alter default privileges for role postgres in schema public
+    grant select, insert, update, delete on tables to service_role;
+  alter default privileges for role postgres in schema public
+    grant usage, select on sequences to service_role;
+  alter default privileges for role postgres in schema public
+    grant execute on routines to service_role;
+exception when insufficient_privilege then
+  raise notice 'Skipping ALTER DEFAULT PRIVILEGES for postgres (current role lacks privilege).';
+end;
+$$;
 
 -- Verify (no-op, just for review): после применения выражение ниже должно
 -- быть пустым.

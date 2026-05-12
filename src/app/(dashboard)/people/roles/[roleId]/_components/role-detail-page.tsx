@@ -23,6 +23,8 @@ import {
 import { deleteRole, setRolePermission, updateRole } from "../../actions";
 import { metaForModule, sortModuleKeys } from "./permission-modules";
 import { IconPicker } from "../../_components/icon-picker";
+import { iconForRole } from "../../_components/role-icons";
+import { paletteText, type PaletteColor } from "@/lib/palette";
 import {
   PageBreadcrumb,
   PageHeaderActions,
@@ -256,26 +258,49 @@ export function RoleDetailPage({
         {/* Header — без CTA. Save живёт в футере формы на табе «Основное»
             и появляется только когда есть что сохранять. Это убирает
             «висящую» disabled-кнопку и микро-shift при переключении табов. */}
-        <div className="flex flex-col gap-1.5 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap">
-            {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
-            <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-              {role.name}
-            </h1>
-            {role.account_id === null && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                <Lock className="w-2.5 h-2.5" />
-                <span className="text-[10px] font-medium leading-none">
-                  Системная
+        <div className="flex items-center gap-4 min-w-0">
+          {/* 56px icon-плашка слева от H1 — по аналогии с хедером
+              карточки сотрудника (см. staff-detail-page.tsx). Иконка
+              рендерится через iconForRole (резолвит role.icon из
+              ICON_REGISTRY либо fallback по системному code'у); цвет
+              тинта — из palette по role.icon_color. */}
+          {(() => {
+            const HeaderIcon = iconForRole(role.code, iconValue);
+            const isOwner = role.code === "owner";
+            const tintClass = paletteText(iconColorValue as PaletteColor | null);
+            return (
+              <div
+                className={`shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center ${
+                  isOwner
+                    ? "bg-brand/10 text-brand"
+                    : `bg-muted ${tintClass || "text-muted-foreground"}`
+                }`}
+              >
+                <HeaderIcon className="w-7 h-7" />
+              </div>
+            );
+          })()}
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
+              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+                {role.name}
+              </h1>
+              {role.account_id === null && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                  <Lock className="w-2.5 h-2.5" />
+                  <span className="text-[10px] font-medium leading-none">
+                    Системная
+                  </span>
                 </span>
-              </span>
+              )}
+            </div>
+            {role.comment && (
+              <p className="text-sm text-muted-foreground leading-snug">
+                {role.comment}
+              </p>
             )}
           </div>
-          {role.comment && (
-            <p className="text-sm text-muted-foreground leading-snug">
-              {role.comment}
-            </p>
-          )}
         </div>
 
         {/* Tabs — «Основное» first per design RbRH4 */}

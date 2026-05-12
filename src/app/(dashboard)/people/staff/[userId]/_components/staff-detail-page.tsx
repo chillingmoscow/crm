@@ -136,7 +136,7 @@ function FormSection({
             {title}
           </h2>
           {locked && (
-            <TooltipProvider delayDuration={150}>
+            <TooltipProvider delayDuration={400}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center text-muted-foreground/70 hover:text-muted-foreground cursor-help">
@@ -387,8 +387,12 @@ export function StaffDetailPage({
 
   const handleFire = () => {
     const reason = fireReason.trim();
+    if (!reason) {
+      toast.error("Укажите причину увольнения");
+      return;
+    }
     startTransition(async () => {
-      const result = await fireStaff(uvrId, reason || null);
+      const result = await fireStaff(uvrId, reason);
       if (result.error) { toast.error(result.error); return; }
       toast.success("Сотрудник уволен");
       router.push("/people/staff");
@@ -1036,7 +1040,7 @@ export function StaffDetailPage({
 
           <div className="space-y-2">
             <Label htmlFor="fire_reason" className="text-[13px] font-medium">
-              Причина увольнения
+              Причина увольнения <span className="text-destructive">*</span>
             </Label>
             <Textarea
               id="fire_reason"
@@ -1045,9 +1049,10 @@ export function StaffDetailPage({
               placeholder="Например: ушёл на другое место, нарушения дисциплины, окончание сезона"
               rows={3}
               className="resize-none"
+              required
             />
             <p className="text-[12px] text-muted-foreground">
-              Будет видна в списке уволенных — помогает быстро вспомнить контекст
+              Будет видна в списке уволенных — помогает вспомнить контекст
             </p>
           </div>
 
@@ -1058,7 +1063,7 @@ export function StaffDetailPage({
             <Button
               variant="destructive"
               onClick={() => { setConfirmFire(false); handleFire(); }}
-              disabled={isPending}
+              disabled={isPending || fireReason.trim().length === 0}
             >
               Уволить
             </Button>

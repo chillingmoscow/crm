@@ -131,26 +131,6 @@ export default async function StaffMemberPage({
   if (!profileRow) redirect("/people/staff");
   if (!targetUvr) redirect("/people/staff");
 
-  // Лог для диагностики data-strip регрессий: видим что СЕРВЕР отдаёт
-  // клиенту, и сравниваем с тем, что в DB (по cron-уведомлениям).
-  console.log("[staff/[userId]] DB read", {
-    accountId,
-    userId,
-    profileRow: profileRow
-      ? {
-          birth_date: profileRow.birth_date,
-          birth_date_set_at: profileRow.birth_date_set_at,
-        }
-      : null,
-    accountDetailsRow: accountDetailsRow
-      ? {
-          employment_date: accountDetailsRow.employment_date,
-          medical_book_number: accountDetailsRow.medical_book_number,
-          medical_book_date: accountDetailsRow.medical_book_date,
-        }
-      : null,
-  });
-
   // Если для пары (account_id, user_id) ещё нет ряда в staff_account_details
   // — это норма (свежий сотрудник, тенант-данные пусты). Подсовываем
   // дефолты, чтобы UI знал «нечего показывать».

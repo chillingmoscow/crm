@@ -520,6 +520,23 @@ export function ProfileSettingsPage({
                   />
                 )}
               />
+              {/* Подпись «когда был последний раз изменён». Видна
+                  только если ДР МЕНЯЛИ (set_at не равен created_at).
+                  При первом заполнении не показываем — нет смысла
+                  социально «помечать» нормальное действие. Социальный
+                  гард от фрода с поздравлениями: повторно перевыставить
+                  дату чтобы получить подарок второй раз — заметно.
+                  Сам limit «раз в год» живёт в trg_profiles_birth_date_yearly_limit
+                  (миграция 142). */}
+              {profile.birth_date_set_at && (
+                <p className="text-[11px] text-muted-foreground">
+                  Изменено{" "}
+                  {new Date(profile.birth_date_set_at).toLocaleDateString(
+                    "ru-RU",
+                    { day: "2-digit", month: "2-digit", year: "numeric" },
+                  )}
+                </p>
+              )}
             </div>
           </div>
         </FormSection>

@@ -271,6 +271,36 @@ export function StaffDetailPage({
     );
   }, [passportPhotos]);
 
+  // Какие schema-поля лежат на каком табе. Используется в onValidationError
+  // чтобы переключить юзера на нужный таб, если zod-валидация упала на
+  // полях невидимого таба (раньше клик «Сохранить» просто не давал
+  // никакого фидбэка — silent failure).
+  const FIELD_TAB: Record<keyof FormValues, TabKey> = {
+    first_name:           "main",
+    last_name:            "main",
+    phone:                "main",
+    telegram_id:          "main",
+    gender:               "main",
+    birth_date:           "main",
+    address:              "main",
+    employment_date:      "main",
+    terminal_pin:         "main",
+    medical_book_number:  "documents",
+    medical_book_date:    "documents",
+    comment:              "main",
+  };
+
+  const onValidationError = (formErrors: typeof errors) => {
+    const firstField = Object.keys(formErrors)[0] as keyof FormValues | undefined;
+    if (!firstField) return;
+    const targetTab = FIELD_TAB[firstField] ?? "main";
+    if (targetTab !== activeTab) setActiveTab(targetTab);
+    const message =
+      (formErrors[firstField] as { message?: string } | undefined)?.message ??
+      "Заполните обязательные поля";
+    toast.error(message);
+  };
+
   // Save: три параллельных action'а.
   // - updateStaffProfile — личные поля (тир 1+2)
   // - updateStaffAccountDetails — HR-данные аккаунта (тир 3)
@@ -592,7 +622,7 @@ export function StaffDetailPage({
           {/* ── Основное ─────────────────────────────────────── */}
           <TabsContent value="main">
             <form
-              onSubmit={handleSubmit(onSave)}
+              onSubmit={handleSubmit(onSave, onValidationError)}
               className="mx-auto w-full max-w-[720px] flex flex-col gap-5"
             >
               {/* Личные данные — фото сверху по центру + поля ниже,
@@ -894,7 +924,7 @@ export function StaffDetailPage({
           {/* ── Документы ────────────────────────────────────── */}
           <TabsContent value="documents">
             <form
-              onSubmit={handleSubmit(onSave)}
+              onSubmit={handleSubmit(onSave, onValidationError)}
               className="mx-auto w-full max-w-[720px] flex flex-col gap-5"
             >
               <FormSection

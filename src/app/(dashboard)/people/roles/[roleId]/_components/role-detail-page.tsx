@@ -105,11 +105,13 @@ export function RoleDetailPage({
   const [permQuery, setPermQuery] = useState("");
 
   const isOwner = role.code === "owner";
+  // После миграции 138 единственная системная роль — owner. Все остальные
+  // (Управляющий/Администратор/Бухгалтер/…) — кастомные per-account.
   const isSystem = role.account_id === null;
   const canEdit = !isOwner;
-  // Any non-owner role can be removed: custom → physical delete, system →
-  // per-account hide overlay (account_hidden_roles).
-  const canDelete = !isOwner && accountId !== null;
+  // Owner и системные роли (после миграции — только owner) не удаляются.
+  // Кастомка — физический DELETE.
+  const canDelete = !isOwner && !isSystem && accountId !== null;
 
   // ── Helpers ────────────────────────────────────────────────
 
@@ -191,7 +193,7 @@ export function RoleDetailPage({
         toast.error(result.error);
         return;
       }
-      toast.success(isSystem ? "Должность скрыта" : "Должность удалена");
+      toast.success("Должность удалена");
       router.push("/people/roles");
     });
   }
@@ -525,23 +527,12 @@ export function RoleDetailPage({
               <div className="max-w-[720px] mx-auto rounded-[14px] border bg-card p-6 flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
                   <h3 className="text-base font-semibold text-foreground">
-                    {isSystem ? "Скрыть должность" : "Удалить должность"}
+                    Удалить должность
                   </h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">
-                    {isSystem ? (
-                      <>
-                        Системная должность «{nameValue || role.name}» исчезнет
-                        из списка вашего аккаунта. Сотрудники с этой ролью
-                        потеряют доступ — переназначьте их заранее. Скрытие
-                        можно отменить через системного администратора.
-                      </>
-                    ) : (
-                      <>
-                        Должность «{nameValue || role.name}» будет удалена
-                        безвозвратно. Сотрудники с этой ролью потеряют доступ —
-                        переназначьте их перед удалением.
-                      </>
-                    )}
+                    Должность «{nameValue || role.name}» будет удалена
+                    безвозвратно. Сотрудники с этой ролью потеряют доступ —
+                    переназначьте их перед удалением.
                   </p>
                 </div>
                 <div>
@@ -551,7 +542,7 @@ export function RoleDetailPage({
                     disabled={isPending}
                   >
                     <Trash2 className="w-4 h-4" />
-                    {isSystem ? "Скрыть должность" : "Удалить должность"}
+                    Удалить должность
                   </Button>
                 </div>
               </div>
@@ -564,13 +555,10 @@ export function RoleDetailPage({
       <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>
-              {isSystem ? "Скрыть должность?" : "Удалить должность?"}
-            </DialogTitle>
+            <DialogTitle>Удалить должность?</DialogTitle>
             <DialogDescription>
-              {isSystem
-                ? `Системная должность «${nameValue || role.name}» исчезнет из вашего списка. Сотрудники с этой ролью потеряют доступ.`
-                : `Должность «${nameValue || role.name}» будет удалена. Действие нельзя отменить.`}
+              Должность «{nameValue || role.name}» будет удалена. Действие
+              нельзя отменить.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -586,7 +574,7 @@ export function RoleDetailPage({
               disabled={isPending}
             >
               <Trash2 className="w-4 h-4" />
-              {isSystem ? "Скрыть" : "Удалить"}
+              Удалить
             </Button>
           </DialogFooter>
         </DialogContent>

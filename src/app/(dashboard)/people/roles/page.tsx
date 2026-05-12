@@ -31,7 +31,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     supabase.rpc("get_active_venue_id"),
   ]);
 
-  const [rolesResult, permissionsResult, hiddenResult] = await Promise.all([
+  const [rolesResult, permissionsResult] = await Promise.all([
     supabase
       .from("roles")
       .select("id, account_id, name, code, comment, icon, icon_color")
@@ -47,21 +47,12 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       .select("id, code, description, module")
       .order("module")
       .order("code"),
-    accountId
-      ? supabase
-          .from("account_hidden_roles")
-          .select("role_id")
-          .eq("account_id", accountId as string)
-      : Promise.resolve({ data: [] as { role_id: string }[] }),
   ]);
 
-  const hiddenRoleIds = new Set(
-    ((hiddenResult.data as { role_id: string }[] | null) ?? []).map(
-      (r) => r.role_id,
-    ),
-  );
   // icon_color (миграция 136) ещё не во вшитых Database-типах — cast чтобы
-  // развязать pipeline до regen'а supabase gen types.
+  // развязать pipeline до регенерации `supabase gen types`. После миграции
+  // 138 hidden-roles overlay'я больше нет — все не-owner роли удаляются
+  // обычным DELETE, отдельная фильтрация не нужна.
   type RoleRow = {
     id: string;
     account_id: string | null;
@@ -71,9 +62,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     icon: string | null;
     icon_color: string | null;
   };
-  const roles = ((rolesResult.data as unknown as RoleRow[] | null) ?? []).filter(
-    (r) => !hiddenRoleIds.has(r.id),
-  );
+  const roles = (rolesResult.data as unknown as RoleRow[] | null) ?? [];
   const permissions = permissionsResult.data ?? [];
   const roleIds = roles.map((r) => r.id);
 

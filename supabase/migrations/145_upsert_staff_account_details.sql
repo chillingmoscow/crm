@@ -24,6 +24,14 @@
 -- sad_insert_manage / sad_update_manage (account_id = active + право
 -- people.edit_staff). Без этого можно было бы сохранить в чужой
 -- аккаунт через service-role, что мы не хотим.
+--
+-- АВТОРИЗАЦИЯ: миграция 021 grant'ает execute на все routines в public
+-- для anon, authenticated. Если бы мы пропускали auth-check при
+-- auth.uid()=null (как было в первой версии этого файла), анонимный
+-- caller мог бы написать в произвольный staff_account_details через
+-- security-definer bypass RLS. Поэтому ниже — `raise exception` если
+-- auth.uid() null (Codex P0 на #264). Дополнительно делаем revoke на
+-- anon, чтобы grant из 021 не мог сам пробить (defense in depth).
 -- ─────────────────────────────────────────────────────────────────────────────
 
 create or replace function public.upsert_staff_account_details(
@@ -39,17 +47,21 @@ as $$
 declare
   v_caller uuid := auth.uid();
 begin
+  -- Auth обязательна. Без auth.uid() это либо анон (которому миграция
+  -- 021 дала grant execute на public.*), либо service-role. В обоих
+  -- случаях security-definer + bypass RLS = дыра. Service-role-flow
+  -- который реально хочет писать в чужой аккаунт должен пользоваться
+  -- прямыми INSERT/UPDATE с явной RLS-bypass семантикой, не этой RPC.
+  if v_caller is null then
+    raise exception 'Не авторизован';
+  end if;
+
   -- Тот же гард что в RLS: только active account + people.edit_staff.
-  -- Без auth.uid() (например service-role) — пропускаем; функция
-  -- вызывается через PostgREST под authenticated юзером, и тогда
-  -- проверка обязательна.
-  if v_caller is not null then
-    if p_account_id <> public.get_active_account_id() then
-      raise exception 'Нет прав: account_id не совпадает с активным аккаунтом';
-    end if;
-    if not public.has_permission('people.edit_staff') then
-      raise exception 'Нет права people.edit_staff';
-    end if;
+  if p_account_id <> public.get_active_account_id() then
+    raise exception 'Нет прав: account_id не совпадает с активным аккаунтом';
+  end if;
+  if not public.has_permission('people.edit_staff') then
+    raise exception 'Нет права people.edit_staff';
   end if;
 
   insert into public.staff_account_details (
@@ -112,4 +124,10 @@ begin
 end;
 $$;
 
+-- Сначала revoke default-grant (миграция 021) для anon, чтобы анон
+-- не мог вызвать RPC даже теоретически. Затем явно grant на
+-- authenticated. Defense-in-depth: даже если auth-check внутри
+-- функции бы пропускал null caller'а (был bug в первой версии — Codex
+-- P0), сам call не достигал бы тела.
+revoke execute on function public.upsert_staff_account_details(uuid, uuid, jsonb) from anon, public;
 grant execute on function public.upsert_staff_account_details(uuid, uuid, jsonb) to authenticated;

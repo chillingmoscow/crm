@@ -123,22 +123,47 @@ export async function updateStaffProfile(
   return { error: null };
 }
 
-// Account-scoped HR-данные сотрудника: апсерт в staff_account_details.
-// account_id — активный аккаунт админа (RLS гарантирует, что он не запишет
-// в чужой). passport_photos дописывается полностью (массив целиком).
+// Account-scoped HR-данные сотрудника: партиальная запись в
+// staff_account_details. account_id — активный аккаунт админа
+// (RLS гарантирует, что он не запишет в чужой).
+//
+// КРИТИЧНО: НЕ используем .upsert() — наша версия supabase-js
+// (<2.49) дополняет payload до full-row и проставляет null для
+// колонок, которых нет в data. При партиальном вызове (например,
+// `{ passport_photos }` при загрузке документа) это затирало
+// employment_date / medical_book_* / comment — см. recurring bug
+// «данные стираются после refresh».
+//
+// Вместо этого: UPDATE с eq (трогает только заданные колонки) +
+// fallback INSERT когда строки ещё нет.
 export async function updateStaffAccountDetails(
   userId: string,
   accountId: string,
   data: Partial<AccountDetailsUpdate>,
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
+
+  // UPDATE first — Postgres трогает только колонки в SET. Если ряда
+  // нет — вернёт 0 rows и data=null.
+  const { data: updated, error: updateError } = await supabase
     .from("staff_account_details")
-    .upsert(
-      { account_id: accountId, user_id: userId, ...data },
-      { onConflict: "account_id,user_id" },
-    );
-  if (error) return { error: error.message };
+    .update(data)
+    .eq("account_id", accountId)
+    .eq("user_id", userId)
+    .select("user_id")
+    .maybeSingle();
+  if (updateError) return { error: updateError.message };
+
+  if (!updated) {
+    // Ряда нет → INSERT (первое заполнение HR-данных для пары
+    // account_id/user_id). INSERT тоже включает только заданные
+    // колонки; остальные получают default из схемы.
+    const { error: insertError } = await supabase
+      .from("staff_account_details")
+      .insert({ account_id: accountId, user_id: userId, ...data });
+    if (insertError) return { error: insertError.message };
+  }
+
   revalidatePath("/people/staff");
   return { error: null };
 }

@@ -161,6 +161,11 @@ interface AppSidebarProps {
    *  Сайдбар фильтрует пункты по этому списку (вместо hardcoded
    *  ролей). Передаётся из dashboard layout через RPC list_my_permissions. */
   userPermissions: string[];
+  /** Количество сотрудников активного venue, у которых сейчас «висит»
+   *  событие (ДР в ближайшие 7 дней / медкнижка ≤30 дн.). Рендерится
+   *  бейджем на пункте «Сотрудники». 0 = не показываем. Источник —
+   *  RPC count_venue_staff_attention (миграция 144). */
+  staffAttentionCount?: number;
   /** SSR-полученное состояние KB-сайдбара из cookie `kb_sidebar_hidden`.
    *  Прокидывается дальше в `KbNavLink` как `initialHidden`, чтобы первый
    *  рендер иконки «База знаний» использовал правильный цвет (muted vs
@@ -219,6 +224,7 @@ function SidebarBody({
   activeRoleName,
   accountName,
   userPermissions,
+  staffAttentionCount = 0,
   kbSidebarHidden = false,
 }: AppSidebarProps) {
   const userPermissionsSet = useMemo(
@@ -271,7 +277,15 @@ function SidebarBody({
     () =>
       NAV_SECTIONS.map((s) => ({
         ...s,
-        items: s.items.filter(isItemVisible),
+        items: s.items.filter(isItemVisible).map((item) =>
+          // Бейдж на «Сотрудники»: количество staff с активным событием
+          // (ДР / медкнижка). RPC count_venue_staff_attention считает
+          // ровно тех, у кого есть бейдж в строке списка — циферка =
+          // «сколько строк подсвечены».
+          item.href === "/people/staff" && staffAttentionCount > 0
+            ? { ...item, badge: staffAttentionCount }
+            : item,
+        ),
       }))
         .filter(isSectionVisible)
         // Keep flat sections (href set) even если items пустой.
@@ -280,7 +294,7 @@ function SidebarBody({
     // же массив, идентичность стабильна между рендерами с одним
     // userPermissions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [userPermissionsSet, activeRoleCode],
+    [userPermissionsSet, activeRoleCode, staffAttentionCount],
   );
 
   const [openSections, setOpenSections] = useState<Set<string>>(() => {
@@ -514,6 +528,14 @@ function ExpandedSection({
   const hasActiveChild = section.items.some((item) =>
     item.exact ? pathname === item.href : pathname.startsWith(item.href),
   );
+  // Сумма бейджей всех дочерних item'ов (числовых). Показываем рядом с
+  // chevron'ом, когда секция СВЁРНУТА — иначе бейдж уже виден на самом
+  // item'е. Это позволяет юзеру понять «там что-то ждёт меня», не
+  // открывая секцию.
+  const collapsedBadgeSum = section.items.reduce(
+    (sum, i) => sum + (typeof i.badge === "number" ? i.badge : 0),
+    0,
+  );
 
   return (
     // Group · gap 4px between Trigger and Nested
@@ -529,6 +551,11 @@ function ExpandedSection({
       >
         <SectionIcon className="w-[18px] h-[18px] shrink-0" />
         <span className="flex-1 text-left">{section.label}</span>
+        {!isOpen && collapsedBadgeSum > 0 && (
+          <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-1.5">
+            {collapsedBadgeSum}
+          </span>
+        )}
         <ChevronIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
       </button>
       {isOpen && (
@@ -581,6 +608,11 @@ function CollapsedSectionFlyout({
   const hasActiveChild = section.items.some((item) =>
     item.exact ? pathname === item.href : pathname.startsWith(item.href),
   );
+  // В collapsed-режиме мы не показываем циферку (нет места), только
+  // точку — чтобы юзер видел «в этой секции что-то ждёт» и кликнул.
+  const hasAnyBadge = section.items.some(
+    (i) => typeof i.badge === "number" && i.badge > 0,
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -589,11 +621,17 @@ function CollapsedSectionFlyout({
           type="button"
           aria-label={section.label}
           className={cn(
-            "flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
+            "relative flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
             (hasActiveChild || open) && "bg-sidebar-accent",
           )}
         >
           <SectionIcon className="w-[18px] h-[18px]" />
+          {hasAnyBadge && (
+            <span
+              aria-hidden
+              className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary ring-2 ring-sidebar"
+            />
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -624,7 +662,12 @@ function CollapsedSectionFlyout({
                 )}
               >
                 <ItemIcon className="w-4 h-4 shrink-0" />
-                <span className="truncate">{item.title}</span>
+                <span className="flex-1 truncate">{item.title}</span>
+                {item.badge !== undefined && (
+                  <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-1.5">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

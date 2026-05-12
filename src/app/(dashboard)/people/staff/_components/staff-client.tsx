@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import {
   UserPlus, Calendar, Clock, X, Check, Settings2,
   ChevronDown, ChevronRight, RotateCcw, Search, Filter, Lock,
-  HeartPulse, MessageSquareQuote,
+  HeartPulse, MessageSquareQuote, Cake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -152,6 +152,63 @@ function medbookStatus(
       kind: "soon",
       label: diffDays === 0 ? "Истекает сегодня" : `Истекает через ${diffDays} дн.`,
       title: `Срок действия медкнижки заканчивается ${dateStr}.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Статус ДР сотрудника для бейджа в списке. Сравниваем только день+месяц
+ * (год — реальный год рождения, его не учитываем). null — если поле пустое
+ * или ближайший ДР больше чем через 7 дней.
+ *
+ * Логика:
+ *   • Сегодня день в день → kind: "today", «С днём рождения!»
+ *   • В ближайшие 7 дней → kind: "soon», «Через N дн.» (включая 1..7)
+ *   • Иначе — null.
+ *
+ * 29 февраля в не-високосный год считаем как 1 марта.
+ */
+function birthdayStatus(
+  birthDate: string | null,
+): { kind: "today" | "soon"; label: string; title: string } | null {
+  if (!birthDate) return null;
+  // birthDate в формате YYYY-MM-DD; парсим без UTC-сдвига.
+  const parts = birthDate.split("-");
+  if (parts.length !== 3) return null;
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (!month || !day) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const thisYear = today.getFullYear();
+
+  // Следующий ДР: в этом году или, если уже прошёл, в следующем.
+  let next = new Date(thisYear, month - 1, day);
+  next.setHours(0, 0, 0, 0);
+  // 29 февраля в не-високосный → JS превращает в 1 марта; ок, поведение
+  // совпадает с тем, как ДР отмечают de-facto.
+  if (next.getTime() < today.getTime()) {
+    next = new Date(thisYear + 1, month - 1, day);
+    next.setHours(0, 0, 0, 0);
+  }
+  const diffDays = Math.round(
+    (next.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  const dateStr = `${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}`;
+  if (diffDays === 0) {
+    return {
+      kind: "today",
+      label: "С днём рождения!",
+      title: `Сегодня день рождения (${dateStr}).`,
+    };
+  }
+  if (diffDays >= 1 && diffDays <= 7) {
+    return {
+      kind: "soon",
+      label: `ДР через ${diffDays} дн.`,
+      title: `День рождения ${dateStr} — через ${diffDays} дн.`,
     };
   }
   return null;
@@ -517,6 +574,7 @@ export function StaffClient({
         const isPlaceholder = member.email.toLowerCase().endsWith("@import.local");
         const isPendingInvite = !isPlaceholder && !member.email_confirmed;
         const medbook = medbookStatus(member.medical_book_date);
+        const bday = birthdayStatus(member.birth_date);
         return (
           <div className="min-w-0 flex items-center gap-2">
             <p className="font-medium text-sm truncate min-w-0">
@@ -557,6 +615,21 @@ export function StaffClient({
                 <HeartPulse className="w-2.5 h-2.5" />
                 <span className="text-[10px] font-medium leading-none">
                   {medbook.label}
+                </span>
+              </span>
+            )}
+            {bday && (
+              <span
+                className={`inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full ${
+                  bday.kind === "today"
+                    ? "bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300"
+                    : "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
+                }`}
+                title={bday.title}
+              >
+                <Cake className="w-2.5 h-2.5" />
+                <span className="text-[10px] font-medium leading-none">
+                  {bday.label}
                 </span>
               </span>
             )}

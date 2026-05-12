@@ -4,7 +4,10 @@ import { randomUUID } from "node:crypto";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendEmailChangeConfirmation } from "@/lib/people/email-change/mailer";
+import {
+  sendEmailChangeConfirmation,
+  sendEmailChangeAlert,
+} from "@/lib/people/email-change/mailer";
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -76,6 +79,7 @@ export async function requestEmailChange(
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000")
     .replace(/\/$/, "");
   const actionLink = `${siteUrl}/auth/confirm-email-change?token=${token}`;
+  const revokeLink = `${siteUrl}/auth/revoke-email-change?token=${token}`;
 
   // Имя для приветствия в письме — берём из profiles, если есть.
   const { data: profile } = await admin
@@ -95,9 +99,9 @@ export async function requestEmailChange(
       displayName,
     });
   } catch (e) {
-    // SMTP-сбой: чистим только что созданный pending-токен, чтобы юзер
-    // мог сразу попробовать ещё раз (новый токен), и не было «висящих»
-    // никем не доставленных запросов.
+    // SMTP-сбой confirm-письма: чистим только что созданный pending-
+    // токен, чтобы юзер мог сразу попробовать ещё раз (новый токен), и
+    // не было «висящих» никем не доставленных запросов.
     const ecrCleanup = (admin.from as (t: string) => unknown)(
       "email_change_requests",
     ) as {
@@ -106,6 +110,23 @@ export async function requestEmailChange(
     await ecrCleanup.delete().eq("token", token);
     const msg = e instanceof Error ? e.message : "Не удалось отправить письмо";
     return { error: msg };
+  }
+
+  // Alert на старый email — best-effort. Если SMTP упадёт на этом
+  // письме, мы не откатываем смену (confirm-письмо уже улетело и юзер
+  // ждёт). Просто логируем и идём дальше. Это security-уведомление,
+  // не critical path.
+  if (user.email) {
+    try {
+      await sendEmailChangeAlert({
+        to: user.email,
+        revokeLink,
+        newEmail: normalized,
+        displayName,
+      });
+    } catch (e) {
+      console.error("[email-change] failed to send alert to old email:", e);
+    }
   }
 
   return { error: null };

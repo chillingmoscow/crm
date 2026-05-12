@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -506,7 +507,19 @@ export function ProfileSettingsPage({
               <Label htmlFor="birth_date" className="text-[13px] font-medium">
                 Дата рождения
               </Label>
-              <Input id="birth_date" type="date" {...register("birth_date")} />
+              <Controller
+                control={control}
+                name="birth_date"
+                render={({ field }) => (
+                  <DatePicker
+                    id="birth_date"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    placeholder="Выберите дату"
+                    toDate={new Date()}
+                  />
+                )}
+              />
             </div>
           </div>
         </FormSection>

@@ -3,6 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { ProfileSettingsPage } from "./_components/profile-settings-page";
 import type { OwnProfile } from "./actions";
 
+// force-dynamic: эта страница per-user (читает auth-cookie) и должна
+// всегда показывать свежие данные после save. См. комментарий в
+// /people/staff/[userId]/page.tsx — та же причина.
+export const dynamic = "force-dynamic";
+
 export default async function ProfilePage() {
   const supabase = await createClient();
   const {

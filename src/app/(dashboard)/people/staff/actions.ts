@@ -158,14 +158,30 @@ export async function updateStaffAccountDetails(
     args: Record<string, unknown>,
   ) => Promise<{ error: { message: string } | null }>;
 
+  // Лог для диагностики data-strip регрессий (Coolify stdout). Можно
+  // удалить когда баги перестанут возвращаться, но пока — оставим.
+  console.log("[updateStaffAccountDetails] writing", {
+    accountId,
+    userId,
+    keys: Object.keys(data),
+    payload: data,
+  });
+
   const { error } = await rpc("upsert_staff_account_details", {
     p_account_id: accountId,
     p_user_id: userId,
     p_data: data as Record<string, unknown>,
   });
-  if (error) return { error: error.message };
+  if (error) {
+    console.error("[updateStaffAccountDetails] RPC error:", error);
+    return { error: error.message };
+  }
 
-  revalidatePath("/people/staff");
+  // revalidatePath на динамический сегмент — без `layout` revalidate'ятся
+  // только листовые роуты, а /people/staff/[userId] остаётся в cache'е
+  // и при F5 рендерится со старыми RSC-payload'ами. Это и был один из
+  // подозреваемых при «бейдж висит, но в карточке пусто».
+  revalidatePath("/people/staff", "layout");
   return { error: null };
 }
 

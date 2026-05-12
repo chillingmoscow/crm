@@ -4,6 +4,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { StaffDetailPage } from "./_components/staff-detail-page";
 import type { StaffProfile, StaffAccountDetails } from "../actions";
 
+// force-dynamic: Next 15 может статически закэшировать RSC payload для
+// dynamic-сегмента при определённых условиях (особенно после
+// revalidatePath не-этого пути). Симптом — после save юзер делает F5,
+// видит ту же страницу со старыми (или вообще пустыми) полями. Эта
+// страница user-specific + readsr из cookies (auth), кэшировать её
+// бессмысленно — форсим dynamic'ы explicitly.
+export const dynamic = "force-dynamic";
+
 type TargetVenueRole = {
   id: string;
   role_id: string;
@@ -122,6 +130,26 @@ export default async function StaffMemberPage({
 
   if (!profileRow) redirect("/people/staff");
   if (!targetUvr) redirect("/people/staff");
+
+  // Лог для диагностики data-strip регрессий: видим что СЕРВЕР отдаёт
+  // клиенту, и сравниваем с тем, что в DB (по cron-уведомлениям).
+  console.log("[staff/[userId]] DB read", {
+    accountId,
+    userId,
+    profileRow: profileRow
+      ? {
+          birth_date: profileRow.birth_date,
+          birth_date_set_at: profileRow.birth_date_set_at,
+        }
+      : null,
+    accountDetailsRow: accountDetailsRow
+      ? {
+          employment_date: accountDetailsRow.employment_date,
+          medical_book_number: accountDetailsRow.medical_book_number,
+          medical_book_date: accountDetailsRow.medical_book_date,
+        }
+      : null,
+  });
 
   // Если для пары (account_id, user_id) ещё нет ряда в staff_account_details
   // — это норма (свежий сотрудник, тенант-данные пусты). Подсовываем

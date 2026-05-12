@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -949,19 +950,18 @@ function IconButton({
     "relative inline-flex items-center justify-center h-9 w-9 rounded-md border border-border bg-background text-muted-foreground hover:bg-muted transition-colors",
     active && "bg-brand/10 border-brand/20 text-brand",
   );
-  if (asChild) {
-    return (
-      <span className={className} {...rest}>
-        {children}
-        {badge !== undefined && badge > 0 && (
-          <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border-2 border-background bg-destructive text-[10px] font-semibold text-destructive-foreground">
-            {badge}
-          </span>
-        )}
-      </span>
-    );
-  }
-  return (
+  const tooltipLabel =
+    typeof rest["aria-label"] === "string" ? rest["aria-label"] : undefined;
+  const inner = asChild ? (
+    <span className={className} {...rest}>
+      {children}
+      {badge !== undefined && badge > 0 && (
+        <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full border-2 border-background bg-destructive text-[10px] font-semibold text-destructive-foreground">
+          {badge}
+        </span>
+      )}
+    </span>
+  ) : (
     <button type="button" onClick={onClick} className={className} {...rest}>
       {children}
       {badge !== undefined && badge > 0 && (
@@ -970,6 +970,11 @@ function IconButton({
         </span>
       )}
     </button>
+  );
+  return tooltipLabel ? (
+    <IconTooltip label={tooltipLabel}>{inner}</IconTooltip>
+  ) : (
+    inner
   );
 }
 

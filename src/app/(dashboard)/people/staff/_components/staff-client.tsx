@@ -9,9 +9,10 @@ import { z } from "zod";
 import { toast } from "sonner";
 import {
   UserPlus, Calendar, Clock, X, Check, Settings2,
-  ChevronDown, ChevronRight, RotateCcw, Search, Filter,
+  ChevronDown, ChevronRight, RotateCcw, Search, Filter, Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -155,9 +156,11 @@ function ColumnSettings({ visible, onChange }: {
 
   return (
     <div className="relative" ref={ref}>
-      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen((v) => !v)}>
-        <Settings2 className="w-4 h-4" />
-      </Button>
+      <IconTooltip label="Столбцы таблицы">
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen((v) => !v)}>
+          <Settings2 className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[200px]">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
@@ -211,14 +214,16 @@ function FilterPanel({ filter, onChange, roles }: {
 
   return (
     <div className="relative" ref={ref}>
-      <Button
-        variant="outline"
-        size="icon"
-        className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Filter className="w-4 h-4" />
-      </Button>
+      <IconTooltip label={isActive ? "Фильтры (активны)" : "Фильтры"}>
+        <Button
+          variant="outline"
+          size="icon"
+          className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Filter className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[220px] space-y-3">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -476,22 +481,26 @@ export function StaffClient({
               {isMe && <span className="ml-2 text-xs text-muted-foreground font-normal">(вы)</span>}
             </span>
             {isPlaceholder && (
-              <Badge
-                variant="outline"
-                className="text-xs text-muted-foreground bg-secondary border-border shrink-0"
+              <span
+                className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
                 title="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
               >
-                Без аккаунта
-              </Badge>
+                <Lock className="w-2.5 h-2.5" />
+                <span className="text-[10px] font-medium leading-none">
+                  Без аккаунта
+                </span>
+              </span>
             )}
             {isPendingInvite && (
-              <Badge
-                variant="outline"
-                className="text-xs text-amber-600 border-amber-300 bg-amber-50 shrink-0"
+              <span
+                className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
                 title="Приглашение отправлено, но сотрудник ещё не подтвердил email."
               >
-                Ожидает
-              </Badge>
+                <Clock className="w-2.5 h-2.5" />
+                <span className="text-[10px] font-medium leading-none">
+                  Ожидает
+                </span>
+              </span>
             )}
           </div>
         );
@@ -573,9 +582,12 @@ export function StaffClient({
         return (
           <div className="min-w-0 flex items-center gap-2">
             <span className="text-sm truncate text-foreground/70">{inv.email}</span>
-            <Badge variant="outline" className="text-xs text-amber-600 border-amber-300 bg-amber-50 shrink-0">
-              Ожидает
-            </Badge>
+            <span className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
+              <Clock className="w-2.5 h-2.5" />
+              <span className="text-[10px] font-medium leading-none">
+                Ожидает
+              </span>
+            </span>
           </div>
         );
       case "role":
@@ -604,11 +616,14 @@ export function StaffClient({
       {/* Header — типографика и spacing совпадают с roles-client (DS «Page header») */}
       <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Сотрудники</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-3xl font-bold tracking-tight">Сотрудники</h1>
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-2 text-[12px] font-medium text-muted-foreground/80 tabular-nums">
+              {totalCount}
+            </span>
+          </div>
           <p className="text-muted-foreground mt-1 text-sm">
-            {totalCount > 0
-              ? `${totalCount} ${totalCount === 1 ? "сотрудник" : totalCount < 5 ? "сотрудника" : "сотрудников"}`
-              : "Нет сотрудников"}
+            Состав команды, приглашения и список уволенных
             {isFiltered && ` · показано ${filteredStaff.length + filteredInvitations.length}`}
           </p>
         </div>
@@ -634,17 +649,19 @@ export function StaffClient({
                 )}
               </div>
             )}
-            <Button
-              variant="outline"
-              size="icon"
-              className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
-              onClick={() => {
-                if (searchOpen) { setSearchQuery(""); }
-                setSearchOpen((v) => !v);
-              }}
-            >
-              <Search className="w-4 h-4" />
-            </Button>
+            <IconTooltip label={searchOpen ? "Скрыть поиск" : "Поиск по сотрудникам"}>
+              <Button
+                variant="outline"
+                size="icon"
+                className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
+                onClick={() => {
+                  if (searchOpen) { setSearchQuery(""); }
+                  setSearchOpen((v) => !v);
+                }}
+              >
+                <Search className="w-4 h-4" />
+              </Button>
+            </IconTooltip>
           </div>
 
           <FilterPanel filter={filter} onChange={setFilter} roles={roles} />
@@ -731,14 +748,16 @@ export function StaffClient({
               ))}
               <div className="flex justify-end">
                 {canEdit && (
-                  <Button
-                    size="icon" variant="ghost"
-                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                    disabled={isPending}
-                    onClick={() => onCancelInvitation(inv.inv_id)}
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </Button>
+                  <IconTooltip label="Отменить приглашение">
+                    <Button
+                      size="icon" variant="ghost"
+                      className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                      disabled={isPending}
+                      onClick={() => onCancelInvitation(inv.inv_id)}
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </IconTooltip>
                 )}
               </div>
             </div>
@@ -778,6 +797,11 @@ export function StaffClient({
                     <p className="text-xs text-muted-foreground/70 mt-0.5">
                       {member.role_name} · уволен {formatDate(member.fired_at)}
                     </p>
+                    {member.fired_reason && (
+                      <p className="text-xs text-muted-foreground/70 mt-1 line-clamp-2">
+                        {member.fired_reason}
+                      </p>
+                    )}
                   </div>
                   {canEdit && (
                     <Button

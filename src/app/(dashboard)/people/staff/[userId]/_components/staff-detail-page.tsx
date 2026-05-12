@@ -188,6 +188,7 @@ export function StaffDetailPage({
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingDocs, setUploadingDocs]     = useState(false);
   const [confirmFire, setConfirmFire]         = useState(false);
+  const [fireReason, setFireReason]           = useState("");
   const [isPending, startTransition]          = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
   // Если у юзера technical placeholder email — показываем пустое поле,
@@ -385,8 +386,9 @@ export function StaffDetailPage({
   };
 
   const handleFire = () => {
+    const reason = fireReason.trim();
     startTransition(async () => {
-      const result = await fireStaff(uvrId);
+      const result = await fireStaff(uvrId, reason || null);
       if (result.error) { toast.error(result.error); return; }
       toast.success("Сотрудник уволен");
       router.push("/people/staff");
@@ -1016,7 +1018,13 @@ export function StaffDetailPage({
       </div>
 
       {/* Confirm fire dialog */}
-      <Dialog open={confirmFire} onOpenChange={setConfirmFire}>
+      <Dialog
+        open={confirmFire}
+        onOpenChange={(open) => {
+          setConfirmFire(open);
+          if (!open) setFireReason("");
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Уволить сотрудника?</DialogTitle>
@@ -1025,6 +1033,24 @@ export function StaffDetailPage({
               история сохраняются — восстановить можно из списка уволенных.
             </DialogDescription>
           </DialogHeader>
+
+          <div className="space-y-2">
+            <Label htmlFor="fire_reason" className="text-[13px] font-medium">
+              Причина увольнения
+            </Label>
+            <Textarea
+              id="fire_reason"
+              value={fireReason}
+              onChange={(e) => setFireReason(e.target.value)}
+              placeholder="Например: ушёл на другое место, нарушения дисциплины, окончание сезона"
+              rows={3}
+              className="resize-none"
+            />
+            <p className="text-[12px] text-muted-foreground">
+              Будет видна в списке уволенных — помогает быстро вспомнить контекст
+            </p>
+          </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setConfirmFire(false)}>
               Отмена

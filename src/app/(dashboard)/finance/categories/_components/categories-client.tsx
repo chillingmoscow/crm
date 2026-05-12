@@ -16,6 +16,7 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -335,59 +336,63 @@ function CategoryColumn({
                 </div>
                 {canManage && (
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onEdit(row.id)}
-                      disabled={busyId === row.id}
-                      title="Редактировать"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    <IconTooltip label="Редактировать">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onEdit(row.id)}
+                        disabled={busyId === row.id}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </IconTooltip>
                     {row.is_active ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDeactivate(row.id, row.name)}
-                        disabled={busyId === row.id}
-                        title="Скрыть"
-                      >
-                        {busyId === row.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
+                      <IconTooltip label="Скрыть категорию">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onDeactivate(row.id, row.name)}
+                          disabled={busyId === row.id}
+                        >
+                          {busyId === row.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </IconTooltip>
                     ) : (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onRestore(row.id)}
-                        disabled={busyId === row.id}
-                        title="Восстановить"
-                      >
-                        {busyId === row.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-4 w-4" />
-                        )}
-                      </Button>
+                      <IconTooltip label="Восстановить">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onRestore(row.id)}
+                          disabled={busyId === row.id}
+                        >
+                          {busyId === row.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RotateCcw className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </IconTooltip>
                     )}
                     {!row.is_active && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => onDelete(row.id, row.name)}
-                        disabled={busyId === row.id}
-                        title="Удалить навсегда"
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <IconTooltip label="Удалить навсегда">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onDelete(row.id, row.name)}
+                          disabled={busyId === row.id}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </IconTooltip>
                     )}
                   </div>
                 )}

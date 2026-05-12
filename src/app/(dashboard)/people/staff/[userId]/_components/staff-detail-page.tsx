@@ -236,7 +236,7 @@ export function StaffDetailPage({
   // и вошёл в систему — он сам управляет профилем.
   const canEditPersonal = canEdit && !isRegisteredUser;
 
-  const { register, handleSubmit, setValue, control, formState: { errors } } =
+  const { register, handleSubmit, setValue, control, reset, formState: { errors } } =
     useForm<FormValues>({
       resolver: zodResolver(schema),
       defaultValues: {
@@ -254,6 +254,43 @@ export function StaffDetailPage({
         terminal_pin:        terminalPin ?? "",
       },
     });
+
+  // Синхронизация формы с сервером после router.refresh() / window.reload.
+  // Без этого useForm защёлкивается на defaultValues из первого рендера, и
+  // когда parent server-component возвращает свежие props после save —
+  // форма продолжает показывать старые значения. Зависимости — те же
+  // primitive-поля, которые мы кладём в defaultValues; ref-ы (registers)
+  // не нужны.
+  useEffect(() => {
+    reset({
+      first_name:          profile.first_name ?? "",
+      last_name:           profile.last_name ?? "",
+      phone:               profile.phone ?? "",
+      telegram_id:         profile.telegram_id ?? "",
+      gender:              (profile.gender as "male" | "female" | "") ?? "",
+      birth_date:          profile.birth_date ?? "",
+      address:             profile.address ?? "",
+      employment_date:     accountDetails.employment_date ?? "",
+      medical_book_number: accountDetails.medical_book_number ?? "",
+      medical_book_date:   accountDetails.medical_book_date ?? "",
+      comment:             accountDetails.comment ?? "",
+      terminal_pin:        terminalPin ?? "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    profile.first_name,
+    profile.last_name,
+    profile.phone,
+    profile.telegram_id,
+    profile.gender,
+    profile.birth_date,
+    profile.address,
+    accountDetails.employment_date,
+    accountDetails.medical_book_number,
+    accountDetails.medical_book_date,
+    accountDetails.comment,
+    terminalPin,
+  ]);
 
   // Generate signed URLs for passport photos
   useEffect(() => {

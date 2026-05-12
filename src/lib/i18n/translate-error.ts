@@ -50,6 +50,12 @@ const DICTIONARY: Record<string, string> = {
     "Некорректный формат email.",
   "Token has expired or is invalid":
     "Ссылка устарела или недействительна. Запросите новую.",
+  "Error updating user":
+    "Не удалось обновить данные пользователя. Если меняли email — возможно, он уже занят.",
+  "A user with this email address has already been registered":
+    "Этот email уже зарегистрирован.",
+  "email_exists":
+    "Этот email уже зарегистрирован.",
 
   // ── Наши SQL RPC (raise exception ...) ─────────────────────────────────
   "Not authenticated":

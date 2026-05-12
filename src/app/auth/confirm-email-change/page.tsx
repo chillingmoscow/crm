@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { translateError } from "@/lib/i18n/translate-error";
 
 interface PageProps {
   searchParams: Promise<{ token?: string }>;
@@ -100,11 +101,21 @@ export default async function ConfirmEmailChangePage({ searchParams }: PageProps
     );
   }
 
-  // Атомарная смена email через service-role. Если занято — Supabase
-  // вернёт «User already registered» (наш translateError переведёт).
+  // Атомарная смена email через service-role.
+  //
+  // КРИТИЧНО: email_confirm: true. Без него GoTrue пытается
+  // отправить ещё одно письмо подтверждения через свой собственный
+  // SMTP (тот самый, который у нас не настроен — это была корневая
+  // причина проблемы #4 из issue #245). И возвращает «Error updating
+  // user». С email_confirm: true GoTrue пропускает email-flow,
+  // ставит email_confirmed_at = now() — что нам и нужно (юзер уже
+  // подтвердил владение новым адресом, перейдя по нашей ссылке).
+  //
+  // Если адрес занят другим юзером — вернёт «email_exists» / «User
+  // already registered» (наш translateError переведёт).
   const { error: updateError } = await admin.auth.admin.updateUserById(
     row.user_id,
-    { email: row.new_email },
+    { email: row.new_email, email_confirm: true },
   );
 
   if (updateError) {
@@ -112,7 +123,7 @@ export default async function ConfirmEmailChangePage({ searchParams }: PageProps
       <Result
         variant="error"
         title="Не удалось сменить email"
-        message={updateError.message}
+        message={translateError(updateError.message)}
       />
     );
   }

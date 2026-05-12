@@ -129,19 +129,21 @@ export async function updateStaffProfile(
   return { error: null };
 }
 
-// Account-scoped HR-данные сотрудника: партиальная запись в
-// staff_account_details. account_id — активный аккаунт админа
-// (RLS гарантирует, что он не запишет в чужой).
+// Account-scoped HR-данные сотрудника: атомарный partial upsert через
+// RPC upsert_staff_account_details (миграция 145). Один SQL-statement,
+// без race condition'ов и без supabase-js peculiarities.
 //
-// КРИТИЧНО: НЕ используем .upsert() — наша версия supabase-js
-// (<2.49) дополняет payload до full-row и проставляет null для
-// колонок, которых нет в data. При партиальном вызове (например,
-// `{ passport_photos }` при загрузке документа) это затирало
-// employment_date / medical_book_* / comment — см. recurring bug
-// «данные стираются после refresh».
+// История:
+//   • До #260: использовали .upsert() — но при partial-данных supabase-js
+//     дополнял payload null'ами, что затирало другие поля.
+//   • #260: ушли на UPDATE-first + fallback INSERT. Решило data-strip,
+//     но открыло race: две вкладки одновременно с пустым рядом → обе
+//     INSERT → unique-violation у одной (Codex P2).
+//   • #265 (this): RPC upsert с INSERT...ON CONFLICT DO UPDATE +
+//     per-column CASE WHEN payload ? key — атомарно и race-safe.
 //
-// Вместо этого: UPDATE с eq (трогает только заданные колонки) +
-// fallback INSERT когда строки ещё нет.
+// Payload передаём как jsonb (`p_data`), RPC сам разбирает какие
+// ключи присутствуют и пишет только их.
 export async function updateStaffAccountDetails(
   userId: string,
   accountId: string,
@@ -149,26 +151,19 @@ export async function updateStaffAccountDetails(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  // UPDATE first — Postgres трогает только колонки в SET. Если ряда
-  // нет — вернёт 0 rows и data=null.
-  const { data: updated, error: updateError } = await supabase
-    .from("staff_account_details")
-    .update(data)
-    .eq("account_id", accountId)
-    .eq("user_id", userId)
-    .select("user_id")
-    .maybeSingle();
-  if (updateError) return { error: updateError.message };
+  // RPC ещё не во вшитых Database типах (миграция 145 свежая) —
+  // cast чтобы развязать pipeline до следующей регенерации.
+  const rpc = supabase.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ error: { message: string } | null }>;
 
-  if (!updated) {
-    // Ряда нет → INSERT (первое заполнение HR-данных для пары
-    // account_id/user_id). INSERT тоже включает только заданные
-    // колонки; остальные получают default из схемы.
-    const { error: insertError } = await supabase
-      .from("staff_account_details")
-      .insert({ account_id: accountId, user_id: userId, ...data });
-    if (insertError) return { error: insertError.message };
-  }
+  const { error } = await rpc("upsert_staff_account_details", {
+    p_account_id: accountId,
+    p_user_id: userId,
+    p_data: data as Record<string, unknown>,
+  });
+  if (error) return { error: error.message };
 
   revalidatePath("/people/staff");
   return { error: null };

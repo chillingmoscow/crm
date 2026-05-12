@@ -3,6 +3,7 @@ import {
   AtSign,
   Bell,
   BookOpen,
+  HeartPulse,
   Info,
   MessageCircle,
   UserPlus,
@@ -64,6 +65,14 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     icon: MessageCircle,
     iconColor: "text-emerald-500",
     verb: "ответил(а) в треде",
+  },
+
+  // Staff
+  "staff.medical_book_expiring": {
+    category: "staff",
+    icon: HeartPulse,
+    iconColor: "text-rose-500",
+    verb: null,
   },
 
   // Generic / system

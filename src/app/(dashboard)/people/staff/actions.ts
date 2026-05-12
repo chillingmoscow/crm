@@ -29,24 +29,28 @@ export type FiredStaffMember = {
 };
 
 export type StaffMember = {
-  uvr_id:          string;
-  user_id:         string;
-  role_id:         string;
-  role_name:       string;
-  role_code:       string;
-  first_name:      string | null;
-  last_name:       string | null;
-  email:           string;
+  uvr_id:            string;
+  user_id:           string;
+  role_id:           string;
+  role_name:         string;
+  role_code:         string;
+  first_name:        string | null;
+  last_name:         string | null;
+  email:             string;
   /** auth.users.email_confirmed_at !== null. false = invite ещё не принят
    *  или сотрудник создан без email (placeholder). */
-  email_confirmed: boolean;
-  avatar_url:      string | null;
-  phone:           string | null;
-  telegram_id:     string | null;
-  gender:          string | null;
-  birth_date:      string | null;
-  employment_date: string | null;
-  joined_at:       string;
+  email_confirmed:   boolean;
+  avatar_url:        string | null;
+  phone:             string | null;
+  telegram_id:       string | null;
+  gender:            string | null;
+  birth_date:        string | null;
+  employment_date:   string | null;
+  /** medical_book_date — срок действия медкнижки («Аттестован до»).
+   *  null = поле не заполнено. Используется для бейджа в списке +
+   *  daily-cron notification (см. миграцию 135). */
+  medical_book_date: string | null;
+  joined_at:         string;
   imported_from_quickresto?: boolean;
 };
 
@@ -490,8 +494,9 @@ export async function createStaffWithoutEmail(data: {
     telegram_id:     null,
     gender:          null,
     birth_date:      null,
-    employment_date: uvrInsert.created_at?.slice(0, 10) ?? null,
-    joined_at:       uvrInsert.created_at ?? new Date().toISOString(),
+    employment_date:   uvrInsert.created_at?.slice(0, 10) ?? null,
+    medical_book_date: null,
+    joined_at:         uvrInsert.created_at ?? new Date().toISOString(),
   };
 
   return { error: null, member };

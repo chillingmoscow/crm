@@ -284,7 +284,12 @@ export function ProfileSettingsPage({
     if (error) { toast.error(error.message); setUploadingAvatar(false); return; }
     const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
     const newUrl = `${urlData.publicUrl}?t=${Date.now()}`;
-    await updateOwnProfile({ avatar_url: newUrl });
+    const result = await updateOwnProfile({ avatar_url: newUrl });
+    if (result.error) {
+      toast.error(result.error);
+      setUploadingAvatar(false);
+      return;
+    }
     setAvatarUrl(newUrl);
     setUploadingAvatar(false);
     setPhotoModalOpen(false);

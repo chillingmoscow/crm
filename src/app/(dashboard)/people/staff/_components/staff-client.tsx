@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import {
   UserPlus, Calendar, Clock, X, Check, Settings2,
   ChevronDown, ChevronRight, RotateCcw, Search, Filter, Lock,
+  HeartPulse,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -114,6 +115,46 @@ function genderShort(g: string | null) {
   if (g === "male")   return "М";
   if (g === "female") return "Ж";
   return "—";
+}
+
+/**
+ * Возвращает статус медкнижки для бейджа в списке. null — поле пустое
+ * или срок > 30 дней (никакой бейдж не нужен).
+ *
+ * Дата сравнивается по локальному календарному дню (без UTC-сдвига),
+ * чтобы «истекает сегодня» считалось одинаково в Москве и Калининграде.
+ */
+function medbookStatus(
+  medicalBookDate: string | null,
+): { kind: "expired" | "soon"; label: string; title: string } | null {
+  if (!medicalBookDate) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const expiry = new Date(medicalBookDate + "T00:00:00");
+  if (Number.isNaN(expiry.getTime())) return null;
+  const diffDays = Math.round(
+    (expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
+  const dateStr = expiry.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  if (diffDays < 0) {
+    return {
+      kind: "expired",
+      label: "Медкнижка просрочена",
+      title: `Срок действия медкнижки истёк ${dateStr}.`,
+    };
+  }
+  if (diffDays <= 30) {
+    return {
+      kind: "soon",
+      label: diffDays === 0 ? "Истекает сегодня" : `Истекает через ${diffDays} дн.`,
+      title: `Срок действия медкнижки заканчивается ${dateStr}.`,
+    };
+  }
+  return null;
 }
 
 function StaffAvatar({ member, faded }: {
@@ -435,12 +476,13 @@ export function StaffClient({
           // подтверждённым раньше, иначе не смогли бы fire).
           email_confirmed: true,
           avatar_url:      member.avatar_url,
-          phone:           null,
-          telegram_id:     null,
-          gender:          null,
-          birth_date:      null,
-          employment_date: null,
-          joined_at:       new Date().toISOString(),
+          phone:             null,
+          telegram_id:       null,
+          gender:            null,
+          birth_date:        null,
+          employment_date:   null,
+          medical_book_date: null,
+          joined_at:         new Date().toISOString(),
         }]);
       }
       setFired((prev) => prev.filter((m) => m.uvr_id !== uvrId));
@@ -474,12 +516,13 @@ export function StaffClient({
       case "name": {
         const isPlaceholder = member.email.toLowerCase().endsWith("@import.local");
         const isPendingInvite = !isPlaceholder && !member.email_confirmed;
+        const medbook = medbookStatus(member.medical_book_date);
         return (
           <div className="min-w-0 flex items-center gap-2">
-            <span className="font-medium text-sm truncate">
+            <p className="font-medium text-sm truncate min-w-0">
               {displayName(member)}
               {isMe && <span className="ml-2 text-xs text-muted-foreground font-normal">(вы)</span>}
-            </span>
+            </p>
             {isPlaceholder && (
               <span
                 className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
@@ -499,6 +542,21 @@ export function StaffClient({
                 <Clock className="w-2.5 h-2.5" />
                 <span className="text-[10px] font-medium leading-none">
                   Ожидает
+                </span>
+              </span>
+            )}
+            {medbook && (
+              <span
+                className={`inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full ${
+                  medbook.kind === "expired"
+                    ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
+                    : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                }`}
+                title={medbook.title}
+              >
+                <HeartPulse className="w-2.5 h-2.5" />
+                <span className="text-[10px] font-medium leading-none">
+                  {medbook.label}
                 </span>
               </span>
             )}

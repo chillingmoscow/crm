@@ -34,7 +34,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   const [rolesResult, permissionsResult, hiddenResult] = await Promise.all([
     supabase
       .from("roles")
-      .select("id, account_id, name, code, comment, icon")
+      .select("id, account_id, name, code, comment, icon, icon_color")
       .or(
         accountId
           ? `account_id.is.null,account_id.eq.${accountId}`
@@ -60,7 +60,18 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       (r) => r.role_id,
     ),
   );
-  const roles = (rolesResult.data ?? []).filter(
+  // icon_color (миграция 136) ещё не во вшитых Database-типах — cast чтобы
+  // развязать pipeline до regen'а supabase gen types.
+  type RoleRow = {
+    id: string;
+    account_id: string | null;
+    name: string;
+    code: string;
+    comment: string | null;
+    icon: string | null;
+    icon_color: string | null;
+  };
+  const roles = ((rolesResult.data as unknown as RoleRow[] | null) ?? []).filter(
     (r) => !hiddenRoleIds.has(r.id),
   );
   const permissions = permissionsResult.data ?? [];

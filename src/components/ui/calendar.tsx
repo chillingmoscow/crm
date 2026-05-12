@@ -10,6 +10,81 @@ import { DayButton, DayPicker, getDefaultClassNames } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { Button, buttonVariants } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+/**
+ * Custom MonthsDropdown / YearsDropdown — заменяют native `<select>` из
+ * react-day-picker на shadcn Select. Без них popover-список месяцев и
+ * года рендерится в стиле OS (системный dropdown), что выбивается из DS.
+ * С ними — стандартный shadcn Popover-список (rounded, наш фон, скруления,
+ * hover-state'ы).
+ */
+function CalendarDropdown({
+  options = [],
+  value,
+  onChange,
+  className,
+  "aria-label": ariaLabel,
+}: {
+  options?: Array<{ value: number; label: string; disabled?: boolean }>;
+  // value type намеренно широкий — react-day-picker v9 типизирует Dropdown
+  // через native `<select>`-props. Реально приходит number.
+  value?: string | number | readonly string[];
+  onChange?: (event: React.ChangeEvent<HTMLSelectElement>) => void;
+  className?: string;
+  "aria-label"?: string;
+}) {
+  const stringValue =
+    value == null
+      ? undefined
+      : Array.isArray(value)
+        ? value[0]
+        : String(value);
+  const currentLabel =
+    options.find((o) => String(o.value) === stringValue)?.label ?? "—";
+  return (
+    <Select
+      value={stringValue}
+      onValueChange={(next) => {
+        if (!onChange) return;
+        // react-day-picker ожидает native ChangeEvent с .target.value.
+        const synthetic = {
+          target: { value: next },
+          currentTarget: { value: next },
+        } as unknown as React.ChangeEvent<HTMLSelectElement>;
+        onChange(synthetic);
+      }}
+    >
+      <SelectTrigger
+        aria-label={ariaLabel}
+        className={cn(
+          "h-8 w-auto border-input bg-background px-2.5 text-sm font-medium",
+          "focus:ring-1 focus:ring-ring focus:ring-offset-0",
+          className,
+        )}
+      >
+        <SelectValue>{currentLabel}</SelectValue>
+      </SelectTrigger>
+      <SelectContent className="max-h-72">
+        {options.map((opt) => (
+          <SelectItem
+            key={opt.value}
+            value={String(opt.value)}
+            disabled={opt.disabled}
+          >
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function Calendar({
   className,
@@ -156,6 +231,9 @@ function Calendar({
           )
         },
         DayButton: CalendarDayButton,
+        // Native <select> → наш shadcn Select для месяца / года.
+        MonthsDropdown: (p) => <CalendarDropdown {...p} aria-label="Месяц" />,
+        YearsDropdown: (p) => <CalendarDropdown {...p} aria-label="Год" />,
         WeekNumber: ({ children, ...props }) => {
           return (
             <td {...props}>

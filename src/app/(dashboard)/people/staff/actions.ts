@@ -15,16 +15,17 @@ export type PendingInvitation = {
 };
 
 export type FiredStaffMember = {
-  uvr_id:     string;
-  user_id:    string;
-  role_id:    string;
-  role_name:  string;
-  role_code:  string;
-  first_name: string | null;
-  last_name:  string | null;
-  email:      string;
-  avatar_url: string | null;
-  fired_at:   string;
+  uvr_id:       string;
+  user_id:      string;
+  role_id:      string;
+  role_name:    string;
+  role_code:    string;
+  first_name:   string | null;
+  last_name:    string | null;
+  email:        string;
+  avatar_url:   string | null;
+  fired_at:     string;
+  fired_reason: string | null;
 };
 
 export type StaffMember = {
@@ -711,12 +712,18 @@ export async function updateStaffRole(
 }
 
 export async function fireStaff(
-  uvrId: string
+  uvrId: string,
+  reason?: string | null,
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
+  const trimmed = reason?.trim();
   const { error } = await supabase
     .from("user_venue_roles")
-    .update({ status: "fired", fired_at: new Date().toISOString() } as Record<string, unknown>)
+    .update({
+      status: "fired",
+      fired_at: new Date().toISOString(),
+      fired_reason: trimmed && trimmed.length > 0 ? trimmed : null,
+    } as Record<string, unknown>)
     .eq("id", uvrId);
 
   if (error) return { error: error.message };
@@ -730,7 +737,7 @@ export async function restoreStaff(
   const supabase = await createClient();
   const { error } = await supabase
     .from("user_venue_roles")
-    .update({ status: "active", fired_at: null } as Record<string, unknown>)
+    .update({ status: "active", fired_at: null, fired_reason: null } as Record<string, unknown>)
     .eq("id", uvrId);
 
   if (error) return { error: error.message };

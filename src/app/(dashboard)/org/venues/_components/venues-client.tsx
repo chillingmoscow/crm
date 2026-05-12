@@ -8,6 +8,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { Plus, Building2, X, Settings2, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -106,9 +107,11 @@ function ColumnSettings({ visible, onChange }: {
 
   return (
     <div className="relative" ref={ref}>
-      <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen((v) => !v)}>
-        <Settings2 className="w-4 h-4" />
-      </Button>
+      <IconTooltip label="Столбцы таблицы">
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen((v) => !v)}>
+          <Settings2 className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[200px]">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
@@ -160,14 +163,16 @@ function FilterPanel({ filter, onChange }: {
 
   return (
     <div className="relative" ref={ref}>
-      <Button
-        variant="outline"
-        size="icon"
-        className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Filter className="w-4 h-4" />
-      </Button>
+      <IconTooltip label={isActive ? "Фильтры (активны)" : "Фильтры"}>
+        <Button
+          variant="outline"
+          size="icon"
+          className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Filter className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[200px] space-y-3">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -382,14 +387,16 @@ export function VenuesClient({ venues: initialVenues }: Props) {
                 )}
               </div>
             )}
-            <Button
-              variant="outline"
-              size="icon"
-              className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
-              onClick={() => { if (searchOpen) setSearchQuery(""); setSearchOpen((v) => !v); }}
-            >
-              <Search className="w-4 h-4" />
-            </Button>
+            <IconTooltip label={searchOpen ? "Скрыть поиск" : "Поиск по заведениям"}>
+              <Button
+                variant="outline"
+                size="icon"
+                className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
+                onClick={() => { if (searchOpen) setSearchQuery(""); setSearchOpen((v) => !v); }}
+              >
+                <Search className="w-4 h-4" />
+              </Button>
+            </IconTooltip>
           </div>
 
           <FilterPanel filter={filter} onChange={setFilter} />

@@ -16,6 +16,7 @@ import {
 import { iconForRole } from "./role-icons";
 import { IconPicker } from "./icon-picker";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EditDrawer } from "@/components/ui/edit-drawer";
@@ -105,14 +106,16 @@ function ColumnSettings({
 
   return (
     <div className="relative" ref={ref}>
-      <Button
-        variant="outline"
-        size="icon"
-        className="h-8 w-8"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Settings2 className="w-4 h-4" />
-      </Button>
+      <IconTooltip label="Столбцы таблицы">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Settings2 className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[180px]">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
@@ -165,14 +168,16 @@ function RoleFilterPanel({
 
   return (
     <div className="relative" ref={ref}>
-      <Button
-        variant="outline"
-        size="icon"
-        className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Filter className="w-4 h-4" />
-      </Button>
+      <IconTooltip label={isActive ? "Фильтры (активны)" : "Фильтры"}>
+        <Button
+          variant="outline"
+          size="icon"
+          className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Filter className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[220px] space-y-3">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -432,17 +437,14 @@ export function RolesClient({
       {/* Header */}
       <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Должности</h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-3xl font-bold tracking-tight">Должности</h1>
+            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-2 text-[12px] font-medium text-muted-foreground/80 tabular-nums">
+              {roles.length}
+            </span>
+          </div>
           <p className="text-muted-foreground mt-1 text-sm">
-            {roles.length > 0
-              ? `${roles.length} ${
-                  roles.length === 1
-                    ? "должность"
-                    : roles.length < 5
-                    ? "должности"
-                    : "должностей"
-                }`
-              : "Нет должностей"}
+            Управление должностями и настройка прав доступа
             {totalStaffDistributed > 0 &&
               ` · ${totalStaffDistributed} ${
                 totalStaffDistributed === 1
@@ -477,17 +479,19 @@ export function RolesClient({
                 )}
               </div>
             )}
-            <Button
-              variant="outline"
-              size="icon"
-              className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
-              onClick={() => {
-                if (searchOpen) setSearchQuery("");
-                setSearchOpen((v) => !v);
-              }}
-            >
-              <Search className="w-4 h-4" />
-            </Button>
+            <IconTooltip label={searchOpen ? "Скрыть поиск" : "Поиск по должностям"}>
+              <Button
+                variant="outline"
+                size="icon"
+                className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
+                onClick={() => {
+                  if (searchOpen) setSearchQuery("");
+                  setSearchOpen((v) => !v);
+                }}
+              >
+                <Search className="w-4 h-4" />
+              </Button>
+            </IconTooltip>
           </div>
 
           <RoleFilterPanel filter={filter} onChange={setFilter} />

@@ -134,7 +134,14 @@ export function DatePicker({
         <button
           type="button"
           id={id}
-          disabled={disabled || readOnly}
+          disabled={disabled}
+          // readOnly: button остаётся фокусабельным и читается screen
+          // reader'ом, но aria-disabled сообщает «нельзя редактировать».
+          // Popover-open уже блокирован isInteractive-гардом в
+          // onOpenChange выше. Раньше я ставил `disabled || readOnly`
+          // — это выкидывало control из tab order'а и регрессовало
+          // semantics read-only (Codex P2 на #252).
+          aria-disabled={readOnly || undefined}
           className={triggerClassName}
         >
           <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />

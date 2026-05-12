@@ -6,12 +6,14 @@
 -- (защита от «выставил ДР сегодня, получил поздравление, потом сменил
 -- через месяц и снова получил»). Но владельцы и админы не играют в
 -- эту игру с собой — и им нужно иметь возможность спокойно править
--- свою дату (например, когда в первый раз заполняют профиль вместе
--- с тестами).
+-- свою дату.
 --
--- Пропускаем гард для юзеров с активным UVR'ом owner-роли в ЛЮБОМ
--- venue текущего аккаунта. Anti-фрод смысл сохраняется для всех
--- остальных.
+-- Bypass только если у юзера НЕТ ни одной employee-роли (= он
+-- exclusively owner/admin везде, где состоит). Если он owner в одном
+-- аккаунте + сотрудник в другом — limit действует, чтобы не дать
+-- ему обходить фрод-защиту в чужом аккаунте (Codex P1 на #265). По
+-- сути bypass работает для single-account owner'ов; cross-tenant
+-- ситуации защищены.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 create or replace function public.tg_profiles_birth_date_yearly_limit()
@@ -38,15 +40,18 @@ begin
     return new;
   end if;
 
-  -- Owner / admin аккаунта обходят limit. Анти-фрод нужен только
-  -- для рядовых сотрудников.
-  select exists (
+  -- Bypass только если у user'а НЕТ ни одной employee-роли. Если
+  -- он owner в A, но employee в B — limit срабатывает, иначе он бы
+  -- мог обходить фрод-защиту в B (Codex P1 на #265). Cross-account
+  -- здесь критично: profile один, а accounts разные, поэтому
+  -- сужаем bypass до пользователей без подчинённых ролей вовсе.
+  select not exists (
     select 1
     from public.user_venue_roles uvr
     join public.roles r on r.id = uvr.role_id
     where uvr.user_id = new.id
       and uvr.status  = 'active'
-      and r.code in ('owner', 'admin')
+      and r.code not in ('owner', 'admin')
   ) into v_is_owner;
 
   if v_is_owner then

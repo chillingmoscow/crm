@@ -41,14 +41,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const admin = createAdminClient();
+  // Outer try/catch ловит всё, что иначе ушло бы в global Next.js
+  // 500-handler без хорошего лога. Все detected-error'ы внутри уже
+  // логируются явно.
+  try {
+    return await runBirthdayCron();
+  } catch (e) {
+    console.error("[birthday-cron] uncaught:", e);
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : String(e) },
+      { status: 500 },
+    );
+  }
+}
 
-  // Cast RPC calls — claim_birthday_* (миграция 140) ещё не во вшитых
-  // Database-типах. Аналогично enqueue_medical_book_expiry_notifications
-  // в /api/cron/medical-book-expiry-notifications.
-  const rpc = admin.rpc as unknown as <T>(
-    fn: string,
-  ) => Promise<{ data: T | null; error: { message: string } | null }>;
+async function runBirthdayCron(): Promise<NextResponse> {
+
+  const admin = createAdminClient();
 
   type SelfTarget = {
     user_id: string;
@@ -64,8 +73,19 @@ export async function POST(request: Request) {
   };
 
   // ── Поток 1: личные поздравления ─────────────────────────────────
-  const selfRes = await rpc<SelfTarget[]>("claim_birthday_self_targets");
+  // claim_birthday_* (миграция 140) ещё не во вшитых Database-типах —
+  // вызов через unknown-cast. Ошибки логируем явно: при cron-сбое мы
+  // не имеем доступа к response body (curl -fsS глотает), но Coolify
+  // покажет stdout/stderr контейнера.
+  const selfResRaw = await (
+    admin.rpc as unknown as (fn: string) => Promise<unknown>
+  )("claim_birthday_self_targets");
+  const selfRes = selfResRaw as {
+    data: SelfTarget[] | null;
+    error: { message: string } | null;
+  };
   if (selfRes.error) {
+    console.error("[birthday-cron] claim_birthday_self_targets failed:", selfRes.error);
     return NextResponse.json({ error: selfRes.error.message }, { status: 500 });
   }
   const selfTargets = selfRes.data ?? [];
@@ -95,15 +115,21 @@ export async function POST(request: Request) {
       .from("notifications")
       .insert(selfInserts as never);
     if (error) {
+      console.error("[birthday-cron] self notifications insert failed:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }
 
   // ── Поток 2: heads-up коллегам ───────────────────────────────────
-  const colRes = await rpc<ColleagueTarget[]>(
-    "claim_birthday_colleague_targets",
-  );
+  const colResRaw = await (
+    admin.rpc as unknown as (fn: string) => Promise<unknown>
+  )("claim_birthday_colleague_targets");
+  const colRes = colResRaw as {
+    data: ColleagueTarget[] | null;
+    error: { message: string } | null;
+  };
   if (colRes.error) {
+    console.error("[birthday-cron] claim_birthday_colleague_targets failed:", colRes.error);
     return NextResponse.json({ error: colRes.error.message }, { status: 500 });
   }
   const colleagueTargets = colRes.data ?? [];
@@ -137,6 +163,7 @@ export async function POST(request: Request) {
       .from("notifications")
       .insert(colleagueInserts as never);
     if (error) {
+      console.error("[birthday-cron] colleague notifications insert failed:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
   }

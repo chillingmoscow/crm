@@ -1,4 +1,6 @@
+/* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
+import { AlertCircle, Check } from "lucide-react";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { translateError } from "@/lib/i18n/translate-error";
@@ -12,23 +14,32 @@ interface PageProps {
  * стартованной из `/profile` через requestEmailChange.
  *
  * Server component: всё происходит до рендера.
- *   1. Берём token из query.
- *   2. Достаём запись email_change_requests (не consumed, не expired).
- *   3. auth.admin.updateUserById() меняет email — minуя GoTrue email-flow.
+ *   1. Валидируем token из query.
+ *   2. Находим запись email_change_requests (не consumed, не expired).
+ *   3. auth.admin.updateUserById(email, email_confirm: true) — миная
+ *      GoTrue email-flow (он шлёт письмо через свой SMTP, у нас не
+ *      настроен).
  *   4. Помечаем consumed_at.
  *
- * Render — простая success-карточка или message-об-ошибке. Без JS на
- * клиенте: ссылка из письма открыта, мы один раз дёрнули — всё.
+ * Стиль страницы — как у `/email-confirmed`: full-screen, логотип,
+ * крупный success-circle, кнопка переход. Кнопка ведёт на
+ * `/auth/sign-out?next=/login` чтобы юзер перезалогинился под новым
+ * email (а не остался в session со старым).
  */
 export default async function ConfirmEmailChangePage({ searchParams }: PageProps) {
   const { token } = await searchParams;
 
   if (!token || token.length < 8) {
-    return <Result variant="error" title="Ссылка некорректна" message="Token не передан или повреждён." />;
+    return (
+      <Failure
+        title="Ссылка некорректна"
+        message="Token не передан или повреждён."
+      />
+    );
   }
 
   // email_change_requests (migration 139) ещё не во вшитых Database
-  // типах — cast чтобы развязать pipeline до регенерации `supabase gen types`.
+  // типах — cast чтобы развязать pipeline до регенерации.
   type EmailChangeRow = {
     id: string;
     user_id: string;
@@ -66,8 +77,7 @@ export default async function ConfirmEmailChangePage({ searchParams }: PageProps
 
   if (lookupError) {
     return (
-      <Result
-        variant="error"
+      <Failure
         title="Ошибка"
         message={`Не удалось проверить ссылку: ${lookupError.message}`}
       />
@@ -75,17 +85,15 @@ export default async function ConfirmEmailChangePage({ searchParams }: PageProps
   }
   if (!row) {
     return (
-      <Result
-        variant="error"
+      <Failure
         title="Ссылка не найдена"
-        message="Возможно, она уже использована или была заменена новым запросом."
+        message="Возможно, она уже использована или заменена новым запросом."
       />
     );
   }
   if (row.consumed_at) {
     return (
-      <Result
-        variant="error"
+      <Failure
         title="Ссылка уже использована"
         message="Email уже был изменён ранее по этой ссылке."
       />
@@ -93,26 +101,16 @@ export default async function ConfirmEmailChangePage({ searchParams }: PageProps
   }
   if (new Date(row.expires_at) < new Date()) {
     return (
-      <Result
-        variant="error"
+      <Failure
         title="Ссылка устарела"
         message="Срок действия 1 час. Откройте профиль и запросите смену email заново."
       />
     );
   }
 
-  // Атомарная смена email через service-role.
-  //
-  // КРИТИЧНО: email_confirm: true. Без него GoTrue пытается
-  // отправить ещё одно письмо подтверждения через свой собственный
-  // SMTP (тот самый, который у нас не настроен — это была корневая
-  // причина проблемы #4 из issue #245). И возвращает «Error updating
-  // user». С email_confirm: true GoTrue пропускает email-flow,
-  // ставит email_confirmed_at = now() — что нам и нужно (юзер уже
-  // подтвердил владение новым адресом, перейдя по нашей ссылке).
-  //
-  // Если адрес занят другим юзером — вернёт «email_exists» / «User
-  // already registered» (наш translateError переведёт).
+  // Атомарная смена email через service-role. email_confirm: true —
+  // обязательно, иначе GoTrue попытается отправить ещё одно письмо
+  // через свой SMTP и упадёт.
   const { error: updateError } = await admin.auth.admin.updateUserById(
     row.user_id,
     { email: row.new_email, email_confirm: true },
@@ -120,58 +118,80 @@ export default async function ConfirmEmailChangePage({ searchParams }: PageProps
 
   if (updateError) {
     return (
-      <Result
-        variant="error"
+      <Failure
         title="Не удалось сменить email"
         message={translateError(updateError.message)}
       />
     );
   }
 
-  // Mark consumed (gated on still-pending — guard against double-confirm
-  // race: если параллельно второй tab закрыл запрос, мы спокойно
-  // продолжаем — email уже обновлён).
+  // Помечаем consumed (gated on still-pending — guard against double-
+  // confirm race).
   await ecr
     .update({ consumed_at: new Date().toISOString() })
     .eq("id", row.id)
     .is("consumed_at", null);
 
+  return <Success newEmail={row.new_email} />;
+}
+
+// ── Layouts ──────────────────────────────────────────────────────
+
+function Success({ newEmail }: { newEmail: string }) {
   return (
-    <Result
-      variant="success"
-      title="Email изменён"
-      message={`Теперь для входа используйте ${row.new_email}.`}
-    />
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
+      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
+
+      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-6">
+        <Check className="w-8 h-8 text-green-600" strokeWidth={2.5} />
+      </div>
+
+      <h1 className="text-[32px] leading-[40px] font-semibold text-gray-900 text-center mb-3">
+        Email изменён
+      </h1>
+
+      <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-2">
+        Теперь для входа используйте
+      </p>
+      <p className="text-[16px] leading-[24px] font-medium text-gray-900 text-center max-w-sm mb-10 break-all">
+        {newEmail}
+      </p>
+
+      {/* Кнопка ведёт через /auth/sign-out чтобы выкинуть юзера из старой
+          сессии и заставить залогиниться под новым email. Без этого
+          middleware видит активную session и из /login сразу
+          редиректит в /dashboard. */}
+      <Link href="/auth/sign-out?next=/login">
+        <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
+          Войти
+        </button>
+      </Link>
+    </div>
   );
 }
 
-function Result({
-  variant,
-  title,
-  message,
-}: {
-  variant: "success" | "error";
-  title: string;
-  message: string;
-}) {
-  const tone =
-    variant === "success"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-      : "border-rose-200 bg-rose-50 text-rose-900";
+function Failure({ title, message }: { title: string; message: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4 py-12">
-      <div className={`w-full max-w-md rounded-[14px] border bg-card p-8 flex flex-col gap-4 ${tone}`}>
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        <p className="text-sm leading-relaxed">{message}</p>
-        <div className="pt-2">
-          <Link
-            href={variant === "success" ? "/login" : "/profile"}
-            className="inline-flex h-9 items-center rounded-md bg-foreground px-4 text-sm font-medium text-background hover:opacity-90 transition-opacity"
-          >
-            {variant === "success" ? "Войти" : "Вернуться в профиль"}
-          </Link>
-        </div>
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
+      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
+
+      <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-6">
+        <AlertCircle className="w-8 h-8 text-red-600" />
       </div>
+
+      <h1 className="text-[28px] leading-[36px] font-semibold text-gray-900 text-center mb-3">
+        {title}
+      </h1>
+
+      <p className="text-[16px] leading-[24px] text-gray-500 text-center max-w-sm mb-10">
+        {message}
+      </p>
+
+      <Link href="/profile">
+        <button className="h-[50px] px-10 bg-blue-600 hover:bg-blue-700 text-white text-base font-medium rounded-xl transition-colors duration-200">
+          Вернуться в профиль
+        </button>
+      </Link>
     </div>
   );
 }

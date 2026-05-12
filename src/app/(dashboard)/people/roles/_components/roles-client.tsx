@@ -332,11 +332,6 @@ export function RolesClient({
     });
   }
 
-  const totalStaffDistributed = Object.values(staffCountByRole).reduce(
-    (sum, n) => sum + n,
-    0,
-  );
-
   // Cell renderers
   const renderCell = (key: ColKey, role: Role) => {
     switch (key) {
@@ -445,14 +440,6 @@ export function RolesClient({
           </div>
           <p className="text-muted-foreground mt-1 text-sm">
             Управление должностями и настройка прав доступа
-            {totalStaffDistributed > 0 &&
-              ` · ${totalStaffDistributed} ${
-                totalStaffDistributed === 1
-                  ? "сотрудник распределён"
-                  : totalStaffDistributed < 5
-                  ? "сотрудника распределены"
-                  : "сотрудников распределены"
-              }`}
             {isFiltered && ` · показано ${filteredRoles.length}`}
           </p>
         </div>

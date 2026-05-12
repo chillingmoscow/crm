@@ -847,7 +847,7 @@ export function StaffDetailPage({
             >
               <FormSection
                 title="Медицинская книжка"
-                description="Номер и дата последнего медосмотра"
+                description="Номер и срок действия медкнижки"
               >
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
@@ -861,7 +861,7 @@ export function StaffDetailPage({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="medical_book_date" className="text-[13px] font-medium">Дата осмотра</Label>
+                    <Label htmlFor="medical_book_date" className="text-[13px] font-medium">Аттестован до</Label>
                     <Input
                       id="medical_book_date"
                       type="date"

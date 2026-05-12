@@ -81,13 +81,22 @@ export default async function DashboardLayout({
   const activeRoleCode = activeVenue?.role_code ?? null;
   const activeRoleName = activeVenue?.role_name ?? null;
 
-  // Account name + список permission'ов параллельно. Permissions
-  // нужны для permission-based фильтрации sidebar'а (см. AppSidebar
-  // → userPermissions prop). Cached-обёртки гарантируют что эти RPC
-  // вызываются ровно один раз на RSC-дерево (layout + дочерние страницы).
-  const [accountId, userPermissions] = await Promise.all([
+  // Account name + список permission'ов + счётчик "событий по сотрудникам"
+  // параллельно. Permissions нужны для permission-based фильтрации
+  // sidebar'а (см. AppSidebar → userPermissions prop). staffAttention —
+  // количество сотрудников venue с активным событием (ДР в ближайшие
+  // 7 дней / медкнижка ≤30 дн.), рендерится бейджем на пункте
+  // «Сотрудники». Cached-обёртки гарантируют что user/account RPC
+  // вызываются ровно один раз на RSC-дерево.
+  // count_venue_staff_attention — миграция 144, RPC ещё не в типах БД.
+  // Каст через unknown — следующая регенерация database.ts уберёт его.
+  const supabaseUntyped = supabase as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
+  };
+  const [accountId, userPermissions, attentionRes] = await Promise.all([
     getCachedActiveAccountId(),
     getCachedPermissions(),
+    supabaseUntyped.rpc("count_venue_staff_attention", { p_venue_id: activeVenueId }),
   ]);
   let accountName: string | null = null;
   if (accountId) {
@@ -98,6 +107,11 @@ export default async function DashboardLayout({
       .maybeSingle();
     accountName = account?.name ?? null;
   }
+  // RPC возвращает int; на ошибке/null трактуем как 0 (бейдж не рисуем).
+  const staffAttentionCount =
+    typeof attentionRes?.data === "number" && attentionRes.data > 0
+      ? attentionRes.data
+      : 0;
 
   // Восстановим состояние main-сайдбара (открыт/свёрнут) из cookie
   // `sidebar_state`, который SidebarProvider пишет на каждый toggle.
@@ -131,6 +145,7 @@ export default async function DashboardLayout({
         activeRoleName={activeRoleName}
         accountName={accountName}
         userPermissions={userPermissions}
+        staffAttentionCount={staffAttentionCount}
         kbSidebarHidden={kbSidebarHidden}
       />
       <SidebarInset>

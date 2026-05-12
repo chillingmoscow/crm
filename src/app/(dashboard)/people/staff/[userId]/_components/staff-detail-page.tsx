@@ -793,6 +793,21 @@ export function StaffDetailPage({
                         />
                       )}
                     />
+                    {/* Подпись «когда был последний раз изменён» — видна всем.
+                        Социальный гард от фрода с ДР: если кто-то перевыставил
+                        дату чтобы получить поздравление повторно, остальные
+                        сотрудники видят, что дата свежая. Сам limit (раз в год)
+                        живёт в trigger'е tg_profiles_birth_date_yearly_limit
+                        (миграция 142) — это про UX, не про защиту. */}
+                    {profile.birth_date_set_at && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Изменено{" "}
+                        {new Date(profile.birth_date_set_at).toLocaleDateString(
+                          "ru-RU",
+                          { day: "2-digit", month: "2-digit", year: "numeric" },
+                        )}
+                      </p>
+                    )}
                   </div>
                 </div>
               </FormSection>

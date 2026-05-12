@@ -56,15 +56,20 @@ export type StaffMember = {
 
 // Тир 1+2 — персональный профиль (user-owned). Видно во всех заведениях.
 export type StaffProfile = {
-  id:          string;
-  first_name:  string | null;
-  last_name:   string | null;
-  phone:       string | null;
-  telegram_id: string | null;
-  gender:      string | null;
-  birth_date:  string | null;
-  address:     string | null;
-  avatar_url:  string | null;
+  id:                 string;
+  first_name:         string | null;
+  last_name:          string | null;
+  phone:              string | null;
+  telegram_id:        string | null;
+  gender:             string | null;
+  birth_date:         string | null;
+  // ISO timestamp когда birth_date был установлен/обновлён в последний раз.
+  // Заполняется триггером tg_profiles_track_birth_date (миграция 132).
+  // Видно всем — это «социальная» подпись «дата изменена тогда-то», чтобы
+  // нельзя было незаметно перевыставить ДР после поздравления.
+  birth_date_set_at:  string | null;
+  address:            string | null;
+  avatar_url:         string | null;
 };
 
 // Тир 3 — account-scoped HR-данные. Видно только админам этого аккаунта.
@@ -78,7 +83,8 @@ export type StaffAccountDetails = {
   comment:             string | null;
 };
 
-export type ProfileUpdate = Omit<StaffProfile, "id">;
+// birth_date_set_at — read-only, заполняется триггером, не апдейтим вручную.
+export type ProfileUpdate = Omit<StaffProfile, "id" | "birth_date_set_at">;
 
 export type AccountDetailsUpdate = Omit<
   StaffAccountDetails,
@@ -101,7 +107,7 @@ export async function getStaffProfile(
   const { data } = await supabase
     .from("profiles")
     .select(
-      "id, first_name, last_name, phone, telegram_id, gender, birth_date, address, avatar_url"
+      "id, first_name, last_name, phone, telegram_id, gender, birth_date, birth_date_set_at, address, avatar_url"
     )
     .eq("id", userId)
     .returns<StaffProfile[]>()

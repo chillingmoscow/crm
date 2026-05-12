@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -742,12 +743,11 @@ function IncomeExpenseFields({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="dt">Дата</Label>
-          <Input
+          <DatePicker
             id="dt"
-            type="date"
             value={form.date}
-            onChange={(e) => onChange({ ...form, date: e.target.value })}
-            required
+            onChange={(date) => onChange({ ...form, date })}
+            placeholder="Выберите дату"
           />
         </div>
       </div>
@@ -874,11 +874,11 @@ function TransferFields({
 
       <div className="space-y-1.5">
         <Label htmlFor="t-dt">Дата</Label>
-        <Input
+        <DatePicker
           id="t-dt"
-          type="date"
           value={form.date}
-          onChange={(e) => onChange({ ...form, date: e.target.value })}
+          onChange={(date) => onChange({ ...form, date })}
+          placeholder="Выберите дату"
         />
       </div>
 

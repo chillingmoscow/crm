@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -235,7 +236,7 @@ export function StaffDetailPage({
   // и вошёл в систему — он сам управляет профилем.
   const canEditPersonal = canEdit && !isRegisteredUser;
 
-  const { register, handleSubmit, setValue, formState: { errors } } =
+  const { register, handleSubmit, setValue, control, formState: { errors } } =
     useForm<FormValues>({
       resolver: zodResolver(schema),
       defaultValues: {
@@ -711,12 +712,19 @@ export function StaffDetailPage({
                     <Label htmlFor="birth_date" className="text-[13px] font-medium">
                       Дата рождения
                     </Label>
-                    <Input
-                      id="birth_date"
-                      type="date"
-                      {...register("birth_date")}
-                      readOnly={!canEditPersonal}
-                      className={!canEditPersonal ? "bg-muted/50" : ""}
+                    <Controller
+                      control={control}
+                      name="birth_date"
+                      render={({ field }) => (
+                        <DatePicker
+                          id="birth_date"
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          placeholder="Выберите дату"
+                          readOnly={!canEditPersonal}
+                          toDate={new Date()}
+                        />
+                      )}
                     />
                   </div>
                 </div>
@@ -818,12 +826,19 @@ export function StaffDetailPage({
                     <Label htmlFor="employment_date" className="text-[13px] font-medium">
                       Дата трудоустройства <span className="text-destructive">*</span>
                     </Label>
-                    <Input
-                      id="employment_date"
-                      type="date"
-                      {...register("employment_date")}
-                      readOnly={!canEdit}
-                      className={!canEdit ? "bg-muted/50" : ""}
+                    <Controller
+                      control={control}
+                      name="employment_date"
+                      render={({ field }) => (
+                        <DatePicker
+                          id="employment_date"
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          placeholder="Выберите дату"
+                          readOnly={!canEdit}
+                          toDate={new Date()}
+                        />
+                      )}
                     />
                     {errors.employment_date && (
                       <p className="text-xs text-destructive">{errors.employment_date.message}</p>
@@ -899,12 +914,18 @@ export function StaffDetailPage({
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="medical_book_date" className="text-[13px] font-medium">Аттестован до</Label>
-                    <Input
-                      id="medical_book_date"
-                      type="date"
-                      {...register("medical_book_date")}
-                      readOnly={!canEdit}
-                      className={!canEdit ? "bg-muted/50" : ""}
+                    <Controller
+                      control={control}
+                      name="medical_book_date"
+                      render={({ field }) => (
+                        <DatePicker
+                          id="medical_book_date"
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          placeholder="Выберите дату"
+                          readOnly={!canEdit}
+                        />
+                      )}
                     />
                   </div>
                 </div>

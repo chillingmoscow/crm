@@ -65,7 +65,7 @@ export default async function KnowledgeLandingPage() {
               База знаний
             </h1>
             <p className="text-sm text-muted-foreground">
-              SOP, регламенты, рецепты, онбординг и внутренние материалы команды.
+              SOP, регламенты, рецепты, онбординг и внутренние материалы команды
             </p>
           </div>
           <CreateRootPageButton />

@@ -33,7 +33,7 @@ export default async function NewBankAccountPage() {
 
       <h1 className="text-2xl font-semibold mb-1">Новый счёт</h1>
       <p className="text-muted-foreground text-sm mb-6">
-        Баланс пересчитывается автоматически при создании транзакций — здесь его задать нельзя.
+        Баланс пересчитывается автоматически при создании транзакций — здесь его задать нельзя
       </p>
 
       <BankAccountForm

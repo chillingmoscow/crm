@@ -33,8 +33,8 @@ export default async function NewLegalEntityPage() {
       <h1 className="text-2xl font-semibold mb-1">Новое юрлицо</h1>
       <p className="text-muted-foreground text-sm mb-6">
         {dadataEnabled
-          ? "Введите ИНН и нажмите «Из DaData» — поля заполнятся автоматически. После этого можно скорректировать вручную."
-          : "DaData не настроена — заполните поля вручную."}
+          ? "Введите ИНН и нажмите «Из DaData» — поля заполнятся автоматически. После этого можно скорректировать вручную"
+          : "DaData не настроена — заполните поля вручную"}
       </p>
 
       <LegalEntityForm mode="create" dadataEnabled={dadataEnabled} />

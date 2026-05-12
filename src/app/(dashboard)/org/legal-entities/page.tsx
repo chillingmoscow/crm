@@ -38,7 +38,7 @@ export default async function LegalEntitiesPage() {
           <h1 className="text-2xl font-semibold">Юридические лица</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Юрлица аккаунта: ИП, ООО, АО. К одному юрлицу могут быть привязаны
-            несколько заведений.
+            несколько заведений
           </p>
         </div>
         <Button asChild>

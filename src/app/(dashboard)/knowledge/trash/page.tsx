@@ -69,7 +69,7 @@ export default async function KnowledgeTrashPage() {
           <p className="text-sm text-muted-foreground">
             Удалённые страницы можно восстановить. При удалении родителя
             все подстраницы удаляются вместе с ним; при восстановлении —
-            возвращаются в той же иерархии.
+            возвращаются в той же иерархии
           </p>
         </header>
 

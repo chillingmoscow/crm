@@ -36,6 +36,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
 import { updateOwnProfile, type OwnProfile } from "../actions";
+import { requestEmailChange } from "../email-change-actions";
 
 const schema = z.object({
   first_name:  z.string().min(1, "Обязательное поле"),
@@ -331,15 +332,17 @@ export function ProfileSettingsPage({
     const next = contactEmail.trim().toLowerCase();
     if (!next || next === email.toLowerCase()) return;
     setPendingEmailChange(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.updateUser({ email: next });
+    // Custom flow вместо supabase.auth.updateUser({ email }) — GoTrue
+    // emails у нас не настроены, поэтому шлём через свой mailer
+    // (см. requestEmailChange + /auth/confirm-email-change).
+    const result = await requestEmailChange(next);
     setPendingEmailChange(false);
-    if (error) {
-      toast.error(translateError(error.message));
+    if (result.error) {
+      toast.error(translateError(result.error));
       return;
     }
     toast.success(
-      `На ${email} отправлено письмо с подтверждением смены. Подтвердите смену — и адрес обновится.`,
+      `На ${next} отправлено письмо с подтверждением. Перейдите по ссылке в письме, чтобы завершить смену.`,
       { duration: 7000 },
     );
   };

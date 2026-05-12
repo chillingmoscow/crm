@@ -40,7 +40,7 @@ export function IconTooltip({
         <div className="grid gap-0.5">
           <strong className="font-semibold leading-tight">{label}</strong>
           {description && (
-            <span className="text-muted-foreground leading-tight">
+            <span className="text-neutral-300 leading-tight">
               {description}
             </span>
           )}

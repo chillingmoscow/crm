@@ -10,18 +10,23 @@ import { createClient } from "@/lib/supabase/server";
  * входят — это редактирует админ через карточку сотрудника.
  */
 export type OwnProfile = {
-  id:          string;
-  first_name:  string | null;
-  last_name:   string | null;
-  phone:       string | null;
-  telegram_id: string | null;
-  gender:      string | null;
-  birth_date:  string | null;
-  address:     string | null;
-  avatar_url:  string | null;
+  id:                 string;
+  first_name:         string | null;
+  last_name:          string | null;
+  phone:              string | null;
+  telegram_id:        string | null;
+  gender:             string | null;
+  birth_date:         string | null;
+  // ISO timestamp когда birth_date был установлен/обновлён в последний
+  // раз. Заполняется триггером tg_profiles_track_birth_date (миграция
+  // 132). Read-only — не апдейтим вручную, иначе social-гард «изменено
+  // тогда-то» теряет смысл.
+  birth_date_set_at:  string | null;
+  address:            string | null;
+  avatar_url:         string | null;
 };
 
-export type OwnProfileUpdate = Omit<OwnProfile, "id">;
+export type OwnProfileUpdate = Omit<OwnProfile, "id" | "birth_date_set_at">;
 
 export async function updateOwnProfile(
   data: Partial<OwnProfileUpdate>,
@@ -31,13 +36,6 @@ export async function updateOwnProfile(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
-
-  // Лог для диагностики data-strip регрессий — Coolify stdout.
-  console.log("[updateOwnProfile] writing", {
-    userId: user.id,
-    keys: Object.keys(data),
-    payload: data,
-  });
 
   // RLS-политика `profiles_update_own` гарантирует, что юзер может
   // менять только свой ряд (id = auth.uid()). Дополнительный фильтр
@@ -55,12 +53,8 @@ export async function updateOwnProfile(
     .select("id")
     .maybeSingle();
 
-  if (error) {
-    console.error("[updateOwnProfile] update error:", error);
-    return { error: error.message };
-  }
+  if (error) return { error: error.message };
   if (!updated) {
-    console.error("[updateOwnProfile] 0 rows updated — RLS block or stale id");
     return { error: "Не удалось обновить профиль. Попробуйте перезайти в систему." };
   }
   revalidatePath("/profile");

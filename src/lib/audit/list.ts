@@ -33,6 +33,36 @@ export type AuditEntitySnapshot =
       id: string;
       email: string;
       status: string;
+    }
+  | {
+      type: "transaction";
+      id: string;
+      public_id: number;
+      type_code: string; // income/expense/transfer
+      amount: number | string;
+      currency: string;
+      deleted_at: string | null;
+    }
+  | {
+      type: "bank_account";
+      id: string;
+      name: string;
+      account_type: string;
+      deleted_at: string | null;
+    }
+  | {
+      type: "finance_category";
+      id: string;
+      name: string;
+      category_type: string; // income/expense
+      is_active: boolean;
+    }
+  | {
+      type: "counterparty";
+      id: string;
+      name: string;
+      inn: string | null;
+      deleted_at: string | null;
     };
 
 export interface AuditEvent {
@@ -296,6 +326,77 @@ export async function listAuditEvents(input?: {
         id: inv.id,
         email: inv.email,
         status: inv.status,
+      });
+    }
+  }
+
+  // ── finance snapshots ────────────────────────────────────────
+  const transactionIds = idsByType.get("transaction");
+  if (transactionIds && transactionIds.size > 0) {
+    const { data: txRows } = await supabase
+      .from("transactions")
+      .select("id, public_id, type, amount, currency, deleted_at")
+      .in("id", Array.from(transactionIds));
+    for (const t of txRows ?? []) {
+      snapshotsByKey.set(`transaction:${t.id}`, {
+        type: "transaction",
+        id: t.id,
+        public_id: t.public_id,
+        type_code: t.type,
+        amount: t.amount,
+        currency: t.currency,
+        deleted_at: t.deleted_at,
+      });
+    }
+  }
+
+  const bankAccountIds = idsByType.get("bank_account");
+  if (bankAccountIds && bankAccountIds.size > 0) {
+    const { data: baRows } = await supabase
+      .from("bank_accounts")
+      .select("id, name, type, deleted_at")
+      .in("id", Array.from(bankAccountIds));
+    for (const ba of baRows ?? []) {
+      snapshotsByKey.set(`bank_account:${ba.id}`, {
+        type: "bank_account",
+        id: ba.id,
+        name: ba.name,
+        account_type: ba.type,
+        deleted_at: ba.deleted_at,
+      });
+    }
+  }
+
+  const categoryIds = idsByType.get("finance_category");
+  if (categoryIds && categoryIds.size > 0) {
+    const { data: catRows } = await supabase
+      .from("finance_categories")
+      .select("id, name, type, is_active")
+      .in("id", Array.from(categoryIds));
+    for (const c of catRows ?? []) {
+      snapshotsByKey.set(`finance_category:${c.id}`, {
+        type: "finance_category",
+        id: c.id,
+        name: c.name,
+        category_type: c.type,
+        is_active: c.is_active,
+      });
+    }
+  }
+
+  const counterpartyIds = idsByType.get("counterparty");
+  if (counterpartyIds && counterpartyIds.size > 0) {
+    const { data: cpRows } = await supabase
+      .from("counterparties")
+      .select("id, name, inn, deleted_at")
+      .in("id", Array.from(counterpartyIds));
+    for (const cp of cpRows ?? []) {
+      snapshotsByKey.set(`counterparty:${cp.id}`, {
+        type: "counterparty",
+        id: cp.id,
+        name: cp.name,
+        inn: cp.inn,
+        deleted_at: cp.deleted_at,
       });
     }
   }

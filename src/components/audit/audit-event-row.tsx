@@ -121,6 +121,65 @@ function EntityReference({ event }: { event: AuditEvent }) {
     );
   }
 
+  if (entity.type === "transaction") {
+    if (entity.deleted_at) return null;
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href={`/finance/transactions?id=${entity.id}`}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть транзакцию
+        </Link>
+      </>
+    );
+  }
+
+  if (entity.type === "bank_account") {
+    if (entity.deleted_at) return null;
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href="/finance/accounts"
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть счёт
+        </Link>
+      </>
+    );
+  }
+
+  if (entity.type === "finance_category") {
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href="/finance/categories"
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть статью
+        </Link>
+      </>
+    );
+  }
+
+  if (entity.type === "counterparty") {
+    if (entity.deleted_at) return null;
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href="/finance/counterparties"
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть контрагента
+        </Link>
+      </>
+    );
+  }
+
   return null;
 }
 

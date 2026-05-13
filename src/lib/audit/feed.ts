@@ -43,15 +43,20 @@ export async function loadAuditFeedPage(params: AuditFeedParams): Promise<{
     });
   }
   if (search) {
-    // Поиск: entity-match по всем типам (staff + kb + role + invitation),
-    // actor-match по profile.id (исполнитель действия). Если ни одно не
-    // нашлось — listAuditEvents short-circuit'нет в empty.
+    // Поиск: entity-match по всем типам (staff + kb + role + invitation +
+    // finance:bank_account/category/counterparty/transaction), actor-match
+    // по profile.id (исполнитель действия). Если ни одно не нашлось —
+    // listAuditEvents short-circuit'нет в empty.
     filterGroups.push({
       entityIds: [
         ...search.staffIds,
         ...search.kbPageIds,
         ...search.roleIds,
         ...search.invitationIds,
+        ...search.transactionIds,
+        ...search.bankAccountIds,
+        ...search.financeCategoryIds,
+        ...search.counterpartyIds,
       ],
       actorIds: search.staffIds,
     });

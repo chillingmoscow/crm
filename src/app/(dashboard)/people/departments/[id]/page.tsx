@@ -47,6 +47,38 @@ export default async function DepartmentDetailServerPage({
     .order("account_id", { nullsFirst: true })
     .order("name");
 
+  // Профили created_by / updated_by для info-popover — паттерн из
+  // role-detail-page.tsx.
+  const auditUserIds = Array.from(
+    new Set(
+      [department.created_by, department.updated_by].filter(
+        (x): x is string => x !== null,
+      ),
+    ),
+  );
+  const auditProfilesResult = auditUserIds.length
+    ? await supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .in("id", auditUserIds)
+    : { data: [] as { id: string; first_name: string | null; last_name: string | null }[] };
+
+  const profileMap = new Map(
+    ((auditProfilesResult.data as
+      | { id: string; first_name: string | null; last_name: string | null }[]
+      | null) ?? []).map((p) => [p.id, p]),
+  );
+
+  const formatProfile = (uid: string | null): string | null => {
+    if (!uid) return null;
+    const p = profileMap.get(uid);
+    if (!p) return null;
+    const first = (p.first_name ?? "").trim();
+    const last = (p.last_name ?? "").trim();
+    if (!first && !last) return null;
+    return last ? `${first} ${last.charAt(0)}.`.trim() : first;
+  };
+
   const auditResult = canViewAudit
     ? await listAuditEvents({ entityType: "department", entityId: id })
     : { events: [], hasMore: false, error: null };
@@ -61,6 +93,8 @@ export default async function DepartmentDetailServerPage({
       canViewAudit={Boolean(canViewAudit)}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
+      createdByName={formatProfile(department.created_by)}
+      updatedByName={formatProfile(department.updated_by)}
     />
   );
 }

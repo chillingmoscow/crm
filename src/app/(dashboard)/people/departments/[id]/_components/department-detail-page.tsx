@@ -4,10 +4,10 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft,
   Boxes,
+  ChevronLeft,
   Crown,
-  Pencil,
+  Loader2,
   Plus,
   Trash2,
   X,
@@ -37,6 +37,11 @@ import {
 import { paletteText, type PaletteColor } from "@/lib/palette";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
+import {
+  PageBreadcrumb,
+  PageHeaderActions,
+} from "@/components/shared/page-header-actions";
+import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 
 import { ICON_REGISTRY, iconForRole } from "../../../roles/_components/role-icons";
 import { DepartmentIconPicker } from "../../_components/department-icon-picker";
@@ -59,6 +64,8 @@ type AllRole = {
   department_id: string | null;
 };
 
+type TabKey = "main" | "roles" | "history" | "danger";
+
 interface Props {
   department: Department;
   initialRoles: DepartmentRole[];
@@ -68,6 +75,9 @@ interface Props {
   canViewAudit: boolean;
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
+  /** Display name «Имя Ф.» для created_by / updated_by (для info popover). */
+  createdByName: string | null;
+  updatedByName: string | null;
 }
 
 export function DepartmentDetailPage({
@@ -79,33 +89,38 @@ export function DepartmentDetailPage({
   canViewAudit,
   initialAuditEvents,
   initialAuditHasMore,
+  createdByName,
+  updatedByName,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [activeTab, setActiveTab] = useState<TabKey>("main");
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  const [name, setName] = useState(department.name);
-  const [description, setDescription] = useState(department.description ?? "");
-  const [icon, setIcon] = useState<string | null>(department.icon);
-  const [iconColor, setIconColor] = useState<string | null>(
+  // Editable «Основное» state
+  const [nameValue, setNameValue] = useState(department.name);
+  const [commentValue, setCommentValue] = useState(department.description ?? "");
+  const [iconValue, setIconValue] = useState<string | null>(department.icon);
+  const [iconColorValue, setIconColorValue] = useState<string | null>(
     department.icon_color,
   );
   const [headRoleId, setHeadRoleId] = useState<string | null>(
     department.head_role_id,
   );
-  const [editing, setEditing] = useState(false);
+
   const [roles, setRoles] = useState(initialRoles);
   const [heads] = useState(initialHeads);
   const [attachOpen, setAttachOpen] = useState(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-  const Icon = (icon && ICON_REGISTRY[icon]) || Boxes;
-  const tintClass = paletteText(iconColor as PaletteColor | null);
-
-  const headerDirty =
-    name.trim() !== department.name ||
-    (description ?? "").trim() !== (department.description ?? "") ||
-    icon !== department.icon ||
-    iconColor !== department.icon_color;
+  // Сравниваем trimmed-значения — иначе trailing space в description
+  // делает форму permanently dirty: handleSave всё равно отправит
+  // commentValue.trim(), сервер сохранит «нет изменений», но в UI
+  // commentValue остаётся с пробелом → dirty не сбрасывается.
+  const dirty =
+    nameValue.trim() !== department.name ||
+    commentValue.trim() !== (department.description ?? "") ||
+    iconValue !== department.icon ||
+    iconColorValue !== department.icon_color;
 
   // Должности этого подразделения по id
   const departmentRoleIds = useMemo(
@@ -122,12 +137,10 @@ export function DepartmentDetailPage({
     [allRoles, departmentRoleIds],
   );
 
-  function commitHeader() {
-    if (!headerDirty) {
-      setEditing(false);
-      return;
-    }
-    const trimmedName = name.trim();
+  // ── Mutations ──────────────────────────────────────────────
+
+  function handleSave() {
+    const trimmedName = nameValue.trim();
     if (!trimmedName) {
       toast.error("Название не может быть пустым");
       return;
@@ -135,29 +148,23 @@ export function DepartmentDetailPage({
     startTransition(async () => {
       const result = await updateDepartment(department.id, {
         name: trimmedName,
-        description: description.trim() || null,
-        icon,
-        iconColor,
+        description: commentValue.trim() || null,
+        icon: iconValue,
+        iconColor: iconColorValue,
       });
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success("Сохранено");
-      setEditing(false);
+      toast.success("Изменения сохранены");
       router.refresh();
     });
   }
 
-  function cancelHeaderEdit() {
-    setName(department.name);
-    setDescription(department.description ?? "");
-    setIcon(department.icon);
-    setIconColor(department.icon_color);
-    setEditing(false);
-  }
-
+  // head_role меняем instant'ом — по аналогии с тем, как role detail меняет
+  // department_id (см. handleDepartmentChange в role-detail-page.tsx).
   function commitHeadRole(nextValue: string | null) {
+    const previous = headRoleId;
     setHeadRoleId(nextValue);
     startTransition(async () => {
       const result = await updateDepartment(department.id, {
@@ -165,7 +172,7 @@ export function DepartmentDetailPage({
       });
       if (result.error) {
         toast.error(result.error);
-        setHeadRoleId(department.head_role_id);
+        setHeadRoleId(previous);
         return;
       }
       toast.success(
@@ -183,7 +190,6 @@ export function DepartmentDetailPage({
         return;
       }
       setRoles((prev) => prev.filter((r) => r.id !== roleId));
-      // Если убрали ту, что была руководителем — снимем head.
       if (roleId === headRoleId) setHeadRoleId(null);
       toast.success("Должность откреплена");
       router.refresh();
@@ -227,272 +233,341 @@ export function DepartmentDetailPage({
     });
   }
 
+  // ── Render ─────────────────────────────────────────────────
+
+  const HeaderIcon = (iconValue && ICON_REGISTRY[iconValue]) || Boxes;
+  const headerTint = paletteText(iconColorValue as PaletteColor | null);
+
   return (
-    <div className="p-6 md:p-8 w-full max-w-5xl">
-      {/* Back */}
-      <div className="mb-4">
+    <div className="flex-1 flex flex-col">
+      {/* Breadcrumb in layout's top bar (left side) — паттерн из role detail */}
+      <PageBreadcrumb>
         <Link
           href="/people/departments"
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" />
+          <ChevronLeft className="w-4 h-4" />
           Подразделения
         </Link>
-      </div>
+      </PageBreadcrumb>
 
-      <Tabs defaultValue="main" className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="main">Основное</TabsTrigger>
-          {canViewAudit && (
-            <TabsTrigger value="history">Журнал</TabsTrigger>
-          )}
-        </TabsList>
+      {/* Info popover в top bar справа от bell */}
+      <PageHeaderActions>
+        <EntityInfoPopover
+          title="О подразделении"
+          id={department.id}
+          createdAt={department.created_at}
+          createdByName={createdByName}
+          updatedAt={department.updated_at}
+          updatedByName={updatedByName}
+        />
+      </PageHeaderActions>
 
-        <TabsContent value="main" className="mt-0">
-
-      {/* Header */}
-      <div className="rounded-xl border bg-card p-5 mb-6">
-        {!editing ? (
-          <div className="flex items-start gap-4">
-            <span
-              className={`flex items-center justify-center size-12 rounded-lg bg-muted shrink-0 ${
-                tintClass || "text-muted-foreground"
-              }`}
-            >
-              <Icon className="w-6 h-6" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-bold tracking-tight">
-                {department.name}
-              </h1>
-              {department.description && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {department.description}
-                </p>
-              )}
-            </div>
-            {canManage && (
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil className="w-3.5 h-3.5 mr-1.5" />
-                  Изменить
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setConfirmDeleteOpen(true)}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </Button>
-              </div>
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
+        {/* Header — 56px icon + h1 + description */}
+        <div className="flex items-center gap-4 min-w-0">
+          <div
+            className={`shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center bg-muted ${
+              headerTint || "text-muted-foreground"
+            }`}
+          >
+            <HeaderIcon className="w-7 h-7" />
+          </div>
+          <div className="flex flex-col gap-1.5 min-w-0">
+            <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+              {department.name}
+            </h1>
+            {department.description && (
+              <p className="text-sm text-muted-foreground leading-snug">
+                {department.description}
+              </p>
             )}
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-end gap-2">
-              <div className="space-y-1.5 flex-1 min-w-0">
-                <Label htmlFor="dep-name" className="text-[13px] font-medium">
-                  Название <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="dep-name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <DepartmentIconPicker
-                value={icon}
-                color={iconColor}
-                onChange={({ icon: nextIcon, color }) => {
-                  setIcon(nextIcon);
-                  setIconColor(color);
-                }}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dep-desc" className="text-[13px] font-medium">
-                Описание
-              </Label>
-              <Textarea
-                id="dep-desc"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-              />
-            </div>
-            <div className="flex items-center gap-2 justify-end">
-              <Button variant="outline" size="sm" onClick={cancelHeaderEdit}>
-                Отмена
-              </Button>
-              <Button
-                size="sm"
-                onClick={commitHeader}
-                disabled={isPending || !name.trim()}
+        </div>
+
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)}>
+          <TabsList className="justify-center">
+            <TabsTrigger value="main">Основное</TabsTrigger>
+            <TabsTrigger value="roles">Должности</TabsTrigger>
+            {canViewAudit && (
+              <TabsTrigger value="history">Журнал</TabsTrigger>
+            )}
+            {canManage && (
+              <TabsTrigger
+                value="danger"
+                className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
               >
-                Сохранить
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
+                Опасная зона
+              </TabsTrigger>
+            )}
+          </TabsList>
 
-      {/* Head role */}
-      <section className="rounded-xl border bg-card p-5 mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Crown className="w-4 h-4 text-amber-500" />
-          <h2 className="text-sm font-semibold">Руководящая должность</h2>
-        </div>
-
-        <div className="space-y-3">
-          <Select
-            value={headRoleId ?? "__none__"}
-            onValueChange={(v) =>
-              canManage && commitHeadRole(v === "__none__" ? null : v)
-            }
-            disabled={!canManage || isPending}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Не назначена" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Не назначена</SelectItem>
-              {roles.map((r) => (
-                <SelectItem key={r.id} value={r.id}>
-                  {r.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {roles.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              Сначала добавьте хотя бы одну должность в подразделение.
-            </p>
-          )}
-
-          {/* Текущие фактические руководители по venues */}
-          {heads.length > 0 && (
-            <div className="border-t pt-3 mt-2 space-y-2">
-              <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
-                Сейчас руководят
-              </p>
-              {heads.map((h) => (
-                <div
-                  key={`${h.venue_id}-${h.user_id}`}
-                  className="flex items-center gap-3 text-sm"
-                >
-                  <span className="text-muted-foreground min-w-[140px] truncate">
-                    {h.venue_name}
-                  </span>
-                  <span className="font-medium truncate">
-                    {[h.first_name, h.last_name].filter(Boolean).join(" ") ||
-                      "—"}
-                  </span>
+          {/* ── Main ─────────────────────────────────────────── */}
+          <TabsContent value="main">
+            <div className="flex justify-center">
+              <div className="w-full max-w-[720px] flex flex-col gap-5">
+                {/* Name + icon */}
+                <div className="flex items-end gap-2">
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    <Label htmlFor="dep-name" className="text-[13px] font-medium">
+                      Название
+                    </Label>
+                    <Input
+                      id="dep-name"
+                      value={nameValue}
+                      onChange={(e) => setNameValue(e.target.value)}
+                      readOnly={!canManage}
+                      className={!canManage ? "bg-muted/50" : ""}
+                      placeholder="Название подразделения"
+                    />
+                  </div>
+                  <DepartmentIconPicker
+                    value={iconValue}
+                    color={iconColorValue}
+                    onChange={({ icon, color }) => {
+                      setIconValue(icon);
+                      setIconColorValue(color);
+                    }}
+                    disabled={!canManage}
+                  />
                 </div>
-              ))}
-            </div>
-          )}
-          {headRoleId && heads.length === 0 && (
-            <p className="text-xs text-muted-foreground">
-              В ваших заведениях нет активных сотрудников с этой должностью.
-            </p>
-          )}
-        </div>
-      </section>
 
-      {/* Roles */}
-      <section className="rounded-xl border bg-card p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold">
-            Должности в подразделении
-            <span className="ml-2 text-xs text-muted-foreground font-normal">
-              {roles.length}
-            </span>
-          </h2>
-          {canManage && attachableRoles.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setAttachOpen(true)}
-            >
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
-              Добавить должность
-            </Button>
-          )}
-        </div>
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="dep-desc" className="text-[13px] font-medium">
+                    Описание
+                  </Label>
+                  <Textarea
+                    id="dep-desc"
+                    value={commentValue}
+                    onChange={(e) => setCommentValue(e.target.value)}
+                    readOnly={!canManage}
+                    className={!canManage ? "bg-muted/50" : ""}
+                    placeholder="Кто входит, чем занимается"
+                    rows={4}
+                  />
+                </div>
 
-        {roles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            В подразделении пока нет должностей.
-          </p>
-        ) : (
-          <div className="divide-y">
-            {roles.map((r) => {
-              const RoleIcon = iconForRole(r.code, r.icon);
-              const roleTint = paletteText(r.icon_color as PaletteColor | null);
-              const isHead = r.id === headRoleId;
-              return (
-                <div
-                  key={r.id}
-                  className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
-                >
-                  <span
-                    className={`flex items-center justify-center size-8 rounded-md bg-muted shrink-0 ${
-                      roleTint || "text-muted-foreground"
-                    }`}
+                {/* Head role — instant change. Под select'ом — фактические
+                    руководители по venues (read-only справка). */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="dep-head" className="text-[13px] font-medium">
+                    Руководящая должность
+                  </Label>
+                  <Select
+                    value={headRoleId ?? "__none__"}
+                    onValueChange={(v) =>
+                      canManage && commitHeadRole(v === "__none__" ? null : v)
+                    }
+                    disabled={!canManage || isPending || roles.length === 0}
                   >
-                    <RoleIcon className="w-4 h-4" />
-                  </span>
-                  <Link
-                    href={`/people/roles/${r.id}`}
-                    className="font-medium text-sm hover:underline flex-1 min-w-0 truncate"
-                  >
-                    {r.name}
-                  </Link>
-                  {isHead && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[11px] font-medium">
-                      <Crown className="w-3 h-3" />
-                      Руководитель
-                    </span>
+                    <SelectTrigger id="dep-head">
+                      <SelectValue placeholder="Не назначена" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Не назначена</SelectItem>
+                      {roles.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          {r.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {roles.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Сначала добавьте хотя бы одну должность во вкладке «Должности».
+                    </p>
                   )}
-                  {canManage && (
+
+                  {heads.length > 0 && (
+                    <div className="border-t pt-3 mt-3 space-y-2">
+                      <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+                        Сейчас руководят
+                      </p>
+                      {heads.map((h) => (
+                        <div
+                          key={`${h.venue_id}-${h.user_id}`}
+                          className="flex items-center gap-3 text-sm"
+                        >
+                          <span className="text-muted-foreground min-w-[140px] truncate">
+                            {h.venue_name}
+                          </span>
+                          <span className="font-medium truncate">
+                            {[h.first_name, h.last_name]
+                              .filter(Boolean)
+                              .join(" ") || "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {headRoleId && heads.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      В ваших заведениях нет активных сотрудников с этой должностью.
+                    </p>
+                  )}
+                </div>
+
+                {/* Save button — паттерн из role detail */}
+                {(() => {
+                  const isSaveActive =
+                    canManage && dirty && nameValue.trim().length > 0;
+                  return (
+                    <div className="flex justify-end pt-1">
+                      <Button
+                        onClick={handleSave}
+                        variant={isSaveActive ? "default" : "secondary"}
+                        disabled={!isSaveActive || isPending}
+                        className={
+                          isSaveActive
+                            ? ""
+                            : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
+                        }
+                      >
+                        {isPending && (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        )}
+                        Сохранить
+                      </Button>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* ── Roles tab ────────────────────────────────────── */}
+          <TabsContent value="roles" className="space-y-4">
+            <div className="flex justify-center">
+              <div className="w-full max-w-[720px] flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-sm font-semibold">
+                      Должности в подразделении
+                      <span className="ml-2 text-xs text-muted-foreground font-normal">
+                        {roles.length}
+                      </span>
+                    </h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Объедините похожие должности в этот блок — например все
+                      барные позиции в «Бар».
+                    </p>
+                  </div>
+                  {canManage && attachableRoles.length > 0 && (
                     <Button
                       size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      onClick={() => detachRole(r.id)}
-                      disabled={isPending}
-                      aria-label="Открепить должность"
+                      variant="outline"
+                      onClick={() => setAttachOpen(true)}
                     >
-                      <X className="w-4 h-4" />
+                      <Plus className="w-3.5 h-3.5 mr-1.5" />
+                      Добавить должность
                     </Button>
                   )}
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
 
-        </TabsContent>
-
-        {canViewAudit && (
-          <TabsContent value="history" className="mt-0">
-            <EntityAuditTab
-              mode="entity"
-              entityType="department"
-              entityId={department.id}
-              canView={canViewAudit}
-              initialEvents={initialAuditEvents}
-              initialHasMore={initialAuditHasMore}
-            />
+                {roles.length === 0 ? (
+                  <div className="rounded-lg border border-dashed flex flex-col items-center justify-center p-10 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      В подразделении пока нет должностей.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border bg-card divide-y">
+                    {roles.map((r) => {
+                      const RoleIcon = iconForRole(r.code, r.icon);
+                      const roleTint = paletteText(
+                        r.icon_color as PaletteColor | null,
+                      );
+                      const isHead = r.id === headRoleId;
+                      return (
+                        <div
+                          key={r.id}
+                          className="flex items-center gap-3 px-4 py-3"
+                        >
+                          <span
+                            className={`flex items-center justify-center size-8 rounded-md bg-muted shrink-0 ${
+                              roleTint || "text-muted-foreground"
+                            }`}
+                          >
+                            <RoleIcon className="w-4 h-4" />
+                          </span>
+                          <Link
+                            href={`/people/roles/${r.id}`}
+                            className="font-medium text-sm hover:underline flex-1 min-w-0 truncate"
+                          >
+                            {r.name}
+                          </Link>
+                          {isHead && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-[11px] font-medium">
+                              <Crown className="w-3 h-3" />
+                              Руководитель
+                            </span>
+                          )}
+                          {canManage && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => detachRole(r.id)}
+                              disabled={isPending}
+                              aria-label="Открепить должность"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           </TabsContent>
-        )}
-      </Tabs>
+
+          {/* ── Журнал ──────────────────────────────────────── */}
+          {canViewAudit && (
+            <TabsContent value="history">
+              <EntityAuditTab
+                mode="entity"
+                entityType="department"
+                entityId={department.id}
+                canView={canViewAudit}
+                initialEvents={initialAuditEvents}
+                initialHasMore={initialAuditHasMore}
+              />
+            </TabsContent>
+          )}
+
+          {/* ── Опасная зона ────────────────────────────────── */}
+          {canManage && (
+            <TabsContent value="danger">
+              <div className="max-w-[720px] mx-auto rounded-[14px] border bg-card p-6 flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <h3 className="text-base font-semibold text-foreground">
+                    Удалить подразделение
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Подразделение «{nameValue || department.name}» будет
+                    удалено. Должности останутся, но потеряют привязку
+                    к этому подразделению.
+                  </p>
+                </div>
+                <div>
+                  <Button
+                    variant="destructive"
+                    onClick={() => setConfirmDeleteOpen(true)}
+                    disabled={isPending}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Удалить подразделение
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+          )}
+        </Tabs>
+      </div>
 
       {/* Attach role dialog */}
       <Dialog open={attachOpen} onOpenChange={setAttachOpen}>
@@ -546,8 +621,8 @@ export function DepartmentDetailPage({
           <DialogHeader>
             <DialogTitle>Удалить подразделение?</DialogTitle>
             <DialogDescription>
-              Должности останутся, но потеряют привязку к этому подразделению.
-              Это действие нельзя отменить.
+              Должности останутся, но потеряют привязку. Это действие нельзя
+              отменить.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

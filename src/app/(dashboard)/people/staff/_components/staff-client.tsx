@@ -42,7 +42,8 @@ import type { StaffMember, PendingInvitation, FiredStaffMember } from "../action
 // ── Column definitions ───────────────────────────────────────
 type ColKey =
   | "avatar" | "name" | "email" | "phone" | "telegram"
-  | "gender" | "birth_date" | "role" | "qr_import" | "employment_date";
+  | "gender" | "birth_date" | "role" | "department"
+  | "qr_import" | "employment_date";
 
 const COL_DEFS: {
   key: ColKey; label: string; width: string; required?: boolean;
@@ -60,11 +61,12 @@ const COL_DEFS: {
   { key: "gender",          label: "Пол",                  width: "60px" },
   { key: "birth_date",      label: "Дата рождения",        width: "120px" },
   { key: "role",            label: "Должность",            width: "180px" },
+  { key: "department",      label: "Подразделение",        width: "160px" },
   { key: "qr_import",       label: "Импорт из QR",         width: "140px", align: "center" },
   { key: "employment_date", label: "Трудоустройство",      width: "180px" },
 ];
 
-const DEFAULT_COLS: ColKey[] = ["avatar", "name", "email", "role", "qr_import", "employment_date"];
+const DEFAULT_COLS: ColKey[] = ["avatar", "name", "email", "role", "department", "qr_import", "employment_date"];
 
 function buildGrid(visible: Set<ColKey>) {
   const cols = COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width);
@@ -727,11 +729,23 @@ export function StaffClient({
             >
               {member.role_name}
             </Badge>
-            {member.department_name && (
-              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                {member.department_name}
-              </div>
-            )}
+          </button>
+        );
+      }
+      case "department": {
+        if (!member.department_name) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        const departmentId = member.department_id;
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (departmentId) router.push(`/people/departments/${departmentId}`);
+            }}
+            className="text-left text-[13px] text-foreground hover:text-primary truncate"
+          >
+            {member.department_name}
           </button>
         );
       }

@@ -54,30 +54,32 @@ export function DepartmentsClient({
         iconColor,
         description: description.trim() || null,
       });
-      if (result.error) {
-        toast.error(result.error);
+      if (result.error || !result.id) {
+        // !result.id раньше был edge-case с silent null (см. actions.ts).
+        // После перехода на серверный UUID этого не должно происходить,
+        // но guard оставим — `if (result.id)` без `else` в прошлой
+        // версии маскировал баг под зелёный toast.
+        toast.error(result.error ?? "Не удалось создать подразделение");
         return;
       }
       toast.success("Подразделение создано");
-      if (result.id) {
-        const created: DepartmentSummary = {
-          id: result.id,
-          name: trimmed,
-          icon,
-          icon_color: iconColor,
-          description: description.trim() || null,
-          head_role_id: null,
-          head_role_name: null,
-          roles_count: 0,
-          staff_count: 0,
-        };
-        setDepartments((prev) =>
-          [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "ru")),
-        );
-        setSheetOpen(false);
-        resetForm();
-        router.push(`/people/departments/${result.id}`);
-      }
+      const created: DepartmentSummary = {
+        id: result.id,
+        name: trimmed,
+        icon,
+        icon_color: iconColor,
+        description: description.trim() || null,
+        head_role_id: null,
+        head_role_name: null,
+        roles_count: 0,
+        staff_count: 0,
+      };
+      setDepartments((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      );
+      setSheetOpen(false);
+      resetForm();
+      router.push(`/people/departments/${result.id}`);
     });
   }
 

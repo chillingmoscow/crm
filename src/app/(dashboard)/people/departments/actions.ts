@@ -149,21 +149,25 @@ export async function createDepartment(input: {
     });
 
     if (error) {
+      // Сериализуем ВСЕ ключи error-объекта. У PostgrestError это
+      // message/details/hint/code. У AuthError — message/status/name.
+      // У FetchError — name/cause. Если все стандартные поля пустые
+      // (как сейчас на проде), хотя бы увидим что-то отличающее
+      // ошибку — JSON.stringify по перечислимым свойствам.
+      const errorDump = JSON.stringify(error, Object.getOwnPropertyNames(error));
       console.error("[createDepartment] insert failed", {
         accountId,
         name,
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
+        errorDump,
       });
-      // Возвращаем максимум контекста: PostgREST hint бывает информативнее,
-      // чем message (например, для RLS: "new row violates row-level security
-      // policy for table \"departments\""). Юзер увидит реальную причину.
-      const msg = [error.message, error.hint, error.details]
-        .filter(Boolean)
-        .join(" · ");
-      return { id: null, error: msg || "Ошибка БД при создании подразделения" };
+      // В UI отдаём этот dump целиком — кривовато, но даст диагностику
+      // на одном клике, без копания в server-логах. Когда поймём
+      // причину — заменим на нормальное сообщение.
+      const msg =
+        [error.message, error.hint, error.details]
+          .filter(Boolean)
+          .join(" · ") || `Ошибка БД: ${errorDump}`;
+      return { id: null, error: msg };
     }
 
     // layout-scope: иначе RSC-payload для /people/departments

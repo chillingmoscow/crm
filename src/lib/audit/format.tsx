@@ -64,6 +64,7 @@ const FIELD_LABELS: Record<string, string> = {
   // finance.transaction
   bank_account_id: "счёт",
   to_bank_account_id: "счёт получатель",
+  to_legal_entity_id: "юрлицо получатель",
   category_id: "статья",
   counterparty_id: "контрагент",
   // bank_account

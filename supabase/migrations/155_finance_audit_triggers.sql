@@ -156,6 +156,11 @@ begin
         'field', 'to_bank_account_id', 'old', OLD.to_bank_account_id, 'new', NEW.to_bank_account_id
       ));
     end if;
+    if OLD.to_legal_entity_id is distinct from NEW.to_legal_entity_id then
+      v_changes := v_changes || jsonb_build_array(jsonb_build_object(
+        'field', 'to_legal_entity_id', 'old', OLD.to_legal_entity_id, 'new', NEW.to_legal_entity_id
+      ));
+    end if;
     if OLD.category_id is distinct from NEW.category_id then
       v_changes := v_changes || jsonb_build_array(jsonb_build_object(
         'field', 'category_id', 'old', OLD.category_id, 'new', NEW.category_id

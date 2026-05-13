@@ -9,22 +9,29 @@ export interface AuditStaffOption {
 }
 
 /** Глобальный поиск по сущностям, которые могут попасть в общий журнал.
- *  Резолвит подстроку `q` в массивы entity_id для staff и kb_page.
- *  Если q пуст — оба массива пустые.
+ *  Резолвит подстроку `q` в массивы entity_id для всех типов:
+ *    staff       — first_name / last_name ilike
+ *    kb_page     — title ilike
+ *    role        — name ilike (только account-scoped, account_id NOT NULL)
+ *    invitation  — email ilike
  *
- *  RLS на profiles/kb_pages enforce'ит видимость только в активном
- *  аккаунте. Лимит 200 на тип — fence от рантайм-стоимости. */
+ *  Если q пуст — все массивы пустые. RLS enforce'ит видимость только в
+ *  активном аккаунте. Лимит 200 на тип — fence от рантайм-стоимости. */
 export async function searchAuditEntities(q: string): Promise<{
   staffIds: string[];
   kbPageIds: string[];
+  roleIds: string[];
+  invitationIds: string[];
 }> {
   const term = q.trim();
-  if (term.length === 0) return { staffIds: [], kbPageIds: [] };
+  if (term.length === 0) {
+    return { staffIds: [], kbPageIds: [], roleIds: [], invitationIds: [] };
+  }
 
   const supabase = await createClient();
   const pattern = `%${term.replace(/[%_]/g, (m) => `\\${m}`)}%`;
 
-  const [staffResult, kbResult] = await Promise.all([
+  const [staffResult, kbResult, roleResult, invResult] = await Promise.all([
     supabase
       .from("profiles")
       .select("id")
@@ -35,11 +42,25 @@ export async function searchAuditEntities(q: string): Promise<{
       .select("id")
       .ilike("title", pattern)
       .limit(200),
+    supabase
+      .from("roles")
+      .select("id")
+      .ilike("name", pattern)
+      .not("account_id", "is", null)
+      .limit(200),
+    supabase
+      .from("invitations")
+      .select("id")
+      .ilike("email", pattern)
+      .limit(200),
   ]);
 
-  const staffIds = (staffResult.data ?? []).map((r) => r.id as string);
-  const kbPageIds = (kbResult.data ?? []).map((r) => r.id as string);
-  return { staffIds, kbPageIds };
+  return {
+    staffIds: (staffResult.data ?? []).map((r) => r.id as string),
+    kbPageIds: (kbResult.data ?? []).map((r) => r.id as string),
+    roleIds: (roleResult.data ?? []).map((r) => r.id as string),
+    invitationIds: (invResult.data ?? []).map((r) => r.id as string),
+  };
 }
 
 /** Список сотрудников активного аккаунта для выпадашки фильтра.

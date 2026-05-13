@@ -40,6 +40,9 @@ const SECTION_OPTIONS: MultiSelectItem[] = [
   { id: "bank_account", name: "Счета" },
   { id: "finance_category", name: "Статьи" },
   { id: "counterparty", name: "Контрагенты" },
+  { id: "venue", name: "Заведения" },
+  { id: "legal_entity", name: "Юрлица" },
+  { id: "account", name: "Аккаунт" },
   { id: "kb_page", name: "База знаний" },
 ];
 

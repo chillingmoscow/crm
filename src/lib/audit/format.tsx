@@ -11,13 +11,16 @@ import {
   FilePlus2,
   IdCard,
   Key,
+  Landmark,
   Mail,
   MailCheck,
   MailX,
   Pencil,
   RotateCcw,
+  Settings2,
   ShieldPlus,
   ShieldX,
+  Store,
   Tag,
   Trash2,
   UserMinus,
@@ -84,6 +87,29 @@ const FIELD_LABELS: Record<string, string> = {
   // category
   color: "цвет",
   icon: "иконка",
+  // org / accounts / venues
+  logo_url: "логотип",
+  ai_enabled: "AI-ассистент",
+  // venues
+  default_legal_entity_id: "юрлицо по умолчанию",
+  // legal_entities
+  short_name: "сокращённое название",
+  okpo: "ОКПО",
+  okved: "ОКВЭД",
+  tax_system: "налоговая система",
+  vat_payer: "плательщик НДС",
+  legal_address: "юридический адрес",
+  actual_address: "фактический адрес",
+  postal_address: "почтовый адрес",
+  director_name: "ФИО директора",
+  director_position: "должность подписанта",
+  accountant_name: "ФИО бухгалтера",
+  signature_basis: "основание подписи",
+  website: "сайт",
+  default_bank_name: "банк по умолчанию",
+  default_bik: "БИК банка",
+  default_account_number: "номер счёта",
+  default_corr_account: "корр. счёт",
 };
 
 function formatAmount(value: unknown, currency: string = "RUB"): string {
@@ -134,6 +160,21 @@ function categoryName(event: AuditEvent): string {
 function counterpartyName(event: AuditEvent): string {
   if (event.entity && event.entity.type === "counterparty") return event.entity.name;
   return (event.details.name as string) || "контрагент";
+}
+
+function venueName(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "venue") return event.entity.name;
+  return (event.details.name as string) || "заведение";
+}
+
+function legalEntityName(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "legal_entity") return event.entity.name;
+  return (event.details.name as string) || "юрлицо";
+}
+
+function accountName(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "account") return event.entity.name;
+  return (event.details.name as string) || "аккаунт";
 }
 
 function staffName(entity: AuditEntitySnapshot | null): string | null {
@@ -643,6 +684,109 @@ const SPECS: Record<string, AuditEventSpec> = {
         <strong className="font-medium">«{counterpartyName(e)}»</strong>
       </>
     ),
+  },
+
+  // ── venues ─────────────────────────────────────────────────
+  "venue.created": {
+    icon: Store,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => (
+      <>
+        создал(а) заведение{" "}
+        <strong className="font-medium">«{venueName(e)}»</strong>
+      </>
+    ),
+  },
+  "venue.updated": {
+    icon: Pencil,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) заведение{" "}
+        <strong className="font-medium">«{venueName(e)}»</strong>
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  "venue.deleted": {
+    icon: Trash2,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => (
+      <>
+        удалил(а) заведение{" "}
+        <strong className="font-medium">«{venueName(e)}»</strong>
+      </>
+    ),
+  },
+
+  // ── legal_entities ─────────────────────────────────────────
+  "legal_entity.created": {
+    icon: Landmark,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => {
+      const inn = e.details.inn as string | undefined;
+      return (
+        <>
+          добавил(а) юрлицо{" "}
+          <strong className="font-medium">«{legalEntityName(e)}»</strong>
+          {inn && <span className="text-muted-foreground"> (ИНН {inn})</span>}
+        </>
+      );
+    },
+  },
+  "legal_entity.updated": {
+    icon: Pencil,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) юрлицо{" "}
+        <strong className="font-medium">«{legalEntityName(e)}»</strong>
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  "legal_entity.archived": {
+    icon: Archive,
+    iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        архивировал(а) юрлицо{" "}
+        <strong className="font-medium">«{legalEntityName(e)}»</strong>
+      </>
+    ),
+  },
+  "legal_entity.restored": {
+    icon: RotateCcw,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        восстановил(а) юрлицо{" "}
+        <strong className="font-medium">«{legalEntityName(e)}»</strong>
+      </>
+    ),
+  },
+  "legal_entity.deleted": {
+    icon: Trash2,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => (
+      <>
+        удалил(а) юрлицо{" "}
+        <strong className="font-medium">«{legalEntityName(e)}»</strong>
+      </>
+    ),
+  },
+
+  // ── accounts ───────────────────────────────────────────────
+  "account.updated": {
+    icon: Settings2,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) настройки аккаунта{" "}
+        <strong className="font-medium">«{accountName(e)}»</strong>
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
   },
 
   // ── kb_page ─────────────────────────────────────────────────

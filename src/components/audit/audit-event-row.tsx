@@ -183,6 +183,50 @@ function EntityReference({ event }: { event: AuditEvent }) {
     );
   }
 
+  if (entity.type === "venue") {
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href={`/org/venues/${entity.id}`}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть заведение
+        </Link>
+      </>
+    );
+  }
+
+  if (entity.type === "legal_entity") {
+    // Архивированные юрлица — без линка (по аналогии с category).
+    if (!entity.is_active) return null;
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href={`/org/legal-entities/${entity.id}`}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть юрлицо
+        </Link>
+      </>
+    );
+  }
+
+  if (entity.type === "account") {
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href="/org/account"
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть аккаунт
+        </Link>
+      </>
+    );
+  }
+
   return null;
 }
 

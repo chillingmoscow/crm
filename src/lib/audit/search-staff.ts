@@ -18,6 +18,8 @@ export interface AuditStaffOption {
  *    finance_category  — name ilike
  *    counterparty      — name / inn ilike
  *    transaction       — description ilike (либо public_id если q — число)
+ *    venue             — name ilike
+ *    legal_entity      — name / short_name / inn ilike
  *
  *  Если q пуст — все массивы пустые. RLS enforce'ит видимость только в
  *  активном аккаунте. Лимит 200 на тип — fence от рантайм-стоимости. */
@@ -30,13 +32,15 @@ export async function searchAuditEntities(q: string): Promise<{
   bankAccountIds: string[];
   financeCategoryIds: string[];
   counterpartyIds: string[];
+  venueIds: string[];
+  legalEntityIds: string[];
 }> {
   const term = q.trim();
   if (term.length === 0) {
     return {
       staffIds: [], kbPageIds: [], roleIds: [], invitationIds: [],
       transactionIds: [], bankAccountIds: [], financeCategoryIds: [],
-      counterpartyIds: [],
+      counterpartyIds: [], venueIds: [], legalEntityIds: [],
     };
   }
 
@@ -47,6 +51,7 @@ export async function searchAuditEntities(q: string): Promise<{
   const [
     staffResult, kbResult, roleResult, invResult,
     bankResult, categoryResult, counterpartyResult, txResult,
+    venueResult, legalEntityResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -68,7 +73,6 @@ export async function searchAuditEntities(q: string): Promise<{
       .select("id")
       .or(`name.ilike.${pattern},inn.ilike.${pattern}`)
       .limit(200),
-    // Транзакции ищем по description; если q — число, also matches public_id.
     asInt !== null
       ? supabase
           .from("transactions")
@@ -80,6 +84,12 @@ export async function searchAuditEntities(q: string): Promise<{
           .select("id")
           .ilike("description", pattern)
           .limit(200),
+    supabase.from("venues").select("id").ilike("name", pattern).limit(200),
+    supabase
+      .from("legal_entities")
+      .select("id")
+      .or(`name.ilike.${pattern},short_name.ilike.${pattern},inn.ilike.${pattern}`)
+      .limit(200),
   ]);
 
   return {
@@ -91,6 +101,8 @@ export async function searchAuditEntities(q: string): Promise<{
     financeCategoryIds: (categoryResult.data ?? []).map((r) => r.id as string),
     counterpartyIds:    (counterpartyResult.data ?? []).map((r) => r.id as string),
     transactionIds:     (txResult.data ?? []).map((r) => r.id as string),
+    venueIds:           (venueResult.data ?? []).map((r) => r.id as string),
+    legalEntityIds:     (legalEntityResult.data ?? []).map((r) => r.id as string),
   };
 }
 

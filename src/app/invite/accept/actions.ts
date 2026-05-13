@@ -52,11 +52,19 @@ export async function acceptInvitation(
 
   const email = invitation.email.toLowerCase();
 
-  // 2. Существует ли user с таким email?
-  const { data: existingList } = await admin.auth.admin.listUsers();
-  const existing = existingList?.users?.find(
-    (u) => u.email?.toLowerCase() === email,
+  // 2. Существует ли user с таким email? Через RPC (миграция 151) —
+  //    listUsers() возвращает только первую страницу, на больших базах
+  //    existing-юзера пропустит и попытается createUser, который потом
+  //    упадёт на «already registered» (Codex P1 на #271).
+  const lookupRpc = admin.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: string | null; error: { message: string } | null }>;
+  const { data: existingUserId } = await lookupRpc(
+    "lookup_user_id_by_email",
+    { p_email: email },
   );
+  const existing = existingUserId ? { id: existingUserId } : null;
 
   let userId: string;
   if (existing) {

@@ -106,10 +106,17 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
   }
 
   // Параллельно: проверяем существует ли user с этим email + находим
-  // venue/role для отображения в форме.
+  // venue/role для отображения в форме. Lookup email'а через RPC
+  // (миграция 151) — admin.auth.admin.listUsers() возвращает только
+  // первую страницу, на больших базах existing-юзеры пропадают
+  // (Codex P1 на #271).
   const email = invitation.email.toLowerCase();
-  const [usersList, venueRow, roleRow] = await Promise.all([
-    admin.auth.admin.listUsers(),
+  const lookupRpc = admin.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: string | null; error: { message: string } | null }>;
+  const [existingLookup, venueRow, roleRow] = await Promise.all([
+    lookupRpc("lookup_user_id_by_email", { p_email: email }),
     admin
       .from("venues")
       .select("name, accounts(name)")
@@ -122,9 +129,7 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
       .maybeSingle(),
   ]);
 
-  const existingUser = !!usersList.data?.users?.some(
-    (u) => u.email?.toLowerCase() === email,
-  );
+  const existingUser = !!existingLookup.data;
   const venueName = (venueRow.data as { name?: string } | null)?.name ?? "—";
   const accountName =
     ((venueRow.data as { accounts?: { name?: string } | null } | null)

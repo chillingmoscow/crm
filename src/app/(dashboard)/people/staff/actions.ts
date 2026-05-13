@@ -248,11 +248,18 @@ export async function inviteStaff(data: {
 
   // Проверяем существует ли уже user с таким email — это меняет текст
   // письма-приглашения ("Войдите" vs "Создайте пароль") и определяет
-  // что покажет /invite/accept.
-  const { data: existingUsersList } = await admin.auth.admin.listUsers();
-  const existingUser = !!existingUsersList?.users?.some(
-    (u) => u.email?.toLowerCase() === email,
+  // что покажет /invite/accept. listUsers() возвращает только первую
+  // страницу (Codex P1 на #271) — используем RPC через миграцию 151,
+  // прямой запрос в auth.users по email.
+  const lookupRpc = admin.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: string | null; error: { message: string } | null }>;
+  const { data: existingUserId } = await lookupRpc(
+    "lookup_user_id_by_email",
+    { p_email: email },
   );
+  const existingUser = !!existingUserId;
 
   // Keep one pending invite per email+venue to avoid ambiguous acceptance.
   await supabase

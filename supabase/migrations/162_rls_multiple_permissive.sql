@@ -16,13 +16,38 @@
 -- файлам и могут лечь в любом порядке.
 -- ============================================================
 
--- ── Группа A: FOR ALL → split INSERT/UPDATE/DELETE ──────────────
--- Эти таблицы имеют пару *_select (для view) + *_write (FOR ALL для manage).
--- FOR ALL неявно включает SELECT → дубль с *_select. Решение: переписать
--- *_write на три отдельные policy для INSERT/UPDATE/DELETE.
+-- ── Группа A: FOR ALL → split INSERT/UPDATE/DELETE + расширение _select ─
+-- Эти таблицы имели пару *_select (view permission) + *_write (FOR ALL с
+-- manage permission). PostgreSQL OR'ит permissive policies → SELECT был
+-- доступен и view-юзерам, и manage-юзерам через USING у FOR ALL.
+--
+-- Решение:
+--   1. *_write FOR ALL → разделить на отдельные INSERT/UPDATE/DELETE
+--      (без SELECT, чтобы убрать дубль permissive policy на SELECT).
+--   2. *_select переписать так, чтобы USING = `view permission OR manage
+--      permission`. Это сохраняет исходную совокупность: и view-юзеры, и
+--      manage-юзеры (даже если у них нет view) продолжают видеть строки.
+--      Без этого расширения custom-role override (см. memory
+--      `permissions_override_semantics.md`) мог бы отозвать view и сделать
+--      manage-юзера слепым к данным, которыми он управляет.
+--
+-- kb_page_embeddings — исключение: select-policy = `account_id = active`
+-- (нет view-permission gate'а), и manage-юзер уже подпадал. Регресса нет,
+-- _select не трогаем.
 
 -- bank_account_groups
+drop policy if exists "bank_account_groups_select" on public.bank_account_groups;
 drop policy if exists "bank_account_groups_write" on public.bank_account_groups;
+
+create policy "bank_account_groups_select" on public.bank_account_groups
+  for select
+  using (
+    (account_id = get_active_account_id())
+    and (
+      has_permission('finance.view_bank_accounts')
+      or has_permission('finance.manage_bank_accounts')
+    )
+  );
 
 create policy "bank_account_groups_insert" on public.bank_account_groups
   for insert
@@ -48,7 +73,18 @@ create policy "bank_account_groups_delete" on public.bank_account_groups
   );
 
 -- counterparty_groups
+drop policy if exists "counterparty_groups_select" on public.counterparty_groups;
 drop policy if exists "counterparty_groups_write" on public.counterparty_groups;
+
+create policy "counterparty_groups_select" on public.counterparty_groups
+  for select
+  using (
+    (account_id = get_active_account_id())
+    and (
+      has_permission('finance.view_counterparties')
+      or has_permission('finance.manage_counterparties')
+    )
+  );
 
 create policy "counterparty_groups_insert" on public.counterparty_groups
   for insert
@@ -74,7 +110,18 @@ create policy "counterparty_groups_delete" on public.counterparty_groups
   );
 
 -- finance_categories
+drop policy if exists "finance_categories_select" on public.finance_categories;
 drop policy if exists "finance_categories_write" on public.finance_categories;
+
+create policy "finance_categories_select" on public.finance_categories
+  for select
+  using (
+    (account_id = get_active_account_id())
+    and (
+      has_permission('finance.view_categories')
+      or has_permission('finance.manage_categories')
+    )
+  );
 
 create policy "finance_categories_insert" on public.finance_categories
   for insert
@@ -100,7 +147,18 @@ create policy "finance_categories_delete" on public.finance_categories
   );
 
 -- finance_category_groups
+drop policy if exists "finance_category_groups_select" on public.finance_category_groups;
 drop policy if exists "finance_category_groups_write" on public.finance_category_groups;
+
+create policy "finance_category_groups_select" on public.finance_category_groups
+  for select
+  using (
+    (account_id = get_active_account_id())
+    and (
+      has_permission('finance.view_categories')
+      or has_permission('finance.manage_categories')
+    )
+  );
 
 create policy "finance_category_groups_insert" on public.finance_category_groups
   for insert
@@ -162,7 +220,29 @@ create policy "kb_page_embeddings_delete" on public.kb_page_embeddings
   );
 
 -- kb_page_links — using = with_check, общий предикат.
+-- _select расширяем: было `view_pages`, стало `view_pages OR edit_any_page
+-- OR (edit_own_pages AND owner_of_from_page)` — чтобы edit-юзеры без
+-- view_pages не потеряли read-доступ.
+drop policy if exists "kb_page_links_select" on public.kb_page_links;
 drop policy if exists "kb_page_links_write" on public.kb_page_links;
+
+create policy "kb_page_links_select" on public.kb_page_links
+  for select
+  using (
+    account_id = (select get_active_account_id())
+    and (
+      (select has_permission('kb.view_pages'))
+      or (select has_permission('kb.edit_any_page'))
+      or (
+        (select has_permission('kb.edit_own_pages'))
+        and exists (
+          select 1 from public.kb_pages p
+           where p.id = kb_page_links.from_page_id
+             and p.created_by = (select auth.uid())
+        )
+      )
+    )
+  );
 
 create policy "kb_page_links_insert" on public.kb_page_links
   for insert

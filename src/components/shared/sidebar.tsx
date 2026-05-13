@@ -28,6 +28,7 @@ import {
   Wallet,
   ArrowLeftRight,
   BookOpen,
+  ScrollText,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -104,6 +105,7 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Аккаунт",   href: "/org/account",        icon: Settings,   permission: "org.view_account" },
       { title: "Юрлица",    href: "/org/legal-entities", icon: FileBadge2, permission: "org.view_legal_entities" },
       { title: "Заведения", href: "/org/venues",         icon: Building2,  permission: "org.view_venues" },
+      { title: "Журнал",    href: "/org/audit",          icon: ScrollText, permission: "org.view_audit" },
     ],
   },
   {

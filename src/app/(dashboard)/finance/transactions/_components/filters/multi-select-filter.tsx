@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ChevronDown, Search, X } from "lucide-react";
+import { Check, ChevronDown, Minus, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
@@ -114,20 +113,24 @@ export function MultiSelectFilter({
 
   return (
     <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setQuery(""); }}>
-      <div className="relative inline-flex">
+      {/* min-w фиксирует ширину чипа — без него при появлении X-кружка и
+       *  смене текста "Раздел" → "База знаний" чип скачет по ширине и
+       *  дёргает соседние чипы. 140px влезает основные плейсхолдеры
+       *  ("Сотрудники"/"Раздел") и short single selection. */}
+      <div className="relative inline-flex min-w-[140px]">
         <PopoverTrigger asChild>
           <Button
             variant="outline"
             size="sm"
             className={cn(
-              "rounded-full h-8 pl-3 pr-8 font-normal text-sm",
+              "rounded-full h-8 pl-3 pr-8 font-normal text-sm justify-start w-full",
               hasSelection
                 ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
                 : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted"
             )}
           >
-            <span className="truncate max-w-[180px]">{buttonText}</span>
-            {!hasSelection && <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70" />}
+            <span className="truncate flex-1 text-left">{buttonText}</span>
+            {!hasSelection && <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-70 shrink-0" />}
           </Button>
         </PopoverTrigger>
         {hasSelection && (
@@ -201,10 +204,8 @@ export function MultiSelectFilter({
                     onClick={() => toggleGroup(sec.items)}
                     className="flex items-center gap-2 w-full px-1 py-1 rounded hover:bg-accent/40 text-left"
                   >
-                    <Checkbox
-                      checked={allSelected ? true : partial ? "indeterminate" : false}
-                      tabIndex={-1}
-                      className="pointer-events-none data-[state=checked]:bg-brand data-[state=checked]:border-brand data-[state=indeterminate]:bg-brand data-[state=indeterminate]:border-brand"
+                    <CheckboxVisual
+                      state={allSelected ? "checked" : partial ? "indeterminate" : "unchecked"}
                     />
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       {sec.name}
@@ -272,13 +273,33 @@ function ItemRow({
       onClick={onToggle}
       className="flex items-center gap-2 w-full px-1.5 py-1 rounded hover:bg-accent/60 text-left"
     >
-      <Checkbox
-        checked={checked}
-        tabIndex={-1}
-        className="pointer-events-none data-[state=checked]:bg-brand data-[state=checked]:border-brand"
-      />
+      <CheckboxVisual state={checked ? "checked" : "unchecked"} />
       <span className="text-sm truncate flex-1">{item.name}</span>
     </button>
+  );
+}
+
+/** Чисто визуальный чекбокс (span, не button). Используется внутри
+ *  кликабельных `<button>`-строк, где Radix Checkbox создал бы
+ *  невалидный nested-button (HTML-спека + React hydration warning). */
+function CheckboxVisual({
+  state,
+}: {
+  state: "checked" | "unchecked" | "indeterminate";
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border transition-colors",
+        state === "unchecked"
+          ? "border-input bg-background"
+          : "border-brand bg-brand text-brand-foreground",
+      )}
+    >
+      {state === "checked" && <Check className="h-3 w-3" />}
+      {state === "indeterminate" && <Minus className="h-3 w-3" />}
+    </span>
   );
 }
 

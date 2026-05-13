@@ -1,0 +1,335 @@
+import {
+  Activity,
+  ArrowLeftRight,
+  ArrowRightFromLine,
+  BookOpen,
+  FileEdit,
+  FilePlus2,
+  IdCard,
+  RotateCcw,
+  Trash2,
+  UserMinus,
+  UserPlus,
+  type LucideIcon,
+} from "lucide-react";
+import type { ReactNode } from "react";
+
+import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
+
+interface AuditEventSpec {
+  icon: LucideIcon;
+  iconClass: string;
+  /** Главная фраза события: «уволил(а) Петю Иванова. Причина: прогул».
+   *  Для staff-* событий имя сотрудника (из event.entity) встраивается в
+   *  фразу — без этого в общем журнале «уволил(а). Причина: …» непонятно
+   *  про кого. На таб-странице самого сотрудника видеть собственное имя
+   *  чуть избыточно, но это меньшее зло за читабельность. */
+  buildHeadline: (event: AuditEvent) => ReactNode;
+  /** Опциональный «детальный» блок под фразой — обычно diff-список
+   *  изменений для profile/account_details событий. */
+  buildDetails?: (event: AuditEvent) => ReactNode | null;
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  phone: "телефон",
+  telegram_id: "телеграм",
+  birth_date: "дата рождения",
+  employment_date: "дата трудоустройства",
+  medical_book_number: "номер медкнижки",
+  medical_book_date: "срок действия медкнижки",
+  passport_photos: "фото паспорта",
+  comment: "комментарий HR",
+};
+
+function staffName(entity: AuditEntitySnapshot | null): string | null {
+  if (!entity || entity.type !== "staff") return null;
+  const name = [entity.first_name, entity.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return name || "Без имени";
+}
+
+function StaffName({ event }: { event: AuditEvent }) {
+  const name = staffName(event.entity);
+  if (!name) return <em className="text-muted-foreground">этого сотрудника</em>;
+  return <strong className="font-medium">{name}</strong>;
+}
+
+function formatDate(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatFieldValue(field: string, value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (
+    field === "birth_date" ||
+    field === "employment_date" ||
+    field === "medical_book_date"
+  ) {
+    return formatDate(value);
+  }
+  if (field === "passport_photos") {
+    if (Array.isArray(value)) {
+      return value.length === 0 ? "—" : `${value.length} фото`;
+    }
+    return "—";
+  }
+  if (typeof value === "string") {
+    // Длинный текст усекаем, чтобы строка не разрослась на полстраницы.
+    if (value.length > 60) return value.slice(0, 60) + "…";
+    return value;
+  }
+  return String(value);
+}
+
+interface FieldChange {
+  field: string;
+  old: unknown;
+  new: unknown;
+}
+
+function changeList(details: Record<string, unknown>): FieldChange[] {
+  const raw = details.changes;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((c) => {
+      const obj = c as Record<string, unknown>;
+      const field = typeof obj.field === "string" ? obj.field : null;
+      if (!field) return null;
+      return { field, old: obj.old, new: obj.new };
+    })
+    .filter((x): x is FieldChange => x !== null);
+}
+
+function ChangeLines({ details }: { details: Record<string, unknown> }) {
+  const changes = changeList(details);
+  if (changes.length === 0) return null;
+  return (
+    <ul className="text-[12px] text-muted-foreground flex flex-col gap-0.5">
+      {changes.map((c, i) => (
+        <li key={`${c.field}-${i}`} className="leading-snug">
+          <span className="text-foreground">{FIELD_LABELS[c.field] ?? c.field}:</span>{" "}
+          <span className="line-through">{formatFieldValue(c.field, c.old)}</span>
+          {" → "}
+          <span className="font-medium text-foreground">
+            {formatFieldValue(c.field, c.new)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const SPECS: Record<string, AuditEventSpec> = {
+  // ── staff ──────────────────────────────────────────────────
+  "staff.hired": {
+    icon: UserPlus,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => {
+      const role = (e.details.role_name as string) || "";
+      return role ? (
+        <>
+          принял(а) на работу <StaffName event={e} /> на должность{" "}
+          <strong className="font-medium">{role}</strong>
+        </>
+      ) : (
+        <>
+          принял(а) на работу <StaffName event={e} />
+        </>
+      );
+    },
+  },
+  "staff.fired": {
+    icon: UserMinus,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => {
+      const reason = (e.details.reason as string) || "";
+      return reason ? (
+        <>
+          уволил(а) <StaffName event={e} />. Причина:{" "}
+          <span className="text-muted-foreground">{reason}</span>
+        </>
+      ) : (
+        <>
+          уволил(а) <StaffName event={e} />
+        </>
+      );
+    },
+  },
+  "staff.restored": {
+    icon: RotateCcw,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => {
+      const prevReason = (e.details.previous_reason as string) || "";
+      const prevAt = formatDate(e.details.previous_fired_at);
+      return prevReason ? (
+        <>
+          восстановил(а) <StaffName event={e} /> (ранее уволен {prevAt}:{" "}
+          <span className="text-muted-foreground">{prevReason}</span>)
+        </>
+      ) : (
+        <>
+          восстановил(а) <StaffName event={e} />
+        </>
+      );
+    },
+  },
+  "staff.role_changed": {
+    icon: ArrowLeftRight,
+    iconClass: "text-violet-600 bg-violet-50",
+    buildHeadline: (e) => {
+      const oldRole = (e.details.old_role_name as string) || "—";
+      const newRole = (e.details.new_role_name as string) || "—";
+      return (
+        <>
+          перевёл(а) <StaffName event={e} />:{" "}
+          <span className="line-through text-muted-foreground">{oldRole}</span>
+          {" → "}
+          <strong className="font-medium">{newRole}</strong>
+        </>
+      );
+    },
+  },
+  "staff.profile_updated": {
+    icon: IdCard,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        обновил(а) контакты у <StaffName event={e} />
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  "staff.account_details_updated": {
+    icon: IdCard,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        обновил(а) HR-данные у <StaffName event={e} />
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+
+  // ── kb_page ─────────────────────────────────────────────────
+  // Используется только в общем журнале /org/audit. Страница
+  // /knowledge/audit продолжает использовать свой KbAuditEventRow.
+  "kb_page.created": {
+    icon: FilePlus2,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => (
+      <>
+        создал(а) страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+      </>
+    ),
+  },
+  "kb_page.renamed": {
+    icon: FileEdit,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        переименовал(а):{" "}
+        <span className="text-muted-foreground line-through">
+          {(e.details.old_title as string) || "Без названия"}
+        </span>
+        {" → "}
+        <strong className="font-medium">
+          {(e.details.new_title as string) || "Без названия"}
+        </strong>
+      </>
+    ),
+  },
+  "kb_page.moved": {
+    icon: ArrowRightFromLine,
+    iconClass: "text-violet-600 bg-violet-50",
+    buildHeadline: (e) => (
+      <>
+        переместил(а) страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+      </>
+    ),
+  },
+  "kb_page.deleted": {
+    icon: Trash2,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => (
+      <>
+        удалил(а) страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+      </>
+    ),
+  },
+  "kb_page.restored": {
+    icon: RotateCcw,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        восстановил(а) страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>{" "}
+        из корзины
+      </>
+    ),
+  },
+  "kb_page.required_reading_toggled": {
+    icon: BookOpen,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildHeadline: (e) => {
+      const newValue = Boolean(
+        (e.details as { new_value?: boolean; enabled?: boolean }).new_value ??
+          (e.details as { enabled?: boolean }).enabled,
+      );
+      return (
+        <>
+          {newValue
+            ? "пометил(а) как обязательную к прочтению страницу"
+            : "снял(а) флаг обязательного прочтения со страницы"}{" "}
+          <strong className="font-medium">
+            «{(e.details.title as string) || "Без названия"}»
+          </strong>
+        </>
+      );
+    },
+  },
+};
+
+export function describeAuditEvent(event: AuditEvent): {
+  icon: LucideIcon;
+  iconClass: string;
+  headline: ReactNode;
+  details: ReactNode | null;
+} {
+  const spec = SPECS[event.action_code];
+  if (!spec) {
+    return {
+      icon: Activity,
+      iconClass: "text-muted-foreground bg-muted",
+      headline: (
+        <span className="text-muted-foreground">{event.action_code}</span>
+      ),
+      details: null,
+    };
+  }
+  return {
+    icon: spec.icon,
+    iconClass: spec.iconClass,
+    headline: spec.buildHeadline(event),
+    details: spec.buildDetails ? spec.buildDetails(event) : null,
+  };
+}

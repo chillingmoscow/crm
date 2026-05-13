@@ -11,8 +11,7 @@ import { AuditPageClient } from "./_components/audit-page-client";
  *   ?q                — общий поиск (имя сотрудника / должность /
  *                       email приглашения / название KB-страницы)
  *   ?types=staff,invitation,role,kb_page — разделы (csv)
- *   ?staff=<uuid,…>   — сотрудники как объект действия (entity_id)
- *   ?actor=<uuid,…>   — сотрудники как исполнитель действия (user_id)
+ *   ?staff=<uuid,…>   — конкретные сотрудники (как объект ИЛИ исполнитель)
  *   ?from / ?to       — диапазон дат (YYYY-MM-DD)
  *   ?date_preset      — лейбл пресета («Текущая неделя», …)
  *   ?before_at,?before_id — keyset-курсор пагинации (для shareable URL)
@@ -27,7 +26,6 @@ export default async function OrgAuditPage({
     q?: string;
     types?: string;
     staff?: string;
-    actor?: string;
     from?: string;
     to?: string;
     date_preset?: string;
@@ -47,7 +45,6 @@ export default async function OrgAuditPage({
       q: sp.q,
       types: sp.types,
       staff: sp.staff,
-      actor: sp.actor,
       from: sp.from,
       to: sp.to,
       beforeAt: sp.before_at,

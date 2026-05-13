@@ -69,7 +69,6 @@ export function AuditPageClient({
   const urlQ = searchParams.get("q") ?? "";
   const urlTypes = parseCsv(searchParams.get("types"));
   const urlStaff = parseCsv(searchParams.get("staff"));
-  const urlActor = parseCsv(searchParams.get("actor"));
   const urlFrom = searchParams.get("from") ?? "";
   const urlTo = searchParams.get("to") ?? "";
   const urlDatePreset = searchParams.get("date_preset") ?? null;
@@ -150,7 +149,6 @@ export function AuditPageClient({
   const activeFilterCount =
     (urlTypes.length > 0 ? 1 : 0) +
     (urlStaff.length > 0 ? 1 : 0) +
-    (urlActor.length > 0 ? 1 : 0) +
     (urlFrom || urlTo ? 1 : 0) +
     (urlQ ? 1 : 0);
 
@@ -173,7 +171,7 @@ export function AuditPageClient({
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [isLoadingMore, startLoadMore] = useTransition();
 
-  const filtersKey = `${urlQ}|${urlTypes.join(",")}|${urlStaff.join(",")}|${urlActor.join(",")}|${urlFrom}|${urlTo}`;
+  const filtersKey = `${urlQ}|${urlTypes.join(",")}|${urlStaff.join(",")}|${urlFrom}|${urlTo}`;
   const filtersKeyRef = useRef(filtersKey);
   useEffect(() => {
     filtersKeyRef.current = filtersKey;
@@ -194,7 +192,6 @@ export function AuditPageClient({
         q: urlQ || undefined,
         types: urlTypes.length > 0 ? urlTypes.join(",") : undefined,
         staff: urlStaff.length > 0 ? urlStaff.join(",") : undefined,
-        actor: urlActor.length > 0 ? urlActor.join(",") : undefined,
         from: urlFrom || undefined,
         to: urlTo || undefined,
         beforeAt: last.created_at,
@@ -308,20 +305,11 @@ export function AuditPageClient({
           />
 
           <MultiSelectFilter
-            placeholder="Сотрудник (объект)"
+            placeholder="Сотрудники"
             items={staffMultiSelectItems}
             selectedIds={urlStaff}
             onChange={(ids) => {
               updateUrl({ staff: ids.length > 0 ? ids.join(",") : null });
-            }}
-          />
-
-          <MultiSelectFilter
-            placeholder="Сотрудник (исполнитель)"
-            items={staffMultiSelectItems}
-            selectedIds={urlActor}
-            onChange={(ids) => {
-              updateUrl({ actor: ids.length > 0 ? ids.join(",") : null });
             }}
           />
 
@@ -347,7 +335,6 @@ export function AuditPageClient({
                   q: null,
                   types: null,
                   staff: null,
-                  actor: null,
                   from: null,
                   to: null,
                   date_preset: null,

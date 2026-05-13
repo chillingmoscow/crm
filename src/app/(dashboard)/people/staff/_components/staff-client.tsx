@@ -743,9 +743,14 @@ export function StaffClient({
               e.stopPropagation();
               if (departmentId) router.push(`/people/departments/${departmentId}`);
             }}
-            className="text-left text-[13px] text-foreground hover:text-primary truncate"
+            className="text-left"
           >
-            {member.department_name}
+            <Badge
+              variant="secondary"
+              className="text-xs cursor-pointer hover:bg-accent"
+            >
+              {member.department_name}
+            </Badge>
           </button>
         );
       }

@@ -228,25 +228,40 @@ export async function setRoleDepartment(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const { data: role } = await supabase
+  // previousDepartmentId нужен только для revalidatePath после успеха —
+  // саму атомарную операцию делает RPC `set_role_department` (миграция
+  // 165): меняет roles.department_id и очищает stale head_role_id
+  // в прежнем подразделении в одной транзакции. Это закрывает Codex P2
+  // на #299 — раньше cleanup-UPDATE шёл отдельным HTTP-запросом, и его
+  // ошибка молча проглатывалась.
+  const { data: roleBefore } = await supabase
     .from("roles")
-    .select("account_id, code")
+    .select("department_id")
     .eq("id", roleId)
     .maybeSingle();
-  if (!role) return { error: "Должность не найдена" };
-  if (role.account_id === null) {
-    return { error: "Системную должность нельзя привязать к подразделению" };
-  }
+  const previousDepartmentId = roleBefore?.department_id ?? null;
 
-  const { error } = await supabase
-    .from("roles")
-    .update({ department_id: departmentId })
-    .eq("id", roleId);
+  // RPC ещё не во вшитых Database-типах (миграция 165 свежая) —
+  // cast чтобы развязать pipeline до регенерации `supabase gen types`.
+  // `.bind(supabase)` обязателен: без него `this.rest` теряется и
+  // SupabaseClient.rpc падает с "Cannot read properties of undefined".
+  const rpc = (
+    supabase.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ error: { message: string } | null }>
+  ).bind(supabase);
+  const { error } = await rpc("set_role_department", {
+    p_role_id: roleId,
+    p_department_id: departmentId,
+  });
 
   if (error) return { error: error.message };
 
   revalidatePath("/people/roles");
   revalidatePath("/people/departments");
   if (departmentId) revalidatePath(`/people/departments/${departmentId}`);
+  if (previousDepartmentId && previousDepartmentId !== departmentId)
+    revalidatePath(`/people/departments/${previousDepartmentId}`);
   return { error: null };
 }

@@ -129,7 +129,8 @@ export function RoleDetailPage({
     nameValue.trim() !== role.name ||
     (commentValue || null) !== role.comment ||
     iconValue !== role.icon ||
-    iconColorValue !== (role.icon_color ?? null);
+    iconColorValue !== (role.icon_color ?? null) ||
+    departmentId !== role.department_id;
 
   // Permissions search
   const [permQuery, setPermQuery] = useState("");
@@ -201,6 +202,27 @@ export function RoleDetailPage({
 
   function handleSave() {
     startTransition(async () => {
+      // Codex P1 на #299: если updateRole удачно сохранил поля, а
+      // setRoleDepartment упал (RLS/trigger/RPC) — оставался partial
+      // write без refresh'а, UI расходился с БД.
+      //
+      // Реордер: сначала меняем привязку к подразделению (отдельная
+      // транзакция в Postgres через RPC), потом — основные поля.
+      // Подразделение валится чаще (триггеры на department_id,
+      // dep_select_member RLS), поэтому ставим его первым: если упало
+      // — основные поля даже не трогали, БД консистентна, ничего
+      // refresh'ить не надо. Если повалился второй UPDATE (роль)
+      // после успешного первого — делаем router.refresh(), чтобы UI
+      // увидел уже изменённый department_id.
+      if (departmentId !== role.department_id) {
+        const depResult = await setRoleDepartment(role.id, departmentId);
+        if (depResult.error) {
+          toast.error(depResult.error);
+          setDepartmentId(role.department_id);
+          return;
+        }
+      }
+
       const result = await updateRole(role.id, {
         name: nameValue,
         comment: commentValue || null,
@@ -209,26 +231,10 @@ export function RoleDetailPage({
       });
       if (result.error) {
         toast.error(result.error);
+        router.refresh(); // sync UI с уже применённым изменением department
         return;
       }
       toast.success("Изменения сохранены");
-      router.refresh();
-    });
-  }
-
-  function handleDepartmentChange(nextValue: string | null) {
-    const previous = departmentId;
-    setDepartmentId(nextValue);
-    startTransition(async () => {
-      const result = await setRoleDepartment(role.id, nextValue);
-      if (result.error) {
-        toast.error(result.error);
-        setDepartmentId(previous);
-        return;
-      }
-      toast.success(
-        nextValue ? "Подразделение обновлено" : "Подразделение снято",
-      );
       router.refresh();
     });
   }
@@ -555,9 +561,10 @@ export function RoleDetailPage({
                   </Label>
                   <Select
                     value={departmentId ?? "__none__"}
-                    onValueChange={(v) =>
-                      handleDepartmentChange(v === "__none__" ? null : v)
-                    }
+                    onValueChange={(v) => {
+                      if (!canEdit || isSystem) return;
+                      setDepartmentId(v === "__none__" ? null : v);
+                    }}
                     disabled={!canEdit || isSystem || isPending}
                   >
                     <SelectTrigger id="role-department">

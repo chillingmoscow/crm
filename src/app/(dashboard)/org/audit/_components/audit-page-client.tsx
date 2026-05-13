@@ -152,10 +152,23 @@ export function AuditPageClient({
   //
   // При смене любого фильтра URL меняется → page.tsx ре-рендерится →
   // events/hasMore приезжают новые → reset через useEffect ниже.
+  //
+  // Гонка load-more × filter change: если пользователь кликнул
+  // «Загрузить ещё», а потом сразу сменил фильтр, старый запрос мог бы
+  // долететь и append'нуть устаревшие события. Защищаемся через
+  // request-key: на старте сохраняем подпись текущих фильтров, при
+  // приземлении результата сверяем с ref'ом — несовпадение значит
+  // фильтры успели измениться, результат игнорируем.
   const [accumulated, setAccumulated] = useState<AuditEvent[]>(events);
   const [accumulatedHasMore, setAccumulatedHasMore] = useState(hasMore);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [isLoadingMore, startLoadMore] = useTransition();
+
+  const filtersKey = `${urlQ}|${urlTypes.join(",")}|${urlStaff.join(",")}|${urlFrom}|${urlTo}`;
+  const filtersKeyRef = useRef(filtersKey);
+  useEffect(() => {
+    filtersKeyRef.current = filtersKey;
+  }, [filtersKey]);
 
   useEffect(() => {
     setAccumulated(events);
@@ -166,6 +179,7 @@ export function AuditPageClient({
   const onLoadMore = () => {
     const last = accumulated[accumulated.length - 1];
     if (!last) return;
+    const snapshotKey = filtersKey;
     startLoadMore(async () => {
       const result = await loadAuditFeedPage({
         q: urlQ || undefined,
@@ -176,6 +190,9 @@ export function AuditPageClient({
         beforeAt: last.created_at,
         beforeId: last.id,
       });
+      // Stale guard: фильтры успели поменяться — выбрасываем результат,
+      // accumulator сейчас уже соответствует новому фильтру.
+      if (snapshotKey !== filtersKeyRef.current) return;
       if (result.error) {
         setLoadMoreError(result.error);
         return;

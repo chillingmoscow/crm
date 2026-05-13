@@ -39,6 +39,7 @@ export async function updateSession(request: NextRequest) {
     "/auth/callback",
     "/auth/confirm",
     "/auth/revoke-email-change",
+    "/invite/accept",
     "/set-password",
   ];
   const isPublicPath = publicPaths.some((path) => pathname.startsWith(path));

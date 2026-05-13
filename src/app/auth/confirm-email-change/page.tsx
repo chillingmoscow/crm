@@ -132,6 +132,28 @@ export default async function ConfirmEmailChangePage({ searchParams }: PageProps
     .eq("id", row.id)
     .is("consumed_at", null);
 
+  // Инвалидируем refresh-token'ы юзера (issue #266): другие вкладки
+  // с старым email в JWT перестанут refresh'иться → после expiry
+  // access-token'а (max 1 час) их форснёт на /login. Best-effort:
+  // если RPC упадёт, основной flow (смена email) не блокируем — юзер
+  // уже видит «успешно».
+  const adminUntyped = admin as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{
+      data: number | null;
+      error: { message: string } | null;
+    }>;
+  };
+  const { error: invalidateError } = await adminUntyped.rpc(
+    "invalidate_user_sessions",
+    { p_user_id: row.user_id },
+  );
+  if (invalidateError) {
+    console.error(
+      "[confirm-email-change] failed to invalidate sessions:",
+      invalidateError,
+    );
+  }
+
   return <Success newEmail={row.new_email} />;
 }
 

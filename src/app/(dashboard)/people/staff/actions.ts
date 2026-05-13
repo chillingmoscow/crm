@@ -155,10 +155,14 @@ export async function updateStaffAccountDetails(
 
   // RPC ещё не во вшитых Database типах (миграция 145 свежая) —
   // cast чтобы развязать pipeline до следующей регенерации.
-  const rpc = supabase.rpc as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ error: { message: string } | null }>;
+  // `.bind(supabase)` обязателен: без него `this.rest` теряется и
+  // SupabaseClient.rpc падает с "Cannot read properties of undefined".
+  const rpc = (
+    supabase.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ error: { message: string } | null }>
+  ).bind(supabase);
 
   const { error } = await rpc("upsert_staff_account_details", {
     p_account_id: accountId,

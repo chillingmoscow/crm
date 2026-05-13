@@ -53,6 +53,8 @@ import {
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
+import type { AuditEvent } from "@/lib/audit/list";
+import { StaffAuditTab } from "./staff-audit-tab";
 import {
   fireStaff,
   setImportedStaffEmailAndInvite,
@@ -86,7 +88,7 @@ type FormValues = z.infer<typeof schema>;
 
 type Role = { id: string; name: string; code: string };
 
-type TabKey = "main" | "documents" | "danger";
+type TabKey = "main" | "documents" | "history" | "danger";
 
 interface Props {
   profile:        StaffProfile;
@@ -108,6 +110,11 @@ interface Props {
    *  отправлено, но юзер ещё не подтвердил email. Админ может перепослать
    *  на другой адрес, если ошибся. */
   emailConfirmed: boolean;
+  /** Видит ли текущий юзер таб «Журнал». Проверка `org.view_audit`
+   *  выполняется на сервере; здесь — флаг для conditional render'а. */
+  canViewAudit: boolean;
+  initialAuditEvents: AuditEvent[];
+  initialAuditHasMore: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -181,6 +188,9 @@ export function StaffDetailPage({
   joinedAt,
   userCreatedAt,
   emailConfirmed,
+  canViewAudit,
+  initialAuditEvents,
+  initialAuditHasMore,
 }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("main");
@@ -648,6 +658,9 @@ export function StaffDetailPage({
           <TabsList className="justify-center">
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="documents">Документы</TabsTrigger>
+            {canViewAudit && (
+              <TabsTrigger value="history">Журнал</TabsTrigger>
+            )}
             <TabsTrigger
               value="danger"
               className="data-[state=active]:text-destructive data-[state=active]:border-destructive"
@@ -1111,6 +1124,17 @@ export function StaffDetailPage({
               </div>
             </form>
           </TabsContent>
+
+          {/* ── Журнал ──────────────────────────────────────── */}
+          {canViewAudit && (
+            <TabsContent value="history">
+              <StaffAuditTab
+                userId={profile.id}
+                initialEvents={initialAuditEvents}
+                initialHasMore={initialAuditHasMore}
+              />
+            </TabsContent>
+          )}
 
           {/* ── Опасная зона ────────────────────────────────── */}
           <TabsContent value="danger">

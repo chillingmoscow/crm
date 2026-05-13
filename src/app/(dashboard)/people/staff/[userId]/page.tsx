@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { StaffDetailPage } from "./_components/staff-detail-page";
+import { listAuditEvents } from "@/lib/audit/list";
 import type { StaffProfile, StaffAccountDetails } from "../actions";
 
 // force-dynamic: Next 15 может статически закэшировать RSC payload для
@@ -131,6 +132,15 @@ export default async function StaffMemberPage({
   if (!profileRow) redirect("/people/staff");
   if (!targetUvr) redirect("/people/staff");
 
+  // Журнал. RLS на audit_logs уже отфильтровывает по org.view_audit;
+  // canViewAudit нужен фронту, чтобы решить рендерить ли таб.
+  const { data: canViewAudit } = await supabase.rpc("has_permission", {
+    permission_code: "org.view_audit",
+  });
+  const auditResult = canViewAudit
+    ? await listAuditEvents({ entityType: "staff", entityId: userId })
+    : { events: [], hasMore: false, error: null };
+
   // Если для пары (account_id, user_id) ещё нет ряда в staff_account_details
   // — это норма (свежий сотрудник, тенант-данные пусты). Подсовываем
   // дефолты, чтобы UI знал «нечего показывать».
@@ -162,6 +172,9 @@ export default async function StaffMemberPage({
       joinedAt={targetUvr.created_at}
       userCreatedAt={targetAuthUser.created_at ?? null}
       emailConfirmed={Boolean(targetAuthUser.email_confirmed_at)}
+      canViewAudit={Boolean(canViewAudit)}
+      initialAuditEvents={auditResult.events}
+      initialAuditHasMore={auditResult.hasMore}
     />
   );
 }

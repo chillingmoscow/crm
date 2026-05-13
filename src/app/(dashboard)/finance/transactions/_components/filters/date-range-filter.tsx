@@ -2,10 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { CalendarIcon, X } from "lucide-react";
+import { ru } from "date-fns/locale/ru";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { DatePicker } from "@/components/ui/date-picker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -87,87 +87,76 @@ export function DateRangeFilter({ value, onChange, presetLabel }: Props) {
         )}
       </div>
 
-      <PopoverContent align="start" className="w-auto p-3 space-y-3">
-        <div className="grid grid-cols-2 gap-2">
+      <PopoverContent align="start" className="w-auto p-3">
+        <div className="flex flex-col gap-4">
           <div>
-            <label className="text-xs text-muted-foreground">С даты</label>
-            <DatePicker
-              value={isoDateInput(value.start)}
-              onChange={(s) => {
-                const d = s ? new Date(s) : null;
-                if (d && value.end && d > value.end) onChange({ start: d, end: null }, null);
-                else onChange({ start: d, end: value.end }, null);
+            <p className="text-xs text-muted-foreground mb-1.5">Быстрый выбор:</p>
+            {/* Шире, чем календарь (≈460px на --cell-size:2rem × 7 ячеек ×
+             *  2 месяца + nav), не нужно — чипы переносятся в несколько
+             *  строк сами. */}
+            <div className="flex flex-wrap gap-1.5 max-w-[460px]">
+              {presets.map((p) => {
+                const isActive = presetLabel === p.label;
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => {
+                      onChange(p.range(), p.label);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "text-xs px-2.5 py-1 rounded-full border",
+                      isActive
+                        ? "bg-brand text-brand-foreground border-brand"
+                        : "border-border hover:bg-accent"
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs text-muted-foreground mb-1.5">Указать даты:</p>
+            {/* Подсветка диапазона: голубой fill на конце + полупрозрачный
+             *  brand на середине. Перебиваем дефолтный bg-primary из
+             *  CalendarDayButton через дескентант-селекторы. */}
+            <Calendar
+              locale={ru}
+              mode="range"
+              numberOfMonths={2}
+              selected={{
+                from: value.start ?? undefined,
+                to: value.end ?? undefined,
               }}
-              className="h-8"
-              placeholder="—"
+              onSelect={(r) => {
+                onChange(
+                  { start: r?.from ?? null, end: r?.to ?? null },
+                  null
+                );
+              }}
+              className={cn(
+                "p-0",
+                "[&_[data-range-start=true]]:bg-brand [&_[data-range-start=true]]:text-brand-foreground",
+                "[&_[data-range-end=true]]:bg-brand [&_[data-range-end=true]]:text-brand-foreground",
+                "[&_[data-range-middle=true]]:bg-brand/15 [&_[data-range-middle=true]]:text-foreground",
+                "[&_[data-selected-single=true]]:bg-brand [&_[data-selected-single=true]]:text-brand-foreground"
+              )}
             />
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground">До даты</label>
-            <DatePicker
-              value={isoDateInput(value.end)}
-              onChange={(s) => {
-                const d = s ? new Date(s) : null;
-                if (d && value.start && d < value.start) onChange({ start: null, end: d }, null);
-                else onChange({ start: value.start, end: d }, null);
-              }}
-              className="h-8"
-              placeholder="—"
-            />
+
+          <div className="flex justify-end pt-2 border-t">
+            <Button
+              size="sm"
+              className="bg-brand hover:bg-brand/90"
+              onClick={() => setOpen(false)}
+            >
+              Применить
+            </Button>
           </div>
-        </div>
-
-        <div>
-          <p className="text-xs text-muted-foreground mb-1.5">Быстрый выбор:</p>
-          <div className="flex flex-wrap gap-1.5">
-            {presets.map((p) => {
-              const isActive = presetLabel === p.label;
-              return (
-                <button
-                  key={p.label}
-                  type="button"
-                  onClick={() => {
-                    onChange(p.range(), p.label);
-                    setOpen(false);
-                  }}
-                  className={cn(
-                    "text-xs px-2.5 py-1 rounded-full border",
-                    isActive
-                      ? "bg-brand text-brand-foreground border-brand"
-                      : "border-border hover:bg-accent"
-                  )}
-                >
-                  {p.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <Calendar
-          mode="range"
-          numberOfMonths={2}
-          selected={{
-            from: value.start ?? undefined,
-            to: value.end ?? undefined,
-          }}
-          onSelect={(r) => {
-            onChange(
-              { start: r?.from ?? null, end: r?.to ?? null },
-              null
-            );
-          }}
-          className="p-0"
-        />
-
-        <div className="flex justify-end pt-2 border-t">
-          <Button
-            size="sm"
-            className="bg-brand hover:bg-brand/90"
-            onClick={() => setOpen(false)}
-          >
-            Применить
-          </Button>
         </div>
       </PopoverContent>
     </Popover>
@@ -218,12 +207,4 @@ function yearRange(yearsOffset: number): DateRangeValue {
 
 function ddmm(d: Date): string {
   return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
-}
-
-function isoDateInput(d: Date | null): string {
-  if (!d) return "";
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
 }

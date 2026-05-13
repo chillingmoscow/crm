@@ -3,6 +3,12 @@ import { createClient, getCachedUser } from "@/lib/supabase/server";
 import { DepartmentsClient } from "./_components/departments-client";
 import { listDepartments } from "./actions";
 
+// На проде после создания подразделения юзер возвращался к списку и не
+// видел новой строки — RSC payload оставался в кэше. revalidatePath
+// в action'ах помогает, но force-dynamic — страховка от per-request
+// статики (страница в любом случае user-/account-specific).
+export const dynamic = "force-dynamic";
+
 export default async function DepartmentsPage() {
   const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");

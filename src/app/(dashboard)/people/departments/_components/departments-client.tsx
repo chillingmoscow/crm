@@ -484,9 +484,17 @@ export function DepartmentsClient({
                 return (
                   <div
                     key={d.id}
-                    className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-muted/50"
                     style={{ gridTemplateColumns: gridTemplate }}
                     onClick={() => router.push(`/people/departments/${d.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        router.push(`/people/departments/${d.id}`);
+                      }
+                    }}
                   >
                     <div
                       className={`flex items-center justify-center size-9 rounded-lg bg-muted ${tintClass || "text-muted-foreground"}`}

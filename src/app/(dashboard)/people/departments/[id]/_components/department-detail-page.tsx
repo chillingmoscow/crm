@@ -112,9 +112,13 @@ export function DepartmentDetailPage({
   const [heads] = useState(initialHeads);
   const [attachOpen, setAttachOpen] = useState(false);
 
+  // Сравниваем trimmed-значения — иначе trailing space в description
+  // делает форму permanently dirty: handleSave всё равно отправит
+  // commentValue.trim(), сервер сохранит «нет изменений», но в UI
+  // commentValue остаётся с пробелом → dirty не сбрасывается.
   const dirty =
     nameValue.trim() !== department.name ||
-    (commentValue || null) !== (department.description ?? null) ||
+    commentValue.trim() !== (department.description ?? "") ||
     iconValue !== department.icon ||
     iconColorValue !== department.icon_color;
 

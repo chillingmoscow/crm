@@ -136,7 +136,31 @@ export async function createDepartment(input: {
     .select("id")
     .single();
 
-  if (error) return { id: null, error: error.message };
+  if (error) {
+    console.error("[createDepartment] insert error", {
+      accountId,
+      name,
+      error,
+    });
+    return { id: null, error: error.message };
+  }
+
+  // Прод-фидбек: после успешного toast'а строка не появлялась в списке.
+  // Сценарий — supabase-js вернул { data, error: null } с null/undefined id
+  // (мы это считали невозможным, но воспроизводится в проде). Без guard'а
+  // юзер видел зелёный toast и пустой экран. Логируем + явный error.
+  if (!data?.id) {
+    console.error("[createDepartment] no id despite no error", {
+      accountId,
+      name,
+      data,
+    });
+    return {
+      id: null,
+      error:
+        "Не удалось получить ID созданного подразделения. Обновите страницу — возможно, оно уже создано.",
+    };
+  }
 
   // layout-scope: иначе RSC-payload для /people/departments
   // (страница-список) может остаться в кэше Next, и после

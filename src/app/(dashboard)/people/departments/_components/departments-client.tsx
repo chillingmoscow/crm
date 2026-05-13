@@ -54,30 +54,33 @@ export function DepartmentsClient({
         iconColor,
         description: description.trim() || null,
       });
-      if (result.error) {
-        toast.error(result.error);
+      if (result.error || !result.id) {
+        // Включая edge-case «server вернул { id: null, error: null }» —
+        // раньше показывали зелёный toast при пустом id, юзер думал
+        // что всё ок, а строка не появлялась. Теперь action возвращает
+        // явный error для этой ветки (см. actions.ts), а UI здесь
+        // подстраховывается на случай будущих регрессий.
+        toast.error(result.error ?? "Не удалось создать подразделение");
         return;
       }
       toast.success("Подразделение создано");
-      if (result.id) {
-        const created: DepartmentSummary = {
-          id: result.id,
-          name: trimmed,
-          icon,
-          icon_color: iconColor,
-          description: description.trim() || null,
-          head_role_id: null,
-          head_role_name: null,
-          roles_count: 0,
-          staff_count: 0,
-        };
-        setDepartments((prev) =>
-          [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "ru")),
-        );
-        setSheetOpen(false);
-        resetForm();
-        router.push(`/people/departments/${result.id}`);
-      }
+      const created: DepartmentSummary = {
+        id: result.id,
+        name: trimmed,
+        icon,
+        icon_color: iconColor,
+        description: description.trim() || null,
+        head_role_id: null,
+        head_role_name: null,
+        roles_count: 0,
+        staff_count: 0,
+      };
+      setDepartments((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      );
+      setSheetOpen(false);
+      resetForm();
+      router.push(`/people/departments/${result.id}`);
     });
   }
 

@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, Crown, Filter, Plus, Search, Settings2, X } from "lucide-react";
+import {
+  Boxes,
+  Crown,
+  Filter,
+  Plus,
+  Search,
+  Settings2,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -584,6 +593,21 @@ export function DepartmentsClient({
             placeholder="Кто входит, чем занимается"
             rows={3}
           />
+        </div>
+
+        {/* Hint card в стиле roles drawer (Sparkles + совет). */}
+        <div className="flex items-start gap-2.5 rounded-[10px] bg-secondary border border-border p-3.5">
+          <Sparkles className="w-4 h-4 text-brand shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <p className="text-[12px] font-semibold text-secondary-foreground leading-tight">
+              Совет
+            </p>
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              После создания зайдите в карточку подразделения, добавьте
+              должности на вкладке «Должности» и выберите руководящую —
+              например, «Бар-менеджер» для «Бара».
+            </p>
+          </div>
         </div>
       </EditDrawer>
     </div>

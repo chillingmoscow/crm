@@ -628,9 +628,17 @@ export function RolesClient({
               return (
                 <div
                   key={role.id}
-                  className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:bg-muted/50"
                   style={{ gridTemplateColumns: gridTemplate }}
                   onClick={() => router.push(`/people/roles/${role.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      router.push(`/people/roles/${role.id}`);
+                    }
+                  }}
                 >
                   {/* Icon — owner всегда brand-tinted (системная роль),
                       остальные — palette tint поверх muted фона (или default). */}

@@ -230,13 +230,15 @@ export async function setRoleDepartment(
 
   const { data: role } = await supabase
     .from("roles")
-    .select("account_id, code")
+    .select("account_id, code, department_id")
     .eq("id", roleId)
     .maybeSingle();
   if (!role) return { error: "Должность не найдена" };
   if (role.account_id === null) {
     return { error: "Системную должность нельзя привязать к подразделению" };
   }
+
+  const previousDepartmentId = role.department_id;
 
   const { error } = await supabase
     .from("roles")
@@ -245,8 +247,26 @@ export async function setRoleDepartment(
 
   if (error) return { error: error.message };
 
+  // Если эта роль была руководителем своего прежнего подразделения —
+  // сбрасываем там head_role_id в NULL. Иначе остаётся «висящая»
+  // ссылка: подразделение указывает на роль, которая больше не в нём.
+  // Симптомы: select руководителя в /people/departments/[id] не показывает
+  // ничего, и любой save валит триггер `trg_departments_check_head_role`.
+  if (
+    previousDepartmentId &&
+    previousDepartmentId !== departmentId
+  ) {
+    await supabase
+      .from("departments")
+      .update({ head_role_id: null })
+      .eq("id", previousDepartmentId)
+      .eq("head_role_id", roleId);
+  }
+
   revalidatePath("/people/roles");
   revalidatePath("/people/departments");
   if (departmentId) revalidatePath(`/people/departments/${departmentId}`);
+  if (previousDepartmentId)
+    revalidatePath(`/people/departments/${previousDepartmentId}`);
   return { error: null };
 }

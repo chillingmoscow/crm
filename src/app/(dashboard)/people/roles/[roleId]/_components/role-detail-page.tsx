@@ -129,7 +129,8 @@ export function RoleDetailPage({
     nameValue.trim() !== role.name ||
     (commentValue || null) !== role.comment ||
     iconValue !== role.icon ||
-    iconColorValue !== (role.icon_color ?? null);
+    iconColorValue !== (role.icon_color ?? null) ||
+    departmentId !== role.department_id;
 
   // Permissions search
   const [permQuery, setPermQuery] = useState("");
@@ -211,24 +212,20 @@ export function RoleDetailPage({
         toast.error(result.error);
         return;
       }
-      toast.success("Изменения сохранены");
-      router.refresh();
-    });
-  }
-
-  function handleDepartmentChange(nextValue: string | null) {
-    const previous = departmentId;
-    setDepartmentId(nextValue);
-    startTransition(async () => {
-      const result = await setRoleDepartment(role.id, nextValue);
-      if (result.error) {
-        toast.error(result.error);
-        setDepartmentId(previous);
-        return;
+      // Подразделение — отдельный action (setRoleDepartment), потому что
+      // у него отдельная инвариантность (cleanup stale head_role_id +
+      // ревалидация двух подразделений). Вызываем только если поменялся.
+      if (departmentId !== role.department_id) {
+        const depResult = await setRoleDepartment(role.id, departmentId);
+        if (depResult.error) {
+          toast.error(depResult.error);
+          // Откатываем local state, чтобы не было визуального рассинхрона
+          // с серверным состоянием.
+          setDepartmentId(role.department_id);
+          return;
+        }
       }
-      toast.success(
-        nextValue ? "Подразделение обновлено" : "Подразделение снято",
-      );
+      toast.success("Изменения сохранены");
       router.refresh();
     });
   }
@@ -555,9 +552,10 @@ export function RoleDetailPage({
                   </Label>
                   <Select
                     value={departmentId ?? "__none__"}
-                    onValueChange={(v) =>
-                      handleDepartmentChange(v === "__none__" ? null : v)
-                    }
+                    onValueChange={(v) => {
+                      if (!canEdit || isSystem) return;
+                      setDepartmentId(v === "__none__" ? null : v);
+                    }}
                     disabled={!canEdit || isSystem || isPending}
                   >
                     <SelectTrigger id="role-department">

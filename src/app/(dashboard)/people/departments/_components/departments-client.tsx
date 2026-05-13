@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Boxes, Crown, Plus, Users } from "lucide-react";
+import { Boxes, Crown, Filter, Plus, Search, Settings2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +16,159 @@ import { paletteText, type PaletteColor } from "@/lib/palette";
 import { ICON_REGISTRY } from "../../roles/_components/role-icons";
 import { createDepartment, type DepartmentSummary } from "../actions";
 import { DepartmentIconPicker } from "./department-icon-picker";
+
+// ── Column definitions ────────────────────────────────────────
+
+type ColKey = "name" | "head" | "roles" | "staff";
+
+const COL_DEFS: {
+  key: ColKey;
+  label: string;
+  width: string;
+  align?: "center";
+  required?: boolean;
+}[] = [
+  // По аналогии с roles list (MlKFD/RuvhI): name = 1fr, остальные —
+  // фиксированные. Gap 16 (gap-4).
+  { key: "name",  label: "Подразделение", width: "minmax(220px, 1fr)", required: true },
+  { key: "head",  label: "Руководитель",  width: "180px" },
+  { key: "roles", label: "Должности",     width: "140px" },
+  { key: "staff", label: "Сотрудники",    width: "140px" },
+];
+
+const DEFAULT_COLS: ColKey[] = ["name", "head", "roles", "staff"];
+
+// ── Column settings dropdown ──────────────────────────────────
+
+function ColumnSettings({
+  visible,
+  onChange,
+}: {
+  visible: Set<ColKey>;
+  onChange: (k: ColKey, on: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <IconTooltip label="Столбцы таблицы">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Settings2 className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-2 min-w-[180px]">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground px-2 pb-1.5">
+            Столбцы таблицы
+          </p>
+          {COL_DEFS.filter((c) => !c.required).map((col) => (
+            <label
+              key={col.key}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer text-sm select-none"
+            >
+              <input
+                type="checkbox"
+                checked={visible.has(col.key)}
+                onChange={(e) => onChange(col.key, e.target.checked)}
+                className="accent-primary"
+              />
+              {col.label}
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Filter dropdown ────────────────────────────────────────────
+
+type DepartmentFilter = {
+  head: "all" | "assigned" | "missing";
+};
+
+function DepartmentFilterPanel({
+  filter,
+  onChange,
+}: {
+  filter: DepartmentFilter;
+  onChange: (next: DepartmentFilter) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const isActive = filter.head !== "all";
+
+  return (
+    <div className="relative" ref={ref}>
+      <IconTooltip label={isActive ? "Фильтры (активны)" : "Фильтры"}>
+        <Button
+          variant="outline"
+          size="icon"
+          className={`h-8 w-8 ${isActive ? "border-primary text-primary" : ""}`}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <Filter className="w-4 h-4" />
+        </Button>
+      </IconTooltip>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[220px] space-y-3">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            Фильтры
+          </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Руководящая должность</Label>
+            <select
+              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              value={filter.head}
+              onChange={(e) =>
+                onChange({ head: e.target.value as DepartmentFilter["head"] })
+              }
+            >
+              <option value="all">Все</option>
+              <option value="assigned">Назначена</option>
+              <option value="missing">Не назначена</option>
+            </select>
+          </div>
+          {isActive && (
+            <button
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+              onClick={() => onChange({ head: "all" })}
+            >
+              Сбросить фильтры
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────
 
 interface Props {
   initialDepartments: DepartmentSummary[];
@@ -31,6 +185,42 @@ export function DepartmentsClient({
   const [departments, setDepartments] = useState(initialDepartments);
   const [isPending, startTransition] = useTransition();
 
+  // Column visibility — persisted в localStorage по аналогии с roles list.
+  const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(() => {
+    if (typeof window === "undefined") return new Set(DEFAULT_COLS);
+    try {
+      const saved = localStorage.getItem("crm-departments-visible-cols");
+      if (saved) return new Set(JSON.parse(saved) as ColKey[]);
+    } catch {}
+    return new Set(DEFAULT_COLS);
+  });
+  const toggleCol = (key: ColKey, on: boolean) => {
+    setVisibleCols((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      try {
+        localStorage.setItem(
+          "crm-departments-visible-cols",
+          JSON.stringify([...next]),
+        );
+      } catch {}
+      return next;
+    });
+  };
+
+  // Search
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
+  }, [searchOpen]);
+
+  // Filter
+  const [filter, setFilter] = useState<DepartmentFilter>({ head: "all" });
+
+  // Create drawer
   const [sheetOpen, setSheetOpen] = useState(false);
   const [name, setName] = useState("");
   const [icon, setIcon] = useState<string | null>(null);
@@ -44,6 +234,20 @@ export function DepartmentsClient({
     setDescription("");
   }
 
+  // Filtering
+  const q = searchQuery.toLowerCase().trim();
+  const filteredDepartments = useMemo(
+    () =>
+      departments.filter((d) => {
+        if (q && !d.name.toLowerCase().includes(q)) return false;
+        if (filter.head === "assigned" && !d.head_role_id) return false;
+        if (filter.head === "missing" && d.head_role_id) return false;
+        return true;
+      }),
+    [departments, q, filter.head],
+  );
+  const isFiltered = q.length > 0 || filter.head !== "all";
+
   function handleCreate() {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -55,9 +259,7 @@ export function DepartmentsClient({
         description: description.trim() || null,
       });
       // `{ id: null, error: null }` — недопустимое состояние контракта,
-      // но было прецедент (несуществующая таблица на проде → supabase-js
-      // отдавал error без message). Без `!result.id` мы повторяли silent-
-      // fail: success toast + drawer остаётся открыт.
+      // но было прецедент. Guard оставляем, см. #291.
       if (result.error || !result.id) {
         toast.error(result.error ?? "Не удалось создать подразделение");
         return;
@@ -83,6 +285,74 @@ export function DepartmentsClient({
     });
   }
 
+  // Cell renderers
+  const renderCell = (key: ColKey, d: DepartmentSummary) => {
+    switch (key) {
+      case "name": {
+        const desc = d.description?.trim();
+        return (
+          <div className="min-w-0">
+            <span className="font-medium text-sm truncate block">{d.name}</span>
+            {desc && (
+              <div className="text-xs text-muted-foreground truncate mt-0.5">
+                {desc}
+              </div>
+            )}
+          </div>
+        );
+      }
+      case "head": {
+        if (!d.head_role_name) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        return (
+          <div className="flex items-center gap-1.5 text-sm min-w-0">
+            <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span className="font-medium truncate">{d.head_role_name}</span>
+          </div>
+        );
+      }
+      case "roles": {
+        if (d.roles_count === 0) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        const label =
+          d.roles_count === 1
+            ? "должность"
+            : d.roles_count < 5
+              ? "должности"
+              : "должностей";
+        return (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="flex items-center justify-center size-6 rounded-full bg-violet-400 text-white text-[11px] font-semibold">
+              {d.roles_count}
+            </span>
+            <span className="text-muted-foreground">{label}</span>
+          </div>
+        );
+      }
+      case "staff": {
+        if (d.staff_count === 0) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        const label =
+          d.staff_count === 1
+            ? "сотрудник"
+            : d.staff_count < 5
+              ? "сотрудника"
+              : "сотрудников";
+        return (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="flex items-center justify-center size-6 rounded-full bg-emerald-400 text-white text-[11px] font-semibold">
+              {d.staff_count}
+            </span>
+            <span className="text-muted-foreground">{label}</span>
+          </div>
+        );
+      }
+    }
+  };
+
   return (
     <div className="p-6 md:p-8 w-full">
       {/* Header */}
@@ -96,21 +366,65 @@ export function DepartmentsClient({
           </div>
           <p className="text-muted-foreground mt-1 text-sm">
             Группировка должностей в орг-структуре и руководители подразделений
+            {isFiltered && ` · показано ${filteredDepartments.length}`}
           </p>
         </div>
 
-        {accountId && canManage && (
-          <Button
-            size="sm"
-            onClick={() => {
-              resetForm();
-              setSheetOpen(true);
-            }}
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            Добавить
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <div className="flex items-center gap-1">
+            {searchOpen && (
+              <div className="relative">
+                <Input
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск"
+                  className="h-8 w-48 text-sm pr-7"
+                />
+                {searchQuery && (
+                  <button
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setSearchQuery("")}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+            <IconTooltip
+              label={searchOpen ? "Скрыть поиск" : "Поиск по подразделениям"}
+            >
+              <Button
+                variant="outline"
+                size="icon"
+                className={`h-8 w-8 ${searchOpen ? "border-primary text-primary" : ""}`}
+                onClick={() => {
+                  if (searchOpen) setSearchQuery("");
+                  setSearchOpen((v) => !v);
+                }}
+              >
+                <Search className="w-4 h-4" />
+              </Button>
+            </IconTooltip>
+          </div>
+
+          <DepartmentFilterPanel filter={filter} onChange={setFilter} />
+          <ColumnSettings visible={visibleCols} onChange={toggleCol} />
+
+          {accountId && canManage && (
+            <Button
+              size="sm"
+              onClick={() => {
+                resetForm();
+                setSheetOpen(true);
+              }}
+            >
+              <Plus className="w-4 h-4 mr-1.5" />
+              Добавить
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Empty state */}
@@ -138,62 +452,72 @@ export function DepartmentsClient({
         </div>
       )}
 
-      {/* List */}
-      {departments.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {departments.map((d) => {
-            const Icon = (d.icon && ICON_REGISTRY[d.icon]) || Boxes;
-            const tint = paletteText(d.icon_color as PaletteColor | null);
-            return (
-              <button
-                key={d.id}
-                onClick={() => router.push(`/people/departments/${d.id}`)}
-                className="text-left rounded-xl border bg-card p-4 hover:border-primary/40 hover:bg-muted/30 transition-colors"
+      {/* Table */}
+      {departments.length > 0 &&
+        (() => {
+          const visibleColDefs = COL_DEFS.filter((c) => visibleCols.has(c.key));
+          // 36px icon + видимые колонки.
+          const gridTemplate = `36px ${visibleColDefs.map((c) => c.width).join(" ")}`;
+
+          return (
+            <div className="rounded-xl border bg-card overflow-hidden">
+              {/* Header row */}
+              <div
+                className="grid gap-4 px-5 py-3 bg-muted/60 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider border-b"
+                style={{ gridTemplateColumns: gridTemplate }}
               >
-                <div className="flex items-start gap-3">
+                <span aria-hidden />
+                {visibleColDefs.map((col) => (
                   <span
-                    className={`flex items-center justify-center size-10 rounded-lg bg-muted shrink-0 ${
-                      tint || "text-muted-foreground"
-                    }`}
+                    key={col.key}
+                    className={col.align === "center" ? "text-center" : undefined}
                   >
-                    <Icon className="w-5 h-5" />
+                    {col.label}
                   </span>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-medium text-sm truncate">{d.name}</h3>
-                    {d.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                        {d.description}
-                      </p>
-                    )}
-                  </div>
-                </div>
+                ))}
+              </div>
 
-                <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5">
-                    <Users className="w-3.5 h-3.5" />
-                    {d.roles_count} {pluralRoles(d.roles_count)} ·{" "}
-                    {d.staff_count} {pluralStaff(d.staff_count)}
-                  </span>
-                </div>
+              {/* Data rows */}
+              {filteredDepartments.map((d) => {
+                const Icon = (d.icon && ICON_REGISTRY[d.icon]) || Boxes;
+                const tintClass = paletteText(d.icon_color as PaletteColor | null);
+                return (
+                  <div
+                    key={d.id}
+                    className="grid gap-4 items-center px-5 py-3.5 border-b last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                    style={{ gridTemplateColumns: gridTemplate }}
+                    onClick={() => router.push(`/people/departments/${d.id}`)}
+                  >
+                    <div
+                      className={`flex items-center justify-center size-9 rounded-lg bg-muted ${tintClass || "text-muted-foreground"}`}
+                    >
+                      <Icon className="w-4 h-4" />
+                    </div>
 
-                {d.head_role_name ? (
-                  <div className="flex items-center gap-1.5 mt-2 text-xs">
-                    <Crown className="w-3.5 h-3.5 text-amber-500" />
-                    <span className="text-muted-foreground">Руководитель:</span>
-                    <span className="font-medium truncate">
-                      {d.head_role_name}
-                    </span>
+                    {visibleColDefs.map((col) => (
+                      <div
+                        key={col.key}
+                        className={`min-w-0 ${
+                          col.align === "center"
+                            ? "flex items-center justify-center"
+                            : ""
+                        }`}
+                      >
+                        {renderCell(col.key, d)}
+                      </div>
+                    ))}
                   </div>
-                ) : (
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    Руководитель не назначен
-                  </div>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
+                );
+              })}
+
+              {isFiltered && filteredDepartments.length === 0 && (
+                <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  Нет подразделений, соответствующих поиску
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Create drawer */}
       <EditDrawer
@@ -256,16 +580,4 @@ export function DepartmentsClient({
       </EditDrawer>
     </div>
   );
-}
-
-function pluralRoles(n: number): string {
-  if (n === 1) return "должность";
-  if (n >= 2 && n <= 4) return "должности";
-  return "должностей";
-}
-
-function pluralStaff(n: number): string {
-  if (n === 1) return "сотрудник";
-  if (n >= 2 && n <= 4) return "сотрудника";
-  return "сотрудников";
 }

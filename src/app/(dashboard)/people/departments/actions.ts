@@ -31,6 +31,8 @@ export type Department = {
   head_role_id: string | null;
   created_at: string;
   updated_at: string;
+  created_by: string | null;
+  updated_by: string | null;
 };
 
 export type DepartmentRole = {
@@ -87,7 +89,7 @@ export async function getDepartment(
       supabase
         .from("departments")
         .select(
-          "id, account_id, name, icon, icon_color, description, head_role_id, created_at, updated_at",
+          "id, account_id, name, icon, icon_color, description, head_role_id, created_at, updated_at, created_by, updated_by",
         )
         .eq("id", id)
         .maybeSingle(),

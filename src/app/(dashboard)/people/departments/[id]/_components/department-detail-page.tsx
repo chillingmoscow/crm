@@ -146,14 +146,24 @@ export function DepartmentDetailPage({
       toast.error("Название не может быть пустым");
       return;
     }
+    // `head_role_id` шлём только если поменялся: триггер
+    // `trg_departments_check_head_role` срабатывает на UPDATE OF
+    // head_role_id ВСЕГДА, когда колонка в SET — даже если значение
+    // то же. Если в БД уже неконсистентное состояние (head_role был
+    // детачнут из подразделения через /people/roles flow), любой
+    // save с присутствующим head_role_id отвалится. Отправляем
+    // только реально dirty-поля.
+    const patch: Parameters<typeof updateDepartment>[1] = {
+      name: trimmedName,
+      description: commentValue.trim() || null,
+      icon: iconValue,
+      iconColor: iconColorValue,
+    };
+    if (headRoleId !== department.head_role_id) {
+      patch.headRoleId = headRoleId;
+    }
     startTransition(async () => {
-      const result = await updateDepartment(department.id, {
-        name: trimmedName,
-        description: commentValue.trim() || null,
-        icon: iconValue,
-        iconColor: iconColorValue,
-        headRoleId,
-      });
+      const result = await updateDepartment(department.id, patch);
       if (result.error) {
         toast.error(result.error);
         return;

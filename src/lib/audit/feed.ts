@@ -6,7 +6,10 @@ import { searchAuditEntities } from "@/lib/audit/search-staff";
 export interface AuditFeedParams {
   q?: string;
   types?: string;
+  /** Сотрудники как объект действия (entity_id). */
   staff?: string;
+  /** Сотрудники как исполнитель действия (user_id). */
+  actor?: string;
   from?: string;
   to?: string;
   beforeAt?: string;
@@ -30,17 +33,21 @@ export async function loadAuditFeedPage(params: AuditFeedParams): Promise<{
 }> {
   const q = (params.q ?? "").trim();
   const types = parseCsv(params.types);
-  const staffFilter = parseCsv(params.staff);
+  const staffEntityFilter = parseCsv(params.staff);
+  const staffActorFilter = parseCsv(params.actor);
 
   const search = q ? await searchAuditEntities(q) : null;
 
+  // Два независимых filter group'а: «как объект» и «как исполнитель».
+  // Если активны оба — это AND (ряд должен совпасть с обеими сторонами,
+  // т.е. либо X объект И Y актор, либо одна персона в обеих ролях).
+  // Если активна только одна сторона — узкий фильтр.
   const filterGroups: AuditFilterGroup[] = [];
-  if (staffFilter.length > 0) {
-    // Сотрудник как объект ИЛИ как исполнитель.
-    filterGroups.push({
-      entityIds: staffFilter,
-      actorIds: staffFilter,
-    });
+  if (staffEntityFilter.length > 0) {
+    filterGroups.push({ entityIds: staffEntityFilter });
+  }
+  if (staffActorFilter.length > 0) {
+    filterGroups.push({ actorIds: staffActorFilter });
   }
   if (search) {
     // Поиск: entity-match по всем типам (staff + kb + role + invitation +

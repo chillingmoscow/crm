@@ -26,6 +26,8 @@ import { VENUE_TYPES, CURRENCIES, TIMEZONES, DAYS_OF_WEEK, type DayKey } from "@
 import { updateVenue, deleteVenue } from "../../actions";
 import type { VenueType, WorkingHours } from "@/types/database";
 import { FloorPlanTab } from "./floor-plan-tab";
+import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
+import type { AuditEvent } from "@/lib/audit/list";
 
 const INITIAL_WORKING_HOURS: WorkingHours = {
   mon: { open: "10:00", close: "22:00", closed: false },
@@ -76,17 +78,23 @@ export type LegalEntityOption = {
   legal_form: string;
 };
 
-const TABS = ["Основное", "Карта залов"] as const;
-type Tab = (typeof TABS)[number];
+const BASE_TABS = ["Основное", "Карта залов"] as const;
+type Tab = "Основное" | "Карта залов" | "Журнал";
 
 export function VenueDetailPage({
   venue,
   importedFromQuickResto,
   legalEntities,
+  canViewAudit,
+  initialAuditEvents,
+  initialAuditHasMore,
 }: {
   venue: Venue;
   importedFromQuickResto: boolean;
   legalEntities: LegalEntityOption[];
+  canViewAudit: boolean;
+  initialAuditEvents: AuditEvent[];
+  initialAuditHasMore: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -95,6 +103,9 @@ export function VenueDetailPage({
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("Основное");
+  const TABS: Tab[] = canViewAudit
+    ? [...BASE_TABS, "Журнал"]
+    : [...BASE_TABS];
 
   const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -389,6 +400,18 @@ export function VenueDetailPage({
       {/* ── Tab: Карта залов ──────────────────────────────────── */}
       {activeTab === "Карта залов" && (
         <FloorPlanTab venueId={venue.id} />
+      )}
+
+      {/* ── Tab: Журнал ───────────────────────────────────────── */}
+      {activeTab === "Журнал" && (
+        <EntityAuditTab
+          mode="entity"
+          entityType="venue"
+          entityId={venue.id}
+          canView={canViewAudit}
+          initialEvents={initialAuditEvents}
+          initialHasMore={initialAuditHasMore}
+        />
       )}
     </div>
   );

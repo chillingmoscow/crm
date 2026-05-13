@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { VenueDetailPage } from "./_components/venue-detail-page";
 import { listLegalEntities } from "@/lib/org/legal-entities";
+import { listAuditEvents } from "@/lib/audit/list";
 import type { WorkingHours } from "@/types/database";
 
 type VenueDetail = {
@@ -71,6 +72,14 @@ export default async function VenueDetailServerPage({
   // a select.
   const { rows: legalEntities } = await listLegalEntities();
 
+  // Журнал. Префетч первой страницы, если у юзера есть org.view_audit.
+  const { data: canViewAudit } = await supabase.rpc("has_permission", {
+    permission_code: "org.view_audit",
+  });
+  const auditResult = canViewAudit
+    ? await listAuditEvents({ entityType: "venue", entityId: venueId })
+    : { events: [], hasMore: false, error: null };
+
   return (
     <VenueDetailPage
       venue={venue}
@@ -80,6 +89,9 @@ export default async function VenueDetailServerPage({
         name: le.short_name ?? le.name,
         legal_form: le.legal_form,
       }))}
+      canViewAudit={Boolean(canViewAudit)}
+      initialAuditEvents={auditResult.events}
+      initialAuditHasMore={auditResult.hasMore}
     />
   );
 }

@@ -8,7 +8,10 @@ import {
   getBankAccount,
   listBankAccountGroups,
 } from "@/lib/finance/bank-accounts";
+import { listAuditEvents } from "@/lib/audit/list";
+import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import { BankAccountDetail } from "./_components/bank-account-detail";
+import { BankAccountDetailTabs } from "./_components/bank-account-tabs";
 
 const TYPE_LABEL: Record<string, string> = {
   cash:       "Касса",
@@ -26,10 +29,12 @@ export default async function BankAccountDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: canView }, { data: canManage }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "finance.view_bank_accounts" }),
-    supabase.rpc("has_permission", { permission_code: "finance.manage_bank_accounts" }),
-  ]);
+  const [{ data: canView }, { data: canManage }, { data: canViewAudit }] =
+    await Promise.all([
+      supabase.rpc("has_permission", { permission_code: "finance.view_bank_accounts" }),
+      supabase.rpc("has_permission", { permission_code: "finance.manage_bank_accounts" }),
+      supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
+    ]);
   if (!canView) redirect("/dashboard");
 
   const { row, error } = await getBankAccount(id);
@@ -41,6 +46,10 @@ export default async function BankAccountDetailPage({
       listAccountVenues(),
       listBankAccountGroups(),
     ]);
+
+  const auditResult = canViewAudit
+    ? await listAuditEvents({ entityType: "bank_account", entityId: id })
+    : { events: [], hasMore: false, error: null };
 
   const legalEntityName =
     legalEntities.find((le) => le.id === row.legal_entity_id)?.short_name ??
@@ -65,12 +74,27 @@ export default async function BankAccountDetailPage({
         {row.bank_name ? ` • ${row.bank_name}` : ""}
       </p>
 
-      <BankAccountDetail
-        row={row}
-        legalEntities={legalEntities}
-        venues={venues}
-        groups={groups}
-        canManage={!!canManage}
+      <BankAccountDetailTabs
+        canViewAudit={Boolean(canViewAudit)}
+        main={
+          <BankAccountDetail
+            row={row}
+            legalEntities={legalEntities}
+            venues={venues}
+            groups={groups}
+            canManage={!!canManage}
+          />
+        }
+        history={
+          <EntityAuditTab
+            mode="entity"
+            entityType="bank_account"
+            entityId={row.id}
+            canView={Boolean(canViewAudit)}
+            initialEvents={auditResult.events}
+            initialHasMore={auditResult.hasMore}
+          />
+        }
       />
     </div>
   );

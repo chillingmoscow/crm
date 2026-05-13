@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -34,6 +35,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { paletteText, type PaletteColor } from "@/lib/palette";
+import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
+import type { AuditEvent } from "@/lib/audit/list";
 
 import { ICON_REGISTRY, iconForRole } from "../../../roles/_components/role-icons";
 import { DepartmentIconPicker } from "../../_components/department-icon-picker";
@@ -62,6 +65,9 @@ interface Props {
   initialHeads: DepartmentHead[];
   allRoles: AllRole[];
   canManage: boolean;
+  canViewAudit: boolean;
+  initialAuditEvents: AuditEvent[];
+  initialAuditHasMore: boolean;
 }
 
 export function DepartmentDetailPage({
@@ -70,6 +76,9 @@ export function DepartmentDetailPage({
   initialHeads,
   allRoles,
   canManage,
+  canViewAudit,
+  initialAuditEvents,
+  initialAuditHasMore,
 }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -230,6 +239,16 @@ export function DepartmentDetailPage({
           Подразделения
         </Link>
       </div>
+
+      <Tabs defaultValue="main" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="main">Основное</TabsTrigger>
+          {canViewAudit && (
+            <TabsTrigger value="history">Журнал</TabsTrigger>
+          )}
+        </TabsList>
+
+        <TabsContent value="main" className="mt-0">
 
       {/* Header */}
       <div className="rounded-xl border bg-card p-5 mb-6">
@@ -458,6 +477,22 @@ export function DepartmentDetailPage({
           </div>
         )}
       </section>
+
+        </TabsContent>
+
+        {canViewAudit && (
+          <TabsContent value="history" className="mt-0">
+            <EntityAuditTab
+              mode="entity"
+              entityType="department"
+              entityId={department.id}
+              canView={canViewAudit}
+              initialEvents={initialAuditEvents}
+              initialHasMore={initialAuditHasMore}
+            />
+          </TabsContent>
+        )}
+      </Tabs>
 
       {/* Attach role dialog */}
       <Dialog open={attachOpen} onOpenChange={setAttachOpen}>

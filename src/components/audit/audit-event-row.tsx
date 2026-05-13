@@ -105,6 +105,20 @@ function EntityReference({ event }: { event: AuditEvent }) {
     );
   }
 
+  if (entity.type === "department") {
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href={`/people/departments/${entity.id}`}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть подразделение
+        </Link>
+      </>
+    );
+  }
+
   // invitation — нет отдельной страницы, статус показываем как подсказку.
   if (entity.type === "invitation") {
     return (

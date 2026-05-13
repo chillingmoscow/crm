@@ -89,11 +89,14 @@ type CreateForm = z.infer<typeof createSchema>;
 
 type Role = { id: string; name: string; code: string };
 
+type DepartmentLite = { id: string; name: string };
+
 type Props = {
   staff:          StaffMember[];
   invitations:    PendingInvitation[];
   firedStaff:     FiredStaffMember[];
   roles:          Role[];
+  departments:    DepartmentLite[];
   venueId:        string;
   currentUserId:  string;
   activeRoleCode: string | null;
@@ -287,14 +290,17 @@ function ColumnSettings({ visible, onChange }: {
 // ── Filter dropdown ──────────────────────────────────────────
 type Filter = {
   roleId: string | null;
+  /** id подразделения, "__none__" — без подразделения, null — без фильтра. */
+  departmentId: string | null;
   gender: string | null;
   importedFromQr: "all" | "yes" | "no";
 };
 
-function FilterPanel({ filter, onChange, roles }: {
+function FilterPanel({ filter, onChange, roles, departments }: {
   filter: Filter;
   onChange: (f: Filter) => void;
   roles: Role[];
+  departments: DepartmentLite[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -308,7 +314,11 @@ function FilterPanel({ filter, onChange, roles }: {
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
 
-  const isActive = filter.roleId !== null || filter.gender !== null || filter.importedFromQr !== "all";
+  const isActive =
+    filter.roleId !== null ||
+    filter.departmentId !== null ||
+    filter.gender !== null ||
+    filter.importedFromQr !== "all";
 
   return (
     <div className="relative" ref={ref}>
@@ -338,6 +348,23 @@ function FilterPanel({ filter, onChange, roles }: {
               <option value="">Все должности</option>
               {roles.map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Подразделение</Label>
+            <select
+              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              value={filter.departmentId ?? ""}
+              onChange={(e) =>
+                onChange({ ...filter, departmentId: e.target.value || null })
+              }
+            >
+              <option value="">Все</option>
+              <option value="__none__">Без подразделения</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
               ))}
             </select>
           </div>
@@ -376,7 +403,14 @@ function FilterPanel({ filter, onChange, roles }: {
           {isActive && (
             <button
               className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => onChange({ roleId: null, gender: null, importedFromQr: "all" })}
+              onClick={() =>
+                onChange({
+                  roleId: null,
+                  departmentId: null,
+                  gender: null,
+                  importedFromQr: "all",
+                })
+              }
             >
               Сбросить фильтры
             </button>
@@ -393,6 +427,7 @@ export function StaffClient({
   invitations: initialInvitations,
   firedStaff: initialFired,
   roles,
+  departments,
   venueId,
   currentUserId,
   activeRoleCode,
@@ -436,7 +471,12 @@ export function StaffClient({
   }, [searchOpen]);
 
   // Filter
-  const [filter, setFilter] = useState<Filter>({ roleId: null, gender: null, importedFromQr: "all" });
+  const [filter, setFilter] = useState<Filter>({
+    roleId: null,
+    departmentId: null,
+    gender: null,
+    importedFromQr: "all",
+  });
 
   const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
 
@@ -463,6 +503,13 @@ export function StaffClient({
     if (filter.gender  && m.gender  !== filter.gender)   return false;
     if (filter.importedFromQr === "yes" && !m.imported_from_quickresto) return false;
     if (filter.importedFromQr === "no" && m.imported_from_quickresto) return false;
+    if (filter.departmentId === "__none__" && m.department_id) return false;
+    if (
+      filter.departmentId &&
+      filter.departmentId !== "__none__" &&
+      m.department_id !== filter.departmentId
+    )
+      return false;
     return true;
   });
 
@@ -470,6 +517,9 @@ export function StaffClient({
     if (q && !inv.email.toLowerCase().includes(q)) return false;
     if (filter.roleId && inv.role_id !== filter.roleId) return false;
     if (filter.importedFromQr !== "all") return false;
+    // Приглашения скрываем, как только включён фильтр по подразделению
+    // (у invite ещё нет department — он появится при принятии).
+    if (filter.departmentId) return false;
     return true;
   });
 
@@ -559,7 +609,12 @@ export function StaffClient({
   };
 
   const totalCount = staff.length + invitations.length;
-  const isFiltered = q.length > 0 || filter.roleId !== null || filter.gender !== null || filter.importedFromQr !== "all";
+  const isFiltered =
+    q.length > 0 ||
+    filter.roleId !== null ||
+    filter.departmentId !== null ||
+    filter.gender !== null ||
+    filter.importedFromQr !== "all";
 
   // ── Cell renderers ─────────────────────────────────────────
   const renderCell = (key: ColKey, member: StaffMember) => {
@@ -802,7 +857,7 @@ export function StaffClient({
             </IconTooltip>
           </div>
 
-          <FilterPanel filter={filter} onChange={setFilter} roles={roles} />
+          <FilterPanel filter={filter} onChange={setFilter} roles={roles} departments={departments} />
           <ColumnSettings visible={visibleCols} onChange={toggleCol} />
 
           {canEdit && (

@@ -41,6 +41,7 @@ type Role = {
   comment: string | null;
   icon: string | null;
   icon_color: string | null;
+  department_id: string | null;
 };
 
 type Permission = {
@@ -53,6 +54,11 @@ type RolePermission = {
   granted: boolean;
 };
 
+type DepartmentLite = {
+  id: string;
+  name: string;
+};
+
 type Props = {
   roles: Role[];
   permissions: Permission[];
@@ -60,11 +66,12 @@ type Props = {
   accountId: string | null;
   staffCountByRole: Record<string, number>;
   importedRoleIds: string[];
+  departments: DepartmentLite[];
 };
 
 // ── Column definitions ────────────────────────────────────────
 
-type ColKey = "name" | "staff" | "permissions" | "qr_import";
+type ColKey = "name" | "department" | "staff" | "permissions" | "qr_import";
 
 const COL_DEFS: {
   key: ColKey;
@@ -77,13 +84,14 @@ const COL_DEFS: {
   // Точно по дизайну MlKFD/RuvhI: name = 1fr, staff = 140, perms = 220
   // (фиксированный — прогресс-бар не должен растягиваться на полэкрана),
   // qr_import = 100. Gap между колонками — 16 (gap-4).
-  { key: "name",        label: "Должность",   width: "minmax(220px, 1fr)", required: true },
-  { key: "staff",       label: "Сотрудники",  width: "140px" },
-  { key: "permissions", label: "Права",       width: "220px" },
-  { key: "qr_import",   label: "Импорт из QR",width: "100px", align: "center" },
+  { key: "name",        label: "Должность",    width: "minmax(220px, 1fr)", required: true },
+  { key: "department",  label: "Подразделение",width: "160px" },
+  { key: "staff",       label: "Сотрудники",   width: "140px" },
+  { key: "permissions", label: "Права",        width: "220px" },
+  { key: "qr_import",   label: "Импорт из QR", width: "100px", align: "center" },
 ];
 
-const DEFAULT_COLS: ColKey[] = ["name", "staff", "permissions", "qr_import"];
+const DEFAULT_COLS: ColKey[] = ["name", "department", "staff", "permissions", "qr_import"];
 
 // ── Column settings dropdown ──────────────────────────────────
 
@@ -145,13 +153,17 @@ function ColumnSettings({
 
 type RoleFilter = {
   importedFromQr: "all" | "yes" | "no";
+  /** id подразделения, "__none__" — без подразделения, "all" — без фильтра. */
+  departmentId: string;
 };
 
 function RoleFilterPanel({
   filter,
+  departments,
   onChange,
 }: {
   filter: RoleFilter;
+  departments: DepartmentLite[];
   onChange: (next: RoleFilter) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -166,7 +178,8 @@ function RoleFilterPanel({
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
 
-  const isActive = filter.importedFromQr !== "all";
+  const isActive =
+    filter.importedFromQr !== "all" || filter.departmentId !== "all";
 
   return (
     <div className="relative" ref={ref}>
@@ -181,10 +194,31 @@ function RoleFilterPanel({
         </Button>
       </IconTooltip>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[220px] space-y-3">
+        <div className="absolute right-0 top-full mt-1 z-50 bg-background border rounded-lg shadow-md p-3 min-w-[240px] space-y-3">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             Фильтры
           </p>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Подразделение</Label>
+            <select
+              className="w-full h-8 rounded-md border border-input bg-background text-sm px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+              value={filter.departmentId}
+              onChange={(e) =>
+                onChange({
+                  ...filter,
+                  departmentId: e.target.value,
+                })
+              }
+            >
+              <option value="all">Все</option>
+              <option value="__none__">Без подразделения</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Импорт из QR</Label>
             <select
@@ -192,6 +226,7 @@ function RoleFilterPanel({
               value={filter.importedFromQr}
               onChange={(e) =>
                 onChange({
+                  ...filter,
                   importedFromQr: e.target.value as RoleFilter["importedFromQr"],
                 })
               }
@@ -204,7 +239,9 @@ function RoleFilterPanel({
           {isActive ? (
             <button
               className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-              onClick={() => onChange({ importedFromQr: "all" })}
+              onClick={() =>
+                onChange({ importedFromQr: "all", departmentId: "all" })
+              }
             >
               Сбросить фильтры
             </button>
@@ -224,6 +261,7 @@ export function RolesClient({
   accountId,
   staffCountByRole,
   importedRoleIds,
+  departments,
 }: Props) {
   const router = useRouter();
   const [roles, setRoles] = useState(initialRoles);
@@ -254,7 +292,14 @@ export function RolesClient({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [filter, setFilter] = useState<RoleFilter>({ importedFromQr: "all" });
+  const [filter, setFilter] = useState<RoleFilter>({
+    importedFromQr: "all",
+    departmentId: "all",
+  });
+  const departmentNameById = useMemo(
+    () => new Map(departments.map((d) => [d.id, d.name])),
+    [departments],
+  );
   useEffect(() => {
     if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
   }, [searchOpen]);
@@ -290,9 +335,19 @@ export function RolesClient({
     const imported = importedSet.has(r.id);
     if (filter.importedFromQr === "yes" && !imported) return false;
     if (filter.importedFromQr === "no" && imported) return false;
+    if (filter.departmentId === "__none__" && r.department_id) return false;
+    if (
+      filter.departmentId !== "all" &&
+      filter.departmentId !== "__none__" &&
+      r.department_id !== filter.departmentId
+    )
+      return false;
     return true;
   });
-  const isFiltered = q.length > 0 || filter.importedFromQr !== "all";
+  const isFiltered =
+    q.length > 0 ||
+    filter.importedFromQr !== "all" ||
+    filter.departmentId !== "all";
 
   function handleCreate() {
     const name = newRoleName.trim();
@@ -326,6 +381,7 @@ export function RolesClient({
           comment: null,
           icon: newRoleIcon,
           icon_color: newRoleIconColor,
+          department_id: null,
         };
         setRoles((prev) => [...prev, created]);
         setSheetOpen(false);
@@ -365,6 +421,17 @@ export function RolesClient({
               </div>
             )}
           </div>
+        );
+      }
+      case "department": {
+        const name = role.department_id
+          ? departmentNameById.get(role.department_id) ?? null
+          : null;
+        if (!name) {
+          return <span className="text-sm text-muted-foreground">—</span>;
+        }
+        return (
+          <span className="text-[13px] text-foreground truncate">{name}</span>
         );
       }
       case "staff": {
@@ -487,7 +554,7 @@ export function RolesClient({
             </IconTooltip>
           </div>
 
-          <RoleFilterPanel filter={filter} onChange={setFilter} />
+          <RoleFilterPanel filter={filter} departments={departments} onChange={setFilter} />
           <ColumnSettings visible={visibleCols} onChange={toggleCol} />
 
           {accountId && (

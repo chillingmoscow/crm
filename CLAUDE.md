@@ -27,6 +27,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Локальный Supabase (Docker) | `pnpm db:start` / `pnpm db:stop` / `pnpm db:status` |
 | Сброс локальной БД (применит миграции + `supabase/seed.sql`) | `pnpm db:reset` |
 | Новая миграция | `pnpm db:migrate <name>` |
+| Регенерация TS-типов из локальной БД | `pnpm regen:types` ([scripts/regen-types.sh](scripts/regen-types.sh)) |
 | Запуск одного теста | `node --test --experimental-strip-types src/path/to/file.test.mts` |
 | Все тесты | `node --test --experimental-strip-types "src/**/*.test.mts"` |
 
@@ -52,7 +53,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - [`src/lib/supabase/client.ts`](src/lib/supabase/client.ts) — браузерный клиент.
 - [`src/lib/supabase/admin.ts`](src/lib/supabase/admin.ts) — service-role (только сервер).
 - [`src/lib/supabase/middleware.ts`](src/lib/supabase/middleware.ts) — refresh-сессии для middleware.
-- Типы БД: [`src/types/database.ts`](src/types/database.ts) (плюс доменные `finance.ts`, `knowledge.ts`).
+- Типы БД: [`src/types/database.ts`](src/types/database.ts) (плюс доменные `finance.ts`, `knowledge.ts`). Регенерируется через `pnpm regen:types` — скрипт прогоняет `supabase gen types --local` и дописывает hand-added блок (`WorkingHours`, enum-алиасы). Полный regen иногда заваливает существующий код более строгими null-типами на чужих файлах (`src/lib/knowledge/pages.ts`, `src/lib/supabase/server.ts`); в этом случае либо точечно правьте те места, либо чёрри-пикайте новые блоки руками вместо полной перезаписи.
 
 ### Permissions
 - Активный account — RPC `get_active_account_id`. Права — RPC `list_my_permissions` (см. миграции `065`, `103`).

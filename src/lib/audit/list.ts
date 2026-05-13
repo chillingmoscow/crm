@@ -63,6 +63,24 @@ export type AuditEntitySnapshot =
       name: string;
       inn: string | null;
       deleted_at: string | null;
+    }
+  | {
+      type: "venue";
+      id: string;
+      name: string;
+      venue_type: string;
+    }
+  | {
+      type: "legal_entity";
+      id: string;
+      name: string;
+      inn: string | null;
+      is_active: boolean;
+    }
+  | {
+      type: "account";
+      id: string;
+      name: string;
     };
 
 export interface AuditEvent {
@@ -397,6 +415,55 @@ export async function listAuditEvents(input?: {
         name: cp.name,
         inn: cp.inn,
         deleted_at: cp.deleted_at,
+      });
+    }
+  }
+
+  // ── org snapshots ────────────────────────────────────────────
+  const venueIds = idsByType.get("venue");
+  if (venueIds && venueIds.size > 0) {
+    const { data: vRows } = await supabase
+      .from("venues")
+      .select("id, name, type")
+      .in("id", Array.from(venueIds));
+    for (const v of vRows ?? []) {
+      snapshotsByKey.set(`venue:${v.id}`, {
+        type: "venue",
+        id: v.id,
+        name: v.name,
+        venue_type: v.type,
+      });
+    }
+  }
+
+  const legalEntityIds = idsByType.get("legal_entity");
+  if (legalEntityIds && legalEntityIds.size > 0) {
+    const { data: leRows } = await supabase
+      .from("legal_entities")
+      .select("id, name, inn, is_active")
+      .in("id", Array.from(legalEntityIds));
+    for (const le of leRows ?? []) {
+      snapshotsByKey.set(`legal_entity:${le.id}`, {
+        type: "legal_entity",
+        id: le.id,
+        name: le.name,
+        inn: le.inn,
+        is_active: le.is_active,
+      });
+    }
+  }
+
+  const accountIds = idsByType.get("account");
+  if (accountIds && accountIds.size > 0) {
+    const { data: aRows } = await supabase
+      .from("accounts")
+      .select("id, name")
+      .in("id", Array.from(accountIds));
+    for (const a of aRows ?? []) {
+      snapshotsByKey.set(`account:${a.id}`, {
+        type: "account",
+        id: a.id,
+        name: a.name,
       });
     }
   }

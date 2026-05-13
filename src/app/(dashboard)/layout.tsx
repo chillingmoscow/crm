@@ -28,7 +28,7 @@ export default async function DashboardLayout({
   const [{ data: profile }, { data: venues }] = await Promise.all([
     supabase
       .from("profiles")
-      .select("first_name, last_name, active_venue_id")
+      .select("first_name, last_name, active_venue_id, avatar_url")
       .eq("id", user.id)
       .maybeSingle(),
     supabase.rpc("get_user_venues"),
@@ -139,6 +139,7 @@ export default async function DashboardLayout({
       <AppSidebar
         userName={userName}
         userEmail={user.email ?? ""}
+        userAvatarUrl={profile?.avatar_url ?? null}
         venues={venueList}
         activeVenueId={activeVenueId}
         activeRoleCode={activeRoleCode}

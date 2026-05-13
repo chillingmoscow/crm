@@ -153,6 +153,8 @@ type Venue = {
 interface AppSidebarProps {
   userName: string;
   userEmail: string;
+  /** URL аватарки из profiles.avatar_url. null → инициалы fallback. */
+  userAvatarUrl: string | null;
   venues: Venue[];
   activeVenueId: string | null;
   activeRoleCode: string | null;
@@ -220,15 +222,18 @@ function TogglePill() {
 function SidebarBody({
   userName,
   userEmail,
+  userAvatarUrl,
   venues,
   activeVenueId,
   activeRoleCode,
-  activeRoleName,
-  accountName,
   userPermissions,
   staffAttentionCount = 0,
   kbSidebarHidden = false,
 }: AppSidebarProps) {
+  // activeRoleName / accountName в SidebarBody не нужны — раньше
+  // прокидывались в ProfileMenu для верхнего user-блока, который убран.
+  // Остаются в AppSidebarProps чтобы не ломать сигнатуру у layout.tsx
+  // (могут пригодиться в будущем).
   const userPermissionsSet = useMemo(
     () => new Set(userPermissions),
     [userPermissions],
@@ -403,16 +408,16 @@ function SidebarBody({
               <button
                 type="button"
                 aria-label={userName}
-                className="flex items-center justify-center size-8 rounded-full bg-violet-400 text-white text-[13px] font-bold shrink-0 mx-auto"
+                className="size-8 rounded-full overflow-hidden shrink-0 mx-auto"
               >
-                {userName.charAt(0).toUpperCase()}
+                <UserAvatar
+                  name={userName}
+                  avatarUrl={userAvatarUrl}
+                  size={32}
+                />
               </button>
             </PopoverTrigger>
             <ProfileMenu
-              userName={userName}
-              userEmail={userEmail}
-              roleName={activeRoleName}
-              accountName={accountName}
               onSignOut={handleSignOut}
               onClose={() => setUserMenuOpen(false)}
             />
@@ -424,8 +429,12 @@ function SidebarBody({
                 type="button"
                 className="flex items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-sidebar-accent w-full data-[state=open]:bg-sidebar-accent"
               >
-                <div className="flex aspect-square size-8 items-center justify-center rounded-full bg-violet-400 text-white text-[13px] font-bold shrink-0">
-                  {userName.charAt(0).toUpperCase()}
+                <div className="size-8 rounded-full overflow-hidden shrink-0">
+                  <UserAvatar
+                    name={userName}
+                    avatarUrl={userAvatarUrl}
+                    size={32}
+                  />
                 </div>
                 <div className="flex flex-col min-w-0 flex-1 gap-0">
                   <span className="truncate text-[13px] font-semibold leading-tight">
@@ -441,10 +450,6 @@ function SidebarBody({
               </button>
             </PopoverTrigger>
             <ProfileMenu
-              userName={userName}
-              userEmail={userEmail}
-              roleName={activeRoleName}
-              accountName={accountName}
               onSignOut={handleSignOut}
               onClose={() => setUserMenuOpen(false)}
             />
@@ -679,24 +684,52 @@ function CollapsedSectionFlyout({
   );
 }
 
+// ── User avatar with fallback to initials ──────────────────────
+
+function UserAvatar({
+  name,
+  avatarUrl,
+  size = 32,
+}: {
+  name: string;
+  avatarUrl: string | null;
+  size?: number;
+}) {
+  const initial = name.charAt(0).toUpperCase() || "?";
+  if (avatarUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={avatarUrl}
+        alt={name}
+        className="w-full h-full object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return (
+    <span
+      className="w-full h-full flex items-center justify-center bg-violet-400 text-white font-bold"
+      style={{ fontSize: Math.max(11, Math.round(size * 0.4)) }}
+      aria-label={name}
+    >
+      {initial}
+    </span>
+  );
+}
+
 // ── Profile menu popover (matches zs57t in sheerly.pen) ─────────
 
 function ProfileMenu({
-  userName,
-  userEmail,
-  roleName,
-  accountName,
   onSignOut,
   onClose,
 }: {
-  userName: string;
-  userEmail: string;
-  roleName: string | null;
-  accountName: string | null;
   onSignOut: () => void;
   onClose: () => void;
 }) {
-  const subtitle = [roleName, accountName].filter(Boolean).join(" · ") || userEmail;
+  // Note: верхний user-блок (name + role · account + avatar) намеренно
+  // убран — он дублировал trigger-кнопку в футере сайдбара (на которую
+  // и навешан этот popover). См. фидбек 2026-05-13.
 
   return (
     <PopoverContent
@@ -705,25 +738,6 @@ function ProfileMenu({
       sideOffset={8}
       className="w-[280px] p-0 rounded-xl overflow-hidden"
     >
-      {/* User row — brand-tinted avatar + name + role · account */}
-      <div className="flex items-center gap-2.5 px-3 pt-3 pb-2.5">
-        <div className="flex aspect-square size-8 items-center justify-center rounded-full bg-brand text-white text-[12px] font-bold shrink-0">
-          {userName.charAt(0).toUpperCase()}
-        </div>
-        <div className="flex flex-col gap-px min-w-0 flex-1">
-          <span className="truncate text-[13px] font-semibold leading-tight">
-            {userName}
-          </span>
-          {subtitle && (
-            <span className="truncate text-[11px] text-muted-foreground leading-tight">
-              {subtitle}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="h-px bg-border" />
-
       {/* Theme switcher — Light / Dark / System */}
       <div className="px-3 py-2.5">
         <ThemeSwitcher />

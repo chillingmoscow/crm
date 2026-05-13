@@ -3,6 +3,8 @@ import {
   FilePlus2,
   FileEdit,
   ArrowRightFromLine,
+  Lock,
+  LockOpen,
   Trash2,
   RotateCcw,
   BookOpen,
@@ -120,6 +122,31 @@ const SPECS: Record<string, EventSpec> = {
         </>
       );
     },
+  },
+  "kb_page.locked": {
+    icon: Lock,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildLabel: (e) => (
+      <>
+        закрыл(а) страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>{" "}
+        от редактирования
+      </>
+    ),
+  },
+  "kb_page.unlocked": {
+    icon: LockOpen,
+    iconClass: "text-foreground bg-muted",
+    buildLabel: (e) => (
+      <>
+        снял(а) защиту от редактирования со страницы{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
+      </>
+    ),
   },
 };
 

@@ -120,7 +120,8 @@ export function DepartmentDetailPage({
     nameValue.trim() !== department.name ||
     commentValue.trim() !== (department.description ?? "") ||
     iconValue !== department.icon ||
-    iconColorValue !== department.icon_color;
+    iconColorValue !== department.icon_color ||
+    headRoleId !== department.head_role_id;
 
   // Должности этого подразделения по id
   const departmentRoleIds = useMemo(
@@ -151,33 +152,13 @@ export function DepartmentDetailPage({
         description: commentValue.trim() || null,
         icon: iconValue,
         iconColor: iconColorValue,
+        headRoleId,
       });
       if (result.error) {
         toast.error(result.error);
         return;
       }
       toast.success("Изменения сохранены");
-      router.refresh();
-    });
-  }
-
-  // head_role меняем instant'ом — по аналогии с тем, как role detail меняет
-  // department_id (см. handleDepartmentChange в role-detail-page.tsx).
-  function commitHeadRole(nextValue: string | null) {
-    const previous = headRoleId;
-    setHeadRoleId(nextValue);
-    startTransition(async () => {
-      const result = await updateDepartment(department.id, {
-        headRoleId: nextValue,
-      });
-      if (result.error) {
-        toast.error(result.error);
-        setHeadRoleId(previous);
-        return;
-      }
-      toast.success(
-        nextValue ? "Руководитель назначен" : "Руководитель снят",
-      );
       router.refresh();
     });
   }
@@ -357,9 +338,10 @@ export function DepartmentDetailPage({
                   </Label>
                   <Select
                     value={headRoleId ?? "__none__"}
-                    onValueChange={(v) =>
-                      canManage && commitHeadRole(v === "__none__" ? null : v)
-                    }
+                    onValueChange={(v) => {
+                      if (!canManage) return;
+                      setHeadRoleId(v === "__none__" ? null : v);
+                    }}
                     disabled={!canManage || isPending || roles.length === 0}
                   >
                     <SelectTrigger id="dep-head">
@@ -450,8 +432,7 @@ export function DepartmentDetailPage({
                       </span>
                     </h2>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Объедините похожие должности в этот блок — например все
-                      барные позиции в «Бар».
+                      Объедините похожие должности в этот блок.
                     </p>
                   </div>
                   {canManage && attachableRoles.length > 0 && (
@@ -461,7 +442,7 @@ export function DepartmentDetailPage({
                       onClick={() => setAttachOpen(true)}
                     >
                       <Plus className="w-3.5 h-3.5 mr-1.5" />
-                      Добавить должность
+                      Добавить
                     </Button>
                   )}
                 </div>

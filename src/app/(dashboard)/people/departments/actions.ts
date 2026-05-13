@@ -138,7 +138,12 @@ export async function createDepartment(input: {
 
   if (error) return { id: null, error: error.message };
 
-  revalidatePath("/people/departments");
+  // layout-scope: иначе RSC-payload для /people/departments
+  // (страница-список) может остаться в кэше Next, и после
+  // navigate'а назад юзер увидит старый список без только что
+  // созданной строки. На проде с агрессивным кэшем это особенно
+  // заметно (см. фикс на #284 follow-up).
+  revalidatePath("/people/departments", "layout");
   return { id: data.id, error: null };
 }
 
@@ -211,7 +216,7 @@ export async function deleteDepartment(
   const { error } = await supabase.from("departments").delete().eq("id", id);
   if (error) return { error: error.message };
 
-  revalidatePath("/people/departments");
+  revalidatePath("/people/departments", "layout");
   revalidatePath("/people/roles");
   return { error: null };
 }

@@ -57,20 +57,28 @@ const AUDIT_PAGE_SIZE = 50;
  *  timestamp на page2. Композит: `created_at < cursor_at OR
  *  (created_at = cursor_at AND id < cursor_id)` (см. KB Codex #52 P1).
  */
+/** Одна OR-группа «персонажный фильтр»: ряд проходит, если
+ *  `entity_id ∈ entityIds` ИЛИ `user_id ∈ actorIds`. Незаданные/пустые
+ *  массивы трактуются как «не применять эту сторону». Если ОБА массива
+ *  заданы и оба пусты — это означает «нет совпадений», и весь запрос
+ *  короткозамыкается в empty (без этой семантики search с 0 совпадениями
+ *  показывал бы вообще все события).
+ *
+ *  Несколько групп AND-комбинируются: ряд должен пройти каждую. Это
+ *  нужно когда staffFilter и q-поиск активны одновременно — они
+ *  ortogonal'ные constraint'ы. */
+export interface AuditFilterGroup {
+  entityIds?: string[];
+  actorIds?: string[];
+}
+
 export async function listAuditEvents(input?: {
   entityType?: string;
   /** Несколько типов сразу (OR), для фильтра «Раздел» в общем журнале. */
   entityTypes?: string[];
   entityId?: string;
-  /** Сужение по списку конкретных entity_id (например, поиск по имени
-   *  сотрудника предварительно резолвится в массив profile.id). Если
-   *  массив пустой — вернёт пустой результат (запрос не выполняется). */
-  entityIds?: string[];
-  /** OR с entityIds: ряд проходит фильтр, если actor (`user_id`) или
-   *  entity_id попадает в соответствующий список. Используется для
-   *  поиска и для фильтра «Сотрудники», когда хочется видеть события,
-   *  где сотрудник либо объект, либо исполнитель действия. */
-  actorIds?: string[];
+  /** Массив (entity_id OR user_id) групп, AND-комбинируемых. */
+  filterGroups?: AuditFilterGroup[];
   /** ISO timestamp, нижняя граница `created_at >= fromDate`. */
   fromDate?: string;
   /** ISO timestamp, верхняя граница `created_at < toDate` (исключая
@@ -87,24 +95,18 @@ export async function listAuditEvents(input?: {
   const supabase = await createClient();
   const pageSize = input?.pageSize ?? AUDIT_PAGE_SIZE;
 
-  // Если пользователь ввёл поиск и не нашлось совпадений — сразу пусто,
-  // иначе `.in("entity_id", [])` ушло бы в Postgrest как `=in.()` и
-  // вернуло бы все ряды (или ошибку), что не то что мы хотим.
-  // Когда оба фильтра — entityIds и actorIds — заданы и пусты,
-  // тоже короткозамыкаем; иначе .or() с пустыми in() ломается.
-  const hasEntityIds = input?.entityIds && input.entityIds.length > 0;
-  const hasActorIds = input?.actorIds && input.actorIds.length > 0;
-  const entityIdsExplicitlyEmpty =
-    input?.entityIds !== undefined && input.entityIds.length === 0;
-  const actorIdsExplicitlyEmpty =
-    input?.actorIds !== undefined && input.actorIds.length === 0;
-  if (entityIdsExplicitlyEmpty && !hasActorIds) {
-    return { events: [], hasMore: false, error: null };
-  }
-  if (actorIdsExplicitlyEmpty && !hasEntityIds && input?.actorIds !== undefined) {
-    // actorIds=[] вместе с другими фильтрами — намеренно пусто.
-    // Но если entityIds задан и непуст, поиск идёт по entity_id one-side.
-    if (!hasEntityIds) {
+  // Short-circuit: любая группа с обеими сторонами explicitly empty →
+  // совпадений быть не может, возвращаем пусто без round-trip'а.
+  for (const group of input?.filterGroups ?? []) {
+    const eIds = group.entityIds;
+    const aIds = group.actorIds;
+    const eEmpty = eIds !== undefined && eIds.length === 0;
+    const aEmpty = aIds !== undefined && aIds.length === 0;
+    const eMissing = eIds === undefined;
+    const aMissing = aIds === undefined;
+    // Группа бессмысленна если: обе пустые ИЛИ одна пустая + другая
+    // не задана (нет ни одного источника совпадений).
+    if ((eEmpty && aEmpty) || (eEmpty && aMissing) || (aEmpty && eMissing)) {
       return { events: [], hasMore: false, error: null };
     }
   }
@@ -135,16 +137,22 @@ export async function listAuditEvents(input?: {
   if (input?.entityId) {
     query = query.eq("entity_id", input.entityId);
   }
-  // entityIds + actorIds комбинируем через PostgREST `.or()` — ряд
-  // проходит, если entity_id ∈ entityIds ИЛИ user_id ∈ actorIds.
-  if (hasEntityIds && hasActorIds) {
-    query = query.or(
-      `entity_id.in.(${input!.entityIds!.join(",")}),user_id.in.(${input!.actorIds!.join(",")})`,
-    );
-  } else if (hasEntityIds) {
-    query = query.in("entity_id", input!.entityIds!);
-  } else if (hasActorIds) {
-    query = query.in("user_id", input!.actorIds!);
+  // Каждая группа → отдельный `.or()` или `.in()` — PostgREST AND-итит
+  // их между собой. Группы с обеими сторонами пустыми отсечены в
+  // short-circuit'е выше; здесь учитываем только non-empty стороны.
+  for (const group of input?.filterGroups ?? []) {
+    const hasE = group.entityIds && group.entityIds.length > 0;
+    const hasA = group.actorIds && group.actorIds.length > 0;
+    if (hasE && hasA) {
+      query = query.or(
+        `entity_id.in.(${group.entityIds!.join(",")}),user_id.in.(${group.actorIds!.join(",")})`,
+      );
+    } else if (hasE) {
+      query = query.in("entity_id", group.entityIds!);
+    } else if (hasA) {
+      query = query.in("user_id", group.actorIds!);
+    }
+    // обе пустые/missing — пропустили выше.
   }
   if (input?.fromDate) {
     query = query.gte("created_at", input.fromDate);

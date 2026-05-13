@@ -18,8 +18,12 @@ export default async function StaffPage() {
 const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   if (!user) redirect("/login");
 
-  // Phase 2 — profile + roles + departments в параллели.
-  const [{ data: profile }, { data: roles }, { data: departments }] =
+  // Phase 2 — profile + roles + accountId в параллели.
+  // accountId нужен ниже, чтобы корректно скоупить список departments —
+  // RLS на departments пускает по членству в любом venue аккаунта, и без
+  // явного account-фильтра в multi-account сетапе в фильтре всплывали бы
+  // чужие подразделения.
+  const [{ data: profile }, { data: roles }, { data: accountId }] =
     await Promise.all([
       supabase
         .from("profiles")
@@ -30,14 +34,19 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
         .from("roles")
         .select("id, name, code")
         .order("name"),
-      supabase
-        .from("departments")
-        .select("id, name")
-        .order("name"),
+      supabase.rpc("get_active_account_id"),
     ]);
 
   if (!profile?.active_venue_id) redirect("/onboarding");
   const venueId = profile.active_venue_id;
+
+  const { data: departments } = accountId
+    ? await supabase
+        .from("departments")
+        .select("id, name")
+        .eq("account_id", accountId as string)
+        .order("name")
+    : { data: [] as { id: string; name: string }[] };
 
   // Phase 3 — all four queries need venueId; run them all in parallel
   const [{ data: uvr }, staff, invitations, firedStaff] = await Promise.all([

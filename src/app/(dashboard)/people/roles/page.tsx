@@ -51,6 +51,10 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       ? supabase
           .from("departments")
           .select("id, name")
+          // RLS `dep_select_member` пускает по членству, не по active account —
+          // без явного фильтра в multi-account сетапе появились бы чужие
+          // подразделения в выпадашке.
+          .eq("account_id", accountId)
           .order("name")
       : Promise.resolve({ data: [] as { id: string; name: string }[] }),
   ]);

@@ -118,10 +118,15 @@ export default async function RoleDetailServerPage({
         .eq("entity_type", "role")
         .eq("local_id", roleId)
         .maybeSingle()) as unknown as Promise<{ data: { id: string } | null }>,
-      supabase
-        .from("departments")
-        .select("id, name")
-        .order("name"),
+      accountId
+        ? supabase
+            .from("departments")
+            .select("id, name")
+            // RLS пускает любого члена аккаунта — в multi-account сетапе
+            // без явного фильтра здесь всплывали бы чужие подразделения.
+            .eq("account_id", accountId as string)
+            .order("name")
+        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
     ]);
 
   return (

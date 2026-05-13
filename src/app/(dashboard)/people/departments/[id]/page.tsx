@@ -22,15 +22,10 @@ export default async function DepartmentDetailServerPage({
     permission_code: "people.manage_roles",
   });
 
-  const [{ data: accountId }, { department, roles, heads }, { data: allRoles }, { data: canViewAudit }] =
+  const [{ data: accountId }, { department, roles, heads }, { data: canViewAudit }] =
     await Promise.all([
       supabase.rpc("get_active_account_id"),
       getDepartment(id),
-      supabase
-        .from("roles")
-        .select("id, name, code, icon, icon_color, account_id, department_id")
-        .order("account_id", { nullsFirst: true })
-        .order("name"),
       supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
     ]);
 
@@ -41,6 +36,16 @@ export default async function DepartmentDetailServerPage({
   ) {
     redirect("/people/departments");
   }
+
+  // Список ролей для прикрепления — скоупим к active account (плюс
+  // системные с account_id = null). Иначе для multi-account юзера в
+  // выпадашке появились бы кастомные роли из чужих аккаунтов.
+  const { data: allRoles } = await supabase
+    .from("roles")
+    .select("id, name, code, icon, icon_color, account_id, department_id")
+    .or(`account_id.is.null,account_id.eq.${accountId as string}`)
+    .order("account_id", { nullsFirst: true })
+    .order("name");
 
   const auditResult = canViewAudit
     ? await listAuditEvents({ entityType: "department", entityId: id })

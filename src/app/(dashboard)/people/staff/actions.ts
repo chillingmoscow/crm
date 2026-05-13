@@ -36,6 +36,8 @@ export type StaffMember = {
   role_id:           string;
   role_name:         string;
   role_code:         string;
+  department_id:     string | null;
+  department_name:   string | null;
   first_name:        string | null;
   last_name:         string | null;
   email:             string;
@@ -477,6 +479,8 @@ export async function createStaffWithoutEmail(data: {
     role_id:         data.roleId,
     role_name:       roleRow?.name ?? "",
     role_code:       roleRow?.code ?? "",
+    department_id:   null,
+    department_name: null,
     first_name:      firstName,
     last_name:       lastName,
     email:           placeholderEmail,

@@ -28,6 +28,7 @@ import {
   Wallet,
   ArrowLeftRight,
   BookOpen,
+  Boxes,
   ScrollText,
   type LucideIcon,
 } from "lucide-react";
@@ -94,8 +95,9 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Люди",
     icon: Users,
     items: [
-      { title: "Сотрудники", href: "/people/staff", icon: User,   permission: "people.view_staff" },
-      { title: "Должности",  href: "/people/roles", icon: Shield, permission: "people.view_roles" },
+      { title: "Сотрудники",   href: "/people/staff",       icon: User,   permission: "people.view_staff" },
+      { title: "Должности",    href: "/people/roles",       icon: Shield, permission: "people.view_roles" },
+      { title: "Подразделения", href: "/people/departments", icon: Boxes,  permission: "people.view_roles" },
     ],
   },
   {

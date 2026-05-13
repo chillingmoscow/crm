@@ -2203,6 +2203,63 @@ export type Database = {
           },
         ]
       }
+      departments: {
+        Row: {
+          account_id: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          head_role_id: string | null
+          icon: string | null
+          icon_color: string | null
+          id: string
+          name: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          account_id: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          head_role_id?: string | null
+          icon?: string | null
+          icon_color?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          account_id?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          head_role_id?: string | null
+          icon?: string | null
+          icon_color?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "departments_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "departments_head_role_id_fkey"
+            columns: ["head_role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       roles: {
         Row: {
           account_id: string | null
@@ -2210,7 +2267,9 @@ export type Database = {
           comment: string | null
           created_at: string
           created_by: string | null
+          department_id: string | null
           icon: string | null
+          icon_color: string | null
           id: string
           name: string
           updated_at: string
@@ -2222,7 +2281,9 @@ export type Database = {
           comment?: string | null
           created_at?: string
           created_by?: string | null
+          department_id?: string | null
           icon?: string | null
+          icon_color?: string | null
           id?: string
           name: string
           updated_at?: string
@@ -2234,7 +2295,9 @@ export type Database = {
           comment?: string | null
           created_at?: string
           created_by?: string | null
+          department_id?: string | null
           icon?: string | null
+          icon_color?: string | null
           id?: string
           name?: string
           updated_at?: string
@@ -2253,6 +2316,13 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
             referencedColumns: ["id"]
           },
           {
@@ -2779,6 +2849,8 @@ export type Database = {
         Returns: {
           avatar_url: string
           birth_date: string
+          department_id: string | null
+          department_name: string | null
           email: string
           employment_date: string
           first_name: string
@@ -2792,6 +2864,33 @@ export type Database = {
           telegram_id: string
           user_id: string
           uvr_id: string
+        }[]
+      }
+      get_departments_with_counts: {
+        Args: { p_venue_id?: string | null }
+        Returns: {
+          description: string | null
+          head_role_id: string | null
+          head_role_name: string | null
+          icon: string | null
+          icon_color: string | null
+          id: string
+          name: string
+          roles_count: number
+          staff_count: number
+        }[]
+      }
+      get_department_heads: {
+        Args: { p_department_id: string }
+        Returns: {
+          avatar_url: string | null
+          first_name: string | null
+          last_name: string | null
+          role_id: string
+          role_name: string
+          user_id: string
+          venue_id: string
+          venue_name: string
         }[]
       }
       has_permission: { Args: { permission_code: string }; Returns: boolean }

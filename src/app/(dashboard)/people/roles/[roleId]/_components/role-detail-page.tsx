@@ -13,6 +13,13 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -21,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { deleteRole, setRolePermission, updateRole } from "../../actions";
+import { setRoleDepartment } from "../../../departments/actions";
 import { metaForModule, sortModuleKeys } from "./permission-modules";
 import { IconPicker } from "../../_components/icon-picker";
 import { iconForRole } from "../../_components/role-icons";
@@ -41,10 +49,16 @@ type Role = {
   comment: string | null;
   icon: string | null;
   icon_color: string | null;
+  department_id: string | null;
   created_at: string | null;
   updated_at: string | null;
   created_by: string | null;
   updated_by: string | null;
+};
+
+type DepartmentOption = {
+  id: string;
+  name: string;
 };
 
 type Permission = {
@@ -69,6 +83,8 @@ type Props = {
   /** Display name «Имя Ф.» of role.created_by (null if unavailable) */
   createdByName: string | null;
   updatedByName: string | null;
+  /** Список подразделений активного аккаунта (для селекта в «Основном»). */
+  departments: DepartmentOption[];
 };
 
 type TabKey = "main" | "permissions" | "compensation" | "danger";
@@ -82,6 +98,7 @@ export function RoleDetailPage({
   accountId,
   createdByName,
   updatedByName,
+  departments,
 }: Props) {
   const router = useRouter();
   const [rolePermissions, setRolePerms] = useState(initialRolePerms);
@@ -96,6 +113,9 @@ export function RoleDetailPage({
   const [iconValue, setIconValue] = useState<string | null>(role.icon);
   const [iconColorValue, setIconColorValue] = useState<string | null>(
     role.icon_color ?? null,
+  );
+  const [departmentId, setDepartmentId] = useState<string | null>(
+    role.department_id,
   );
   const dirty =
     nameValue.trim() !== role.name ||
@@ -184,6 +204,23 @@ export function RoleDetailPage({
         return;
       }
       toast.success("Изменения сохранены");
+      router.refresh();
+    });
+  }
+
+  function handleDepartmentChange(nextValue: string | null) {
+    const previous = departmentId;
+    setDepartmentId(nextValue);
+    startTransition(async () => {
+      const result = await setRoleDepartment(role.id, nextValue);
+      if (result.error) {
+        toast.error(result.error);
+        setDepartmentId(previous);
+        return;
+      }
+      toast.success(
+        nextValue ? "Подразделение обновлено" : "Подразделение снято",
+      );
       router.refresh();
     });
   }
@@ -499,6 +536,36 @@ export function RoleDetailPage({
                     }}
                     disabled={!canEdit}
                   />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="role-department" className="text-[13px] font-medium">
+                    Подразделение
+                  </Label>
+                  <Select
+                    value={departmentId ?? "__none__"}
+                    onValueChange={(v) =>
+                      handleDepartmentChange(v === "__none__" ? null : v)
+                    }
+                    disabled={!canEdit || isSystem || isPending}
+                  >
+                    <SelectTrigger id="role-department">
+                      <SelectValue placeholder="Без подразделения" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Без подразделения</SelectItem>
+                      {departments.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {isSystem && (
+                    <p className="text-xs text-muted-foreground">
+                      Системные должности нельзя относить к подразделению.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-1.5">

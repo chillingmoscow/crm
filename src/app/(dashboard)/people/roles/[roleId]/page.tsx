@@ -35,7 +35,7 @@ export default async function RoleDetailServerPage({
   // info card on the «Основное» tab. See migration 052.
   const { data: role } = await supabase
     .from("roles")
-    .select("id, account_id, name, code, comment, icon, icon_color, created_at, updated_at, created_by, updated_by")
+    .select("id, account_id, name, code, comment, icon, icon_color, department_id, created_at, updated_at, created_by, updated_by")
     .eq("id", roleId)
     .returns<{
       id: string;
@@ -45,6 +45,7 @@ export default async function RoleDetailServerPage({
       comment: string | null;
       icon: string | null;
       icon_color: string | null;
+      department_id: string | null;
       created_at: string | null;
       updated_at: string | null;
       created_by: string | null;
@@ -90,7 +91,7 @@ export default async function RoleDetailServerPage({
     return last ? `${first} ${last.charAt(0)}.`.trim() : first;
   };
 
-  const [permissionsResult, rolePermsResult, importedRoleResult] =
+  const [permissionsResult, rolePermsResult, importedRoleResult, departmentsResult] =
     await Promise.all([
       supabase
         .from("permissions")
@@ -106,6 +107,10 @@ export default async function RoleDetailServerPage({
         .eq("entity_type", "role")
         .eq("local_id", roleId)
         .maybeSingle()) as unknown as Promise<{ data: { id: string } | null }>,
+      supabase
+        .from("departments")
+        .select("id, name")
+        .order("name"),
     ]);
 
   return (
@@ -117,6 +122,7 @@ export default async function RoleDetailServerPage({
       importedFromQuickResto={Boolean(importedRoleResult.data?.id)}
       createdByName={formatProfile(role.created_by)}
       updatedByName={formatProfile(role.updated_by)}
+      departments={departmentsResult.data ?? []}
     />
   );
 }

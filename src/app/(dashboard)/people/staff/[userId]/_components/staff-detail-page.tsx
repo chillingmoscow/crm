@@ -54,7 +54,7 @@ import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
 import type { AuditEvent } from "@/lib/audit/list";
-import { StaffAuditTab } from "./staff-audit-tab";
+import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import {
   fireStaff,
   setImportedStaffEmailAndInvite,
@@ -88,7 +88,7 @@ type FormValues = z.infer<typeof schema>;
 
 type Role = { id: string; name: string; code: string };
 
-type TabKey = "main" | "documents" | "history" | "danger";
+type TabKey = "main" | "documents" | "history" | "activity" | "danger";
 
 interface Props {
   profile:        StaffProfile;
@@ -112,11 +112,14 @@ interface Props {
    *  отправлено, но юзер ещё не подтвердил email. Админ может перепослать
    *  на другой адрес, если ошибся. */
   emailConfirmed: boolean;
-  /** Видит ли текущий юзер таб «Журнал». Проверка `org.view_audit`
-   *  выполняется на сервере; здесь — флаг для conditional render'а. */
+  /** Видит ли текущий юзер табы «Журнал» / «Активность». Проверка
+   *  `org.view_audit` выполняется на сервере; здесь — флаг для
+   *  conditional render'а. */
   canViewAudit: boolean;
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
+  initialActivityEvents: AuditEvent[];
+  initialActivityHasMore: boolean;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -195,6 +198,8 @@ export function StaffDetailPage({
   canViewAudit,
   initialAuditEvents,
   initialAuditHasMore,
+  initialActivityEvents,
+  initialActivityHasMore,
 }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("main");
@@ -680,7 +685,10 @@ export function StaffDetailPage({
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="documents">Документы</TabsTrigger>
             {canViewAudit && (
-              <TabsTrigger value="history">Журнал</TabsTrigger>
+              <>
+                <TabsTrigger value="history">Журнал</TabsTrigger>
+                <TabsTrigger value="activity">Активность</TabsTrigger>
+              </>
             )}
             <TabsTrigger
               value="danger"
@@ -1146,13 +1154,29 @@ export function StaffDetailPage({
             </form>
           </TabsContent>
 
-          {/* ── Журнал ──────────────────────────────────────── */}
+          {/* ── Журнал (что делали с этим сотрудником) ──────── */}
           {canViewAudit && (
             <TabsContent value="history">
-              <StaffAuditTab
-                userId={profile.id}
+              <EntityAuditTab
+                mode="entity"
+                entityType="staff"
+                entityId={profile.id}
+                canView={canViewAudit}
                 initialEvents={initialAuditEvents}
                 initialHasMore={initialAuditHasMore}
+              />
+            </TabsContent>
+          )}
+
+          {/* ── Активность (что этот сотрудник делал сам) ────── */}
+          {canViewAudit && (
+            <TabsContent value="activity">
+              <EntityAuditTab
+                mode="actor"
+                actorId={profile.id}
+                canView={canViewAudit}
+                initialEvents={initialActivityEvents}
+                initialHasMore={initialActivityHasMore}
               />
             </TabsContent>
           )}

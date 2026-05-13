@@ -9,8 +9,11 @@ import {
   listLegalEntities,
 } from "@/lib/org/legal-entities";
 import { isDadataConfigured } from "@/lib/dadata/client";
+import { listAuditEvents } from "@/lib/audit/list";
+import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import { LegalEntityDetailClient } from "./_components/legal-entity-detail";
 import { LegalEntityVenues } from "./_components/legal-entity-venues";
+import { LegalEntityDetailTabs } from "./_components/legal-entity-tabs";
 
 export default async function LegalEntityDetailPage({
   params,
@@ -47,6 +50,7 @@ export default async function LegalEntityDetailPage({
     { data: canManage },
     { data: canDelete },
     { data: canManageVenues },
+    { data: canViewAudit },
     { rows: venues },
     { rows: legalEntities },
   ] = await Promise.all([
@@ -59,9 +63,16 @@ export default async function LegalEntityDetailPage({
     supabase.rpc("has_permission", {
       permission_code: "org.manage_venues",
     }),
+    supabase.rpc("has_permission", {
+      permission_code: "org.view_audit",
+    }),
     listAccountVenues(),
     listLegalEntities(),
   ]);
+
+  const auditResult = canViewAudit
+    ? await listAuditEvents({ entityType: "legal_entity", entityId: id })
+    : { events: [], hasMore: false, error: null };
 
   // id → display name lookup so the venues section can show "currently
   // attached to <other LE>" rows informatively.
@@ -86,21 +97,37 @@ export default async function LegalEntityDetailPage({
         {row.kpp ? ` • КПП ${row.kpp}` : ""}
       </p>
 
-      <LegalEntityDetailClient
-        row={row}
-        canManage={!!canManage}
-        canDelete={!!canDelete}
-        dadataEnabled={isDadataConfigured()}
+      <LegalEntityDetailTabs
+        canViewAudit={Boolean(canViewAudit)}
+        main={
+          <>
+            <LegalEntityDetailClient
+              row={row}
+              canManage={!!canManage}
+              canDelete={!!canDelete}
+              dadataEnabled={isDadataConfigured()}
+            />
+            <div className="mt-6">
+              <LegalEntityVenues
+                legalEntityId={row.id}
+                venues={venues}
+                legalEntityNames={legalEntityNames}
+                readOnly={!canManageVenues}
+              />
+            </div>
+          </>
+        }
+        history={
+          <EntityAuditTab
+            mode="entity"
+            entityType="legal_entity"
+            entityId={row.id}
+            canView={Boolean(canViewAudit)}
+            initialEvents={auditResult.events}
+            initialHasMore={auditResult.hasMore}
+          />
+        }
       />
-
-      <div className="mt-6">
-        <LegalEntityVenues
-          legalEntityId={row.id}
-          venues={venues}
-          legalEntityNames={legalEntityNames}
-          readOnly={!canManageVenues}
-        />
-      </div>
     </div>
   );
 }

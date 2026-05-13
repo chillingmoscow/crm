@@ -139,14 +139,20 @@ export default async function StaffMemberPage({
   if (!profileRow) redirect("/people/staff");
   if (!targetUvr) redirect("/people/staff");
 
-  // Журнал. RLS на audit_logs уже отфильтровывает по org.view_audit;
-  // canViewAudit нужен фронту, чтобы решить рендерить ли таб.
+  // Журнал + Активность. RLS на audit_logs фильтрует по org.view_audit;
+  // canViewAudit нужен фронту, чтобы решить рендерить ли табы.
   const { data: canViewAudit } = await supabase.rpc("has_permission", {
     permission_code: "org.view_audit",
   });
-  const auditResult = canViewAudit
-    ? await listAuditEvents({ entityType: "staff", entityId: userId })
-    : { events: [], hasMore: false, error: null };
+  const [auditResult, activityResult] = canViewAudit
+    ? await Promise.all([
+        listAuditEvents({ entityType: "staff", entityId: userId }),
+        listAuditEvents({ filterGroups: [{ actorIds: [userId] }] }),
+      ])
+    : [
+        { events: [], hasMore: false, error: null },
+        { events: [], hasMore: false, error: null },
+      ];
 
   // Если для пары (account_id, user_id) ещё нет ряда в staff_account_details
   // — это норма (свежий сотрудник, тенант-данные пусты). Подсовываем
@@ -184,6 +190,8 @@ export default async function StaffMemberPage({
       canViewAudit={Boolean(canViewAudit)}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
+      initialActivityEvents={activityResult.events}
+      initialActivityHasMore={activityResult.hasMore}
     />
   );
 }

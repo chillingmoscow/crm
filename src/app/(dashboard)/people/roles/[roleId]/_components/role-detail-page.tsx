@@ -38,6 +38,8 @@ import {
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
+import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
+import type { AuditEvent } from "@/lib/audit/list";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -85,9 +87,12 @@ type Props = {
   updatedByName: string | null;
   /** Список подразделений активного аккаунта (для селекта в «Основном»). */
   departments: DepartmentOption[];
+  canViewAudit: boolean;
+  initialAuditEvents: AuditEvent[];
+  initialAuditHasMore: boolean;
 };
 
-type TabKey = "main" | "permissions" | "compensation" | "danger";
+type TabKey = "main" | "permissions" | "compensation" | "history" | "danger";
 
 // ── Component ────────────────────────────────────────────────
 
@@ -99,6 +104,9 @@ export function RoleDetailPage({
   createdByName,
   updatedByName,
   departments,
+  canViewAudit,
+  initialAuditEvents,
+  initialAuditHasMore,
 }: Props) {
   const router = useRouter();
   const [rolePermissions, setRolePerms] = useState(initialRolePerms);
@@ -352,6 +360,9 @@ export function RoleDetailPage({
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="permissions">Права доступа</TabsTrigger>
             <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
+            {canViewAudit && (
+              <TabsTrigger value="history">Журнал</TabsTrigger>
+            )}
             {canDelete && (
               <TabsTrigger
                 value="danger"
@@ -612,6 +623,20 @@ export function RoleDetailPage({
               </div>
             </div>
           </TabsContent>
+
+          {/* ── Журнал ─────────────────────────────────────────── */}
+          {canViewAudit && (
+            <TabsContent value="history">
+              <EntityAuditTab
+                mode="entity"
+                entityType="role"
+                entityId={role.id}
+                canView={canViewAudit}
+                initialEvents={initialAuditEvents}
+                initialHasMore={initialAuditHasMore}
+              />
+            </TabsContent>
+          )}
 
           {/* ── Danger zone ───────────────────────────────────── */}
           {canDelete && (

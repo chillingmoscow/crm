@@ -36,7 +36,7 @@ export async function loadAuditFeedPage(params: AuditFeedParams): Promise<{
 
   const filterGroups: AuditFilterGroup[] = [];
   if (staffFilter.length > 0) {
-    // Сотрудник как объект ИЛИ как исполнитель.
+    // Сотрудник как объект ИЛИ как исполнитель (одна группа = OR).
     filterGroups.push({
       entityIds: staffFilter,
       actorIds: staffFilter,

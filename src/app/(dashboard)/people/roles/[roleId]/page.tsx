@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { listAuditEvents } from "@/lib/audit/list";
 import { RoleDetailPage } from "./_components/role-detail-page";
 
 export default async function RoleDetailServerPage({
@@ -91,6 +92,16 @@ export default async function RoleDetailServerPage({
     return last ? `${first} ${last.charAt(0)}.`.trim() : first;
   };
 
+  // Журнал. Префетчим первую страницу для таба «Журнал», если у юзера
+  // есть `org.view_audit`. Без него фетч пропускаем (RLS всё равно
+  // выдаст пусто, экономим запрос).
+  const { data: canViewAudit } = await supabase.rpc("has_permission", {
+    permission_code: "org.view_audit",
+  });
+  const auditResult = canViewAudit
+    ? await listAuditEvents({ entityType: "role", entityId: roleId })
+    : { events: [], hasMore: false, error: null };
+
   const [permissionsResult, rolePermsResult, importedRoleResult, departmentsResult] =
     await Promise.all([
       supabase
@@ -123,6 +134,9 @@ export default async function RoleDetailServerPage({
       createdByName={formatProfile(role.created_by)}
       updatedByName={formatProfile(role.updated_by)}
       departments={departmentsResult.data ?? []}
+      canViewAudit={Boolean(canViewAudit)}
+      initialAuditEvents={auditResult.events}
+      initialAuditHasMore={auditResult.hasMore}
     />
   );
 }

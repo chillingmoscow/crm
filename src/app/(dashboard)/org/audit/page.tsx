@@ -11,7 +11,7 @@ import { AuditPageClient } from "./_components/audit-page-client";
  *   ?q                — общий поиск (имя сотрудника / должность /
  *                       email приглашения / название KB-страницы)
  *   ?types=staff,invitation,role,kb_page — разделы (csv)
- *   ?staff=<uuid,…>   — конкретные сотрудники (csv)
+ *   ?staff=<uuid,…>   — конкретные сотрудники (как объект ИЛИ исполнитель)
  *   ?from / ?to       — диапазон дат (YYYY-MM-DD)
  *   ?date_preset      — лейбл пресета («Текущая неделя», …)
  *   ?before_at,?before_id — keyset-курсор пагинации (для shareable URL)

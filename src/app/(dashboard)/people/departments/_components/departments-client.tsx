@@ -54,30 +54,32 @@ export function DepartmentsClient({
         iconColor,
         description: description.trim() || null,
       });
-      if (result.error) {
-        toast.error(result.error);
+      // `{ id: null, error: null }` — недопустимое состояние контракта,
+      // но было прецедент (несуществующая таблица на проде → supabase-js
+      // отдавал error без message). Без `!result.id` мы повторяли silent-
+      // fail: success toast + drawer остаётся открыт.
+      if (result.error || !result.id) {
+        toast.error(result.error ?? "Не удалось создать подразделение");
         return;
       }
       toast.success("Подразделение создано");
-      if (result.id) {
-        const created: DepartmentSummary = {
-          id: result.id,
-          name: trimmed,
-          icon,
-          icon_color: iconColor,
-          description: description.trim() || null,
-          head_role_id: null,
-          head_role_name: null,
-          roles_count: 0,
-          staff_count: 0,
-        };
-        setDepartments((prev) =>
-          [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "ru")),
-        );
-        setSheetOpen(false);
-        resetForm();
-        router.push(`/people/departments/${result.id}`);
-      }
+      const created: DepartmentSummary = {
+        id: result.id,
+        name: trimmed,
+        icon,
+        icon_color: iconColor,
+        description: description.trim() || null,
+        head_role_id: null,
+        head_role_name: null,
+        roles_count: 0,
+        staff_count: 0,
+      };
+      setDepartments((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "ru")),
+      );
+      setSheetOpen(false);
+      resetForm();
+      router.push(`/people/departments/${result.id}`);
     });
   }
 

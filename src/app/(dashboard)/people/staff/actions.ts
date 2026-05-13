@@ -1,5 +1,7 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
@@ -232,6 +234,33 @@ export async function inviteStaff(data: {
       .join(" ") || null;
   const roleName = roleRow?.name ?? null;
 
+  // Custom invite flow (см. миграцию 150 + /invite/accept).
+  //
+  // Раньше использовали admin.auth.admin.generateLink({type:'invite'}),
+  // но GoTrue email-link редиректит юзера на свой SITE_URL (= Supabase
+  // Studio в нашем self-hosted setup'е), а не на наше приложение. Чтобы
+  // навсегда отвязаться от GoTrue email-flow и не зависеть от env'ов
+  // на проде, генерируем свой токен в invitations.token и шлём
+  // /invite/accept?token=... через наш nodemailer. Приём токена,
+  // создание/sign-in user'а и активация UVR — на стороне /invite/accept.
+
+  const admin = createAdminClient();
+
+  // Проверяем существует ли уже user с таким email — это меняет текст
+  // письма-приглашения ("Войдите" vs "Создайте пароль") и определяет
+  // что покажет /invite/accept. listUsers() возвращает только первую
+  // страницу (Codex P1 на #271) — используем RPC через миграцию 151,
+  // прямой запрос в auth.users по email.
+  const lookupRpc = admin.rpc as unknown as (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => Promise<{ data: string | null; error: { message: string } | null }>;
+  const { data: existingUserId } = await lookupRpc(
+    "lookup_user_id_by_email",
+    { p_email: email },
+  );
+  const existingUser = !!existingUserId;
+
   // Keep one pending invite per email+venue to avoid ambiguous acceptance.
   await supabase
     .from("invitations")
@@ -239,6 +268,8 @@ export async function inviteStaff(data: {
     .eq("venue_id", data.venueId)
     .ilike("email", email)
     .eq("status", "pending");
+
+  const token = randomUUID();
 
   const { data: insertedInvitation, error: invError } = await supabase
     .from("invitations")
@@ -248,117 +279,16 @@ export async function inviteStaff(data: {
       role_id:    data.roleId,
       invited_by: user.id,
       status:     "pending",
+      token,
     })
     .select("id")
     .single();
 
-  if (invError || !insertedInvitation?.id) return { error: invError?.message ?? "Не удалось создать приглашение", invitation: null };
-
-  const redirectTo = `${siteUrl}/auth/callback?next=${encodeURIComponent(
-    `/invite?invitation=${insertedInvitation.id}`
-  )}`;
-
-  const admin = createAdminClient();
-  const linkPayload = {
-    venue_id: data.venueId,
-    role_id: data.roleId,
-    invitation_id: insertedInvitation.id,
-    venue_name: venueRow.name,
-    role_name: roleName,
-  };
-  const hasCustomMailer = hasCustomMailerConfig();
-
-  // Fallback: if custom SMTP mailer is not configured, use built-in Supabase emails.
-  if (!hasCustomMailer) {
-    const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      data: linkPayload,
-      redirectTo,
-    });
-
-    if (inviteError) {
-      const isExistingUserError = inviteError.message
-        .toLowerCase()
-        .includes("already been registered");
-
-      if (!isExistingUserError) {
-        await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-        return { error: inviteError.message, invitation: null };
-      }
-
-      const { error: otpError } = await admin.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: false,
-          emailRedirectTo: redirectTo,
-          data: linkPayload,
-        },
-      });
-
-      if (otpError) {
-        await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-        return { error: otpError.message, invitation: null };
-      }
-    }
-
-    const pendingInvitation: PendingInvitation = {
-      inv_id: insertedInvitation.id,
-      email,
-      role_id: data.roleId,
-      role_name: roleName ?? "",
-      role_code: "",
-      invited_at: new Date().toISOString(),
-    };
-
-    revalidatePath("/people/staff");
-    return { error: null, invitation: pendingInvitation };
+  if (invError || !insertedInvitation?.id) {
+    return { error: invError?.message ?? "Не удалось создать приглашение", invitation: null };
   }
 
-  const { data: inviteLinkData, error: inviteLinkError } =
-    await admin.auth.admin.generateLink({
-      type: "invite",
-      email,
-      options: {
-        data: linkPayload,
-        redirectTo,
-      },
-    });
-
-  let actionLink: string | null = inviteLinkData?.properties?.action_link ?? null;
-  let existingUser = false;
-
-  if (inviteLinkError) {
-    const isExistingUserError = inviteLinkError.message
-      .toLowerCase()
-      .includes("already been registered");
-
-    if (!isExistingUserError) {
-        await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-        return { error: inviteLinkError.message, invitation: null };
-    }
-
-    const { data: magicLinkData, error: magicLinkError } =
-      await admin.auth.admin.generateLink({
-        type: "magiclink",
-        email,
-        options: {
-          data: linkPayload,
-          redirectTo,
-        },
-      });
-
-    if (magicLinkError || !magicLinkData?.properties?.action_link) {
-      await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-      return { error: magicLinkError?.message ?? "Не удалось сгенерировать ссылку приглашения", invitation: null };
-    }
-
-    existingUser = true;
-    actionLink = magicLinkData.properties.action_link;
-  }
-
-  if (!actionLink) {
-    await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
-    return { error: "Не удалось сгенерировать ссылку приглашения", invitation: null };
-  }
+  const actionLink = `${siteUrl}/invite/accept?token=${token}`;
 
   try {
     await sendInvitationEmail({
@@ -371,6 +301,9 @@ export async function inviteStaff(data: {
       existingUser,
     });
   } catch (emailError) {
+    // SMTP-сбой: чистим только что созданный invitation (без письма он
+    // мёртвый — юзер ничего не получит, лучше дать админу попробовать
+    // заново).
     await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
     return {
       error:

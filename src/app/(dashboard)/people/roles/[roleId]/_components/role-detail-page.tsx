@@ -202,6 +202,27 @@ export function RoleDetailPage({
 
   function handleSave() {
     startTransition(async () => {
+      // Codex P1 на #299: если updateRole удачно сохранил поля, а
+      // setRoleDepartment упал (RLS/trigger/RPC) — оставался partial
+      // write без refresh'а, UI расходился с БД.
+      //
+      // Реордер: сначала меняем привязку к подразделению (отдельная
+      // транзакция в Postgres через RPC), потом — основные поля.
+      // Подразделение валится чаще (триггеры на department_id,
+      // dep_select_member RLS), поэтому ставим его первым: если упало
+      // — основные поля даже не трогали, БД консистентна, ничего
+      // refresh'ить не надо. Если повалился второй UPDATE (роль)
+      // после успешного первого — делаем router.refresh(), чтобы UI
+      // увидел уже изменённый department_id.
+      if (departmentId !== role.department_id) {
+        const depResult = await setRoleDepartment(role.id, departmentId);
+        if (depResult.error) {
+          toast.error(depResult.error);
+          setDepartmentId(role.department_id);
+          return;
+        }
+      }
+
       const result = await updateRole(role.id, {
         name: nameValue,
         comment: commentValue || null,
@@ -210,20 +231,8 @@ export function RoleDetailPage({
       });
       if (result.error) {
         toast.error(result.error);
+        router.refresh(); // sync UI с уже применённым изменением department
         return;
-      }
-      // Подразделение — отдельный action (setRoleDepartment), потому что
-      // у него отдельная инвариантность (cleanup stale head_role_id +
-      // ревалидация двух подразделений). Вызываем только если поменялся.
-      if (departmentId !== role.department_id) {
-        const depResult = await setRoleDepartment(role.id, departmentId);
-        if (depResult.error) {
-          toast.error(depResult.error);
-          // Откатываем local state, чтобы не было визуального рассинхрона
-          // с серверным состоянием.
-          setDepartmentId(role.department_id);
-          return;
-        }
       }
       toast.success("Изменения сохранены");
       router.refresh();

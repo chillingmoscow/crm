@@ -74,15 +74,10 @@ export function DepartmentsClient({
         setDepartments((prev) =>
           [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "ru")),
         );
+        setSheetOpen(false);
+        resetForm();
+        router.push(`/people/departments/${result.id}`);
       }
-      // Закрываем drawer и форсируем re-fetch списка на сервере.
-      // revalidatePath лениво, на проде RSC-payload может остаться
-      // stale → router.refresh() гарантирует свежие данные при
-      // следующем визите. Редирект в карточку убрали: юзер чаще хочет
-      // продолжить добавлять/настраивать, а не сразу проваливаться внутрь.
-      setSheetOpen(false);
-      resetForm();
-      router.refresh();
     });
   }
 

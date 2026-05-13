@@ -267,6 +267,28 @@ export async function inviteStaff(data: {
   );
   const existingUser = !!existingUserId;
 
+  // Email-conflict guard (issue #270): не приглашаем на email который
+  // уже member venue (uvr active). Раньше создавался дубликат "Ожидает"
+  // в списке staff. existingUser в auth.users разрешён (он войдёт под
+  // своим паролем — invite просто добавит ему membership), но если он
+  // УЖЕ член нашего venue — invite не нужен.
+  if (existingUserId) {
+    const { data: existingMembership } = await admin
+      .from("user_venue_roles")
+      .select("id")
+      .eq("user_id", existingUserId)
+      .eq("venue_id", data.venueId)
+      .eq("status", "active")
+      .limit(1)
+      .maybeSingle();
+    if (existingMembership) {
+      return {
+        error: "Этот пользователь уже работает в заведении.",
+        invitation: null,
+      };
+    }
+  }
+
   // Keep one pending invite per email+venue to avoid ambiguous acceptance.
   await supabase
     .from("invitations")

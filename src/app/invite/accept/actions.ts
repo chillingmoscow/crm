@@ -155,8 +155,9 @@ export async function acceptInvitation(
     .update({ active_venue_id: invitation.venue_id })
     .eq("id", userId);
 
-  // 6. Проверяем заполненность профиля — если нет, шлём на /profile
-  //    с welcome-баннером (та же логика что в /invite).
+  // 6. Проверяем заполненность профиля — если нет, добавляем welcome-
+  //    notification в колокольчик (раньше показывали баннер на /profile,
+  //    но он перегружал верх страницы — юзер просил вынести в bell).
   const { data: profile } = await admin
     .from("profiles")
     .select("first_name, last_name, phone, telegram_id")
@@ -169,8 +170,27 @@ export async function acceptInvitation(
     !!profile?.phone &&
     !!profile?.telegram_id;
 
+  if (!existing && !profileComplete) {
+    // Только для новых юзеров (existing=false) — old user'ы и так
+    // в системе и не нуждаются в onboarding-toast'е. Best-effort:
+    // если insert упадёт, не блокируем редирект (notification-это
+    // приятный bonus, не critical).
+    try {
+      await admin.from("notifications").insert({
+        user_id: userId,
+        type: "staff.welcome",
+        title: "Добро пожаловать в команду!",
+        body: "Заполните профиль, чтобы коллеги могли вас узнать, а руководство — поздравить с днём рождения и быстро связаться. Это займёт минуту.",
+        link: "/profile",
+        category: "staff",
+      });
+    } catch (e) {
+      console.error("[acceptInvitation] welcome notification failed:", e);
+    }
+  }
+
   return {
     error: null,
-    redirect: profileComplete ? "/dashboard" : "/profile?welcome=1",
+    redirect: profileComplete ? "/dashboard" : "/profile",
   };
 }

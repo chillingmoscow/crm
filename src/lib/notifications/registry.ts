@@ -8,6 +8,7 @@ import {
   HeartPulse,
   Info,
   MessageCircle,
+  PartyPopper,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -86,6 +87,12 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     category: "staff",
     icon: Gift,
     iconColor: "text-purple-500",
+    verb: null,
+  },
+  "staff.welcome": {
+    category: "staff",
+    icon: PartyPopper,
+    iconColor: "text-brand",
     verb: null,
   },
 

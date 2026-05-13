@@ -2,7 +2,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useSearchParams } from "next/navigation";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -12,7 +11,6 @@ import {
   Camera,
   FileText,
   Loader2,
-  PartyPopper,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -180,9 +178,6 @@ export function ProfileSettingsPage({
   email,
   emailConfirmed,
 }: Props) {
-  const searchParams = useSearchParams();
-  const welcomeMode = searchParams.get("welcome") === "1";
-
   const [avatarUrl, setAvatarUrl]                 = useState<string | null>(profile.avatar_url);
   const [contactEmail, setContactEmail]           = useState(email);
   const [isPending, startTransition]              = useTransition();
@@ -350,25 +345,11 @@ export function ProfileSettingsPage({
 
   return (
     <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-      {/* Welcome banner — показывается приглашённым сотрудникам, у которых
-          ещё не заполнен профиль. Контролируется query param ?welcome=1 */}
-      {welcomeMode && (
-        <div className="rounded-[14px] border border-brand/20 bg-brand/5 p-5 flex items-start gap-4">
-          <div className="flex items-center justify-center size-10 rounded-full bg-brand/15 shrink-0">
-            <PartyPopper className="w-5 h-5 text-brand" />
-          </div>
-          <div className="flex flex-col gap-1 min-w-0">
-            <h2 className="text-base font-semibold text-foreground leading-tight">
-              Добро пожаловать в команду!
-            </h2>
-            <p className="text-[13px] text-muted-foreground leading-relaxed">
-              Заполните профиль, чтобы коллеги могли вас узнать,
-              а руководство — поздравить с днём рождения и быстро связаться.
-              Это займёт минуту.
-            </p>
-          </div>
-        </div>
-      )}
+      {/* Welcome для новых юзеров — теперь живёт в колокольчике
+          (notifications.staff.welcome, добавляется в acceptInvitation).
+          Раньше был баннер на этой странице, но перегружал верх.
+          `welcomeMode` оставлен для обратной совместимости с legacy
+          query-param'ами в чьих-то закладках. */}
 
       {/* Header — без аватара слева. Большое фото есть в первой секции формы. */}
       <div className="flex flex-col gap-1 min-w-0">

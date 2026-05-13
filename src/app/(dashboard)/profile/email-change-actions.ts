@@ -42,9 +42,46 @@ export async function requestEmailChange(
 
   const admin = createAdminClient();
 
-  // Проверку «email уже занят» НЕ делаем здесь — это leak'нуло бы факт
-  // регистрации (enumeration). Confirm-route атомарно вызовет
-  // auth.admin.updateUserById и вернёт чистую ошибку если адрес занят.
+  // Email-conflict guard (issue #270): не даём сменить на email,
+  // который уже используется. Раньше пропускали — confirm-route
+  // ловил конфликт через auth.admin.updateUserById. Но это создавало
+  // pending-инвайт для email'а, который уже занят (если pending был
+  // в нашем аккаунте), либо confusing «не могу обновить» в UI после
+  // долгого подтверждения. Проверяем заранее с обобщённой ошибкой
+  // (без раскрытия где конкретно занят — защита от enumeration).
+  const adminUntyped = admin as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{
+      data: string | null;
+      error: { message: string } | null;
+    }>;
+  };
+  const { data: existingUserId } = await adminUntyped.rpc(
+    "lookup_user_id_by_email",
+    { p_email: normalized },
+  );
+  if (existingUserId && existingUserId !== user.id) {
+    return {
+      error:
+        "Этот email уже используется в системе. Если это вы — войдите под ним. Если приглашаете коллегу — попросите его указать другой адрес.",
+    };
+  }
+
+  // Также проверяем pending invitations — email мог быть приглашён
+  // (даже если ещё не зарегистрирован в auth.users), и тогда pending
+  // invitation создаст коллизию когда тот примет.
+  const { data: pendingInvite } = await admin
+    .from("invitations")
+    .select("id")
+    .ilike("email", normalized)
+    .eq("status", "pending")
+    .limit(1)
+    .maybeSingle();
+  if (pendingInvite) {
+    return {
+      error:
+        "Этот email уже используется в системе. Если это вы — войдите под ним. Если приглашаете коллегу — попросите его указать другой адрес.",
+    };
+  }
 
   // email_change_requests (migration 139) ещё не во вшитых Database
   // типах — cast чтобы развязать pipeline до регенерации.

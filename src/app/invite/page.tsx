@@ -89,7 +89,9 @@ export default async function InvitePage({
     !!profile?.telegram_id;
 
   // Только что приглашённого сотрудника без заполненного профиля шлём на
-  // /profile?welcome=1 — там welcome-баннер + completion meter с
-  // подсказками. Старая /onboarding/employee оставлена как fallback.
-  redirect(profileComplete ? "/dashboard" : "/profile?welcome=1");
+  // /profile — welcome-нотификация уже отрисована в bell'е через
+  // acceptInvitation (см. там insert в notifications). Раньше тут был
+  // ?welcome=1 query-param для баннера, но баннер убрали — он перегружал
+  // верх /profile. Старая /onboarding/employee оставлена как fallback.
+  redirect(profileComplete ? "/dashboard" : "/profile");
 }

@@ -88,6 +88,39 @@ function EntityReference({ event }: { event: AuditEvent }) {
     );
   }
 
+  if (entity.type === "role") {
+    // Системные роли (account_id=null) — например owner — не имеют
+    // редактируемой страницы, ссылку не показываем.
+    if (!entity.account_id) return null;
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <Link
+          href={`/people/roles/${entity.id}`}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
+          открыть должность
+        </Link>
+      </>
+    );
+  }
+
+  // invitation — нет отдельной страницы, статус показываем как подсказку.
+  if (entity.type === "invitation") {
+    return (
+      <>
+        <span className="text-muted-foreground/50">·</span>
+        <span className="text-muted-foreground">
+          {entity.status === "pending"
+            ? "ожидает"
+            : entity.status === "accepted"
+              ? "принято"
+              : entity.status}
+        </span>
+      </>
+    );
+  }
+
   return null;
 }
 

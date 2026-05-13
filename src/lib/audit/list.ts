@@ -20,6 +20,19 @@ export type AuditEntitySnapshot =
       first_name: string | null;
       last_name: string | null;
       avatar_url: string | null;
+    }
+  | {
+      type: "role";
+      id: string;
+      name: string;
+      code: string;
+      account_id: string | null;
+    }
+  | {
+      type: "invitation";
+      id: string;
+      email: string;
+      status: string;
     };
 
 export interface AuditEvent {
@@ -247,6 +260,42 @@ export async function listAuditEvents(input?: {
         first_name: p.first_name,
         last_name: p.last_name,
         avatar_url: p.avatar_url,
+      });
+    }
+  }
+
+  // role snapshots.
+  const roleIds = idsByType.get("role");
+  if (roleIds && roleIds.size > 0) {
+    const { data: roleRows } = await supabase
+      .from("roles")
+      .select("id, name, code, account_id")
+      .in("id", Array.from(roleIds));
+    for (const r of roleRows ?? []) {
+      snapshotsByKey.set(`role:${r.id}`, {
+        type: "role",
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        account_id: r.account_id,
+      });
+    }
+  }
+
+  // invitation snapshots — могут отсутствовать (приняли/отменили).
+  // В этом случае берём email из event.details при рендере.
+  const invitationIds = idsByType.get("invitation");
+  if (invitationIds && invitationIds.size > 0) {
+    const { data: invRows } = await supabase
+      .from("invitations")
+      .select("id, email, status")
+      .in("id", Array.from(invitationIds));
+    for (const inv of invRows ?? []) {
+      snapshotsByKey.set(`invitation:${inv.id}`, {
+        type: "invitation",
+        id: inv.id,
+        email: inv.email,
+        status: inv.status,
       });
     }
   }

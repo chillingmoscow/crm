@@ -6,7 +6,13 @@ import {
   FileEdit,
   FilePlus2,
   IdCard,
+  Key,
+  Mail,
+  MailCheck,
+  MailX,
   RotateCcw,
+  ShieldPlus,
+  ShieldX,
   Trash2,
   UserMinus,
   UserPlus,
@@ -54,6 +60,30 @@ function StaffName({ event }: { event: AuditEvent }) {
   const name = staffName(event.entity);
   if (!name) return <em className="text-muted-foreground">этого сотрудника</em>;
   return <strong className="font-medium">{name}</strong>;
+}
+
+/** Имя роли — приоритет live snapshot, fallback на event.details
+ *  (для удалённых ролей). */
+function roleNameFromEvent(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "role") return event.entity.name;
+  const fromDetails =
+    (event.details.new_name as string) ?? (event.details.name as string);
+  return fromDetails || "роль";
+}
+
+function RoleName({ event }: { event: AuditEvent }) {
+  return <strong className="font-medium">«{roleNameFromEvent(event)}»</strong>;
+}
+
+/** Email приглашения. Live snapshot отсутствует если приглашение уже
+ *  удалено / принято — берём из payload, который тригер всегда пишет. */
+function invitationEmailFromEvent(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "invitation") return event.entity.email;
+  return (event.details.email as string) || "—";
+}
+
+function InvitationEmail({ event }: { event: AuditEvent }) {
+  return <strong className="font-medium">{invitationEmailFromEvent(event)}</strong>;
 }
 
 function formatDate(value: unknown): string {
@@ -217,6 +247,116 @@ const SPECS: Record<string, AuditEventSpec> = {
       </>
     ),
     buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+
+  // ── invitation ─────────────────────────────────────────────
+  "invitation.sent": {
+    icon: Mail,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => {
+      const role = (e.details.role_name as string) || "";
+      return role ? (
+        <>
+          отправил(а) приглашение <InvitationEmail event={e} /> на должность{" "}
+          <strong className="font-medium">{role}</strong>
+        </>
+      ) : (
+        <>
+          отправил(а) приглашение <InvitationEmail event={e} />
+        </>
+      );
+    },
+  },
+  "invitation.accepted": {
+    icon: MailCheck,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => (
+      <>
+        принял(а) приглашение (<InvitationEmail event={e} />)
+      </>
+    ),
+  },
+  "invitation.cancelled": {
+    icon: MailX,
+    iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        отменил(а) приглашение <InvitationEmail event={e} />
+      </>
+    ),
+  },
+
+  // ── role ───────────────────────────────────────────────────
+  "role.created": {
+    icon: ShieldPlus,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => (
+      <>
+        создал(а) должность <RoleName event={e} />
+      </>
+    ),
+  },
+  "role.renamed": {
+    icon: FileEdit,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => {
+      const oldName = (e.details.old_name as string) || "";
+      const newName = (e.details.new_name as string) || "";
+      return (
+        <>
+          переименовал(а) должность:{" "}
+          <span className="text-muted-foreground line-through">«{oldName}»</span>
+          {" → "}
+          <strong className="font-medium">«{newName}»</strong>
+        </>
+      );
+    },
+  },
+  "role.deleted": {
+    icon: ShieldX,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => (
+      <>
+        удалил(а) должность <RoleName event={e} />
+      </>
+    ),
+  },
+  "role.permissions_changed": {
+    icon: Key,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildHeadline: (e) => {
+      const desc =
+        (e.details.permission_description as string) ||
+        (e.details.permission_code as string) ||
+        "право";
+      const action = e.details.action as string | undefined;
+      let verbPhrase: ReactNode;
+      if (action === "granted") {
+        verbPhrase = (
+          <>
+            выдал(а) право <strong className="font-medium">«{desc}»</strong>
+          </>
+        );
+      } else if (action === "revoked") {
+        verbPhrase = (
+          <>
+            отозвал(а) право <strong className="font-medium">«{desc}»</strong>
+          </>
+        );
+      } else {
+        verbPhrase = (
+          <>
+            сбросил(а) право <strong className="font-medium">«{desc}»</strong> к
+            дефолту
+          </>
+        );
+      }
+      return (
+        <>
+          {verbPhrase} у должности <RoleName event={e} />
+        </>
+      );
+    },
   },
 
   // ── kb_page ─────────────────────────────────────────────────

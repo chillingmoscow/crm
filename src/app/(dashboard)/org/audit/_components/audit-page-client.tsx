@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, ScrollText, X } from "lucide-react";
 
@@ -12,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { AuditEventRow } from "@/components/audit/audit-event-row";
 import { groupEventsByDate } from "@/lib/audit/group-by-date";
 import type { AuditEvent } from "@/lib/audit/list";
+import { loadAuditFeedPage } from "@/lib/audit/feed";
 
 import {
   DateRangeFilter,
@@ -26,6 +34,8 @@ import type { AuditStaffOption } from "@/lib/audit/search-staff";
 
 const SECTION_OPTIONS: MultiSelectItem[] = [
   { id: "staff", name: "Сотрудники" },
+  { id: "invitation", name: "Приглашения" },
+  { id: "role", name: "Должности" },
   { id: "kb_page", name: "База знаний" },
 ];
 
@@ -135,17 +145,66 @@ export function AuditPageClient({
     (urlFrom || urlTo ? 1 : 0) +
     (urlQ ? 1 : 0);
 
-  const groups = useMemo(() => groupEventsByDate(events), [events]);
+  // ── Client-side pagination state ──────────────────────────────
+  // Изначальная страница приезжает с сервера (events prop). «Загрузить
+  // ещё» дёргает loadAuditFeedPage с курсором и append'ит — без полной
+  // навигации, скролл сохраняется.
+  //
+  // При смене любого фильтра URL меняется → page.tsx ре-рендерится →
+  // events/hasMore приезжают новые → reset через useEffect ниже.
+  //
+  // Гонка load-more × filter change: если пользователь кликнул
+  // «Загрузить ещё», а потом сразу сменил фильтр, старый запрос мог бы
+  // долететь и append'нуть устаревшие события. Защищаемся через
+  // request-key: на старте сохраняем подпись текущих фильтров, при
+  // приземлении результата сверяем с ref'ом — несовпадение значит
+  // фильтры успели измениться, результат игнорируем.
+  const [accumulated, setAccumulated] = useState<AuditEvent[]>(events);
+  const [accumulatedHasMore, setAccumulatedHasMore] = useState(hasMore);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const [isLoadingMore, startLoadMore] = useTransition();
+
+  const filtersKey = `${urlQ}|${urlTypes.join(",")}|${urlStaff.join(",")}|${urlFrom}|${urlTo}`;
+  const filtersKeyRef = useRef(filtersKey);
+  useEffect(() => {
+    filtersKeyRef.current = filtersKey;
+  }, [filtersKey]);
+
+  useEffect(() => {
+    setAccumulated(events);
+    setAccumulatedHasMore(hasMore);
+    setLoadMoreError(null);
+  }, [events, hasMore]);
+
+  const onLoadMore = () => {
+    const last = accumulated[accumulated.length - 1];
+    if (!last) return;
+    const snapshotKey = filtersKey;
+    startLoadMore(async () => {
+      const result = await loadAuditFeedPage({
+        q: urlQ || undefined,
+        types: urlTypes.length > 0 ? urlTypes.join(",") : undefined,
+        staff: urlStaff.length > 0 ? urlStaff.join(",") : undefined,
+        from: urlFrom || undefined,
+        to: urlTo || undefined,
+        beforeAt: last.created_at,
+        beforeId: last.id,
+      });
+      // Stale guard: фильтры успели поменяться — выбрасываем результат,
+      // accumulator сейчас уже соответствует новому фильтру.
+      if (snapshotKey !== filtersKeyRef.current) return;
+      if (result.error) {
+        setLoadMoreError(result.error);
+        return;
+      }
+      setAccumulated((prev) => [...prev, ...result.events]);
+      setAccumulatedHasMore(result.hasMore);
+    });
+  };
+
+  const groups = useMemo(() => groupEventsByDate(accumulated), [accumulated]);
   const hasFilters = activeFilterCount > 0;
   const isInitialLoad = !searchParams.get("before_at");
-
-  // ── Pagination link (preserve filters) ────────────────────────
-  const buildOlderHref = (lastEvent: { created_at: string; id: string }) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("before_at", lastEvent.created_at);
-    params.set("before_id", lastEvent.id);
-    return `${pathname}?${params.toString()}`;
-  };
 
   // ── Render ────────────────────────────────────────────────────
   return (
@@ -288,7 +347,7 @@ export function AuditPageClient({
         </div>
       )}
 
-      {!error && events.length === 0 && isInitialLoad && (
+      {!error && accumulated.length === 0 && isInitialLoad && (
         <EmptyState
           icon={ScrollText}
           title={hasFilters ? "Ничего не найдено" : "Пока пусто"}
@@ -317,14 +376,24 @@ export function AuditPageClient({
         </div>
       )}
 
-      {hasMore && events.length > 0 && (
+      {loadMoreError && (
+        <div className="mt-4 rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          Не удалось загрузить больше: {loadMoreError}
+        </div>
+      )}
+
+      {accumulatedHasMore && accumulated.length > 0 && (
         <div className="flex justify-center pt-4">
-          <a
-            href={buildOlderHref(events[events.length - 1])}
-            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+            className="text-muted-foreground hover:text-foreground"
           >
-            Показать события старее →
-          </a>
+            {isLoadingMore ? "Загружаем…" : "Загрузить ещё"}
+          </Button>
         </div>
       )}
     </div>

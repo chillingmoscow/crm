@@ -1,5 +1,7 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
+
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
@@ -124,19 +126,33 @@ export async function createDepartment(input: {
   const name = input.name.trim();
   if (!name) return { id: null, error: "Название не может быть пустым" };
 
-  const { data, error } = await supabase
-    .from("departments")
-    .insert({
-      account_id: accountId,
-      name,
-      icon: input.icon?.trim() ? input.icon : null,
-      icon_color: input.iconColor?.trim() ? input.iconColor : null,
-      description: input.description?.trim() ? input.description : null,
-    })
-    .select("id")
-    .single();
+  // UUID генерируем на сервере вместо того чтобы получать назад от
+  // PostgREST. Раньше делали `.insert(...).select("id").single()` —
+  // и на проде воспроизводился сценарий, когда insert проходил, но
+  // `.select()` возвращал null/empty (RLS quirk, return=representation,
+  // grants — точная причина без логов не ясна). UI получал
+  // { id: null, error: null } и показывал зелёный toast при том, что
+  // данные не возвращались. Своя UUID убирает зависимость от ответа
+  // PostgREST: знаем id ещё до запроса.
+  const id = randomUUID();
 
-  if (error) return { id: null, error: error.message };
+  const { error } = await supabase.from("departments").insert({
+    id,
+    account_id: accountId,
+    name,
+    icon: input.icon?.trim() ? input.icon : null,
+    icon_color: input.iconColor?.trim() ? input.iconColor : null,
+    description: input.description?.trim() ? input.description : null,
+  });
+
+  if (error) {
+    console.error("[createDepartment] insert error", {
+      accountId,
+      name,
+      error,
+    });
+    return { id: null, error: error.message };
+  }
 
   // layout-scope: иначе RSC-payload для /people/departments
   // (страница-список) может остаться в кэше Next, и после
@@ -144,7 +160,7 @@ export async function createDepartment(input: {
   // созданной строки. На проде с агрессивным кэшем это особенно
   // заметно (см. фикс на #284 follow-up).
   revalidatePath("/people/departments", "layout");
-  return { id: data.id, error: null };
+  return { id, error: null };
 }
 
 export async function updateDepartment(

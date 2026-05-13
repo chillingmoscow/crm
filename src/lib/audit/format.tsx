@@ -12,6 +12,8 @@ import {
   IdCard,
   Key,
   Landmark,
+  Lock,
+  LockOpen,
   Mail,
   MailCheck,
   MailX,
@@ -854,6 +856,31 @@ const SPECS: Record<string, AuditEventSpec> = {
           «{(e.details.title as string) || "Без названия"}»
         </strong>{" "}
         из корзины
+      </>
+    ),
+  },
+  "kb_page.locked": {
+    icon: Lock,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildHeadline: (e) => (
+      <>
+        закрыл(а) страницу{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>{" "}
+        от редактирования
+      </>
+    ),
+  },
+  "kb_page.unlocked": {
+    icon: LockOpen,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        снял(а) защиту от редактирования со страницы{" "}
+        <strong className="font-medium">
+          «{(e.details.title as string) || "Без названия"}»
+        </strong>
       </>
     ),
   },

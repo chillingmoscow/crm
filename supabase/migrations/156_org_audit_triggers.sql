@@ -141,15 +141,26 @@ begin
   end if;
 
   if TG_OP = 'DELETE' then
+    -- Cascade-safe: при DELETE accounts → cascade venues, и INSERT в
+    -- audit_logs ссылается на about-to-be-deleted account → FK
+    -- violation. `pg_trigger_depth()` не считает internal RI cascade,
+    -- так что ловим foreign_key_violation в exception block.
     v_payload := jsonb_build_object(
       'name',    OLD.name,
       'type',    OLD.type,
       'address', OLD.address
     );
-    perform public.log_audit_with_context(
-      'venue.deleted', 'venue', OLD.id, v_payload,
-      v_account_id, auth.uid(), null, null
-    );
+    begin
+      perform public.log_audit_with_context(
+        'venue.deleted', 'venue', OLD.id, v_payload,
+        v_account_id, auth.uid(), null, null
+      );
+    exception
+      when foreign_key_violation then
+        -- account уже удаляется в этой же транзакции — пропускаем,
+        -- audit_logs всё равно каскадно удалится.
+        null;
+    end;
     return OLD;
   end if;
 
@@ -270,10 +281,16 @@ begin
       'legal_form', OLD.legal_form,
       'inn',        OLD.inn
     );
-    perform public.log_audit_with_context(
-      'legal_entity.deleted', 'legal_entity', OLD.id, v_payload,
-      v_account_id, auth.uid(), null, null
-    );
+    begin
+      perform public.log_audit_with_context(
+        'legal_entity.deleted', 'legal_entity', OLD.id, v_payload,
+        v_account_id, auth.uid(), null, null
+      );
+    exception
+      when foreign_key_violation then
+        -- account cascade-delete (см. venues_audit_trigger §DELETE).
+        null;
+    end;
     return OLD;
   end if;
 

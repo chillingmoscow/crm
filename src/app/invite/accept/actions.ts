@@ -56,11 +56,16 @@ export async function acceptInvitation(
   //    listUsers() возвращает только первую страницу, на больших базах
   //    existing-юзера пропустит и попытается createUser, который потом
   //    упадёт на «already registered» (Codex P1 на #271).
-  const lookupRpc = admin.rpc as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: string | null; error: { message: string } | null }>;
-  const { data: existingUserId } = await lookupRpc(
+  //
+  //    Cast'им весь admin (не .rpc как функцию) чтобы сохранить
+  //    this-binding — иначе runtime упадёт «Cannot read this».
+  const adminUntyped = admin as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{
+      data: string | null;
+      error: { message: string } | null;
+    }>;
+  };
+  const { data: existingUserId } = await adminUntyped.rpc(
     "lookup_user_id_by_email",
     { p_email: email },
   );

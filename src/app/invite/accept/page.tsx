@@ -110,13 +110,18 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
   // (миграция 151) — admin.auth.admin.listUsers() возвращает только
   // первую страницу, на больших базах existing-юзеры пропадают
   // (Codex P1 на #271).
+  //
+  // Cast'им весь admin (не .rpc как функцию) чтобы сохранить
+  // this-binding — иначе runtime упадёт «Cannot read this».
   const email = invitation.email.toLowerCase();
-  const lookupRpc = admin.rpc as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: string | null; error: { message: string } | null }>;
+  const adminUntyped = admin as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{
+      data: string | null;
+      error: { message: string } | null;
+    }>;
+  };
   const [existingLookup, venueRow, roleRow] = await Promise.all([
-    lookupRpc("lookup_user_id_by_email", { p_email: email }),
+    adminUntyped.rpc("lookup_user_id_by_email", { p_email: email }),
     admin
       .from("venues")
       .select("name, accounts(name)")

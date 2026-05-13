@@ -251,11 +251,17 @@ export async function inviteStaff(data: {
   // что покажет /invite/accept. listUsers() возвращает только первую
   // страницу (Codex P1 на #271) — используем RPC через миграцию 151,
   // прямой запрос в auth.users по email.
-  const lookupRpc = admin.rpc as unknown as (
-    fn: string,
-    args: Record<string, unknown>,
-  ) => Promise<{ data: string | null; error: { message: string } | null }>;
-  const { data: existingUserId } = await lookupRpc(
+  //
+  // КРИТИЧНО: cast'им весь клиент, не extract'им .rpc как функцию —
+  // иначе теряется this-binding и .rpc внутри упадёт «Cannot read this».
+  // Тот же паттерн что в (dashboard)/layout.tsx для count_venue_staff_attention.
+  const adminUntyped = admin as unknown as {
+    rpc: (fn: string, args: Record<string, unknown>) => Promise<{
+      data: string | null;
+      error: { message: string } | null;
+    }>;
+  };
+  const { data: existingUserId } = await adminUntyped.rpc(
     "lookup_user_id_by_email",
     { p_email: email },
   );

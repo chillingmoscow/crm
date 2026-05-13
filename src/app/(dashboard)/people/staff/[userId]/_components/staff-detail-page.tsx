@@ -98,6 +98,8 @@ interface Props {
   uvrId:          string;
   roleId:         string;
   roleName:       string;
+  departmentId:   string | null;
+  departmentName: string | null;
   terminalPin:    string | null;
   venueId:        string;
   roles:          Role[];
@@ -183,6 +185,8 @@ export function StaffDetailPage({
   uvrId,
   roleId,
   roleName,
+  departmentId,
+  departmentName,
   terminalPin,
   venueId,
   canEdit,
@@ -624,7 +628,24 @@ export function StaffDetailPage({
               {displayName}
             </h1>
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-muted-foreground">{roleName}</span>
+              <span className="text-sm text-muted-foreground">
+                {roleName}
+                {departmentName && (
+                  <>
+                    {" · "}
+                    {departmentId ? (
+                      <Link
+                        href={`/people/departments/${departmentId}`}
+                        className="hover:text-foreground hover:underline"
+                      >
+                        {departmentName}
+                      </Link>
+                    ) : (
+                      departmentName
+                    )}
+                  </>
+                )}
+              </span>
               {isPlaceholderUser ? (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
                   <span className="text-[12px] font-medium text-muted-foreground leading-none">

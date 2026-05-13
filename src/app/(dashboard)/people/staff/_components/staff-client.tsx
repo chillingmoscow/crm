@@ -525,6 +525,8 @@ export function StaffClient({
           role_id:         member.role_id,
           role_name:       member.role_name,
           role_code:       member.role_code,
+          department_id:   null,
+          department_name: null,
           first_name:      member.first_name,
           last_name:       member.last_name,
           email:           member.email,
@@ -670,6 +672,11 @@ export function StaffClient({
             >
               {member.role_name}
             </Badge>
+            {member.department_name && (
+              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                {member.department_name}
+              </div>
+            )}
           </button>
         );
       }

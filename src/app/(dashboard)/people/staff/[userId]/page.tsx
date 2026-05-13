@@ -20,7 +20,12 @@ type TargetVenueRole = {
   // Колонка в БД называется created_at — это «когда сотрудник попал в
   // команду» (RPC get_venue_staff алиасит её в joined_at для фронта).
   created_at: string | null;
-  roles: { name: string; code: string } | null;
+  roles: {
+    name: string;
+    code: string;
+    department_id: string | null;
+    departments: { id: string; name: string } | null;
+  } | null;
 };
 
 type VenueRow = { account_id: string | null };
@@ -104,7 +109,9 @@ export default async function StaffMemberPage({
       .maybeSingle(),
     admin
       .from("user_venue_roles")
-      .select("id, role_id, terminal_pin, created_at, roles(name, code)")
+      .select(
+        "id, role_id, terminal_pin, created_at, roles(name, code, department_id, departments(id, name))",
+      )
       .eq("user_id", userId)
       .eq("venue_id", venueId)
       .eq("status", "active")
@@ -169,6 +176,8 @@ export default async function StaffMemberPage({
       uvrId={targetUvr.id}
       roleId={targetUvr.role_id}
       roleName={targetUvr.roles?.name ?? ""}
+      departmentId={targetUvr.roles?.departments?.id ?? null}
+      departmentName={targetUvr.roles?.departments?.name ?? null}
       terminalPin={targetUvr.terminal_pin}
       venueId={venueId}
       roles={roles ?? []}

@@ -1,8 +1,12 @@
 import {
   Activity,
+  Archive,
   ArrowLeftRight,
   ArrowRightFromLine,
   BookOpen,
+  Building2,
+  CircleArrowUp,
+  CreditCard,
   FileEdit,
   FilePlus2,
   IdCard,
@@ -10,9 +14,11 @@ import {
   Mail,
   MailCheck,
   MailX,
+  Pencil,
   RotateCcw,
   ShieldPlus,
   ShieldX,
+  Tag,
   Trash2,
   UserMinus,
   UserPlus,
@@ -37,6 +43,7 @@ interface AuditEventSpec {
 }
 
 const FIELD_LABELS: Record<string, string> = {
+  // staff
   phone: "телефон",
   telegram_id: "телеграм",
   birth_date: "дата рождения",
@@ -45,7 +52,89 @@ const FIELD_LABELS: Record<string, string> = {
   medical_book_date: "срок действия медкнижки",
   passport_photos: "фото паспорта",
   comment: "комментарий HR",
+  // finance (общие)
+  name: "название",
+  type: "тип",
+  amount: "сумма",
+  currency: "валюта",
+  description: "описание",
+  date: "дата",
+  group_id: "группа",
+  is_active: "активность",
+  // finance.transaction
+  bank_account_id: "счёт",
+  to_bank_account_id: "счёт получатель",
+  to_legal_entity_id: "юрлицо получатель",
+  category_id: "статья",
+  counterparty_id: "контрагент",
+  // bank_account
+  bank_name: "банк",
+  bik: "БИК",
+  account_number: "номер счёта",
+  card_holder: "держатель карты",
+  card_number_last4: "последние 4 цифры карты",
+  // counterparty
+  legal_form: "правовая форма",
+  inn: "ИНН",
+  kpp: "КПП",
+  ogrn: "ОГРН",
+  contact_person: "контактное лицо",
+  email: "email",
+  address: "адрес",
+  // category
+  color: "цвет",
+  icon: "иконка",
 };
+
+function formatAmount(value: unknown, currency: string = "RUB"): string {
+  const num = typeof value === "number" ? value : Number(value);
+  if (Number.isNaN(num)) return String(value);
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: currency || "RUB",
+    maximumFractionDigits: 2,
+  }).format(num);
+}
+
+function txTypeLabel(type: string | undefined): string {
+  switch (type) {
+    case "income":
+      return "поступление";
+    case "expense":
+      return "списание";
+    case "transfer":
+      return "перевод";
+    default:
+      return type ?? "операция";
+  }
+}
+
+function txNameFromEvent(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "transaction") {
+    return `#${event.entity.public_id}`;
+  }
+  const publicId = event.details.public_id;
+  return publicId ? `#${publicId}` : "транзакция";
+}
+
+function TxRef({ event }: { event: AuditEvent }) {
+  return <strong className="font-medium">{txNameFromEvent(event)}</strong>;
+}
+
+function bankAccountName(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "bank_account") return event.entity.name;
+  return (event.details.name as string) || "счёт";
+}
+
+function categoryName(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "finance_category") return event.entity.name;
+  return (event.details.name as string) || "статья";
+}
+
+function counterpartyName(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "counterparty") return event.entity.name;
+  return (event.details.name as string) || "контрагент";
+}
 
 function staffName(entity: AuditEntitySnapshot | null): string | null {
   if (!entity || entity.type !== "staff") return null;
@@ -357,6 +446,203 @@ const SPECS: Record<string, AuditEventSpec> = {
         </>
       );
     },
+  },
+
+  // ── finance.transaction ────────────────────────────────────
+  "finance.transaction.created": {
+    icon: CircleArrowUp,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => {
+      const txType = e.details.type as string | undefined;
+      const amount = formatAmount(e.details.amount, (e.details.currency as string) || "RUB");
+      const cat = e.details.category_name as string | undefined;
+      const cp = e.details.counterparty_name as string | undefined;
+      return (
+        <>
+          добавил(а) {txTypeLabel(txType)} <TxRef event={e} /> на{" "}
+          <strong className="font-medium">{amount}</strong>
+          {cat && (
+            <>
+              {" "}— <span className="text-muted-foreground">{cat}</span>
+            </>
+          )}
+          {cp && (
+            <>
+              {" "}/ <span className="text-muted-foreground">{cp}</span>
+            </>
+          )}
+        </>
+      );
+    },
+  },
+  "finance.transaction.updated": {
+    icon: Pencil,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) транзакцию <TxRef event={e} />
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  "finance.transaction.deleted": {
+    icon: Trash2,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => {
+      const amount = formatAmount(e.details.amount);
+      return (
+        <>
+          удалил(а) транзакцию <TxRef event={e} /> на{" "}
+          <span className="text-muted-foreground">{amount}</span>
+        </>
+      );
+    },
+  },
+  "finance.transaction.restored": {
+    icon: RotateCcw,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        восстановил(а) транзакцию <TxRef event={e} />
+      </>
+    ),
+  },
+
+  // ── finance.bank_account ───────────────────────────────────
+  "finance.bank_account.created": {
+    icon: CreditCard,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => (
+      <>
+        создал(а) счёт{" "}
+        <strong className="font-medium">«{bankAccountName(e)}»</strong>
+      </>
+    ),
+  },
+  "finance.bank_account.updated": {
+    icon: Pencil,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) счёт{" "}
+        <strong className="font-medium">«{bankAccountName(e)}»</strong>
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  "finance.bank_account.archived": {
+    icon: Archive,
+    iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        архивировал(а) счёт{" "}
+        <strong className="font-medium">«{bankAccountName(e)}»</strong>
+      </>
+    ),
+  },
+  "finance.bank_account.restored": {
+    icon: RotateCcw,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        восстановил(а) счёт{" "}
+        <strong className="font-medium">«{bankAccountName(e)}»</strong>
+      </>
+    ),
+  },
+
+  // ── finance.category ───────────────────────────────────────
+  "finance.category.created": {
+    icon: Tag,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => {
+      const t = e.details.type as string | undefined;
+      const typeLabel = t === "income" ? "доходов" : t === "expense" ? "расходов" : "";
+      return (
+        <>
+          создал(а) статью {typeLabel && <span className="text-muted-foreground">{typeLabel} </span>}
+          <strong className="font-medium">«{categoryName(e)}»</strong>
+        </>
+      );
+    },
+  },
+  "finance.category.updated": {
+    icon: Pencil,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) статью{" "}
+        <strong className="font-medium">«{categoryName(e)}»</strong>
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  "finance.category.archived": {
+    icon: Archive,
+    iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        архивировал(а) статью{" "}
+        <strong className="font-medium">«{categoryName(e)}»</strong>
+      </>
+    ),
+  },
+  "finance.category.restored": {
+    icon: RotateCcw,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        восстановил(а) статью{" "}
+        <strong className="font-medium">«{categoryName(e)}»</strong>
+      </>
+    ),
+  },
+
+  // ── finance.counterparty ───────────────────────────────────
+  "finance.counterparty.created": {
+    icon: Building2,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => {
+      const inn = e.details.inn as string | undefined;
+      return (
+        <>
+          добавил(а) контрагента{" "}
+          <strong className="font-medium">«{counterpartyName(e)}»</strong>
+          {inn && <span className="text-muted-foreground"> (ИНН {inn})</span>}
+        </>
+      );
+    },
+  },
+  "finance.counterparty.updated": {
+    icon: Pencil,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) контрагента{" "}
+        <strong className="font-medium">«{counterpartyName(e)}»</strong>
+      </>
+    ),
+    buildDetails: (e) => <ChangeLines details={e.details} />,
+  },
+  "finance.counterparty.archived": {
+    icon: Archive,
+    iconClass: "text-muted-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        архивировал(а) контрагента{" "}
+        <strong className="font-medium">«{counterpartyName(e)}»</strong>
+      </>
+    ),
+  },
+  "finance.counterparty.restored": {
+    icon: RotateCcw,
+    iconClass: "text-foreground bg-muted",
+    buildHeadline: (e) => (
+      <>
+        восстановил(а) контрагента{" "}
+        <strong className="font-medium">«{counterpartyName(e)}»</strong>
+      </>
+    ),
   },
 
   // ── kb_page ─────────────────────────────────────────────────

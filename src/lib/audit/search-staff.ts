@@ -10,10 +10,14 @@ export interface AuditStaffOption {
 
 /** Глобальный поиск по сущностям, которые могут попасть в общий журнал.
  *  Резолвит подстроку `q` в массивы entity_id для всех типов:
- *    staff       — first_name / last_name ilike
- *    kb_page     — title ilike
- *    role        — name ilike (только account-scoped, account_id NOT NULL)
- *    invitation  — email ilike
+ *    staff             — first_name / last_name ilike
+ *    kb_page           — title ilike
+ *    role              — name ilike (только account-scoped)
+ *    invitation        — email ilike
+ *    bank_account      — name ilike
+ *    finance_category  — name ilike
+ *    counterparty      — name / inn ilike
+ *    transaction       — description ilike (либо public_id если q — число)
  *
  *  Если q пуст — все массивы пустые. RLS enforce'ит видимость только в
  *  активном аккаунте. Лимит 200 на тип — fence от рантайм-стоимости. */
@@ -22,44 +26,71 @@ export async function searchAuditEntities(q: string): Promise<{
   kbPageIds: string[];
   roleIds: string[];
   invitationIds: string[];
+  transactionIds: string[];
+  bankAccountIds: string[];
+  financeCategoryIds: string[];
+  counterpartyIds: string[];
 }> {
   const term = q.trim();
   if (term.length === 0) {
-    return { staffIds: [], kbPageIds: [], roleIds: [], invitationIds: [] };
+    return {
+      staffIds: [], kbPageIds: [], roleIds: [], invitationIds: [],
+      transactionIds: [], bankAccountIds: [], financeCategoryIds: [],
+      counterpartyIds: [],
+    };
   }
 
   const supabase = await createClient();
   const pattern = `%${term.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+  const asInt = /^\d+$/.test(term) ? Number(term) : null;
 
-  const [staffResult, kbResult, roleResult, invResult] = await Promise.all([
+  const [
+    staffResult, kbResult, roleResult, invResult,
+    bankResult, categoryResult, counterpartyResult, txResult,
+  ] = await Promise.all([
     supabase
       .from("profiles")
       .select("id")
       .or(`first_name.ilike.${pattern},last_name.ilike.${pattern}`)
       .limit(200),
-    supabase
-      .from("kb_pages")
-      .select("id")
-      .ilike("title", pattern)
-      .limit(200),
+    supabase.from("kb_pages").select("id").ilike("title", pattern).limit(200),
     supabase
       .from("roles")
       .select("id")
       .ilike("name", pattern)
       .not("account_id", "is", null)
       .limit(200),
+    supabase.from("invitations").select("id").ilike("email", pattern).limit(200),
+    supabase.from("bank_accounts").select("id").ilike("name", pattern).limit(200),
+    supabase.from("finance_categories").select("id").ilike("name", pattern).limit(200),
     supabase
-      .from("invitations")
+      .from("counterparties")
       .select("id")
-      .ilike("email", pattern)
+      .or(`name.ilike.${pattern},inn.ilike.${pattern}`)
       .limit(200),
+    // Транзакции ищем по description; если q — число, also matches public_id.
+    asInt !== null
+      ? supabase
+          .from("transactions")
+          .select("id")
+          .or(`description.ilike.${pattern},public_id.eq.${asInt}`)
+          .limit(200)
+      : supabase
+          .from("transactions")
+          .select("id")
+          .ilike("description", pattern)
+          .limit(200),
   ]);
 
   return {
-    staffIds: (staffResult.data ?? []).map((r) => r.id as string),
-    kbPageIds: (kbResult.data ?? []).map((r) => r.id as string),
-    roleIds: (roleResult.data ?? []).map((r) => r.id as string),
-    invitationIds: (invResult.data ?? []).map((r) => r.id as string),
+    staffIds:           (staffResult.data ?? []).map((r) => r.id as string),
+    kbPageIds:          (kbResult.data ?? []).map((r) => r.id as string),
+    roleIds:            (roleResult.data ?? []).map((r) => r.id as string),
+    invitationIds:      (invResult.data ?? []).map((r) => r.id as string),
+    bankAccountIds:     (bankResult.data ?? []).map((r) => r.id as string),
+    financeCategoryIds: (categoryResult.data ?? []).map((r) => r.id as string),
+    counterpartyIds:    (counterpartyResult.data ?? []).map((r) => r.id as string),
+    transactionIds:     (txResult.data ?? []).map((r) => r.id as string),
   };
 }
 

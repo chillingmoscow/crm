@@ -54,11 +54,11 @@ export function DepartmentsClient({
         iconColor,
         description: description.trim() || null,
       });
+      // `{ id: null, error: null }` — недопустимое состояние контракта,
+      // но было прецедент (несуществующая таблица на проде → supabase-js
+      // отдавал error без message). Без `!result.id` мы повторяли silent-
+      // fail: success toast + drawer остаётся открыт.
       if (result.error || !result.id) {
-        // !result.id раньше был edge-case с silent null (см. actions.ts).
-        // После перехода на серверный UUID этого не должно происходить,
-        // но guard оставим — `if (result.id)` без `else` в прошлой
-        // версии маскировал баг под зелёный toast.
         toast.error(result.error ?? "Не удалось создать подразделение");
         return;
       }

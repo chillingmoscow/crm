@@ -1,9 +1,13 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
-
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+
+async function getActiveAccountId(): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("get_active_account_id");
+  return (data as string | null) ?? null;
+}
 
 export type DepartmentSummary = {
   id: string;
@@ -108,75 +112,34 @@ export async function createDepartment(input: {
   iconColor?: string | null;
   description?: string | null;
 }): Promise<{ id: string | null; error: string | null }> {
-  // Outer try/catch: server action может бросить из-за любой неперехваченной
-  // ошибки (network к Supabase, throw в RPC, проблема с auth-куками, баг
-  // в `revalidatePath`). Next в таком случае возвращает клиенту дженерик-
-  // ответ, и в UI это маскируется как silent fail. Ловим всё и возвращаем
-  // явный текст ошибки.
-  try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return { id: null, error: "Не авторизован" };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { id: null, error: "Не авторизован" };
 
-    const { data: accountId, error: accountErr } = await supabase.rpc(
-      "get_active_account_id",
-    );
-    if (accountErr) {
-      console.error("[createDepartment] get_active_account_id failed", accountErr);
-      return { id: null, error: `Не удалось определить аккаунт: ${accountErr.message}` };
-    }
-    if (!accountId) {
-      return { id: null, error: "Активный аккаунт не настроен" };
-    }
+  const accountId = await getActiveAccountId();
+  if (!accountId) return { id: null, error: "Заведение не настроено" };
 
-    const name = input.name.trim();
-    if (!name) return { id: null, error: "Название не может быть пустым" };
+  const name = input.name.trim();
+  if (!name) return { id: null, error: "Название не может быть пустым" };
 
-    // UUID генерируем на сервере, чтобы id был известен до запроса и
-    // не зависел от того, что PostgREST вернёт после INSERT
-    // (RLS на SELECT-after-INSERT, grants, return=representation квирки).
-    const id = randomUUID();
-
-    const { error } = await supabase.from("departments").insert({
-      id,
-      account_id: accountId as string,
+  const { data, error } = await supabase
+    .from("departments")
+    .insert({
+      account_id: accountId,
       name,
       icon: input.icon?.trim() ? input.icon : null,
       icon_color: input.iconColor?.trim() ? input.iconColor : null,
       description: input.description?.trim() ? input.description : null,
-    });
+    })
+    .select("id")
+    .single();
 
-    if (error) {
-      console.error("[createDepartment] insert failed", {
-        accountId,
-        name,
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-      });
-      // Возвращаем максимум контекста: PostgREST hint бывает информативнее,
-      // чем message (например, для RLS: "new row violates row-level security
-      // policy for table \"departments\""). Юзер увидит реальную причину.
-      const msg = [error.message, error.hint, error.details]
-        .filter(Boolean)
-        .join(" · ");
-      return { id: null, error: msg || "Ошибка БД при создании подразделения" };
-    }
+  if (error) return { id: null, error: error.message };
 
-    // layout-scope: иначе RSC-payload для /people/departments
-    // (страница-список) может остаться в кэше Next, и после
-    // navigate'а назад юзер увидит старый список без только что
-    // созданной строки.
-    revalidatePath("/people/departments", "layout");
-    return { id, error: null };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("[createDepartment] unhandled exception", e);
-    return { id: null, error: `Внутренняя ошибка: ${msg}` };
-  }
+  revalidatePath("/people/departments");
+  return { id: data.id, error: null };
 }
 
 export async function updateDepartment(
@@ -248,7 +211,7 @@ export async function deleteDepartment(
   const { error } = await supabase.from("departments").delete().eq("id", id);
   if (error) return { error: error.message };
 
-  revalidatePath("/people/departments", "layout");
+  revalidatePath("/people/departments");
   revalidatePath("/people/roles");
   return { error: null };
 }

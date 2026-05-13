@@ -236,8 +236,15 @@ export function KbIconPickerBody({
 
       {/* Icons grid. Без поиска — рендерим со sticky-заголовками групп
           (KB_ICONS уже отсортирован по `group`); с поиском — единый flat
-          grid (категория теряет смысл если показано только пара иконок). */}
-      <div className="max-h-[320px] overflow-y-auto p-2">
+          grid (категория теряет смысл если показано только пара иконок).
+
+          overscroll-contain + onWheel.stop — фикс для случаев, когда picker
+          открыт изнутри `EditDrawer`/`Sheet` (Radix Dialog). Скролл-lock
+          Dialog'а перехватывал колесо и список выглядел «нескроллящимся». */}
+      <div
+        className="max-h-[320px] overflow-y-auto overscroll-contain p-2"
+        onWheel={(e) => e.stopPropagation()}
+      >
         {filteredIcons.length === 0 ? (
           <div className="text-center text-sm text-muted-foreground py-8">
             Ничего не найдено

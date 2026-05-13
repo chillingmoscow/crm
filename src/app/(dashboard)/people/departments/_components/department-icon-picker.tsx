@@ -54,7 +54,15 @@ export function DepartmentIconPicker({
           <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[320px] p-3">
+      {/* Размеры/паддинги — как в рабочем KbIconPicker (380×p-0×rounded-10):
+          KbIconPickerBody сам рисует внутренние paddings, добавлять
+          ещё `p-3` снаружи рвёт сетку и мешает скроллу. */}
+      <PopoverContent
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        className="w-[380px] p-0 rounded-[10px]"
+      >
         <KbIconPickerBody
           value={value}
           color={color}

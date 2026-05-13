@@ -31,10 +31,10 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     supabase.rpc("get_active_venue_id"),
   ]);
 
-  const [rolesResult, permissionsResult] = await Promise.all([
+  const [rolesResult, permissionsResult, departmentsResult] = await Promise.all([
     supabase
       .from("roles")
-      .select("id, account_id, name, code, comment, icon, icon_color")
+      .select("id, account_id, name, code, comment, icon, icon_color, department_id")
       .or(
         accountId
           ? `account_id.is.null,account_id.eq.${accountId}`
@@ -47,6 +47,12 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       .select("id, code, description, module")
       .order("module")
       .order("code"),
+    accountId
+      ? supabase
+          .from("departments")
+          .select("id, name")
+          .order("name")
+      : Promise.resolve({ data: [] as { id: string; name: string }[] }),
   ]);
 
   // icon_color (миграция 136) ещё не во вшитых Database-типах — cast чтобы
@@ -61,6 +67,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     comment: string | null;
     icon: string | null;
     icon_color: string | null;
+    department_id: string | null;
   };
   const roles = (rolesResult.data as unknown as RoleRow[] | null) ?? [];
   const permissions = permissionsResult.data ?? [];
@@ -107,6 +114,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       accountId={accountId ?? null}
       staffCountByRole={staffCountByRole}
       importedRoleIds={importedRoleIds}
+      departments={departmentsResult.data ?? []}
     />
   );
 }

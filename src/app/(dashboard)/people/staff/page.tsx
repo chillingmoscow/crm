@@ -18,18 +18,23 @@ export default async function StaffPage() {
 const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   if (!user) redirect("/login");
 
-  // Phase 2 — profile + roles in parallel (both only need user.id / no dependencies)
-  const [{ data: profile }, { data: roles }] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select("active_venue_id")
-      .eq("id", user.id)
-      .maybeSingle(),
-    supabase
-      .from("roles")
-      .select("id, name, code")
-      .order("name"),
-  ]);
+  // Phase 2 — profile + roles + departments в параллели.
+  const [{ data: profile }, { data: roles }, { data: departments }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select("active_venue_id")
+        .eq("id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("roles")
+        .select("id, name, code")
+        .order("name"),
+      supabase
+        .from("departments")
+        .select("id, name")
+        .order("name"),
+    ]);
 
   if (!profile?.active_venue_id) redirect("/onboarding");
   const venueId = profile.active_venue_id;
@@ -76,6 +81,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       invitations={invitations}
       firedStaff={firedStaff}
       roles={roles ?? []}
+      departments={departments ?? []}
       venueId={venueId}
       currentUserId={user.id}
       activeRoleCode={activeRoleCode}

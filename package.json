@@ -11,7 +11,8 @@
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "db:status": "supabase status",
-    "db:migrate": "supabase migration new"
+    "db:migrate": "supabase migration new",
+    "regen:types": "bash scripts/regen-types.sh"
   },
   "dependencies": {
     "@blocknote/core": "^0.49.0",

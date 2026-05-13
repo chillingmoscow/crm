@@ -4,9 +4,11 @@ import {
   ArrowLeftRight,
   ArrowRightFromLine,
   BookOpen,
+  Boxes,
   Building2,
   CircleArrowUp,
   CreditCard,
+  Crown,
   FileEdit,
   FilePlus2,
   IdCard,
@@ -205,6 +207,20 @@ function roleNameFromEvent(event: AuditEvent): string {
 
 function RoleName({ event }: { event: AuditEvent }) {
   return <strong className="font-medium">«{roleNameFromEvent(event)}»</strong>;
+}
+
+/** Имя подразделения — приоритет live snapshot, fallback на event.details. */
+function departmentNameFromEvent(event: AuditEvent): string {
+  if (event.entity && event.entity.type === "department") return event.entity.name;
+  const fromDetails =
+    (event.details.new_name as string) ?? (event.details.name as string);
+  return fromDetails || "подразделение";
+}
+
+function DepartmentName({ event }: { event: AuditEvent }) {
+  return (
+    <strong className="font-medium">«{departmentNameFromEvent(event)}»</strong>
+  );
 }
 
 /** Email приглашения. Live snapshot отсутствует если приглашение уже
@@ -489,6 +505,59 @@ const SPECS: Record<string, AuditEventSpec> = {
         </>
       );
     },
+  },
+
+  // ── department ─────────────────────────────────────────────
+  "department.created": {
+    icon: Boxes,
+    iconClass: "text-emerald-600 bg-emerald-50",
+    buildHeadline: (e) => (
+      <>
+        создал(а) подразделение <DepartmentName event={e} />
+      </>
+    ),
+  },
+  "department.renamed": {
+    icon: FileEdit,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => {
+      const oldName = (e.details.old_name as string) || "";
+      const newName = (e.details.new_name as string) || "";
+      return (
+        <>
+          переименовал(а) подразделение:{" "}
+          <span className="text-muted-foreground line-through">«{oldName}»</span>
+          {" → "}
+          <strong className="font-medium">«{newName}»</strong>
+        </>
+      );
+    },
+  },
+  "department.head_changed": {
+    icon: Crown,
+    iconClass: "text-amber-600 bg-amber-50",
+    buildHeadline: (e) => {
+      const had = Boolean(e.details.old_head_role_id);
+      const has = Boolean(e.details.new_head_role_id);
+      let verb: ReactNode;
+      if (!had && has) verb = <>назначил(а) руководящую должность</>;
+      else if (had && !has) verb = <>снял(а) руководящую должность</>;
+      else verb = <>сменил(а) руководящую должность</>;
+      return (
+        <>
+          {verb} в <DepartmentName event={e} />
+        </>
+      );
+    },
+  },
+  "department.deleted": {
+    icon: Trash2,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => (
+      <>
+        удалил(а) подразделение <DepartmentName event={e} />
+      </>
+    ),
   },
 
   // ── finance.transaction ────────────────────────────────────

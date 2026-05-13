@@ -29,6 +29,11 @@ export type AuditEntitySnapshot =
       account_id: string | null;
     }
   | {
+      type: "department";
+      id: string;
+      name: string;
+    }
+  | {
       type: "invitation";
       id: string;
       email: string;
@@ -326,6 +331,22 @@ export async function listAuditEvents(input?: {
         name: r.name,
         code: r.code,
         account_id: r.account_id,
+      });
+    }
+  }
+
+  // department snapshots — могут отсутствовать (deleted).
+  const departmentIds = idsByType.get("department");
+  if (departmentIds && departmentIds.size > 0) {
+    const { data: depRows } = await supabase
+      .from("departments")
+      .select("id, name")
+      .in("id", Array.from(departmentIds));
+    for (const d of depRows ?? []) {
+      snapshotsByKey.set(`department:${d.id}`, {
+        type: "department",
+        id: d.id,
+        name: d.name,
       });
     }
   }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient, getCachedUser } from "@/lib/supabase/server";
+import { listAuditEvents } from "@/lib/audit/list";
 import { getDepartment } from "../actions";
 import { DepartmentDetailPage } from "./_components/department-detail-page";
 
@@ -21,7 +22,7 @@ export default async function DepartmentDetailServerPage({
     permission_code: "people.manage_roles",
   });
 
-  const [{ data: accountId }, { department, roles, heads }, { data: allRoles }] =
+  const [{ data: accountId }, { department, roles, heads }, { data: allRoles }, { data: canViewAudit }] =
     await Promise.all([
       supabase.rpc("get_active_account_id"),
       getDepartment(id),
@@ -30,6 +31,7 @@ export default async function DepartmentDetailServerPage({
         .select("id, name, code, icon, icon_color, account_id, department_id")
         .order("account_id", { nullsFirst: true })
         .order("name"),
+      supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
     ]);
 
   if (!department) redirect("/people/departments");
@@ -40,6 +42,10 @@ export default async function DepartmentDetailServerPage({
     redirect("/people/departments");
   }
 
+  const auditResult = canViewAudit
+    ? await listAuditEvents({ entityType: "department", entityId: id })
+    : { events: [], hasMore: false, error: null };
+
   return (
     <DepartmentDetailPage
       department={department}
@@ -47,6 +53,9 @@ export default async function DepartmentDetailServerPage({
       initialHeads={heads}
       allRoles={allRoles ?? []}
       canManage={Boolean(canManage)}
+      canViewAudit={Boolean(canViewAudit)}
+      initialAuditEvents={auditResult.events}
+      initialAuditHasMore={auditResult.hasMore}
     />
   );
 }

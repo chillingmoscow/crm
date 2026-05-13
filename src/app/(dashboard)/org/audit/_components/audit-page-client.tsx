@@ -36,6 +36,7 @@ const SECTION_OPTIONS: MultiSelectItem[] = [
   { id: "staff", name: "Сотрудники" },
   { id: "invitation", name: "Приглашения" },
   { id: "role", name: "Должности" },
+  { id: "department", name: "Подразделения" },
   { id: "transaction", name: "Транзакции" },
   { id: "bank_account", name: "Счета" },
   { id: "finance_category", name: "Статьи" },

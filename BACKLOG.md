@@ -4,6 +4,44 @@
 
 ---
 
+## UX/UI аудит 2026-05-14
+
+Список хвостов, замеченных во время сборки PR с phone-маской / overlay / sidebar collapse / theme transition / date-picker. Не делаем в этом PR — выносим в отдельные задачи.
+
+### Mobile
+- `src/components/shared/dashboard-topbar.tsx:24` — на мобильных нет компактной шапки: топбар отображает Breadcrumb + bell в одну строку без учёта safe-area iOS; нужен mobile-вариант с заголовком и колокольчиком возле профиля (был п.4 — отбой в PR от 2026-05-14, возвращаемся позже).
+- `src/app/(dashboard)/layout.tsx:23` — header не учитывает `env(safe-area-inset-top)` для iOS PWA.
+- `src/components/ui/sheet.tsx:41-43` — `w-3/4 sm:max-w-sm` для left/right side: на 320px вьюпорте Sheet занимает 240px, мало для форм.
+- `src/components/ui/sidebar.tsx:308` — `SidebarTrigger h-7 w-7` (28px) меньше iOS-рекомендации 44×44; на тач-устройствах сложнее попасть.
+
+### Loading / empty states
+- `src/app/(dashboard)/people/staff/_components/staff-client.tsx` — у кнопок «Пригласить» / «Восстановить» нет `disabled + Loader2` во время startTransition.
+- `src/app/(dashboard)/people/staff/_components/staff-client.tsx:260-350` — пустой список активных сотрудников не показывает empty state.
+- `src/app/(dashboard)/finance/transactions/_components/transaction-form-sheet.tsx` — у select'ов (категория, контрагент) нет skeleton при первой загрузке.
+
+### Confirmation
+- `src/app/(dashboard)/people/staff/_components/staff-client.tsx` (fire flow) — увольнение сотрудника срабатывает без AlertDialog: только текстовый input для причины + сразу submit. Нужен явный confirm.
+- `src/components/ui/dialog.tsx` — добавить компонент `AlertDialog` (radix) для подтверждений с двумя явными кнопками; пока используем `Dialog hideClose`.
+
+### A11y / focus
+- `src/components/ui/sheet.tsx:68-71`, `dialog.tsx:50-53` — X-кнопки без `aria-label="Закрыть"` (есть только `sr-only "Close"` — англ., нужно по-русски).
+- `src/components/ui/calendar.tsx:281` — `ring-[3px]` от focused day-button толще input-ring (2px). Унифицировать токен фокус-кольца.
+- `src/components/ui/date-picker.tsx:156-168` — кнопка очистки (X) имеет hover, но без focus-индикатора (tabIndex=-1 ОК, но aria-label нужен).
+- `src/components/ui/sidebar.tsx:308` — SidebarTrigger без явного focus-ring (полагается на дефолтный браузерный).
+
+### Reduced motion
+- `src/components/ui/sidebar.tsx:237` (300ms collapse), `src/lib/overlay-classes.ts` (200/150ms), `src/app/globals.css` (theme-transition) — глобально учесть `prefers-reduced-motion: reduce` для всех анимаций (только `.theme-transition` уже учитывает).
+
+### Phone normalization — отложенная зачистка
+- `src/app/(dashboard)/finance/counterparties/` — CRM контрагенты тоже хранят `phone`; миграция 166 их не трогает. Пройтись отдельной задачей через `formatPhoneDisplay` + миграция.
+- `src/app/(dashboard)/org/legal-entities/` — юрлица: телефон может приходить из DaData в произвольном формате; решить, нормализовать или оставить как источник истины DaData.
+
+### Дизайн-система — токены
+- `src/components/ui/sheet.tsx`, `dialog.tsx`, `edit-drawer.tsx` — теперь импортят `overlayClass` из общего helper'а; рекомендую сделать то же самое для popover/tooltip (унифицировать длительности).
+- `src/components/ui/sidebar.tsx:525` — `[&>span:last-child]:transition-opacity duration-200` хардкодит цифру; вынести в DS-токен `--collapse-fade-duration`.
+
+---
+
 ## ✅ Сделано
 
 ### Инфраструктура

@@ -574,31 +574,33 @@ export function TransactionFormSheet({
         </DialogContent>
       </Dialog>
 
-      {/* Discard-changes confirmation */}
+      {/* Discard-changes confirmation — without redundant X-close in the
+          corner (two explicit buttons), neutral copy without "нельзя
+          отменить" (это in-memory изменения, не destructive). */}
       <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" hideClose>
           <DialogHeader>
-            <DialogTitle>Закрыть без сохранения?</DialogTitle>
+            <DialogTitle>Не сохранять изменения?</DialogTitle>
             <DialogDescription>
-              Внесённые в форму изменения будут потеряны. Это действие нельзя отменить.
+              Внесённые правки будут потеряны.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
-              variant="outline"
-              onClick={() => setConfirmDiscard(false)}
-            >
-              Продолжить редактирование
-            </Button>
-            <Button
-              variant="destructive"
+              variant="ghost"
               onClick={() => {
                 setConfirmDiscard(false);
                 setDirty(false);
                 onClose();
               }}
             >
-              Закрыть без сохранения
+              Не сохранять
+            </Button>
+            <Button
+              autoFocus
+              onClick={() => setConfirmDiscard(false)}
+            >
+              Продолжить редактирование
             </Button>
           </DialogFooter>
         </DialogContent>

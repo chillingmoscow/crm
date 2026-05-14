@@ -133,7 +133,15 @@ Lucide (`lucide-react`). Штрих 1.5px. Размеры:
 
 ## Оверлеи (Modal vs Drawer)
 
-**Backdrop един для всех:** `bg-black/40` → визуально `#0a0a0a66`. Не трогать.
+**Backdrop един для всех:** `bg-black/25` → лёгкое затемнение, контент сзади остаётся читаемым. Источник — `overlayClass` в [`src/lib/overlay-classes.ts`](../src/lib/overlay-classes.ts). Не дублируй классы вручную в новых overlay-компонентах — импортируй helper.
+
+**Тайминг:** open `200ms ease-out`, close `150ms ease-in`. Закрытие быстрее открытия — UI ощущается отзывчивым. Любой новый Sheet/Dialog должен использовать `overlayContentTiming` для контента.
+
+**Smooth theme switch:** переключатель тем оборачивает `setTheme` в [`applyTheme`](../src/lib/theme.ts) — навешивает `.theme-transition` на 220ms и снимает. CSS-правило в `globals.css` даёт всем элементам 200ms color-transition на это время. Без обёртки переключение моргает; вне переключения класс отсутствует, hover/focus переходы не тормозят.
+
+**Скрыть встроенный X-крестик** в Dialog для подтверждений с двумя явными кнопками — `<DialogContent hideClose>`. Используется в «Не сохранять изменения?» (transaction form sheet); X дублирует одну из кнопок и сбивает.
+
+**Sidebar collapse:** `transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]`. Текст пунктов меню анимируется через `transition-opacity duration-200` отдельно — fades out за половину времени collapse-анимации.
 
 ### Drawer (правый sliding panel)
 **Используй `<EditDrawer>` из `src/components/ui/edit-drawer.tsx`**

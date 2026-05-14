@@ -174,7 +174,12 @@ export function DatePicker({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-auto p-0"
+        // `overflow-hidden` срезает focus-ring навигационных стрелок и
+        // сегменты диапазона, выходящие к угловому скруглению поповера.
+        // Year/Month dropdown'ы внутри Calendar рендерятся через свой
+        // Portal (shadcn Select), так что не пересекаются с этим
+        // ограничением.
+        className="w-auto p-0 overflow-hidden"
         sideOffset={6}
       >
         <Calendar

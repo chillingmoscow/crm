@@ -127,7 +127,7 @@ roles (
 **История**: до миграции 170 роли были account-scoped (общие на весь аккаунт). Stages A-D (миграции 166-170) клонировали их на каждый venue и переподключили UVR/invitations. Один аккаунт с N venues = N независимых наборов ролей.
 
 ### `permissions`
-Реестр прав. Каталог разбит на модули, актуальная нумерация в коде — в `src/lib/permissions/codes.ts`. Полные дефолты — в миграциях 034 (greenfield wipe + people.*), 037–045 (finance.*), 055/080 (kb.*).
+Реестр прав. Каталог разбит на модули, источник истины — `INSERT INTO public.permissions` в миграциях: 002 (исходный seed), 034 (greenfield wipe + people.*), 042 (finance.*), 055/068–076/080 (kb.*), 154/172 (org.*). UI-группировка по модулям для редактора прав — [permission-modules.ts](src/app/(dashboard)/people/roles/[roleId]/_components/permission-modules.ts).
 
 | Модуль | Назначение |
 |---|---|

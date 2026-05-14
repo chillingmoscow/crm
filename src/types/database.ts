@@ -2216,6 +2216,7 @@ export type Database = {
           name: string
           updated_at: string
           updated_by: string | null
+          venue_id: string | null
         }
         Insert: {
           account_id: string
@@ -2229,6 +2230,7 @@ export type Database = {
           name: string
           updated_at?: string
           updated_by?: string | null
+          venue_id?: string | null
         }
         Update: {
           account_id?: string
@@ -2242,6 +2244,7 @@ export type Database = {
           name?: string
           updated_at?: string
           updated_by?: string | null
+          venue_id?: string | null
         }
         Relationships: [
           {
@@ -2274,6 +2277,7 @@ export type Database = {
           name: string
           updated_at: string
           updated_by: string | null
+          venue_id: string | null
         }
         Insert: {
           account_id?: string | null
@@ -2288,6 +2292,7 @@ export type Database = {
           name: string
           updated_at?: string
           updated_by?: string | null
+          venue_id?: string | null
         }
         Update: {
           account_id?: string | null
@@ -2302,6 +2307,7 @@ export type Database = {
           name?: string
           updated_at?: string
           updated_by?: string | null
+          venue_id?: string | null
         }
         Relationships: [
           {

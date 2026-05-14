@@ -6,6 +6,15 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54
 const supabaseHostname = new URL(supabaseUrl).hostname;
 
 const nextConfig: NextConfig = {
+  // Standalone output: self-contained build в `.next/standalone`
+  // (server.js + минимальный node_modules). Coolify в логе билда
+  // умирал на `exporting layers` (exit 255 — OOM/disk killer
+  // финального docker layer'а, после успешного next build). Standalone
+  // сокращает финальный image кратно: вместо `COPY .` всего репо +
+  // node_modules в runtime layer, нужны только .next/standalone +
+  // .next/static + public. Подхватывается и repo Dockerfile (он уже
+  // COPY'ит .next/standalone), и nixpacks-auto-сборкой Coolify.
+  output: "standalone",
   // Skip type-check + ESLint во время `next build`. Оба гоняем
   // локально перед push'ем (`pnpm exec tsc --noEmit`, `pnpm lint`).
   // На прод-build они второй раз — а Coolify-контейнер ограничен

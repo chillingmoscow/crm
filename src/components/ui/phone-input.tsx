@@ -47,6 +47,17 @@ export const PhoneInput = React.forwardRef<HTMLInputElement, PhoneInputProps>(
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = e.target.value;
       const partial = formatPhonePartial(raw);
+      // Backspace через всю маску: пользователь стирает посимвольно и
+      // доходит до состояния `+7 ` (всё subscriber-digits уже удалены).
+      // Без этого guard форматтер реформатит любой обрезок (`+7`, `+`)
+      // обратно в `+7 ` — поле никогда не пустеет, кнопка Backspace
+      // ощущается сломанной.
+      const isDeleting = raw.length < display.length;
+      if (isDeleting && partial === "+7 ") {
+        setDisplay("");
+        onChange("");
+        return;
+      }
       setDisplay(partial);
       const e164 = normalizePhone(partial);
       onChange(e164 ?? "");

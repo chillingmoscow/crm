@@ -34,6 +34,12 @@ export async function createRole(input: {
   const accountId = await getActiveAccountId();
   if (!accountId) return { id: null, error: "Заведение не настроено" };
 
+  // Stage B venue-scope refactor: пишем venue_id одновременно с account_id.
+  // Активный venue берём через тот же helper, что и accountId. Если по
+  // какой-то причине venue не выбран — оставляем NULL (legacy path).
+  const { data: venueIdData } = await supabase.rpc("get_active_venue_id");
+  const venueId = (venueIdData as string | null) ?? null;
+
   const trimmed = input.name.trim();
   const code = `custom_${trimmed
     .toLowerCase()
@@ -45,6 +51,7 @@ export async function createRole(input: {
   // Cast keeps strict-null-check happy without disabling typing elsewhere.
   const insertPayload = {
     account_id: accountId,
+    venue_id: venueId,
     name: trimmed,
     code,
     icon: input.icon && input.icon.trim() ? input.icon : null,

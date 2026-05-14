@@ -251,6 +251,15 @@ begin
 end;
 $$;
 
+-- Codex P2 на #300: триггер из 158 watch'ил только (head_role_id, account_id).
+-- Сейчас функция проверяет и venue_id-инвариант — нужно его в watch list.
+-- Иначе UPDATE OF venue_id (конверсия legacy department в venue-scoped)
+-- пройдёт без проверки head_role_id согласованности.
+drop trigger if exists trg_departments_check_head_role on public.departments;
+create trigger trg_departments_check_head_role
+  before insert or update of head_role_id, account_id, venue_id on public.departments
+  for each row execute function public.tg_departments_check_head_role();
+
 -- Симметричный триггер на departments: если меняем department.venue_id,
 -- то все привязанные роли должны быть в этом же venue (или ещё не
 -- мигрированы — venue_id NULL).

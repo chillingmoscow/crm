@@ -22,12 +22,38 @@ returns void
 language plpgsql security definer set search_path = public
 as $$
 declare
+  v_account_id    uuid;
   v_manager_id    uuid;
   v_admin_id      uuid;
   v_accountant_id uuid;
   v_hostess_id    uuid;
   v_waiter_id     uuid;
 begin
+  -- Auth guard. Codex P1 на #300: без проверки любой authenticated
+  -- юзер может seed-нуть роли в чужой venue, зная UUID.
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  -- Venue + его account.
+  select account_id into v_account_id
+    from public.venues where id = p_venue_id;
+  if v_account_id is null then
+    raise exception 'Venue not found';
+  end if;
+
+  -- Caller должен быть active member любого venue этого аккаунта.
+  if not exists (
+    select 1
+    from public.user_venue_roles uvr
+    join public.venues v on v.id = uvr.venue_id
+    where uvr.user_id = auth.uid()
+      and uvr.status = 'active'
+      and v.account_id = v_account_id
+  ) then
+    raise exception 'Caller is not a member of this account';
+  end if;
+
   -- Guard: если в venue уже есть кастомные роли — пропускаем.
   if exists (
     select 1 from public.roles where venue_id = p_venue_id
@@ -36,8 +62,11 @@ begin
   end if;
 
   -- Управляющий
-  insert into public.roles (venue_id, name, code)
-  values (p_venue_id, 'Управляющий', 'custom_manager')
+  -- account_id выставляем (= venues.account_id) ради backward-compat
+  -- с roles_select RLS, которая до Stage D считает `account_id IS NULL`
+  -- маркером системной роли. После Stage D account_id уйдёт совсем.
+  insert into public.roles (venue_id, account_id, name, code)
+  values (p_venue_id, v_account_id, 'Управляющий', 'custom_manager')
   returning id into v_manager_id;
   insert into public.role_permissions (role_id, permission_id, granted)
   select v_manager_id, id, true from public.permissions
@@ -58,8 +87,8 @@ begin
   );
 
   -- Администратор
-  insert into public.roles (venue_id, name, code)
-  values (p_venue_id, 'Администратор', 'custom_admin')
+  insert into public.roles (venue_id, account_id, name, code)
+  values (p_venue_id, v_account_id, 'Администратор', 'custom_admin')
   returning id into v_admin_id;
   insert into public.role_permissions (role_id, permission_id, granted)
   select v_admin_id, id, true from public.permissions
@@ -87,8 +116,8 @@ begin
   );
 
   -- Бухгалтер
-  insert into public.roles (venue_id, name, code)
-  values (p_venue_id, 'Бухгалтер', 'custom_accountant')
+  insert into public.roles (venue_id, account_id, name, code)
+  values (p_venue_id, v_account_id, 'Бухгалтер', 'custom_accountant')
   returning id into v_accountant_id;
   insert into public.role_permissions (role_id, permission_id, granted)
   select v_accountant_id, id, true from public.permissions
@@ -110,8 +139,8 @@ begin
   );
 
   -- Хостес
-  insert into public.roles (venue_id, name, code)
-  values (p_venue_id, 'Хостес', 'custom_hostess')
+  insert into public.roles (venue_id, account_id, name, code)
+  values (p_venue_id, v_account_id, 'Хостес', 'custom_hostess')
   returning id into v_hostess_id;
   insert into public.role_permissions (role_id, permission_id, granted)
   select v_hostess_id, id, true from public.permissions
@@ -122,8 +151,8 @@ begin
   );
 
   -- Официант
-  insert into public.roles (venue_id, name, code)
-  values (p_venue_id, 'Официант', 'custom_waiter')
+  insert into public.roles (venue_id, account_id, name, code)
+  values (p_venue_id, v_account_id, 'Официант', 'custom_waiter')
   returning id into v_waiter_id;
   insert into public.role_permissions (role_id, permission_id, granted)
   select v_waiter_id, id, true from public.permissions

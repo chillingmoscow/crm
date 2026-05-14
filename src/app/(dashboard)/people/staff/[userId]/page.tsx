@@ -139,7 +139,11 @@ export default async function StaffMemberPage({
       .eq("entity_type", "staff")
       .eq("local_id", userId)
       .maybeSingle(),
-    supabase.from("roles").select("id, name, code").order("name"),
+    // Stage D: список ролей для смены — строго текущий venue. Owner
+    // через staff-UI не назначается (он единственный, привязан к
+    // владельцу аккаунта), поэтому system-роль (venue_id IS NULL)
+    // не включаем.
+    supabase.from("roles").select("id, name, code").eq("venue_id", venueId).order("name"),
   ]);
 
   if (!profileRow) redirect("/people/staff");

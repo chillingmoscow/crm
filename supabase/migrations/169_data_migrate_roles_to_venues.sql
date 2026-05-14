@@ -19,8 +19,7 @@
 
 -- ── Step 1: расширить unique constraints на venue_id ───────────────────────
 -- Иначе клоны двух venues одного аккаунта с одинаковым code/name нарушат
--- (code, account_id) / (account_id, name) unique. Postgres NULLS DISTINCT
--- по умолчанию — legacy записи с venue_id NULL остаются уникальны.
+-- (code, account_id) / (account_id, name) unique.
 
 alter table public.roles
   drop constraint if exists roles_code_account_unique;
@@ -31,6 +30,21 @@ alter table public.departments
   drop constraint if exists departments_name_account_unique;
 alter table public.departments
   add constraint departments_name_account_venue_unique unique (account_id, venue_id, name);
+
+-- Partial-unique для legacy строк (Codex P1 на #302). Postgres NULLS DISTINCT
+-- по умолчанию делает `(code='X', account_id=Y, venue_id=NULL)` уникальным
+-- от другой такой же — legacy инвариант «один code на account» рушится в
+-- окне между Stage C и Stage D. Партиальные индексы покрывают только
+-- venue_id IS NULL и восстанавливают legacy ограничение, не мешая
+-- venue-scoped клонам.
+
+create unique index if not exists roles_code_account_legacy_unique
+  on public.roles (code, account_id)
+  where venue_id is null;
+
+create unique index if not exists departments_name_account_legacy_unique
+  on public.departments (account_id, name)
+  where venue_id is null;
 
 -- ── Step 2: clone roles per venue (без department_id) ──────────────────────
 --

@@ -1,6 +1,13 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 168_rls_dual_mode_roles_departments.sql
 --
+-- Codex P2 на #301: подзапросы `select account_id from public.venues where
+-- id = ...` внутри RLS-policy сами идут через `venues_select` RLS, которая
+-- пропускает только venues где caller — owner или active member ИМЕННО
+-- этого venue. Member аккаунта, не находящийся в конкретном venue, получал
+-- false и не видел роль/dept этого venue. Используем SECURITY DEFINER
+-- helper, который читает venues без RLS.
+--
 -- Stage B из плана venue-scoped roles + departments (см.
 -- .claude/plans/tidy-fluttering-micali.md). RLS policies теперь принимают
 -- ОБА варианта:
@@ -12,6 +19,26 @@
 -- account-scoped записи и новые venue-scoped, которые создаёт код Stage B.
 -- RLS должны видеть обе версии и разрешать запись новых.
 -- ─────────────────────────────────────────────────────────────────────────────
+
+-- ── helper: venue → account_id, bypass RLS ─────────────────────────────────
+
+create or replace function public.venue_account_id(p_venue_id uuid)
+returns uuid
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select account_id from public.venues where id = p_venue_id;
+$$;
+
+revoke all on function public.venue_account_id(uuid) from public;
+grant execute on function public.venue_account_id(uuid) to authenticated;
+
+comment on function public.venue_account_id(uuid) is
+  'Bypass venues_select RLS — нужно в roles_select и dep_select_member для '
+  'дереализации venue_id → account_id. Без этого member аккаунта, '
+  'находящийся в одном venue, не видит venue-scoped роли других venues.';
 
 -- ── roles_select ────────────────────────────────────────────────────────────
 -- К имеющейся (account_id OR system) добавляем (venue_id = active OR
@@ -40,6 +67,7 @@ create policy "roles_select" on public.roles
     or
     -- Venue-scoped роль: видим если являемся active member venue
     -- этого аккаунта (любого, не обязательно активного).
+    -- venue_account_id() — security definer, bypass venues_select RLS.
     (
       venue_id is not null
       and exists (
@@ -47,10 +75,7 @@ create policy "roles_select" on public.roles
           join public.venues v on v.id = uvr.venue_id
          where uvr.user_id = (select auth.uid())
            and uvr.status = 'active'
-           and v.account_id = (
-             select account_id from public.venues
-             where id = roles.venue_id
-           )
+           and v.account_id = public.venue_account_id(roles.venue_id)
       )
     )
     or
@@ -83,11 +108,7 @@ create policy "roles_insert_manage"
       (
         account_id = public.get_active_account_id()
         and venue_id is not null
-        and exists (
-          select 1 from public.venues v
-          where v.id = roles.venue_id
-            and v.account_id = public.get_active_account_id()
-        )
+        and public.venue_account_id(roles.venue_id) = public.get_active_account_id()
       )
     )
   );
@@ -102,11 +123,7 @@ create policy "roles_update_manage"
       or
       (
         venue_id is not null
-        and exists (
-          select 1 from public.venues v
-          where v.id = roles.venue_id
-            and v.account_id = public.get_active_account_id()
-        )
+        and public.venue_account_id(roles.venue_id) = public.get_active_account_id()
       )
     )
   );
@@ -121,11 +138,7 @@ create policy "roles_delete_manage"
       or
       (
         venue_id is not null
-        and exists (
-          select 1 from public.venues v
-          where v.id = roles.venue_id
-            and v.account_id = public.get_active_account_id()
-        )
+        and public.venue_account_id(roles.venue_id) = public.get_active_account_id()
       )
     )
   );
@@ -152,6 +165,7 @@ create policy "dep_select_member"
       )
       or
       -- Venue-scoped: member любого venue этого аккаунта
+      -- venue_account_id() — security definer, bypass venues_select RLS.
       (
         venue_id is not null
         and exists (
@@ -160,10 +174,7 @@ create policy "dep_select_member"
           join public.venues v on v.id = uvr.venue_id
           where uvr.user_id = (select auth.uid())
             and uvr.status = 'active'
-            and v.account_id = (
-              select account_id from public.venues
-              where id = departments.venue_id
-            )
+            and v.account_id = public.venue_account_id(departments.venue_id)
         )
       )
     )
@@ -177,11 +188,7 @@ create policy "dep_insert_manage"
     and account_id = public.get_active_account_id()
     and (
       venue_id is null
-      or exists (
-        select 1 from public.venues v
-        where v.id = departments.venue_id
-          and v.account_id = public.get_active_account_id()
-      )
+      or public.venue_account_id(departments.venue_id) = public.get_active_account_id()
     )
   );
 
@@ -193,11 +200,7 @@ create policy "dep_update_manage"
     and account_id = public.get_active_account_id()
     and (
       venue_id is null
-      or exists (
-        select 1 from public.venues v
-        where v.id = departments.venue_id
-          and v.account_id = public.get_active_account_id()
-      )
+      or public.venue_account_id(departments.venue_id) = public.get_active_account_id()
     )
   )
   with check (
@@ -205,11 +208,7 @@ create policy "dep_update_manage"
     and account_id = public.get_active_account_id()
     and (
       venue_id is null
-      or exists (
-        select 1 from public.venues v
-        where v.id = departments.venue_id
-          and v.account_id = public.get_active_account_id()
-      )
+      or public.venue_account_id(departments.venue_id) = public.get_active_account_id()
     )
   );
 

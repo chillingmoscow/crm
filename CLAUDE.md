@@ -69,6 +69,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `supabase/tests/` — SQL-тесты (legal_entities, finance_module).
 - Прод — **self-hosted**, миграции катятся через SSH (см. memory `self_hosted_supabase.md`).
 
+#### Конвенции при написании миграций (закрывают повторяющиеся advisor-баги)
+
+- **`SET search_path = public, pg_catalog` обязателен в теле каждой `create or replace function` в `public`** (триггеры, RPC, helpers). PostgreSQL при OR REPLACE сбрасывает все attributes, не перечисленные в новом определении, — поэтому ALTER FUNCTION ... SET search_path из более ранней миграции (например `160_security_advisor_cleanup.sql`) обнуляется, когда функцию редактируют. Если функция работает с расширением `vector`, добавлять `extensions`: `set search_path = public, extensions, pg_catalog`. Прецедент: 166 и 172 пересоздали 4 trigger-функции без SET — пришлось делать fixup-миграцию 174.
+- **`auth.uid()` в RLS оборачивай в `(select auth.uid())` сразу при создании политики**, чтобы Postgres хоистил вызов в InitPlan (закрывает advisor `auth_rls_initplan`). То же для `current_setting(...)`, `auth.jwt()`, `auth.role()`.
+- **Если миграция массово переписывает текст RLS-политик через `replace()` на `pg_policies.qual`/`with_check`, она должна обрабатывать обе формы**: `auth.uid()` (как хранится локально в supabase CLI) **и** голый `uid()` (как хранится на проде, потому что `auth` был в search_path сессии при создании политики). Идемпотентный паттерн — placeholder-pipeline: unwrap всех known wrapped-форм → `<<MARKER>>` → re-wrap финальной формой. Пример — миграция 163. Прецедент: 161 локально работала, на проде была no-op.
+- **Permissive RLS policies на одну `(role, action)` пару — single, не двойная.** Дублирование (например `*_select` + `*_write FOR ALL`) триггерит advisor `multiple_permissive_policies` и double-overhead на каждую строку. Если две независимые policy на одно действие — OR-объединить в одну. Если `FOR ALL` пересекается с отдельной `*_select` — разделить `FOR ALL` на `FOR INSERT/UPDATE/DELETE` (без SELECT) и расширить `*_select USING` до `(view OR manage)`, чтобы manage-юзеры без view не потеряли SELECT (custom-role override через `account_role_permissions` может revoke view).
+- **`create index` для FK — без `CONCURRENTLY`** в миграциях. Supabase CLI прогоняет миграции в одной транзакции, а CONCURRENTLY требует вне-транзакционного контекста. На наших размерах таблиц AccessExclusiveLock — миллисекунды; для будущих big-таблиц рассмотреть отдельный workflow.
+- **Композитный FK требует композитного индекса.** Если FK = `(account_id, X)` на `(account_id, id)` родителя, single-column `(X)` index НЕ покрывает FK lookup для cascade delete. Создавай `(account_id, X)` именно в том порядке.
+
 ### Дизайн-система — источник истины
 Первая остановка для любой UI-работы — **`sheerly.pen` (node `Q4FzoZ`)** + текстовое зеркало [`docs/design-system.md`](docs/design-system.md). Токены/размеры/отступы/скругления не выдумывать. См. memory `feedback_design_system_first.md`.
 

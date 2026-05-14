@@ -123,6 +123,10 @@ export async function createDepartment(input: {
   const accountId = await getActiveAccountId();
   if (!accountId) return { id: null, error: "Заведение не настроено" };
 
+  // Stage B: пишем venue_id одновременно с account_id.
+  const { data: venueIdData } = await supabase.rpc("get_active_venue_id");
+  const venueId = (venueIdData as string | null) ?? null;
+
   const name = input.name.trim();
   if (!name) return { id: null, error: "Название не может быть пустым" };
 
@@ -130,6 +134,7 @@ export async function createDepartment(input: {
     .from("departments")
     .insert({
       account_id: accountId,
+      venue_id: venueId,
       name,
       icon: input.icon?.trim() ? input.icon : null,
       icon_color: input.iconColor?.trim() ? input.iconColor : null,

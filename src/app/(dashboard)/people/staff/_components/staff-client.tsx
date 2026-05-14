@@ -9,7 +9,7 @@ import { z } from "zod";
 import { toast } from "sonner";
 import {
   UserPlus, Calendar, Clock, X, Check, Settings2,
-  ChevronDown, ChevronRight, RotateCcw, Search, Filter, Lock,
+  ChevronDown, ChevronRight, Loader2, RotateCcw, Search, Filter, Lock,
   HeartPulse, Cake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -1134,6 +1134,7 @@ export function StaffClient({
                     Отмена
                   </Button>
                   <Button type="submit" className="flex-1" disabled={isPending}>
+                    {isPending && <Loader2 className="size-4 animate-spin" />}
                     Создать
                   </Button>
                 </div>
@@ -1166,7 +1167,10 @@ export function StaffClient({
                 </p>
                 <div className="flex gap-3">
                   <Button type="button" variant="outline" className="flex-1" onClick={() => setInviteOpen(false)}>Отмена</Button>
-                  <Button type="submit" className="flex-1" disabled={isPending}>Отправить приглашение</Button>
+                  <Button type="submit" className="flex-1" disabled={isPending}>
+                    {isPending && <Loader2 className="size-4 animate-spin" />}
+                    Отправить приглашение
+                  </Button>
                 </div>
               </form>
             </TabsContent>

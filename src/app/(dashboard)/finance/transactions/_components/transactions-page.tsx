@@ -25,13 +25,16 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -867,42 +870,50 @@ export function TransactionsPage({
         </div>
       )}
 
-      {/* Bulk-delete confirmation */}
-      <Dialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      {/* Bulk-delete confirmation — AlertDialog primitive. Копи без
+          «30 дней» — реального retention в БД нет, soft-delete просто
+          скрывает запись от read-фильтров, восстановление доступно
+          всегда через журнал изменений. */}
+      <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
+        <AlertDialogContent
+          className="sm:max-w-md"
+          // Пока идёт удаление — блокируем Esc, чтобы юзер не закрыл
+          // диалог в полёте и не отправил delete повторно (Codex P2).
+          // Outside-click у AlertDialog уже заблокирован Radix'ом.
+          onEscapeKeyDown={(e) => {
+            if (bulkDeleting) e.preventDefault();
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-destructive/10 text-destructive">
                 <Trash2 className="h-4 w-4" />
               </span>
               {selected.length > 1 ? "Удалить выбранные операции" : "Удалить операцию"}
-            </DialogTitle>
-            <DialogDescription>
+            </AlertDialogTitle>
+            <AlertDialogDescription>
               {selected.length > 1
-                ? `Будут удалены ${selected.length} ${pluralize(selected.length, ["операция", "операции", "операций"])} на общую сумму ${formatCurrency(selectedTotal, "RUB")}. Восстановить их можно будет только из истории за последние 30 дней.`
-                : "Операция будет удалена безвозвратно. Восстановить её можно будет только из истории за последние 30 дней."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setConfirmBulkDelete(false)}
+                ? `Будут удалены ${selected.length} ${pluralize(selected.length, ["операция", "операции", "операций"])} на общую сумму ${formatCurrency(selectedTotal, "RUB")}. Восстановить операции можно из истории изменений.`
+                : "Операция будет удалена из текущего журнала. Восстановить её можно из истории изменений."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                performBulkDelete();
+              }}
               disabled={bulkDeleting}
-            >
-              Отмена
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={performBulkDelete}
-              disabled={bulkDeleting}
+              className={buttonVariants({ variant: "destructive" })}
             >
               {bulkDeleting && <Loader2 className="animate-spin" />}
               <Trash2 />
               Удалить{selected.length > 1 ? ` ${selected.length}` : ""}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Right-sidebar form */}
       <TransactionFormSheet

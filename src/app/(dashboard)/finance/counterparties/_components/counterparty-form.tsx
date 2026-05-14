@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -255,11 +256,10 @@ export function CounterpartyForm({
 
           <div className="space-y-1.5">
             <Label htmlFor="cp-phone">Телефон</Label>
-            <Input
+            <PhoneInput
               id="cp-phone"
               value={form.phone ?? ""}
-              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              type="tel"
+              onChange={(e164) => setForm((f) => ({ ...f, phone: e164 }))}
             />
           </div>
 

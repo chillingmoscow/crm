@@ -94,7 +94,7 @@ export function KbDeletePageDialog({
           </DialogClose>
         </div>
         <div className="px-6 pb-4 pl-[78px] text-[13px] leading-snug text-muted-foreground">
-          Восстановить из корзины можно в течение 30 дней
+          Восстановить страницу можно из корзины
         </div>
         <div className="flex justify-end gap-2 px-6 py-4 border-t">
           <Button

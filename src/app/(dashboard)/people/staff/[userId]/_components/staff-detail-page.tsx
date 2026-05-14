@@ -629,7 +629,7 @@ export function StaffDetailPage({
             }}
             disabled={isPending}
           >
-            <RotateCcw className="w-4 h-4" />
+            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
             Восстановить
           </Button>
         )}

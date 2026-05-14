@@ -21,6 +21,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
@@ -548,31 +559,36 @@ export function TransactionFormSheet({
         }}
       />
 
-      {/* Delete confirmation */}
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+      {/* Delete confirmation — AlertDialog primitive: правильная
+          семантика role="alertdialog" + блокирует закрытие по
+          overlay/Esc. Копи «30 дней» снят — реального retention
+          через 30 дней в БД нет, запись соft-удалена и видна
+          в журнале изменений всегда. */}
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-destructive/10 text-destructive">
                 <Trash2 className="h-4 w-4" />
               </span>
               Удалить операцию
-            </DialogTitle>
-            <DialogDescription>
-              Операция будет удалена безвозвратно. Восстановить её можно будет только из истории изменений за последние 30 дней.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(false)}>
-              Отмена
-            </Button>
-            <Button variant="destructive" onClick={handleDelete}>
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Операция будет удалена из текущего журнала. Восстановить её можно из истории изменений.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              className={buttonVariants({ variant: "destructive" })}
+            >
               <Trash2 />
               Удалить
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Discard-changes confirmation — without redundant X-close in the
           corner (two explicit buttons), neutral copy without "нельзя

@@ -267,8 +267,15 @@ stable
 security definer
 set search_path = public
 as $$
+  -- Tenant-guard: функция SECURITY DEFINER, RLS не работает, поэтому
+  -- любой переданный p_venue_id обязан принадлежать активному аккаунту
+  -- caller'а. Иначе чужие имена/счётчики departments читаются через
+  -- произвольный venue_id (Codex P1 на #309).
   with effective_venue as (
-    select coalesce(p_venue_id, public.get_active_venue_id()) as venue_id
+    select v.id as venue_id
+    from public.venues v
+    where v.id = coalesce(p_venue_id, public.get_active_venue_id())
+      and v.account_id = public.get_active_account_id()
   )
   select
     d.id,
@@ -295,7 +302,7 @@ as $$
     join public.roles r on r.id = uvr.role_id
     cross join effective_venue ev2
     where uvr.status = 'active'
-      and (ev2.venue_id is null or uvr.venue_id = ev2.venue_id)
+      and uvr.venue_id = ev2.venue_id
       and r.department_id is not null
     group by r.department_id
   ) sc on sc.department_id = d.id

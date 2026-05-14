@@ -437,7 +437,7 @@ begin
     where account_id = v_account_id order by created_at asc limit 1;
   if v_venue_id is null then
     insert into public.venues (
-      account_id, legal_entity_id, name, type, address, phone, website,
+      account_id, default_legal_entity_id, name, type, address, phone, website,
       currency, timezone, working_hours
     ) values (
       v_account_id, v_legal_entity_id,

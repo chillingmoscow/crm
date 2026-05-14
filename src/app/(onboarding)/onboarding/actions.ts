@@ -362,13 +362,16 @@ export async function saveProfile(data: {
   return { error: null };
 }
 
-// Получение системных ролей (для выбора в онбординге)
+// Получение системных ролей (для выбора в онбординге).
+// После Stage D venue-scoped refactor единственная системная роль — owner.
+// Функция оставлена для совместимости с UI: фактически возвращает пустой
+// список (мы исключаем owner), и wizard это корректно обрабатывает.
 export async function getSystemRoles() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("roles")
     .select("id, name, code")
-    .is("account_id", null)
+    .is("venue_id", null)
     .neq("code", "owner")
     .order("name");
 
@@ -453,7 +456,7 @@ async function getOwnerRoleId(supabase: Awaited<ReturnType<typeof createClient>>
   const { data } = await supabase
     .from("roles")
     .select("id")
-    .is("account_id", null)
+    .is("venue_id", null)
     .eq("code", "owner")
     .maybeSingle();
   return data?.id ?? null;
@@ -1024,7 +1027,25 @@ export async function runQuickRestoImport(data: {
 
       const selectedRoles = roles.filter((role) => selectedRoleIdSet.has(String(role.id)));
 
+      // Stage D venue-scoped: импорт ролей привязывается к первому venue
+      // этого аккаунта. QuickResto-импорт изначально создан под одно-venue
+      // setup; для multi-venue логика выбора целевого venue нуждается в
+      // отдельном UI-шаге, который пока не реализован.
+      const { data: roleImportVenue } = await adminClient
+        .from("venues")
+        .select("id")
+        .eq("account_id", data.accountId)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const roleImportVenueId = (roleImportVenue as { id: string } | null)?.id;
+      if (!roleImportVenueId) {
+        summary.errors.push("Импорт ролей: в аккаунте нет ни одного заведения");
+      }
+
       for (const role of selectedRoles) {
+        if (!roleImportVenueId) break;
+
         await saveSnapshot({
           client: adminDb,
           accountId: data.accountId,
@@ -1052,8 +1073,7 @@ export async function runQuickRestoImport(data: {
           const { error: updateRoleError } = await adminClient
             .from("roles")
             .update({ name: roleName, comment: role.comment ?? null })
-            .eq("id", existingRoleLink.local_id)
-            .eq("account_id", data.accountId);
+            .eq("id", existingRoleLink.local_id);
 
           if (updateRoleError) {
             summary.errors.push(`Role ${role.id}: ${updateRoleError.message}`);
@@ -1066,7 +1086,7 @@ export async function runQuickRestoImport(data: {
           const { data: insertedRole, error: insertRoleError } = await adminClient
             .from("roles")
             .insert({
-              account_id: data.accountId,
+              venue_id: roleImportVenueId,
               name: roleName,
               code: roleCode,
               comment: role.comment ?? null,
@@ -1163,16 +1183,26 @@ export async function runQuickRestoImport(data: {
               ? `qr_${externalRoleId}`
               : `qr_emp_${employee.id}`;
 
+          // Stage D venue-scoped: fallback роль создаётся в первом venue
+          // аккаунта (как и обычный импорт ролей выше). Если venue нет —
+          // пропускаем создание роли.
+          const fallbackVenueId = fallbackAccountVenueIds[0];
+          if (!fallbackVenueId) {
+            summary.errors.push(
+              `Employee ${employee.id}: fallback role skipped (нет venue в аккаунте)`,
+            );
+            continue;
+          }
           const { data: insertedFallbackRole, error: insertFallbackRoleError } = await adminClient
             .from("roles")
             .upsert(
               {
-                account_id: data.accountId,
+                venue_id: fallbackVenueId,
                 name: fallbackRoleName,
                 code: fallbackRoleCode,
                 comment: "Создано автоматически на основе импорта сотрудников из Quick Resto",
               },
-              { onConflict: "code,account_id" }
+              { onConflict: "code,venue_id" }
             )
             .select("id")
             .single();

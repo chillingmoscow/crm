@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -11,6 +11,7 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -107,7 +108,7 @@ export function VenueDetailPage({
     ? [...BASE_TABS, "Журнал"]
     : [...BASE_TABS];
 
-  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<Form>({
+  const { register, handleSubmit, setValue, watch, control, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
     defaultValues: {
       name:                    venue.name,
@@ -245,7 +246,18 @@ export function VenueDetailPage({
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Телефон</Label>
-              <Input id="phone" placeholder="+7 (999) 000-00-00" {...register("phone")} />
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field }) => (
+                  <PhoneInput
+                    id="phone"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                  />
+                )}
+              />
             </div>
           </div>
 

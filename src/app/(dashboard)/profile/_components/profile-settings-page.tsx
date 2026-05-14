@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import {
@@ -530,11 +531,17 @@ export function ProfileSettingsPage({
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="phone" className="text-[13px] font-medium">Телефон</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+7 (999) 000-00-00"
-                {...register("phone")}
+              <Controller
+                control={control}
+                name="phone"
+                render={({ field }) => (
+                  <PhoneInput
+                    id="phone"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    onBlur={field.onBlur}
+                  />
+                )}
               />
             </div>
             <div className="space-y-1.5">
@@ -572,12 +579,20 @@ export function ProfileSettingsPage({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="telegram_id" className="text-[13px] font-medium">Telegram ID</Label>
-              <Input
-                id="telegram_id"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                placeholder="123456789"
-                {...register("telegram_id")}
+              <Controller
+                control={control}
+                name="telegram_id"
+                render={({ field }) => (
+                  <Input
+                    id="telegram_id"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="123456789"
+                    value={field.value ?? ""}
+                    onChange={(e) => field.onChange(e.target.value.replace(/\D+/g, ""))}
+                    onBlur={field.onBlur}
+                  />
+                )}
               />
             </div>
             <div className="space-y-1.5">

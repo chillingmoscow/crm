@@ -17,6 +17,9 @@ type TargetVenueRole = {
   id: string;
   role_id: string;
   terminal_pin: string | null;
+  status: "active" | "fired";
+  fired_at: string | null;
+  fired_reason: string | null;
   // Колонка в БД называется created_at — это «когда сотрудник попал в
   // команду» (RPC get_venue_staff алиасит её в joined_at для фронта).
   created_at: string | null;
@@ -110,11 +113,14 @@ export default async function StaffMemberPage({
     admin
       .from("user_venue_roles")
       .select(
-        "id, role_id, terminal_pin, created_at, roles(name, code, department_id, departments(id, name))",
+        // departments embed disambiguated по FK roles_department_id_fkey
+        // — без явного указателя PostgREST видит две связи (есть ещё
+        // departments.head_role_id → roles) и возвращает ошибку.
+        "id, role_id, terminal_pin, status, fired_at, fired_reason, created_at, roles(name, code, department_id, departments!roles_department_id_fkey(id, name))",
       )
       .eq("user_id", userId)
       .eq("venue_id", venueId)
-      .eq("status", "active")
+      .in("status", ["active", "fired"])
       .returns<TargetVenueRole[]>()
       .maybeSingle(),
     admin
@@ -167,6 +173,8 @@ export default async function StaffMemberPage({
     comment:             null,
   };
 
+  const isFired = targetUvr.status === "fired";
+
   return (
     <StaffDetailPage
       profile={profileRow}
@@ -182,6 +190,9 @@ export default async function StaffMemberPage({
       venueId={venueId}
       roles={roles ?? []}
       canEdit={canEdit}
+      isFired={isFired}
+      firedAt={targetUvr.fired_at}
+      firedReason={targetUvr.fired_reason}
       isMe={user.id === userId}
       importedFromQuickResto={Boolean(importedLink)}
       joinedAt={targetUvr.created_at}

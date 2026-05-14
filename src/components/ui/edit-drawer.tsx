@@ -23,6 +23,7 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
+import { overlayClass, overlayContentTiming } from "@/lib/overlay-classes";
 
 interface EditDrawerProps {
   open: boolean;
@@ -47,14 +48,12 @@ export function EditDrawer({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPrimitive.Portal>
-        <SheetPrimitive.Overlay
-          className="fixed inset-0 z-50 bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
-        />
+        <SheetPrimitive.Overlay className={overlayClass} />
         <SheetPrimitive.Content
           className={cn(
-            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg transition ease-in-out",
+            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg transition",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
-            "data-[state=closed]:duration-300 data-[state=open]:duration-500",
+            overlayContentTiming,
             "border-l flex flex-col w-full sm:max-w-[520px]",
             className,
           )}

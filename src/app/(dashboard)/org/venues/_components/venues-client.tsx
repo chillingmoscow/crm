@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -10,6 +10,8 @@ import { Plus, Building2, X, Settings2, Search, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { formatPhoneDisplay } from "@/lib/format/phone";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -261,7 +263,7 @@ export function VenuesClient({ venues: initialVenues }: Props) {
   // Filter
   const [filter, setFilter] = useState<VenueFilter>({ type: null, importedFromQr: "all" });
 
-  const { register, handleSubmit, setValue, reset, formState: { errors } } =
+  const { register, handleSubmit, setValue, reset, control, formState: { errors } } =
     useForm<Form>({
       resolver: zodResolver(schema),
       defaultValues: { type: "restaurant", currency: "RUB", timezone: "Europe/Moscow" },
@@ -340,7 +342,7 @@ export function VenuesClient({ venues: initialVenues }: Props) {
       case "address":
         return <div className="text-sm text-muted-foreground truncate">{venue.address || "—"}</div>;
       case "phone":
-        return <div className="text-sm text-muted-foreground truncate">{venue.phone || "—"}</div>;
+        return <div className="text-sm text-muted-foreground truncate">{venue.phone ? formatPhoneDisplay(venue.phone) : "—"}</div>;
       case "currency":
         return <div className="text-sm text-muted-foreground">{venue.currency}</div>;
       case "timezone":
@@ -491,7 +493,18 @@ export function VenuesClient({ venues: initialVenues }: Props) {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Телефон</Label>
-                <Input id="phone" placeholder="+7 (999) 000-00-00" {...register("phone")} />
+                <Controller
+                  control={control}
+                  name="phone"
+                  render={({ field }) => (
+                    <PhoneInput
+                      id="phone"
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      onBlur={field.onBlur}
+                    />
+                  )}
+                />
               </div>
             </div>
 

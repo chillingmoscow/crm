@@ -15,12 +15,14 @@ import {
   Loader2,
   Lock,
   Plus,
+  RotateCcw,
   Upload,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +59,7 @@ import type { AuditEvent } from "@/lib/audit/list";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import {
   fireStaff,
+  restoreStaff,
   setImportedStaffEmailAndInvite,
   updateStaffProfile,
   updateStaffAccountDetails,
@@ -104,6 +107,9 @@ interface Props {
   venueId:        string;
   roles:          Role[];
   canEdit:        boolean;
+  isFired:        boolean;
+  firedAt:        string | null;
+  firedReason:    string | null;
   isMe:           boolean;
   importedFromQuickResto: boolean;
   joinedAt:       string | null;
@@ -189,7 +195,10 @@ export function StaffDetailPage({
   departmentName,
   terminalPin,
   venueId,
-  canEdit,
+  canEdit: canEditProp,
+  isFired,
+  firedAt,
+  firedReason,
   isMe,
   importedFromQuickResto,
   joinedAt,
@@ -244,6 +253,13 @@ export function StaffDetailPage({
   const displayName =
     [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
     (isPlaceholderUser ? "Без имени" : contactEmail);
+
+  // Уволенный сотрудник — карточку можно открыть и просмотреть, но
+  // редактировать поля нельзя (кроме явных действий типа «Восстановить»).
+  // Поэтому маскируем canEdit для всей формы; восстановление и просмотр
+  // используют canManageStaff (исходный prop).
+  const canManageStaff = canEditProp;
+  const canEdit = canEditProp && !isFired;
 
   // Email-поле и кнопку «Пригласить»/«Изменить и переслать» админ видит,
   // пока сотрудник не подтвердил email. После — read-only.
@@ -596,6 +612,27 @@ export function StaffDetailPage({
       </PageBreadcrumb>
 
       <PageHeaderActions>
+        {isFired && canManageStaff && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              startTransition(async () => {
+                const result = await restoreStaff(uvrId);
+                if (result.error) {
+                  toast.error(translateError(result.error));
+                  return;
+                }
+                toast.success("Сотрудник восстановлен");
+                router.refresh();
+              });
+            }}
+            disabled={isPending}
+          >
+            <RotateCcw className="w-4 h-4" />
+            Восстановить
+          </Button>
+        )}
         <EntityInfoPopover
           title="О сотруднике"
           id={profile.id}
@@ -646,7 +683,13 @@ export function StaffDetailPage({
                   </>
                 )}
               </span>
-              {isPlaceholderUser ? (
+              {isFired ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
+                  <span className="text-[12px] font-medium text-muted-foreground leading-none">
+                    Уволен{firedAt ? ` · ${formatDate(firedAt)}` : ""}
+                  </span>
+                </span>
+              ) : isPlaceholderUser ? (
                 <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
                   <span className="text-[12px] font-medium text-muted-foreground leading-none">
                     Без аккаунта
@@ -676,6 +719,17 @@ export function StaffDetailPage({
             </div>
           </div>
         </div>
+
+        {isFired && firedReason && (
+          <div className="rounded-[14px] border bg-card px-5 py-4">
+            <p className="text-[12px] font-medium uppercase tracking-wider text-muted-foreground">
+              Причина увольнения
+            </p>
+            <p className="mt-1.5 text-sm text-foreground leading-snug whitespace-pre-wrap">
+              {firedReason}
+            </p>
+          </div>
+        )}
 
         <Tabs
           value={activeTab}
@@ -863,13 +917,19 @@ export function StaffDetailPage({
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="phone" className="text-[13px] font-medium">Телефон</Label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="+7 (999) 000-00-00"
-                      {...register("phone")}
-                      readOnly={!canEditPersonal}
-                      className={!canEditPersonal ? "bg-muted/50" : ""}
+                    <Controller
+                      control={control}
+                      name="phone"
+                      render={({ field }) => (
+                        <PhoneInput
+                          id="phone"
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          readOnly={!canEditPersonal}
+                          className={!canEditPersonal ? "bg-muted/50" : ""}
+                        />
+                      )}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -918,13 +978,23 @@ export function StaffDetailPage({
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="telegram_id" className="text-[13px] font-medium">Telegram</Label>
-                    <Input
-                      id="telegram_id"
-                      placeholder="@username"
-                      {...register("telegram_id")}
-                      readOnly={!canEditPersonal}
-                      className={!canEditPersonal ? "bg-muted/50" : ""}
+                    <Label htmlFor="telegram_id" className="text-[13px] font-medium">Telegram ID</Label>
+                    <Controller
+                      control={control}
+                      name="telegram_id"
+                      render={({ field }) => (
+                        <Input
+                          id="telegram_id"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          placeholder="123456789"
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(e.target.value.replace(/\D+/g, ""))}
+                          onBlur={field.onBlur}
+                          readOnly={!canEditPersonal}
+                          className={!canEditPersonal ? "bg-muted/50" : ""}
+                        />
+                      )}
                     />
                   </div>
                   <div className="space-y-1.5">

@@ -3985,3 +3985,31 @@ button.kb-gallery-menu-item {
   font-size: 14px;
   line-height: 1.45;
 }
+
+/* ──── Плавный переход тем ──────────────────────────────────────
+   `.theme-transition` навешивается на <html> на 220ms во время
+   переключения через `applyTheme` (src/lib/theme.ts), чтобы цвета
+   плавно перетекали вместо мгновенного flash'а. Вне переключения
+   класса нет — иначе любые hover/focus переходы тормозили бы. */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease,
+    fill 200ms ease,
+    stroke 200ms ease,
+    box-shadow 200ms ease !important;
+  transition-delay: 0s !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition: none !important;
+  }
+}

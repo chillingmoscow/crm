@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
+import { applyTheme } from "@/lib/theme";
 import {
   User,
   Building2,
@@ -832,7 +833,7 @@ function ThemeSwitcher() {
             <button
               key={value}
               type="button"
-              onClick={() => setTheme(value)}
+              onClick={() => applyTheme(value, setTheme)}
               aria-label={label}
               title={label}
               className={cn(

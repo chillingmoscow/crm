@@ -3,18 +3,20 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
   UserPlus, Calendar, Clock, X, Check, Settings2,
   ChevronDown, ChevronRight, RotateCcw, Search, Filter, Lock,
-  HeartPulse, MessageSquareQuote, Cake,
+  HeartPulse, Cake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
+import { formatPhoneDisplay } from "@/lib/format/phone";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -702,7 +704,7 @@ export function StaffClient({
           </div>
         );
       case "phone":
-        return <div className="text-sm text-muted-foreground truncate">{member.phone || "—"}</div>;
+        return <div className="text-sm text-muted-foreground truncate">{member.phone ? formatPhoneDisplay(member.phone) : "—"}</div>;
       case "telegram":
         return <div className="text-sm text-muted-foreground truncate">{member.telegram_id || "—"}</div>;
       case "gender":
@@ -1010,10 +1012,9 @@ export function StaffClient({
                       {member.role_name} · уволен {formatDate(member.fired_at)}
                     </p>
                     {member.fired_reason && (
-                      <div className="mt-2 flex items-start gap-2 rounded-md bg-secondary/60 px-2.5 py-1.5 text-[13px] text-foreground/80 leading-snug">
-                        <MessageSquareQuote className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 line-clamp-3">{member.fired_reason}</span>
-                      </div>
+                      <p className="mt-1.5 text-[13px] text-muted-foreground leading-snug line-clamp-3">
+                        {member.fired_reason}
+                      </p>
                     )}
                   </div>
                   {canEdit && (
@@ -1091,11 +1092,17 @@ export function StaffClient({
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="create-phone" className="text-[13px] font-medium">Телефон</Label>
-                  <Input
-                    id="create-phone"
-                    type="tel"
-                    placeholder="+7 (999) 000-00-00"
-                    {...createFormHook.register("phone")}
+                  <Controller
+                    control={createFormHook.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <PhoneInput
+                        id="create-phone"
+                        value={field.value ?? ""}
+                        onChange={field.onChange}
+                        onBlur={field.onBlur}
+                      />
+                    )}
                   />
                 </div>
                 <div className="space-y-1.5">

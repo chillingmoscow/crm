@@ -875,7 +875,15 @@ export function TransactionsPage({
           скрывает запись от read-фильтров, восстановление доступно
           всегда через журнал изменений. */}
       <AlertDialog open={confirmBulkDelete} onOpenChange={setConfirmBulkDelete}>
-        <AlertDialogContent className="sm:max-w-md">
+        <AlertDialogContent
+          className="sm:max-w-md"
+          // Пока идёт удаление — блокируем Esc, чтобы юзер не закрыл
+          // диалог в полёте и не отправил delete повторно (Codex P2).
+          // Outside-click у AlertDialog уже заблокирован Radix'ом.
+          onEscapeKeyDown={(e) => {
+            if (bulkDeleting) e.preventDefault();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-destructive/10 text-destructive">

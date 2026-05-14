@@ -18,35 +18,31 @@ export default async function StaffPage() {
 const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
   if (!user) redirect("/login");
 
-  // Phase 2 — profile + roles + accountId в параллели.
-  // accountId нужен ниже, чтобы корректно скоупить список departments —
-  // RLS на departments пускает по членству в любом venue аккаунта, и без
-  // явного account-фильтра в multi-account сетапе в фильтре всплывали бы
-  // чужие подразделения.
-  const [{ data: profile }, { data: roles }, { data: accountId }] =
-    await Promise.all([
-      supabase
-        .from("profiles")
-        .select("active_venue_id")
-        .eq("id", user.id)
-        .maybeSingle(),
-      supabase
-        .from("roles")
-        .select("id, name, code")
-        .order("name"),
-      supabase.rpc("get_active_account_id"),
-    ]);
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("active_venue_id")
+    .eq("id", user.id)
+    .maybeSingle();
 
   if (!profile?.active_venue_id) redirect("/onboarding");
   const venueId = profile.active_venue_id;
 
-  const { data: departments } = accountId
-    ? await supabase
-        .from("departments")
-        .select("id, name")
-        .eq("account_id", accountId as string)
-        .order("name")
-    : { data: [] as { id: string; name: string }[] };
+  // Stage D: roles + departments теперь venue-scoped, фильтруем строго
+  // по active venue. Owner — единственная system role (venue_id IS NULL),
+  // в дроп фильтра по должностям на этой странице её не показываем —
+  // она не имеет отдельного департамента и не выбирается как фильтр.
+  const [{ data: roles }, { data: departments }] = await Promise.all([
+    supabase
+      .from("roles")
+      .select("id, name, code")
+      .eq("venue_id", venueId)
+      .order("name"),
+    supabase
+      .from("departments")
+      .select("id, name")
+      .eq("venue_id", venueId)
+      .order("name"),
+  ]);
 
   // Phase 3 — all four queries need venueId; run them all in parallel
   const [{ data: uvr }, staff, invitations, firedStaff] = await Promise.all([

@@ -44,6 +44,15 @@
     --autofill-bg: #fafafa;
     --autofill-text: #09090b;
 
+    /* ──── Motion tokens ────────────────────────────────────────
+       Унифицированные длительности для крупных UI-переходов.
+       См. docs/design-system.md § Overlays / Sidebar / Theme. */
+    --overlay-duration-open: 200ms;
+    --overlay-duration-close: 150ms;
+    --sidebar-collapse-duration: 300ms;
+    --collapse-fade-duration: 200ms;
+    --theme-transition-duration: 200ms;
+
     /* ──── Унифицированная 10-цветная палитра ────
        Источник правды: src/lib/palette.ts (TypeScript-помощники).
        Эти CSS-переменные — зеркало для CSS-only потребителей: BlockNote
@@ -4005,11 +4014,22 @@ html.theme-transition *::after {
   transition-delay: 0s !important;
 }
 
+/* ──── prefers-reduced-motion ────────────────────────────────────
+   Глобальный override: уважаем настройку OS «уменьшить движение».
+   Затрагивает наши крупные анимации: sidebar collapse (300ms),
+   overlay fade (200/150ms), theme transition. Hover-эффекты на
+   <Button>/<Input> и т.п. остаются — они «отзывчивость», не
+   движение.
+
+   `data-[state=open|closed]:animate-*` от Radix — это keyframes
+   animations, не transitions, поэтому отдельно их `animation:none`. */
 @media (prefers-reduced-motion: reduce) {
-  html.theme-transition,
-  html.theme-transition *,
-  html.theme-transition *::before,
-  html.theme-transition *::after {
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
   }
 }

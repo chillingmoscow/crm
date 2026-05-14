@@ -31,41 +31,37 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     supabase.rpc("get_active_venue_id"),
   ]);
 
+  // Stage D venue-scoped: фильтр по venue_id = activeVenueId
+  // (видна owner system + custom-роли активного venue). RLS уже
+  // ограничивает дополнительно, но фильтр снижает выборку.
   const [rolesResult, permissionsResult, departmentsResult] = await Promise.all([
     supabase
       .from("roles")
-      .select("id, account_id, name, code, comment, icon, icon_color, department_id")
+      .select("id, venue_id, name, code, comment, icon, icon_color, department_id")
       .or(
-        accountId
-          ? `account_id.is.null,account_id.eq.${accountId}`
-          : "account_id.is.null"
+        activeVenueId
+          ? `venue_id.is.null,venue_id.eq.${activeVenueId}`
+          : "venue_id.is.null"
       )
-      .order("account_id", { nullsFirst: true })
+      .order("venue_id", { nullsFirst: true })
       .order("name"),
     supabase
       .from("permissions")
       .select("id, code, description, module")
       .order("module")
       .order("code"),
-    accountId
+    activeVenueId
       ? supabase
           .from("departments")
           .select("id, name")
-          // RLS `dep_select_member` пускает по членству, не по active account —
-          // без явного фильтра в multi-account сетапе появились бы чужие
-          // подразделения в выпадашке.
-          .eq("account_id", accountId)
+          .eq("venue_id", activeVenueId)
           .order("name")
       : Promise.resolve({ data: [] as { id: string; name: string }[] }),
   ]);
 
-  // icon_color (миграция 136) ещё не во вшитых Database-типах — cast чтобы
-  // развязать pipeline до регенерации `supabase gen types`. После миграции
-  // 138 hidden-roles overlay'я больше нет — все не-owner роли удаляются
-  // обычным DELETE, отдельная фильтрация не нужна.
   type RoleRow = {
     id: string;
-    account_id: string | null;
+    venue_id: string | null;
     name: string;
     code: string;
     comment: string | null;
@@ -116,6 +112,7 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
       permissions={permissions}
       rolePermissions={rolePermsResult.data ?? []}
       accountId={accountId ?? null}
+      activeVenueId={activeVenueId ?? null}
       staffCountByRole={staffCountByRole}
       importedRoleIds={importedRoleIds}
       departments={departmentsResult.data ?? []}

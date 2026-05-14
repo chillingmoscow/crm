@@ -22,30 +22,27 @@ export default async function DepartmentDetailServerPage({
     permission_code: "people.manage_roles",
   });
 
-  const [{ data: accountId }, { department, roles, heads }, { data: canViewAudit }] =
+  const [{ data: activeVenueId }, { department, roles, heads }, { data: canViewAudit }] =
     await Promise.all([
-      supabase.rpc("get_active_account_id"),
+      supabase.rpc("get_active_venue_id"),
       getDepartment(id),
       supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
     ]);
 
   if (!department) redirect("/people/departments");
-  if (
-    department.account_id !==
-    ((accountId as string | null) ?? null)
-  ) {
+  if (department.venue_id !== ((activeVenueId as string | null) ?? null)) {
     redirect("/people/departments");
   }
 
-  // Список ролей для прикрепления — скоупим к active account (плюс
-  // системные с account_id = null). Иначе для multi-account юзера в
-  // выпадашке появились бы кастомные роли из чужих аккаунтов.
-  const { data: allRoles } = await supabase
-    .from("roles")
-    .select("id, name, code, icon, icon_color, account_id, department_id")
-    .or(`account_id.is.null,account_id.eq.${accountId as string}`)
-    .order("account_id", { nullsFirst: true })
-    .order("name");
+  // Stage D: список ролей для прикрепления — venue-scoped активного venue.
+  // System owner (venue_id NULL) исключаем — он не может состоять в dept.
+  const { data: allRoles } = activeVenueId
+    ? await supabase
+        .from("roles")
+        .select("id, name, code, icon, icon_color, venue_id, department_id")
+        .eq("venue_id", activeVenueId as string)
+        .order("name")
+    : { data: [] as { id: string; name: string; code: string; icon: string | null; icon_color: string | null; venue_id: string | null; department_id: string | null }[] };
 
   // Профили created_by / updated_by для info-popover — паттерн из
   // role-detail-page.tsx.

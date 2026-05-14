@@ -200,12 +200,71 @@ values (
   }'
 );
 
--- После миграции 138 единственная системная роль — owner. Остальные
--- (Управляющий / Официант / …) — кастомные per-account. Сеем их через
--- штатную функцию (она же вызывается онбордингом).
-select public.seed_default_account_roles(
-  'cccccccc-0000-0000-0000-000000000001'::uuid
-);
+-- После миграции 170 (Stage D venue-scoped refactor) кастомные роли
+-- venue-scoped, не account-scoped. Сеем preset через venue-аналог.
+-- Auth-guard в seed_default_venue_roles требует active UVR caller'а в
+-- этом аккаунте — в seed.sql session запускается как supabase_admin
+-- без auth.uid(), и эта функция упадёт. Поэтому в seed обходим RPC
+-- и сидим инлайн: создаём 5 ролей в venue + копируем permissions
+-- из preset (так же, как делает сама RPC).
+do $$
+declare
+  v_venue_id uuid := 'dddddddd-0000-0000-0000-000000000001';
+  v_role_id  uuid;
+  v_def       record;
+begin
+  for v_def in
+    select * from (values
+      ('Управляющий',  'custom_manager',    array[
+        'people.view_staff','people.view_staff_details','people.invite_staff','people.edit_staff',
+        'people.view_roles','org.view_account','org.view_venues',
+        'finance.view_dashboard','finance.view_transactions','finance.create_transaction',
+        'finance.update_transaction','finance.view_bank_accounts','finance.view_categories',
+        'finance.view_counterparties','finance.upload_attachments','finance.view_attachments',
+        'crm.view_guests','crm.view_guest_details','crm.manage_guests',
+        'crm.view_reservations','crm.manage_reservations','crm.cancel_reservation',
+        'crm.view_loyalty','settings.manage_notifications','settings.use_dadata']),
+      ('Администратор', 'custom_admin',      array[
+        'people.view_staff','people.view_staff_details','people.invite_staff','people.edit_staff',
+        'people.terminate_staff','people.view_roles','people.manage_roles',
+        'org.view_account','org.view_legal_entities','org.view_venues','org.manage_venues','org.view_audit',
+        'finance.view_dashboard','finance.view_transactions','finance.create_transaction',
+        'finance.update_transaction','finance.update_any_transaction','finance.delete_transaction',
+        'finance.view_bank_accounts','finance.manage_bank_accounts','finance.view_categories',
+        'finance.manage_categories','finance.view_counterparties','finance.manage_counterparties',
+        'finance.upload_attachments','finance.view_attachments','finance.delete_attachments',
+        'finance.export','finance.view_all_venues','finance.view_all_legal_entities',
+        'crm.view_guests','crm.view_guest_details','crm.manage_guests',
+        'crm.view_reservations','crm.manage_reservations','crm.cancel_reservation',
+        'crm.view_loyalty','crm.manage_loyalty',
+        'settings.manage_integrations','settings.manage_notifications','settings.use_dadata']),
+      ('Бухгалтер',     'custom_accountant', array[
+        'people.view_staff','people.view_staff_details',
+        'org.view_account','org.view_legal_entities','org.manage_legal_entities',
+        'org.view_venues','org.view_audit',
+        'finance.view_dashboard','finance.view_transactions','finance.create_transaction',
+        'finance.update_transaction','finance.update_any_transaction','finance.delete_transaction',
+        'finance.view_bank_accounts','finance.manage_bank_accounts','finance.view_categories',
+        'finance.manage_categories','finance.view_counterparties','finance.manage_counterparties',
+        'finance.upload_attachments','finance.view_attachments','finance.delete_attachments',
+        'finance.export','finance.view_all_venues','finance.view_all_legal_entities','settings.use_dadata']),
+      ('Хостес',        'custom_hostess',    array[
+        'org.view_venues',
+        'crm.view_guests','crm.view_guest_details','crm.manage_guests',
+        'crm.view_reservations','crm.manage_reservations','crm.cancel_reservation']),
+      ('Официант',      'custom_waiter',     array[
+        'org.view_venues','crm.view_guests',
+        'crm.view_reservations','crm.manage_reservations'])
+    ) as t(name, code, perms)
+  loop
+    insert into public.roles (venue_id, name, code)
+    values (v_venue_id, v_def.name, v_def.code)
+    returning id into v_role_id;
+
+    insert into public.role_permissions (role_id, permission_id, granted)
+    select v_role_id, id, true from public.permissions where code = any(v_def.perms);
+  end loop;
+end $$;
 
 -- Привязываем владельца к заведению (роль owner — единственная системная)
 insert into public.user_venue_roles (user_id, venue_id, role_id)
@@ -222,8 +281,8 @@ values (
   'dddddddd-0000-0000-0000-000000000001',
   (
     select id from public.roles
-    where account_id = 'cccccccc-0000-0000-0000-000000000001'::uuid
-      and code       = 'custom_manager'
+    where venue_id = 'dddddddd-0000-0000-0000-000000000001'::uuid
+      and code     = 'custom_manager'
   ),
   'aaaaaaaa-0000-0000-0000-000000000001'
 );
@@ -235,8 +294,8 @@ values (
   'dddddddd-0000-0000-0000-000000000001',
   (
     select id from public.roles
-    where account_id = 'cccccccc-0000-0000-0000-000000000001'::uuid
-      and code       = 'custom_waiter'
+    where venue_id = 'dddddddd-0000-0000-0000-000000000001'::uuid
+      and code     = 'custom_waiter'
   ),
   'aaaaaaaa-0000-0000-0000-000000000001'
 );

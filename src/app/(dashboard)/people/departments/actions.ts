@@ -3,12 +3,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
-async function getActiveAccountId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data } = await supabase.rpc("get_active_account_id");
-  return (data as string | null) ?? null;
-}
-
 export type DepartmentSummary = {
   id: string;
   name: string;
@@ -23,7 +17,7 @@ export type DepartmentSummary = {
 
 export type Department = {
   id: string;
-  account_id: string;
+  venue_id: string;
   name: string;
   icon: string | null;
   icon_color: string | null;
@@ -89,7 +83,7 @@ export async function getDepartment(
       supabase
         .from("departments")
         .select(
-          "id, account_id, name, icon, icon_color, description, head_role_id, created_at, updated_at, created_by, updated_by",
+          "id, venue_id, name, icon, icon_color, description, head_role_id, created_at, updated_at, created_by, updated_by",
         )
         .eq("id", id)
         .maybeSingle(),
@@ -120,12 +114,10 @@ export async function createDepartment(input: {
   } = await supabase.auth.getUser();
   if (!user) return { id: null, error: "Не авторизован" };
 
-  const accountId = await getActiveAccountId();
-  if (!accountId) return { id: null, error: "Заведение не настроено" };
-
-  // Stage B: пишем venue_id одновременно с account_id.
+  // Stage D: venue-scoped только. account_id больше нет.
   const { data: venueIdData } = await supabase.rpc("get_active_venue_id");
   const venueId = (venueIdData as string | null) ?? null;
+  if (!venueId) return { id: null, error: "Заведение не выбрано" };
 
   const name = input.name.trim();
   if (!name) return { id: null, error: "Название не может быть пустым" };
@@ -133,7 +125,6 @@ export async function createDepartment(input: {
   const { data, error } = await supabase
     .from("departments")
     .insert({
-      account_id: accountId,
       venue_id: venueId,
       name,
       icon: input.icon?.trim() ? input.icon : null,

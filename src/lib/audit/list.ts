@@ -26,7 +26,7 @@ export type AuditEntitySnapshot =
       id: string;
       name: string;
       code: string;
-      account_id: string | null;
+      venue_id: string | null;
     }
   | {
       type: "department";
@@ -322,7 +322,7 @@ export async function listAuditEvents(input?: {
   if (roleIds && roleIds.size > 0) {
     const { data: roleRows } = await supabase
       .from("roles")
-      .select("id, name, code, account_id")
+      .select("id, name, code, venue_id")
       .in("id", Array.from(roleIds));
     for (const r of roleRows ?? []) {
       snapshotsByKey.set(`role:${r.id}`, {
@@ -330,7 +330,7 @@ export async function listAuditEvents(input?: {
         id: r.id,
         name: r.name,
         code: r.code,
-        account_id: r.account_id,
+        venue_id: r.venue_id,
       });
     }
   }

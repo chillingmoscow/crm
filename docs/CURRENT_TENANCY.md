@@ -101,26 +101,26 @@ venues (
 В venues **есть** только данные о физической точке. Юридических реквизитов **тоже нет**.
 
 ### `roles`
-Должности.
+Должности. **С миграции 170 venue-scoped**: каждое заведение имеет независимый набор должностей.
 
 ```sql
 roles (
-  id          uuid PK
-  account_id  uuid → accounts NULL  -- NULL = системная роль
-  name        text                  -- "Владелец", "Управляющий", ...
-  code        text                  -- 'owner', 'manager', 'admin', 'hostess', 'waiter'
-  UNIQUE (code, account_id)
+  id            uuid PK
+  venue_id      uuid → venues NULL  -- NULL = системная роль (owner)
+  name          text                -- "Бармен", "Управляющий", ...
+  code          text                -- 'owner', 'custom_manager', 'custom_bartender', ...
+  department_id uuid → departments NULL
+  icon, icon_color, comment, created_at/by, updated_at/by
+  UNIQUE (code, venue_id)
+  CHECK (venue_id IS NOT NULL OR code = 'owner')
 )
 ```
 
-**Системные роли** (`account_id IS NULL`) — заводятся в миграции 002. Это **шаблоны**, общие для всей платформы:
-- `owner` — Владелец
-- `manager` — Управляющий
-- `admin` — Администратор
-- `hostess` — Хостес
-- `waiter` — Официант
+**Системная роль** (одна — `owner`, `venue_id IS NULL`) — заведена в миграции 002, доступна всем authenticated. После миграции 138 другие системные роли (manager/admin/…) убраны — они теперь venue-scoped кастомки.
 
-**Кастомные роли** (`account_id = X`) — создаются владельцем тенанта в его аккаунте через UI. Например, конкретный аккаунт может создать роль «Бариста».
+**Кастомные роли** (`venue_id = X`) — создаются в конкретном заведении. Преcет из 5 ролей (Управляющий/Администратор/Бухгалтер/Хостес/Официант) автоматически сидится при создании venue через `seed_default_venue_roles(p_venue_id)`. Дальше каждое заведение конфигурирует независимо.
+
+**История**: до миграции 170 роли были account-scoped (общие на весь аккаунт). Stages A-D (миграции 166-170) клонировали их на каждый venue и переподключили UVR/invitations. Один аккаунт с N venues = N независимых наборов ролей.
 
 ### `permissions`
 Реестр прав. Текущие коды (миграция 002):

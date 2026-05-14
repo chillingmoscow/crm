@@ -60,7 +60,7 @@ type AllRole = {
   code: string;
   icon: string | null;
   icon_color: string | null;
-  account_id: string | null;
+  venue_id: string | null;
   department_id: string | null;
 };
 
@@ -133,7 +133,7 @@ export function DepartmentDetailPage({
   const attachableRoles = useMemo(
     () =>
       allRoles.filter(
-        (r) => r.account_id !== null && !departmentRoleIds.has(r.id),
+        (r) => r.venue_id !== null && !departmentRoleIds.has(r.id),
       ),
     [allRoles, departmentRoleIds],
   );

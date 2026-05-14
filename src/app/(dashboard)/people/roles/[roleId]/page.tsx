@@ -30,17 +30,20 @@ export default async function RoleDetailServerPage({
   });
   if (!canView) redirect("/dashboard");
 
-  const { data: accountId } = await supabase.rpc("get_active_account_id");
+  const [{ data: accountId }, { data: activeVenueId }] = await Promise.all([
+    supabase.rpc("get_active_account_id"),
+    supabase.rpc("get_active_venue_id"),
+  ]);
 
   // Fetch the role with audit fields (created_at/updated_at + by) for the
   // info card on the «Основное» tab. See migration 052.
   const { data: role } = await supabase
     .from("roles")
-    .select("id, account_id, name, code, comment, icon, icon_color, department_id, created_at, updated_at, created_by, updated_by")
+    .select("id, venue_id, name, code, comment, icon, icon_color, department_id, created_at, updated_at, created_by, updated_by")
     .eq("id", roleId)
     .returns<{
       id: string;
-      account_id: string | null;
+      venue_id: string | null;
       name: string;
       code: string;
       comment: string | null;
@@ -56,8 +59,9 @@ export default async function RoleDetailServerPage({
 
   if (!role) redirect("/people/roles");
 
-  // Reject access to roles belonging to a different account
-  if (role.account_id !== null && role.account_id !== accountId) {
+  // Reject access если venue не активный (для venue-scoped). System owner
+  // (venue_id NULL) виден всегда.
+  if (role.venue_id !== null && role.venue_id !== activeVenueId) {
     redirect("/people/roles");
   }
 
@@ -118,13 +122,11 @@ export default async function RoleDetailServerPage({
         .eq("entity_type", "role")
         .eq("local_id", roleId)
         .maybeSingle()) as unknown as Promise<{ data: { id: string } | null }>,
-      accountId
+      activeVenueId
         ? supabase
             .from("departments")
             .select("id, name")
-            // RLS пускает любого члена аккаунта — в multi-account сетапе
-            // без явного фильтра здесь всплывали бы чужие подразделения.
-            .eq("account_id", accountId as string)
+            .eq("venue_id", activeVenueId as string)
             .order("name")
         : Promise.resolve({ data: [] as { id: string; name: string }[] }),
     ]);

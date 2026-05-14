@@ -50,12 +50,13 @@ export async function createVenue(
 
   if (error) return { id: null, error: error.message };
 
-  // Auto-add owner to user_venue_roles for the new venue
+  // Auto-add owner to user_venue_roles for the new venue.
+  // После Stage D venue-scoped refactor system-role marker — venue_id IS NULL.
   const { data: ownerRole } = await supabase
     .from("roles")
     .select("id")
     .eq("code", "owner")
-    .is("account_id", null)
+    .is("venue_id", null)
     .single();
 
   if (ownerRole) {
@@ -64,6 +65,24 @@ export async function createVenue(
       venue_id: venue.id,
       role_id:  ownerRole.id,
     });
+  }
+
+  // Сидим preset кастомных ролей (Управляющий/Админ/Бухгалтер/Хостес/
+  // Официант) в новом venue. Если ошибка — не валим: venue + owner UVR
+  // уже созданы, юзер может позже добавить роли вручную в /people/roles.
+  // RPC ещё не во вшитых Database-типах (миграция 167 свежая) — cast
+  // чтобы развязать pipeline до регенерации `supabase gen types`.
+  const rpc = (
+    supabase.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ error: { message: string } | null }>
+  ).bind(supabase);
+  const { error: seedError } = await rpc("seed_default_venue_roles", {
+    p_venue_id: venue.id,
+  });
+  if (seedError) {
+    console.error("[createVenue] seed_default_venue_roles failed", seedError);
   }
 
   revalidatePath("/org/venues");

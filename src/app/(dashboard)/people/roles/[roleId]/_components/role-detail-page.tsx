@@ -45,7 +45,7 @@ import type { AuditEvent } from "@/lib/audit/list";
 
 type Role = {
   id: string;
-  account_id: string | null;
+  venue_id: string | null;
   name: string;
   code: string;
   comment: string | null;
@@ -138,7 +138,7 @@ export function RoleDetailPage({
   const isOwner = role.code === "owner";
   // После миграции 138 единственная системная роль — owner. Все остальные
   // (Управляющий/Администратор/Бухгалтер/…) — кастомные per-account.
-  const isSystem = role.account_id === null;
+  const isSystem = role.venue_id === null;
   const canEdit = !isOwner;
   // Owner и системные роли (после миграции — только owner) не удаляются.
   // Кастомка — физический DELETE.
@@ -339,7 +339,7 @@ export function RoleDetailPage({
               <h1 className="text-[28px] font-bold tracking-tight leading-tight">
                 {role.name}
               </h1>
-              {role.account_id === null && (
+              {role.venue_id === null && (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
                   <Lock className="w-2.5 h-2.5" />
                   <span className="text-[10px] font-medium leading-none">

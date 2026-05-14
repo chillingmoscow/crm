@@ -2205,7 +2205,6 @@ export type Database = {
       }
       departments: {
         Row: {
-          account_id: string
           created_at: string
           created_by: string | null
           description: string | null
@@ -2216,10 +2215,9 @@ export type Database = {
           name: string
           updated_at: string
           updated_by: string | null
-          venue_id: string | null
+          venue_id: string
         }
         Insert: {
-          account_id: string
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -2230,10 +2228,9 @@ export type Database = {
           name: string
           updated_at?: string
           updated_by?: string | null
-          venue_id?: string | null
+          venue_id: string
         }
         Update: {
-          account_id?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -2244,16 +2241,9 @@ export type Database = {
           name?: string
           updated_at?: string
           updated_by?: string | null
-          venue_id?: string | null
+          venue_id?: string
         }
         Relationships: [
-          {
-            foreignKeyName: "departments_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "accounts"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "departments_head_role_id_fkey"
             columns: ["head_role_id"]
@@ -2261,11 +2251,17 @@ export type Database = {
             referencedRelation: "roles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "departments_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
         ]
       }
       roles: {
         Row: {
-          account_id: string | null
           code: string
           comment: string | null
           created_at: string
@@ -2280,7 +2276,6 @@ export type Database = {
           venue_id: string | null
         }
         Insert: {
-          account_id?: string | null
           code: string
           comment?: string | null
           created_at?: string
@@ -2295,7 +2290,6 @@ export type Database = {
           venue_id?: string | null
         }
         Update: {
-          account_id?: string | null
           code?: string
           comment?: string | null
           created_at?: string
@@ -2310,13 +2304,6 @@ export type Database = {
           venue_id?: string | null
         }
         Relationships: [
-          {
-            foreignKeyName: "roles_account_id_fkey"
-            columns: ["account_id"]
-            isOneToOne: false
-            referencedRelation: "accounts"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "roles_created_by_fkey"
             columns: ["created_by"]

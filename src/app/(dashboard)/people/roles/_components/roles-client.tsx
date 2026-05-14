@@ -35,7 +35,7 @@ import { createRole } from "../actions";
 
 type Role = {
   id: string;
-  account_id: string | null;
+  venue_id: string | null;
   name: string;
   code: string;
   comment: string | null;
@@ -64,6 +64,7 @@ type Props = {
   permissions: Permission[];
   rolePermissions: RolePermission[];
   accountId: string | null;
+  activeVenueId: string | null;
   staffCountByRole: Record<string, number>;
   importedRoleIds: string[];
   departments: DepartmentLite[];
@@ -259,6 +260,7 @@ export function RolesClient({
   permissions,
   rolePermissions,
   accountId,
+  activeVenueId,
   staffCountByRole,
   importedRoleIds,
   departments,
@@ -317,8 +319,9 @@ export function RolesClient({
   const copyableRoles = useMemo(
     () =>
       [...roles].sort((a, b) => {
-        if (a.account_id === null && b.account_id !== null) return -1;
-        if (a.account_id !== null && b.account_id === null) return 1;
+        // System owner (venue_id NULL) сверху, потом venue-scoped по имени.
+        if (a.venue_id === null && b.venue_id !== null) return -1;
+        if (a.venue_id !== null && b.venue_id === null) return 1;
         return a.name.localeCompare(b.name, "ru");
       }),
     [roles],
@@ -371,7 +374,7 @@ export function RolesClient({
       if (result.id) {
         const created: Role = {
           id: result.id,
-          account_id: accountId,
+          venue_id: activeVenueId,
           name,
           code: `custom_${name
             .toLowerCase()
@@ -399,7 +402,7 @@ export function RolesClient({
     switch (key) {
       case "name": {
         const desc = role.comment?.trim();
-        const isSystem = role.account_id === null;
+        const isSystem = role.venue_id === null;
         return (
           <div className="min-w-0">
             <div className="flex items-center gap-2 min-w-0">
@@ -752,7 +755,7 @@ export function RolesClient({
               {copyableRoles.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
                   {r.name}
-                  {r.account_id === null && (
+                  {r.venue_id === null && (
                     <span className="text-muted-foreground"> · системная</span>
                   )}
                 </SelectItem>

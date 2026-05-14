@@ -63,7 +63,7 @@ export async function searchAuditEntities(q: string): Promise<{
       .from("roles")
       .select("id")
       .ilike("name", pattern)
-      .not("account_id", "is", null)
+      .not("venue_id", "is", null)
       .limit(200),
     supabase.from("invitations").select("id").ilike("email", pattern).limit(200),
     supabase.from("bank_accounts").select("id").ilike("name", pattern).limit(200),

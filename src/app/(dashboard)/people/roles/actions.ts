@@ -3,12 +3,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
-async function getActiveAccountId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data } = await supabase.rpc("get_active_account_id");
-  return (data as string | null) ?? null;
-}
-
 export async function createRole(input: {
   name: string;
   /**
@@ -31,14 +25,11 @@ export async function createRole(input: {
   } = await supabase.auth.getUser();
   if (!user) return { id: null, error: "Не авторизован" };
 
-  const accountId = await getActiveAccountId();
-  if (!accountId) return { id: null, error: "Заведение не настроено" };
-
-  // Stage B venue-scope refactor: пишем venue_id одновременно с account_id.
-  // Активный venue берём через тот же helper, что и accountId. Если по
-  // какой-то причине venue не выбран — оставляем NULL (legacy path).
+  // Stage D venue-scope refactor: account_id больше не существует.
+  // Роли создаются в активном venue.
   const { data: venueIdData } = await supabase.rpc("get_active_venue_id");
   const venueId = (venueIdData as string | null) ?? null;
+  if (!venueId) return { id: null, error: "Заведение не выбрано" };
 
   const trimmed = input.name.trim();
   const code = `custom_${trimmed
@@ -47,10 +38,7 @@ export async function createRole(input: {
     .replace(/[^a-z0-9_]/g, "")
     .substring(0, 40)}`;
 
-  // icon_color column requires migration 136 — types are still being generated.
-  // Cast keeps strict-null-check happy without disabling typing elsewhere.
   const insertPayload = {
-    account_id: accountId,
     venue_id: venueId,
     name: trimmed,
     code,
@@ -146,30 +134,22 @@ export async function deleteRole(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const accountId = await getActiveAccountId();
-  if (!accountId) return { error: "Заведение не настроено" };
-
-  // После миграции 138 единственная системная роль — owner. Все остальные
-  // (включая Управляющий/Администратор/…) — обычные per-account кастомки,
-  // удаляются физическим DELETE. Owner блокируется явной проверкой.
+  // Stage D: венью-scoped роли. System owner всё ещё venue_id IS NULL.
   const { data: role } = await supabase
     .from("roles")
-    .select("account_id, code")
+    .select("venue_id, code")
     .eq("id", roleId)
     .maybeSingle();
 
   if (!role) return { error: "Роль не найдена" };
   if (role.code === "owner")
     return { error: "Должность Владелец нельзя удалить" };
-  if (role.account_id === null) {
+  if (role.venue_id === null) {
     return { error: "Системную должность удалить нельзя" };
   }
 
-  const { error } = await supabase
-    .from("roles")
-    .delete()
-    .eq("id", roleId)
-    .eq("account_id", accountId);
+  // RLS отбьёт удаление если venue не принадлежит активному аккаунту.
+  const { error } = await supabase.from("roles").delete().eq("id", roleId);
   if (error) return { error: error.message };
 
   revalidatePath("/people/roles");
@@ -186,9 +166,6 @@ export async function setRolePermission(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
-
-  const accountId = await getActiveAccountId();
-  if (!accountId) return { error: "Заведение не настроено" };
 
   // Prevent editing the owner role; all other roles (including system ones) are editable
   const { data: role } = await supabase

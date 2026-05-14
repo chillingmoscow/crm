@@ -89,9 +89,9 @@ function EntityReference({ event }: { event: AuditEvent }) {
   }
 
   if (entity.type === "role") {
-    // Системные роли (account_id=null) — например owner — не имеют
-    // редактируемой страницы, ссылку не показываем.
-    if (!entity.account_id) return null;
+    // Системные роли (venue_id=null) — owner — не имеют редактируемой
+    // страницы, ссылку не показываем.
+    if (!entity.venue_id) return null;
     return (
       <>
         <span className="text-muted-foreground/50">·</span>

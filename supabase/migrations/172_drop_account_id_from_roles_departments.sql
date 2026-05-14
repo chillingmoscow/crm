@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- 170_drop_account_id_from_roles_departments.sql
+-- 172_drop_account_id_from_roles_departments.sql
 --
 -- Stage D — финал перехода на venue-scoped roles + departments.
 -- Stage C (миграция 169) переподключил все UVR/invitations на venue-scoped

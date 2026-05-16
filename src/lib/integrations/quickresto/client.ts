@@ -487,11 +487,11 @@ export async function listInventoryItemsBackOffice(input: {
   documentId: number;
   count?: number;
 }) {
-  const pageSize = input.count ?? 150;
+  const pageSize = Math.max(1, input.count ?? 150);
   const rows: QuickRestoInventoryItem2[] = [];
   let total: number | null = null;
 
-  for (let start = 0; start < 5000; start += pageSize) {
+  for (let start = 0; ; start += pageSize) {
     const page = await selectInventoryItemsBackOffice({
       ...input,
       start,

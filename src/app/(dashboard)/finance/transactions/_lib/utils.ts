@@ -17,12 +17,12 @@ export function generateRandomColor(): string {
 }
 
 /** Forms 1234,56 ₽-style strings using ru-RU locale. signDisplay: 'never' — sign is rendered separately by the UI. */
-export function formatCurrency(amount: number, currency: string = "RUB"): string {
-  return new Intl.NumberFormat("ru-RU", {
-    style: "currency",
-    currency,
-    signDisplay: "never",
-  }).format(Math.abs(amount));
+export function formatCurrency(
+  amount: number,
+  currency: string = "RUB",
+  scale?: AmountRoundingScale
+): string {
+  return formatMoney(Math.abs(amount), currency, scale);
 }
 
 /** "01.05.2026" */
@@ -65,13 +65,17 @@ export function splitDateTime(
 }
 
 /** "12,3 К ₽" / "1,5 М ₽" / "240 ₽" — short-form for table account-balance hints. */
-export function formatShortAmount(amount: number, currency: string): string {
+export function formatShortAmount(amount: number, currency: string, scale: AmountRoundingScale): string {
   const abs = Math.abs(amount);
+  const format = (value: number) =>
+    value.toLocaleString("ru-RU", {
+      minimumFractionDigits: scale,
+      maximumFractionDigits: scale,
+    });
   let short: string;
-  if (abs >= 1_000_000) short = (Math.round((abs / 1_000_000) * 10) / 10).toString() + "М";
-  else if (abs >= 1_000) short = (Math.round((abs / 1_000) * 10) / 10).toString() + "К";
-  else short = (Math.round(abs * 10) / 10).toString();
-  if (short.endsWith(".0")) short = short.slice(0, -2);
+  if (abs >= 1_000_000) short = `${format(abs / 1_000_000)}М`;
+  else if (abs >= 1_000) short = `${format(abs / 1_000)}К`;
+  else short = format(abs);
   const symbol =
     currency === "RUB" ? "₽" :
     currency === "USD" ? "$" :
@@ -100,3 +104,4 @@ export function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";

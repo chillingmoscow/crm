@@ -37,6 +37,7 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.48.1",
+    "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "^3.22.5",
     "@tiptap/pm": "^3.22.5",
     "@types/canvas-confetti": "^1.9.0",

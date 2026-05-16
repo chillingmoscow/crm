@@ -13,6 +13,9 @@ interface Props {
   importVenues: boolean;
   importRoles: boolean;
   importEmployees: boolean;
+  importStores: boolean;
+  importIngredientGroups: boolean;
+  importIngredients: boolean;
   selectedVenueExternalIds: number[];
   selectedRoleExternalIds: number[];
   selectedEmployeeExternalIds: number[];
@@ -20,6 +23,9 @@ interface Props {
     importVenues?: boolean;
     importRoles?: boolean;
     importEmployees?: boolean;
+    importStores?: boolean;
+    importIngredientGroups?: boolean;
+    importIngredients?: boolean;
     selectedVenueExternalIds?: number[];
     selectedRoleExternalIds?: number[];
     selectedEmployeeExternalIds?: number[];
@@ -41,6 +47,9 @@ export function StepQuickRestoOptions({
   importVenues,
   importRoles,
   importEmployees,
+  importStores,
+  importIngredientGroups,
+  importIngredients,
   selectedVenueExternalIds,
   selectedRoleExternalIds,
   selectedEmployeeExternalIds,
@@ -60,12 +69,17 @@ export function StepQuickRestoOptions({
   const selectedVenueCountRef = useRef(selectedVenueExternalIds.length);
   const selectedRoleCountRef = useRef(selectedRoleExternalIds.length);
   const selectedEmployeeCountRef = useRef(selectedEmployeeExternalIds.length);
+  const onUpdateRef = useRef(onUpdate);
 
   useEffect(() => {
     selectedVenueCountRef.current = selectedVenueExternalIds.length;
     selectedRoleCountRef.current = selectedRoleExternalIds.length;
     selectedEmployeeCountRef.current = selectedEmployeeExternalIds.length;
   }, [selectedVenueExternalIds.length, selectedRoleExternalIds.length, selectedEmployeeExternalIds.length]);
+
+  useEffect(() => {
+    onUpdateRef.current = onUpdate;
+  }, [onUpdate]);
 
   useEffect(() => {
     prefilledRef.current = false;
@@ -120,7 +134,7 @@ export function StepQuickRestoOptions({
           patch.selectedRoleExternalIds ||
           patch.selectedEmployeeExternalIds
         ) {
-          onUpdate(patch);
+          onUpdateRef.current(patch);
         }
 
         prefilledRef.current = true;
@@ -136,7 +150,6 @@ export function StepQuickRestoOptions({
   }, [
     accountId,
     connectionId,
-    onUpdate,
     reloadToken,
   ]);
 
@@ -166,7 +179,7 @@ export function StepQuickRestoOptions({
   const stageHint = (() => {
     switch (stage) {
       case "entities":
-        return "Сначала выберите типы данных, затем на отдельных шагах отметьте конкретные записи.";
+        return "Выберите, какие данные забрать из Quick Resto. Для заведений, должностей и сотрудников можно будет отметить конкретные записи.";
       case "venues":
         return "Выберите заведения из Quick Resto, которые нужно создать в системе.";
       case "roles":
@@ -226,7 +239,14 @@ export function StepQuickRestoOptions({
 
   const goNextStage = () => {
     if (stage === "entities") {
-      if (!importVenues && !importRoles && !importEmployees) {
+      if (
+        !importVenues &&
+        !importRoles &&
+        !importEmployees &&
+        !importStores &&
+        !importIngredientGroups &&
+        !importIngredients
+      ) {
         toast.error("Выберите хотя бы одну сущность");
         return;
       }
@@ -334,6 +354,30 @@ export function StepQuickRestoOptions({
                 onCheckedChange={(v) => onUpdate({ importEmployees: Boolean(v) })}
               />
               <span className="text-sm text-gray-700">Сотрудники</span>
+            </label>
+
+            <label className="flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2">
+              <Checkbox
+                checked={importStores}
+                onCheckedChange={(v) => onUpdate({ importStores: Boolean(v) })}
+              />
+              <span className="text-sm text-gray-700">Склады</span>
+            </label>
+
+            <label className="flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2">
+              <Checkbox
+                checked={importIngredientGroups}
+                onCheckedChange={(v) => onUpdate({ importIngredientGroups: Boolean(v) })}
+              />
+              <span className="text-sm text-gray-700">Группы ингредиентов</span>
+            </label>
+
+            <label className="flex items-center gap-3 rounded-xl border border-gray-200 px-3 py-2">
+              <Checkbox
+                checked={importIngredients}
+                onCheckedChange={(v) => onUpdate({ importIngredients: Boolean(v) })}
+              />
+              <span className="text-sm text-gray-700">Ингредиенты</span>
             </label>
           </div>
         ) : null}

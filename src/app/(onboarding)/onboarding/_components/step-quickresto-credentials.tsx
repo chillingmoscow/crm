@@ -38,28 +38,32 @@ export function StepQuickRestoCredentials({
 
     setLoading(true);
 
-    const saved = await saveQuickRestoCredentials({
-      accountId,
-      login: login.trim(),
-      password: password.trim(),
-    });
+    try {
+      const saved = await saveQuickRestoCredentials({
+        accountId,
+        login: login.trim(),
+        password: password.trim(),
+      });
 
-    if (saved.error || !saved.connectionId) {
+      if (saved.error || !saved.connectionId) {
+        toast.error(saved.error ?? "Не удалось сохранить подключение");
+        return;
+      }
+
+      const tested = await testQuickRestoConnection({ connectionId: saved.connectionId });
+
+      if (!tested.ok) {
+        toast.error(tested.error ?? "Не удалось подключиться к Quick Resto");
+        return;
+      }
+
+      toast.success("Подключение к Quick Resto успешно");
+      onNext({ login: login.trim(), connectionId: saved.connectionId });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось подключиться к Quick Resto");
+    } finally {
       setLoading(false);
-      toast.error(saved.error ?? "Не удалось сохранить подключение");
-      return;
     }
-
-    const tested = await testQuickRestoConnection({ connectionId: saved.connectionId });
-    setLoading(false);
-
-    if (!tested.ok) {
-      toast.error(tested.error ?? "Не удалось подключиться к Quick Resto");
-      return;
-    }
-
-    toast.success("Подключение к Quick Resto успешно");
-    onNext({ login: login.trim(), connectionId: saved.connectionId });
   };
 
   return (

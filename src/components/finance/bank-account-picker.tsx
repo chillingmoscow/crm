@@ -1,6 +1,11 @@
 "use client";
 
 import { Combobox, type ComboboxOption } from "./combobox";
+import {
+  DEFAULT_AMOUNT_ROUNDING_SCALE,
+  formatMoney,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
 
 type BankAccountOption = {
   id: string;
@@ -28,6 +33,7 @@ type Props = {
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  amountRoundingScale?: AmountRoundingScale;
 };
 
 export function BankAccountPicker({
@@ -41,6 +47,7 @@ export function BankAccountPicker({
   disabled,
   className,
   ariaLabel,
+  amountRoundingScale = DEFAULT_AMOUNT_ROUNDING_SCALE,
 }: Props) {
   const filtered = bankAccounts
     .filter((a) => (legalEntityId ? a.legal_entity_id === legalEntityId : true))
@@ -51,10 +58,10 @@ export function BankAccountPicker({
     label: a.name,
     hint:
       a.bank_name && a.balance !== null && a.balance !== undefined
-        ? `${a.bank_name} • ${formatRub(a.balance)}`
+        ? `${a.bank_name} • ${formatRub(a.balance, amountRoundingScale)}`
         : a.bank_name ??
           (a.balance !== null && a.balance !== undefined
-            ? formatRub(a.balance)
+            ? formatRub(a.balance, amountRoundingScale)
             : undefined),
     keywords: [a.bank_name ?? ""].filter(Boolean) as string[],
   }));
@@ -76,9 +83,6 @@ export function BankAccountPicker({
   );
 }
 
-function formatRub(value: number): string {
-  return value.toLocaleString("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }) + " ₽";
+function formatRub(value: number, scale: AmountRoundingScale): string {
+  return formatMoney(value, "RUB", scale);
 }

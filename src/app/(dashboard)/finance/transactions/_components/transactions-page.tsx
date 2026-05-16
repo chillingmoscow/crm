@@ -49,6 +49,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import type { AmountRoundingScale } from "@/lib/format/amount";
 import { EmptyState } from "@/components/ui/empty-state";
 import { softDeleteTransaction } from "@/lib/finance/transactions";
 import type {
@@ -114,6 +115,7 @@ type Props = {
   canCreate: boolean;
   canDelete: boolean;
   canExport: boolean;
+  amountRoundingScale: AmountRoundingScale;
 };
 
 type FormMode =
@@ -139,6 +141,7 @@ export function TransactionsPage({
   canCreate,
   canDelete,
   canExport,
+  amountRoundingScale,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -722,7 +725,7 @@ export function TransactionsPage({
                         ])}
                       </span>
                       <span className="text-xs text-brand/80">
-                        на сумму {formatCurrency(selectedTotal, "RUB")}
+                        на сумму {formatCurrency(selectedTotal, "RUB", amountRoundingScale)}
                       </span>
                       <div className="ml-auto flex items-center gap-2 mr-2">
                         {selected.length === 1 && (
@@ -809,6 +812,7 @@ export function TransactionsPage({
                   accountById={accountById}
                   categoryById={categoryById}
                   counterpartyById={counterpartyById}
+                  amountRoundingScale={amountRoundingScale}
                 />
               ))}
             </tbody>
@@ -893,7 +897,7 @@ export function TransactionsPage({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {selected.length > 1
-                ? `Будут удалены ${selected.length} ${pluralize(selected.length, ["операция", "операции", "операций"])} на общую сумму ${formatCurrency(selectedTotal, "RUB")}. Восстановить операции можно из истории изменений.`
+                ? `Будут удалены ${selected.length} ${pluralize(selected.length, ["операция", "операции", "операций"])} на общую сумму ${formatCurrency(selectedTotal, "RUB", amountRoundingScale)}. Восстановить операции можно из истории изменений.`
                 : "Операция будет удалена из текущего журнала. Восстановить её можно из истории изменений."}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -936,6 +940,7 @@ export function TransactionsPage({
         categories={categories}
         counterparties={counterparties}
         canDelete={canDelete}
+        amountRoundingScale={amountRoundingScale}
       />
     </div>
   );
@@ -1227,6 +1232,7 @@ function Row({
   accountById,
   categoryById,
   counterpartyById,
+  amountRoundingScale,
 }: {
   tx: TransactionRow;
   isSelected: boolean;
@@ -1235,6 +1241,7 @@ function Row({
   accountById: Map<string, BankAccountRow>;
   categoryById: Map<string, FinanceCategoryRow>;
   counterpartyById: Map<string, CounterpartyRow>;
+  amountRoundingScale: AmountRoundingScale;
 }) {
   const account = accountById.get(tx.bank_account_id);
   const toAccount = tx.to_bank_account_id ? accountById.get(tx.to_bank_account_id) : null;
@@ -1278,7 +1285,7 @@ function Row({
       </td>
       <td className={cn("px-3 align-middle font-medium tabular-nums", amountClass)}>
         {sign}
-        {formatCurrency(amount, tx.currency)}
+        {formatCurrency(amount, tx.currency, amountRoundingScale)}
       </td>
       <td className="px-3 align-middle">
         {tx.type === "transfer" ? (
@@ -1319,14 +1326,14 @@ function Row({
       <td className="px-3 align-middle">
         {tx.type === "transfer" && toAccount ? (
           <div className="flex flex-col gap-0.5">
-            <AccountLine account={account} />
+          <AccountLine account={account} amountRoundingScale={amountRoundingScale} />
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <ArrowLeftRight className="h-3 w-3" />
               <span className="truncate">{toAccount.name}</span>
             </div>
           </div>
         ) : (
-          <AccountLine account={account} showBalance />
+          <AccountLine account={account} showBalance amountRoundingScale={amountRoundingScale} />
         )}
       </td>
     </tr>
@@ -1336,9 +1343,11 @@ function Row({
 function AccountLine({
   account,
   showBalance,
+  amountRoundingScale,
 }: {
   account: BankAccountRow | undefined;
   showBalance?: boolean;
+  amountRoundingScale: AmountRoundingScale;
 }) {
   if (!account)
     return <span className="text-muted-foreground text-sm">Неизвестный счёт</span>;
@@ -1350,7 +1359,7 @@ function AccountLine({
       </div>
       {showBalance && (
         <span className="text-xs text-muted-foreground tabular-nums pl-5">
-          {formatShortAmount(Number(account.balance), account.currency)}
+          {formatShortAmount(Number(account.balance), account.currency, amountRoundingScale)}
         </span>
       )}
     </div>

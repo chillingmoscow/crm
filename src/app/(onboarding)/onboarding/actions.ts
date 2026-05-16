@@ -7,24 +7,36 @@ import type { Json, VenueType, WorkingHours } from "@/types/database";
 import { randomUUID } from "crypto";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import {
+  loginQuickRestoBackOffice,
   listEmployees,
+  listIngredientTreeItems,
+  listStores,
   listRoles,
   listTableSchemes,
   readEmployee,
+  readRole,
   readTableScheme,
   type QuickRestoEmployeeRead,
+  type QuickRestoRole,
+  type QuickRestoSingleCategory,
+  type QuickRestoSingleProduct,
+  type QuickRestoStore,
   type QuickRestoTableScheme,
 } from "@/lib/integrations/quickresto/client";
 
 type LooseQueryResult = { data: unknown; error: { message: string } | null };
 type LooseQueryBuilder = {
+  then: PromiseLike<LooseQueryResult>["then"];
   select: (columns: string) => LooseQueryBuilder;
   eq: (column: string, value: unknown) => LooseQueryBuilder;
+  in: (column: string, values: unknown[]) => LooseQueryBuilder;
+  is: (column: string, value: unknown) => LooseQueryBuilder;
   maybeSingle: () => Promise<LooseQueryResult>;
   single: () => Promise<LooseQueryResult>;
   insert: (values: unknown) => LooseQueryBuilder;
   upsert: (values: unknown, options?: { onConflict?: string }) => LooseQueryBuilder;
   update: (values: unknown) => LooseQueryBuilder;
+  delete: () => LooseQueryBuilder;
 };
 type LooseSupabaseClient = {
   from: (table: string) => LooseQueryBuilder;
@@ -381,11 +393,27 @@ export async function getSystemRoles() {
 
 type QuickRestoProvider = "quickresto";
 
+const QUICK_RESTO_BOT_ROLE_TITLE = "Sheerly";
+const QUICK_RESTO_BOT_EMPLOYEE_NAME = "Sheerly Bot";
+const QUICK_RESTO_REQUIRED_BACKOFFICE_RIGHTS = [
+  { code: "warehouse.documents.incoming", label: "Приходные накладные" },
+  { code: "warehouse.documents.outgoing", label: "Расходные накладные" },
+  { code: "warehouse.documents.exchange", label: "Внутренние перемещения" },
+  { code: "warehouse.documents.discard", label: "Акты списания" },
+  { code: "warehouse.documents.cooking", label: "Акты приготовления" },
+  { code: "warehouse.documents.decomposition", label: "Акты разбора" },
+  { code: "warehouse.documents.processing", label: "Акты переработки" },
+  { code: "warehouse.inventory.document", label: "Акты инвентаризации" },
+] as const;
+
 type ImportSummary = {
   venuesCreated: number;
   venuesUpdated: number;
   rolesCreated: number;
   rolesUpdated: number;
+  inventoryStoresSynced: number;
+  inventoryGroupsSynced: number;
+  inventoryProductsSynced: number;
   employeeInvitationsSent: number;
   employeesAutoCreated: number;
   employeesAutoUpdated: number;
@@ -414,6 +442,34 @@ function toVenueAddress(venue: QuickRestoTableScheme): string {
     (typeof venue.address?.fullAddress === "string" ? venue.address.fullAddress : null) ??
     ""
   );
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function className(value: unknown): string {
+  return text(asRecord(value).className) ?? "";
+}
+
+function isQuickRestoClass(value: unknown, suffix: "SingleCategory" | "SingleProduct") {
+  return className(value).endsWith(`.${suffix}`);
+}
+
+function productName(product: QuickRestoSingleProduct | QuickRestoSingleCategory, fallback: string) {
+  return text(product.name) ?? text(product.itemTitle) ?? fallback;
+}
+
+function storeTitle(store: QuickRestoStore) {
+  return text(store.title) ?? `Склад #${store.id}`;
 }
 
 function buildImportedEmail(accountId: string, externalEmployeeId: number): string {
@@ -466,7 +522,7 @@ async function upsertExternalLink(params: {
   client: unknown;
   accountId: string;
   provider: QuickRestoProvider;
-  entityType: "venue" | "role" | "staff";
+  entityType: "venue" | "role" | "staff" | "ingredient" | "ingredient_group" | "store";
   externalId: string;
   localTable: string;
   localId: string;
@@ -511,11 +567,300 @@ async function saveSnapshot(params: {
     );
 }
 
+async function resolveInventoryDefaultVenueId(params: {
+  adminClient: ReturnType<typeof createAdminClient>;
+  accountId: string;
+  userId: string;
+}) {
+  const { data: profile } = await params.adminClient
+    .from("profiles")
+    .select("active_venue_id")
+    .eq("id", params.userId)
+    .maybeSingle();
+
+  const activeVenueId = (profile as { active_venue_id?: string | null } | null)?.active_venue_id ?? null;
+  if (activeVenueId) {
+    const { data: activeVenue } = await params.adminClient
+      .from("venues")
+      .select("id")
+      .eq("id", activeVenueId)
+      .eq("account_id", params.accountId)
+      .maybeSingle();
+    if (activeVenue?.id) return activeVenue.id;
+  }
+
+  const { data: venues } = await params.adminClient
+    .from("venues")
+    .select("id")
+    .eq("account_id", params.accountId);
+  return venues?.length === 1 ? venues[0].id : null;
+}
+
+async function syncQuickRestoInventoryCatalog(params: {
+  adminClient: ReturnType<typeof createAdminClient>;
+  adminDb: LooseSupabaseClient;
+  accountId: string;
+  userId: string;
+  login: string;
+  password: string;
+  importStores: boolean;
+  importIngredientGroups: boolean;
+  importIngredients: boolean;
+  summary: ImportSummary;
+}) {
+  const auth = { layerName: params.login, login: params.login, password: params.password };
+  const syncedAt = new Date().toISOString();
+  const defaultVenueId = await resolveInventoryDefaultVenueId({
+    adminClient: params.adminClient,
+    accountId: params.accountId,
+    userId: params.userId,
+  });
+
+  const storeItemsPromise =
+    params.importIngredientGroups || params.importIngredients ? listIngredientTreeItems(auth) : Promise.resolve([]);
+  const storesPromise = params.importStores ? listStores(auth) : Promise.resolve([]);
+  const [storeItems, stores] = await Promise.all([storeItemsPromise, storesPromise]);
+  const inventoryItems = storeItems as Array<QuickRestoSingleCategory | QuickRestoSingleProduct>;
+  const groups = inventoryItems.filter((item): item is QuickRestoSingleCategory =>
+    isQuickRestoClass(item, "SingleCategory")
+  );
+  const products = inventoryItems.filter((item): item is QuickRestoSingleProduct =>
+    isQuickRestoClass(item, "SingleProduct")
+  );
+  const groupExternalIds = groups
+    .map((group) => (typeof group.id === "number" ? String(group.id) : null))
+    .filter((id): id is string => Boolean(id));
+  const productExternalIds = products
+    .map((product) => (typeof product.id === "number" ? String(product.id) : null))
+    .filter((id): id is string => Boolean(id));
+
+  if (params.importIngredients && groupExternalIds.length > 0) {
+    await params.adminDb
+      .from("inventory_products")
+      .delete()
+      .eq("account_id", params.accountId)
+      .in("external_id", groupExternalIds);
+  }
+  if (params.importIngredientGroups && productExternalIds.length > 0) {
+    await params.adminDb
+      .from("inventory_product_groups")
+      .delete()
+      .eq("account_id", params.accountId)
+      .in("external_id", productExternalIds);
+  }
+
+  if (params.importIngredientGroups) {
+    const groupByExternalId = new Map<string, string>();
+
+    for (const group of groups) {
+      if (typeof group.id !== "number") continue;
+      const parentExternalId =
+        typeof group.parentId === "number"
+          ? String(group.parentId)
+          : typeof group.parentItem?.id === "number"
+            ? String(group.parentItem.id)
+            : null;
+
+      const { data: row, error } = await params.adminDb
+        .from("inventory_product_groups")
+        .upsert(
+          {
+            account_id: params.accountId,
+            external_id: String(group.id),
+            name: productName(group, `Группа #${group.id}`),
+            item_title: text(group.itemTitle),
+            parent_group_id: null,
+            parent_external_id: parentExternalId,
+            raw_payload: group,
+            synced_at: syncedAt,
+          },
+          { onConflict: "account_id,external_id" }
+        )
+        .select("id")
+        .single();
+
+      const saved = row as { id?: string } | null;
+      if (error || !saved?.id) {
+        params.summary.errors.push(`Ingredient group ${group.id}: ${error?.message ?? "save error"}`);
+        continue;
+      }
+
+      groupByExternalId.set(String(group.id), saved.id);
+      params.summary.inventoryGroupsSynced += 1;
+      await upsertExternalLink({
+        client: params.adminDb,
+        accountId: params.accountId,
+        provider: "quickresto",
+        entityType: "ingredient_group",
+        externalId: String(group.id),
+        localTable: "inventory_product_groups",
+        localId: saved.id,
+      });
+      await saveSnapshot({
+        client: params.adminDb,
+        accountId: params.accountId,
+        provider: "quickresto",
+        entityType: "ingredient_group",
+        externalId: String(group.id),
+        payload: group,
+      });
+    }
+
+    for (const group of groups) {
+      const localId = groupByExternalId.get(String(group.id));
+      const parentExternalId =
+        typeof group.parentId === "number"
+          ? String(group.parentId)
+          : typeof group.parentItem?.id === "number"
+            ? String(group.parentItem.id)
+            : null;
+      const parentId = parentExternalId ? groupByExternalId.get(parentExternalId) : null;
+      if (localId && parentId) {
+        await params.adminDb.from("inventory_product_groups").update({ parent_group_id: parentId }).eq("id", localId);
+      }
+    }
+  }
+
+  if (params.importIngredients) {
+    const groupsResult = await params.adminDb
+      .from("inventory_product_groups")
+      .select("id, external_id")
+      .eq("account_id", params.accountId);
+    const groupByExternalId = new Map(
+      (((groupsResult.data as Array<{ id: string; external_id: string }> | null) ?? []).map((row) => [
+        row.external_id,
+        row.id,
+      ]))
+    );
+    for (const product of products) {
+      if (typeof product.id !== "number") continue;
+      const parentExternalId =
+        typeof product.parentId === "number"
+          ? String(product.parentId)
+          : typeof product.parentItem?.id === "number"
+            ? String(product.parentItem.id)
+            : null;
+
+      const { data: row, error } = await params.adminDb
+        .from("inventory_products")
+        .upsert(
+          {
+            account_id: params.accountId,
+            external_id: String(product.id),
+            external_version: typeof product.version === "number" ? product.version : null,
+            name: productName(product, `Ингредиент #${product.id}`),
+            item_title: text(product.itemTitle),
+            article: text(product.article),
+            barcode: text(product.barCode),
+            measure_unit_id: typeof product.measureUnit?.id === "number" ? product.measureUnit.id : null,
+            measure_unit_name: text(product.measureUnit?.name),
+            measure_unit_full_name: text(product.measureUnit?.fullName),
+            measure_unit_code: text(product.measureUnit?.code),
+            ratio: num(product.ratio),
+            group_id: parentExternalId ? groupByExternalId.get(parentExternalId) ?? null : null,
+            parent_external_id: parentExternalId,
+            tags: Array.isArray(product.storeItemTags) ? product.storeItemTags : [],
+            current_prime_cost: num(product.currentPrimeCost),
+            store_quantity_kg: num(product.storeQuantityKg),
+            stock_limit: num(product.limit),
+            raw_payload: product,
+            synced_at: syncedAt,
+          },
+          { onConflict: "account_id,external_id" }
+        )
+        .select("id")
+        .single();
+
+      const saved = row as { id?: string } | null;
+      if (error || !saved?.id) {
+        params.summary.errors.push(`Ingredient ${product.id}: ${error?.message ?? "save error"}`);
+        continue;
+      }
+
+      params.summary.inventoryProductsSynced += 1;
+      await upsertExternalLink({
+        client: params.adminDb,
+        accountId: params.accountId,
+        provider: "quickresto",
+        entityType: "ingredient",
+        externalId: String(product.id),
+        localTable: "inventory_products",
+        localId: saved.id,
+      });
+      await saveSnapshot({
+        client: params.adminDb,
+        accountId: params.accountId,
+        provider: "quickresto",
+        entityType: "ingredient",
+        externalId: String(product.id),
+        payload: product,
+      });
+    }
+  }
+
+  if (params.importStores) {
+    for (const store of stores) {
+      if (typeof store.id !== "number") continue;
+
+      const { data: existing } = await params.adminDb
+        .from("inventory_stores")
+        .select("id, local_venue_id")
+        .eq("account_id", params.accountId)
+        .eq("external_id", String(store.id))
+        .maybeSingle();
+      const existingStore = existing as { id?: string; local_venue_id?: string | null } | null;
+
+      const { data: row, error } = await params.adminDb
+        .from("inventory_stores")
+        .upsert(
+          {
+            account_id: params.accountId,
+            external_id: String(store.id),
+            title: storeTitle(store),
+            store_code: text(store.storeCode),
+            description: text(store.description),
+            local_venue_id: existingStore?.local_venue_id ?? defaultVenueId,
+            raw_payload: store,
+            synced_at: syncedAt,
+          },
+          { onConflict: "account_id,external_id" }
+        )
+        .select("id")
+        .single();
+
+      const saved = row as { id?: string } | null;
+      if (error || !saved?.id) {
+        params.summary.errors.push(`Store ${store.id}: ${error?.message ?? "save error"}`);
+        continue;
+      }
+
+      params.summary.inventoryStoresSynced += 1;
+      await upsertExternalLink({
+        client: params.adminDb,
+        accountId: params.accountId,
+        provider: "quickresto",
+        entityType: "store",
+        externalId: String(store.id),
+        localTable: "inventory_stores",
+        localId: saved.id,
+      });
+      await saveSnapshot({
+        client: params.adminDb,
+        accountId: params.accountId,
+        provider: "quickresto",
+        entityType: "store",
+        externalId: String(store.id),
+        payload: store,
+      });
+    }
+  }
+}
+
 async function findExternalLinkLocalId(params: {
   client: unknown;
   accountId: string;
   provider: QuickRestoProvider;
-  entityType: "venue" | "role" | "staff";
+  entityType: "venue" | "role" | "staff" | "ingredient" | "ingredient_group" | "store";
   externalId: number | string;
 }): Promise<string | null> {
   const db = asLooseClient(params.client);
@@ -532,6 +877,50 @@ async function findExternalLinkLocalId(params: {
   return row?.local_id ?? null;
 }
 
+const QUICK_RESTO_CONNECTION_COLUMNS = [
+  "id",
+  "account_id",
+  "provider",
+  "login",
+  "password_encrypted",
+  "password_iv",
+  "password_tag",
+  "backoffice_base_url",
+  "backoffice_login",
+  "backoffice_password_encrypted",
+  "backoffice_password_iv",
+  "backoffice_password_tag",
+  "backoffice_cookie_encrypted",
+  "backoffice_cookie_iv",
+  "backoffice_cookie_tag",
+  "backoffice_cookie_fetched_at",
+  "backoffice_last_tested_at",
+  "quickresto_bot_role_external_id",
+  "quickresto_bot_employee_external_id",
+].join(", ");
+
+type QuickRestoConnection = {
+  id: string;
+  account_id: string;
+  provider: QuickRestoProvider;
+  login: string;
+  password_encrypted: string;
+  password_iv: string;
+  password_tag: string;
+  backoffice_base_url?: string | null;
+  backoffice_login?: string | null;
+  backoffice_password_encrypted?: string | null;
+  backoffice_password_iv?: string | null;
+  backoffice_password_tag?: string | null;
+  backoffice_cookie_encrypted?: string | null;
+  backoffice_cookie_iv?: string | null;
+  backoffice_cookie_tag?: string | null;
+  backoffice_cookie_fetched_at?: string | null;
+  backoffice_last_tested_at?: string | null;
+  quickresto_bot_role_external_id?: string | null;
+  quickresto_bot_employee_external_id?: string | null;
+};
+
 async function getConnectionById(params: {
   client: unknown;
   connectionId: string;
@@ -539,20 +928,12 @@ async function getConnectionById(params: {
   const db = asLooseClient(params.client);
   const { data, error } = await db
     .from("integration_connections")
-    .select("id, account_id, provider, login, password_encrypted, password_iv, password_tag")
+    .select(QUICK_RESTO_CONNECTION_COLUMNS)
     .eq("id", params.connectionId)
     .maybeSingle();
 
   if (error || !data) return null;
-  return data as {
-    id: string;
-    account_id: string;
-    provider: QuickRestoProvider;
-    login: string;
-    password_encrypted: string;
-    password_iv: string;
-    password_tag: string;
-  };
+  return data as QuickRestoConnection;
 }
 
 async function getConnectionByAccount(params: {
@@ -563,21 +944,13 @@ async function getConnectionByAccount(params: {
   const db = asLooseClient(params.client);
   const { data, error } = await db
     .from("integration_connections")
-    .select("id, account_id, provider, login, password_encrypted, password_iv, password_tag")
+    .select(QUICK_RESTO_CONNECTION_COLUMNS)
     .eq("account_id", params.accountId)
     .eq("provider", params.provider)
     .maybeSingle();
 
   if (error || !data) return null;
-  return data as {
-    id: string;
-    account_id: string;
-    provider: QuickRestoProvider;
-    login: string;
-    password_encrypted: string;
-    password_iv: string;
-    password_tag: string;
-  };
+  return data as QuickRestoConnection;
 }
 
 function decryptConnectionPassword(connection: {
@@ -589,6 +962,94 @@ function decryptConnectionPassword(connection: {
     encrypted: connection.password_encrypted,
     iv: connection.password_iv,
     tag: connection.password_tag,
+  });
+}
+
+function encryptionErrorMessage(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback;
+  return message.includes("INTEGRATIONS_ENCRYPTION_KEY")
+    ? "Не настроен ключ шифрования интеграций. Проверьте INTEGRATIONS_ENCRYPTION_KEY."
+    : message;
+}
+
+async function resolveQuickRestoConnection(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string | null;
+  accountId?: string;
+  connectionId?: string | null;
+}) {
+  let connection = params.connectionId
+    ? await getConnectionById({ client: params.supabase, connectionId: params.connectionId })
+    : params.accountId
+      ? await getConnectionByAccount({
+          client: params.supabase,
+          accountId: params.accountId,
+          provider: "quickresto",
+        })
+      : null;
+
+  if (!connection && params.accountId && params.userId) {
+    const { data: accountRow } = await params.supabase
+      .from("accounts")
+      .select("id, owner_id")
+      .eq("id", params.accountId)
+      .maybeSingle();
+
+    if (accountRow?.owner_id === params.userId) {
+      const adminDb = asLooseClient(createAdminClient() as unknown as { from: (table: string) => LooseQueryBuilder });
+      connection = await getConnectionByAccount({
+        client: adminDb,
+        accountId: params.accountId,
+        provider: "quickresto",
+      });
+    }
+  }
+
+  return connection;
+}
+
+function normalizeQuickRestoTitle(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function quickRestoRoleRightShortNames(role: QuickRestoRole) {
+  const names = new Set<string>();
+  for (const rawLink of role.rightLinks ?? []) {
+    const link = asRecord(rawLink);
+    const direct = text(link.shortName);
+    const nested = text(asRecord(link.right).shortName);
+    if (direct) names.add(direct);
+    if (nested) names.add(nested);
+  }
+  return names;
+}
+
+function quickRestoRoleMissingRights(role: QuickRestoRole) {
+  const rights = quickRestoRoleRightShortNames(role);
+  return QUICK_RESTO_REQUIRED_BACKOFFICE_RIGHTS
+    .filter((required) => !rights.has(required.code))
+    .map((required) => ({ code: required.code, label: required.label }));
+}
+
+async function readQuickRestoBotRole(params: {
+  connection: QuickRestoConnection;
+  password: string;
+}) {
+  const roles = await listRoles({
+    layerName: params.connection.login,
+    login: params.connection.login,
+    password: params.password,
+  });
+  const roleListItem = roles.find((role) =>
+    normalizeQuickRestoTitle(role.title) === normalizeQuickRestoTitle(QUICK_RESTO_BOT_ROLE_TITLE)
+  );
+  if (!roleListItem) return null;
+
+  return readRole({
+    layerName: params.connection.login,
+    login: params.connection.login,
+    password: params.password,
+    objectId: roleListItem.id,
   });
 }
 
@@ -629,7 +1090,15 @@ export async function saveQuickRestoCredentials(data: {
 
   if (!user) return { connectionId: null, error: "Не авторизован" };
 
-  const encrypted = encryptSecret(data.password);
+  let encrypted: ReturnType<typeof encryptSecret>;
+  try {
+    encrypted = encryptSecret(data.password);
+  } catch (error) {
+    return {
+      connectionId: null,
+      error: encryptionErrorMessage(error, "Ошибка шифрования пароля Quick Resto"),
+    };
+  }
 
   const db = asLooseClient(supabase);
   const { data: row, error } = await db
@@ -642,6 +1111,18 @@ export async function saveQuickRestoCredentials(data: {
         password_encrypted: encrypted.encrypted,
         password_iv: encrypted.iv,
         password_tag: encrypted.tag,
+        backoffice_base_url: null,
+        backoffice_login: null,
+        backoffice_password_encrypted: null,
+        backoffice_password_iv: null,
+        backoffice_password_tag: null,
+        backoffice_cookie_encrypted: null,
+        backoffice_cookie_iv: null,
+        backoffice_cookie_tag: null,
+        backoffice_cookie_fetched_at: null,
+        backoffice_last_tested_at: null,
+        quickresto_bot_role_external_id: null,
+        quickresto_bot_employee_external_id: null,
         created_by: user.id,
         updated_at: new Date().toISOString(),
       },
@@ -686,6 +1167,289 @@ export async function testQuickRestoConnection(data: {
       return { ok: false, error: "Неверный логин или пароль Quick Resto" };
     }
     return { ok: false, error: message };
+  }
+}
+
+export async function verifyQuickRestoBotRole(data: {
+  accountId?: string | null;
+  connectionId?: string | null;
+}): Promise<{
+  ok: boolean;
+  roleId: number | null;
+  roleTitle: string | null;
+  missingRights: Array<{ code: string; label: string }>;
+  backOfficeUser: boolean;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      ok: false,
+      roleId: null,
+      roleTitle: null,
+      missingRights: [],
+      backOfficeUser: false,
+      error: "Не авторизован",
+    };
+  }
+
+  const connection = await resolveQuickRestoConnection({
+    supabase,
+    userId: user.id,
+    accountId: data.accountId ?? undefined,
+    connectionId: data.connectionId,
+  });
+  if (!connection) {
+    return {
+      ok: false,
+      roleId: null,
+      roleTitle: null,
+      missingRights: [],
+      backOfficeUser: false,
+      error: "Подключение Quick Resto не найдено",
+    };
+  }
+
+  try {
+    const password = decryptConnectionPassword(connection);
+    const role = await readQuickRestoBotRole({ connection, password });
+    if (!role) {
+      return {
+        ok: false,
+        roleId: null,
+        roleTitle: null,
+        missingRights: [],
+        backOfficeUser: false,
+        error: `В Quick Resto не найдена должность «${QUICK_RESTO_BOT_ROLE_TITLE}»`,
+      };
+    }
+
+    const backOfficeUser = role.backOfficeUser === true;
+    const missingRights = quickRestoRoleMissingRights(role);
+    const ok = backOfficeUser && missingRights.length === 0;
+
+    if (ok) {
+      await asLooseClient(supabase)
+        .from("integration_connections")
+        .update({
+          quickresto_bot_role_external_id: String(role.id),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", connection.id);
+    }
+
+    return {
+      ok,
+      roleId: role.id,
+      roleTitle: role.title ?? QUICK_RESTO_BOT_ROLE_TITLE,
+      missingRights,
+      backOfficeUser,
+      error: ok
+        ? null
+        : "Должность найдена, но у нее нет всех нужных прав для работы с актами Quick Resto",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      roleId: null,
+      roleTitle: null,
+      missingRights: [],
+      backOfficeUser: false,
+      error: error instanceof Error ? error.message : "Не удалось проверить должность Quick Resto",
+    };
+  }
+}
+
+export async function verifyQuickRestoBotEmployee(data: {
+  accountId?: string | null;
+  connectionId?: string | null;
+  roleExternalId?: number | null;
+}): Promise<{
+  ok: boolean;
+  employeeId: number | null;
+  employeeName: string | null;
+  roleTitle: string | null;
+  login: string | null;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, employeeId: null, employeeName: null, roleTitle: null, login: null, error: "Не авторизован" };
+  }
+
+  const connection = await resolveQuickRestoConnection({
+    supabase,
+    userId: user.id,
+    accountId: data.accountId ?? undefined,
+    connectionId: data.connectionId,
+  });
+  if (!connection) {
+    return {
+      ok: false,
+      employeeId: null,
+      employeeName: null,
+      roleTitle: null,
+      login: null,
+      error: "Подключение Quick Resto не найдено",
+    };
+  }
+
+  try {
+    const password = decryptConnectionPassword(connection);
+    const roleExternalId =
+      data.roleExternalId ??
+      (connection.quickresto_bot_role_external_id
+        ? Number(connection.quickresto_bot_role_external_id)
+        : null);
+    const employees = await listEmployees({
+      layerName: connection.login,
+      login: connection.login,
+      password,
+    });
+    const candidates = employees.filter((employee) => {
+      const fullName = employee.fullName ?? [employee.firstName, employee.lastName].filter(Boolean).join(" ");
+      return normalizeQuickRestoTitle(fullName).includes(normalizeQuickRestoTitle(QUICK_RESTO_BOT_EMPLOYEE_NAME));
+    });
+
+    if (candidates.length === 0) {
+      return {
+        ok: false,
+        employeeId: null,
+        employeeName: null,
+        roleTitle: null,
+        login: null,
+        error: `В Quick Resto не найден сотрудник «${QUICK_RESTO_BOT_EMPLOYEE_NAME}»`,
+      };
+    }
+
+    const reads = await Promise.allSettled(
+      candidates.map((employee) =>
+        readEmployee({
+          layerName: connection.login,
+          login: connection.login,
+          password,
+          objectId: employee.id,
+        })
+      )
+    );
+    const readableEmployees = reads
+      .filter((result): result is PromiseFulfilledResult<QuickRestoEmployeeRead> => result.status === "fulfilled")
+      .map((result) => result.value);
+    const matchedEmployee = readableEmployees.find((employee) => {
+      if (employee.blocked) return false;
+      if (!employee.user?.id) return false;
+      const employeeRoleId = employee.user.role?.id ?? null;
+      if (typeof roleExternalId === "number" && Number.isFinite(roleExternalId)) {
+        return employeeRoleId === roleExternalId;
+      }
+      return normalizeQuickRestoTitle(employee.user.role?.title) === normalizeQuickRestoTitle(QUICK_RESTO_BOT_ROLE_TITLE);
+    });
+
+    if (!matchedEmployee) {
+      return {
+        ok: false,
+        employeeId: null,
+        employeeName: null,
+        roleTitle: null,
+        login: null,
+        error: `Сотрудник «${QUICK_RESTO_BOT_EMPLOYEE_NAME}» найден, но он заблокирован, без пользователя бэк-офиса или без должности «${QUICK_RESTO_BOT_ROLE_TITLE}»`,
+      };
+    }
+
+    await asLooseClient(supabase)
+      .from("integration_connections")
+      .update({
+        quickresto_bot_employee_external_id: String(matchedEmployee.id),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", connection.id);
+
+    return {
+      ok: true,
+      employeeId: matchedEmployee.id,
+      employeeName:
+        matchedEmployee.fullName ??
+        [matchedEmployee.firstName, matchedEmployee.lastName].filter(Boolean).join(" ") ??
+        QUICK_RESTO_BOT_EMPLOYEE_NAME,
+      roleTitle: matchedEmployee.user?.role?.title ?? QUICK_RESTO_BOT_ROLE_TITLE,
+      login: matchedEmployee.user?.login ?? null,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      employeeId: null,
+      employeeName: null,
+      roleTitle: null,
+      login: null,
+      error: error instanceof Error ? error.message : "Не удалось проверить сотрудника Quick Resto",
+    };
+  }
+}
+
+export async function saveQuickRestoBackOfficeCredentials(data: {
+  accountId?: string | null;
+  connectionId?: string | null;
+  login: string;
+  password: string;
+}): Promise<{ ok: boolean; error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return { ok: false, error: "Не авторизован" };
+
+  const connection = await resolveQuickRestoConnection({
+    supabase,
+    userId: user.id,
+    accountId: data.accountId ?? undefined,
+    connectionId: data.connectionId,
+  });
+  if (!connection) return { ok: false, error: "Подключение Quick Resto не найдено" };
+
+  try {
+    const session = await loginQuickRestoBackOffice({
+      layerName: connection.login,
+      login: data.login.trim(),
+      password: data.password,
+    });
+    const encryptedPassword = encryptSecret(data.password);
+    const encryptedCookie = encryptSecret(session.cookieHeader);
+    const now = new Date().toISOString();
+
+    const { error } = await asLooseClient(supabase)
+      .from("integration_connections")
+      .update({
+        backoffice_base_url: null,
+        backoffice_login: data.login.trim(),
+        backoffice_password_encrypted: encryptedPassword.encrypted,
+        backoffice_password_iv: encryptedPassword.iv,
+        backoffice_password_tag: encryptedPassword.tag,
+        backoffice_cookie_encrypted: encryptedCookie.encrypted,
+        backoffice_cookie_iv: encryptedCookie.iv,
+        backoffice_cookie_tag: encryptedCookie.tag,
+        backoffice_cookie_fetched_at: now,
+        backoffice_last_tested_at: now,
+        updated_at: now,
+      })
+      .eq("id", connection.id);
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, error: null };
+  } catch (error) {
+    return {
+      ok: false,
+      error: encryptionErrorMessage(error, "Не удалось проверить back-office доступ Quick Resto"),
+    };
   }
 }
 
@@ -814,6 +1578,9 @@ export async function runQuickRestoImport(data: {
   importVenues: boolean;
   importRoles: boolean;
   importEmployees: boolean;
+  importStores?: boolean;
+  importIngredientGroups?: boolean;
+  importIngredients?: boolean;
 }): Promise<{ runId: string | null; summary: ImportSummary | null; status: "success" | "partial" | "failed"; error: string | null }> {
   const supabase = await createClient();
   const {
@@ -829,6 +1596,9 @@ export async function runQuickRestoImport(data: {
     venuesUpdated: 0,
     rolesCreated: 0,
     rolesUpdated: 0,
+    inventoryStoresSynced: 0,
+    inventoryGroupsSynced: 0,
+    inventoryProductsSynced: 0,
     employeeInvitationsSent: 0,
     employeesAutoCreated: 0,
     employeesAutoUpdated: 0,
@@ -885,6 +1655,9 @@ export async function runQuickRestoImport(data: {
         ...(data.importVenues ? ["venues"] : []),
         ...(data.importRoles ? ["roles"] : []),
         ...(data.importEmployees ? ["employees"] : []),
+        ...(data.importStores ? ["stores"] : []),
+        ...(data.importIngredientGroups ? ["ingredient_groups"] : []),
+        ...(data.importIngredients ? ["ingredients"] : []),
       ],
       selected_external_venue_ids: data.selectedVenueExternalIds.map(String),
       status: "running",
@@ -902,6 +1675,21 @@ export async function runQuickRestoImport(data: {
 
   try {
     const password = decryptConnectionPassword(connection);
+    if (data.importStores || data.importIngredientGroups || data.importIngredients) {
+      await syncQuickRestoInventoryCatalog({
+        adminClient,
+        adminDb,
+        accountId: data.accountId,
+        userId: user.id,
+        login: connection.login,
+        password,
+        importStores: Boolean(data.importStores),
+        importIngredientGroups: Boolean(data.importIngredientGroups),
+        importIngredients: Boolean(data.importIngredients),
+        summary,
+      });
+    }
+
     const ownerRoleId = await getOwnerRoleId(supabase);
     if (!ownerRoleId) throw new Error("Не найдена системная роль owner");
 

@@ -7,6 +7,7 @@ import {
   listBankAccounts,
 } from "@/lib/finance/bank-accounts";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
+import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import { AccountsList } from "./_components/accounts-list";
 
 export default async function BankAccountsPage() {
@@ -28,7 +29,7 @@ export default async function BankAccountsPage() {
   // include_deleted flag actually return rows — before that the SELECT
   // policy filtered them unconditionally.
   const activeLegalEntityId = await getActiveFinanceLegalEntityId();
-  const [{ rows: accounts }, { rows: groups }, { rows: legalEntities }] =
+  const [{ rows: accounts }, { rows: groups }, { rows: legalEntities }, amountRoundingScale] =
     await Promise.all([
       listBankAccounts({
         include_deleted: !!canManage,
@@ -36,6 +37,7 @@ export default async function BankAccountsPage() {
       }),
       listBankAccountGroups(),
       listLegalEntities(),
+      getActiveAccountAmountRoundingScale(),
     ]);
 
   const legalEntityNames: Record<string, string> = {};
@@ -49,6 +51,7 @@ export default async function BankAccountsPage() {
       groups={groups}
       legalEntityNames={legalEntityNames}
       canManage={!!canManage}
+      amountRoundingScale={amountRoundingScale}
     />
   );
 }

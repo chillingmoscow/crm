@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
   // .next/static + public. Подхватывается и repo Dockerfile (он уже
   // COPY'ит .next/standalone), и nixpacks-auto-сборкой Coolify.
   output: "standalone",
+  turbopack: {
+    root: process.cwd(),
+  },
   // Skip type-check + ESLint во время `next build`. Оба гоняем
   // локально перед push'ем (`pnpm exec tsc --noEmit`, `pnpm lint`).
   // На прод-build они второй раз — а Coolify-контейнер ограничен

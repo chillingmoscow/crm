@@ -177,6 +177,7 @@ export type Database = {
       accounts: {
         Row: {
           ai_enabled: boolean
+          amount_rounding_scale: number
           created_at: string
           id: string
           logo_url: string | null
@@ -185,6 +186,7 @@ export type Database = {
         }
         Insert: {
           ai_enabled?: boolean
+          amount_rounding_scale?: number
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -193,6 +195,7 @@ export type Database = {
         }
         Update: {
           ai_enabled?: boolean
+          amount_rounding_scale?: number
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -820,6 +823,16 @@ export type Database = {
       integration_connections: {
         Row: {
           account_id: string
+          backoffice_base_url: string | null
+          backoffice_cookie_encrypted: string | null
+          backoffice_cookie_fetched_at: string | null
+          backoffice_cookie_iv: string | null
+          backoffice_cookie_tag: string | null
+          backoffice_last_tested_at: string | null
+          backoffice_login: string | null
+          backoffice_password_encrypted: string | null
+          backoffice_password_iv: string | null
+          backoffice_password_tag: string | null
           created_at: string
           created_by: string
           id: string
@@ -829,11 +842,23 @@ export type Database = {
           password_iv: string
           password_tag: string
           provider: string
+          quickresto_bot_employee_external_id: string | null
+          quickresto_bot_role_external_id: string | null
           status: string
           updated_at: string
         }
         Insert: {
           account_id: string
+          backoffice_base_url?: string | null
+          backoffice_cookie_encrypted?: string | null
+          backoffice_cookie_fetched_at?: string | null
+          backoffice_cookie_iv?: string | null
+          backoffice_cookie_tag?: string | null
+          backoffice_last_tested_at?: string | null
+          backoffice_login?: string | null
+          backoffice_password_encrypted?: string | null
+          backoffice_password_iv?: string | null
+          backoffice_password_tag?: string | null
           created_at?: string
           created_by: string
           id?: string
@@ -843,11 +868,23 @@ export type Database = {
           password_iv: string
           password_tag: string
           provider: string
+          quickresto_bot_employee_external_id?: string | null
+          quickresto_bot_role_external_id?: string | null
           status?: string
           updated_at?: string
         }
         Update: {
           account_id?: string
+          backoffice_base_url?: string | null
+          backoffice_cookie_encrypted?: string | null
+          backoffice_cookie_fetched_at?: string | null
+          backoffice_cookie_iv?: string | null
+          backoffice_cookie_tag?: string | null
+          backoffice_last_tested_at?: string | null
+          backoffice_login?: string | null
+          backoffice_password_encrypted?: string | null
+          backoffice_password_iv?: string | null
+          backoffice_password_tag?: string | null
           created_at?: string
           created_by?: string
           id?: string
@@ -857,6 +894,8 @@ export type Database = {
           password_iv?: string
           password_tag?: string
           provider?: string
+          quickresto_bot_employee_external_id?: string | null
+          quickresto_bot_role_external_id?: string | null
           status?: string
           updated_at?: string
         }

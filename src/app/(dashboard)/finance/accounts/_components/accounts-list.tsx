@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import type {
   BankAccountGroupRow,
   BankAccountRow,
@@ -37,6 +38,7 @@ type Props = {
   groups: BankAccountGroupRow[];
   legalEntityNames: Record<string, string>;
   canManage: boolean;
+  amountRoundingScale: AmountRoundingScale;
 };
 
 const ALL_GROUPS = "__all__";
@@ -64,6 +66,7 @@ export function AccountsList({
   groups,
   legalEntityNames,
   canManage,
+  amountRoundingScale,
 }: Props) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>(ALL_TYPES);
@@ -174,7 +177,7 @@ export function AccountsList({
 
       {filtered.length > 0 && (
         <div className="text-sm text-muted-foreground mb-3">
-          Сумма по показанным активным счетам: <span className="font-medium text-foreground tabular-nums">{formatRub(visibleTotal)}</span>
+          Сумма по показанным активным счетам: <span className="font-medium text-foreground tabular-nums">{formatRub(visibleTotal, "RUB", amountRoundingScale)}</span>
         </div>
       )}
 
@@ -230,7 +233,7 @@ export function AccountsList({
                     </div>
                   </div>
                   <div className="text-sm font-medium tabular-nums shrink-0">
-                    {formatRub(Number(a.balance), a.currency)}
+                    {formatRub(Number(a.balance), a.currency, amountRoundingScale)}
                   </div>
                 </Link>
               </li>
@@ -242,13 +245,6 @@ export function AccountsList({
   );
 }
 
-function formatRub(value: number, currency = "RUB"): string {
-  const formatted = value.toLocaleString("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  });
-  if (currency === "RUB") return `${formatted} ₽`;
-  if (currency === "USD") return `${formatted} $`;
-  if (currency === "EUR") return `${formatted} €`;
-  return `${formatted} ${currency}`;
+function formatRub(value: number, currency: string, scale: AmountRoundingScale): string {
+  return formatMoney(value, currency, scale);
 }

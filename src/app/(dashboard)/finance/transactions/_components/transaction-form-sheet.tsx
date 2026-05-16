@@ -67,6 +67,7 @@ import { CategoryFormSheet } from "./category-form-sheet";
 import { CounterpartyFormSheet } from "./counterparty-form-sheet";
 import { BankAccountFormSheet, type CreatedBankAccount } from "./bank-account-form-sheet";
 import { formatDateTime, todayIso } from "../_lib/utils";
+import type { AmountRoundingScale } from "@/lib/format/amount";
 
 export type FormMode =
   | { kind: "closed" }
@@ -84,6 +85,7 @@ type Props = {
   categories: FinanceCategoryRow[];
   counterparties: CounterpartyRow[];
   canDelete: boolean;
+  amountRoundingScale: AmountRoundingScale;
 };
 
 type FormState = {
@@ -125,6 +127,7 @@ export function TransactionFormSheet({
   categories,
   counterparties,
   canDelete,
+  amountRoundingScale,
 }: Props) {
   const router = useRouter();
   const open = mode.kind !== "closed";
@@ -451,6 +454,7 @@ export function TransactionFormSheet({
             bankAccounts={bankAccounts}
             sourceCurrency={sourceCurrency}
             targetCurrency={targetCurrency}
+            amountRoundingScale={amountRoundingScale}
             onChange={(next) => {
               setForm(next);
               setDirty(true);
@@ -466,6 +470,7 @@ export function TransactionFormSheet({
             categories={categories}
             counterparties={counterparties}
             filteredCategoryType={filteredCategoryType}
+            amountRoundingScale={amountRoundingScale}
             onChange={(next) => {
               setForm(next);
               setDirty(true);
@@ -696,6 +701,7 @@ function IncomeExpenseFields({
   categories,
   counterparties,
   filteredCategoryType,
+  amountRoundingScale,
   onChange,
   onPickPrimary,
   onAddBankAccount,
@@ -707,6 +713,7 @@ function IncomeExpenseFields({
   categories: FinanceCategoryRow[];
   counterparties: CounterpartyRow[];
   filteredCategoryType: "income" | "expense" | undefined;
+  amountRoundingScale: AmountRoundingScale;
   onChange: (next: FormState) => void;
   onPickPrimary: (id: string | null) => void;
   onAddBankAccount: () => void;
@@ -741,6 +748,7 @@ function IncomeExpenseFields({
             value={form.bank_account_id || null}
             onChange={onPickPrimary}
             placeholder="Выберите счёт"
+            amountRoundingScale={amountRoundingScale}
           />
         </div>
       </div>
@@ -802,6 +810,7 @@ function TransferFields({
   bankAccounts,
   sourceCurrency,
   targetCurrency,
+  amountRoundingScale,
   onChange,
   onPickPrimary,
   onPickTarget,
@@ -811,6 +820,7 @@ function TransferFields({
   bankAccounts: BankAccountRow[];
   sourceCurrency: string;
   targetCurrency: string | null;
+  amountRoundingScale: AmountRoundingScale;
   onChange: (next: FormState) => void;
   onPickPrimary: (id: string | null) => void;
   onPickTarget: (id: string | null) => void;
@@ -871,6 +881,7 @@ function TransferFields({
           value={form.bank_account_id || null}
           onChange={onPickPrimary}
           placeholder="Выберите счёт"
+          amountRoundingScale={amountRoundingScale}
         />
       </div>
 
@@ -887,6 +898,7 @@ function TransferFields({
           onChange={onPickTarget}
           excludeId={form.bank_account_id || null}
           placeholder="Выберите счёт"
+          amountRoundingScale={amountRoundingScale}
         />
       </div>
 

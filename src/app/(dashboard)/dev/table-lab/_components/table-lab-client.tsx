@@ -13,6 +13,10 @@ import {
 import { arrayMove } from "@dnd-kit/sortable";
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowLeftRight,
+  ArrowUp,
+  ArrowUpDown,
   Calendar,
   CheckCircle2,
   Eye,
@@ -43,10 +47,12 @@ import { cn } from "@/lib/utils";
 import {
   TableBulkBar,
   TableColumnManager,
+  TableControlPin,
   TableControls,
   TablePageHeader,
   TablePagination,
   TableRowMenu,
+  TableSplitButton,
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
@@ -457,7 +463,21 @@ function FinanceDemo() {
       data={financeRows}
       columns={columns}
       filters={[{ value: "all", label: "Все категории" }, ...categoryOptions(financeRows)]}
-      primaryAction={<Button size="sm"><Plus className="h-4 w-4" />Создать</Button>}
+      controlsVariant="pins"
+      primaryAction={
+        <TableSplitButton
+          label="Создать"
+          icon={<Plus className="h-4 w-4" />}
+          primaryTooltip="Создать операцию"
+          menuTooltip="Выбрать тип операции"
+          onPrimaryClick={() => toast.info("Создаем операцию")}
+          options={[
+            { label: "Приход", icon: <Plus className="h-4 w-4" />, onSelect: () => toast.info("Приход") },
+            { label: "Расход", icon: <ArrowDown className="h-4 w-4" />, onSelect: () => toast.info("Расход") },
+            { label: "Перевод", icon: <ArrowLeftRight className="h-4 w-4" />, onSelect: () => toast.info("Перевод") },
+          ]}
+        />
+      }
     />
   );
 }
@@ -471,6 +491,7 @@ function LabDataTable<T extends LabBaseRow>({
   filters,
   primaryAction,
   bulkActions,
+  controlsVariant = "default",
 }: {
   tableId: string;
   title: string;
@@ -480,6 +501,7 @@ function LabDataTable<T extends LabBaseRow>({
   filters: FilterOption[];
   primaryAction?: React.ReactNode;
   bulkActions?: React.ReactNode;
+  controlsVariant?: "default" | "pins";
 }) {
   const [scenario, setScenario] = useState<Scenario>("normal");
   const [filter, setFilter] = useState("all");
@@ -569,6 +591,8 @@ function LabDataTable<T extends LabBaseRow>({
 
   const isFiltered = filter !== "all" || tableState.search.trim().length > 0;
   const scenarioHasError = scenario === "error";
+  const usePinControls = controlsVariant === "pins";
+  const sortableColumns = columns.filter((column) => column.id !== "actions");
 
   return (
     <div className="space-y-4">
@@ -587,54 +611,26 @@ function LabDataTable<T extends LabBaseRow>({
               onOpenChange: tableState.setSearchOpen,
               placeholder: "Поиск по таблице",
             }}
-            filters={{
+            filters={usePinControls ? undefined : {
               active: isFiltered || scenario !== "normal",
               content: (
-                <div className="space-y-4">
-                  <PopoverTitle>Фильтры</PopoverTitle>
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-medium">Состояние</span>
-                    <Select
-                      value={scenario}
-                      onValueChange={(value) => setScenario(value as Scenario)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {scenarioOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </label>
-                  <label className="block space-y-1.5 text-sm">
-                    <span className="font-medium">Фильтр данных</span>
-                    <Select
-                      value={filter}
-                      onValueChange={(value) => {
-                        setFilter(value);
-                        table.setPageIndex(0);
-                      }}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {filters.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </label>
-                </div>
+                <FiltersPanel
+                  scenario={scenario}
+                  onScenarioChange={setScenario}
+                  filter={filter}
+                  onFilterChange={(value) => {
+                    setFilter(value);
+                    table.setPageIndex(0);
+                  }}
+                  filters={filters}
+                />
               ),
             }}
-            sort={{
+            sort={usePinControls ? undefined : {
               active: tableState.sorting.length > 0,
               content: (
                 <SortPanel
-                  columns={columns.filter((column) => column.id !== "actions")}
+                  columns={sortableColumns}
                   sorting={tableState.sorting}
                   onSortingChange={tableState.setSorting}
                 />
@@ -674,6 +670,28 @@ function LabDataTable<T extends LabBaseRow>({
         }
       />
 
+      {usePinControls ? (
+        <TablePinControls
+          columns={sortableColumns}
+          sorting={tableState.sorting}
+          onSortingChange={tableState.setSorting}
+          scenario={scenario}
+          onScenarioChange={setScenario}
+          filter={filter}
+          onFilterChange={(value) => {
+            setFilter(value);
+            table.setPageIndex(0);
+          }}
+          filters={filters}
+          onResetAll={() => {
+            tableState.setSorting([]);
+            setFilter("all");
+            setScenario("normal");
+            table.setPageIndex(0);
+          }}
+        />
+      ) : null}
+
       {scenarioHasError ? (
         <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <AlertTriangle className="h-4 w-4" />
@@ -682,74 +700,83 @@ function LabDataTable<T extends LabBaseRow>({
       ) : null}
 
       <div className="relative overflow-hidden rounded-lg border bg-background">
-        <TableBulkBar
-          selectedCount={selectedCount}
-          onClear={() => table.resetRowSelection()}
-          actions={bulkActions ?? (
-            <>
-              <Button size="sm" variant="outline">Экспорт выбранных</Button>
-              <Button size="sm" variant="outline">Архивировать</Button>
-            </>
-          )}
-        />
-
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed" style={{ minWidth: table.getTotalSize() }}>
-            <thead className="group/header bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id}>
-                  <th className="w-10 border-b px-3 py-3 text-left">
-                    <Checkbox
-                      checked={table.getIsAllPageRowsSelected()}
-                      onCheckedChange={(checked) => table.toggleAllPageRowsSelected(Boolean(checked))}
-                      aria-label="Выбрать все строки страницы"
-                    />
-                  </th>
-                  {headerGroup.headers.map((header) => {
-                    const isActionsColumn = header.column.id === "actions";
-
-                    return (
-                      <th
-                        key={header.id}
-                        className={cn(
-                          "relative border-b px-3 py-3",
-                          isActionsColumn ? "w-14 max-w-14 text-right" : "text-left",
-                        )}
-                        style={{ width: isActionsColumn ? 56 : header.getSize() }}
-                      >
-                        {isActionsColumn ? null : (
-                          <button
-                            type="button"
-                            className="flex max-w-full items-center gap-1 truncate"
-                            onClick={header.column.getToggleSortingHandler()}
-                          >
-                            <span className="truncate">
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                            </span>
-                            {header.column.getIsSorted() === "asc" ? "↑" : header.column.getIsSorted() === "desc" ? "↓" : null}
-                          </button>
-                        )}
-                        {header.column.getCanResize() ? (
-                          <div
-                            onMouseDown={header.getResizeHandler()}
-                            onTouchStart={header.getResizeHandler()}
-                            className="group absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
-                          >
-                            <span
-                              className={cn(
-                                "my-2 w-px rounded-full bg-border/80 transition-[width,background-color,opacity]",
-                                header.column.getIsResizing()
-                                  ? "w-1 bg-primary opacity-100"
-                                  : "opacity-70 group-hover:w-1 group-hover:bg-primary/70 group-hover:opacity-100",
-                              )}
-                            />
-                          </div>
-                        ) : null}
-                      </th>
-                    );
-                  })}
-                </tr>
+          <table className="w-full min-w-full table-fixed" style={{ minWidth: table.getTotalSize() + 40 }}>
+            <colgroup>
+              <col style={{ width: 40 }} />
+              {table.getVisibleLeafColumns().map((column) => (
+                <col key={column.id} style={{ width: column.id === "actions" ? 56 : column.getSize() }} />
               ))}
+            </colgroup>
+            <thead className="group/header bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {selectedCount > 0 ? (
+                <TableBulkBar
+                  colSpan={table.getVisibleLeafColumns().length + 1}
+                  selectedCount={selectedCount}
+                  onClear={() => table.resetRowSelection()}
+                  actions={bulkActions ?? (
+                    <>
+                      <Button size="sm" variant="outline">Экспорт выбранных</Button>
+                      <Button size="sm" variant="outline">Архивировать</Button>
+                    </>
+                  )}
+                />
+              ) : (
+                table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id} className="h-11">
+                    <th className="w-10 border-b px-3 py-3 text-left">
+                      <Checkbox
+                        checked={table.getIsAllPageRowsSelected()}
+                        onCheckedChange={(checked) => table.toggleAllPageRowsSelected(Boolean(checked))}
+                        aria-label="Выбрать все строки страницы"
+                      />
+                    </th>
+                    {headerGroup.headers.map((header) => {
+                      const isActionsColumn = header.column.id === "actions";
+
+                      return (
+                        <th
+                          key={header.id}
+                          className={cn(
+                            "relative border-b px-3 py-3",
+                            isActionsColumn ? "w-14 max-w-14 text-right" : "text-left",
+                          )}
+                          style={{ width: isActionsColumn ? 56 : header.getSize() }}
+                        >
+                          {isActionsColumn ? null : (
+                            <button
+                              type="button"
+                              className="flex max-w-full items-center gap-1 truncate"
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              <span className="truncate">
+                                {flexRender(header.column.columnDef.header, header.getContext())}
+                              </span>
+                              {header.column.getIsSorted() === "asc" ? "↑" : header.column.getIsSorted() === "desc" ? "↓" : null}
+                            </button>
+                          )}
+                          {header.column.getCanResize() ? (
+                            <div
+                              onMouseDown={header.getResizeHandler()}
+                              onTouchStart={header.getResizeHandler()}
+                              className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
+                            >
+                              <span
+                                className={cn(
+                                  "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
+                                  "group-hover/header:opacity-80",
+                                  "hover:w-1 hover:bg-brand hover:opacity-100",
+                                  header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
+                                )}
+                              />
+                            </div>
+                          ) : null}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                ))
+              )}
             </thead>
             <tbody>
               {scenario === "loading" ? (
@@ -766,7 +793,7 @@ function LabDataTable<T extends LabBaseRow>({
                     key={row.id}
                     className={cn(
                       "border-b last:border-b-0 hover:bg-muted/30",
-                      row.getIsSelected() ? "bg-primary/5 hover:bg-primary/10" : null,
+                      row.getIsSelected() ? "bg-brand/5 hover:bg-brand/10" : null,
                     )}
                   >
                     <td className="px-3 py-3">
@@ -779,10 +806,7 @@ function LabDataTable<T extends LabBaseRow>({
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className={cn(
-                          "px-3 py-3 text-sm",
-                          cell.column.id === "actions" ? "w-14 max-w-14 text-right" : null,
-                        )}
+                        className={cn("px-3 py-3 text-sm", cell.column.id === "actions" ? "w-14 max-w-14 text-right" : null)}
                         style={{ width: cell.column.id === "actions" ? 56 : cell.column.getSize() }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -981,6 +1005,160 @@ function DocumentDemo() {
         onPageChange={(pageIndex) => tableState.setPagination((current) => ({ ...current, pageIndex }))}
         onPageSizeChange={(pageSize) => tableState.setPagination({ pageIndex: 0, pageSize })}
       />
+    </div>
+  );
+}
+
+function FiltersPanel({
+  scenario,
+  onScenarioChange,
+  filter,
+  onFilterChange,
+  filters,
+}: {
+  scenario: Scenario;
+  onScenarioChange: (scenario: Scenario) => void;
+  filter: string;
+  onFilterChange: (filter: string) => void;
+  filters: FilterOption[];
+}) {
+  return (
+    <div className="space-y-4">
+      <PopoverTitle>Фильтры</PopoverTitle>
+      <label className="block space-y-1.5 text-sm">
+        <span className="font-medium">Состояние</span>
+        <Select value={scenario} onValueChange={(value) => onScenarioChange(value as Scenario)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {scenarioOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </label>
+      <label className="block space-y-1.5 text-sm">
+        <span className="font-medium">Фильтр данных</span>
+        <Select value={filter} onValueChange={onFilterChange}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {filters.map((option) => (
+              <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </label>
+    </div>
+  );
+}
+
+function TablePinControls<T extends LabBaseRow>({
+  columns,
+  sorting,
+  onSortingChange,
+  scenario,
+  onScenarioChange,
+  filter,
+  onFilterChange,
+  filters,
+  onResetAll,
+}: {
+  columns: LabColumn<T>[];
+  sorting: SortingState;
+  onSortingChange: (sorting: SortingState) => void;
+  scenario: Scenario;
+  onScenarioChange: (scenario: Scenario) => void;
+  filter: string;
+  onFilterChange: (filter: string) => void;
+  filters: FilterOption[];
+  onResetAll: () => void;
+}) {
+  const activeSort = sorting[0];
+  const activeColumn = activeSort ? columns.find((column) => column.id === activeSort.id) : undefined;
+  const activeFilter = filters.find((option) => option.value === filter);
+  const activeScenario = scenarioOptions.find((option) => option.value === scenario);
+  const hasActiveControls = Boolean(activeSort) || filter !== "all" || scenario !== "normal";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <TableControlPin
+        active={Boolean(activeSort)}
+        icon={activeSort ? activeSort.desc ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
+        label={activeSort ? `${activeColumn?.label ?? activeSort.id}: ${activeSort.desc ? "Я-А" : "А-Я"}` : "Сортировка"}
+        onClear={activeSort ? () => onSortingChange([]) : undefined}
+        clearLabel="Сбросить сортировку"
+      >
+        <SortPanel columns={columns} sorting={sorting} onSortingChange={onSortingChange} />
+      </TableControlPin>
+
+      <TableControlPin
+        active={filter !== "all"}
+        label={activeFilter?.label ?? "Фильтр данных"}
+        onClear={filter !== "all" ? () => onFilterChange("all") : undefined}
+        clearLabel="Сбросить фильтр"
+      >
+        <PinOptionList
+          options={filters}
+          value={filter}
+          onChange={onFilterChange}
+        />
+      </TableControlPin>
+
+      <TableControlPin
+        active={scenario !== "normal"}
+        label={activeScenario?.label ?? "Состояние"}
+        onClear={scenario !== "normal" ? () => onScenarioChange("normal") : undefined}
+        clearLabel="Сбросить состояние"
+      >
+        <PinOptionList
+          options={scenarioOptions}
+          value={scenario}
+          onChange={(value) => onScenarioChange(value as Scenario)}
+        />
+      </TableControlPin>
+
+      {hasActiveControls ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={onResetAll}
+        >
+          Очистить все
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function PinOptionList({
+  options,
+  value,
+  onChange,
+}: {
+  options: FilterOption[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+            option.value === value ? "bg-accent" : null,
+          )}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }

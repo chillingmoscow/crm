@@ -33,10 +33,10 @@ type TableRowMenuProps = {
 export function TableRowMenu({ actions }: TableRowMenuProps) {
   return (
     <DropdownMenu>
-      <Tooltip>
+      <Tooltip delayDuration={450}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="h-8 w-8">
+            <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-foreground/80 hover:text-foreground">
               <MoreHorizontal className="h-4 w-4" />
               <span className="sr-only">Действия строки</span>
             </Button>
@@ -56,7 +56,7 @@ export function TableRowMenu({ actions }: TableRowMenuProps) {
               onSelect={action.onSelect}
             >
               {action.icon ? (
-                <span className="mr-2 flex h-4 w-4 items-center justify-center text-current [&_svg]:text-current">
+                <span className="mr-2 flex h-4 w-4 items-center justify-center text-current [&_svg]:h-4 [&_svg]:w-4 [&_svg]:text-current">
                   {action.icon}
                 </span>
               ) : null}

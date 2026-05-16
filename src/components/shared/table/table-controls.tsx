@@ -192,14 +192,18 @@ function TooltipIconButton({
   children: ReactNode;
 }) {
   return (
-    <Tooltip>
+    <Tooltip delayDuration={450}>
       <TooltipTrigger asChild>
         <span className="inline-flex">
           <Button
             type="button"
             variant="outline"
             size="icon"
-            className={cn("h-9 w-9", active ? "border-primary text-primary" : null)}
+            className={cn(
+              "h-9 w-9 text-foreground/80 hover:bg-muted hover:text-foreground",
+              "[&_svg]:h-4 [&_svg]:w-4",
+              active ? "border-brand/20 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand" : null,
+            )}
             disabled={disabled}
             onClick={onClick}
             aria-label={label}
@@ -230,14 +234,18 @@ function TableControlPopoverButton({
 }) {
   return (
     <Popover>
-      <Tooltip>
+      <Tooltip delayDuration={450}>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className={cn("h-9 w-9", active ? "border-primary text-primary" : null)}
+              className={cn(
+                "h-9 w-9 text-foreground/80 hover:bg-muted hover:text-foreground",
+                "[&_svg]:h-4 [&_svg]:w-4",
+                active ? "border-brand/20 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand" : null,
+              )}
               aria-label={label}
             >
               {icon}

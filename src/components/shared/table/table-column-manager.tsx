@@ -62,11 +62,11 @@ export function TableColumnManager({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="whitespace-nowrap text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1 whitespace-nowrap text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           Столбцы таблицы
         </div>
-        <Tooltip>
+        <Tooltip delayDuration={450}>
           <TooltipTrigger asChild>
             <Button
               type="button"
@@ -82,9 +82,6 @@ export function TableColumnManager({
           <TooltipContent side="left">Сбросить</TooltipContent>
         </Tooltip>
       </div>
-      <div className="text-xs text-muted-foreground">
-        Перетаскивайте строки, чтобы менять порядок колонок.
-      </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={columns.map((column) => column.id)} strategy={verticalListSortingStrategy}>
@@ -99,6 +96,9 @@ export function TableColumnManager({
           </div>
         </SortableContext>
       </DndContext>
+      <div className="text-xs text-muted-foreground">
+        Перетаскивайте строки, чтобы менять порядок колонок.
+      </div>
     </div>
   );
 }

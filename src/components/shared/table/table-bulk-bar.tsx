@@ -7,21 +7,38 @@ type TableBulkBarProps = {
   selectedCount: number;
   onClear: () => void;
   actions?: ReactNode;
+  colSpan?: number;
 };
 
-export function TableBulkBar({ selectedCount, onClear, actions }: TableBulkBarProps) {
+export function TableBulkBar({ selectedCount, onClear, actions, colSpan }: TableBulkBarProps) {
   if (selectedCount <= 0) return null;
 
-  return (
-    <div className="absolute inset-x-0 top-0 z-20 flex h-[49px] items-center justify-between gap-3 border-b bg-muted px-4 shadow-sm">
-      <div className="min-w-0 text-sm font-medium">Выбрано {selectedCount}</div>
-      <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+  const content = (
+    <>
+      <div className="min-w-0 text-sm font-medium text-brand">Выбрано {selectedCount}</div>
+      <div className="ml-auto flex min-w-0 items-center gap-2 overflow-x-auto">
         {actions}
-        <Button type="button" variant="ghost" size="sm" onClick={onClear}>
+        <Button type="button" variant="ghost" size="sm" onClick={onClear} className="h-8 text-xs">
           <X className="mr-2 h-4 w-4" />
           Снять выбор
         </Button>
       </div>
+    </>
+  );
+
+  if (colSpan) {
+    return (
+      <tr className="h-11 border-b bg-brand/10">
+        <th colSpan={colSpan} className="px-3 py-2 text-left">
+          <div className="flex items-center gap-3">{content}</div>
+        </th>
+      </tr>
+    );
+  }
+
+  return (
+    <div className="flex h-11 items-center gap-3 border-b bg-brand/10 px-4">
+      {content}
     </div>
   );
 }

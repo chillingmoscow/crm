@@ -3079,6 +3079,8 @@ export type Database = {
         }
         Returns: string
       }
+      kb_empty_trash: { Args: Record<string, never>; Returns: number }
+      kb_hard_delete_cascade: { Args: { p_id: string }; Returns: number }
       kb_restore_cascade: { Args: { p_id: string }; Returns: number }
       kb_restore_page_version: {
         Args: {

@@ -343,6 +343,85 @@ export async function getKbAnalyticsPageViewers(args: {
   return { rows, error: null };
 }
 
+export interface KbAnalyticsSummary {
+  /** Живых (не deleted) страниц всего. */
+  totalPages: number;
+  /** Создано за выбранный период. */
+  newInPeriod: number;
+  /** Уникальных читателей за период. */
+  activeReaders: number;
+  /** Среднее время одной сессии за период, секунд (0 если сессий нет). */
+  avgSessionSeconds: number;
+}
+
+/** KPI-сводка для дашборда аналитики (карточки sheerly `hL8wQ`).
+ *  JS-агрегация — как и остальной analytics.ts; гейт `kb.view_analytics`
+ *  на уровне RLS. must-read покрытие считается отдельно
+ *  (`getKbRequiredReadingCoverage`) — разная природа данных. */
+export async function getKbAnalyticsSummary(args: {
+  period: KbAnalyticsPeriod;
+}): Promise<{ summary: KbAnalyticsSummary; error: string | null }> {
+  const supabase = await createClient();
+  const sinceISO = new Date(Date.now() - dayMs(args.period)).toISOString();
+
+  const [totalRes, newRes, sessionsRes] = await Promise.all([
+    supabase
+      .from("kb_pages")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null),
+    supabase
+      .from("kb_pages")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .gte("created_at", sinceISO),
+    supabase
+      .from("kb_page_view_sessions")
+      .select("user_id, duration_seconds")
+      .gte("started_at", sinceISO),
+  ]);
+
+  const firstError =
+    totalRes.error?.message ??
+    newRes.error?.message ??
+    sessionsRes.error?.message ??
+    null;
+  if (firstError) {
+    return {
+      summary: {
+        totalPages: 0,
+        newInPeriod: 0,
+        activeReaders: 0,
+        avgSessionSeconds: 0,
+      },
+      error: firstError,
+    };
+  }
+
+  const sessions = (sessionsRes.data ?? []) as {
+    user_id: string;
+    duration_seconds: number;
+  }[];
+  const readers = new Set<string>();
+  let totalSeconds = 0;
+  for (const s of sessions) {
+    readers.add(s.user_id);
+    totalSeconds += s.duration_seconds;
+  }
+
+  return {
+    summary: {
+      totalPages: totalRes.count ?? 0,
+      newInPeriod: newRes.count ?? 0,
+      activeReaders: readers.size,
+      avgSessionSeconds:
+        sessions.length > 0
+          ? Math.round(totalSeconds / sessions.length)
+          : 0,
+    },
+    error: null,
+  };
+}
+
 function dayMs(period: KbAnalyticsPeriod): number {
   const days =
     period === "day" ? 1 : period === "week" ? 7 : 30;

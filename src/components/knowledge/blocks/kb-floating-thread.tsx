@@ -162,7 +162,7 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
             <button
               type="button"
               onClick={() => void handleResolveToggle()}
-              title={thread.resolved ? "Открыть заново" : "Отметить как решённое"}
+              data-tip={thread.resolved ? "Открыть заново" : "Отметить как решённое"}
               className={cn(
                 "inline-flex items-center gap-1 px-1.5 h-6 rounded-md text-[11px] font-medium",
                 "transition-colors",
@@ -591,7 +591,7 @@ function EditCommentRow({
                 ? "bg-brand text-brand-foreground hover:bg-brand/90"
                 : "bg-muted text-muted-foreground cursor-not-allowed",
             )}
-            title="Сохранить (⌘↵)"
+            data-tip="Сохранить (⌘↵)"
           >
             {saving ? (
               <Loader2 className="size-3.5 animate-spin" />
@@ -691,7 +691,7 @@ function ReplyInput({
           ref={sendButtonRef}
           type="button"
           aria-label="Отправить"
-          title="Ответить (⌘↵)"
+          data-tip="Ответить (⌘↵)"
           disabled={!canSubmit}
           onClick={() => void handleSubmit()}
           className={cn(

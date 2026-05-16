@@ -156,7 +156,7 @@ function FormSection({
             {title}
           </h2>
           {locked && (
-            <TooltipProvider delayDuration={400}>
+            <TooltipProvider delayDuration={500} skipDelayDuration={500}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center text-muted-foreground/70 hover:text-muted-foreground cursor-help">

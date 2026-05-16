@@ -136,6 +136,7 @@ export function KbTreeNodeMenu({
           <button
             type="button"
             aria-label="Меню страницы"
+            data-tip="Меню страницы"
             onClick={stopRowInteraction}
             onPointerDown={stopRowInteraction}
             className={cn(

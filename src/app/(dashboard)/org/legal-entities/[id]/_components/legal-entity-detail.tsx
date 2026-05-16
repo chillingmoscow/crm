@@ -75,6 +75,9 @@ export function LegalEntityDetailClient({
             variant="outline"
             onClick={onSync}
             disabled={syncing || !row.inn}
+            // Нативный title — портальный data-tip не ловит события на
+            // disabled-кнопке, а подсказка тут объясняет причину
+            // блокировки (Codex P2).
             title={!row.inn ? "Сначала укажите ИНН" : undefined}
           >
             {syncing ? (

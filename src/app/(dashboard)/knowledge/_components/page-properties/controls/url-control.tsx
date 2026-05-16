@@ -195,7 +195,7 @@ export function UrlValueControl({
       ) : (
         <span
           className="text-[13px] text-amber-700 dark:text-amber-400 truncate inline-block max-w-full"
-          title="Неверный URL"
+          data-tip="Неверный URL"
         >
           {trimmed}
         </span>

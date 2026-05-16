@@ -180,7 +180,7 @@ export function KbAuditEventRow({ event }: { event: KbAuditEvent }) {
           <span className="text-foreground">{label}</span>
         </div>
         <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
-          <time dateTime={event.created_at} title={event.created_at}>
+          <time dateTime={event.created_at} data-tip={event.created_at}>
             {formatRelative(event.created_at)}
           </time>
           {pageStillVisible && (

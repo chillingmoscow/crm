@@ -156,7 +156,7 @@ export function KbNotificationRow({
         <button
           type="button"
           aria-label={inArchive ? "Восстановить" : "В архив"}
-          title={inArchive ? "Восстановить из архива" : "Архивировать"}
+          data-tip={inArchive ? "Восстановить из архива" : "Архивировать"}
           onClick={(e) => {
             e.stopPropagation();
             if (inArchive) {

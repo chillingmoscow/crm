@@ -130,11 +130,11 @@ export default async function DashboardLayout({
   const kbSidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
 
   return (
-    // delayDuration=400 — задержка перед показом, чтобы tooltip не
+    // delayDuration=500 — задержка перед показом, чтобы tooltip не
     // выскакивал моментально при beit-курсорах и случайных проходах.
-    // skipDelayDuration=400 — те же 400ms после закрытия одного tooltip'а
-    // (раньше было 300, но визуально диссонировало с delayDuration).
-    <TooltipProvider delayDuration={400} skipDelayDuration={400}>
+    // Должно совпадать с вложенным TooltipProvider в SidebarProvider
+    // (components/ui/sidebar.tsx), иначе значение оттуда перекрывает это.
+    <TooltipProvider delayDuration={500} skipDelayDuration={500}>
     <SidebarProvider defaultOpen={sidebarDefaultOpen}>
       <AppSidebar
         userName={userName}

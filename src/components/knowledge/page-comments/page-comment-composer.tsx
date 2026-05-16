@@ -164,7 +164,7 @@ export function PageCommentComposer({
           <button
             type="button"
             aria-label="Отправить"
-            title="Отправить (⌘↵)"
+            data-tip="Отправить (⌘↵)"
             disabled={!canSubmit}
             onClick={() => void handleSubmit()}
             className={cn(

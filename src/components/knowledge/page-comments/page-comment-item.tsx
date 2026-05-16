@@ -150,14 +150,14 @@ export function PageCommentItem({
           </span>
           <span
             className="text-xs text-muted-foreground shrink-0"
-            title={new Date(comment.createdAt).toLocaleString()}
+            data-tip={new Date(comment.createdAt).toLocaleString()}
           >
             {formatRelative(comment.createdAt)}
           </span>
           {comment.updatedAt !== comment.createdAt && (
             <span
               className="text-xs text-muted-foreground/70 shrink-0"
-              title={`Изменён ${new Date(comment.updatedAt).toLocaleString()}`}
+              data-tip={`Изменён ${new Date(comment.updatedAt).toLocaleString()}`}
             >
               · изменён
             </span>
@@ -259,7 +259,7 @@ function ReactPopover({ onPick }: { onPick: (emoji: string) => void }) {
         <button
           type="button"
           aria-label="Добавить реакцию"
-          title="Добавить реакцию"
+          data-tip="Добавить реакцию"
           className="inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
         >
           <SmilePlus className="size-4" />

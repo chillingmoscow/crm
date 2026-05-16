@@ -246,7 +246,7 @@ export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
           variant="ghost"
           size="default"
           aria-label="AI-команды"
-          title="ИИ"
+          data-tip="ИИ"
           disabled={!!pending}
         >
           {pending ? (

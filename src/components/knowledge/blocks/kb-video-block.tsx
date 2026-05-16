@@ -173,7 +173,7 @@ function VideoPreview(
       type="button"
       className="kb-video-menu-btn"
       aria-label="Открыть меню видео"
-      title="Открыть меню видео"
+      data-tip="Открыть меню видео"
       onClick={onSelect}
       onMouseDown={(e) => e.preventDefault()}
     >

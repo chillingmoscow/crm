@@ -143,7 +143,7 @@ export const KbColorPickerItem: FC<KbColorPickerItemProps> = ({ children }) => {
                   <span
                     className="bn-color-icon"
                     data-text-color={c}
-                    title={`Текст · ${COLOR_LABELS[c]}`}
+                    data-tip={`Текст · ${COLOR_LABELS[c]}`}
                     aria-label={`Текст · ${COLOR_LABELS[c]}`}
                   >
                     A
@@ -168,7 +168,7 @@ export const KbColorPickerItem: FC<KbColorPickerItemProps> = ({ children }) => {
                   <span
                     className="bn-color-icon"
                     data-background-color={c}
-                    title={`Фон · ${COLOR_LABELS[c]}`}
+                    data-tip={`Фон · ${COLOR_LABELS[c]}`}
                     aria-label={`Фон · ${COLOR_LABELS[c]}`}
                   >
                     A

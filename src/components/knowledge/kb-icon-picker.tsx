@@ -156,7 +156,7 @@ export function KbIconPickerBody({
           type="button"
           onClick={onRandom}
           aria-label="Случайная иконка"
-          title="Случайная иконка"
+          data-tip="Случайная иконка"
           className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
         >
           <Shuffle className="size-4" />
@@ -166,7 +166,7 @@ export function KbIconPickerBody({
             <button
               type="button"
               aria-label="Цвет иконки"
-              title="Цвет иконки"
+              data-tip="Цвет иконки"
               className="inline-flex items-center justify-center size-8 rounded-md hover:bg-accent transition-colors shrink-0"
             >
               <span
@@ -195,7 +195,7 @@ export function KbIconPickerBody({
                     type="button"
                     onClick={() => onPickColor(c.name)}
                     aria-label={c.label}
-                    title={c.label}
+                    data-tip={c.label}
                     className={cn(
                       "relative size-8 rounded-full transition-transform shrink-0 inline-flex items-center justify-center",
                       paletteDot(c.name),
@@ -227,7 +227,7 @@ export function KbIconPickerBody({
           onClick={onClear}
           disabled={!canClear}
           aria-label="Отменить выбор"
-          title="Отменить выбор"
+          data-tip="Отменить выбор"
           className="inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground disabled:cursor-not-allowed"
         >
           <X className="size-4" />
@@ -259,7 +259,7 @@ export function KbIconPickerBody({
                   type="button"
                   onClick={() => onPickIcon(name)}
                   aria-label={label}
-                  title={label}
+                  data-tip={label}
                   className={cn(
                     "flex items-center justify-center size-9 rounded-md transition-colors",
                     isActive ? "bg-accent" : "hover:bg-accent/60",
@@ -289,7 +289,7 @@ export function KbIconPickerBody({
                         type="button"
                         onClick={() => onPickIcon(name)}
                         aria-label={label}
-                        title={label}
+                        data-tip={label}
                         className={cn(
                           "flex items-center justify-center size-9 rounded-md transition-colors",
                           isActive ? "bg-accent" : "hover:bg-accent/60",
@@ -340,7 +340,7 @@ export function KbIconPicker({
           type="button"
           disabled={disabled}
           aria-label="Изменить иконку страницы"
-          title="Изменить иконку"
+          data-tip="Изменить иконку"
           className={cn(
             "inline-flex items-center justify-center rounded-lg border border-transparent transition-colors shrink-0",
             "hover:border-border hover:bg-accent",

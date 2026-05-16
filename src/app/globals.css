@@ -224,9 +224,12 @@ input:-webkit-autofill {
   --bn-colors-menu-text:          hsl(var(--popover-foreground));
   --bn-colors-menu-background:    hsl(var(--popover));
 
-  /* Tooltips */
-  --bn-colors-tooltip-text:       hsl(var(--popover-foreground));
-  --bn-colors-tooltip-background: hsl(var(--popover));
+  /* Tooltips — тёмно-графитовый фон, единый стиль со shadcn Tooltip
+     (components/ui/tooltip.tsx: bg-neutral-900 / text-neutral-50).
+     Цвет фиксированный в обеих темах, чтобы подсказка не сливалась
+     с light-фоном меню/popover'ов BlockNote. */
+  --bn-colors-tooltip-text:       hsl(0 0% 98%);
+  --bn-colors-tooltip-background: hsl(0 0% 9%);
 
   /* Hover states inside menus */
   --bn-colors-hovered-text:       hsl(var(--accent-foreground));
@@ -699,53 +702,28 @@ input:-webkit-autofill {
   height: 13px;
 }
 
-/* CSS-tooltip для side-menu buttons. BlockNote shadcn-вариант
-   рендерит их как обычный shadcn Button с aria-label, БЕЗ Tooltip-
-   обёртки (см. ot-функцию в blocknote-shadcn — там просто Button.
-   Button с aria-label, без mainTooltip). Native title= тоже не
-   ставится. Чтобы дать пользователю объяснение «что это за
-   кнопка», вешаем CSS-only tooltip через :hover::after поверх
-   значения aria-label — DS-style оформление, ~150мс delay. */
-.bn-sheerly .bn-side-menu .bn-button {
-  position: relative;
-}
-.bn-sheerly .bn-side-menu .bn-button:hover::after {
-  content: attr(aria-label);
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: 6px;
-  padding: 4px 8px;
-  background: hsl(var(--popover));
-  color: hsl(var(--popover-foreground));
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
-  font-size: 12px;
-  line-height: 1.2;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 50;
-  animation: kb-side-menu-tooltip-in 120ms ease-out 150ms backwards;
-}
-@keyframes kb-side-menu-tooltip-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(-2px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
+/* Side-menu buttons (drag-handle / «+») и любые `[data-tip]` теперь
+   обслуживает портальный GlobalTooltip (components/ui/global-tooltip.tsx)
+   — CSS-`::after` убран, потому что обрезался overflow-родителями
+   (сайдбар, скролл, dropdown). Единый стиль/задержка — там. */
 
 /* BlockNote shadcn-tooltips. Они рендерятся через Radix Portal в body
    (вне .bn-sheerly scope), поэтому правила нужны глобальные. По
    умолчанию у них bg-primary (брендовый акцент) + ромбовидный Arrow,
-   что выглядит шумно. Делаем их «спокойными»: серый popover-фон,
-   стрелку прячем. Селектор data-slot="tooltip-content" уникален именно
+   что выглядит шумно. Приводим к единому тёмно-графитовому стилю
+   со shadcn Tooltip (bg-neutral-900 / text-neutral-50), стрелку
+   прячем. Селектор data-slot="tooltip-content" уникален именно
    для BlockNote shadcn-варианта (наш собственный TooltipContent его
    не выставляет — см. components/ui/tooltip.tsx). */
 [data-slot="tooltip-content"] {
-  background-color: hsl(var(--popover)) !important;
-  color: hsl(var(--popover-foreground)) !important;
-  border: 1px solid hsl(var(--border));
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+  background-color: hsl(0 0% 9%) !important;
+  color: hsl(0 0% 98%) !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
 }
 /* Arrow рендерится как <span> (PopperPrimitive.Arrow → span-обёртка
    над svg, см. @radix-ui/react-popper), а не svg. BlockNote назначает
@@ -754,6 +732,10 @@ input:-webkit-autofill {
 [data-slot="tooltip-content"] .rotate-45 {
   display: none !important;
 }
+
+/* `[data-tip]` подсказки рендерит портальный GlobalTooltip
+   (components/ui/global-tooltip.tsx) — единый тёмный стиль, ~500мс,
+   не обрезается overflow/stacking. CSS-`::after` намеренно удалён. */
 
 /* Emoji-picker (BlockNote использует GridSuggestionMenu для эмодзи —
    это div с class="bn-grid-suggestion-menu"; шадcn-вариант ставит ему
@@ -1155,6 +1137,9 @@ input:-webkit-autofill {
   box-shadow:
     0 12px 24px rgb(0 0 0 / 0.12),
     0 2px 6px rgb(0 0 0 / 0.05) !important;
+  /* Tooltip chip'а рендерится НАД dropdown'ом (bottom:100%) — не
+     обрезаем его краем контейнера. */
+  overflow: visible !important;
 }
 .bn-color-picker-dropdown.kb-color-picker
   [data-slot="dropdown-menu-label"],
@@ -1217,6 +1202,9 @@ input:-webkit-autofill {
   font-weight: 600;
   flex-shrink: 0;
 }
+/* Подсказки swatch'ей color-picker'а тоже обслуживает портальный
+   GlobalTooltip (data-tip на .bn-color-icon) — больше не обрезается
+   краем dropdown'а. CSS-`::after` удалён. */
 
 /* ── Image toolbar (frame 12 · thIwM) ──────────────────────────────
  * BN рендерит floating-toolbar для image-блока (resize / replace /
@@ -3151,6 +3139,10 @@ button.kb-gallery-menu-item {
   width: 100%;
   flex-direction: column;
   cursor: pointer;
+  /* Воздух сверху/снизу до пунктирной рамки — без него иконка
+     «Нет записей» прижата к верхнему краю. */
+  min-height: 120px;
+  padding: 28px 16px;
 }
 .bn-sheerly .kb-collection-empty:disabled {
   cursor: default;

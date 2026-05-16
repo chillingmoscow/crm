@@ -49,7 +49,7 @@ export function KbVersionSnapshotPreview({
           </h2>
           <p className="text-sm text-muted-foreground">
             Снимок страницы в режиме только для чтения. Комментарии и лента
-            обновлений в версию не входят.
+            обновлений в версию не входят
           </p>
         </div>
       </header>

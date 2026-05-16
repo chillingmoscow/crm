@@ -420,7 +420,7 @@ export function KbPageEditor({
             {readingMinutes !== null && readingMinutes !== undefined && (
               <span
                 className="inline-flex items-center gap-1 text-xs text-muted-foreground"
-                title={`Примерное время чтения: ${readingMinutes} мин`}
+                data-tip={`Примерное время чтения: ${readingMinutes} мин`}
               >
                 <Clock className="size-3.5" />
                 <span className="tabular-nums">

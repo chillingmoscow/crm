@@ -46,7 +46,7 @@ export function KbBreadcrumbs({ chain, className }: KbBreadcrumbsProps) {
           <span key={item.id} className="flex items-center gap-2 min-w-0">
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
             {isLast ? (
-              <span className="truncate text-foreground" title={item.title}>
+              <span className="truncate text-foreground" data-tip={item.title}>
                 {item.icon ? <span className="mr-1">{item.icon}</span> : null}
                 {item.title || "Без названия"}
               </span>
@@ -54,7 +54,7 @@ export function KbBreadcrumbs({ chain, className }: KbBreadcrumbsProps) {
               <Link
                 href={`/knowledge/${item.slug}`}
                 className="truncate text-muted-foreground hover:text-foreground"
-                title={item.title}
+                data-tip={item.title}
               >
                 {item.icon ? <span className="mr-1">{item.icon}</span> : null}
                 {item.title || "Без названия"}

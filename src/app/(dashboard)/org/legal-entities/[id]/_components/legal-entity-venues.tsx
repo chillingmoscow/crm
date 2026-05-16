@@ -152,7 +152,7 @@ export function LegalEntityVenues({
                         size="sm"
                         onClick={() => onAttach(v.id)}
                         disabled={busyVenueId === v.id}
-                        title={
+                        data-tip={
                           currentLeName
                             ? `Заведение перейдёт от «${currentLeName}» к этому юрлицу`
                             : undefined

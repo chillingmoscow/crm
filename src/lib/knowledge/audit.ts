@@ -1,6 +1,11 @@
 "use server";
 
+import { createClient } from "@/lib/supabase/server";
 import { listAuditEvents } from "@/lib/audit/list";
+import {
+  KB_AUDIT_KINDS,
+  type KbAuditCountKey,
+} from "@/lib/knowledge/audit-kinds";
 
 export interface KbAuditEvent {
   id: string;
@@ -39,6 +44,8 @@ export interface KbAuditEvent {
  */
 export async function listKbAuditEvents(input?: {
   pageId?: string;
+  /** Ограничить набором action_code (фильтр журнала по типу). */
+  actionCodes?: string[];
   beforeCreatedAt?: string;
   beforeId?: string;
 }): Promise<{
@@ -49,6 +56,7 @@ export async function listKbAuditEvents(input?: {
   const { events, hasMore, error } = await listAuditEvents({
     entityType: "kb_page",
     entityId: input?.pageId,
+    actionCodes: input?.actionCodes,
     beforeCreatedAt: input?.beforeCreatedAt,
     beforeId: input?.beforeId,
   });
@@ -74,4 +82,44 @@ export async function listKbAuditEvents(input?: {
   }));
 
   return { events: mapped, hasMore, error };
+}
+
+/** Счётчики для чипов-фильтров журнала: всего KB-событий + по
+ *  каждой категории. Дешёвые `head:true` COUNT-запросы; RLS на
+ *  audit_logs (`org.view_audit`) уже ограничивает аккаунтом — без
+ *  права вернёт нули. Запросы параллельны. */
+export async function getKbAuditCounts(): Promise<
+  Record<KbAuditCountKey, number>
+> {
+  const supabase = await createClient();
+
+  const countAll = supabase
+    .from("audit_logs")
+    .select("id", { count: "exact", head: true })
+    .eq("entity_type", "kb_page");
+
+  const kinds = Object.entries(KB_AUDIT_KINDS) as [
+    keyof typeof KB_AUDIT_KINDS,
+    readonly string[],
+  ][];
+
+  const [allRes, ...kindRes] = await Promise.all([
+    countAll,
+    ...kinds.map(([, codes]) =>
+      supabase
+        .from("audit_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("entity_type", "kb_page")
+        .in("action_code", [...codes]),
+    ),
+  ]);
+
+  const counts = { all: allRes.count ?? 0 } as Record<
+    KbAuditCountKey,
+    number
+  >;
+  kinds.forEach(([key], i) => {
+    counts[key] = kindRes[i]?.count ?? 0;
+  });
+  return counts;
 }

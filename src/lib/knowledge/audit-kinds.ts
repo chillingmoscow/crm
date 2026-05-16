@@ -21,7 +21,9 @@ export type KbAuditCountKey = "all" | KbAuditKind;
 export function kbAuditActionCodes(
   kind: string | undefined,
 ): string[] | undefined {
-  if (kind && kind in KB_AUDIT_KINDS) {
+  // Object.hasOwn — не inherited: иначе ?kind=__proto__/toString
+  // прошли бы `in`, а спред не-массива упал бы 500 (Codex #316 P1).
+  if (kind && Object.hasOwn(KB_AUDIT_KINDS, kind)) {
     return [...KB_AUDIT_KINDS[kind as KbAuditKind]];
   }
   return undefined;

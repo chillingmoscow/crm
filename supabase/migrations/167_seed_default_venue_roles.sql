@@ -80,6 +80,13 @@ begin
     'finance.view_bank_accounts',
     'finance.view_categories', 'finance.view_counterparties',
     'finance.upload_attachments', 'finance.view_attachments',
+    'inventory.view_products', 'inventory.manage_products',
+    'inventory.view_stores', 'inventory.manage_stores',
+    'inventory.view_documents', 'inventory.manage_documents',
+    'inventory.fill_assigned_documents', 'inventory.view_results',
+    'inventory.sync_quickresto',
+    'inventory.comment_results', 'inventory.adjust_results',
+    'inventory.finalize_results', 'inventory.use_ai_suggestions',
     'crm.view_guests', 'crm.view_guest_details', 'crm.manage_guests',
     'crm.view_reservations', 'crm.manage_reservations', 'crm.cancel_reservation',
     'crm.view_loyalty',
@@ -108,6 +115,13 @@ begin
     'finance.upload_attachments', 'finance.view_attachments',
     'finance.delete_attachments', 'finance.export',
     'finance.view_all_venues', 'finance.view_all_legal_entities',
+    'inventory.view_products', 'inventory.manage_products',
+    'inventory.view_stores', 'inventory.manage_stores',
+    'inventory.view_documents', 'inventory.manage_documents',
+    'inventory.fill_assigned_documents', 'inventory.view_results',
+    'inventory.sync_quickresto',
+    'inventory.comment_results', 'inventory.adjust_results',
+    'inventory.finalize_results', 'inventory.use_ai_suggestions',
     'crm.view_guests', 'crm.view_guest_details', 'crm.manage_guests',
     'crm.view_reservations', 'crm.manage_reservations', 'crm.cancel_reservation',
     'crm.view_loyalty', 'crm.manage_loyalty',
@@ -146,6 +160,7 @@ begin
   select v_hostess_id, id, true from public.permissions
   where code in (
     'org.view_venues',
+    'inventory.fill_assigned_documents',
     'crm.view_guests', 'crm.view_guest_details', 'crm.manage_guests',
     'crm.view_reservations', 'crm.manage_reservations', 'crm.cancel_reservation'
   );
@@ -158,6 +173,7 @@ begin
   select v_waiter_id, id, true from public.permissions
   where code in (
     'org.view_venues',
+    'inventory.fill_assigned_documents',
     'crm.view_guests',
     'crm.view_reservations', 'crm.manage_reservations'
   );

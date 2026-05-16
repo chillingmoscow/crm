@@ -1,5 +1,5 @@
 -- ============================================================
--- 123_quickresto_backoffice_credentials.sql
+-- 176_quickresto_backoffice_credentials.sql
 -- Quick Resto back-office bot credentials and session cache
 -- ============================================================
 

@@ -1,5 +1,5 @@
 -- ============================================================
--- 124_inventory_result_adjustments.sql
+-- 177_inventory_result_adjustments.sql
 -- Management layer for inventory results: resort, exclusions,
 -- comments, finalization and suggestion settings.
 -- ============================================================

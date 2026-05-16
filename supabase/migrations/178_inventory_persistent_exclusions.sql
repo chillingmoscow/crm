@@ -1,5 +1,5 @@
 -- ============================================================
--- 125_inventory_persistent_exclusions.sql
+-- 178_inventory_persistent_exclusions.sql
 -- Account-local rules for inventory rows that should be ignored
 -- in current and future management totals.
 -- ============================================================

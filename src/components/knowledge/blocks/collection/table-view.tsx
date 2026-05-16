@@ -381,7 +381,10 @@ export function CollectionTableView({
   // удаляло весь блок коллекции (блок был node-selected). Перехватываем
   // в capture-фазе на document — до того, как ProseMirror увидит клавишу.
   useEffect(() => {
-    if (!selectedCell || editingTitleId) return;
+    // Только для редакторов: read-only пользователи тоже могут выделить
+    // ячейку, но очистка значения = запись, поэтому без canEdit эффект
+    // вообще не вешаем (Codex P1).
+    if (!selectedCell || editingTitleId || !canEdit) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Backspace" && event.key !== "Delete") return;
       // Если фокус внутри редактируемого инпута ячейки — это обычное
@@ -416,7 +419,7 @@ export function CollectionTableView({
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [editingTitleId, fields, onChangeValue, selectedCell]);
+  }, [canEdit, editingTitleId, fields, onChangeValue, selectedCell]);
 
   useEffect(() => {
     if (!openFieldMenuId && !titleColumnMenuOpen && !addFieldOpen) return;

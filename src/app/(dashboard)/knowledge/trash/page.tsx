@@ -6,7 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import { listDeletedKbPages } from "@/lib/knowledge/pages";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
-import { TrashItemRow } from "@/app/(dashboard)/knowledge/trash/_components/trash-item-row";
+import { KbTrashClient } from "@/app/(dashboard)/knowledge/trash/_components/kb-trash-client";
+import { KbEmptyTrashButton } from "@/app/(dashboard)/knowledge/trash/_components/kb-empty-trash-button";
+import type { TrashRow } from "@/app/(dashboard)/knowledge/trash/_components/trash-item-row";
 
 /**
  * Корзина базы знаний. Доступ — только под `kb.delete_pages` (та же
@@ -43,6 +45,18 @@ export default async function KnowledgeTrashPage() {
     }
   }
 
+  const trashRows: TrashRow[] = rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    icon: row.icon,
+    iconColor: row.icon_color,
+    descendantsCount: row.descendants_count,
+    deletedAt: row.deleted_at,
+    deletedByName: row.deleted_by
+      ? profilesById.get(row.deleted_by) ?? null
+      : null,
+  }));
+
   return (
     <div className="flex-1 flex flex-col">
       {/* Trash — sub-list под /knowledge; breadcrumb «← База знаний»
@@ -59,45 +73,35 @@ export default async function KnowledgeTrashPage() {
       </PageBreadcrumb>
 
       <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        <header className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <Trash2 className="w-[22px] h-[22px] text-muted-foreground" />
-            <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-              Корзина
-            </h1>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Удалённые страницы можно восстановить. При удалении родителя
-            все подстраницы удаляются вместе с ним; при восстановлении —
-            возвращаются в той же иерархии
-          </p>
-        </header>
+        <div className="mx-auto w-full max-w-[920px] flex flex-col gap-6">
+          <header className="flex items-end justify-between gap-4">
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-[22px] h-[22px] text-muted-foreground" />
+                <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+                  Корзина
+                </h1>
+              </div>
+              <p className="text-sm text-muted-foreground max-w-[640px]">
+                Удалённые страницы хранятся 30 дней. Восстановите их вместе
+                с подстраницами или удалите навсегда
+              </p>
+            </div>
+            {rows.length > 0 && (
+              <KbEmptyTrashButton count={rows.length} />
+            )}
+          </header>
 
-      {rows.length === 0 ? (
-        <EmptyState
-          icon={Trash2}
-          title="Корзина пуста"
-          description="Здесь появляются страницы, которые вы удалили. Они хранятся пока их не восстановят или не удалят навсегда."
-        />
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {rows.map((row) => (
-            <li key={row.id}>
-              <TrashItemRow
-                id={row.id}
-                title={row.title}
-                icon={row.icon}
-                iconColor={row.icon_color}
-                descendantsCount={row.descendants_count}
-                deletedAt={row.deleted_at}
-                deletedByName={
-                  row.deleted_by ? profilesById.get(row.deleted_by) ?? null : null
-                }
-              />
-            </li>
-          ))}
-        </ul>
-      )}
+          {rows.length === 0 ? (
+            <EmptyState
+              icon={Trash2}
+              title="Корзина пуста"
+              description="Здесь появляются страницы, которые вы удалили. Они хранятся, пока их не восстановят или не удалят навсегда."
+            />
+          ) : (
+            <KbTrashClient rows={trashRows} />
+          )}
+        </div>
       </div>
     </div>
   );

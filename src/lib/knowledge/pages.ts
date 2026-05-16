@@ -763,6 +763,67 @@ export async function restoreKbPage(
   return { restored: (data as number | null) ?? 0, error: null };
 }
 
+/** Окончательное удаление страницы из корзины + всех каскадных
+ *  потомков. Backed by RPC `kb_hard_delete_cascade` (миграция 175,
+ *  security definer, гейт kb.delete_pages). Работает только если
+ *  страница уже soft-deleted. */
+export async function hardDeleteKbPage(
+  id: string,
+): Promise<{ deleted: number; error: string | null }> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("kb_hard_delete_cascade", {
+    p_id: id,
+  });
+  if (error) return { deleted: 0, error: error.message };
+
+  revalidatePath("/knowledge");
+  return { deleted: (data as number | null) ?? 0, error: null };
+}
+
+/** Bulk-обёртка над `restoreKbPage`. Восстанавливает по очереди;
+ *  собирает первую ошибку, но не прерывает остальные (частичный
+ *  успех лучше, чем «всё или ничего» в корзине). */
+export async function restoreKbPages(
+  ids: string[],
+): Promise<{ restored: number; error: string | null }> {
+  let restored = 0;
+  let firstError: string | null = null;
+  for (const id of ids) {
+    const { restored: n, error } = await restoreKbPage(id);
+    if (error) firstError ??= error;
+    else restored += n;
+  }
+  return { restored, error: firstError };
+}
+
+/** Bulk-обёртка над `hardDeleteKbPage`. */
+export async function hardDeleteKbPages(
+  ids: string[],
+): Promise<{ deleted: number; error: string | null }> {
+  let deleted = 0;
+  let firstError: string | null = null;
+  for (const id of ids) {
+    const { deleted: n, error } = await hardDeleteKbPage(id);
+    if (error) firstError ??= error;
+    else deleted += n;
+  }
+  return { deleted, error: firstError };
+}
+
+/** Полная очистка корзины активного account'а. Backed by RPC
+ *  `kb_empty_trash` (миграция 175). */
+export async function emptyKbTrash(): Promise<{
+  deleted: number;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("kb_empty_trash");
+  if (error) return { deleted: 0, error: error.message };
+
+  revalidatePath("/knowledge");
+  return { deleted: (data as number | null) ?? 0, error: null };
+}
+
 /** Admin toggle «заблокировать страницу для редактирования» (Notion-
  *  стиль защиты от случайных правок). Sprint D Phase 3.
  *

@@ -45,13 +45,21 @@ begin
     raise exception 'kb_hard_delete_cascade: нет права kb.delete_pages' using errcode = '42501';
   end if;
 
-  -- root должен существовать в нашем account'е И уже быть в корзине.
-  -- Hard-delete живой страницы запрещён: сначала soft-delete.
+  -- p_id должен быть КОРНЕВОЙ записью удаления в нашем account'е и
+  -- уже в корзине. Корень = deleted_root_id = id (063) либо
+  -- legacy-NULL (строки, удалённые до 063). Если передать id
+  -- каскадного потомка — DELETE снёс бы его поддерево по self-FK
+  -- ON DELETE CASCADE (053), оставив реальный root в корзине и
+  -- сломав инвариант «restore возвращает всю ветку». Поэтому
+  -- потомков отклоняем (Codex #314 P1).
   if not exists (
     select 1 from public.kb_pages
-    where id = p_id and account_id = v_account_id and deleted_at is not null
+    where id = p_id
+      and account_id = v_account_id
+      and deleted_at is not null
+      and (deleted_root_id = id or deleted_root_id is null)
   ) then
-    raise exception 'kb_hard_delete_cascade: страница % не в корзине', p_id
+    raise exception 'kb_hard_delete_cascade: % не корневая запись корзины', p_id
       using errcode = 'P0002';
   end if;
 

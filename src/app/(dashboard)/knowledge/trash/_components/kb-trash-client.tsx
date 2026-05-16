@@ -71,19 +71,21 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
 
   const clearSelection = () => setSelected(new Set());
 
+  // restoreKbPages / hardDeleteKbPages — partial-success: продолжают
+  // после ошибки и применяют успешные. Поэтому всегда refresh'им и
+  // чистим выбор, а об успехе/ошибке сообщаем независимо (Codex #314 P2).
   const runRestore = (ids: string[]) => {
     if (ids.length === 0) return;
     startTransition(async () => {
       const { restored, error } = await restoreKbPages(ids);
-      if (error) {
-        toast.error(`Не удалось восстановить: ${error}`);
-        return;
+      if (restored > 0) {
+        toast.success(
+          restored > 1
+            ? `Восстановлено страниц: ${restored}`
+            : "Страница восстановлена",
+        );
       }
-      toast.success(
-        restored > 1
-          ? `Восстановлено страниц: ${restored}`
-          : "Страница восстановлена",
-      );
+      if (error) toast.error(`Часть не восстановлена: ${error}`);
       clearSelection();
       router.refresh();
     });
@@ -93,15 +95,14 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
     if (ids.length === 0) return;
     startTransition(async () => {
       const { deleted, error } = await hardDeleteKbPages(ids);
-      if (error) {
-        toast.error(`Не удалось удалить: ${error}`);
-        return;
+      if (deleted > 0) {
+        toast.success(
+          deleted > 1
+            ? `Удалено навсегда: ${deleted}`
+            : "Страница удалена навсегда",
+        );
       }
-      toast.success(
-        deleted > 1
-          ? `Удалено навсегда: ${deleted}`
-          : "Страница удалена навсегда",
-      );
+      if (error) toast.error(`Часть не удалена: ${error}`);
       clearSelection();
       router.refresh();
     });

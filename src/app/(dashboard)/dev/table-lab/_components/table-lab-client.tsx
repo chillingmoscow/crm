@@ -15,8 +15,8 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowLeftRight,
-  ArrowUp,
   ArrowUpDown,
+  ArrowUp,
   Calendar,
   CheckCircle2,
   Eye,
@@ -251,7 +251,7 @@ export function TableLabClient() {
 }
 
 function StaffDemo() {
-  const columns: LabColumn<StaffRow>[] = [
+  const columns = useMemo<LabColumn<StaffRow>[]>(() => [
     {
       id: "name",
       label: "Имя",
@@ -307,7 +307,7 @@ function StaffDemo() {
         />
       ),
     },
-  ];
+  ], []);
 
   return (
     <LabDataTable
@@ -323,7 +323,7 @@ function StaffDemo() {
 }
 
 function InventoryDemo() {
-  const columns: LabColumn<InventoryRow>[] = [
+  const columns = useMemo<LabColumn<InventoryRow>[]>(() => [
     {
       id: "product",
       label: "Позиция",
@@ -387,7 +387,7 @@ function InventoryDemo() {
         />
       ),
     },
-  ];
+  ], []);
 
   return (
     <LabDataTable
@@ -413,7 +413,7 @@ function InventoryDemo() {
 }
 
 function FinanceDemo() {
-  const columns: LabColumn<FinanceRow>[] = [
+  const columns = useMemo<LabColumn<FinanceRow>[]>(() => [
     {
       id: "title",
       label: "Операция",
@@ -453,7 +453,7 @@ function FinanceDemo() {
         />
       ),
     },
-  ];
+  ], []);
 
   return (
     <LabDataTable
@@ -589,10 +589,25 @@ function LabDataTable<T extends LabBaseRow>({
     });
   };
 
-  const isFiltered = filter !== "all" || tableState.search.trim().length > 0;
   const scenarioHasError = scenario === "error";
   const usePinControls = controlsVariant === "pins";
+  const [filterPinsVisible, setFilterPinsVisible] = useState(usePinControls);
   const sortableColumns = columns.filter((column) => column.id !== "actions");
+  const cycleColumnSorting = (columnId: string) => {
+    tableState.setSorting((current) => {
+      const index = current.findIndex((sort) => sort.id === columnId);
+      if (index < 0) return [...current, { id: columnId, desc: false }];
+
+      const currentSort = current[index];
+      if (!currentSort.desc) {
+        return current.map((sort, sortIndex) => (
+          sortIndex === index ? { ...sort, desc: true } : sort
+        ));
+      }
+
+      return current.filter((_, sortIndex) => sortIndex !== index);
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -611,9 +626,11 @@ function LabDataTable<T extends LabBaseRow>({
               onOpenChange: tableState.setSearchOpen,
               placeholder: "Поиск по таблице",
             }}
-            filters={usePinControls ? undefined : {
-              active: isFiltered || scenario !== "normal",
-              content: (
+            filters={{
+              active: filterPinsVisible || filter !== "all" || scenario !== "normal",
+              label: filterPinsVisible ? "Скрыть фильтры" : "Показать фильтры",
+              onClick: usePinControls ? () => setFilterPinsVisible((current) => !current) : undefined,
+              content: usePinControls ? undefined : (
                 <FiltersPanel
                   scenario={scenario}
                   onScenarioChange={setScenario}
@@ -626,14 +643,22 @@ function LabDataTable<T extends LabBaseRow>({
                 />
               ),
             }}
-            sort={usePinControls ? undefined : {
+            sort={{
               active: tableState.sorting.length > 0,
               content: (
-                <SortPanel
-                  columns={sortableColumns}
-                  sorting={tableState.sorting}
-                  onSortingChange={tableState.setSorting}
-                />
+                usePinControls ? (
+                  <SortFieldPanel
+                    columns={sortableColumns}
+                    sorting={tableState.sorting}
+                    onSortingChange={tableState.setSorting}
+                  />
+                ) : (
+                  <SortPanel
+                    columns={sortableColumns}
+                    sorting={tableState.sorting}
+                    onSortingChange={tableState.setSorting}
+                  />
+                )
               ),
             }}
             columns={{
@@ -671,10 +696,15 @@ function LabDataTable<T extends LabBaseRow>({
       />
 
       {usePinControls ? (
-        <TablePinControls
+        <ActiveTablePins
           columns={sortableColumns}
           sorting={tableState.sorting}
           onSortingChange={tableState.setSorting}
+          search={tableState.search}
+          onSearchChange={(value) => {
+            tableState.setSearch(value);
+            table.setPageIndex(0);
+          }}
           scenario={scenario}
           onScenarioChange={setScenario}
           filter={filter}
@@ -683,7 +713,9 @@ function LabDataTable<T extends LabBaseRow>({
             table.setPageIndex(0);
           }}
           filters={filters}
+          showFilters={filterPinsVisible}
           onResetAll={() => {
+            tableState.setSearch("");
             tableState.setSorting([]);
             setFilter("all");
             setScenario("normal");
@@ -709,20 +741,7 @@ function LabDataTable<T extends LabBaseRow>({
               ))}
             </colgroup>
             <thead className="group/header bg-muted/40 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {selectedCount > 0 ? (
-                <TableBulkBar
-                  colSpan={table.getVisibleLeafColumns().length + 1}
-                  selectedCount={selectedCount}
-                  onClear={() => table.resetRowSelection()}
-                  actions={bulkActions ?? (
-                    <>
-                      <Button size="sm" variant="outline">Экспорт выбранных</Button>
-                      <Button size="sm" variant="outline">Архивировать</Button>
-                    </>
-                  )}
-                />
-              ) : (
-                table.getHeaderGroups().map((headerGroup) => (
+              {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id} className="h-11">
                     <th className="w-10 border-b px-3 py-3 text-left">
                       <Checkbox
@@ -747,7 +766,7 @@ function LabDataTable<T extends LabBaseRow>({
                             <button
                               type="button"
                               className="flex max-w-full items-center gap-1 truncate"
-                              onClick={header.column.getToggleSortingHandler()}
+                              onClick={() => cycleColumnSorting(header.column.id)}
                             >
                               <span className="truncate">
                                 {flexRender(header.column.columnDef.header, header.getContext())}
@@ -775,8 +794,7 @@ function LabDataTable<T extends LabBaseRow>({
                       );
                     })}
                   </tr>
-                ))
-              )}
+                ))}
             </thead>
             <tbody>
               {scenario === "loading" ? (
@@ -828,18 +846,34 @@ function LabDataTable<T extends LabBaseRow>({
         onPageChange={(pageIndex) => table.setPageIndex(pageIndex)}
         onPageSizeChange={(pageSize) => table.setPageSize(pageSize)}
       />
+
+      <TableBulkBar
+        floating
+        selectedCount={selectedCount > 1 ? selectedCount : 0}
+        onClear={() => table.resetRowSelection()}
+        actions={bulkActions ?? (
+          <>
+            <Button size="sm" variant="outline">Экспорт выбранных</Button>
+            <Button size="sm" variant="outline">Архивировать</Button>
+          </>
+        )}
+      />
     </div>
   );
 }
 
 function DocumentDemo() {
-  const tableState = useTableState({
-    tableId: "lab.document-list",
-    columns: [
+  const stateColumns = useMemo<TableStateColumn[]>(
+    () => [
       { id: "product", defaultSize: 320 },
       { id: "group", defaultSize: 180 },
       { id: "value", defaultSize: 120 },
     ],
+    [],
+  );
+  const tableState = useTableState({
+    tableId: "lab.document-list",
+    columns: stateColumns,
   });
   const [scenario, setScenario] = useState<Scenario>("normal");
   const [group, setGroup] = useState("all");
@@ -1055,70 +1089,155 @@ function FiltersPanel({
   );
 }
 
-function TablePinControls<T extends LabBaseRow>({
+function SortFieldPanel<T extends LabBaseRow>({
   columns,
   sorting,
   onSortingChange,
+}: {
+  columns: LabColumn<T>[];
+  sorting: SortingState;
+  onSortingChange: (sorting: SortingState) => void;
+}) {
+  const sortedIds = new Set(sorting.map((sort) => sort.id));
+
+  return (
+    <div className="space-y-3">
+      <PopoverTitle>Сортировка</PopoverTitle>
+      <div className="space-y-1">
+        {columns.map((column) => (
+          <button
+            key={column.id}
+            type="button"
+            onClick={() => {
+              if (sortedIds.has(column.id)) return;
+              onSortingChange([...sorting, { id: column.id, desc: false }]);
+            }}
+            className={cn(
+              "flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm hover:bg-accent",
+              sortedIds.has(column.id) ? "bg-accent text-muted-foreground" : null,
+            )}
+          >
+            <span>{column.label}</span>
+            {sortedIds.has(column.id) ? <span className="text-xs">Добавлено</span> : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ActiveTablePins<T extends LabBaseRow>({
+  columns,
+  sorting,
+  onSortingChange,
+  search,
+  onSearchChange,
   scenario,
   onScenarioChange,
   filter,
   onFilterChange,
   filters,
+  showFilters,
   onResetAll,
 }: {
   columns: LabColumn<T>[];
   sorting: SortingState;
   onSortingChange: (sorting: SortingState) => void;
+  search: string;
+  onSearchChange: (search: string) => void;
   scenario: Scenario;
   onScenarioChange: (scenario: Scenario) => void;
   filter: string;
   onFilterChange: (filter: string) => void;
   filters: FilterOption[];
+  showFilters: boolean;
   onResetAll: () => void;
 }) {
-  const activeSort = sorting[0];
-  const activeColumn = activeSort ? columns.find((column) => column.id === activeSort.id) : undefined;
   const activeFilter = filters.find((option) => option.value === filter);
   const activeScenario = scenarioOptions.find((option) => option.value === scenario);
-  const hasActiveControls = Boolean(activeSort) || filter !== "all" || scenario !== "normal";
+  const activeSort = sorting[0];
+  const activeSortColumn = activeSort ? columns.find((column) => column.id === activeSort.id) : null;
+  const hasActiveControls = sorting.length > 0 || filter !== "all" || scenario !== "normal" || search.trim().length > 0;
+  const showSortBlock = sorting.length > 0;
+  const showFilterBlock = showFilters;
+  const showSearchPin = search.trim().length > 0 && (showFilters || showSortBlock || filter !== "all" || scenario !== "normal");
+
+  if (!showFilters && !showSortBlock && filter === "all" && scenario === "normal") return null;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <TableControlPin
-        active={Boolean(activeSort)}
-        icon={activeSort ? activeSort.desc ? <ArrowDown /> : <ArrowUp /> : <ArrowUpDown />}
-        label={activeSort ? `${activeColumn?.label ?? activeSort.id}: ${activeSort.desc ? "Я-А" : "А-Я"}` : "Сортировка"}
-        onClear={activeSort ? () => onSortingChange([]) : undefined}
-        clearLabel="Сбросить сортировку"
-      >
-        <SortPanel columns={columns} sorting={sorting} onSortingChange={onSortingChange} />
-      </TableControlPin>
+      {showSortBlock ? (
+        <TableControlPin
+          active
+          icon={
+            sorting.length === 1
+              ? activeSort?.desc
+                ? <ArrowDown />
+                : <ArrowUp />
+              : <ArrowUpDown />
+          }
+          label={sorting.length === 1 ? activeSortColumn?.label ?? activeSort?.id ?? "Сортировка" : `${sorting.length} сортировки`}
+          contentClassName="w-auto p-3"
+        >
+          <SortPinEditor
+            columns={columns}
+            sorting={sorting}
+            onSortingChange={onSortingChange}
+          />
+        </TableControlPin>
+      ) : null}
 
-      <TableControlPin
-        active={filter !== "all"}
-        label={activeFilter?.label ?? "Фильтр данных"}
-        onClear={filter !== "all" ? () => onFilterChange("all") : undefined}
-        clearLabel="Сбросить фильтр"
-      >
-        <PinOptionList
-          options={filters}
-          value={filter}
-          onChange={onFilterChange}
-        />
-      </TableControlPin>
+      {showSortBlock && (showFilterBlock || showSearchPin) ? <PinDivider /> : null}
 
-      <TableControlPin
-        active={scenario !== "normal"}
-        label={activeScenario?.label ?? "Состояние"}
-        onClear={scenario !== "normal" ? () => onScenarioChange("normal") : undefined}
-        clearLabel="Сбросить состояние"
-      >
-        <PinOptionList
-          options={scenarioOptions}
-          value={scenario}
-          onChange={(value) => onScenarioChange(value as Scenario)}
-        />
-      </TableControlPin>
+      {showFilterBlock ? (
+        <TableControlPin
+          active={filter !== "all"}
+          label={activeFilter?.label ?? "Все категории"}
+          onClear={() => onFilterChange("all")}
+          clearLabel="Сбросить фильтр"
+        >
+          <PinOptionList
+            options={filters}
+            value={filter}
+            onChange={onFilterChange}
+          />
+        </TableControlPin>
+      ) : null}
+
+      {showFilterBlock ? (
+        <TableControlPin
+          active={scenario !== "normal"}
+          label={activeScenario?.label ?? "Состояние"}
+          onClear={() => onScenarioChange("normal")}
+          clearLabel="Сбросить состояние"
+        >
+          <PinOptionList
+            options={scenarioOptions}
+            value={scenario}
+            onChange={(value) => onScenarioChange(value as Scenario)}
+          />
+        </TableControlPin>
+      ) : null}
+
+      {showFilterBlock && showSearchPin ? <PinDivider /> : null}
+
+      {showSearchPin ? (
+        <TableControlPin
+          active
+          label={`Поиск: ${search.trim()}`}
+          onClear={() => onSearchChange("")}
+          clearLabel="Очистить поиск"
+        >
+          <div className="space-y-2 p-2">
+            <Input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="Поиск по таблице"
+              className="h-8"
+            />
+          </div>
+        </TableControlPin>
+      ) : null}
 
       {hasActiveControls ? (
         <Button
@@ -1133,6 +1252,10 @@ function TablePinControls<T extends LabBaseRow>({
       ) : null}
     </div>
   );
+}
+
+function PinDivider() {
+  return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
 }
 
 function PinOptionList({
@@ -1159,6 +1282,117 @@ function PinOptionList({
           {option.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+function SortPinEditor<T extends LabBaseRow>({
+  columns,
+  sorting,
+  onSortingChange,
+}: {
+  columns: LabColumn<T>[];
+  sorting: SortingState;
+  onSortingChange: (sorting: SortingState) => void;
+}) {
+  const [showAddSort, setShowAddSort] = useState(false);
+  const unusedColumns = columns.filter((column) => !sorting.some((item) => item.id === column.id));
+  const updateSort = (index: number, next: SortingState[number]) => {
+    onSortingChange(sorting.map((item, itemIndex) => (itemIndex === index ? next : item)));
+  };
+  const replaceSortColumn = (index: number, columnId: string) => {
+    const existingIndex = sorting.findIndex((item) => item.id === columnId);
+    if (existingIndex >= 0 && existingIndex !== index) return;
+    updateSort(index, { ...sorting[index], id: columnId });
+  };
+
+  return (
+    <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
+      <PopoverTitle>Сортировка</PopoverTitle>
+      <div className="space-y-2">
+        {sorting.map((sort, index) => (
+          <div key={`${sort.id}-${index}`} className="grid grid-cols-[1fr_132px_32px] items-center gap-2">
+            <Select value={sort.id} onValueChange={(value) => replaceSortColumn(index, value)}>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {columns.map((column) => {
+                  const disabled = sorting.some((item, itemIndex) => itemIndex !== index && item.id === column.id);
+                  return (
+                    <SelectItem key={column.id} value={column.id} disabled={disabled}>
+                      {column.label}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            <Select
+              value={sort.desc ? "desc" : "asc"}
+              onValueChange={(value) => updateSort(index, { ...sort, desc: value === "desc" })}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="asc">По возрастанию</SelectItem>
+                <SelectItem value="desc">По убыванию</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-muted-foreground hover:text-foreground"
+              onClick={() => onSortingChange(sorting.filter((_, itemIndex) => itemIndex !== index))}
+              aria-label="Удалить сортировку"
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      {showAddSort && unusedColumns.length > 0 ? (
+        <div className="rounded-lg border bg-background p-2">
+          {unusedColumns.map((column) => (
+            <button
+              key={column.id}
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onSortingChange([...sorting, { id: column.id, desc: false }]);
+                setShowAddSort(false);
+              }}
+            >
+              <ArrowUp className="h-4 w-4 text-muted-foreground" />
+              {column.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="space-y-1 border-t pt-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          disabled={unusedColumns.length === 0}
+          onClick={() => setShowAddSort((current) => !current)}
+        >
+          <Plus className="h-4 w-4" />
+          Добавить сортировку
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
+          onClick={() => onSortingChange([])}
+        >
+          <Trash2 className="h-4 w-4" />
+          Удалить сортировку
+        </Button>
+      </div>
     </div>
   );
 }

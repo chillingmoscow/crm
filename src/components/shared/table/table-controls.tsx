@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, type ReactNode } from "react";
 import {
+  ArrowUpDown,
   Download,
   Filter,
   Search,
   Settings2,
-  SlidersHorizontal,
   Upload,
   X,
 } from "lucide-react";
@@ -35,9 +35,10 @@ type TableControlSearch = {
 
 type TableControlPopover = {
   active?: boolean;
-  content: ReactNode;
+  content?: ReactNode;
   label?: string;
   align?: "start" | "center" | "end";
+  onClick?: () => void;
 };
 
 type TableControlAction = {
@@ -118,25 +119,45 @@ export function TableControls({
         ) : null}
 
         {filters ? (
-          <TableControlPopoverButton
-            icon={<Filter className="h-4 w-4" />}
-            active={filters.active}
-            label={filters.label ?? "Фильтры"}
-            align={filters.align}
-          >
-            {filters.content}
-          </TableControlPopoverButton>
+          filters.onClick ? (
+            <TooltipIconButton
+              label={filters.label ?? "Фильтры"}
+              active={filters.active}
+              onClick={filters.onClick}
+            >
+              <Filter className="h-4 w-4" />
+            </TooltipIconButton>
+          ) : filters.content ? (
+            <TableControlPopoverButton
+              icon={<Filter className="h-4 w-4" />}
+              active={filters.active}
+              label={filters.label ?? "Фильтры"}
+              align={filters.align}
+            >
+              {filters.content}
+            </TableControlPopoverButton>
+          ) : null
         ) : null}
 
         {sort ? (
-          <TableControlPopoverButton
-            icon={<SlidersHorizontal className="h-4 w-4" />}
-            active={sort.active}
-            label={sort.label ?? "Сортировка"}
-            align={sort.align}
-          >
-            {sort.content}
-          </TableControlPopoverButton>
+          sort.onClick ? (
+            <TooltipIconButton
+              label={sort.label ?? "Сортировка"}
+              active={sort.active}
+              onClick={sort.onClick}
+            >
+              <ArrowUpDown className="h-4 w-4" />
+            </TooltipIconButton>
+          ) : sort.content ? (
+            <TableControlPopoverButton
+              icon={<ArrowUpDown className="h-4 w-4" />}
+              active={sort.active}
+              label={sort.label ?? "Сортировка"}
+              align={sort.align}
+            >
+              {sort.content}
+            </TableControlPopoverButton>
+          ) : null
         ) : null}
 
         {columns ? (
@@ -200,9 +221,9 @@ function TooltipIconButton({
             variant="outline"
             size="icon"
             className={cn(
-              "h-9 w-9 text-foreground/80 hover:bg-muted hover:text-foreground",
+              "h-9 w-9 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground",
               "[&_svg]:h-4 [&_svg]:w-4",
-              active ? "border-brand/20 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand" : null,
+              active ? "border-brand bg-background text-foreground shadow-[0_0_0_2px_hsl(var(--brand)/0.16)] hover:border-brand hover:bg-background" : null,
             )}
             disabled={disabled}
             onClick={onClick}
@@ -212,7 +233,7 @@ function TooltipIconButton({
           </Button>
         </span>
       </TooltipTrigger>
-      <TooltipContent sideOffset={6} className="px-2 py-1 text-xs">
+      <TooltipContent sideOffset={6}>
         {label}
       </TooltipContent>
     </Tooltip>
@@ -242,9 +263,9 @@ function TableControlPopoverButton({
               variant="outline"
               size="icon"
               className={cn(
-                "h-9 w-9 text-foreground/80 hover:bg-muted hover:text-foreground",
+                "h-9 w-9 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground",
                 "[&_svg]:h-4 [&_svg]:w-4",
-                active ? "border-brand/20 bg-brand/10 text-brand hover:bg-brand/15 hover:text-brand" : null,
+                active ? "border-brand bg-background text-foreground shadow-[0_0_0_2px_hsl(var(--brand)/0.16)] hover:border-brand hover:bg-background" : null,
               )}
               aria-label={label}
             >
@@ -252,7 +273,7 @@ function TableControlPopoverButton({
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>
-        <TooltipContent sideOffset={6} className="px-2 py-1 text-xs">
+        <TooltipContent sideOffset={6}>
           {label}
         </TooltipContent>
       </Tooltip>

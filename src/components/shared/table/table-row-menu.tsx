@@ -42,7 +42,7 @@ export function TableRowMenu({ actions }: TableRowMenuProps) {
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent sideOffset={6} className="px-2 py-1 text-xs">
+        <TooltipContent sideOffset={6}>
           Действия строки
         </TooltipContent>
       </Tooltip>

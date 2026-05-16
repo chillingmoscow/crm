@@ -52,35 +52,49 @@ export function useTableState({
     [columns],
   );
 
-  const [persisted] = useState<PersistedTableState>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      return raw ? (JSON.parse(raw) as PersistedTableState) : {};
-    } catch {
-      return {};
-    }
-  });
+  const [isHydrated, setIsHydrated] = useState(false);
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    () => ({ ...defaultVisibility, ...persisted.columnVisibility }),
+    () => defaultVisibility,
   );
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>(
-    () => normalizeColumnOrder(persisted.columnOrder, defaultColumnOrder),
+    () => defaultColumnOrder,
   );
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>(
-    () => ({ ...defaultSizing, ...persisted.columnSizing }),
+    () => defaultSizing,
   );
   const [pagination, setPagination] = useState({
     pageIndex: 0,
-    pageSize: persisted.pageSize ?? defaultPageSize,
+    pageSize: defaultPageSize,
   });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      const persisted = raw ? (JSON.parse(raw) as PersistedTableState) : {};
+      setColumnVisibility({ ...defaultVisibility, ...persisted.columnVisibility });
+      setColumnOrder(normalizeColumnOrder(persisted.columnOrder, defaultColumnOrder));
+      setColumnSizing({ ...defaultSizing, ...persisted.columnSizing });
+      setPagination((current) => ({
+        pageIndex: current.pageIndex,
+        pageSize: persisted.pageSize ?? defaultPageSize,
+      }));
+    } catch {
+      setColumnVisibility(defaultVisibility);
+      setColumnOrder(defaultColumnOrder);
+      setColumnSizing(defaultSizing);
+      setPagination((current) => ({ ...current, pageSize: defaultPageSize }));
+    } finally {
+      setIsHydrated(true);
+    }
+  }, [defaultColumnOrder, defaultPageSize, defaultSizing, defaultVisibility, storageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isHydrated) return;
     const payload: PersistedTableState = {
       columnVisibility,
       columnOrder,
@@ -88,7 +102,7 @@ export function useTableState({
       pageSize: pagination.pageSize,
     };
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
-  }, [columnOrder, columnSizing, columnVisibility, pagination.pageSize, storageKey]);
+  }, [columnOrder, columnSizing, columnVisibility, isHydrated, pagination.pageSize, storageKey]);
 
   const resetColumns = () => {
     setColumnVisibility(defaultVisibility);

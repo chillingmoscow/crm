@@ -62,7 +62,7 @@ export function TableSplitButton({
             {label}
           </Button>
         </TooltipTrigger>
-        <TooltipContent sideOffset={6} className="px-2 py-1 text-xs">
+        <TooltipContent sideOffset={6}>
           {primaryTooltip ?? label}
         </TooltipContent>
       </Tooltip>
@@ -81,7 +81,7 @@ export function TableSplitButton({
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent sideOffset={6} className="px-2 py-1 text-xs">
+          <TooltipContent sideOffset={6}>
             {menuTooltip}
           </TooltipContent>
         </Tooltip>

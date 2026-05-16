@@ -36,11 +36,11 @@ export function IconTooltip({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side={side} sideOffset={6} className="text-xs px-2 py-1">
+      <TooltipContent side={side} sideOffset={6}>
         <div className="grid gap-0.5">
           <strong className="font-semibold leading-tight">{label}</strong>
           {description && (
-            <span className="text-neutral-300 leading-tight">
+            <span className="font-normal text-neutral-200 leading-tight">
               {description}
             </span>
           )}

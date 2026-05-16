@@ -75,7 +75,7 @@ export function LegalEntityDetailClient({
             variant="outline"
             onClick={onSync}
             disabled={syncing || !row.inn}
-            title={!row.inn ? "Сначала укажите ИНН" : undefined}
+            data-tip={!row.inn ? "Сначала укажите ИНН" : undefined}
           >
             {syncing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

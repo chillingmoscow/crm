@@ -86,7 +86,7 @@ function KbPageMentionChip(props: {
         contentEditable={false}
         className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 cursor-not-allowed"
         draggable={false}
-        title="Страница недоступна (в корзине или удалена)"
+        data-tip="Страница недоступна (в корзине или удалена)"
         aria-disabled="true"
         data-kb-page-mention={props.slug}
         data-kb-page-mention-deleted="true"

@@ -555,7 +555,7 @@ function VersionRow({
           variant="ghost"
           size="sm"
           onClick={onPreview}
-          title="Просмотреть версию"
+          data-tip="Просмотреть версию"
         >
           <Eye className="size-4" />
           Просмотреть
@@ -627,11 +627,11 @@ function VersionPreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[90vh] max-w-[1440px] flex-col gap-0 overflow-hidden p-0">
         <div className="shrink-0 border-b bg-background/95 px-6 py-4 backdrop-blur">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex flex-col gap-3 pr-10">
             <div className="space-y-1.5">
               <DialogTitle className="text-xl">Снимок версии</DialogTitle>
               <DialogDescription>
-                Полный read-only просмотр страницы перед восстановлением.
+                Полный просмотр страницы перед восстановлением
               </DialogDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -673,7 +673,7 @@ function VersionPreviewDialog({
         <div className="shrink-0 border-t bg-background/95 px-6 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Восстановление создаст новую текущую версию страницы.
+              Восстановление создаст новую текущую версию страницы
             </p>
             <DialogFooter className="gap-2 p-0">
               <DialogClose asChild>
@@ -804,7 +804,7 @@ function DeltaBadge({ delta }: { delta: number | null }) {
           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
           : "bg-rose-500/10 text-rose-700 dark:text-rose-400",
       )}
-      title={`${positive ? "Добавлено" : "Удалено"} ${Math.abs(delta)} символов`}
+      data-tip={`${positive ? "Добавлено" : "Удалено"} ${Math.abs(delta)} символов`}
     >
       {positive ? <Plus className="size-2.5" /> : <Minus className="size-2.5" />}
       {Math.abs(delta)}

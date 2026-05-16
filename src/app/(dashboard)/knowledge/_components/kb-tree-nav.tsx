@@ -537,7 +537,7 @@ function KbFavoritesSection({
             <Link
               href={`/knowledge/${p.slug}`}
               className="flex-1 truncate inline-flex items-center gap-2 min-w-0"
-              title={p.title}
+              data-tip={p.title}
             >
               <span className="size-5 shrink-0 inline-flex items-center justify-center">
                 <KbPageIcon icon={p.icon} color={p.icon_color} size={14} />
@@ -856,7 +856,7 @@ function KbTreeItem({
         <Link
           href={`/knowledge/${node.slug}`}
           className="flex-1 truncate inline-flex items-center gap-1.5 min-w-0"
-          title={displayIsLocked ? `${displayTitle} (заблокирована)` : displayTitle}
+          data-tip={displayIsLocked ? `${displayTitle} (заблокирована)` : displayTitle}
         >
           <span className="truncate">{displayTitle || "Без названия"}</span>
         </Link>

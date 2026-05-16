@@ -22,7 +22,7 @@ const TooltipContent = React.forwardRef<
     // Цвет фиксированный в обеих темах — чтобы tooltip не сливался
     // с light-фоном popover'ов и однозначно читался как «подсказка».
     className={cn(
-      "z-50 overflow-hidden rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-neutral-50 shadow-lg dark:bg-neutral-800 animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-tooltip-content-transform-origin]",
+      "z-50 overflow-hidden rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-semibold leading-tight text-neutral-50 shadow-lg animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[--radix-tooltip-content-transform-origin]",
       className
     )}
     {...props}

@@ -645,7 +645,7 @@ export function StaffClient({
             {isPlaceholder && (
               <span
                 className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
-                title="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
+                data-tip="Сотрудник без аккаунта. Когда понадобится дать ему доступ — впишите email в карточке и отправьте приглашение."
               >
                 <Lock className="w-2.5 h-2.5" />
                 <span className="text-[10px] font-medium leading-none">
@@ -656,7 +656,7 @@ export function StaffClient({
             {isPendingInvite && (
               <span
                 className="inline-flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
-                title="Приглашение отправлено, но сотрудник ещё не подтвердил email."
+                data-tip="Приглашение отправлено, но сотрудник ещё не подтвердил email."
               >
                 <Clock className="w-2.5 h-2.5" />
                 <span className="text-[10px] font-medium leading-none">
@@ -671,7 +671,7 @@ export function StaffClient({
                     ? "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
                     : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
                 }`}
-                title={medbook.title}
+                data-tip={medbook.title}
               >
                 <HeartPulse className="w-2.5 h-2.5" />
                 <span className="text-[10px] font-medium leading-none">
@@ -686,7 +686,7 @@ export function StaffClient({
                     ? "bg-pink-100 text-pink-700 dark:bg-pink-500/15 dark:text-pink-300"
                     : "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
                 }`}
-                title={bday.title}
+                data-tip={bday.title}
               >
                 <Cake className="w-2.5 h-2.5" />
                 <span className="text-[10px] font-medium leading-none">

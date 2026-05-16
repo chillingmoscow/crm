@@ -36,7 +36,7 @@ export function AuditEventRow({ event, hideEntity = false }: AuditEventRowProps)
         </div>
         {details && <div className="pl-0.5">{details}</div>}
         <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
-          <time dateTime={event.created_at} title={event.created_at}>
+          <time dateTime={event.created_at} data-tip={event.created_at}>
             {formatRelative(event.created_at)}
           </time>
           {!hideEntity && <EntityReference event={event} />}

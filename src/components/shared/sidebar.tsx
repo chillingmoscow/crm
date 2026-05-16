@@ -509,7 +509,7 @@ function FlatCollapsedLink({
     <Link
       href={href}
       aria-label={section.label}
-      title={section.label}
+      data-tip={section.label}
       className={cn(
         "flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
         isActive && "bg-sidebar-accent",
@@ -835,7 +835,7 @@ function ThemeSwitcher() {
               type="button"
               onClick={() => applyTheme(value, setTheme)}
               aria-label={label}
-              title={label}
+              data-tip={label}
               className={cn(
                 "flex items-center justify-center px-2 py-1 rounded-[5px] transition-colors",
                 active

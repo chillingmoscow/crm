@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 
 import { Providers } from "@/components/shared/providers";
+import { GlobalTooltip } from "@/components/ui/global-tooltip";
 
 import "./globals.css";
 
@@ -25,6 +26,7 @@ export default function RootLayout({
     <html lang="ru" suppressHydrationWarning className={inter.variable}>
       <body className="antialiased font-sans">
         <Providers>{children}</Providers>
+        <GlobalTooltip />
       </body>
     </html>
   );

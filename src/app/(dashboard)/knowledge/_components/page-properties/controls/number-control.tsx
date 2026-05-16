@@ -94,7 +94,7 @@ export function NumberValueControl({
       {suffix && (
         <span
           className="text-[13px] text-muted-foreground/80 shrink-0 select-none"
-          title="Единица измерения (изменить — через ⋯ меню)"
+          data-tip="Единица измерения (изменить — через ⋯ меню)"
         >
           {suffix}
         </span>

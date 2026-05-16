@@ -122,7 +122,7 @@ function KbAudioPreviewWithMenu(
         // плеера, наш «⋯» не перекрывает ни один контрол.
         className="kb-audio-menu-btn"
         aria-label="Открыть меню аудио"
-        title="Открыть меню аудио"
+        data-tip="Открыть меню аудио"
         onClick={onSelect}
         onMouseDown={(e) => e.preventDefault()}
       >

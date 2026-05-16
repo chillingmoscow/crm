@@ -58,6 +58,25 @@ import {
   type CollectionTableSelection,
 } from "./shared";
 
+/** Пустое значение для очистки ячейки по типу поля. Используется
+ *  при Backspace/Delete на выделенной (но не редактируемой) ячейке —
+ *  ячейка очищается, а не удаляется весь блок коллекции. */
+function emptyValueForFieldType(type: KbPropertyType): KbProperty["value"] {
+  switch (type) {
+    case "multi-select":
+      return [];
+    case "checkbox":
+      return false;
+    case "number":
+    case "rating":
+    case "date":
+    case "select":
+      return null;
+    default:
+      return "";
+  }
+}
+
 function CollectionTableTitleCell({
   item,
   selected,
@@ -356,6 +375,48 @@ export function CollectionTableView({
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [editingTitleId, selectedCell]);
+
+  // Backspace/Delete на выделенной (но не редактируемой) ячейке должен
+  // ОЧИЩАТЬ ячейку. Раньше событие всплывало в BlockNote/ProseMirror и
+  // удаляло весь блок коллекции (блок был node-selected). Перехватываем
+  // в capture-фазе на document — до того, как ProseMirror увидит клавишу.
+  useEffect(() => {
+    if (!selectedCell || editingTitleId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Backspace" && event.key !== "Delete") return;
+      // Если фокус внутри редактируемого инпута ячейки — это обычное
+      // редактирование текста, не мешаем.
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        (active.isContentEditable ||
+          active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT")
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (selectedCell.cellId === "title") {
+        // Заголовок очищать смысла нет (нормализуется в «Без названия»);
+        // достаточно не дать удалить блок.
+        return;
+      }
+      const field = fields.find((f) => f.id === selectedCell.cellId);
+      if (!field) return;
+      onChangeValue(
+        selectedCell.itemId,
+        field,
+        emptyValueForFieldType(field.type),
+      );
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [editingTitleId, fields, onChangeValue, selectedCell]);
 
   useEffect(() => {
     if (!openFieldMenuId && !titleColumnMenuOpen && !addFieldOpen) return;

@@ -28,7 +28,7 @@ export function KbReadingTimeBadge({
         isSm ? "text-[11px]" : "text-xs",
         className,
       )}
-      title={`Примерное время чтения: ${minutes} мин`}
+      data-tip={`Примерное время чтения: ${minutes} мин`}
     >
       <Clock className={cn(isSm ? "size-3" : "size-3.5")} />
       <span className="tabular-nums">≈ {minutes} мин</span>

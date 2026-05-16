@@ -137,7 +137,11 @@ const SidebarProvider = React.forwardRef<
 
     return (
       <SidebarContext.Provider value={contextValue}>
-        <TooltipProvider delayDuration={0}>
+        {/* delayDuration=500 — этот провайдер оборачивает ВЕСЬ контент
+            приложения (SidebarProvider > всё дерево), а не только сайдбар,
+            поэтому именно он определяет задержку tooltip'ов по всему сервису.
+            Раньше было 0 → подсказки выскакивали моментально. */}
+        <TooltipProvider delayDuration={500} skipDelayDuration={500}>
           <div
             style={
               {
@@ -308,7 +312,7 @@ const SidebarRail = React.forwardRef<
       aria-label="Toggle Sidebar"
       tabIndex={-1}
       onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      data-tip="Toggle Sidebar"
       className={cn(
         "absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border group-data-[side=left]:-right-4 group-data-[side=right]:left-0 sm:flex",
         "[[data-side=left]_&]:cursor-w-resize [[data-side=right]_&]:cursor-e-resize",

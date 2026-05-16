@@ -214,7 +214,7 @@ export function KbThreadGutterIndicators() {
               ? "Открыть обсуждение"
               : `Открыть обсуждения (${it.count})`
           }
-          title={
+          data-tip={
             it.count === 1
               ? "Открыть обсуждение"
               : `${it.count} обсуждений в этом блоке`

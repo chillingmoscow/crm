@@ -13,10 +13,11 @@ import {
 import { useRouter } from "next/navigation";
 import { Loader2, Search, Sparkles, ArrowLeft } from "lucide-react";
 
+import { Command as CommandPrimitive } from "cmdk";
+
 import {
   Command,
   CommandEmpty,
-  CommandInput,
   CommandList,
   CommandItem,
 } from "@/components/ui/command";
@@ -208,11 +209,10 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
       {/* Дизайн по sheerly.pen → WFrIM:
           - 720px wide, rounded-[14px]
           - Search bar с padding 18/20, border-bottom, ⌘K kbd справа
-          - Result rows с padding 10/20, hover/active fill-muted
-          - Footer с подсказками (border-top, fill-muted)
-          AI-quick row из дизайна намеренно опущен — фича ещё не
-          реализована, рендерить статичный плейсхолдер было бы
-          мисли и сбивало пользователя. */}
+          - AI Quick — постоянный голубой баннер под search-bar'ом
+            (node NnFB2), активен когда ИИ включён
+          - Result rows с padding 10/20, hover/active fill-accent
+          - Footer с подсказками (border-top, fill-accent) */}
       <DialogContent
         className="max-w-[720px] p-0 gap-0 rounded-[14px] overflow-hidden shadow-xl
                    [&>button:last-child]:hidden top-[20%] translate-y-0"
@@ -221,23 +221,64 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
         <DialogTitle className="sr-only">Поиск по базе знаний</DialogTitle>
         <Command
           shouldFilter={false}
-          className="bg-background [&_[cmdk-input-wrapper]]:border-0
-                     [&_[cmdk-input]]:h-auto [&_[cmdk-input]]:py-0
-                     [&_[cmdk-item]]:rounded-none"
+          className="bg-background [&_[cmdk-item]]:rounded-none"
         >
-          {/* Search bar */}
-          <div className="flex items-center gap-3 border-b px-5 py-[18px]" cmdk-input-wrapper="">
+          {/* Search bar — дизайн sheerly.pen → WFrIM · node Haeij:
+              одна иконка-лупа, крупный инпут 15px, ⌘K kbd справа,
+              padding 18/20, один border-bottom. Используем сырой
+              cmdk Input (не shadcn CommandInput — тот инжектит
+              собственную иконку + обёртку → было две лупы). */}
+          <div className="flex items-center gap-3 border-b px-5 py-[18px]">
             <Search className="size-[18px] shrink-0 text-muted-foreground" />
-            <CommandInput
+            <CommandPrimitive.Input
               placeholder="Поиск по базе знаний…"
               value={query}
               onValueChange={setQuery}
-              className="flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
+              onKeyDown={(event) => {
+                // Enter запускает «Спросить ИИ» (как ⏎ в AI-баннере по
+                // дизайну WFrIM). Перехватываем до cmdk (он бы выбрал
+                // подсвеченный результат). stopPropagation — чтобы
+                // Command-root не обработал то же нажатие.
+                if (
+                  event.key === "Enter" &&
+                  aiAskEnabled &&
+                  !ai &&
+                  query.trim().length >= 4
+                ) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void onAskAi();
+                }
+              }}
+              className="h-7 flex-1 bg-transparent text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
             />
-            <kbd className="inline-flex items-center rounded-[5px] border bg-background px-1.5 py-[3px] text-[11px] font-medium tracking-[0.3px] text-muted-foreground">
+            <kbd className="inline-flex items-center rounded-[5px] border bg-background px-[7px] py-[3px] text-[11px] font-medium tracking-[0.3px] text-muted-foreground">
               ⌘K
             </kbd>
           </div>
+
+          {/* AI quick-row — постоянный баннер сразу под search-bar'ом
+              (sheerly.pen → WFrIM · node NnFB2): голубой фон, синяя
+              sparkles-иконка, ⏎ kbd справа. Виден всегда при включённом
+              ИИ; прячется в AI-mode (там answer-panel). Клик с запросом
+              < 4 символов — no-op (см. onAskAi). */}
+          {aiAskEnabled && !ai && (
+            <button
+              type="button"
+              onClick={() => void onAskAi()}
+              className="flex w-full items-center gap-3 border-b bg-blue-50 px-5 py-[14px] text-left
+                         transition-colors hover:bg-blue-100 focus-visible:outline-none
+                         focus-visible:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-950/60"
+            >
+              <Sparkles className="size-[18px] shrink-0 text-blue-700 dark:text-blue-400" />
+              <span className="flex-1 min-w-0 truncate text-sm font-medium text-blue-900 dark:text-blue-200">
+                Спросить ИИ о базе знаний — задайте вопрос своими словами
+              </span>
+              <kbd className="inline-flex items-center rounded-[5px] border bg-background px-[7px] py-[3px] text-[11px] font-medium text-muted-foreground">
+                ⏎
+              </kbd>
+            </button>
+          )}
 
           <CommandList className="max-h-[400px] overflow-y-auto">
             {query.trim().length === 0 && !loading && (
@@ -252,31 +293,6 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                   </div>
                 </div>
               </>
-            )}
-
-            {/* AI quick-row — показывается, когда юзер ввёл достаточно
-                text'а и AI разрешён. В AI-mode прячется (там answer-
-                panel вместо). */}
-            {aiAskEnabled && !ai && query.trim().length >= 4 && (
-              <button
-                type="button"
-                onClick={() => void onAskAi()}
-                className="flex w-full items-center gap-3 px-5 py-2.5 text-left transition-colors
-                           border-b hover:bg-muted/60 focus-visible:outline-none focus-visible:bg-muted"
-              >
-                <Sparkles className="size-[18px] shrink-0 text-brand" />
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium text-foreground">
-                    Спросить ИИ о базе знаний
-                  </span>
-                  <span className="block text-xs text-muted-foreground truncate">
-                    «{query.trim()}»
-                  </span>
-                </span>
-                <kbd className="inline-flex items-center rounded border bg-background px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  ⏎ ИИ
-                </kbd>
-              </button>
             )}
 
             {/* AI answer panel */}
@@ -363,7 +379,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
                     // it unique per row.
                     value={hit.id}
                     onSelect={() => onSelect(hit.slug)}
-                    className="px-5 py-2.5 gap-3 data-[selected=true]:bg-muted aria-selected:bg-muted"
+                    className="px-5 py-2.5 gap-3 data-[selected=true]:bg-accent aria-selected:bg-accent"
                   >
                     <KbPageIcon icon={hit.icon} color={hit.icon_color} size={16} />
                     <div className="flex flex-col gap-0.5 min-w-0 flex-1">
@@ -385,7 +401,7 @@ function KbSearchDialog({ open, onOpenChange, aiAskEnabled }: KbSearchDialogProp
           {/* Footer hints */}
           <div
             aria-hidden="true"
-            className="flex items-center justify-end gap-[18px] border-t bg-muted/40 px-5 py-3 text-[11px] font-medium tracking-[0.2px] text-muted-foreground"
+            className="flex items-center justify-end gap-[18px] border-t bg-accent px-5 py-3 text-[11px] font-medium tracking-[0.2px] text-muted-foreground"
           >
             <span className="inline-flex items-center gap-1.5">
               <kbd className="inline-flex items-center rounded border bg-background px-1 py-0.5 text-[10px]">↑↓</kbd>

@@ -12,6 +12,7 @@ import {
 import { resolveKbUsers } from "@/lib/knowledge/comments-store";
 import { PageCommentComposer } from "./page-comment-composer";
 import { PageCommentItem } from "./page-comment-item";
+import { KbSectionLabel } from "@/app/(dashboard)/knowledge/_components/page-properties/section-label";
 
 interface KbPageCommentsProps {
   pageId: string;
@@ -273,6 +274,7 @@ export function KbPageComments({
 
   return (
     <section className="flex flex-col gap-3 py-2">
+      <KbSectionLabel>Комментарии</KbSectionLabel>
       {!loading && comments.length > 0 && (
         <div className="flex flex-col gap-3">
           {comments.map((c) => (

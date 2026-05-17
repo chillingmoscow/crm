@@ -81,13 +81,18 @@ function KbPageMentionChip(props: {
   const label = props.title || "Без названия";
 
   if (!isAvailable) {
+    // Notion-style: страница в корзине — chip остаётся кликабельным
+    // (ведёт на read-only просмотр с баннером «в корзине»), но серый
+    // и зачёркнутый, чтобы статус читался с одного взгляда. Раньше был
+    // мёртвый span с cursor-not-allowed — пользователь не мог дойти
+    // до удалённой страницы из текста (фидбек №7).
     return (
-      <span
+      <a
+        href={`/knowledge/${props.slug}`}
         contentEditable={false}
-        className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 cursor-not-allowed"
+        className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 no-underline hover:bg-accent transition-colors"
         draggable={false}
-        data-tip="Страница недоступна (в корзине или удалена)"
-        aria-disabled="true"
+        data-tip="Страница в корзине — открыть только для чтения"
         data-kb-page-mention={props.slug}
         data-kb-page-mention-deleted="true"
       >
@@ -97,7 +102,7 @@ function KbPageMentionChip(props: {
           size={14}
         />
         <span>{label}</span>
-      </span>
+      </a>
     );
   }
 

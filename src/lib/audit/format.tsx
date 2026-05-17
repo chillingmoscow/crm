@@ -42,11 +42,20 @@ import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
 function KbPageTitle({ event, text }: { event: AuditEvent; text: string }) {
   const label = `«${text || "Без названия"}»`;
   const e = event.entity;
-  if (e && e.type === "kb_page" && e.deleted_at === null) {
+  if (e && e.type === "kb_page" && e.slug) {
+    // Notion-style: страница в корзине тоже кликабельна — ведёт на
+    // read-only просмотр (`/knowledge/<slug>` сам отдаёт баннер «в
+    // корзине»). Удалённая — серая + зачёркнутая, чтобы статус был
+    // считываем с одного взгляда.
+    const deleted = e.deleted_at !== null;
     return (
       <Link
         href={`/knowledge/${e.slug}`}
-        className="font-medium text-foreground underline-offset-2 hover:underline"
+        className={
+          deleted
+            ? "font-medium text-muted-foreground line-through decoration-muted-foreground/40 underline-offset-2 hover:decoration-muted-foreground"
+            : "font-medium text-foreground underline-offset-2 hover:underline"
+        }
       >
         {label}
       </Link>

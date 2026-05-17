@@ -196,6 +196,33 @@ export async function resolveKbMentionTargets(
   return { checked: unique, deleted };
 }
 
+/** Достаёт soft-deleted страницу по slug'у — для Notion-style
+ *  read-only просмотра удалённой страницы прямо на `/knowledge/<slug>`.
+ *
+ *  `getKbPageBySlug` намеренно фильтрует `deleted_at IS NULL`, поэтому
+ *  для лежащих в корзине страниц он отдаёт null → notFound. Эта
+ *  функция — явный fallback: только `deleted_at IS NOT NULL`. RLS
+ *  (миграция 050) пропускает soft-deleted строки лишь пользователю
+ *  с `kb.delete_pages`; рядовой сотрудник получит null (и notFound) —
+ *  корзинный контент ему видеть нельзя. slug у kb_pages уникален в
+ *  рамках account'а, но на всякий случай берём свежайшую по deleted_at. */
+export async function getDeletedKbPageBySlug(slug: string): Promise<{
+  row: KbPageRow | null;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("kb_pages")
+    .select("*")
+    .eq("slug", slug)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false })
+    .limit(1);
+  if (error) return { row: null, error: error.message };
+  const rows = (data as KbPageRow[] | null) ?? [];
+  return { row: rows[0] ?? null, error: null };
+}
+
 export async function getKbPageById(id: string): Promise<{
   row: KbPageRow | null;
   error: string | null;

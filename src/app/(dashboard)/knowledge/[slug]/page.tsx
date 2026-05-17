@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
 import {
+  getDeletedKbPageBySlug,
   getKbPageBySlug,
   getKbPageViewData,
   resolveKbMentionTargets,
@@ -13,6 +14,7 @@ import {
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
 import { KbBackLink } from "@/app/(dashboard)/knowledge/_components/kb-back-link";
+import { KbDeletedPageBanner } from "@/app/(dashboard)/knowledge/_components/kb-deleted-page-banner";
 import { KbPageEditor } from "@/app/(dashboard)/knowledge/_components/kb-page-editor";
 import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlinks";
 import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-children-list";
@@ -20,7 +22,12 @@ import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
-import type { KbBlock, KbPageTreeRow, KbProperty } from "@/types/knowledge";
+import type {
+  KbBlock,
+  KbPageRow,
+  KbPageTreeRow,
+  KbProperty,
+} from "@/types/knowledge";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -29,7 +36,15 @@ interface PageProps {
 export default async function KbPageView({ params }: PageProps) {
   const { slug } = await params;
   const { row, error } = await getKbPageBySlug(slug);
-  if (error || !row) notFound();
+  if (error) notFound();
+  if (!row) {
+    // Notion-style: страница из корзины не 404-ит, а открывается
+    // read-only с баннером. getDeletedKbPageBySlug RLS-гейтится на
+    // `kb.delete_pages` — рядовой сотрудник получит null → notFound.
+    const { row: deletedRow } = await getDeletedKbPageBySlug(slug);
+    if (!deletedRow) notFound();
+    return <DeletedKbPageView row={deletedRow} />;
+  }
 
   // Auth context for permission gating. RLS on the row already ran;
   // these RPCs are advisory — the editor disables itself when canEdit
@@ -336,6 +351,85 @@ export default async function KbPageView({ params }: PageProps) {
             initialVisible={row.show_children !== false}
           />
           <KbBacklinks rows={backlinkRows} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Read-only просмотр soft-deleted страницы (Notion-style: страница в
+ * корзине не 404-ит). Намеренно НЕ тянет view-data / tree / mentions /
+ * required-reading / backlinks — это корзинная страница, аналитику
+ * просмотра по ней не пишем (KbPageEditor без userId → не трекает),
+ * меню действий заменено баннером «в корзине».
+ */
+async function DeletedKbPageView({ row }: { row: KbPageRow }) {
+  const supabase = await createClient();
+  const [permissionCodes, descRes, deletedByRes] = await Promise.all([
+    getCachedPermissions(),
+    supabase
+      .from("kb_pages")
+      .select("id", { count: "exact", head: true })
+      .eq("deleted_root_id", row.id)
+      .neq("id", row.id),
+    row.deleted_by
+      ? supabase
+          .from("profiles")
+          .select("first_name, last_name")
+          .eq("id", row.deleted_by)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const canManage = new Set(permissionCodes).has("kb.delete_pages");
+  const descendantsCount = descRes.count ?? 0;
+  const deletedByProfile = deletedByRes.data as {
+    first_name: string | null;
+    last_name: string | null;
+  } | null;
+  const deletedByName = deletedByProfile
+    ? [deletedByProfile.first_name, deletedByProfile.last_name]
+        .filter(Boolean)
+        .join(" ") || null
+    : null;
+
+  const contentBlocks = (row.content as unknown as KbBlock[]) ?? [];
+  const propsParsed = kbPropertiesSchema.safeParse(
+    (row as unknown as { properties?: unknown }).properties ?? [],
+  );
+  const initialProperties: KbProperty[] = propsParsed.success
+    ? propsParsed.data
+    : [];
+
+  return (
+    <div className="flex-1 flex flex-col">
+      <PageBreadcrumb>
+        <KbBackLink href="/knowledge/trash" label="Корзина" />
+      </PageBreadcrumb>
+
+      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
+        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+          <KbDeletedPageBanner
+            pageId={row.id}
+            pageSlug={row.slug}
+            title={row.title}
+            deletedAt={row.deleted_at}
+            deletedByName={deletedByName}
+            descendantsCount={descendantsCount}
+            canManage={canManage}
+          />
+          <KbPageEditor
+            key={`${row.id}-deleted`}
+            pageId={row.id}
+            initialTitle={row.title}
+            initialIcon={row.icon}
+            initialIconColor={row.icon_color}
+            initialContent={contentBlocks}
+            initialProperties={initialProperties}
+            canEditBase={false}
+            initialLocked={row.locked_at !== null}
+          />
         </div>
       </div>
     </div>

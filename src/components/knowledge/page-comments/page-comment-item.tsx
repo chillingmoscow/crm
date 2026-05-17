@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MoreHorizontal, Pencil, SmilePlus, Trash2 } from "lucide-react";
+import { Link2, MoreHorizontal, Pencil, SmilePlus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import {
@@ -26,6 +27,7 @@ import {
 } from "@/lib/knowledge/page-comments";
 import { CommentBodyRenderer, extractPlainText } from "./comment-body-renderer";
 import { PageCommentComposer } from "./page-comment-composer";
+import { buildCommentLink } from "./page-comment-copy-link";
 
 interface PageCommentUser {
   id: string;
@@ -98,7 +100,7 @@ export function PageCommentItem({
 
   if (comment.deletedAt) {
     return (
-      <div className="flex items-start gap-2">
+      <div id={`comment-${comment.id}`} className="flex items-start gap-2">
         <span className="size-7 rounded-full bg-muted shrink-0" />
         <div className="flex-1 min-w-0 text-sm italic text-muted-foreground py-1">
           Комментарий удалён
@@ -130,7 +132,7 @@ export function PageCommentItem({
   const initials = getInitials(authorName);
 
   return (
-    <div className="group flex items-start gap-2">
+    <div id={`comment-${comment.id}`} className="group flex items-start gap-2">
       {authorAvatar ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -184,26 +186,38 @@ export function PageCommentItem({
                 }}
               />
             )}
-            {isAuthor && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="Действия с комментарием"
-                    className="inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Действия с комментарием"
+                  className="inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                >
+                  <MoreHorizontal className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                {isAuthor && (
                   <DropdownMenuItem onSelect={() => setEditing(true)}>
                     <Pencil className="size-4 mr-2" />
-                    Изменить
+                    Редактировать
                   </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  onSelect={() => {
+                    const link = buildCommentLink(window.location.href, comment.id);
+                    void navigator.clipboard
+                      .writeText(link)
+                      .then(() => toast.success("Ссылка скопирована"))
+                      .catch(() => toast.error("Не удалось скопировать ссылку"));
+                  }}
+                >
+                  <Link2 className="size-4 mr-2" />
+                  Скопировать ссылку
+                </DropdownMenuItem>
+                {isAuthor && (
                   <DropdownMenuItem
                     onSelect={async () => {
-                      // Optimistic tombstone → откат при ошибке RPC,
-                      // иначе юзер видит «удалён» хотя в БД жив.
                       onLocalDelete(comment.id);
                       try {
                         await deletePageComment({
@@ -220,9 +234,9 @@ export function PageCommentItem({
                     <Trash2 className="size-4 mr-2" />
                     Удалить
                   </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <div className="text-sm text-foreground">

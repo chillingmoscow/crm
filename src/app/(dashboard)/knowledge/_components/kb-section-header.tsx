@@ -21,22 +21,30 @@ export function KbSectionHeader({
   title,
   description,
   actions,
+  hideBreadcrumb = false,
 }: {
   title: string;
   description?: ReactNode;
   actions?: ReactNode;
+  /**
+   * Index-страницы (Дашборд) breadcrumb не нужен — главный
+   * заголовок остаётся в теле (см. design-system § Top bar).
+   */
+  hideBreadcrumb?: boolean;
 }) {
   return (
     <>
-      <PageBreadcrumb>
-        <Link
-          href="/knowledge"
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          База знаний
-        </Link>
-      </PageBreadcrumb>
+      {!hideBreadcrumb && (
+        <PageBreadcrumb>
+          <Link
+            href="/knowledge"
+            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            База знаний
+          </Link>
+        </PageBreadcrumb>
+      )}
 
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-col gap-1.5 min-w-0">

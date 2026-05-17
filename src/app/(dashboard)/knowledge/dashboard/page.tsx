@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
+import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
 import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbTimeMetricHint } from "@/app/(dashboard)/knowledge/_components/kb-time-metric-hint";
@@ -165,18 +166,14 @@ export default async function KbDashboardPage({
     <div className="flex-1 flex flex-col">
       <div className="px-6 md:px-8 pt-4 pb-8 w-full">
         <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
+          <PageHeaderActions>
+            <KbTimeMetricHint />
+          </PageHeaderActions>
+
           <KbSectionHeader
             title="Дашборд"
-            description={
-              <>
-                Сводка по базе знаний: активность чтения, обязательное
-                чтение и последние изменения.{" "}
-                <span className="inline-flex items-center gap-1">
-                  Как считается время
-                  <KbTimeMetricHint />
-                </span>
-              </>
-            }
+            hideBreadcrumb
+            description="Сводка по базе знаний: активность чтения, обязательное чтение и последние изменения."
             actions={
               <div className="flex flex-wrap items-center gap-3">
                 <KbAnalyticsViewTabs

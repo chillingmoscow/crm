@@ -33,6 +33,12 @@ const MIN_CHUNK_CHARS = 50;
 export async function reembedKbPage(pageId: string): Promise<{
   chunks_count: number;
   error: string | null;
+  /** Что реально произошло. `embedded` — вектора записаны;
+   *  `unchanged` — content-hash guard, эмбеддинга не было;
+   *  `stale` — обогнала более свежая job; `error` — провал.
+   *  Нужно bulk-переиндексации, чтобы не считать no-op как
+   *  «проиндексировано» (Codex P2 на #338). */
+  outcome: "embedded" | "unchanged" | "stale" | "error";
 }> {
   const supabase = await createClient();
   const { data: page, error: pageErr } = await supabase
@@ -41,8 +47,14 @@ export async function reembedKbPage(pageId: string): Promise<{
     .eq("id", pageId)
     .is("deleted_at", null)
     .maybeSingle();
-  if (pageErr) return { chunks_count: 0, error: pageErr.message };
-  if (!page) return { chunks_count: 0, error: "Страница не найдена" };
+  if (pageErr)
+    return { chunks_count: 0, error: pageErr.message, outcome: "error" };
+  if (!page)
+    return {
+      chunks_count: 0,
+      error: "Страница не найдена",
+      outcome: "error",
+    };
 
   // Snapshot updated_at ДО embedding-network-trip — потом передаём в
   // RPC как freshness-token. Если страница изменится за это время,
@@ -96,7 +108,11 @@ export async function reembedKbPage(pageId: string): Promise<{
     }
     if (same) {
       // Pure content no-op: текст не менялся, embeddings актуальны.
-      return { chunks_count: allChunks.length, error: null };
+      return {
+        chunks_count: allChunks.length,
+        error: null,
+        outcome: "unchanged",
+      };
     }
   }
 
@@ -109,12 +125,17 @@ export async function reembedKbPage(pageId: string): Promise<{
     } catch (err) {
       const msg = err instanceof Error ? err.message : "embed error";
       console.error("[reembedKbPage] embed failed", { pageId, error: msg });
-      return { chunks_count: 0, error: `Embed failed: ${msg}` };
+      return {
+        chunks_count: 0,
+        error: `Embed failed: ${msg}`,
+        outcome: "error",
+      };
     }
     if (embeddings.length !== allChunks.length) {
       return {
         chunks_count: 0,
         error: `Embed count mismatch: expected ${allChunks.length}, got ${embeddings.length}`,
+        outcome: "error",
       };
     }
   }
@@ -138,19 +159,28 @@ export async function reembedKbPage(pageId: string): Promise<{
       p_chunks: chunkPayload as unknown as never,
     },
   );
-  if (rpcErr) return { chunks_count: 0, error: rpcErr.message };
+  if (rpcErr)
+    return { chunks_count: 0, error: rpcErr.message, outcome: "error" };
 
   const status = (result as unknown as string) ?? "unknown";
   if (status === "stale") {
     // Newer save проехал мимо нас — это ОК, не ошибка. Свежий re-embed
     // уже запущен или вот-вот запустится из той save'ы.
-    return { chunks_count: 0, error: null };
+    return { chunks_count: 0, error: null, outcome: "stale" };
   }
   if (status !== "ok") {
-    return { chunks_count: 0, error: `Replace status: ${status}` };
+    return {
+      chunks_count: 0,
+      error: `Replace status: ${status}`,
+      outcome: "error",
+    };
   }
 
-  return { chunks_count: chunkPayload.length, error: null };
+  return {
+    chunks_count: chunkPayload.length,
+    error: null,
+    outcome: "embedded",
+  };
 }
 
 /** Splits plain-text на chunks ~MAX_CHUNK_CHARS. Стратегия:
@@ -269,13 +299,24 @@ export async function reembedAllKbPages(): Promise<{
   }
 
   // RLS scope'ит выборку к активному account; берём только живые.
-  const { data: pages, error: pagesErr } = await supabase
-    .from("kb_pages")
-    .select("id")
-    .is("deleted_at", null);
-  if (pagesErr) return { ...empty, error: pagesErr.message };
-
-  const ids = (pages ?? []).map((p) => p.id as string);
+  // Пагинируем .range() — PostgREST режет ответ по `api.max_rows`
+  // (в этом репо 1000), без пагинации аккаунт с >1000 страниц
+  // переиндексировал бы только первую тысячу, отрапортовав успех
+  // (Codex P2 на #338).
+  const PAGE = 1000;
+  const ids: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data: batch, error: pagesErr } = await supabase
+      .from("kb_pages")
+      .select("id")
+      .is("deleted_at", null)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (pagesErr) return { ...empty, error: pagesErr.message };
+    const rows = batch ?? [];
+    for (const r of rows) ids.push(r.id as string);
+    if (rows.length < PAGE) break;
+  }
   if (ids.length === 0) {
     return { ...empty, error: null };
   }
@@ -286,13 +327,15 @@ export async function reembedAllKbPages(): Promise<{
 
   await runWithConcurrency(ids, 3, async (pageId) => {
     try {
-      const { chunks_count, error } = await reembedKbPage(pageId);
-      if (error) {
+      const { error, outcome } = await reembedKbPage(pageId);
+      if (error || outcome === "error") {
         failed += 1;
         console.error("[reembedAllKbPages] page failed", { pageId, error });
         return;
       }
-      if (chunks_count > 0) embedded += 1;
+      // `unchanged` (content-hash no-op) и `stale` — НЕ переиндексация,
+      // иначе повторный прогон врал бы «проиндексировано N» (Codex P2).
+      if (outcome === "embedded") embedded += 1;
       else skipped += 1;
     } catch (err) {
       failed += 1;

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { QuickRestoIntegrationFlow } from "./_components/quickresto-integration-flow";
 
@@ -25,10 +26,18 @@ export default async function QuickRestoIntegrationPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: account } = await supabase
+  const [{ data: accountId }, { data: allowed }] = await Promise.all([
+    supabase.rpc("get_active_account_id"),
+    supabase.rpc("has_permission", { permission_code: "settings.manage_integrations" }),
+  ]);
+
+  if (!accountId || !allowed) redirect("/dashboard");
+
+  const admin = createAdminClient();
+  const { data: account } = await admin
     .from("accounts")
     .select("id, name")
-    .eq("owner_id", user.id)
+    .eq("id", accountId)
     .maybeSingle();
 
   if (!account) {
@@ -36,7 +45,7 @@ export default async function QuickRestoIntegrationPage() {
       <div className="p-6 md:p-8 w-full">
         <h1 className="text-2xl font-semibold">Quick Resto</h1>
         <p className="text-sm text-muted-foreground mt-2">
-          Интеграция доступна только владельцу аккаунта
+          Аккаунт не найден
         </p>
       </div>
     );

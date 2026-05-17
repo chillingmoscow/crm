@@ -70,7 +70,7 @@ declare
   v_platform int;
 begin
   select count(*) into v_total from public.permissions;
-  perform public.test_assert(v_total = 72, 'expected 72 permissions, got ' || v_total);
+  perform public.test_assert(v_total = 76, 'expected 76 permissions, got ' || v_total);
 
   select count(*) into v_platform from public.permissions where module = 'platform';
   perform public.test_assert(v_platform = 0, 'platform.* leftovers in permissions: ' || v_platform);
@@ -88,8 +88,8 @@ begin
     'expected 18 finance.* perms'
   );
   perform public.test_assert(
-    (select count(*) from public.permissions where module = 'inventory') = 9,
-    'expected 9 inventory.* perms'
+    (select count(*) from public.permissions where module = 'inventory') = 13,
+    'expected 13 inventory.* perms'
   );
   perform public.test_assert(
     (select count(*) from public.permissions where module = 'kb') = 15,
@@ -133,8 +133,8 @@ begin
   from public.role_permissions rp
   join public.roles r on r.id = rp.role_id
   where r.code = 'owner' and r.account_id is null and rp.granted = true;
-  perform public.test_assert(v_owner_grants = 72,
-    'owner expected 72 grants, got ' || v_owner_grants);
+  perform public.test_assert(v_owner_grants = 76,
+    'owner expected 76 grants, got ' || v_owner_grants);
 
   -- Accountant has org.manage_legal_entities (key permission for the role).
   perform public.test_assert(

@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
+import { Check } from "lucide-react";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import type { KbProperty, KbPropertyColor } from "@/types/knowledge";
 
 import { OptionChip } from "../option-chip";
@@ -98,14 +100,21 @@ export function MultiSelectControl({
                 <li key={o}>
                   <button
                     type="button"
+                    aria-pressed={checked}
                     onClick={() => toggleValue(o)}
                     className="w-full flex items-center gap-2 px-2 py-1 hover:bg-accent text-left"
                   >
-                    <Checkbox
-                      checked={checked}
-                      tabIndex={-1}
-                      className="pointer-events-none"
-                    />
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded-sm border border-primary",
+                        checked
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-transparent",
+                      )}
+                    >
+                      {checked && <Check className="size-3" />}
+                    </span>
                     <OptionChip
                       value={o}
                       explicit={property.optionColors?.[o]}

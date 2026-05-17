@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   FilePlus2,
   FileEdit,
+  Pencil,
   ArrowRightFromLine,
   Lock,
   LockOpen,
@@ -55,6 +56,16 @@ const SPECS: Record<string, EventSpec> = {
     buildLabel: (e) => (
       <>
         создал(а) страницу{" "}
+        <PageTitle event={e} text={e.details.title as string} />
+      </>
+    ),
+  },
+  "kb_page.edited": {
+    icon: Pencil,
+    iconClass: "text-sky-600 bg-sky-50",
+    buildLabel: (e) => (
+      <>
+        изменил(а) страницу{" "}
         <PageTitle event={e} text={e.details.title as string} />
       </>
     ),

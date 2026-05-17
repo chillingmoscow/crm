@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { Pencil } from "lucide-react";
+import { ArrowUpRight, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -87,12 +87,12 @@ export function UrlValueControl({
         href={trimmed}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[13px] text-foreground underline decoration-muted-foreground/40
-                   underline-offset-[3px] decoration-[1.5px]
-                   hover:decoration-foreground hover:text-foreground transition-colors
-                   truncate inline-block max-w-full"
+        className="inline-flex items-center gap-0.5 text-[13px] text-foreground underline
+                   decoration-muted-foreground/40 underline-offset-[3px] decoration-[1.5px]
+                   hover:decoration-foreground hover:text-foreground transition-colors truncate max-w-full"
       >
-        {display}
+        <span className="truncate">{display}</span>
+        <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" />
       </a>
     );
   }
@@ -185,12 +185,12 @@ export function UrlValueControl({
           href={trimmed}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[13px] text-foreground underline decoration-muted-foreground/40
-                     underline-offset-[3px] decoration-[1.5px]
-                     hover:decoration-foreground hover:text-foreground transition-colors
-                     truncate inline-block max-w-full"
+          className="inline-flex items-center gap-0.5 text-[13px] text-foreground underline
+                     decoration-muted-foreground/40 underline-offset-[3px] decoration-[1.5px]
+                     hover:decoration-foreground hover:text-foreground transition-colors truncate max-w-full"
         >
-          {display}
+          <span className="truncate">{display}</span>
+          <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" />
         </a>
       ) : (
         <span

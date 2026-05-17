@@ -83,7 +83,12 @@ export default async function KbDashboardPage({
       ? Promise.all([
           getKbAnalyticsSummary({ period }),
           getKbAnalyticsTopPages({ period, limit: isPages ? 50 : 5 }),
-          getKbAnalyticsTopUsers({ period, limit: 3 }),
+          // «Активные сотрудники» рендерятся только в Обзоре — в виде
+          // «По страницам» не фетчим (лишний DB-запрос + его ошибка
+          // не должна всплывать в общем баннере; Codex #327 P2).
+          isPages
+            ? Promise.resolve(null)
+            : getKbAnalyticsTopUsers({ period, limit: 3 }),
         ])
       : Promise.resolve(null),
     canAudit
@@ -103,8 +108,8 @@ export default async function KbDashboardPage({
   const summaryError = analyticsData?.[0].error ?? null;
   const topPages = analyticsData?.[1].rows ?? [];
   const pagesError = analyticsData?.[1].error ?? null;
-  const topUsers = analyticsData?.[2].rows ?? [];
-  const topUsersError = analyticsData?.[2].error ?? null;
+  const topUsers = analyticsData?.[2]?.rows ?? [];
+  const topUsersError = analyticsData?.[2]?.error ?? null;
   const recentEvents = auditData?.[0].events ?? [];
   const changesInPeriod: number | null = auditData?.[1].count ?? null;
 

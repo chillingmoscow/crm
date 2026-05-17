@@ -142,7 +142,7 @@ stable
 security definer
 set search_path = public, pg_catalog
 as $$
-  select exists (
+  select public.has_permission('kb.view_pages') and exists (
     select 1
     from public.kb_pages kp
     where kp.slug = p_slug
@@ -152,8 +152,10 @@ as $$
 $$;
 
 comment on function public.kb_deleted_page_slug_exists(text) is
-  'True если в активном account есть soft-deleted страница с таким '
-  'slug. Только boolean — контент не утекает. Для экрана «нет прав» '
-  'вместо 404 на /knowledge/<slug> удалённой страницы.';
+  'True если у юзера есть kb.view_pages И в активном account есть '
+  'soft-deleted страница с таким slug. Только boolean — контент не '
+  'утекает; без kb.view_pages всегда false (юзер без доступа к БЗ '
+  'получает честный 404, не enumeration удалённых slug). Для экрана '
+  '«нет прав» вместо 404 на /knowledge/<slug> удалённой страницы.';
 
 grant execute on function public.kb_deleted_page_slug_exists(text) to authenticated;

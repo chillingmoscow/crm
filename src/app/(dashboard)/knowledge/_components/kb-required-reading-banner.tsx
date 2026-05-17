@@ -152,7 +152,12 @@ export function KbRequiredReadingBanner({
         <Button
           size="sm"
           onClick={onConfirm}
-          disabled={pending}
+          disabled={pending || !gateReady}
+          title={
+            gateReady
+              ? undefined
+              : `Кнопка станет активной через ${remainingSec} сек — ознакомьтесь со страницей`
+          }
           className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
         >
           {pending ? (
@@ -160,7 +165,9 @@ export function KbRequiredReadingBanner({
           ) : (
             <CheckCircle2 className="size-4" />
           )}
-          Подтверждаю прочитано
+          {gateReady
+            ? "Подтверждаю прочитано"
+            : `Подтвердить можно через ${remainingSec} сек`}
         </Button>
       </div>
     );

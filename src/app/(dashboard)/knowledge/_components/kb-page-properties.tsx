@@ -86,6 +86,7 @@ import { NumberValueControl } from "./page-properties/controls/number-control";
 import { RatingValueControl } from "./page-properties/controls/rating-control";
 import { UnitPickerItems } from "./page-properties/controls/unit-picker-items";
 import { PropertyIconButton } from "./page-properties/controls/property-icon-button";
+import { DateValueControl } from "./page-properties/controls/date-control";
 import {
   CREATABLE_PROPERTY_TYPES,
   SAVE_DEBOUNCE_MS,
@@ -1468,17 +1469,12 @@ export function PropertyValueControl({
         />
       );
     case "date":
-      return canEdit ? (
-        <Input
-          type="date"
-          value={property.value ?? ""}
-          onChange={(e) => onChangeValue(e.target.value || null)}
-          className="h-7 text-[13px] tabular-nums border-transparent bg-transparent px-0 hover:border-input focus:border-input"
+      return (
+        <DateValueControl
+          value={property.value}
+          canEdit={canEdit}
+          onChange={(v) => onChangeValue(v)}
         />
-      ) : (
-        <span className="text-[13px] tabular-nums">
-          {property.value ?? "—"}
-        </span>
       );
     case "checkbox":
       // displayVariant = "switch" → toggle-триггер; иначе — классический

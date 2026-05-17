@@ -14,6 +14,31 @@ import {
 import { cn } from "@/lib/utils";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type { KbAuditEvent } from "@/lib/knowledge/audit";
+import { KbAuditRestoreButton } from "./kb-audit-restore-button";
+
+/** Название страницы в тексте события. Если страница ещё жива (есть
+ *  snapshot и не в корзине) — кликабельная ссылка на неё; иначе —
+ *  просто выделенный текст (удалённую/hard-deleted не открыть). */
+function PageTitle({
+  event,
+  text,
+}: {
+  event: KbAuditEvent;
+  text: string;
+}) {
+  const label = `«${text || "Без названия"}»`;
+  if (event.page && event.page.deleted_at === null) {
+    return (
+      <Link
+        href={`/knowledge/${event.page.slug}`}
+        className="font-medium text-foreground underline-offset-2 hover:underline"
+      >
+        {label}
+      </Link>
+    );
+  }
+  return <strong className="font-medium">{label}</strong>;
+}
 
 /** Описание action_code для рендера: иконка, цвет, человеко-читаемая
  *  фраза. payload-data берётся из event.details (jsonb из триггера). */
@@ -30,9 +55,7 @@ const SPECS: Record<string, EventSpec> = {
     buildLabel: (e) => (
       <>
         создал(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>
+        <PageTitle event={e} text={e.details.title as string} />
       </>
     ),
   },
@@ -46,9 +69,7 @@ const SPECS: Record<string, EventSpec> = {
           {(e.details.old_title as string) || "Без названия"}
         </span>
         {" → "}
-        <strong className="font-medium">
-          {(e.details.new_title as string) || "Без названия"}
-        </strong>
+        <PageTitle event={e} text={e.details.new_title as string} />
       </>
     ),
   },
@@ -63,10 +84,8 @@ const SPECS: Record<string, EventSpec> = {
       return (
         <>
           переместил(а){" "}
-          <strong className="font-medium">
-            «{(e.details.title as string) || "Без названия"}»
-          </strong>{" "}
-          {from} в {where}
+          <PageTitle event={e} text={e.details.title as string} /> {from} в{" "}
+          {where}
         </>
       );
     },
@@ -80,9 +99,7 @@ const SPECS: Record<string, EventSpec> = {
       return (
         <>
           {isCascaded ? "удалил(а) каскадом" : "удалил(а)"} страницу{" "}
-          <strong className="font-medium">
-            «{(e.details.title as string) || "Без названия"}»
-          </strong>
+          <PageTitle event={e} text={e.details.title as string} />
         </>
       );
     },
@@ -93,10 +110,7 @@ const SPECS: Record<string, EventSpec> = {
     buildLabel: (e) => (
       <>
         восстановил(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>{" "}
-        из корзины
+        <PageTitle event={e} text={e.details.title as string} /> из корзины
       </>
     ),
   },
@@ -116,9 +130,7 @@ const SPECS: Record<string, EventSpec> = {
           {newValue
             ? "пометил(а) страницу как обязательную к прочтению"
             : "снял(а) флаг обязательного прочтения со страницы"}{" "}
-          <strong className="font-medium">
-            «{(e.details.title as string) || "Без названия"}»
-          </strong>
+          <PageTitle event={e} text={e.details.title as string} />
         </>
       );
     },
@@ -129,10 +141,8 @@ const SPECS: Record<string, EventSpec> = {
     buildLabel: (e) => (
       <>
         закрыл(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>{" "}
-        от редактирования
+        <PageTitle event={e} text={e.details.title as string} /> от
+        редактирования
       </>
     ),
   },
@@ -142,15 +152,21 @@ const SPECS: Record<string, EventSpec> = {
     buildLabel: (e) => (
       <>
         снял(а) защиту от редактирования со страницы{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>
+        <PageTitle event={e} text={e.details.title as string} />
       </>
     ),
   },
 };
 
-export function KbAuditEventRow({ event }: { event: KbAuditEvent }) {
+export function KbAuditEventRow({
+  event,
+  canRestore = false,
+}: {
+  event: KbAuditEvent;
+  /** `kb.delete_pages` — показывает inline-кнопку «Восстановить»
+   *  у событий удаления, если страница ещё в корзине. */
+  canRestore?: boolean;
+}) {
   const spec = SPECS[event.action_code];
   const Icon = spec?.icon ?? FileEdit;
   const iconClass = spec?.iconClass ?? "text-muted-foreground bg-muted";
@@ -161,6 +177,14 @@ export function KbAuditEventRow({ event }: { event: KbAuditEvent }) {
   // — RLS на kb_pages пропустит только тех у кого kb.delete_pages, и
   // ссылка на /knowledge/<slug> вернёт notFound).
   const pageStillVisible = event.page && event.page.deleted_at === null;
+
+  // Кнопка «Восстановить» — у события удаления, если страница ещё в
+  // корзине (snapshot есть И deleted_at заполнен = не hard-deleted).
+  const canRestoreThis =
+    canRestore &&
+    event.action_code === "kb_page.deleted" &&
+    event.page != null &&
+    event.page.deleted_at !== null;
 
   return (
     <li className="flex items-start gap-3 px-4 py-3 border-b last:border-b-0 hover:bg-accent/40 transition-colors">
@@ -173,11 +197,16 @@ export function KbAuditEventRow({ event }: { event: KbAuditEvent }) {
         <Icon className="size-4" />
       </span>
       <div className="flex-1 flex flex-col gap-1 min-w-0">
-        <div className="text-sm leading-snug">
-          <span className="font-medium text-foreground">
-            {event.actor?.name ?? "Система"}
-          </span>{" "}
-          <span className="text-foreground">{label}</span>
+        <div className="flex items-start justify-between gap-3">
+          <div className="text-sm leading-snug">
+            <span className="font-medium text-foreground">
+              {event.actor?.name ?? "Система"}
+            </span>{" "}
+            <span className="text-foreground">{label}</span>
+          </div>
+          {canRestoreThis && (
+            <KbAuditRestoreButton pageId={event.page!.id} />
+          )}
         </div>
         <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
           <time dateTime={event.created_at} data-tip={event.created_at}>

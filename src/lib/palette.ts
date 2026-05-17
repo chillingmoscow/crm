@@ -173,3 +173,7 @@ export function paletteChip(c: string | null | undefined): string {
   }
   return `${BG[n]} ${TEXT[n]}`;
 }
+
+/** Свотч-грид для option-color picker (sheerly.pen → mzhv4):
+ *  2×5, `default` первым. Тот же порядок, что PALETTE_COLORS. */
+export const PALETTE_GRID = PALETTE_COLORS;

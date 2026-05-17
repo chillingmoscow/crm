@@ -5,13 +5,13 @@ import dynamic from "next/dynamic";
 import { Eye, Loader2 } from "lucide-react";
 
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { getKbPageById } from "@/lib/knowledge/pages";
 import type { KbBlock } from "@/types/knowledge";
@@ -33,9 +33,11 @@ interface TrashPreviewSheetProps {
 }
 
 /**
- * Сайд-drawer с read-only превью удалённой страницы. Лениво подгружает
- * содержимое (BlockNote блоки) только при открытии — корзина может
- * содержать много страниц, грузить всё разом смысла нет.
+ * Центральная модалка с read-only превью удалённой страницы. Юзер
+ * просил поп-ап вместо боковой панели — так нагляднее (контент шире,
+ * по центру, не перекрыт списком корзины). Содержимое (BlockNote
+ * блоки) грузится лениво только при открытии — корзина может
+ * содержать много страниц.
  *
  * Доступ к удалённой строке гейтится RLS на kb_pages: пользователи
  * с `kb.delete_pages` видят deleted_at IS NOT NULL (миграция 046/050).
@@ -67,8 +69,8 @@ export function TrashPreviewSheet({
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetTrigger asChild>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
         <button
           type="button"
           aria-label="Просмотреть"
@@ -77,28 +79,28 @@ export function TrashPreviewSheet({
         >
           <Eye className="w-[18px] h-[18px]" />
         </button>
-      </SheetTrigger>
-      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2 text-left">
+      </DialogTrigger>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-left">
             <KbPageIcon icon={icon} color={iconColor} size={22} />
             {title || "Без названия"}
-          </SheetTitle>
-          <SheetDescription className="text-left">
+          </DialogTitle>
+          <DialogDescription className="text-left">
             Превью удалённой страницы. Чтобы вернуть её в дерево —
             используйте кнопку «Восстановить».
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="px-4 pb-6">
+        <div className="pb-2">
           {loading && (
-            <div className="flex items-center gap-2 px-3 py-6 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 px-1 py-6 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
               Загружаем содержимое…
             </div>
           )}
           {!loading && error && (
-            <p className="px-3 py-6 text-sm text-destructive">
+            <p className="px-1 py-6 text-sm text-destructive">
               Не удалось загрузить: {error}
             </p>
           )}
@@ -110,7 +112,7 @@ export function TrashPreviewSheet({
             />
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

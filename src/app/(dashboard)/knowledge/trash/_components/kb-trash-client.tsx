@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { RotateCcw, Search, Trash2 } from "lucide-react";
+import { RotateCcw, Search, Trash2, X } from "lucide-react";
 import {
   differenceInCalendarDays,
   isToday,
@@ -109,7 +109,11 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div
+      className={`flex flex-col gap-6 ${
+        selectedIds.length > 0 ? "pb-24" : ""
+      }`}
+    >
       {/* Toolbar: поиск по названию (клиентский фильтр). */}
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -121,32 +125,46 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
         />
       </div>
 
-      {/* Bulk-bar — виден только при наличии выбора. */}
+      {/* Floating bulk-bar — фиксирован снизу по центру экрана, вне
+          потока: список не дёргается при выделении, и не нужно
+          скроллить наверх к действиям при выборе строк внизу. */}
       {selectedIds.length > 0 && (
-        <div className="flex items-center gap-3 rounded-lg bg-brand/10 px-4 py-2.5">
-          <span className="flex-1 text-sm font-semibold text-brand">
-            Выбрано {selectedIds.length} {pageWord(selectedIds.length)}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={pending}
-            onClick={() => runRestore(selectedIds)}
-            className="border-brand/30 text-brand hover:bg-brand/10 hover:text-brand"
-          >
-            <RotateCcw />
-            Восстановить
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={pending}
-            onClick={() => setConfirmBulkDelete(true)}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            <Trash2 />
-            Удалить навсегда
-          </Button>
+        <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4 pointer-events-none">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-full border bg-card px-4 py-2.5 shadow-lg">
+            <span className="text-sm font-semibold text-brand">
+              Выбрано {selectedIds.length} {pageWord(selectedIds.length)}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground"
+              onClick={clearSelection}
+            >
+              <X />
+              Снять
+            </Button>
+            <span className="h-5 w-px bg-border" aria-hidden />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pending}
+              onClick={() => runRestore(selectedIds)}
+              className="border-brand/30 text-brand hover:bg-brand/10 hover:text-brand"
+            >
+              <RotateCcw />
+              Восстановить
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={pending}
+              onClick={() => setConfirmBulkDelete(true)}
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 />
+              Удалить навсегда
+            </Button>
+          </div>
         </div>
       )}
 

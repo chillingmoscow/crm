@@ -13,6 +13,7 @@ import {
 import {
   quickDateISO,
   formatPropertyDate,
+  toISO,
   type QuickDate,
 } from "./date-control-helpers";
 
@@ -22,13 +23,6 @@ function parseISO(value: string): Date | undefined {
   if (!y || !m || !d) return undefined;
   const dt = new Date(y, m - 1, d);
   return Number.isNaN(dt.getTime()) ? undefined : dt;
-}
-
-function toISO(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 const QUICK: { kind: QuickDate; label: string; brand?: boolean }[] = [

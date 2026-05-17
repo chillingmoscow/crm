@@ -1473,7 +1473,7 @@ export function PropertyValueControl({
         <DateValueControl
           value={property.value}
           canEdit={canEdit}
-          onChange={(v) => onChangeValue(v)}
+          onChange={onChangeValue}
         />
       );
     case "checkbox":

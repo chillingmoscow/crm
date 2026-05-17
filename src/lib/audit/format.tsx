@@ -31,9 +31,29 @@ import {
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
+
+/** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
+ *  страница ещё существует и не в корзине; иначе — просто выделенный
+ *  текст (как в бывшем KB-журнале, но без превью). */
+function KbPageTitle({ event, text }: { event: AuditEvent; text: string }) {
+  const label = `«${text || "Без названия"}»`;
+  const e = event.entity;
+  if (e && e.type === "kb_page" && e.deleted_at === null) {
+    return (
+      <Link
+        href={`/knowledge/${e.slug}`}
+        className="font-medium text-foreground underline-offset-2 hover:underline"
+      >
+        {label}
+      </Link>
+    );
+  }
+  return <strong className="font-medium">{label}</strong>;
+}
 
 interface AuditEventSpec {
   icon: LucideIcon;
@@ -869,9 +889,17 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: (e) => (
       <>
         создал(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>
+        <KbPageTitle event={e} text={e.details.title as string} />
+      </>
+    ),
+  },
+  "kb_page.edited": {
+    icon: Pencil,
+    iconClass: "text-sky-600 bg-sky-50",
+    buildHeadline: (e) => (
+      <>
+        изменил(а) страницу{" "}
+        <KbPageTitle event={e} text={e.details.title as string} />
       </>
     ),
   },
@@ -885,9 +913,7 @@ const SPECS: Record<string, AuditEventSpec> = {
           {(e.details.old_title as string) || "Без названия"}
         </span>
         {" → "}
-        <strong className="font-medium">
-          {(e.details.new_title as string) || "Без названия"}
-        </strong>
+        <KbPageTitle event={e} text={e.details.new_title as string} />
       </>
     ),
   },
@@ -897,9 +923,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: (e) => (
       <>
         переместил(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>
+        <KbPageTitle event={e} text={e.details.title as string} />
       </>
     ),
   },
@@ -909,9 +933,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: (e) => (
       <>
         удалил(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>
+        <KbPageTitle event={e} text={e.details.title as string} />
       </>
     ),
   },
@@ -921,9 +943,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: (e) => (
       <>
         восстановил(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>{" "}
+        <KbPageTitle event={e} text={e.details.title as string} />{" "}
         из корзины
       </>
     ),
@@ -934,9 +954,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: (e) => (
       <>
         закрыл(а) страницу{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>{" "}
+        <KbPageTitle event={e} text={e.details.title as string} />{" "}
         от редактирования
       </>
     ),
@@ -947,9 +965,7 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: (e) => (
       <>
         снял(а) защиту от редактирования со страницы{" "}
-        <strong className="font-medium">
-          «{(e.details.title as string) || "Без названия"}»
-        </strong>
+        <KbPageTitle event={e} text={e.details.title as string} />
       </>
     ),
   },

@@ -73,6 +73,10 @@ export default async function KbAnalyticsPage({
       : getKbAnalyticsTopUsers({ period, limit: 3 }),
   ]);
 
+  // Ошибку top-users тоже показываем в баннере: иначе сбой загрузки
+  // молча выглядит как «нет активных сотрудников» (Codex #318 P2).
+  const topUsersError = topUsersRes?.error ?? null;
+
   // teamSize === 0 при requiredPages > 0 = roster недоступен (нет
   // kb.manage_required_reading у зрителя) — показываем «—», а не
   // ложное «все прочитали».
@@ -115,10 +119,10 @@ export default async function KbAnalyticsPage({
             />
           </div>
 
-          {(summaryError || pagesError) && (
+          {(summaryError || pagesError || topUsersError) && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               Не удалось загрузить аналитику:{" "}
-              {summaryError ?? pagesError}
+              {summaryError ?? pagesError ?? topUsersError}
             </div>
           )}
 

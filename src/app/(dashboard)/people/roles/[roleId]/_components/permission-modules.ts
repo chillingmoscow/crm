@@ -3,6 +3,7 @@ import {
   CircleUserRound,
   Wallet,
   Building2,
+  BookOpen,
   ClipboardList,
   Settings as SettingsIcon,
   Shield,
@@ -18,7 +19,14 @@ import {
  * показать иконку и понятный label по канону Sheerly DS.
  */
 
-export type ModuleKey = "people" | "org" | "finance" | "inventory" | "crm" | "settings";
+export type ModuleKey =
+  | "people"
+  | "org"
+  | "finance"
+  | "inventory"
+  | "crm"
+  | "kb"
+  | "settings";
 
 export interface ModuleMeta {
   label: string;
@@ -30,6 +38,7 @@ export const MODULE_META: Record<string, ModuleMeta> = {
   crm:      { label: "CRM",          icon: CircleUserRound },
   finance:  { label: "Финансы",      icon: Wallet },
   inventory:{ label: "Инвентаризация", icon: ClipboardList },
+  kb:       { label: "База знаний",   icon: BookOpen },
   org:      { label: "Организация",  icon: Building2 },
   settings: { label: "Настройки",    icon: SettingsIcon },
 };
@@ -39,7 +48,7 @@ export function metaForModule(key: string): ModuleMeta {
 }
 
 /** Стабильный порядок отображения групп на странице. */
-export const MODULE_ORDER: string[] = ["crm", "finance", "inventory", "people", "org", "settings"];
+export const MODULE_ORDER: string[] = ["crm", "finance", "inventory", "kb", "people", "org", "settings"];
 
 export function sortModuleKeys(keys: string[]): string[] {
   return [...keys].sort((a, b) => {

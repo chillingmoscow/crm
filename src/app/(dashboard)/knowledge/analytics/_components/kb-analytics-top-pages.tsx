@@ -7,8 +7,8 @@ import type {
 } from "@/lib/knowledge/analytics";
 
 /** Топ-страниц по суммарному времени. Server-component, рендерится
- *  внутри /knowledge/analytics/page.tsx. Click на строку → drill-down
- *  с per-user разбивкой (`/knowledge/analytics/[slug]`). */
+ *  внутри дашборда. Click на строку → drill-down с per-user
+ *  разбивкой (`/knowledge/dashboard/[slug]`). */
 export function KbAnalyticsTopPages({
   rows,
   period,
@@ -29,7 +29,7 @@ export function KbAnalyticsTopPages({
       {rows.map((row, idx) => (
         <li key={row.page_id}>
           <Link
-            href={`/knowledge/analytics/${row.slug}?p=${period}`}
+            href={`/knowledge/dashboard/${row.slug}?p=${period}`}
             className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
           >
             <span className="w-5 text-right text-xs font-mono tabular-nums text-muted-foreground">

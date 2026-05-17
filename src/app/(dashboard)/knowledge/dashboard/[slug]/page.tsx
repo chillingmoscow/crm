@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, BarChart3 } from "lucide-react";
+import { ArrowLeft, ChevronLeft } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
@@ -19,15 +19,13 @@ const PERIOD_LABEL: Record<KbAnalyticsPeriod, string> = {
 };
 
 /**
- * Per-page drill-down — список юзеров, читавших конкретную KB-страницу,
- * с суммарным временем и last-visit. Доступ под `kb.view_analytics`
- * (миграция 077).
- *
- * Маршрут `/knowledge/analytics/[slug]` — slug, чтобы URL был читаемым
- * («/analytics/реглам-смены» вместо UUID). Lookup через
- * `getKbPageBySlug` → page_id → `getKbAnalyticsPageViewers`.
+ * Per-page drill-down — кто и сколько читал конкретную KB-страницу.
+ * Доступ под `kb.view_analytics` (миграция 077). Раньше жил на
+ * `/knowledge/analytics/[slug]`; после объединения Дашборда и
+ * Аналитики переехал сюда (`/knowledge/analytics/*` 301-redirect'ится
+ * в next.config). Slug в URL — для читаемости вместо UUID.
  */
-export default async function KbPageAnalyticsPage({
+export default async function KbDashboardPageDrilldown({
   params,
   searchParams,
 }: {
@@ -57,26 +55,29 @@ export default async function KbPageAnalyticsPage({
   return (
     <div className="flex-1 flex flex-col">
       <PageBreadcrumb>
-        <span className="text-sm font-medium text-foreground inline-flex items-center gap-2">
-          <BarChart3 className="size-4 text-muted-foreground" />
-          Аналитика
-        </span>
+        <Link
+          href="/knowledge/dashboard"
+          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          Дашборд
+        </Link>
       </PageBreadcrumb>
 
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-6">
-        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
+        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
           <Link
-            href="/knowledge/analytics"
+            href={`/knowledge/dashboard?p=${period}`}
             className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground self-start"
           >
             <ArrowLeft className="size-4" />
-            К общему дашборду
+            К дашборду
           </Link>
 
           <header className="flex items-start gap-3">
             <KbPageIcon icon={page.icon} color={page.icon_color} size={28} />
             <div className="flex flex-col gap-1.5 min-w-0">
-              <h1 className="text-[24px] font-bold tracking-tight leading-tight">
+              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
                 {page.title || "Без названия"}
               </h1>
               <p className="text-sm text-muted-foreground">
@@ -98,7 +99,8 @@ export default async function KbPageAnalyticsPage({
                 Читавшие
               </h2>
               <span className="text-xs text-muted-foreground">
-                {viewers.length} {plural(viewers.length, "человек", "человека", "человек")}
+                {viewers.length}{" "}
+                {plural(viewers.length, "человек", "человека", "человек")}
               </span>
             </div>
             <ViewersList rows={viewers} />
@@ -143,9 +145,12 @@ function ViewersList({
           className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-accent transition-colors"
         >
           <Avatar name={row.name} avatarUrl={row.avatar_url} />
-          <span className="flex-1 truncate text-sm font-medium">{row.name}</span>
+          <span className="flex-1 truncate text-sm font-medium">
+            {row.name}
+          </span>
           <span className="hidden md:inline text-xs text-muted-foreground tabular-nums">
-            {row.session_count} сессий · посл. {formatRelative(row.last_visit_at)}
+            {row.session_count} сессий · посл.{" "}
+            {formatRelative(row.last_visit_at)}
           </span>
           <span className="w-20 text-right text-sm font-medium tabular-nums">
             {formatDuration(row.total_seconds)}

@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronLeft, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
 import { listDeletedKbPages } from "@/lib/knowledge/pages";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbTrashClient } from "@/app/(dashboard)/knowledge/trash/_components/kb-trash-client";
 import { KbEmptyTrashButton } from "@/app/(dashboard)/knowledge/trash/_components/kb-empty-trash-button";
 import type { TrashRow } from "@/app/(dashboard)/knowledge/trash/_components/trash-item-row";
@@ -59,38 +58,17 @@ export default async function KnowledgeTrashPage() {
 
   return (
     <div className="flex-1 flex flex-col">
-      {/* Trash — sub-list под /knowledge; breadcrumb «← База знаний»
-          в топбаре даёт явный способ вернуться (sidebar тоже работает,
-          но breadcrumb привычнее для sub-routes). */}
-      <PageBreadcrumb>
-        <Link
-          href="/knowledge"
-          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          База знаний
-        </Link>
-      </PageBreadcrumb>
-
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        <div className="mx-auto w-full max-w-[920px] flex flex-col gap-6">
-          <header className="flex items-end justify-between gap-4">
-            <div className="flex flex-col gap-1.5 min-w-0">
-              <div className="flex items-center gap-2">
-                <Trash2 className="w-[22px] h-[22px] text-muted-foreground" />
-                <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-                  Корзина
-                </h1>
-              </div>
-              <p className="text-sm text-muted-foreground max-w-[640px]">
-                Удалённые страницы хранятся 30 дней. Восстановите их вместе
-                с подстраницами или удалите навсегда
-              </p>
-            </div>
-            {rows.length > 0 && (
-              <KbEmptyTrashButton count={rows.length} />
-            )}
-          </header>
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
+        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
+          <KbSectionHeader
+            title="Корзина"
+            description="Удалённые страницы хранятся 30 дней. Восстановите их вместе с подстраницами или удалите навсегда."
+            actions={
+              rows.length > 0 ? (
+                <KbEmptyTrashButton count={rows.length} />
+              ) : undefined
+            }
+          />
 
           {rows.length === 0 ? (
             <EmptyState

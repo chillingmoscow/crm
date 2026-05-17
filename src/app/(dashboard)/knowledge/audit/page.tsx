@@ -10,7 +10,7 @@ import {
 } from "@/lib/knowledge/audit-kinds";
 import type { KbAuditEvent } from "@/lib/knowledge/audit";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbAuditEventRow } from "@/app/(dashboard)/knowledge/audit/_components/kb-audit-event-row";
 import { KbAuditFilterChips } from "@/app/(dashboard)/knowledge/audit/_components/kb-audit-filter-chips";
 
@@ -71,25 +71,12 @@ export default async function KbAuditPage({
 
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <span className="text-sm font-medium text-foreground inline-flex items-center gap-2">
-          <ScrollText className="size-4 text-muted-foreground" />
-          Журнал изменений
-        </span>
-      </PageBreadcrumb>
-
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-6">
-        <div className="mx-auto w-full max-w-[760px] flex flex-col gap-5">
-          <header className="flex flex-col gap-2">
-            <h1 className="text-[28px] font-extrabold tracking-tight">
-              Журнал изменений
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Создание, переименование, перемещение и удаление страниц.
-              Правки контента видны через «Историю версий» на самой
-              странице
-            </p>
-          </header>
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
+        <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
+          <KbSectionHeader
+            title="Журнал изменений"
+            description="Создание, переименование, перемещение и удаление страниц. Правки контента видны через «Историю версий» на самой странице."
+          />
 
           <KbAuditFilterChips current={currentKind} counts={counts} />
 

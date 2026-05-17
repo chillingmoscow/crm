@@ -12,31 +12,36 @@ const TABS: { value: KbAnalyticsPeriod; label: string }[] = [
   { value: "month", label: "Месяц" },
 ];
 
-/** Period switcher через ?p=day|week|month. Server-component страница
- *  читает searchParam → ре-рендерит виджеты с новым окном. Чисто
- *  ссылочная навигация — без локального state, чтобы dashboard был
- *  shareable URL'ами и работал без JS. */
+/** Segmented-переключатель периода через ?p=day|week|month.
+ *  Ссылочная навигация (shareable URL, работает без JS). Сохраняет
+ *  активный таб-вид через `view`. Дизайн — sheerly `hL8wQ`
+ *  periodWrap: подложка secondary, активный сегмент — карточка. */
 export function KbAnalyticsPeriodTabs({
   current,
   basePath,
+  view,
 }: {
   current: KbAnalyticsPeriod;
   basePath: string;
+  /** Активный таб-вид (`overview` | `pages`) — сохраняем при смене
+   *  периода. `overview` опускаем (значение по умолчанию). */
+  view?: string;
 }) {
+  const viewQS = view && view !== "overview" ? `&view=${view}` : "";
   return (
-    <div className="inline-flex items-center gap-1 rounded-md border border-border bg-card p-1">
+    <div className="inline-flex items-center gap-0.5 rounded-lg bg-secondary p-[3px]">
       {TABS.map((tab) => {
         const isActive = tab.value === current;
         return (
           <Link
             key={tab.value}
-            href={`${basePath}?p=${tab.value}`}
+            href={`${basePath}?p=${tab.value}${viewQS}`}
             scroll={false}
             className={cn(
-              "rounded-sm px-3 py-1.5 text-sm font-medium transition-colors",
+              "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
               isActive
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {tab.label}

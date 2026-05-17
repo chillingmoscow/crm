@@ -194,3 +194,118 @@ export async function setKbPageRequiredReading(input: {
   revalidatePath(`/knowledge`);
   return { error: null };
 }
+
+export interface KbRequiredReadingCoverage {
+  /** Сколько обязательных к прочтению страниц в аккаунте. */
+  requiredPages: number;
+  /** Размер команды (members активного account). 0 если нет
+   *  обязательных страниц — roster берётся через required-reading RPC. */
+  teamSize: number;
+  /** Сколько членов команды прочитали ВСЕ обязательные страницы
+   *  (актуальную версию каждой). */
+  done: number;
+}
+
+/** Account-level покрытие обязательного чтения для KPI-карточки
+ *  «Прочли must-read X / Y» (sheerly `hL8wQ` / `TvInj`).
+ *
+ *  Версионная сверка как в `getKbRequiredUnreadForUser` (миграция
+ *  097): member «прочитал» страницу, если его max(read_version) для
+ *  неё ≥ max(version_number) страницы. «done» = прочитал ВСЕ
+ *  обязательные. Roster (список членов команды) берём из RPC
+ *  `kb_list_required_reading_stats` по первой обязательной странице —
+ *  он возвращает всех members account независимо от read-статуса.
+ *
+ *  Вызывается только из admin-страниц; RPC сам гейтит
+ *  `kb.manage_required_reading`, поэтому roster отдаётся только тем,
+ *  кто и так видит must-read статистику. */
+export async function getKbRequiredReadingCoverage(): Promise<{
+  coverage: KbRequiredReadingCoverage;
+  error: string | null;
+}> {
+  const supabase = await createClient();
+  const empty: KbRequiredReadingCoverage = {
+    requiredPages: 0,
+    teamSize: 0,
+    done: 0,
+  };
+
+  const { data: required, error: reqError } = await supabase
+    .from("kb_pages")
+    .select("id")
+    .eq("required_reading", true)
+    .is("deleted_at", null);
+  if (reqError) return { coverage: empty, error: reqError.message };
+
+  const requiredIds = (required ?? []).map((r) => r.id as string);
+  if (requiredIds.length === 0) {
+    return { coverage: { ...empty }, error: null };
+  }
+
+  // Roster — все члены команды (RPC возвращает строку на каждого,
+  // read_at = null у непрочитавших).
+  const { data: roster, error: rosterError } = await supabase.rpc(
+    "kb_list_required_reading_stats",
+    { p_page_id: requiredIds[0] },
+  );
+  if (rosterError) return { coverage: empty, error: rosterError.message };
+  const memberIds = ((roster ?? []) as { user_id: string }[]).map(
+    (r) => r.user_id,
+  );
+
+  const [versionsRes, readsRes] = await Promise.all([
+    supabase
+      .from("kb_page_versions")
+      .select("page_id, version_number")
+      .in("page_id", requiredIds),
+    supabase
+      .from("kb_page_reads")
+      .select("page_id, user_id, read_version")
+      .in("page_id", requiredIds),
+  ]);
+  if (versionsRes.error)
+    return { coverage: empty, error: versionsRes.error.message };
+  if (readsRes.error)
+    return { coverage: empty, error: readsRes.error.message };
+
+  // max(version_number) на страницу; страницы без versions → 1.
+  const maxVer = new Map<string, number>();
+  for (const v of (versionsRes.data ?? []) as {
+    page_id: string;
+    version_number: number;
+  }[]) {
+    maxVer.set(
+      v.page_id,
+      Math.max(maxVer.get(v.page_id) ?? 0, v.version_number),
+    );
+  }
+  // max(read_version) на (user, page).
+  const maxRead = new Map<string, number>();
+  for (const r of (readsRes.data ?? []) as {
+    page_id: string;
+    user_id: string;
+    read_version: number;
+  }[]) {
+    const key = `${r.user_id}:${r.page_id}`;
+    maxRead.set(key, Math.max(maxRead.get(key) ?? 0, r.read_version));
+  }
+
+  let done = 0;
+  for (const uid of memberIds) {
+    const readAll = requiredIds.every((pid) => {
+      const need = maxVer.get(pid) ?? 1;
+      const got = maxRead.get(`${uid}:${pid}`);
+      return got !== undefined && got >= need;
+    });
+    if (readAll) done += 1;
+  }
+
+  return {
+    coverage: {
+      requiredPages: requiredIds.length,
+      teamSize: memberIds.length,
+      done,
+    },
+    error: null,
+  };
+}

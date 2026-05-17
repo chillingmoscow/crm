@@ -1,8 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { BookOpen, AlertTriangle, Star, Clock, Activity } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
+import { getCachedPermissions } from "@/lib/supabase/server";
 import { listRecentKbPages } from "@/lib/knowledge/pages";
 import { listMyKbFavorites } from "@/lib/knowledge/favorites";
 import {
@@ -37,6 +39,14 @@ import { KbLandingSection } from "@/app/(dashboard)/knowledge/_components/kb-lan
  * же токены что в существующих strana role/staff-list.
  */
 export default async function KnowledgeLandingPage() {
+  const perms = new Set(await getCachedPermissions());
+  // Пользователь с доступом к аналитике заходит в «Базу знаний»
+  // сразу на дашборд (его рабочая домашняя), а не на landing.
+  if (perms.has("kb.view_analytics")) redirect("/knowledge/dashboard");
+  // Кнопку «Новая страница» показываем только при праве создания —
+  // иначе сотрудник жмёт и ловит RLS «new row violates ... kb_pages».
+  const canCreate = perms.has("kb.create_pages");
+
   // Все 4 запроса параллельно — данные независимы.
   const [
     { rows: recentTeam },
@@ -68,7 +78,7 @@ export default async function KnowledgeLandingPage() {
               SOP, регламенты, рецепты, онбординг и внутренние материалы команды
             </p>
           </div>
-          <CreateRootPageButton />
+          {canCreate && <CreateRootPageButton />}
         </div>
         {/* Prominent search bar — основной entry-point после landing'а.
             Cmd+K глобальный shortcut уже подвязан в KbSearchProvider. */}
@@ -76,7 +86,7 @@ export default async function KnowledgeLandingPage() {
       </header>
 
       {isAllEmpty ? (
-        <KbEmptyState />
+        <KbEmptyState canCreate={canCreate} />
       ) : (
         <div className="flex flex-col gap-6">
           <KbLandingSection
@@ -129,13 +139,17 @@ export default async function KnowledgeLandingPage() {
   );
 }
 
-function KbEmptyState() {
+function KbEmptyState({ canCreate }: { canCreate: boolean }) {
   return (
     <EmptyState
       icon={BookOpen}
       title="Здесь пока нет страниц"
-      description="Создайте первую страницу — например, регламент бара или чек-лист открытия смены."
-      action={<CreateRootPageButton />}
+      description={
+        canCreate
+          ? "Создайте первую страницу — например, регламент бара или чек-лист открытия смены."
+          : "Пока здесь пусто. Когда коллеги добавят регламенты и материалы, они появятся тут."
+      }
+      action={canCreate ? <CreateRootPageButton /> : undefined}
     />
   );
 }

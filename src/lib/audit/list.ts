@@ -146,6 +146,9 @@ export async function listAuditEvents(input?: {
   /** Ограничить набором action_code (OR). Для фильтра журнала по
    *  типу события (создание / удаление / перемещение). */
   actionCodes?: string[];
+  /** like-паттерны по action_code (`*` = `%`), OR. Кросс-модульный
+   *  фильтр по категории действия в общем журнале. */
+  actionLikePatterns?: string[];
   /** Массив (entity_id OR user_id) групп, AND-комбинируемых. */
   filterGroups?: AuditFilterGroup[];
   /** ISO timestamp, нижняя граница `created_at >= fromDate`. */
@@ -208,6 +211,16 @@ export async function listAuditEvents(input?: {
   }
   if (input?.actionCodes && input.actionCodes.length > 0) {
     query = query.in("action_code", input.actionCodes);
+  }
+  if (
+    input?.actionLikePatterns &&
+    input.actionLikePatterns.length > 0
+  ) {
+    query = query.or(
+      input.actionLikePatterns
+        .map((p) => `action_code.like.${p}`)
+        .join(","),
+    );
   }
   // Каждая группа → отдельный `.or()` или `.in()` — PostgREST AND-итит
   // их между собой. Группы с обеими сторонами пустыми отсечены в

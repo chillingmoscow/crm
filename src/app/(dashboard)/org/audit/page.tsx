@@ -25,6 +25,7 @@ export default async function OrgAuditPage({
   searchParams: Promise<{
     q?: string;
     types?: string;
+    actions?: string;
     staff?: string;
     from?: string;
     to?: string;
@@ -45,6 +46,7 @@ export default async function OrgAuditPage({
     loadAuditFeedPage({
       q: sp.q,
       types: sp.types,
+      actions: sp.actions,
       staff: sp.staff,
       from: sp.from,
       to: sp.to,

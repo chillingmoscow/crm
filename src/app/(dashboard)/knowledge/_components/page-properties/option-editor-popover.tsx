@@ -35,10 +35,18 @@ interface OptionEditorProps {
   typeIcon: React.ComponentType<{ className?: string }>;
   options: string[];
   optionColors: Partial<Record<string, KbPropertyColor>> | undefined;
+  /** Reorder + add only — НЕ для rename/delete (там нужна
+   *  reconciliation выбранного значения, см. onRenameOption/onRemoveOption). */
   onChangeOptions: (options: string[]) => void;
   onChangeOptionColors: (
     next: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
+  /** Переименование опции: родитель атомарно мигрирует options +
+   *  optionColors + текущее value (select/multi-select). */
+  onRenameOption: (from: string, to: string) => void;
+  /** Удаление опции: родитель атомарно чистит options + optionColors +
+   *  сбрасывает/фильтрует текущее value. */
+  onRemoveOption: (option: string) => void;
   onDuplicate: () => void;
   onRemove: () => void;
 }
@@ -51,6 +59,8 @@ export function OptionEditorPopover({
   optionColors,
   onChangeOptions,
   onChangeOptionColors,
+  onRenameOption,
+  onRemoveOption,
   onDuplicate,
   onRemove,
 }: OptionEditorProps) {
@@ -70,7 +80,10 @@ export function OptionEditorPopover({
   };
 
   const removeOption = (option: string) => {
-    onChangeOptions(options.filter((o) => o !== option));
+    // Атомарная reconciliation (options + optionColors + value) — в
+    // родителе. Здесь не трогаем onChangeOptions, иначе выбранное
+    // значение «протекает» (Codex P1).
+    onRemoveOption(option);
   };
 
   const renameOption = (from: string, to: string) => {
@@ -80,14 +93,9 @@ export function OptionEditorPopover({
       toast.warning("Такая опция уже есть");
       return;
     }
-    onChangeOptions(options.map((o) => (o === from ? v : o)));
-    const cur = optionColors?.[from];
-    if (cur) {
-      const next = { ...(optionColors ?? {}) };
-      delete next[from];
-      next[v] = cur;
-      onChangeOptionColors(next);
-    }
+    // Родитель мигрирует options + optionColors + текущее value за один
+    // patch (rename = explicit intent, не выводится из diff'а options).
+    onRenameOption(from, v);
   };
 
   const commitAdd = () => {

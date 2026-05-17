@@ -695,6 +695,73 @@ export function KbPageProperties({
                         optionColors,
                       } as Partial<KbProperty>)
                     }
+                    onRenameOption={(from, to) => {
+                      if (
+                        prop.type !== "select" &&
+                        prop.type !== "multi-select"
+                      ) {
+                        return;
+                      }
+                      const p = prop as
+                        | Extract<KbProperty, { type: "select" }>
+                        | Extract<KbProperty, { type: "multi-select" }>;
+                      const options = p.options.map((o) =>
+                        o === from ? to : o,
+                      );
+                      let optionColors = p.optionColors;
+                      if (optionColors && from in optionColors) {
+                        const next = { ...optionColors };
+                        const carried = next[from];
+                        delete next[from];
+                        if (carried !== undefined) next[to] = carried;
+                        optionColors =
+                          Object.keys(next).length > 0 ? next : undefined;
+                      }
+                      const patch = {
+                        options,
+                        optionColors,
+                      } as Partial<KbProperty>;
+                      if (p.type === "select") {
+                        (patch as { value?: string | null }).value =
+                          p.value === from ? to : p.value;
+                      } else {
+                        (patch as { value?: string[] }).value = p.value.map(
+                          (v) => (v === from ? to : v),
+                        );
+                      }
+                      updateProperty(prop.id, patch);
+                    }}
+                    onRemoveOption={(option) => {
+                      if (
+                        prop.type !== "select" &&
+                        prop.type !== "multi-select"
+                      ) {
+                        return;
+                      }
+                      const p = prop as
+                        | Extract<KbProperty, { type: "select" }>
+                        | Extract<KbProperty, { type: "multi-select" }>;
+                      const options = p.options.filter((o) => o !== option);
+                      let optionColors = p.optionColors;
+                      if (optionColors && option in optionColors) {
+                        const next = { ...optionColors };
+                        delete next[option];
+                        optionColors =
+                          Object.keys(next).length > 0 ? next : undefined;
+                      }
+                      const patch = {
+                        options,
+                        optionColors,
+                      } as Partial<KbProperty>;
+                      if (p.type === "select") {
+                        (patch as { value?: string | null }).value =
+                          p.value === option ? null : p.value;
+                      } else {
+                        (patch as { value?: string[] }).value =
+                          p.value.filter((v) => v !== option);
+                      }
+                      updateProperty(prop.id, patch);
+                    }}
                     onChangeIcon={(icon, iconColor) =>
                       changePropertyIcon(prop.id, icon, iconColor)
                     }
@@ -836,6 +903,12 @@ interface PropertyRowProps {
   onChangeOptionColors: (
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
+  /** Rename опции select/multi-select: атомарно мигрирует options +
+   *  optionColors + текущее value. */
+  onRenameOption: (from: string, to: string) => void;
+  /** Delete опции select/multi-select: атомарно чистит options +
+   *  optionColors + reconcile'ит value. */
+  onRemoveOption: (option: string) => void;
   onChangeIcon: (icon: string | null, iconColor: string | null) => void;
   onChangeDescription: (description: string) => void;
   /** Toggle для text-property: collapsed (single-line truncate) ↔
@@ -913,6 +986,8 @@ function PropertyRow({
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
+  onRenameOption,
+  onRemoveOption,
   onChangeIcon,
   onChangeDescription,
   onToggleCollapse,
@@ -1075,6 +1150,8 @@ function PropertyRow({
             optionColors={property.optionColors}
             onChangeOptions={onChangeOptions}
             onChangeOptionColors={onChangeOptionColors}
+            onRenameOption={onRenameOption}
+            onRemoveOption={onRemoveOption}
             onDuplicate={onDuplicate}
             onRemove={onRemove}
             trigger={

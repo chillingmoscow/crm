@@ -17,6 +17,9 @@ export function SelectControl({
 }: {
   property: Extract<KbProperty, { type: "select" }>;
   canEdit: boolean;
+  // Принимаются call-site'ом, но не используются: редактирование опций
+  // перенесено в OptionEditorPopover. Оставлены в типе для совместимости
+  // с PropertyValueControl call-site (structural typing).
   canEditOptions?: boolean;
   onChangeValue: (value: string | null) => void;
   onChangeOptions?: (options: string[]) => void;

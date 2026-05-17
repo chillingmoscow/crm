@@ -23,6 +23,9 @@ export function MultiSelectControl({
 }: {
   property: Extract<KbProperty, { type: "multi-select" }>;
   canEdit: boolean;
+  // Принимаются call-site'ом, но не используются: редактирование опций
+  // перенесено в OptionEditorPopover. Оставлены в типе для совместимости
+  // с PropertyValueControl call-site (structural typing).
   canEditOptions?: boolean;
   onChangeValue: (value: string[]) => void;
   onChangeOptions?: (options: string[]) => void;

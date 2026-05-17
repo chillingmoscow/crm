@@ -6,6 +6,7 @@ import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
 import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbTimeMetricHint } from "@/app/(dashboard)/knowledge/_components/kb-time-metric-hint";
+import { KbReindexAiButton } from "@/app/(dashboard)/knowledge/_components/kb-reindex-ai-button";
 import { KbMonthlyTrend } from "@/app/(dashboard)/knowledge/_components/kb-monthly-trend";
 import {
   getKbAnalyticsSummary,
@@ -77,11 +78,31 @@ export default async function KbDashboardPage({
     : PERIOD_LABEL[period];
 
   const supabase = await createClient();
-  const [{ data: canAnalytics }, { data: canAudit }] = await Promise.all([
+  const [
+    { data: canAnalytics },
+    { data: canAudit },
+    { data: canAskAi },
+    { data: dashAccountId },
+  ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "kb.view_analytics" }),
     supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
+    supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
+    supabase.rpc("get_active_account_id"),
   ]);
   if (!canAnalytics && !canAudit) redirect("/knowledge");
+
+  // Кнопка «Переиндексировать для ИИ» — только тем, кто может
+  // пользоваться AI-поиском, и если ИИ включён для аккаунта (паритет
+  // гейта с askKbAi / reembedAllKbPages).
+  let aiReindexEnabled = false;
+  if (canAskAi && dashAccountId) {
+    const { data: dashAccount } = await supabase
+      .from("accounts")
+      .select("ai_enabled")
+      .eq("id", dashAccountId as unknown as string)
+      .maybeSingle();
+    aiReindexEnabled = Boolean(dashAccount?.ai_enabled);
+  }
 
   // Окно для «Изменений» (audit): месяц или скользящий period.
   let sinceISO: string;
@@ -167,6 +188,7 @@ export default async function KbDashboardPage({
       <div className="px-6 md:px-8 pt-4 pb-8 w-full">
         <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
           <PageHeaderActions>
+            {aiReindexEnabled && <KbReindexAiButton />}
             <KbTimeMetricHint />
           </PageHeaderActions>
 

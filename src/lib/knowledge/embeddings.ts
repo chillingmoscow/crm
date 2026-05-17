@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { embedTexts } from "@/lib/ai/siliconflow-client";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
 
 /**
  * Pipeline embedding'ов KB-страниц.
@@ -207,6 +208,108 @@ function chunkText(text: string): string[] {
   if (buffer) chunks.push(buffer);
 
   return chunks;
+}
+
+/**
+ * Массовая переиндексация всех живых страниц активного account для
+ * AI-поиска. Нужна, потому что `reembedKbPage` — fire-and-forget
+ * после save'а: страницы, созданные ДО включения AI (или до смены
+ * embedding-модели), эмбеддингов не имеют, и RAG отвечает «в базе
+ * нет страниц». Кнопка на дашборде дёргает этот экшен один раз.
+ *
+ * Gate: `kb.ask_ai` (потребитель эмбеддингов — RAG) + accounts
+ * .ai_enabled, паритет с `askKbAi`. Запись в kb_page_embeddings
+ * дополнительно гейтится RLS (`kb.create_pages`) — экшен под RLS-
+ * клиентом, прав writer'а это не обходит.
+ *
+ * Best-effort: ошибка на одной странице не прерывает остальные
+ * (в отличие от abort-on-throw у runWithConcurrency — поэтому
+ * worker ловит сам). Concurrency 3 — бережём SiliconFlow rate-limit
+ * и Supabase pool. Content-hash guard внутри reembedKbPage делает
+ * повторный вызов на уже-проиндексированной странице дешёвым (один
+ * SELECT), так что кнопку безопасно жать повторно.
+ */
+export async function reembedAllKbPages(): Promise<{
+  total: number;
+  embedded: number;
+  skipped: number;
+  failed: number;
+  error: string | null;
+}> {
+  const empty = { total: 0, embedded: 0, skipped: 0, failed: 0 };
+  const supabase = await createClient();
+
+  const [{ data: canAsk }, { data: canWrite }, { data: accountId }] =
+    await Promise.all([
+      supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
+      supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
+      supabase.rpc("get_active_account_id"),
+    ]);
+  if (!canAsk) {
+    return { ...empty, error: "Нет права использовать AI" };
+  }
+  // Запись в kb_page_embeddings гейтится RLS на kb.create_pages —
+  // проверяем заранее, чтобы не словить N RLS-ошибок построчно.
+  if (!canWrite) {
+    return {
+      ...empty,
+      error: "Нужно право создавать страницы базы знаний",
+    };
+  }
+  if (!accountId) {
+    return { ...empty, error: "Нет активного account" };
+  }
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("ai_enabled")
+    .eq("id", accountId as unknown as string)
+    .maybeSingle();
+  if (!account?.ai_enabled) {
+    return { ...empty, error: "AI отключён для этого аккаунта" };
+  }
+
+  // RLS scope'ит выборку к активному account; берём только живые.
+  const { data: pages, error: pagesErr } = await supabase
+    .from("kb_pages")
+    .select("id")
+    .is("deleted_at", null);
+  if (pagesErr) return { ...empty, error: pagesErr.message };
+
+  const ids = (pages ?? []).map((p) => p.id as string);
+  if (ids.length === 0) {
+    return { ...empty, error: null };
+  }
+
+  let embedded = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  await runWithConcurrency(ids, 3, async (pageId) => {
+    try {
+      const { chunks_count, error } = await reembedKbPage(pageId);
+      if (error) {
+        failed += 1;
+        console.error("[reembedAllKbPages] page failed", { pageId, error });
+        return;
+      }
+      if (chunks_count > 0) embedded += 1;
+      else skipped += 1;
+    } catch (err) {
+      failed += 1;
+      console.error("[reembedAllKbPages] page crashed", {
+        pageId,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+    }
+  });
+
+  return {
+    total: ids.length,
+    embedded,
+    skipped,
+    failed,
+    error: null,
+  };
 }
 
 /** pgvector принимает текстовое представление вектора `[1.0,2.0,...]`.

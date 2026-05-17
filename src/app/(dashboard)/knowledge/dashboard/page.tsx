@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
 import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
+import { KbTimeMetricHint } from "@/app/(dashboard)/knowledge/_components/kb-time-metric-hint";
 import {
   getKbAnalyticsSummary,
   getKbAnalyticsTopPages,
@@ -125,7 +126,16 @@ export default async function KbDashboardPage({
         <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
           <KbSectionHeader
             title="Дашборд"
-            description="Сводка по базе знаний: активность чтения, обязательное чтение и последние изменения. Учитывается активное время — без неактивных вкладок и простоя."
+            description={
+              <>
+                Сводка по базе знаний: активность чтения, обязательное
+                чтение и последние изменения.{" "}
+                <span className="inline-flex items-center gap-1">
+                  Как считается время
+                  <KbTimeMetricHint />
+                </span>
+              </>
+            }
             actions={
               <div className="flex flex-wrap items-center gap-3">
                 <KbAnalyticsViewTabs

@@ -65,6 +65,8 @@ const nextConfig: NextConfig = {
       // KB: «Аналитика» объединена с «Дашбордом» в один экран.
       { source: "/knowledge/analytics",          destination: "/knowledge/dashboard",          permanent: true },
       { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/dashboard/:slug*",   permanent: true },
+      // KB: отдельный журнал убран — общий журнал с фильтром раздела.
+      { source: "/knowledge/audit",              destination: "/org/audit?types=kb_page",      permanent: true },
       { source: "/staff",                    destination: "/people/staff",  permanent: true },
       { source: "/staff/:path*",             destination: "/people/staff/:path*", permanent: true },
       { source: "/settings/roles",           destination: "/people/roles",  permanent: true },

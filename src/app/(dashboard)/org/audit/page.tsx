@@ -25,6 +25,7 @@ export default async function OrgAuditPage({
   searchParams: Promise<{
     q?: string;
     types?: string;
+    actions?: string;
     staff?: string;
     from?: string;
     to?: string;
@@ -35,15 +36,17 @@ export default async function OrgAuditPage({
 }) {
   const sp = await searchParams;
   const supabase = await createClient();
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "org.view_audit",
-  });
+  const [{ data: canView }, { data: canRestoreKb }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
+    supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
+  ]);
   if (!canView) redirect("/");
 
   const [{ events, hasMore, error }, staffOptions] = await Promise.all([
     loadAuditFeedPage({
       q: sp.q,
       types: sp.types,
+      actions: sp.actions,
       staff: sp.staff,
       from: sp.from,
       to: sp.to,
@@ -59,6 +62,7 @@ export default async function OrgAuditPage({
       hasMore={hasMore}
       error={error}
       staffOptions={staffOptions}
+      canRestoreKb={Boolean(canRestoreKb)}
     />
   );
 }

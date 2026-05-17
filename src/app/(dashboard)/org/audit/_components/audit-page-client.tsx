@@ -29,6 +29,7 @@ import {
   MultiSelectFilter,
   type MultiSelectItem,
 } from "@/app/(dashboard)/finance/transactions/_components/filters/multi-select-filter";
+import { AUDIT_ACTION_CATEGORIES } from "@/lib/audit/action-categories";
 
 import type { AuditStaffOption } from "@/lib/audit/search-staff";
 
@@ -54,6 +55,8 @@ interface Props {
   hasMore: boolean;
   error: string | null;
   staffOptions: AuditStaffOption[];
+  /** `kb.delete_pages` — для restore-кнопки у удалённых KB-страниц. */
+  canRestoreKb?: boolean;
 }
 
 export function AuditPageClient({
@@ -61,6 +64,7 @@ export function AuditPageClient({
   hasMore,
   error,
   staffOptions,
+  canRestoreKb = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -69,6 +73,7 @@ export function AuditPageClient({
   // ── URL state (single source of truth) ────────────────────────
   const urlQ = searchParams.get("q") ?? "";
   const urlTypes = parseCsv(searchParams.get("types"));
+  const urlActions = parseCsv(searchParams.get("actions"));
   const urlStaff = parseCsv(searchParams.get("staff"));
   const urlFrom = searchParams.get("from") ?? "";
   const urlTo = searchParams.get("to") ?? "";
@@ -149,6 +154,7 @@ export function AuditPageClient({
 
   const activeFilterCount =
     (urlTypes.length > 0 ? 1 : 0) +
+    (urlActions.length > 0 ? 1 : 0) +
     (urlStaff.length > 0 ? 1 : 0) +
     (urlFrom || urlTo ? 1 : 0) +
     (urlQ ? 1 : 0);
@@ -172,7 +178,7 @@ export function AuditPageClient({
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [isLoadingMore, startLoadMore] = useTransition();
 
-  const filtersKey = `${urlQ}|${urlTypes.join(",")}|${urlStaff.join(",")}|${urlFrom}|${urlTo}`;
+  const filtersKey = `${urlQ}|${urlTypes.join(",")}|${urlActions.join(",")}|${urlStaff.join(",")}|${urlFrom}|${urlTo}`;
   const filtersKeyRef = useRef(filtersKey);
   useEffect(() => {
     filtersKeyRef.current = filtersKey;
@@ -192,6 +198,7 @@ export function AuditPageClient({
       const result = await loadAuditFeedPage({
         q: urlQ || undefined,
         types: urlTypes.length > 0 ? urlTypes.join(",") : undefined,
+        actions: urlActions.length > 0 ? urlActions.join(",") : undefined,
         staff: urlStaff.length > 0 ? urlStaff.join(",") : undefined,
         from: urlFrom || undefined,
         to: urlTo || undefined,
@@ -306,6 +313,15 @@ export function AuditPageClient({
           />
 
           <MultiSelectFilter
+            placeholder="Действие"
+            items={AUDIT_ACTION_CATEGORIES}
+            selectedIds={urlActions}
+            onChange={(ids) => {
+              updateUrl({ actions: ids.length > 0 ? ids.join(",") : null });
+            }}
+          />
+
+          <MultiSelectFilter
             placeholder="Сотрудники"
             items={staffMultiSelectItems}
             selectedIds={urlStaff}
@@ -335,6 +351,7 @@ export function AuditPageClient({
                 updateUrl({
                   q: null,
                   types: null,
+                  actions: null,
                   staff: null,
                   from: null,
                   to: null,
@@ -376,7 +393,11 @@ export function AuditPageClient({
               </h2>
               <ul className="flex flex-col rounded-md border bg-background overflow-hidden">
                 {group.events.map((event) => (
-                  <AuditEventRow key={event.id} event={event} />
+                  <AuditEventRow
+                    key={event.id}
+                    event={event}
+                    canRestoreKb={canRestoreKb}
+                  />
                 ))}
               </ul>
             </section>

@@ -2,10 +2,13 @@
 
 import { listAuditEvents, type AuditEvent, type AuditFilterGroup } from "@/lib/audit/list";
 import { searchAuditEntities } from "@/lib/audit/search-staff";
+import { categoriesToLikePatterns } from "@/lib/audit/action-categories";
 
 export interface AuditFeedParams {
   q?: string;
   types?: string;
+  /** CSV категорий действия (created/changed/deleted/restored/moved). */
+  actions?: string;
   staff?: string;
   from?: string;
   to?: string;
@@ -65,11 +68,16 @@ export async function loadAuditFeedPage(params: AuditFeedParams): Promise<{
   }
 
   const entityTypes = types.length > 0 ? types : undefined;
+  const actionLikePatterns = categoriesToLikePatterns(
+    parseCsv(params.actions),
+  );
   const fromDate = params.from ? startOfDayISO(params.from) : undefined;
   const toDate = params.to ? endOfDayISO(params.to) : undefined;
 
   return listAuditEvents({
     entityTypes,
+    actionLikePatterns:
+      actionLikePatterns.length > 0 ? actionLikePatterns : undefined,
     filterGroups,
     fromDate,
     toDate,

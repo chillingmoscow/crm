@@ -130,7 +130,10 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
           скроллить наверх к действиям при выборе строк внизу. */}
       {selectedIds.length > 0 && (
         <div className="fixed inset-x-0 bottom-6 z-40 flex justify-center px-4 pointer-events-none">
-          <div className="pointer-events-auto flex items-center gap-3 rounded-full border bg-card px-4 py-2.5 shadow-lg">
+          {/* flex-wrap + max-w: на узких экранах (≤375px) панель
+              переносит кнопки на 2 ряда вместо ухода за край —
+              bulk-действия остаются доступны (Codex #323 P1). */}
+          <div className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-wrap items-center justify-center gap-x-3 gap-y-2 rounded-2xl border bg-card px-4 py-2.5 shadow-lg">
             <span className="text-sm font-semibold text-brand">
               Выбрано {selectedIds.length} {pageWord(selectedIds.length)}
             </span>
@@ -143,7 +146,10 @@ export function KbTrashClient({ rows }: KbTrashClientProps) {
               <X />
               Снять
             </Button>
-            <span className="h-5 w-px bg-border" aria-hidden />
+            <span
+              className="hidden h-5 w-px bg-border sm:block"
+              aria-hidden
+            />
             <Button
               variant="outline"
               size="sm"

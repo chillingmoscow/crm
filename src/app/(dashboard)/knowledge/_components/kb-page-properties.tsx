@@ -926,6 +926,7 @@ function PropertyRow({
   onChangeType,
 }: PropertyRowProps) {
   const [name, setName] = useState(property.name);
+  const [descOpen, setDescOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState(
     property.description ?? "",
   );
@@ -1021,44 +1022,33 @@ function PropertyRow({
           </span>
         )}
         {canEdit && (
-          <Popover>
+          <Popover open={descOpen} onOpenChange={setDescOpen}>
             <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "size-5 shrink-0 inline-flex items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground",
-                  property.description && "text-foreground",
-                )}
-                aria-label="Описание свойства"
-              >
-                <Info className="size-3.5" />
-              </button>
+              <span className="sr-only" aria-hidden="true" />
             </PopoverTrigger>
             <PopoverContent
               align="start"
               sideOffset={6}
               className="w-[260px] p-2"
-              onOpenAutoFocus={(event) => event.preventDefault()}
+              onOpenAutoFocus={(e) => e.preventDefault()}
             >
               <Input
                 value={descriptionDraft}
                 placeholder="Описание свойства"
                 className="h-8"
                 aria-label="Описание свойства"
-                onChange={(event) =>
-                  setDescriptionDraft(event.currentTarget.value)
-                }
+                onChange={(e) => setDescriptionDraft(e.currentTarget.value)}
                 onBlur={() => onChangeDescription(descriptionDraft)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onChangeDescription(event.currentTarget.value);
-                    event.currentTarget.blur();
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    onChangeDescription(e.currentTarget.value);
+                    setDescOpen(false);
                   }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
+                  if (e.key === "Escape") {
+                    e.preventDefault();
                     setDescriptionDraft(property.description ?? "");
-                    event.currentTarget.blur();
+                    setDescOpen(false);
                   }
                 }}
               />
@@ -1114,6 +1104,16 @@ function PropertyRow({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px]">
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setDescOpen(true);
+                  }}
+                >
+                  <Info className="size-3.5 text-muted-foreground" />
+                  Описание
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Replace className="size-3.5 text-muted-foreground" />

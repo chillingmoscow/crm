@@ -46,6 +46,7 @@ export default async function KnowledgeTrashPage() {
 
   const trashRows: TrashRow[] = rows.map((row) => ({
     id: row.id,
+    slug: row.slug,
     title: row.title,
     icon: row.icon,
     iconColor: row.icon_color,

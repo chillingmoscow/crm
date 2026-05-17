@@ -3,7 +3,7 @@
 import { createReactInlineContentSpec } from "@blocknote/react";
 
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { useIsKbSlugAvailable } from "@/components/knowledge/blocks/kb-mention-context";
+import { useKbSlugMentionState } from "@/components/knowledge/blocks/kb-mention-context";
 
 /**
  * Atomic @-mention KB-страницы. Notion-style: иконка страницы + жирный
@@ -63,30 +63,33 @@ export const kbPageMentionInlineContent = createReactInlineContentSpec(
 );
 
 /** Render-time компонент chip'а — отделён от inline-spec'а, чтобы
- *  использовать React-хуки (useContext через useIsKbSlugAvailable).
- *  Если резолвер слугов сообщает «недоступна» — рендерим обычный
- *  `<span>` без href, серым цветом, с tooltip'ом. Это сохраняет
- *  контекст («тут было упоминание X») без активной ссылки на soft-
- *  deleted target.
+ *  использовать React-хуки (useContext через useKbSlugMentionState).
+ *
+ *  3 состояния:
+ *   - `trashed` — страница в корзине: серый+зачёркнутый, но
+ *     кликабельный (откроется read-only с баннером «в корзине»);
+ *   - `gone` — hard-delete / чужой аккаунт: серый+зачёркнутый,
+ *     БЕЗ href (клик гарантированно вёл бы в 404 — Codex P2);
+ *   - `live` — обычная активная ссылка.
  *
  *  Резолвер не подключён (legacy-mounts вне KbMentionResolutionProvider)
- *  → useIsKbSlugAvailable вернёт true → рендерим chip как раньше. */
+ *  → состояние `live` → chip как раньше. */
 function KbPageMentionChip(props: {
   slug: string;
   title: string;
   icon: string;
   iconColor: string;
 }) {
-  const isAvailable = useIsKbSlugAvailable(props.slug);
+  const state = useKbSlugMentionState(props.slug);
   const label = props.title || "Без названия";
 
-  if (!isAvailable) {
+  if (state === "gone") {
     return (
       <span
         contentEditable={false}
         className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 cursor-not-allowed"
         draggable={false}
-        data-tip="Страница недоступна (в корзине или удалена)"
+        data-tip="Страница удалена и недоступна"
         aria-disabled="true"
         data-kb-page-mention={props.slug}
         data-kb-page-mention-deleted="true"
@@ -98,6 +101,27 @@ function KbPageMentionChip(props: {
         />
         <span>{label}</span>
       </span>
+    );
+  }
+
+  if (state === "trashed") {
+    return (
+      <a
+        href={`/knowledge/${props.slug}`}
+        contentEditable={false}
+        className="inline-flex items-center gap-1 px-1 py-0.5 rounded text-muted-foreground/70 font-semibold line-through decoration-muted-foreground/40 no-underline hover:bg-accent transition-colors"
+        draggable={false}
+        data-tip="Страница в корзине — открыть только для чтения"
+        data-kb-page-mention={props.slug}
+        data-kb-page-mention-deleted="true"
+      >
+        <KbPageIcon
+          icon={props.icon || null}
+          color={props.iconColor || null}
+          size={14}
+        />
+        <span>{label}</span>
+      </a>
     );
   }
 

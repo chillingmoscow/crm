@@ -164,6 +164,11 @@ interface KbPageEditorProps {
    *  chip'ы рендерятся в disabled-варианте (line-through, грей,
    *  тултип). null = резолвер отключён. */
   deletedMentionSlugs?: string[] | null;
+  /** Подмножество `deletedMentionSlugs`, которое реально откроется
+   *  read-only (страница в корзине, видна caller'у). Эти chip'ы —
+   *  кликабельная ссылка (серая+зачёркнутая); остальные deleted
+   *  (hard-delete / чужой аккаунт) остаются inert (Codex P2 #334). */
+  trashedMentionSlugs?: string[] | null;
   /** Structured page properties — Notion-style typed fields. Рендерятся
    *  между title и content через `<KbPageProperties>`. Save-цикл —
    *  отдельный (saveKbPageProperties), не идёт через scheduleSave. */
@@ -218,6 +223,7 @@ export function KbPageEditor({
   readingMinutes = null,
   checkedMentionSlugs = null,
   deletedMentionSlugs = null,
+  trashedMentionSlugs = null,
   initialProperties = [],
   authorName = null,
   authorAvatarUrl = null,
@@ -471,6 +477,7 @@ export function KbPageEditor({
       <KbMentionResolutionProvider
         checkedSlugs={checkedMentionSlugs}
         deletedSlugs={deletedMentionSlugs}
+        trashedSlugs={trashedMentionSlugs}
       >
         <KbBlockNoteEditor
           // Remount on page change so BlockNote loads the new doc.

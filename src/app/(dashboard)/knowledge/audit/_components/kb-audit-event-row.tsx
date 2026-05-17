@@ -178,11 +178,20 @@ export function KbAuditEventRow({
   // ссылка на /knowledge/<slug> вернёт notFound).
   const pageStillVisible = event.page && event.page.deleted_at === null;
 
-  // Кнопка «Восстановить» — у события удаления, если страница ещё в
-  // корзине (snapshot есть И deleted_at заполнен = не hard-deleted).
+  // Кнопка «Восстановить» — у КОРНЕВОГО события удаления, если
+  // страница ещё в корзине (snapshot есть И deleted_at заполнен =
+  // не hard-deleted). Каскадно-удалённые дочерние строки исключаем:
+  // restoreKbPage(childId) восстановил бы только ребёнка, оставив
+  // родителя в корзине → orphan. Root-событие выше в журнале вернёт
+  // всю ветку (Codex #324 P1). Корень: cascaded_root == entity_id
+  // либо отсутствует.
+  const cascadedRoot = event.details.cascaded_root as string | null;
+  const isCascadedChild =
+    cascadedRoot != null && cascadedRoot !== event.entity_id;
   const canRestoreThis =
     canRestore &&
     event.action_code === "kb_page.deleted" &&
+    !isCascadedChild &&
     event.page != null &&
     event.page.deleted_at !== null;
 

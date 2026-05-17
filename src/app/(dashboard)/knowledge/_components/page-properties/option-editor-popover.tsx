@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy, GripVertical, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -233,6 +233,7 @@ function OptionRow({
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: option });
   const [name, setName] = useState(option);
+  useEffect(() => setName(option), [option]);
 
   return (
     <li
@@ -253,7 +254,7 @@ function OptionRow({
       >
         <GripVertical className="size-3.5" />
       </button>
-      <OptionColorButton color={color} onSetColor={onSetColor} optionName={option} />
+      <OptionColorButton color={color} onSetColor={onSetColor} optionName={option} onRemove={onRemove} />
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -286,17 +287,19 @@ function OptionColorButton({
   color,
   onSetColor,
   optionName,
+  onRemove,
 }: {
   color?: KbPropertyColor;
   onSetColor: (c: KbPropertyColor | null) => void;
   optionName: string;
+  onRemove: () => void;
 }) {
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="Цвет опции"
+          aria-label={`Цвет опции «${optionName}»`}
           className={cn(
             "size-3 shrink-0 rounded-full",
             paletteDot(color ?? "default"),
@@ -320,7 +323,7 @@ function OptionColorButton({
           </span>
           <button
             type="button"
-            onClick={() => onSetColor(null)}
+            onClick={onRemove}
             className="text-[12px] font-medium text-destructive hover:underline"
           >
             Удалить опцию
@@ -329,9 +332,7 @@ function OptionColorButton({
         <div className="text-[12px] text-muted-foreground/70 pb-1.5">Цвет</div>
         <div className="grid grid-cols-5 gap-1.5">
           {PALETTE_GRID.map((c) => {
-            const isCurrent =
-              (color ?? "default") === c.name ||
-              (!color && c.name === "default");
+            const isCurrent = (color ?? "default") === c.name;
             return (
               <button
                 key={c.name}

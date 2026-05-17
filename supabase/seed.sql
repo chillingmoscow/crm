@@ -273,8 +273,12 @@ begin
     values (v_venue_id, v_def.name, v_def.code)
     returning id into v_role_id;
 
+    -- Триггер roles_apply_default_inventory_permissions (миграция 175)
+    -- уже мог вставить inventory-права при INSERT роли выше — делаем
+    -- вставку идемпотентной, чтобы seed не падал на дубле PK.
     insert into public.role_permissions (role_id, permission_id, granted)
-    select v_role_id, id, true from public.permissions where code = any(v_def.perms);
+    select v_role_id, id, true from public.permissions where code = any(v_def.perms)
+    on conflict (role_id, permission_id) do nothing;
   end loop;
 end $$;
 

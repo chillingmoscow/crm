@@ -73,13 +73,14 @@ export interface KbAnalyticsTopPage {
  *  Используется на /knowledge/analytics в виджете «Самые читаемые». */
 export async function getKbAnalyticsTopPages(args: {
   period: KbAnalyticsPeriod;
+  /** Конкретный календарный месяц 'YYYY-MM' — переопределяет period
+   *  (окно = весь месяц по UTC). */
+  monthKey?: string;
   limit?: number;
 }): Promise<{ rows: KbAnalyticsTopPage[]; error: string | null }> {
   const supabase = await createClient();
   const limit = Math.min(Math.max(args.limit ?? 10, 1), 50);
-  const sinceISO = new Date(
-    Date.now() - dayMs(args.period),
-  ).toISOString();
+  const { sinceISO, untilISO } = resolveWindow(args);
 
   // Простая агрегация on-the-fly. Если станет узким местом в проде —
   // заменим на materialized view + scheduled REFRESH.
@@ -87,10 +88,12 @@ export async function getKbAnalyticsTopPages(args: {
   // поэтому делаем это через RPC. Но RPC ещё нет → пока пишем
   // server-side aggregation: тянем сырьё, группируем в JS.
   // Это OK на ~1k страниц / month; для 10k+ нужен RPC.
-  const { data, error } = await supabase
+  let q = supabase
     .from("kb_page_view_sessions")
     .select("page_id, duration_seconds, user_id")
     .gte("started_at", sinceISO);
+  if (untilISO) q = q.lt("started_at", untilISO);
+  const { data, error } = await q;
 
   if (error) return { rows: [], error: error.message };
 
@@ -174,18 +177,20 @@ export interface KbAnalyticsTopUser {
 /** Топ-юзеров по активности в окне `period`. Виджет «Самые активные». */
 export async function getKbAnalyticsTopUsers(args: {
   period: KbAnalyticsPeriod;
+  /** Конкретный месяц 'YYYY-MM' — переопределяет period. */
+  monthKey?: string;
   limit?: number;
 }): Promise<{ rows: KbAnalyticsTopUser[]; error: string | null }> {
   const supabase = await createClient();
   const limit = Math.min(Math.max(args.limit ?? 10, 1), 50);
-  const sinceISO = new Date(
-    Date.now() - dayMs(args.period),
-  ).toISOString();
+  const { sinceISO, untilISO } = resolveWindow(args);
 
-  const { data, error } = await supabase
+  let q = supabase
     .from("kb_page_view_sessions")
     .select("user_id, duration_seconds, page_id")
     .gte("started_at", sinceISO);
+  if (untilISO) q = q.lt("started_at", untilISO);
+  const { data, error } = await q;
 
   if (error) return { rows: [], error: error.message };
 
@@ -267,17 +272,19 @@ export interface KbAnalyticsPageViewer {
 export async function getKbAnalyticsPageViewers(args: {
   pageId: string;
   period: KbAnalyticsPeriod;
+  /** Конкретный месяц 'YYYY-MM' — переопределяет period. */
+  monthKey?: string;
 }): Promise<{ rows: KbAnalyticsPageViewer[]; error: string | null }> {
   const supabase = await createClient();
-  const sinceISO = new Date(
-    Date.now() - dayMs(args.period),
-  ).toISOString();
+  const { sinceISO, untilISO } = resolveWindow(args);
 
-  const { data, error } = await supabase
+  let q = supabase
     .from("kb_page_view_sessions")
     .select("user_id, duration_seconds, started_at")
     .eq("page_id", args.pageId)
     .gte("started_at", sinceISO);
+  if (untilISO) q = q.lt("started_at", untilISO);
+  const { data, error } = await q;
 
   if (error) return { rows: [], error: error.message };
 
@@ -360,24 +367,31 @@ export interface KbAnalyticsSummary {
  *  (`getKbRequiredReadingCoverage`) — разная природа данных. */
 export async function getKbAnalyticsSummary(args: {
   period: KbAnalyticsPeriod;
+  /** Конкретный месяц 'YYYY-MM' — переопределяет period. */
+  monthKey?: string;
 }): Promise<{ summary: KbAnalyticsSummary; error: string | null }> {
   const supabase = await createClient();
-  const sinceISO = new Date(Date.now() - dayMs(args.period)).toISOString();
+  const { sinceISO, untilISO } = resolveWindow(args);
+
+  let newQ = supabase
+    .from("kb_pages")
+    .select("id", { count: "exact", head: true })
+    .is("deleted_at", null)
+    .gte("created_at", sinceISO);
+  if (untilISO) newQ = newQ.lt("created_at", untilISO);
+  let sessQ = supabase
+    .from("kb_page_view_sessions")
+    .select("user_id, duration_seconds")
+    .gte("started_at", sinceISO);
+  if (untilISO) sessQ = sessQ.lt("started_at", untilISO);
 
   const [totalRes, newRes, sessionsRes] = await Promise.all([
     supabase
       .from("kb_pages")
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null),
-    supabase
-      .from("kb_pages")
-      .select("id", { count: "exact", head: true })
-      .is("deleted_at", null)
-      .gte("created_at", sinceISO),
-    supabase
-      .from("kb_page_view_sessions")
-      .select("user_id, duration_seconds")
-      .gte("started_at", sinceISO),
+    newQ,
+    sessQ,
   ]);
 
   const firstError =
@@ -426,4 +440,108 @@ function dayMs(period: KbAnalyticsPeriod): number {
   const days =
     period === "day" ? 1 : period === "week" ? 7 : 30;
   return days * 24 * 60 * 60 * 1000;
+}
+
+/** Окно агрегации. `monthKey='YYYY-MM'` → весь календарный месяц по
+ *  UTC `[1-е 00:00, 1-е след. месяца)`. Иначе — скользящее окно
+ *  `[now - period, now)` (untilISO=null, верхняя граница не нужна). */
+function resolveWindow(args: {
+  period: KbAnalyticsPeriod;
+  monthKey?: string;
+}): { sinceISO: string; untilISO: string | null } {
+  const mk = args.monthKey;
+  if (mk && /^\d{4}-(0[1-9]|1[0-2])$/.test(mk)) {
+    const [y, m] = mk.split("-").map(Number);
+    const from = new Date(Date.UTC(y, m - 1, 1));
+    const to = new Date(Date.UTC(y, m, 1));
+    return { sinceISO: from.toISOString(), untilISO: to.toISOString() };
+  }
+  return {
+    sinceISO: new Date(Date.now() - dayMs(args.period)).toISOString(),
+    untilISO: null,
+  };
+}
+
+export interface KbAnalyticsMonthlyPoint {
+  /** 'YYYY-MM' (UTC). */
+  monthKey: string;
+  /** Человекочитаемая метка, напр. «апр 2026». */
+  label: string;
+  totalSeconds: number;
+  sessionCount: number;
+  uniqueReaders: number;
+  /** Текущий (незавершённый) месяц — UI помечает «в процессе». */
+  isCurrent: boolean;
+}
+
+/** Помесячный тренд активности за последние `months` календарных
+ *  месяцев (включая пустые — для ровного графика). JS-агрегация по
+ *  UTC-месяцу, как остальной analytics.ts; гейт `kb.view_analytics`
+ *  на уровне RLS. Используется блоком-трендом на дашборде и как
+ *  селектор месяца (клик по столбцу → ?month=YYYY-MM). */
+export async function getKbMonthlyTrend(args?: {
+  months?: number;
+}): Promise<{ rows: KbAnalyticsMonthlyPoint[]; error: string | null }> {
+  const months = Math.min(Math.max(args?.months ?? 12, 1), 24);
+  const supabase = await createClient();
+
+  const now = new Date();
+  // Начало самого старого месяца окна (UTC).
+  const startMonth = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1),
+  );
+  const curKey = monthKeyOf(now);
+
+  const { data, error } = await supabase
+    .from("kb_page_view_sessions")
+    .select("started_at, duration_seconds, user_id")
+    .gte("started_at", startMonth.toISOString());
+  if (error) return { rows: [], error: error.message };
+
+  const agg = new Map<
+    string,
+    { total: number; sessions: number; readers: Set<string> }
+  >();
+  for (const row of data ?? []) {
+    const r = row as {
+      started_at: string;
+      duration_seconds: number;
+      user_id: string;
+    };
+    const key = monthKeyOf(new Date(r.started_at));
+    let e = agg.get(key);
+    if (!e) {
+      e = { total: 0, sessions: 0, readers: new Set() };
+      agg.set(key, e);
+    }
+    e.total += r.duration_seconds;
+    e.sessions += 1;
+    e.readers.add(r.user_id);
+  }
+
+  const rows: KbAnalyticsMonthlyPoint[] = [];
+  for (let i = 0; i < months; i++) {
+    const d = new Date(
+      Date.UTC(startMonth.getUTCFullYear(), startMonth.getUTCMonth() + i, 1),
+    );
+    const key = monthKeyOf(d);
+    const e = agg.get(key);
+    rows.push({
+      monthKey: key,
+      label: d.toLocaleDateString("ru-RU", {
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+      }),
+      totalSeconds: e?.total ?? 0,
+      sessionCount: e?.sessions ?? 0,
+      uniqueReaders: e?.readers.size ?? 0,
+      isCurrent: key === curKey,
+    });
+  }
+  return { rows, error: null };
+}
+
+function monthKeyOf(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 }

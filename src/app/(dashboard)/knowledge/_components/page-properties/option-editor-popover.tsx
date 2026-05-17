@@ -258,7 +258,10 @@ function OptionRow({
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
-        onBlur={() => onRename(name)}
+        onBlur={() => {
+          onRename(name);
+          setName(option);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") e.currentTarget.blur();
           if (e.key === "Escape") {

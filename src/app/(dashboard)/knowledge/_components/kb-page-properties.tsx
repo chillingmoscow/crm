@@ -97,7 +97,6 @@ import {
   makeProperty,
   propertyTypeOptions,
 } from "./page-properties/helpers";
-import { KbSectionLabel } from "./page-properties/section-label";
 import { OptionEditorPopover } from "./page-properties/option-editor-popover";
 
 interface KbPagePropertiesProps {
@@ -579,9 +578,8 @@ export function KbPageProperties({
   return (
     <section
       aria-label="Свойства страницы"
-      className="flex flex-col gap-2 px-2 -ml-2"
+      className="flex flex-col gap-1 px-2 -ml-2"
     >
-      <KbSectionLabel>Свойства</KbSectionLabel>
       {collectionGroups.length > 0 && (
         <div className="flex flex-col gap-2 pb-1">
           {collectionGroups.map((group) => (
@@ -940,7 +938,7 @@ function CollectionScopedPropertyRow({
   const Icon = TYPE_ICONS[property.type];
 
   return (
-    <li className="group/collection-row flex min-h-[30px] items-center gap-1.5 rounded-md py-0.5">
+    <li className="group/collection-row flex min-h-[36px] items-center gap-2 rounded-md py-1">
       <span
         className="size-5 -ml-1 inline-flex shrink-0 items-center justify-center"
         aria-hidden="true"
@@ -961,7 +959,7 @@ function CollectionScopedPropertyRow({
         ) : (
           <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
         )}
-        <span className="w-[140px] shrink-0 truncate text-[13px] text-muted-foreground">
+        <span className="w-[168px] shrink-0 truncate text-[13px] text-muted-foreground">
           {property.name}
         </span>
       </div>
@@ -1039,7 +1037,7 @@ function PropertyRow({
       ref={setNodeRef}
       style={dragStyle}
       className={cn(
-        "group/row flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md",
+        "group/row flex items-center gap-2 min-h-[36px] py-1 rounded-md",
         // Subtle background ТОЛЬКО на active-drag (визуальный feedback
         // reorder'а). Фоновая подсветка всего ряда специально НЕ
         // ставим — только label с именем (просьба юзера, см. ниже).
@@ -1088,11 +1086,11 @@ function PropertyRow({
               if (trimmed !== property.name) onRename(trimmed);
               setName(trimmed);
             }}
-            className="w-[140px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
+            className="w-[168px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
             aria-label="Имя свойства"
           />
         ) : (
-          <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
+          <span className="w-[168px] shrink-0 text-[13px] text-muted-foreground">
             {property.name}
           </span>
         )}
@@ -1491,7 +1489,7 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
   return (
     <li
       className={cn(
-        "flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md",
+        "flex items-center gap-2 min-h-[36px] py-1 rounded-md",
         "bg-card shadow-md ring-1 ring-border/40",
         "px-2",
       )}
@@ -1509,7 +1507,7 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
         ) : (
           <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
         )}
-        <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
+        <span className="w-[168px] shrink-0 text-[13px] text-muted-foreground">
           {property.name}
         </span>
       </div>

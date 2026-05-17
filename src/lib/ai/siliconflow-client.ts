@@ -5,20 +5,23 @@ import OpenAI from "openai";
 /**
  * SiliconFlow client для embeddings (OpenAI-compatible API).
  *
- * SiliconFlow (api.siliconflow.cn) хостит широкий каталог open-source
- * моделей, в т.ч. embeddings. Используем `BAAI/bge-m3` —
- * multilingual (RU/EN/CN/...), 1024 dim, 8K context, лучший в классе
- * open-source embedding-модель на 2025.
+ * ВАЖНО про домен: у SiliconFlow две независимые платформы —
+ * `api.siliconflow.cn` (Китай) и `api.siliconflow.com`
+ * (международная). Ключи НЕ переносимы между ними: ключ от .com на
+ * .cn отвечает `401 "Api key is invalid"`. Наш аккаунт — на .com,
+ * поэтому baseURL = .com (раньше был .cn → отсюда 401 в AI-поиске).
  *
- * Зачем не OpenAI / Voyage:
- *   - Доступ из RU без VPN.
- *   - Цена: $0.01/1M tokens для bge-m3 — практически free tier.
- *   - bge-m3 OS-стандарт, можно при желании self-host'ить позже.
+ * Модель: каталог embedding'ов на .com — Qwen3-Embedding
+ * (8B/4B/0.6B), bge-m3 там НЕ существует (400 "Model does not
+ * exist"). Берём `Qwen/Qwen3-Embedding-0.6B` — ровно 1024 dim,
+ * совпадает со схемой `kb_page_embeddings.embedding vector(1024)`
+ * (миграция 072/160), ALTER COLUMN не нужен. Multilingual (RU/EN/…).
  *
- * ENV: SILICONFLOW_API_KEY (Coolify env var на проде).
+ * ENV: SILICONFLOW_API_KEY (Coolify env var на проде) — ключ должен
+ * быть создан на платформе siliconflow.com.
  */
 
-const SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
+const SILICONFLOW_BASE_URL = "https://api.siliconflow.com/v1";
 
 let cachedClient: OpenAI | null = null;
 
@@ -37,14 +40,16 @@ export function getSiliconflowClient(): OpenAI {
   return cachedClient;
 }
 
-/** Embedding-модели SiliconFlow.
+/** Embedding-модели SiliconFlow (.com).
  *
- *   bge-m3 — 1024 dim, multilingual, 8K input. Дефолт для RAG.
+ *   Qwen3-Embedding-0.6B — 1024 dim, multilingual. Дефолт для RAG.
  *
  * Размерность зашита в схему `kb_page_embeddings.embedding vector(1024)`
- * (миграция 072) — смена модели потребует ALTER COLUMN. */
+ * (миграция 072/160) — смена модели на другую размерность потребует
+ * ALTER COLUMN + полный re-embed. Ключ `embedM3` сохранён, чтобы не
+ * трогать вызовы в embeddings.ts / ai-rag.ts. */
 export const SILICONFLOW_MODELS = {
-  embedM3: "BAAI/bge-m3",
+  embedM3: "Qwen/Qwen3-Embedding-0.6B",
 } as const;
 
 export const EMBEDDING_DIM = 1024;

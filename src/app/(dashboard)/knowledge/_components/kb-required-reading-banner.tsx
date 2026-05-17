@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,6 +55,39 @@ export function KbRequiredReadingBanner({
   // эффективное значение из override-store, fallback — server-prop.
   const override = useKbPageStateOverride(pageId);
   const effectiveRequired = override?.requiredReading ?? required;
+
+  // Read-gate: нельзя подтвердить прочтение, просто зайдя и сразу
+  // кликнув. Кнопка разблокируется, когда юзер провёл на странице
+  // достаточно активного времени. Порог пропорционален расчётному
+  // времени чтения (≈25%), c полом 10с и потолком 90с. Таймер на
+  // паузе, пока вкладка скрыта (фон не накапливаем).
+  const READ_GATE_MIN_SEC = 10;
+  const READ_GATE_MAX_SEC = 90;
+  const thresholdSec = Math.min(
+    READ_GATE_MAX_SEC,
+    Math.max(
+      READ_GATE_MIN_SEC,
+      readingMinutes != null
+        ? Math.round(readingMinutes * 60 * 0.25)
+        : READ_GATE_MIN_SEC,
+    ),
+  );
+  const elapsedRef = useRef(0);
+  const [remainingSec, setRemainingSec] = useState(thresholdSec);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      elapsedRef.current += 1;
+      const rem = Math.max(0, thresholdSec - elapsedRef.current);
+      setRemainingSec(rem);
+      if (rem === 0) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [thresholdSec]);
+
+  const gateReady = remainingSec === 0;
+
   if (!effectiveRequired) return null;
 
   if (readAt) {
@@ -119,7 +152,12 @@ export function KbRequiredReadingBanner({
         <Button
           size="sm"
           onClick={onConfirm}
-          disabled={pending}
+          disabled={pending || !gateReady}
+          title={
+            gateReady
+              ? undefined
+              : `Кнопка станет активной через ${remainingSec} сек — ознакомьтесь со страницей`
+          }
           className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
         >
           {pending ? (
@@ -127,7 +165,9 @@ export function KbRequiredReadingBanner({
           ) : (
             <CheckCircle2 className="size-4" />
           )}
-          Подтверждаю прочитано
+          {gateReady
+            ? "Подтверждаю прочитано"
+            : `Подтвердить можно через ${remainingSec} сек`}
         </Button>
       </div>
     );
@@ -161,7 +201,12 @@ export function KbRequiredReadingBanner({
       <Button
         size="sm"
         onClick={onConfirm}
-        disabled={pending}
+        disabled={pending || !gateReady}
+        title={
+          gateReady
+            ? undefined
+            : `Кнопка станет активной через ${remainingSec} сек — ознакомьтесь со страницей`
+        }
         className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
       >
         {pending ? (
@@ -169,7 +214,9 @@ export function KbRequiredReadingBanner({
         ) : (
           <CheckCircle2 className="size-4" />
         )}
-        Подтверждаю прочитано
+        {gateReady
+          ? "Подтверждаю прочитано"
+          : `Подтвердить можно через ${remainingSec} сек`}
       </Button>
     </div>
   );

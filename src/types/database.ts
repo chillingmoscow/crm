@@ -3149,6 +3149,10 @@ export type Database = {
           title: string
         }[]
       }
+      kb_deleted_page_slug_exists: {
+        Args: { p_slug: string }
+        Returns: boolean
+      }
       kb_threads_set_positions_batch: {
         Args: { p_positions: Json }
         Returns: undefined

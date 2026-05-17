@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
@@ -307,7 +307,6 @@ function SidebarBody({
     return false;
   };
   const pathname = usePathname();
-  const router = useRouter();
   const supabase = createClient();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
@@ -320,7 +319,10 @@ function SidebarBody({
       toast.error("Не удалось выйти");
       return;
     }
-    router.push("/login");
+    // Полная перезагрузка: сбрасывает Next Router Cache и RSC
+    // прошлой сессии (иначе после смены аккаунта видны старые
+    // права/сайдбар до ручного refresh).
+    window.location.assign("/login");
   };
 
   const visibleSections = useMemo(

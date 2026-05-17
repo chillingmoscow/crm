@@ -65,30 +65,41 @@ export default async function KbManagerDashboardPage({
     Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  const [
-    { summary },
-    { coverage },
-    { rows: topPages },
-    { rows: topUsers },
-    { events: recentEvents },
-    changesCountRes,
-  ] = await Promise.all([
-    getKbAnalyticsSummary({ period }),
+  // Запросы гейтятся по правам: под analytics-only audit-таблицы
+  // RLS-фильтруются в ноль, под audit-only — analytics. Тянуть и
+  // показывать нули как реальные данные = ложный сигнал для
+  // менеджера (Codex #319 P2 ×2). Не имеешь права → не фетчим,
+  // блок рендерится как «нет доступа».
+  const [analyticsData, auditData, { coverage }] = await Promise.all([
+    canAnalytics
+      ? Promise.all([
+          getKbAnalyticsSummary({ period }),
+          getKbAnalyticsTopPages({ period, limit: 5 }),
+          getKbAnalyticsTopUsers({ period, limit: 3 }),
+        ])
+      : Promise.resolve(null),
+    canAudit
+      ? Promise.all([
+          listKbAuditEvents(),
+          supabase
+            .from("audit_logs")
+            .select("id", { count: "exact", head: true })
+            .eq("entity_type", "kb_page")
+            .gte("created_at", sinceISO),
+        ])
+      : Promise.resolve(null),
     getKbRequiredReadingCoverage(),
-    getKbAnalyticsTopPages({ period, limit: 5 }),
-    getKbAnalyticsTopUsers({ period, limit: 3 }),
-    listKbAuditEvents(),
-    supabase
-      .from("audit_logs")
-      .select("id", { count: "exact", head: true })
-      .eq("entity_type", "kb_page")
-      .gte("created_at", sinceISO),
   ]);
+
+  const summary = analyticsData?.[0].summary ?? null;
+  const topPages = analyticsData?.[1].rows ?? [];
+  const topUsers = analyticsData?.[2].rows ?? [];
+  const recentEvents = auditData?.[0].events ?? [];
+  const changesInPeriod: number | null = auditData?.[1].count ?? null;
 
   const coverageKnown =
     coverage.requiredPages > 0 && coverage.teamSize > 0;
   const pending = coverage.teamSize - coverage.done;
-  const changesInPeriod = changesCountRes.count ?? 0;
   const latestChanges = recentEvents.slice(0, 6);
 
   return (
@@ -146,22 +157,32 @@ export default async function KbManagerDashboardPage({
             />
             <KbStatCard
               label="Активных читателей"
-              value={summary.activeReaders}
+              value={summary ? summary.activeReaders : "—"}
               hint={
-                coverage.teamSize > 0
-                  ? `из ${coverage.teamSize} в команде`
-                  : PERIOD_LABEL[period]
+                !summary
+                  ? "нет доступа к аналитике"
+                  : coverage.teamSize > 0
+                    ? `из ${coverage.teamSize} в команде`
+                    : PERIOD_LABEL[period]
               }
             />
             <KbStatCard
               label="Среднее время чтения"
-              value={formatMinutes(summary.avgSessionSeconds)}
-              hint={`сессия · ${PERIOD_LABEL[period]}`}
+              value={summary ? formatMinutes(summary.avgSessionSeconds) : "—"}
+              hint={
+                summary
+                  ? `сессия · ${PERIOD_LABEL[period]}`
+                  : "нет доступа к аналитике"
+              }
             />
             <KbStatCard
               label="Изменений"
-              value={changesInPeriod}
-              hint={PERIOD_LABEL[period]}
+              value={changesInPeriod ?? "—"}
+              hint={
+                changesInPeriod === null
+                  ? "нет доступа к журналу"
+                  : PERIOD_LABEL[period]
+              }
             />
           </div>
 
@@ -177,7 +198,13 @@ export default async function KbManagerDashboardPage({
                 </span>
               </div>
               <div className="p-2">
-                <KbAnalyticsTopPages rows={topPages} period={period} />
+                {canAnalytics ? (
+                  <KbAnalyticsTopPages rows={topPages} period={period} />
+                ) : (
+                  <p className="px-3 py-6 text-sm text-muted-foreground">
+                    Нет доступа к аналитике.
+                  </p>
+                )}
               </div>
             </section>
 
@@ -192,7 +219,13 @@ export default async function KbManagerDashboardPage({
                   </span>
                 </div>
                 <div className="p-2">
-                  <KbAnalyticsTopUsers rows={topUsers} />
+                  {canAnalytics ? (
+                    <KbAnalyticsTopUsers rows={topUsers} />
+                  ) : (
+                    <p className="px-3 py-6 text-sm text-muted-foreground">
+                      Нет доступа к аналитике.
+                    </p>
+                  )}
                 </div>
               </section>
 
@@ -201,14 +234,20 @@ export default async function KbManagerDashboardPage({
                   <h2 className="text-sm font-semibold text-foreground">
                     Последние изменения
                   </h2>
-                  <Link
-                    href="/knowledge/audit"
-                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Весь журнал →
-                  </Link>
+                  {canAudit && (
+                    <Link
+                      href="/knowledge/audit"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Весь журнал →
+                    </Link>
+                  )}
                 </div>
-                {latestChanges.length === 0 ? (
+                {!canAudit ? (
+                  <p className="px-4 py-6 text-sm text-muted-foreground">
+                    Нет доступа к журналу.
+                  </p>
+                ) : latestChanges.length === 0 ? (
                   <p className="px-4 py-6 text-sm text-muted-foreground">
                     Пока нет изменений.
                   </p>

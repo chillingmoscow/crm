@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { RotateCcw, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Eye, RotateCcw, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 
@@ -19,10 +20,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { TrashPreviewSheet } from "./trash-preview-sheet";
 
 export interface TrashRow {
   id: string;
+  slug: string;
   title: string;
   icon: string | null;
   iconColor: string | null;
@@ -105,12 +106,14 @@ export function TrashItemRow({
 
       {/* Действия по строке — проявляются на hover, чтобы не шуметь. */}
       <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-        <TrashPreviewSheet
-          pageId={row.id}
-          title={row.title}
-          icon={row.icon}
-          iconColor={row.iconColor}
-        />
+        <Link
+          href={`/knowledge/${row.slug}`}
+          aria-label="Открыть для чтения"
+          title="Открыть для чтения"
+          className="inline-flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <Eye className="size-4" />
+        </Link>
         <Button
           variant="ghost"
           size="icon"

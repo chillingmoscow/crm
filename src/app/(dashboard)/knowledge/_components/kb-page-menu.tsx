@@ -114,6 +114,10 @@ interface KbPageMenuProps {
   canManageRequiredReading: boolean;
   canLock: boolean;
   canViewAnalytics: boolean;
+  /** `kb.view_version_history` (миграция 181) — видеть/сравнивать/
+   *  восстанавливать снимки версий. Без права пункт меню скрыт, а
+   *  server-actions в versions.ts всё равно перепроверят. */
+  canViewVersionHistory: boolean;
 }
 
 /**
@@ -596,13 +600,15 @@ export function KbPageMenu(props: KbPageMenuProps) {
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem
-            onSelect={() => setVersionsOpen(true)}
-            className="px-2.5 py-2 rounded-md text-[13px] gap-2.5"
-          >
-            <History className="size-4 shrink-0" />
-            <span className="flex-1">История версий</span>
-          </DropdownMenuItem>
+          {props.canViewVersionHistory && (
+            <DropdownMenuItem
+              onSelect={() => setVersionsOpen(true)}
+              className="px-2.5 py-2 rounded-md text-[13px] gap-2.5"
+            >
+              <History className="size-4 shrink-0" />
+              <span className="flex-1">История версий</span>
+            </DropdownMenuItem>
+          )}
 
           {showLastSeparator && <DropdownMenuSeparator />}
 
@@ -629,7 +635,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
       {/* Тяжёлые controlled-диалоги, рендерятся на корневом уровне
        * чтобы их Radix-порталы не пересекались с DropdownMenuContent. */}
-      {versionsOpen && (
+      {versionsOpen && props.canViewVersionHistory && (
         <KbVersionHistory
           pageId={props.pageId}
           canEdit={effectiveCanEdit}

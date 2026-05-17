@@ -42,6 +42,26 @@ export type KbVersionDiffData = {
   previous_plain_text: string;
 };
 
+/**
+ * История версий — отдельный permission `kb.view_version_history`
+ * (миграция 181). RLS на `kb_page_versions` НАМЕРЕННО не трогаем: тот
+ * же select-policy обслуживает required-reading (needs_reread) и KB-
+ * landing, которые работают у рядовых сотрудников БЕЗ права на историю
+ * — ужесточение policy регрессировало бы их. Поэтому фичу-поверхность
+ * (просмотр/диф/restore версий) гейтим здесь, на server-action слое;
+ * account-изоляция + `kb.view_pages` по-прежнему на RLS.
+ */
+async function canViewVersionHistory(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<boolean> {
+  const { data } = await supabase.rpc("has_permission", {
+    permission_code: "kb.view_version_history",
+  });
+  return data === true;
+}
+
+const NO_VERSION_HISTORY = "Нет доступа к истории версий";
+
 /** All snapshots for a page, newest first. Each row carries an embedded
  * `author` derived from `profiles` via the kb_page_versions_created_by_fkey
  * relationship. */
@@ -50,6 +70,8 @@ export async function listKbPageVersions(pageId: string): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
+  if (!(await canViewVersionHistory(supabase)))
+    return { rows: [], error: NO_VERSION_HISTORY };
   const { data, error } = await supabase
     .from("kb_page_versions")
     .select(
@@ -75,6 +97,8 @@ export async function getKbPageVersion(
   versionNumber: number
 ): Promise<{ row: KbPageVersionRow | null; error: string | null }> {
   const supabase = await createClient();
+  if (!(await canViewVersionHistory(supabase)))
+    return { row: null, error: NO_VERSION_HISTORY };
   const { data, error } = await supabase
     .from("kb_page_versions")
     .select("*")
@@ -90,6 +114,8 @@ export async function getKbPageVersionDiffData(
   versionNumber: number,
 ): Promise<{ row: KbVersionDiffData | null; error: string | null }> {
   const supabase = await createClient();
+  if (!(await canViewVersionHistory(supabase)))
+    return { row: null, error: NO_VERSION_HISTORY };
   const [currentRes, previousRes] = await Promise.all([
     supabase
       .from("kb_page_versions")
@@ -141,6 +167,8 @@ export async function restoreKbPageVersion(
   if (!parsed.success) return { error: parsed.error.message, new_version_number: null };
 
   const supabase = await createClient();
+  if (!(await canViewVersionHistory(supabase)))
+    return { error: NO_VERSION_HISTORY, new_version_number: null };
   const { data: version, error: vErr } = await supabase
     .from("kb_page_versions")
     .select("content, plain_text, properties")

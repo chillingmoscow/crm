@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -280,7 +279,6 @@ function PromoPanel() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function LoginPage() {
-  const router = useRouter();
   const [loading,     setLoading]     = useState(false);
   const [showPass,    setShowPass]    = useState(false);
   const [rememberMe,  setRememberMe]  = useState(false);
@@ -325,7 +323,12 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/dashboard");
+    // Полная перезагрузка, а не router.push: смена пользователя =
+    // новая сессия. router.push (клиентская навигация) не сбрасывает
+    // Next Router Cache и закэшированные RSC layout'а/сайдбара —
+    // после входа другим юзером видны права/корзина прошлой сессии
+    // до ручного refresh. window.location гарантирует свежий рендер.
+    window.location.assign("/dashboard");
   };
 
   return (

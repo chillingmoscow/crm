@@ -46,18 +46,17 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
-    error: userError,
   } = await supabase.auth.getUser();
 
-  // Invalid/expired refresh token — clear stale cookies.
-  // If already on a public path, don't redirect (would cause infinite loop).
-  if (userError) {
-    if (isPublicPath) return supabaseResponse;
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
+  // Редиректим на /login ТОЛЬКО когда пользователя реально нет.
+  // Раньше редиректили по любому `userError` — но при навигации
+  // Next prefetch'ит несколько разделов сразу, и параллельные
+  // запросы устраивают гонку ротации refresh-токена Supabase SSR:
+  // один обновляет токен, остальные приходят с уже использованным →
+  // transient `userError`, хотя пользователь залогинен. Это
+  // выбрасывало на /login на ровном месте. Если refresh-token
+  // действительно протух — getUser вернёт user=null и сработает
+  // ветка ниже; защита остаётся на RLS + серверных guard'ах.
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

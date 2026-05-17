@@ -752,7 +752,11 @@ export function KbPageProperties({
                     : "Добавить свойство"}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[160px]">
+              <DropdownMenuContent align="start" className="min-w-[220px]">
+                <div className="px-2 py-1.5 text-[12px] font-medium text-muted-foreground/70">
+                  Добавить свойство
+                </div>
+                <DropdownMenuSeparator />
                 {CREATABLE_PROPERTY_TYPES.map((t) => {
                   const Icon = TYPE_ICONS[t];
                   return (

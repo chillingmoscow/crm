@@ -68,9 +68,22 @@ function EntityReference({
 
   if (entity.type === "kb_page") {
     if (entity.deleted_at) {
-      // Страница в корзине — открыть нельзя. Тем, кто может удалять,
-      // показываем компактную кнопку восстановления (иконка+подсказка).
-      if (!canRestoreKb) return null;
+      // Restore показываем только у КОРНЕВОГО события удаления:
+      //  • именно kb_page.deleted (не на «изменил/переименовал»
+      //    строке, чей snapshot тоже может быть deleted);
+      //  • не каскадно-удалённый потомок (cascaded_root == entity_id
+      //    либо отсутствует) — иначе restoreKbPage(childId) вернул бы
+      //    только ветку ребёнка, оставив родителя в корзине (orphan;
+      //    та же защита была в старом KbAuditEventRow / Codex #324).
+      const cascadedRoot = event.details.cascaded_root as
+        | string
+        | null
+        | undefined;
+      const isCascadedChild =
+        cascadedRoot != null && cascadedRoot !== event.entity_id;
+      const isRootDelete =
+        event.action_code === "kb_page.deleted" && !isCascadedChild;
+      if (!canRestoreKb || !isRootDelete) return null;
       return (
         <>
           <span className="text-muted-foreground/50">·</span>

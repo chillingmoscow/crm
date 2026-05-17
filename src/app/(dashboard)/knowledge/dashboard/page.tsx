@@ -141,6 +141,7 @@ export default async function KbDashboardPage({
   const topUsers = analyticsData?.[2]?.rows ?? [];
   const topUsersError = analyticsData?.[2]?.error ?? null;
   const monthlyTrend = analyticsData?.[3].rows ?? [];
+  const trendError = analyticsData?.[3].error ?? null;
   const recentEvents = auditData?.[0].events ?? [];
   const changesInPeriod: number | null = auditData?.[1].count ?? null;
 
@@ -148,7 +149,17 @@ export default async function KbDashboardPage({
     coverage.requiredPages > 0 && coverage.teamSize > 0;
   const pending = coverage.teamSize - coverage.done;
   const latestChanges = recentEvents.slice(0, 6);
-  const loadError = summaryError ?? pagesError ?? topUsersError;
+  const loadError =
+    summaryError ?? pagesError ?? topUsersError ?? trendError;
+  // p/view, которые надо сохранять при выборе месяца / сбросе
+  // (Codex #329 P2). Дефолты (week/overview) опускаем.
+  const trendQuery =
+    [
+      period !== "week" ? `p=${period}` : null,
+      view === "pages" ? "view=pages" : null,
+    ]
+      .filter(Boolean)
+      .join("&") || undefined;
 
   return (
     <div className="flex-1 flex flex-col">
@@ -264,6 +275,7 @@ export default async function KbDashboardPage({
               rows={monthlyTrend}
               activeMonthKey={monthKey}
               basePath="/knowledge/dashboard"
+              query={trendQuery}
             />
           )}
 

@@ -16,13 +16,20 @@ export function KbMonthlyTrend({
   rows,
   activeMonthKey,
   basePath,
+  query,
 }: {
   rows: KbAnalyticsMonthlyPoint[];
   /** Выбранный месяц (если дашборд смотрят за конкретный месяц). */
   activeMonthKey?: string;
   basePath: string;
+  /** Доп. query-параметры (p/view) без ведущего символа — чтобы
+   *  выбор месяца / «← к периоду» не сбрасывали текущий
+   *  период/вид (Codex #329 P2). */
+  query?: string;
 }) {
   const maxSeconds = Math.max(1, ...rows.map((r) => r.totalSeconds));
+  const suffix = query ? `&${query}` : "";
+  const periodHref = query ? `${basePath}?${query}` : basePath;
 
   return (
     <section className="flex flex-col rounded-xl border bg-card overflow-hidden">
@@ -32,7 +39,7 @@ export function KbMonthlyTrend({
         </h2>
         {activeMonthKey ? (
           <Link
-            href={basePath}
+            href={periodHref}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             ← к периоду
@@ -51,7 +58,7 @@ export function KbMonthlyTrend({
           return (
             <Link
               key={r.monthKey}
-              href={`${basePath}?month=${r.monthKey}`}
+              href={`${basePath}?month=${r.monthKey}${suffix}`}
               title={`${r.label}: ${formatDuration(r.totalSeconds)} · ${r.sessionCount} сессий · ${r.uniqueReaders} читателей`}
               className="group flex flex-1 flex-col items-center gap-1.5 min-w-0"
             >

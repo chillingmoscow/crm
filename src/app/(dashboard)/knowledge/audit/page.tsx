@@ -42,9 +42,10 @@ export default async function KbAuditPage({
     before_id: beforeId,
   } = await searchParams;
   const supabase = await createClient();
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "org.view_audit",
-  });
+  const [{ data: canView }, { data: canRestore }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
+    supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
+  ]);
   if (!canView) redirect("/knowledge");
 
   const actionCodes = kbAuditActionCodes(kind);
@@ -123,7 +124,11 @@ export default async function KbAuditPage({
                 </h2>
                 <ul className="flex flex-col rounded-xl border bg-card overflow-hidden">
                   {group.events.map((event) => (
-                    <KbAuditEventRow key={event.id} event={event} />
+                    <KbAuditEventRow
+                      key={event.id}
+                      event={event}
+                      canRestore={Boolean(canRestore)}
+                    />
                   ))}
                 </ul>
               </section>

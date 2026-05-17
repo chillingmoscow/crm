@@ -2,6 +2,7 @@
 
 import { CircleHelp } from "lucide-react";
 
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Popover,
   PopoverContent,
@@ -9,26 +10,29 @@ import {
 } from "@/components/ui/popover";
 
 /**
- * Знак «?» рядом с показателями времени на дашборде. По клику
+ * Знак «?» в топбаре дашборда, слева от колокольчика. По клику
  * раскрывает понятное человеку объяснение того, как считается
  * время чтения — без технических терминов. Popover (а не tooltip):
  * текст в несколько предложений на hover-подсказке плохо читается
  * и обрезается, а по клику его спокойно прочитают и закроют.
+ * Кнопка повторяет геометрию NotificationBell (size-9, rounded-lg).
  */
 export function KbTimeMetricHint() {
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label="Как считается время чтения"
-          className="inline-flex size-4 items-center justify-center rounded-full text-muted-foreground/70 hover:text-foreground transition-colors align-middle"
-        >
-          <CircleHelp className="size-4" />
-        </button>
-      </PopoverTrigger>
+      <IconTooltip label="Как считается время">
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="Как считается время чтения"
+            className="relative inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <CircleHelp className="w-[18px] h-[18px]" />
+          </button>
+        </PopoverTrigger>
+      </IconTooltip>
       <PopoverContent
-        align="start"
+        align="end"
         className="w-80 text-sm leading-relaxed"
       >
         <p className="font-semibold text-foreground">

@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { ShieldAlert } from "lucide-react";
 
 import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
 import {
@@ -40,10 +41,22 @@ export default async function KbPageView({ params }: PageProps) {
   if (!row) {
     // Notion-style: страница из корзины не 404-ит, а открывается
     // read-only с баннером. getDeletedKbPageBySlug RLS-гейтится на
-    // `kb.delete_pages` — рядовой сотрудник получит null → notFound.
+    // `kb.delete_pages` — рядовой сотрудник получит null.
     const { row: deletedRow } = await getDeletedKbPageBySlug(slug);
-    if (!deletedRow) notFound();
-    return <DeletedKbPageView row={deletedRow} />;
+    if (deletedRow) return <DeletedKbPageView row={deletedRow} />;
+
+    // deletedRow=null — две причины неразличимы по RLS: (а) slug не
+    // существует; (б) страница в корзине, но нет `kb.delete_pages`.
+    // Привилегированная boolean-проверка (контент не утекает): если
+    // удалённая страница реально есть — показываем «нет прав» вместо
+    // 404 (404 выглядит как поломка). Иначе — честный notFound().
+    const sb = await createClient();
+    const { data: deletedExists } = await sb.rpc(
+      "kb_deleted_page_slug_exists",
+      { p_slug: slug },
+    );
+    if (deletedExists) return <DeletedPageAccessDenied />;
+    notFound();
   }
 
   // Auth context for permission gating. RLS on the row already ran;
@@ -460,6 +473,45 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
             canEditBase={false}
             initialLocked={row.locked_at !== null}
           />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Экран «недостаточно прав» для URL удалённой страницы под рядовым
+ * сотрудником (нет `kb.delete_pages`). Раньше тут был notFound() →
+ * пользователь видел 404, что выглядело как поломка. Контент удалённой
+ * страницы НЕ загружается и НЕ рендерится (проверка существования —
+ * только boolean через kb_deleted_page_slug_exists).
+ */
+function DeletedPageAccessDenied() {
+  return (
+    <div className="flex-1 flex flex-col">
+      <PageBreadcrumb>
+        <KbBackLink href="/knowledge" label="База знаний" />
+      </PageBreadcrumb>
+
+      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
+        <div className="mx-auto w-full max-w-[760px]">
+          <div
+            className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4
+                       dark:border-yellow-900 dark:bg-yellow-950"
+          >
+            <span className="shrink-0 inline-flex items-center justify-center size-8 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
+              <ShieldAlert className="size-4" />
+            </span>
+            <div className="flex-1 flex flex-col gap-1 min-w-0">
+              <div className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
+                Недостаточно прав
+              </div>
+              <div className="text-[13px] leading-snug text-yellow-800 dark:text-yellow-200">
+                Эта страница перемещена в корзину. У вас недостаточно
+                прав для её просмотра — обратитесь к администратору.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

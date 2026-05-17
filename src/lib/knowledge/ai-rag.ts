@@ -90,7 +90,14 @@ export async function askKbAi(input: {
     queryEmbedding = embeddings[0];
   } catch (err) {
     const msg = err instanceof Error ? err.message : "embed error";
-    return { answer: null, sources: [], error: `Embed failed: ${msg}` };
+    // Реальную причину (напр. 401 от SiliconFlow) — в серверный лог,
+    // пользователю — дружелюбный текст без кода/тела ответа провайдера.
+    console.error("[askKbAi] embed failed", { error: msg });
+    return {
+      answer: null,
+      sources: [],
+      error: "ИИ-поиск временно недоступен. Обратитесь к администратору.",
+    };
   }
 
   // 2. Top-K cosine search через RPC. Передаём вектор через
@@ -103,7 +110,14 @@ export async function askKbAi(input: {
     },
   );
   if (searchErr) {
-    return { answer: null, sources: [], error: `Search failed: ${searchErr.message}` };
+    console.error("[askKbAi] embedding search failed", {
+      error: searchErr.message,
+    });
+    return {
+      answer: null,
+      sources: [],
+      error: "ИИ-поиск временно недоступен. Обратитесь к администратору.",
+    };
   }
 
   type Hit = {
@@ -159,10 +173,13 @@ export async function askKbAi(input: {
   try {
     client = getDeepseekClient();
   } catch (err) {
+    console.error("[askKbAi] deepseek client init failed", {
+      error: err instanceof Error ? err.message : "client error",
+    });
     return {
       answer: null,
       sources,
-      error: err instanceof Error ? err.message : "DeepSeek client error",
+      error: "ИИ-поиск временно недоступен. Обратитесь к администратору.",
     };
   }
 
@@ -185,7 +202,14 @@ export async function askKbAi(input: {
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Неизвестная ошибка AI";
-    return { answer: null, sources, error: `AI-запрос упал: ${message}` };
+    console.error("[askKbAi] deepseek completion failed", {
+      error: message,
+    });
+    return {
+      answer: null,
+      sources,
+      error: "ИИ-поиск временно недоступен. Обратитесь к администратору.",
+    };
   }
 }
 

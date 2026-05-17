@@ -486,10 +486,44 @@ export async function getKbMonthlyTrend(args?: {
   const supabase = await createClient();
 
   const now = new Date();
-  // Начало самого старого месяца окна (UTC).
-  const startMonth = new Date(
+  // Нижний край скользящего окна (UTC) — для старых аккаунтов график
+  // не растёт бесконечно, остаётся ≤ `months` столбцов.
+  const windowStart = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1),
   );
+
+  // Не показываем месяцы до создания аккаунта: у свежего заведения
+  // первый столбец — месяц регистрации, а не пустой прошлый год.
+  // Стартовый месяц = более поздний из (windowStart, месяц created_at).
+  // Если account/created_at недоступны — fallback на полное окно.
+  let startMonth = windowStart;
+  const { data: accountId } = await supabase.rpc("get_active_account_id");
+  if (accountId) {
+    const { data: accountRow } = await supabase
+      .from("accounts")
+      .select("created_at")
+      .eq("id", accountId as unknown as string)
+      .maybeSingle();
+    const createdAt = accountRow?.created_at
+      ? new Date(accountRow.created_at as string)
+      : null;
+    if (createdAt && Number.isFinite(createdAt.getTime())) {
+      const createdMonth = new Date(
+        Date.UTC(createdAt.getUTCFullYear(), createdAt.getUTCMonth(), 1),
+      );
+      if (createdMonth.getTime() > startMonth.getTime()) {
+        startMonth = createdMonth;
+      }
+    }
+  }
+
+  // Кол-во столбцов от стартового месяца до текущего включительно
+  // (≥ 1 — текущий месяц есть всегда).
+  const monthSpan =
+    (now.getUTCFullYear() - startMonth.getUTCFullYear()) * 12 +
+    (now.getUTCMonth() - startMonth.getUTCMonth()) +
+    1;
+  const visibleMonths = Math.min(Math.max(monthSpan, 1), months);
   const curKey = monthKeyOf(now);
 
   const { data, error } = await supabase
@@ -520,7 +554,7 @@ export async function getKbMonthlyTrend(args?: {
   }
 
   const rows: KbAnalyticsMonthlyPoint[] = [];
-  for (let i = 0; i < months; i++) {
+  for (let i = 0; i < visibleMonths; i++) {
     const d = new Date(
       Date.UTC(startMonth.getUTCFullYear(), startMonth.getUTCMonth() + i, 1),
     );

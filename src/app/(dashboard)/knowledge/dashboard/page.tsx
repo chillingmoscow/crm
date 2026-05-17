@@ -291,7 +291,7 @@ export default async function KbDashboardPage({
               </h2>
               {canAudit && (
                 <Link
-                  href="/knowledge/audit"
+                  href="/org/audit?types=kb_page"
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Весь журнал →

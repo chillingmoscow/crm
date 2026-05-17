@@ -881,8 +881,10 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
 
   // ── kb_page ─────────────────────────────────────────────────
-  // Используется только в общем журнале /org/audit. Страница
-  // /knowledge/audit продолжает использовать свой KbAuditEventRow.
+  // Единственное место рендера KB-событий: отдельный /knowledge/audit
+  // убран, всё идёт через общий журнал /org/audit (фильтр раздела
+  // «База знаний»). Лента «Последние изменения» на дашборде KB
+  // использует свой KbAuditEventRow.
   "kb_page.created": {
     icon: FilePlus2,
     iconClass: "text-emerald-600 bg-emerald-50",

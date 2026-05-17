@@ -15,7 +15,6 @@ import {
   ChevronRight,
   LayoutDashboard,
   Plus,
-  ScrollText,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -415,14 +414,6 @@ export function KbTreeNav({
                 active={pathname.startsWith("/knowledge/dashboard")}
                 icon={<LayoutDashboard className="size-4 shrink-0" />}
                 label="Дашборд"
-              />
-            )}
-            {canViewAudit && (
-              <KbToolLink
-                href="/knowledge/audit"
-                active={pathname === "/knowledge/audit"}
-                icon={<ScrollText className="size-4 shrink-0" />}
-                label="Журнал"
               />
             )}
             {canSeeTrash && (

@@ -54,6 +54,8 @@ interface Props {
   hasMore: boolean;
   error: string | null;
   staffOptions: AuditStaffOption[];
+  /** `kb.delete_pages` — для restore-кнопки у удалённых KB-страниц. */
+  canRestoreKb?: boolean;
 }
 
 export function AuditPageClient({
@@ -61,6 +63,7 @@ export function AuditPageClient({
   hasMore,
   error,
   staffOptions,
+  canRestoreKb = false,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -376,7 +379,11 @@ export function AuditPageClient({
               </h2>
               <ul className="flex flex-col rounded-md border bg-background overflow-hidden">
                 {group.events.map((event) => (
-                  <AuditEventRow key={event.id} event={event} />
+                  <AuditEventRow
+                    key={event.id}
+                    event={event}
+                    canRestoreKb={canRestoreKb}
+                  />
                 ))}
               </ul>
             </section>

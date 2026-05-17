@@ -35,9 +35,10 @@ export default async function OrgAuditPage({
 }) {
   const sp = await searchParams;
   const supabase = await createClient();
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "org.view_audit",
-  });
+  const [{ data: canView }, { data: canRestoreKb }] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
+    supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
+  ]);
   if (!canView) redirect("/");
 
   const [{ events, hasMore, error }, staffOptions] = await Promise.all([
@@ -59,6 +60,7 @@ export default async function OrgAuditPage({
       hasMore={hasMore}
       error={error}
       staffOptions={staffOptions}
+      canRestoreKb={Boolean(canRestoreKb)}
     />
   );
 }

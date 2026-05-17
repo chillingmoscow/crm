@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { describeAuditEvent } from "@/lib/audit/format";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { KbRestoreIconButton } from "@/components/audit/kb-restore-icon-button";
 import type { AuditEvent } from "@/lib/audit/list";
 
 interface AuditEventRowProps {
@@ -12,9 +13,16 @@ interface AuditEventRowProps {
    *  избыточный link под timestamp'ом, когда журнал рендерится на
    *  карточке самой сущности. */
   hideEntity?: boolean;
+  /** `kb.delete_pages` — показывает компактную кнопку-восстановление
+   *  у удалённой KB-страницы (которая ещё в корзине). */
+  canRestoreKb?: boolean;
 }
 
-export function AuditEventRow({ event, hideEntity = false }: AuditEventRowProps) {
+export function AuditEventRow({
+  event,
+  hideEntity = false,
+  canRestoreKb = false,
+}: AuditEventRowProps) {
   const { icon: Icon, iconClass, headline, details } = describeAuditEvent(event);
 
   return (
@@ -39,19 +47,37 @@ export function AuditEventRow({ event, hideEntity = false }: AuditEventRowProps)
           <time dateTime={event.created_at} data-tip={event.created_at}>
             {formatRelative(event.created_at)}
           </time>
-          {!hideEntity && <EntityReference event={event} />}
+          {!hideEntity && (
+            <EntityReference event={event} canRestoreKb={canRestoreKb} />
+          )}
         </div>
       </div>
     </li>
   );
 }
 
-function EntityReference({ event }: { event: AuditEvent }) {
+function EntityReference({
+  event,
+  canRestoreKb = false,
+}: {
+  event: AuditEvent;
+  canRestoreKb?: boolean;
+}) {
   const { entity } = event;
   if (!entity) return null;
 
   if (entity.type === "kb_page") {
-    if (entity.deleted_at) return null;
+    if (entity.deleted_at) {
+      // Страница в корзине — открыть нельзя. Тем, кто может удалять,
+      // показываем компактную кнопку восстановления (иконка+подсказка).
+      if (!canRestoreKb) return null;
+      return (
+        <>
+          <span className="text-muted-foreground/50">·</span>
+          <KbRestoreIconButton pageId={entity.id} />
+        </>
+      );
+    }
     return (
       <>
         <span className="text-muted-foreground/50">·</span>

@@ -5,10 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
 import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import { KbTimeMetricHint } from "@/app/(dashboard)/knowledge/_components/kb-time-metric-hint";
+import { KbMonthlyTrend } from "@/app/(dashboard)/knowledge/_components/kb-monthly-trend";
 import {
   getKbAnalyticsSummary,
   getKbAnalyticsTopPages,
   getKbAnalyticsTopUsers,
+  getKbMonthlyTrend,
   type KbAnalyticsPeriod,
 } from "@/lib/knowledge/analytics";
 import { getKbRequiredReadingCoverage } from "@/lib/knowledge/required-reading";
@@ -53,9 +55,9 @@ const PERIOD_DAYS: Record<KbAnalyticsPeriod, number> = {
 export default async function KbDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ p?: string; view?: string }>;
+  searchParams: Promise<{ p?: string; view?: string; month?: string }>;
 }) {
-  const { p, view: viewParam } = await searchParams;
+  const { p, view: viewParam, month: monthParam } = await searchParams;
   const period: KbAnalyticsPeriod = VALID_PERIODS.includes(
     p as KbAnalyticsPeriod,
   )
@@ -63,6 +65,15 @@ export default async function KbDashboardPage({
     : "week";
   const view: KbAnalyticsView = viewParam === "pages" ? "pages" : "overview";
   const isPages = view === "pages";
+  // Конкретный календарный месяц 'YYYY-MM' переопределяет period
+  // (снимок за месяц). Невалидное значение игнорируем.
+  const monthKey =
+    monthParam && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam)
+      ? monthParam
+      : undefined;
+  const windowLabel = monthKey
+    ? `за ${formatMonthLabel(monthKey)}`
+    : PERIOD_LABEL[period];
 
   const supabase = await createClient();
   const [{ data: canAnalytics }, { data: canAudit }] = await Promise.all([
@@ -71,9 +82,18 @@ export default async function KbDashboardPage({
   ]);
   if (!canAnalytics && !canAudit) redirect("/knowledge");
 
-  const sinceISO = new Date(
-    Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  // Окно для «Изменений» (audit): месяц или скользящий period.
+  let sinceISO: string;
+  let untilISO: string | null = null;
+  if (monthKey) {
+    const [yy, mm] = monthKey.split("-").map(Number);
+    sinceISO = new Date(Date.UTC(yy, mm - 1, 1)).toISOString();
+    untilISO = new Date(Date.UTC(yy, mm, 1)).toISOString();
+  } else {
+    sinceISO = new Date(
+      Date.now() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000,
+    ).toISOString();
+  }
 
   // Запросы гейтятся по правам: под analytics-only audit-таблицы
   // RLS-фильтруются в ноль и наоборот. Нули как реальные данные =
@@ -82,24 +102,33 @@ export default async function KbDashboardPage({
   const [analyticsData, auditData, { coverage }] = await Promise.all([
     canAnalytics
       ? Promise.all([
-          getKbAnalyticsSummary({ period }),
-          getKbAnalyticsTopPages({ period, limit: isPages ? 50 : 5 }),
+          getKbAnalyticsSummary({ period, monthKey }),
+          getKbAnalyticsTopPages({
+            period,
+            monthKey,
+            limit: isPages ? 50 : 5,
+          }),
           // «Активные сотрудники» рендерятся только в Обзоре — в виде
           // «По страницам» не фетчим (лишний DB-запрос + его ошибка
           // не должна всплывать в общем баннере; Codex #327 P2).
           isPages
             ? Promise.resolve(null)
-            : getKbAnalyticsTopUsers({ period, limit: 3 }),
+            : getKbAnalyticsTopUsers({ period, monthKey, limit: 3 }),
+          getKbMonthlyTrend({ months: 12 }),
         ])
       : Promise.resolve(null),
     canAudit
       ? Promise.all([
           listKbAuditEvents(),
-          supabase
-            .from("audit_logs")
-            .select("id", { count: "exact", head: true })
-            .eq("entity_type", "kb_page")
-            .gte("created_at", sinceISO),
+          (() => {
+            let q = supabase
+              .from("audit_logs")
+              .select("id", { count: "exact", head: true })
+              .eq("entity_type", "kb_page")
+              .gte("created_at", sinceISO);
+            if (untilISO) q = q.lt("created_at", untilISO);
+            return q;
+          })(),
         ])
       : Promise.resolve(null),
     getKbRequiredReadingCoverage(),
@@ -111,6 +140,7 @@ export default async function KbDashboardPage({
   const pagesError = analyticsData?.[1].error ?? null;
   const topUsers = analyticsData?.[2]?.rows ?? [];
   const topUsersError = analyticsData?.[2]?.error ?? null;
+  const monthlyTrend = analyticsData?.[3].rows ?? [];
   const recentEvents = auditData?.[0].events ?? [];
   const changesInPeriod: number | null = auditData?.[1].count ?? null;
 
@@ -167,7 +197,7 @@ export default async function KbDashboardPage({
                 !summary
                   ? "нет доступа к аналитике"
                   : summary.newInPeriod > 0
-                    ? `+${summary.newInPeriod} ${PERIOD_LABEL[period]}`
+                    ? `+${summary.newInPeriod} ${windowLabel}`
                     : "без новых за период"
               }
               hintTone={
@@ -182,7 +212,7 @@ export default async function KbDashboardPage({
                   ? "нет доступа к аналитике"
                   : coverage.teamSize > 0
                     ? `из ${coverage.teamSize} в команде`
-                    : PERIOD_LABEL[period]
+                    : windowLabel
               }
             />
             <KbStatCard
@@ -190,7 +220,7 @@ export default async function KbDashboardPage({
               value={summary ? formatMinutes(summary.avgSessionSeconds) : "—"}
               hint={
                 summary
-                  ? `сессия · ${PERIOD_LABEL[period]}`
+                  ? `сессия · ${windowLabel}`
                   : "нет доступа к аналитике"
               }
             />
@@ -224,10 +254,18 @@ export default async function KbDashboardPage({
               hint={
                 changesInPeriod === null
                   ? "нет доступа к журналу"
-                  : PERIOD_LABEL[period]
+                  : windowLabel
               }
             />
           </div>
+
+          {canAnalytics && monthlyTrend.length > 0 && (
+            <KbMonthlyTrend
+              rows={monthlyTrend}
+              activeMonthKey={monthKey}
+              basePath="/knowledge/dashboard"
+            />
+          )}
 
           {isPages ? (
             <section className="flex flex-col rounded-xl border bg-card overflow-hidden">
@@ -236,7 +274,7 @@ export default async function KbDashboardPage({
                   Все страницы
                 </h2>
                 <span className="text-xs text-muted-foreground">
-                  {PERIOD_LABEL[period]} · {topPages.length}
+                  {windowLabel} · {topPages.length}
                 </span>
               </div>
               <div className="p-2">
@@ -257,7 +295,7 @@ export default async function KbDashboardPage({
                     Самые читаемые страницы
                   </h2>
                   <span className="text-xs text-muted-foreground">
-                    {PERIOD_LABEL[period]} · топ-
+                    {windowLabel} · топ-
                     {Math.min(topPages.length, 5) || 5}
                   </span>
                 </div>
@@ -335,6 +373,16 @@ function formatMinutes(seconds: number): string {
   const min = Math.round(seconds / 60);
   if (min < 1) return "<1 мин";
   return `${min} мин`;
+}
+
+/** 'YYYY-MM' → «апрель 2026» (UTC, как окно агрегации). */
+function formatMonthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("ru-RU", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function waitWord(n: number): string {

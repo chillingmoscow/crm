@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { LayoutDashboard } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
+import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
 import {
   getKbAnalyticsSummary,
   getKbAnalyticsTopPages,
@@ -14,6 +13,10 @@ import {
 import { getKbRequiredReadingCoverage } from "@/lib/knowledge/required-reading";
 import { listKbAuditEvents } from "@/lib/knowledge/audit";
 import { KbAnalyticsPeriodTabs } from "@/app/(dashboard)/knowledge/analytics/_components/kb-analytics-period-tabs";
+import {
+  KbAnalyticsViewTabs,
+  type KbAnalyticsView,
+} from "@/app/(dashboard)/knowledge/analytics/_components/kb-analytics-view-tabs";
 import { KbAnalyticsTopPages } from "@/app/(dashboard)/knowledge/analytics/_components/kb-analytics-top-pages";
 import { KbAnalyticsTopUsers } from "@/app/(dashboard)/knowledge/analytics/_components/kb-analytics-top-users";
 import { KbAuditEventRow } from "@/app/(dashboard)/knowledge/audit/_components/kb-audit-event-row";
@@ -31,28 +34,34 @@ const PERIOD_DAYS: Record<KbAnalyticsPeriod, number> = {
 };
 
 /**
- * Дашборд менеджера базы знаний (sheerly `TvInj`).
+ * Дашборд базы знаний (sheerly `TvInj`/`hL8wQ`).
  *
- * Сводит must-read покрытие, активность чтения и последние
- * изменения в один экран. Доступ: `kb.view_analytics` ∨
- * `org.view_audit` (иначе redirect /knowledge — пустой дашборд под
- * сотрудником без права = security through obscurity).
+ * Объединяет бывшие «Дашборд» и «Аналитику» в один экран (раньше
+ * ~70% контента дублировалось). Сводка-метрики + топ читаемых
+ * страниц + активные сотрудники + лента последних изменений + вид
+ * «По страницам» с drill-down на `/knowledge/dashboard/[slug]`.
  *
- * Часть метрик питается analytics-RLS (`kb.view_analytics`); под
- * чистым `org.view_audit` они вернут пусто/«—», но лента изменений
- * (audit) останется — это нормально, дашборд деградирует мягко.
+ * Доступ: `kb.view_analytics` ∨ `org.view_audit` (иначе redirect
+ * /knowledge). Под чистым `org.view_audit` analytics-блоки
+ * деградируют в «нет доступа», лента изменений работает; под
+ * чистым `kb.view_analytics` — наоборот (Codex #319 P2).
+ *
+ * URL-состояние shareable: `?p=day|week|month`, `?view=overview|pages`.
+ * `/knowledge/analytics` 301-redirect'ится сюда (next.config).
  */
-export default async function KbManagerDashboardPage({
+export default async function KbDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ p?: string }>;
+  searchParams: Promise<{ p?: string; view?: string }>;
 }) {
-  const { p } = await searchParams;
+  const { p, view: viewParam } = await searchParams;
   const period: KbAnalyticsPeriod = VALID_PERIODS.includes(
     p as KbAnalyticsPeriod,
   )
     ? (p as KbAnalyticsPeriod)
     : "week";
+  const view: KbAnalyticsView = viewParam === "pages" ? "pages" : "overview";
+  const isPages = view === "pages";
 
   const supabase = await createClient();
   const [{ data: canAnalytics }, { data: canAudit }] = await Promise.all([
@@ -66,16 +75,20 @@ export default async function KbManagerDashboardPage({
   ).toISOString();
 
   // Запросы гейтятся по правам: под analytics-only audit-таблицы
-  // RLS-фильтруются в ноль, под audit-only — analytics. Тянуть и
-  // показывать нули как реальные данные = ложный сигнал для
-  // менеджера (Codex #319 P2 ×2). Не имеешь права → не фетчим,
-  // блок рендерится как «нет доступа».
+  // RLS-фильтруются в ноль и наоборот. Нули как реальные данные =
+  // ложный сигнал (Codex #319 P2). Нет права → не фетчим, блок =
+  // «нет доступа».
   const [analyticsData, auditData, { coverage }] = await Promise.all([
     canAnalytics
       ? Promise.all([
           getKbAnalyticsSummary({ period }),
-          getKbAnalyticsTopPages({ period, limit: 5 }),
-          getKbAnalyticsTopUsers({ period, limit: 3 }),
+          getKbAnalyticsTopPages({ period, limit: isPages ? 50 : 5 }),
+          // «Активные сотрудники» рендерятся только в Обзоре — в виде
+          // «По страницам» не фетчим (лишний DB-запрос + его ошибка
+          // не должна всплывать в общем баннере; Codex #327 P2).
+          isPages
+            ? Promise.resolve(null)
+            : getKbAnalyticsTopUsers({ period, limit: 3 }),
         ])
       : Promise.resolve(null),
     canAudit
@@ -92,8 +105,11 @@ export default async function KbManagerDashboardPage({
   ]);
 
   const summary = analyticsData?.[0].summary ?? null;
+  const summaryError = analyticsData?.[0].error ?? null;
   const topPages = analyticsData?.[1].rows ?? [];
-  const topUsers = analyticsData?.[2].rows ?? [];
+  const pagesError = analyticsData?.[1].error ?? null;
+  const topUsers = analyticsData?.[2]?.rows ?? [];
+  const topUsersError = analyticsData?.[2]?.error ?? null;
   const recentEvents = auditData?.[0].events ?? [];
   const changesInPeriod: number | null = auditData?.[1].count ?? null;
 
@@ -101,36 +117,73 @@ export default async function KbManagerDashboardPage({
     coverage.requiredPages > 0 && coverage.teamSize > 0;
   const pending = coverage.teamSize - coverage.done;
   const latestChanges = recentEvents.slice(0, 6);
+  const loadError = summaryError ?? pagesError ?? topUsersError;
 
   return (
     <div className="flex-1 flex flex-col">
-      <PageBreadcrumb>
-        <span className="text-sm font-medium text-foreground inline-flex items-center gap-2">
-          <LayoutDashboard className="size-4 text-muted-foreground" />
-          Дашборд
-        </span>
-      </PageBreadcrumb>
-
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-6">
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full">
         <div className="mx-auto w-full max-w-[1100px] flex flex-col gap-6">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div className="flex flex-col gap-2 min-w-0">
-              <h1 className="text-[28px] font-extrabold tracking-tight">
-                Дашборд менеджера
-              </h1>
-              <p className="text-sm text-muted-foreground max-w-[640px]">
-                Активность команды, обязательное чтение и быстрый
-                доступ к журналу и корзине
-              </p>
+          <KbSectionHeader
+            title="Дашборд"
+            description="Сводка по базе знаний: активность чтения, обязательное чтение и последние изменения. Учитывается активное время — без неактивных вкладок и простоя."
+            actions={
+              <div className="flex flex-wrap items-center gap-3">
+                <KbAnalyticsViewTabs
+                  current={view}
+                  period={period}
+                  basePath="/knowledge/dashboard"
+                />
+                <KbAnalyticsPeriodTabs
+                  current={period}
+                  basePath="/knowledge/dashboard"
+                  view={view}
+                />
+              </div>
+            }
+          />
+
+          {loadError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              Не удалось загрузить аналитику: {loadError}
             </div>
-            <KbAnalyticsPeriodTabs
-              current={period}
-              basePath="/knowledge/dashboard"
-            />
-          </header>
+          )}
 
           {/* KPI-сводка */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <KbStatCard
+              label="Всего страниц"
+              value={summary ? summary.totalPages : "—"}
+              hint={
+                !summary
+                  ? "нет доступа к аналитике"
+                  : summary.newInPeriod > 0
+                    ? `+${summary.newInPeriod} ${PERIOD_LABEL[period]}`
+                    : "без новых за период"
+              }
+              hintTone={
+                summary && summary.newInPeriod > 0 ? "positive" : "muted"
+              }
+            />
+            <KbStatCard
+              label="Активных читателей"
+              value={summary ? summary.activeReaders : "—"}
+              hint={
+                !summary
+                  ? "нет доступа к аналитике"
+                  : coverage.teamSize > 0
+                    ? `из ${coverage.teamSize} в команде`
+                    : PERIOD_LABEL[period]
+              }
+            />
+            <KbStatCard
+              label="Среднее время чтения"
+              value={summary ? formatMinutes(summary.avgSessionSeconds) : "—"}
+              hint={
+                summary
+                  ? `сессия · ${PERIOD_LABEL[period]}`
+                  : "нет доступа к аналитике"
+              }
+            />
             <KbStatCard
               label="Прочли must-read"
               value={
@@ -156,26 +209,6 @@ export default async function KbManagerDashboardPage({
               }
             />
             <KbStatCard
-              label="Активных читателей"
-              value={summary ? summary.activeReaders : "—"}
-              hint={
-                !summary
-                  ? "нет доступа к аналитике"
-                  : coverage.teamSize > 0
-                    ? `из ${coverage.teamSize} в команде`
-                    : PERIOD_LABEL[period]
-              }
-            />
-            <KbStatCard
-              label="Среднее время чтения"
-              value={summary ? formatMinutes(summary.avgSessionSeconds) : "—"}
-              hint={
-                summary
-                  ? `сессия · ${PERIOD_LABEL[period]}`
-                  : "нет доступа к аналитике"
-              }
-            />
-            <KbStatCard
               label="Изменений"
               value={changesInPeriod ?? "—"}
               hint={
@@ -186,15 +219,14 @@ export default async function KbManagerDashboardPage({
             />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_minmax(320px,420px)]">
+          {isPages ? (
             <section className="flex flex-col rounded-xl border bg-card overflow-hidden">
               <div className="flex items-baseline justify-between gap-2 border-b px-4 py-3.5">
                 <h2 className="text-sm font-semibold text-foreground">
-                  Самые читаемые страницы
+                  Все страницы
                 </h2>
                 <span className="text-xs text-muted-foreground">
-                  {PERIOD_LABEL[period]} · топ-
-                  {Math.min(topPages.length, 5) || 5}
+                  {PERIOD_LABEL[period]} · {topPages.length}
                 </span>
               </div>
               <div className="p-2">
@@ -207,8 +239,29 @@ export default async function KbManagerDashboardPage({
                 )}
               </div>
             </section>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-[1fr_minmax(320px,420px)]">
+              <section className="flex flex-col rounded-xl border bg-card overflow-hidden">
+                <div className="flex items-baseline justify-between gap-2 border-b px-4 py-3.5">
+                  <h2 className="text-sm font-semibold text-foreground">
+                    Самые читаемые страницы
+                  </h2>
+                  <span className="text-xs text-muted-foreground">
+                    {PERIOD_LABEL[period]} · топ-
+                    {Math.min(topPages.length, 5) || 5}
+                  </span>
+                </div>
+                <div className="p-2">
+                  {canAnalytics ? (
+                    <KbAnalyticsTopPages rows={topPages} period={period} />
+                  ) : (
+                    <p className="px-3 py-6 text-sm text-muted-foreground">
+                      Нет доступа к аналитике.
+                    </p>
+                  )}
+                </div>
+              </section>
 
-            <div className="flex flex-col gap-4">
               <section className="flex flex-col rounded-xl border bg-card overflow-hidden">
                 <div className="flex items-baseline justify-between gap-2 border-b px-4 py-3.5">
                   <h2 className="text-sm font-semibold text-foreground">
@@ -228,39 +281,39 @@ export default async function KbManagerDashboardPage({
                   )}
                 </div>
               </section>
-
-              <section className="flex flex-col rounded-xl border bg-card overflow-hidden">
-                <div className="flex items-baseline justify-between gap-2 border-b px-4 py-3.5">
-                  <h2 className="text-sm font-semibold text-foreground">
-                    Последние изменения
-                  </h2>
-                  {canAudit && (
-                    <Link
-                      href="/knowledge/audit"
-                      className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      Весь журнал →
-                    </Link>
-                  )}
-                </div>
-                {!canAudit ? (
-                  <p className="px-4 py-6 text-sm text-muted-foreground">
-                    Нет доступа к журналу.
-                  </p>
-                ) : latestChanges.length === 0 ? (
-                  <p className="px-4 py-6 text-sm text-muted-foreground">
-                    Пока нет изменений.
-                  </p>
-                ) : (
-                  <ul className="flex flex-col">
-                    {latestChanges.map((event) => (
-                      <KbAuditEventRow key={event.id} event={event} />
-                    ))}
-                  </ul>
-                )}
-              </section>
             </div>
-          </div>
+          )}
+
+          <section className="flex flex-col rounded-xl border bg-card overflow-hidden">
+            <div className="flex items-baseline justify-between gap-2 border-b px-4 py-3.5">
+              <h2 className="text-sm font-semibold text-foreground">
+                Последние изменения
+              </h2>
+              {canAudit && (
+                <Link
+                  href="/knowledge/audit"
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Весь журнал →
+                </Link>
+              )}
+            </div>
+            {!canAudit ? (
+              <p className="px-4 py-6 text-sm text-muted-foreground">
+                Нет доступа к журналу.
+              </p>
+            ) : latestChanges.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-muted-foreground">
+                Пока нет изменений.
+              </p>
+            ) : (
+              <ul className="flex flex-col">
+                {latestChanges.map((event) => (
+                  <KbAuditEventRow key={event.id} event={event} />
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       </div>
     </div>

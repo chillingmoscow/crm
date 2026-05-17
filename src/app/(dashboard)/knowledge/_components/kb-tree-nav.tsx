@@ -12,7 +12,6 @@ import {
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import {
-  BarChart3,
   ChevronRight,
   LayoutDashboard,
   Plus,
@@ -405,7 +404,7 @@ export function KbTreeNav({
           )}
         </div>
 
-        {(canViewDashboard || canSeeTrash || canViewAudit || canViewAnalytics) && (
+        {(canViewDashboard || canSeeTrash) && (
           <div className="mt-auto border-t border-sidebar-border px-2 py-3 flex flex-col gap-0.5">
             <span className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">
               Инструменты менеджера
@@ -413,17 +412,9 @@ export function KbTreeNav({
             {canViewDashboard && (
               <KbToolLink
                 href="/knowledge/dashboard"
-                active={pathname === "/knowledge/dashboard"}
+                active={pathname.startsWith("/knowledge/dashboard")}
                 icon={<LayoutDashboard className="size-4 shrink-0" />}
                 label="Дашборд"
-              />
-            )}
-            {canViewAnalytics && (
-              <KbToolLink
-                href="/knowledge/analytics"
-                active={pathname === "/knowledge/analytics"}
-                icon={<BarChart3 className="size-4 shrink-0" />}
-                label="Аналитика"
               />
             )}
             {canViewAudit && (

@@ -62,6 +62,9 @@ const nextConfig: NextConfig = {
     // Remove these once external bookmarks and search index have
     // refreshed (~2 weeks after deployment).
     return [
+      // KB: «Аналитика» объединена с «Дашбордом» в один экран.
+      { source: "/knowledge/analytics",          destination: "/knowledge/dashboard",          permanent: true },
+      { source: "/knowledge/analytics/:slug*",   destination: "/knowledge/dashboard/:slug*",   permanent: true },
       { source: "/staff",                    destination: "/people/staff",  permanent: true },
       { source: "/staff/:path*",             destination: "/people/staff/:path*", permanent: true },
       { source: "/settings/roles",           destination: "/people/roles",  permanent: true },

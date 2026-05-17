@@ -151,6 +151,7 @@ export default async function KbPageView({ params }: PageProps) {
   const hasManageRequiredReading = permissions.has("kb.manage_required_reading");
   const hasLockPages = permissions.has("kb.lock_pages");
   const hasViewAnalytics = permissions.has("kb.view_analytics");
+  const hasViewVersionHistory = permissions.has("kb.view_version_history");
 
   // Базовая edit-permission. Lock-state ограничивает её отдельно ниже:
   // canEditEffective = canEdit && (!locked || canLock).
@@ -292,6 +293,7 @@ export default async function KbPageView({ params }: PageProps) {
           canManageRequiredReading={canManageRequiredReading}
           canLock={canLock}
           canViewAnalytics={canViewAnalytics}
+          canViewVersionHistory={hasViewVersionHistory}
         />
       </PageHeaderActions>
 

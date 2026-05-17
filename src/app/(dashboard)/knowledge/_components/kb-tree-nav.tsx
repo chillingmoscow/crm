@@ -6,11 +6,19 @@ import {
   useMemo,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { BarChart3, ChevronRight, Plus, ScrollText, Trash2 } from "lucide-react";
+import { useParams, usePathname, useRouter } from "next/navigation";
+import {
+  BarChart3,
+  ChevronRight,
+  LayoutDashboard,
+  Plus,
+  ScrollText,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -131,6 +139,8 @@ export function KbTreeNav({
 }: KbTreeNavProps) {
   const params = useParams<{ slug?: string }>();
   const activeSlug = params?.slug;
+  const pathname = usePathname();
+  const canViewDashboard = canViewAnalytics || canViewAudit;
 
   // Local mirror of `nodes` для оптимистичного reorder. При успехе
   // server-data догонит. При ошибке — откатываем к props.nodes.
@@ -395,40 +405,42 @@ export function KbTreeNav({
           )}
         </div>
 
-        {(canSeeTrash || canViewAudit || canViewAnalytics) && (
-          <div className="mt-auto h-16 px-2 border-t border-sidebar-border flex items-center gap-1">
-            {canSeeTrash && (
-              <Link
-                href="/knowledge/trash"
-                className="flex flex-1 items-center gap-2 rounded-lg p-2
-                           text-sm text-muted-foreground
-                           hover:bg-sidebar-accent hover:text-foreground transition-colors"
-              >
-                <Trash2 className="size-4 shrink-0" />
-                Корзина
-              </Link>
-            )}
-            {canViewAudit && (
-              <Link
-                href="/knowledge/audit"
-                className="flex flex-1 items-center gap-2 rounded-lg p-2
-                           text-sm text-muted-foreground
-                           hover:bg-sidebar-accent hover:text-foreground transition-colors"
-              >
-                <ScrollText className="size-4 shrink-0" />
-                Журнал
-              </Link>
+        {(canViewDashboard || canSeeTrash || canViewAudit || canViewAnalytics) && (
+          <div className="mt-auto border-t border-sidebar-border px-2 py-3 flex flex-col gap-0.5">
+            <span className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/70">
+              Инструменты менеджера
+            </span>
+            {canViewDashboard && (
+              <KbToolLink
+                href="/knowledge/dashboard"
+                active={pathname === "/knowledge/dashboard"}
+                icon={<LayoutDashboard className="size-4 shrink-0" />}
+                label="Дашборд"
+              />
             )}
             {canViewAnalytics && (
-              <Link
+              <KbToolLink
                 href="/knowledge/analytics"
-                className="flex flex-1 items-center gap-2 rounded-lg p-2
-                           text-sm text-muted-foreground
-                           hover:bg-sidebar-accent hover:text-foreground transition-colors"
-              >
-                <BarChart3 className="size-4 shrink-0" />
-                Аналитика
-              </Link>
+                active={pathname === "/knowledge/analytics"}
+                icon={<BarChart3 className="size-4 shrink-0" />}
+                label="Аналитика"
+              />
+            )}
+            {canViewAudit && (
+              <KbToolLink
+                href="/knowledge/audit"
+                active={pathname === "/knowledge/audit"}
+                icon={<ScrollText className="size-4 shrink-0" />}
+                label="Журнал"
+              />
+            )}
+            {canSeeTrash && (
+              <KbToolLink
+                href="/knowledge/trash"
+                active={pathname === "/knowledge/trash"}
+                icon={<Trash2 className="size-4 shrink-0" />}
+                label="Корзина"
+              />
             )}
           </div>
         )}
@@ -1085,4 +1097,34 @@ function removeNodeById(nodes: KbTreeNode[], id: string): KbTreeNode[] {
         ? { ...n, children: removeNodeById(n.children, id) }
         : n,
     );
+}
+
+/** Пункт секции «Инструменты менеджера» в KB-сайдбаре. Активный —
+ *  по точному совпадению pathname (дизайн sheerly `TvInj`). */
+function KbToolLink({
+  href,
+  active,
+  icon,
+  label,
+}: {
+  href: string;
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
+        active
+          ? "bg-sidebar-accent font-medium text-foreground"
+          : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+    </Link>
+  );
 }

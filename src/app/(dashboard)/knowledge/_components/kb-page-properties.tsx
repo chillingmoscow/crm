@@ -96,6 +96,7 @@ import {
   makeProperty,
   propertyTypeOptions,
 } from "./page-properties/helpers";
+import { KbSectionLabel } from "./page-properties/section-label";
 
 interface KbPagePropertiesProps {
   /** Идентификатор страницы или шаблона. */
@@ -578,6 +579,7 @@ export function KbPageProperties({
       aria-label="Свойства страницы"
       className="flex flex-col gap-2 px-2 -ml-2"
     >
+      <KbSectionLabel>Свойства</KbSectionLabel>
       {collectionGroups.length > 0 && (
         <div className="flex flex-col gap-2 pb-1">
           {collectionGroups.map((group) => (

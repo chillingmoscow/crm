@@ -172,9 +172,16 @@ export async function resolveKbMentionTargets(
 ): Promise<{
   checked: string[];
   deleted: string[];
+  /** Подмножество `deleted`, чьи строки caller РЕАЛЬНО видит с
+   *  `deleted_at IS NOT NULL` — т.е. страница в корзине и
+   *  откроется read-only по `/knowledge/<slug>`. Slug, которого в
+   *  result-set'е нет вообще (hard-delete / RLS-скрыт / чужой
+   *  аккаунт), сюда НЕ попадает → chip остаётся неактивным, иначе
+   *  клик гарантированно вёл бы в 404 (Codex P2 на PR #334). */
+  trashed: string[];
 }> {
   const unique = Array.from(new Set(slugs.filter((s) => s && s.length > 0)));
-  if (unique.length === 0) return { checked: [], deleted: [] };
+  if (unique.length === 0) return { checked: [], deleted: [], trashed: [] };
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("kb_pages")
@@ -183,17 +190,21 @@ export async function resolveKbMentionTargets(
   if (error) {
     // На ошибке возвращаем «ничего не проверили» — chip'ы остаются
     // активными (failure-open), это безопаснее, чем ложно их перечёркивать.
-    return { checked: [], deleted: [] };
+    return { checked: [], deleted: [], trashed: [] };
   }
   const liveSet = new Set<string>();
+  const trashedSet = new Set<string>();
   for (const row of (data ?? []) as Array<{
     slug: string;
     deleted_at: string | null;
   }>) {
-    if (row.slug && row.deleted_at === null) liveSet.add(row.slug);
+    if (!row.slug) continue;
+    if (row.deleted_at === null) liveSet.add(row.slug);
+    else trashedSet.add(row.slug);
   }
   const deleted = unique.filter((s) => !liveSet.has(s));
-  return { checked: unique, deleted };
+  const trashed = deleted.filter((s) => trashedSet.has(s));
+  return { checked: unique, deleted, trashed };
 }
 
 /** Достаёт soft-deleted страницу по slug'у — для Notion-style

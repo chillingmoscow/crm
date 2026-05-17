@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
 import {
@@ -216,8 +216,11 @@ export default async function KbPageView({ params }: PageProps) {
   const initialProperties: KbProperty[] = propertiesParsed.success
     ? propertiesParsed.data
     : [];
-  const { checked: checkedMentionSlugs, deleted: deletedMentionSlugs } =
-    mentionResolution;
+  const {
+    checked: checkedMentionSlugs,
+    deleted: deletedMentionSlugs,
+    trashed: trashedMentionSlugs,
+  } = mentionResolution;
 
   // Resolve back-link target: parent page if any, else /knowledge.
   // chain comes root → leaf, last entry is the current page itself.
@@ -326,6 +329,7 @@ export default async function KbPageView({ params }: PageProps) {
             initialProperties={initialProperties}
             checkedMentionSlugs={checkedMentionSlugs}
             deletedMentionSlugs={deletedMentionSlugs}
+            trashedMentionSlugs={trashedMentionSlugs}
             canEditBase={canEditBase}
             initialLocked={isLocked}
             canLock={canLock}
@@ -366,6 +370,26 @@ export default async function KbPageView({ params }: PageProps) {
  */
 async function DeletedKbPageView({ row }: { row: KbPageRow }) {
   const supabase = await createClient();
+
+  // Каскадно-удалённый потомок — НЕ валидный root для restore/hard-
+  // delete: `kb_hard_delete_cascade` отвергает не-root id, а
+  // `kb_restore_cascade` восстановил бы только эту строку, оставив
+  // её orphan'ом при удалённом родителе (Codex P1 на PR #334).
+  // Единственная точка управления веткой — её root: редиректим туда.
+  const isCascadeChild =
+    !!row.deleted_root_id && row.deleted_root_id !== row.id;
+  if (isCascadeChild) {
+    const { data: rootRow } = await supabase
+      .from("kb_pages")
+      .select("slug")
+      .eq("id", row.deleted_root_id as string)
+      .maybeSingle();
+    const rootSlug = (rootRow as { slug: string } | null)?.slug;
+    if (rootSlug && rootSlug !== row.slug) {
+      redirect(`/knowledge/${rootSlug}`);
+    }
+  }
+
   const [permissionCodes, descRes, deletedByRes] = await Promise.all([
     getCachedPermissions(),
     supabase
@@ -382,7 +406,11 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
       : Promise.resolve({ data: null }),
   ]);
 
-  const canManage = new Set(permissionCodes).has("kb.delete_pages");
+  // root недоступен (hard-delete / RLS) и редирект не сработал —
+  // показываем потомка read-only, но БЕЗ управляющих действий:
+  // restore/hard-delete по не-root id некорректны.
+  const canManage =
+    !isCascadeChild && new Set(permissionCodes).has("kb.delete_pages");
   const descendantsCount = descRes.count ?? 0;
   const deletedByProfile = deletedByRes.data as {
     first_name: string | null;

@@ -122,6 +122,22 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     // прочее (csv, json и т.п.) — игнорируем.
   }
 
+  // Папки Notion-БАЗ: директория, СОДЕРЖАЩАЯ `*.csv` (Notion кладёт
+  // `<Имя> <hash>.csv` + `_all.csv` рядом со строками-`.md` внутри
+  // папки базы). Имя такой папки = `<Имя> <32-hex>` — без фикса
+  // `extractNotionUuidFromName` принимает hash за UUID родителя,
+  // которого нет среди узлов → строки орфанятся в root плоско.
+  // В walk-up такие сегменты пропускаем: настоящий родитель строки —
+  // ближайшая выше .md-страница, физически содержащая базу.
+  const dbFolderPaths = new Set<string>();
+  for (const [p] of flat) {
+    const nm = p.split("/").pop() ?? "";
+    if (/\.csv$/i.test(nm)) {
+      const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+      if (dir) dbFolderPaths.add(dir);
+    }
+  }
+
   const isNotionExport = mdEntries.some(
     (e) => extractNotionUuidFromName(e.name) !== null,
   );
@@ -173,12 +189,16 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     //      дальше вверх к фактической parent-странице.
     let effectiveParentUuid: string | null = null;
     for (let s = segments.length - 2; s >= 0; s--) {
+      const folderPath = segments.slice(0, s + 1).join("/");
+      // Папка-база — не страница: пропускаем сегмент, идём выше к
+      // фактической странице-контейнеру (иначе hash папки-базы
+      // принимается за parentUuid → строки орфанятся в root).
+      if (dbFolderPaths.has(folderPath)) continue;
       const direct = extractNotionUuidFromName(segments[s]);
       if (direct && direct !== uuid) {
         effectiveParentUuid = direct;
         break;
       }
-      const folderPath = segments.slice(0, s + 1).join("/");
       const viaFolder = folderToUuid.get(folderPath);
       if (viaFolder && viaFolder !== uuid) {
         effectiveParentUuid = viaFolder;
@@ -438,12 +458,16 @@ function parsePropertiesText(text: string): { key: string; value: string }[] {
   return out;
 }
 
-/** Если первые блоки — параграфы со свойствами Notion'овской DB-страницы,
- *  оборачивает их в `toggleListItem` «Свойства» (скрывающийся список).
- *  Каждая пара `Key: Value` становится отдельным дочерним paragraph'ом —
- *  это позволяет читать аккуратный список при раскрытии toggle. */
-export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
-  if (blocks.length === 0) return blocks;
+/** Детектирует ведущие property-параграфы Notion-DB-страницы и
+ *  возвращает распарсенные пары `{key,value}` + индекс, с которого
+ *  начинается «настоящий» контент (после свойств). Если свойств нет —
+ *  `{ pairs: [], cursor: 0 }`. Общая логика для `stripNotionProperties`
+ *  (legacy toggle) и `extractNotionProperties` (маппинг в KB-props). */
+function extractLeadingProperties(blocks: KbBlock[]): {
+  pairs: { key: string; value: string }[];
+  cursor: number;
+} {
+  if (blocks.length === 0) return { pairs: [], cursor: 0 };
   const propertyBlocks: KbBlock[] = [];
   let cursor = 0;
   while (cursor < blocks.length) {
@@ -455,23 +479,18 @@ export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
     propertyBlocks.push(b);
     cursor++;
   }
-  if (propertyBlocks.length === 0) return blocks;
+  if (propertyBlocks.length === 0) return { pairs: [], cursor: 0 };
 
   // Stronger signal — иначе одиночный intro-параграф вида «Note: …»
-  // (или любая другая фраза с двоеточием) ошибочно сворачивается в
-  // toggle «Свойства», превращая авторский контент в DB-метаданные.
-  // Требуем либо ≥2 consecutive property-параграфов, либо одиночный
-  // параграф со склеенными multi-property парами (≥3 двоеточий —
-  // реальный кейс Notion DB-export'а с merged properties).
+  // ошибочно засчитался бы за DB-метаданные. Требуем ≥2 property-
+  // параграфов либо один склееный с ≥3 двоеточиями (реальный кейс
+  // Notion DB-export'а с merged properties).
   if (propertyBlocks.length === 1) {
     const text = blockPlainText(propertyBlocks[0]).trim();
     const colonCount = (text.match(/[:：]\s/g) ?? []).length;
-    if (colonCount < 3) return blocks;
+    if (colonCount < 3) return { pairs: [], cursor: 0 };
   }
 
-  // Собираем пары {key, value}: для multi-line — каждая строка парсится
-  // отдельно как `Key: Value`, для single-line — режется position-based
-  // парсером (распознаёт ключи внутри склеенного paragraph'а).
   const pairs: { key: string; value: string }[] = [];
   for (const p of propertyBlocks) {
     const text = blockPlainText(p).trim();
@@ -490,18 +509,33 @@ export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
       }
     } else {
       const parsed = parsePropertiesText(text);
-      if (parsed.length === 0) {
-        // не распознали структуру — кладём как одно entry без ключа
-        pairs.push({ key: "", value: text });
-      } else {
-        pairs.push(...parsed);
-      }
+      if (parsed.length === 0) pairs.push({ key: "", value: text });
+      else pairs.push(...parsed);
     }
   }
-  if (pairs.length === 0) return blocks;
+  if (pairs.length === 0) return { pairs: [], cursor: 0 };
+  return { pairs, cursor };
+}
 
-  // Каждое entry — параграф `**ключ:** значение`. Жирный ключ + plain value
-  // через два text-run'а.
+/** Извлекает ведущие Notion-DB property-параграфы как пары
+ *  `{key,value}` и ОТРЕЗАЕТ их из контента (без toggle-обёртки —
+ *  caller замапит их в типизированные KB page-properties через
+ *  inferKbPropertiesFromPairs / saveKbPageProperties). */
+export function extractNotionProperties(blocks: KbBlock[]): {
+  blocks: KbBlock[];
+  pairs: { key: string; value: string }[];
+} {
+  const { pairs, cursor } = extractLeadingProperties(blocks);
+  if (pairs.length === 0) return { blocks, pairs: [] };
+  return { blocks: blocks.slice(cursor), pairs };
+}
+
+/** Legacy: ведущие property-параграфы → скрывающийся toggle
+ *  «Свойства». Оставлено для обратной совместимости; новый импорт
+ *  использует `extractNotionProperties` + page-properties. */
+export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
+  const { pairs, cursor } = extractLeadingProperties(blocks);
+  if (pairs.length === 0) return blocks;
   const children: KbBlock[] = pairs.map(({ key, value }) => ({
     type: "paragraph",
     props: {},

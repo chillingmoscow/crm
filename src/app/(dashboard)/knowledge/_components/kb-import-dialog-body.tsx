@@ -36,10 +36,12 @@ import {
 } from "@/lib/knowledge/import";
 import { uploadKbAttachment } from "@/lib/knowledge/attachments";
 import { saveKbPage, setKbPageParent } from "@/lib/knowledge/pages";
+import { saveKbPageProperties } from "@/lib/knowledge/properties";
+import { inferKbPropertiesFromPairs } from "@/lib/knowledge/notion-properties";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
   parseNotionZip,
-  stripNotionProperties,
+  extractNotionProperties,
   dropDuplicateTitleHeading,
   relinkNotionMentions,
   preprocessNotionCallouts,
@@ -332,7 +334,11 @@ export default function KbImportDialogBody({
         const rawBlocks = postprocessNotionCallouts(parsed);
 
         const titleStripped = dropDuplicateTitleHeading(rawBlocks, node.title);
-        const propsStripped = stripNotionProperties(titleStripped);
+        // Notion-DB property-параграфы вырезаем из контента и мапим в
+        // типизированные KB page-properties (см. saveKbPageProperties
+        // ниже) — вместо сырого toggle «Свойства».
+        const { blocks: propsStripped, pairs: notionPropertyPairs } =
+          extractNotionProperties(titleStripped);
 
         const refs = collectRelativeMediaRefs(propsStripped);
         const urlMap = new Map<string, string>();
@@ -369,6 +375,21 @@ export default function KbImportDialogBody({
             slug: row.slug,
             title: row.title,
           });
+        }
+
+        // Notion-DB-свойства страницы → типизированные KB
+        // page-properties. Best-effort: ошибка не валит импорт.
+        if (notionPropertyPairs.length > 0) {
+          const props = inferKbPropertiesFromPairs(notionPropertyPairs);
+          if (props.length > 0) {
+            const { error: propErr } = await saveKbPageProperties({
+              pageId: row.id,
+              properties: props,
+            });
+            if (propErr) {
+              failures.push(`«${node.title}» (свойства): ${propErr}`);
+            }
+          }
         }
 
         // Ключуем urlMap по **resolved full-path** внутри ZIP'а

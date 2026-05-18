@@ -53,10 +53,10 @@ export function UnitPickerItems({
           key={c.value}
           onSelect={() => onChange({ kind: "currency", code: c.value })}
         >
-          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
+          <span className="w-8 shrink-0 truncate text-left text-[13px] text-muted-foreground">
             {c.label.split(" ")[0]}
           </span>
-          <span className="flex-1 truncate">
+          <span className="min-w-0 flex-1 truncate">
             {c.label.replace(/^\S+\s+/, "")}
           </span>
           {isCurrency(c.value) && <Check className="ml-auto size-3.5" />}

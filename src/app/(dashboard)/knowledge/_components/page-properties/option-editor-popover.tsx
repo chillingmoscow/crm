@@ -313,14 +313,12 @@ export function PropertyEditorPopover({
           </div>
         )}
 
-        <div className="h-px bg-border/60" />
-
         {/* ── Type ─────────────────────────────────────────────────────── */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex w-full items-center justify-between px-3 py-2.5
+              className="flex w-full items-center justify-between px-3 py-2
                          text-[13px] transition-colors hover:bg-muted/40"
             >
               <span className="flex items-center gap-2.5 text-muted-foreground">
@@ -354,10 +352,8 @@ export function PropertyEditorPopover({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <div className="h-px bg-border/60" />
-
         {/* ── Per-type params ─────────────────────────────────────────── */}
-        <div className="px-3 py-3">
+        <div className="px-3 py-2">
           {isOptionType && (
             <div>
               <SectionLabel>Опции</SectionLabel>
@@ -420,9 +416,8 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "number" && (
-            <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-1">
               <div>
-                <SectionLabel>Вид</SectionLabel>
                 <ViewCards
                   value={numberView}
                   onChange={(v) =>
@@ -446,7 +441,7 @@ export function PropertyEditorPopover({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="-mx-1 flex items-center justify-between rounded-md px-1 py-1
+                        className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2
                                    text-[13px] transition-colors hover:bg-muted/40"
                       >
                         <span className="flex items-center gap-2.5 text-muted-foreground">
@@ -526,7 +521,6 @@ export function PropertyEditorPopover({
 
           {property.type === "checkbox" && (
             <div>
-              <SectionLabel>Вид</SectionLabel>
               <ViewCards
                 value={property.displayVariant ?? "checkbox"}
                 onChange={(v) =>
@@ -551,9 +545,8 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "rating" && (
-            <div className="flex flex-col gap-3.5">
+            <div className="flex flex-col gap-1">
               <div>
-                <SectionLabel>Вид</SectionLabel>
                 <ViewCards
                   value={property.displayVariant ?? "stars"}
                   onChange={(v) =>
@@ -598,7 +591,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "text" && (
-            <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-0.5 text-[13px]">
+            <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
               <span className="text-muted-foreground">
                 Сворачивать длинный текст
               </span>
@@ -610,7 +603,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "url" && (
-            <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-0.5 text-[13px]">
+            <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
               <span className="text-muted-foreground">Сокращать ссылку</span>
               <Switch
                 checked={property.urlCollapsed === true}
@@ -655,7 +648,7 @@ function ScaleDropdownRow({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="-mx-1 flex items-center justify-between rounded-md px-1 py-1
+          className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2
                      text-[13px] transition-colors hover:bg-muted/40"
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
@@ -700,7 +693,7 @@ function SliderMaxRow({
   onCommit: (v: string) => void;
 }) {
   return (
-    <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-1 text-[13px]">
+    <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
       <span className="text-muted-foreground">Максимальное значение</span>
       <input
         type="number"
@@ -736,7 +729,7 @@ function ShowValueRow({
   onCheckedChange: (v: boolean) => void;
 }) {
   return (
-    <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-0.5 text-[13px]">
+    <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
       <span className="text-muted-foreground">Показывать число</span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -751,65 +744,65 @@ function ColorRow({
   color?: import("@/lib/palette").PaletteColor;
   onChange: (c: import("@/lib/palette").PaletteColor | null) => void;
 }) {
+  const currentName = color ?? "default";
+  const currentLabel =
+    PALETTE_GRID.find((c) => c.name === currentName)?.label ?? "По умолчанию";
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="-mx-1 flex items-center justify-between rounded-md px-1 py-1
+          className="flex w-full items-center justify-between px-3 py-2
                      text-[13px] transition-colors hover:bg-muted/40"
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
-            <KB_PROPERTY_UI_ICONS.appearance className="size-4 text-muted-foreground/70" />
+            <KB_PROPERTY_UI_ICONS.color className="size-4 text-muted-foreground/70" />
             Цвет
           </span>
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5 text-foreground">
             <span
-              className={cn("size-3.5 rounded-full shrink-0", paletteDot(color ?? "default"))}
+              className={cn(
+                "size-3.5 shrink-0 rounded-full",
+                currentName === "default"
+                  ? "border border-border"
+                  : paletteDot(currentName),
+              )}
             />
+            {currentLabel}
             <ChevronRight className="size-3.5 text-muted-foreground/50" />
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={6} className="w-[220px] p-3 rounded-[10px]">
-        <div className="text-[12px] text-muted-foreground/70 pb-1.5">Цвет</div>
-        <div className="grid grid-cols-5 gap-1.5">
-          {PALETTE_GRID.map((c) => {
-            const isCurrent = (color ?? "default") === c.name;
-            return (
-              <button
-                key={c.name}
-                type="button"
-                onClick={() => onChange(c.name === "default" ? null : c.name)}
-                className="flex flex-col items-center gap-1"
-                aria-label={c.label}
-              >
-                <span
-                  className={cn(
-                    "relative size-9 rounded-lg inline-flex items-center justify-center",
-                    c.name === "default"
-                      ? "border border-border bg-background"
-                      : paletteDot(c.name),
-                  )}
-                >
-                  {isCurrent && (
-                    <Check
-                      className={cn(
-                        "size-4",
-                        c.name === "default"
-                          ? "text-foreground"
-                          : "text-white",
-                      )}
-                    />
-                  )}
-                </span>
-                <span className="text-[10px] text-muted-foreground leading-none">
-                  {c.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+      <PopoverContent
+        align="end"
+        sideOffset={6}
+        className="w-[200px] p-1.5 rounded-[10px]"
+      >
+        {PALETTE_GRID.map((c) => {
+          const isCurrent = currentName === c.name;
+          return (
+            <button
+              key={c.name}
+              type="button"
+              onClick={() => onChange(c.name === "default" ? null : c.name)}
+              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5
+                         text-[13px] transition-colors hover:bg-muted/50"
+            >
+              <span
+                className={cn(
+                  "size-4 shrink-0 rounded-full",
+                  c.name === "default"
+                    ? "border border-border"
+                    : paletteDot(c.name),
+                )}
+              />
+              <span className="flex-1 text-left">{c.label}</span>
+              {isCurrent && (
+                <Check className="size-3.5 text-muted-foreground/60" />
+              )}
+            </button>
+          );
+        })}
       </PopoverContent>
     </Popover>
   );

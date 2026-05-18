@@ -385,9 +385,17 @@ export function KbPageProperties({
         const updated = { ...p } as KbProperty & { displayVariant?: string };
         if (p.type === "number") {
           if (variant === "rating") {
+            const nMax = (p as Extract<KbProperty, { type: "number" }>).max ?? 5;
             updated.displayVariant = "rating";
-            (updated as Extract<KbProperty, { type: "number" }>).max =
-              (p as Extract<KbProperty, { type: "number" }>).max ?? 5;
+            (updated as Extract<KbProperty, { type: "number" }>).max = nMax;
+            if (
+              (updated as Extract<KbProperty, { type: "number" }>).value !==
+                null &&
+              ((updated as Extract<KbProperty, { type: "number" }>)
+                .value as number) > nMax
+            ) {
+              (updated as Extract<KbProperty, { type: "number" }>).value = nMax;
+            }
             (updated as Extract<KbProperty, { type: "number" }>).ratingVariant =
               (p as Extract<KbProperty, { type: "number" }>).ratingVariant ??
               "stars";
@@ -405,6 +413,11 @@ export function KbPageProperties({
         }
         if (variant === undefined) delete updated.displayVariant;
         else updated.displayVariant = variant;
+        if (p.type === "rating") {
+          const rMax = (p as Extract<KbProperty, { type: "rating" }>).max ?? 5;
+          const r = updated as Extract<KbProperty, { type: "rating" }>;
+          if (r.value !== null && r.value > rMax) r.value = rMax;
+        }
         return updated as KbProperty;
       });
       scheduleSave(next);
@@ -429,10 +442,17 @@ export function KbPageProperties({
           delete u.ratingShowValue;
           return u as KbProperty;
         }
+        const max = p.max ?? 5;
+        // Переход «число → звёзды/слайдер»: значение не может
+        // превышать шкалу — иначе server-схема (rating ≤ max)
+        // отвергает сохранение. Зажимаем до max.
+        const clampedValue =
+          p.value !== null && p.value > max ? max : p.value;
         return {
           ...p,
+          value: clampedValue,
           displayVariant: "rating",
-          max: p.max ?? 5,
+          max,
           ratingVariant: view,
           ratingShowValue: p.ratingShowValue ?? true,
         } as KbProperty;

@@ -18,7 +18,7 @@ export const CURRENCIES = [
   { value: "EUR", label: "€ Евро" },
   { value: "KZT", label: "₸ Казахстанский тенге" },
   { value: "BYN", label: "Br Белорусский рубль" },
-  { value: "UZS", label: "Uzbek Sum" },
+  { value: "UZS", label: "сўм Узбекский сум" },
   { value: "UAH", label: "₴ Украинская гривна" },
   { value: "GBP", label: "£ Британский фунт" },
   { value: "AED", label: "AED Дирхам ОАЭ" },

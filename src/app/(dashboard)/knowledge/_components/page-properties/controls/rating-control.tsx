@@ -60,7 +60,7 @@ export function RatingValueControl({
     const accentClass =
       color && color !== "default" && RATING_ACCENT[color]
         ? RATING_ACCENT[color]
-        : "accent-amber-400";
+        : "accent-zinc-400";
     return (
       <div className="inline-flex items-center gap-2 max-w-full">
         <input
@@ -97,7 +97,7 @@ export function RatingValueControl({
   const filledClass =
     color && color !== "default" && RATING_STAR[color]
       ? RATING_STAR[color]
-      : "fill-amber-400 text-amber-400";
+      : "fill-zinc-400 text-zinc-400";
 
   return (
     <div
@@ -126,7 +126,7 @@ export function RatingValueControl({
             className={cn(
               "size-5 inline-flex items-center justify-center rounded transition-colors",
               canEdit
-                ? "hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
+                ? "hover:bg-foreground/[0.06]"
                 : "cursor-default",
             )}
           >
@@ -135,7 +135,7 @@ export function RatingValueControl({
                 "size-3.5 transition-colors",
                 filled
                   ? isHoverPreview && hover !== null && (value ?? 0) < star
-                    ? "fill-amber-300 text-amber-400/80"
+                    ? cn(filledClass, "opacity-60")
                     : filledClass
                   : "text-muted-foreground/30",
               )}

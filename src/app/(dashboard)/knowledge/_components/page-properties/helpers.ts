@@ -13,6 +13,8 @@ import {
 
 import type { KbProperty, KbPropertyType } from "@/types/knowledge";
 
+import { quickDateISO } from "./controls/date-control-helpers";
+
 export const TYPE_ICONS: Record<
   KbPropertyType,
   ComponentType<{ className?: string }>
@@ -47,7 +49,6 @@ export const PROPERTY_TYPE_ORDER: KbPropertyType[] = [
   "select",
   "multi-select",
   "url",
-  "rating",
 ];
 
 export const CREATABLE_PROPERTY_TYPES: KbPropertyType[] = PROPERTY_TYPE_ORDER;
@@ -78,7 +79,7 @@ export function makeProperty(
     case "number":
       return { id, name: baseName, type: "number", value: null };
     case "date":
-      return { id, name: baseName, type: "date", value: null };
+      return { id, name: baseName, type: "date", value: quickDateISO("today") };
     case "checkbox":
       return { id, name: baseName, type: "checkbox", value: false };
     case "select":

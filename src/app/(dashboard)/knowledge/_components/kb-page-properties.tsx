@@ -48,6 +48,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import type { Unit } from "@/lib/units";
@@ -297,6 +302,12 @@ export function KbPageProperties({
             ...(optionProp.optionColors
               ? { optionColors: optionProp.optionColors }
               : {}),
+            ...(optionProp.optionDescriptions
+              ? { optionDescriptions: optionProp.optionDescriptions }
+              : {}),
+            ...(optionProp.optionSort
+              ? { optionSort: optionProp.optionSort }
+              : {}),
           } as KbProperty;
         }
         return { ...fresh, id: p.id, ...carriedIcon } as KbProperty;
@@ -545,8 +556,12 @@ export function KbPageProperties({
   };
 
   const changePropertyDescription = (id: string, description: string) => {
-    const nextDescription = description.trim().slice(0, 280);
-    updateProperty(id, { description: nextDescription || undefined } as Partial<KbProperty>);
+    // Raw (без trim) — live-commit на каждый keystroke, иначе resync
+    // draft'а из пропа съедал бы пробелы. Trim делает zod при сохранении.
+    const nextDescription = description.slice(0, 280);
+    updateProperty(id, {
+      description: nextDescription === "" ? undefined : nextDescription,
+    } as Partial<KbProperty>);
   };
 
   // DnD reorder: arrayMove + scheduleSave. distance=4 — чтобы scroll
@@ -717,10 +732,30 @@ export function KbPageProperties({
                               ? filtered
                               : undefined;
                         }
+                        const currDesc = (
+                          prop as
+                            | Extract<KbProperty, { type: "select" }>
+                            | Extract<KbProperty, { type: "multi-select" }>
+                        ).optionDescriptions;
+                        let nextDesc:
+                          | Partial<Record<string, string>>
+                          | undefined = currDesc;
+                        if (currDesc) {
+                          const filtered = Object.fromEntries(
+                            Object.entries(currDesc).filter(([k]) =>
+                              allowed.has(k),
+                            ),
+                          );
+                          nextDesc =
+                            Object.keys(filtered).length > 0
+                              ? filtered
+                              : undefined;
+                        }
                         // Для multi-select также чистим value от удалённых.
                         const patch: Partial<KbProperty> = {
                           options,
                           optionColors: nextColors,
+                          optionDescriptions: nextDesc,
                         } as Partial<KbProperty>;
                         if (prop.type === "multi-select") {
                           const filteredValue = (prop.value as string[]).filter(
@@ -760,9 +795,19 @@ export function KbPageProperties({
                         optionColors =
                           Object.keys(next).length > 0 ? next : undefined;
                       }
+                      let optionDescriptions = p.optionDescriptions;
+                      if (optionDescriptions && from in optionDescriptions) {
+                        const next = { ...optionDescriptions };
+                        const carried = next[from];
+                        delete next[from];
+                        if (carried !== undefined) next[to] = carried;
+                        optionDescriptions =
+                          Object.keys(next).length > 0 ? next : undefined;
+                      }
                       const patch = {
                         options,
                         optionColors,
+                        optionDescriptions,
                       } as Partial<KbProperty>;
                       if (p.type === "select") {
                         (patch as { value?: string | null }).value =
@@ -792,9 +837,20 @@ export function KbPageProperties({
                         optionColors =
                           Object.keys(next).length > 0 ? next : undefined;
                       }
+                      let optionDescriptions = p.optionDescriptions;
+                      if (
+                        optionDescriptions &&
+                        option in optionDescriptions
+                      ) {
+                        const next = { ...optionDescriptions };
+                        delete next[option];
+                        optionDescriptions =
+                          Object.keys(next).length > 0 ? next : undefined;
+                      }
                       const patch = {
                         options,
                         optionColors,
+                        optionDescriptions,
                       } as Partial<KbProperty>;
                       if (p.type === "select") {
                         (patch as { value?: string | null }).value =
@@ -825,11 +881,26 @@ export function KbPageProperties({
                     onChangeNumberDecimals={(decimals) =>
                       changeNumberDecimals(prop.id, decimals)
                     }
+                    onChangeDateFormat={(fmt) =>
+                      updateProperty(prop.id, {
+                        dateFormat: fmt,
+                      } as Partial<KbProperty>)
+                    }
                     onRemove={() => removeProperty(prop.id)}
                     onDuplicate={() => duplicateProperty(prop.id)}
                     onChangeType={(t) => changePropertyType(prop.id, t)}
                     onChangeRatingColor={(c) => changeRatingColor(prop.id, c)}
                     onChangeRatingShowValue={(s) => changeRatingShowValue(prop.id, s)}
+                    onChangeOptionSort={(sort) =>
+                      updateProperty(prop.id, {
+                        optionSort: sort,
+                      } as Partial<KbProperty>)
+                    }
+                    onChangeOptionDescriptions={(d) =>
+                      updateProperty(prop.id, {
+                        optionDescriptions: d,
+                      } as Partial<KbProperty>)
+                    }
                   />
                 ))}
               </ul>
@@ -970,6 +1041,8 @@ interface PropertyRowProps {
   onChangeNumberView: (view: "number" | "stars" | "slider") => void;
   /** Округление number при отображении. undefined = «Авто». */
   onChangeNumberDecimals: (decimals: number | undefined) => void;
+  /** Формат отображения даты: full / short / relative. */
+  onChangeDateFormat: (fmt: "full" | "short" | "relative") => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -977,6 +1050,12 @@ interface PropertyRowProps {
   onChangeRatingColor: (color: KbPropertyColor | null) => void;
   /** Показывать / скрывать числовой лейбл рядом со слайдером. */
   onChangeRatingShowValue: (show: boolean) => void;
+  /** Порядок вариантов select/multi-select: manual / alpha / alpha-desc. */
+  onChangeOptionSort: (sort: "manual" | "alpha" | "alpha-desc") => void;
+  /** Per-option описания select/multi-select. */
+  onChangeOptionDescriptions: (
+    d: Partial<Record<string, string>> | undefined,
+  ) => void;
 }
 
 function CollectionScopedPropertyRow({
@@ -1047,11 +1126,14 @@ function PropertyRow({
   onChangeDisplayVariant,
   onChangeNumberView,
   onChangeNumberDecimals,
+  onChangeDateFormat,
   onRemove,
   onDuplicate,
   onChangeType,
   onChangeRatingColor,
   onChangeRatingShowValue,
+  onChangeOptionSort,
+  onChangeOptionDescriptions,
 }: PropertyRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -1083,7 +1165,7 @@ function PropertyRow({
       ref={setNodeRef}
       style={dragStyle}
       className={cn(
-        "group/row relative flex items-center gap-2 min-h-[36px] py-1 rounded-md",
+        "group/row relative flex items-start gap-2 min-h-[36px] py-1 rounded-md",
         // Subtle background ТОЛЬКО на active-drag (визуальный feedback
         // reorder'а). Фоновая подсветка всего ряда специально НЕ
         // ставим — только label с именем (просьба юзера, см. ниже).
@@ -1097,7 +1179,7 @@ function PropertyRow({
         <button
           type="button"
           aria-label="Перетащить свойство"
-          className="absolute right-full top-1/2 -translate-y-1/2 mr-1 size-5
+          className="absolute right-full top-2 mr-1 size-5
                      flex items-center justify-center text-muted-foreground/40
                      cursor-grab active:cursor-grabbing
                      opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
@@ -1127,6 +1209,9 @@ function PropertyRow({
           onChangeValue={onChangeValue}
           onChangeOptions={onChangeOptions}
           onChangeOptionColors={onChangeOptionColors}
+          onChangeOptionDescriptions={onChangeOptionDescriptions}
+          onRenameOption={onRenameOption}
+          onRemoveOption={onRemoveOption}
         />
       </div>
       {canEdit && (
@@ -1177,6 +1262,7 @@ function PropertyRow({
             onChangeDisplayVariant={onChangeDisplayVariant}
             onChangeNumberView={onChangeNumberView}
             onChangeNumberDecimals={onChangeNumberDecimals}
+            onChangeDateFormat={onChangeDateFormat}
             onToggleCollapse={onToggleCollapse}
             onChangeOptions={onChangeOptions}
             onChangeOptionColors={onChangeOptionColors}
@@ -1184,6 +1270,8 @@ function PropertyRow({
             onRemoveOption={onRemoveOption}
             onChangeRatingColor={onChangeRatingColor}
             onChangeRatingShowValue={onChangeRatingShowValue}
+            onChangeOptionSort={onChangeOptionSort}
+            onChangeOptionDescriptions={onChangeOptionDescriptions}
           />
         </>
       )}
@@ -1207,7 +1295,25 @@ function PropertyLabelTrigger({
   onChangeIcon: (icon: string | null, iconColor: string | null) => void;
   onOpenMenu: () => void;
 }) {
-  return (
+  const desc = property.description?.trim();
+  const nameEl = canEdit ? (
+    <button
+      type="button"
+      onClick={onOpenMenu}
+      className="w-[168px] shrink-0 truncate text-left text-[13px]
+                 text-muted-foreground outline-none transition-colors
+                 hover:text-foreground"
+      aria-label="Настройки свойства"
+    >
+      {property.name}
+    </button>
+  ) : (
+    <span className="w-[168px] shrink-0 truncate text-[13px] text-muted-foreground">
+      {property.name}
+    </span>
+  );
+
+  const row = (
     <div
       className="flex items-center gap-2 -ml-1.5 rounded-md px-1.5 py-1
                  transition-colors hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
@@ -1217,23 +1323,34 @@ function PropertyLabelTrigger({
         canEdit={canEdit}
         onChangeIcon={onChangeIcon}
       />
-      {canEdit ? (
-        <button
-          type="button"
-          onClick={onOpenMenu}
-          className="w-[168px] shrink-0 truncate text-left text-[13px]
-                     text-muted-foreground outline-none transition-colors
-                     hover:text-foreground"
-          aria-label="Настройки свойства"
-        >
-          {property.name}
-        </button>
-      ) : (
-        <span className="w-[168px] shrink-0 truncate text-[13px] text-muted-foreground">
-          {property.name}
-        </span>
-      )}
+      {nameEl}
     </div>
+  );
+
+  if (!desc) return row;
+
+  // Триггер тултипа — весь label-блок (иконка + имя), поэтому подсказка
+  // встаёт слева от иконки и не перекрывает её / меню (Notion-style).
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{row}</TooltipTrigger>
+      <TooltipContent
+        side="left"
+        align="center"
+        sideOffset={24}
+        collisionPadding={8}
+        className="max-w-[300px]"
+      >
+        <div className="grid gap-0.5">
+          <strong className="font-semibold leading-tight">
+            {property.name}
+          </strong>
+          <span className="font-normal leading-snug text-neutral-200">
+            {desc}
+          </span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -1246,7 +1363,7 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
   return (
     <li
       className={cn(
-        "flex items-center gap-2 min-h-[36px] py-1 rounded-md",
+        "flex items-start gap-2 min-h-[36px] py-1 rounded-md",
         "bg-card shadow-md ring-1 ring-border/40",
         "px-2",
       )}
@@ -1288,6 +1405,9 @@ export function PropertyValueControl({
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
+  onChangeOptionDescriptions,
+  onRenameOption,
+  onRemoveOption,
 }: {
   property: KbProperty;
   canEdit: boolean;
@@ -1297,6 +1417,11 @@ export function PropertyValueControl({
   onChangeOptionColors: (
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
+  onChangeOptionDescriptions?: (
+    d: Partial<Record<string, string>> | undefined,
+  ) => void;
+  onRenameOption?: (from: string, to: string) => void;
+  onRemoveOption?: (option: string) => void;
 }) {
   switch (property.type) {
     case "text": {
@@ -1331,6 +1456,7 @@ export function PropertyValueControl({
         <DateValueControl
           value={property.value}
           canEdit={canEdit}
+          format={property.dateFormat ?? "full"}
           onChange={onChangeValue}
         />
       );
@@ -1360,6 +1486,9 @@ export function PropertyValueControl({
         onChangeValue={onChangeValue}
         onChangeOptions={onChangeOptions}
         onChangeOptionColors={onChangeOptionColors}
+        onChangeOptionDescriptions={onChangeOptionDescriptions}
+        onRenameOption={onRenameOption}
+        onRemoveOption={onRemoveOption}
       />;
     case "url":
       return <UrlValueControl
@@ -1386,6 +1515,9 @@ export function PropertyValueControl({
         onChangeValue={onChangeValue}
         onChangeOptions={onChangeOptions}
         onChangeOptionColors={onChangeOptionColors}
+        onChangeOptionDescriptions={onChangeOptionDescriptions}
+        onRenameOption={onRenameOption}
+        onRemoveOption={onRemoveOption}
       />;
   }
 }

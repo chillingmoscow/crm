@@ -35,7 +35,11 @@ import {
   type KbImportResultItem,
 } from "@/lib/knowledge/import";
 import { uploadKbAttachment } from "@/lib/knowledge/attachments";
-import { saveKbPage, setKbPageParent } from "@/lib/knowledge/pages";
+import {
+  saveKbPage,
+  setKbPageParent,
+  getKbPageById,
+} from "@/lib/knowledge/pages";
 import { saveKbPageProperties } from "@/lib/knowledge/properties";
 import { nanoid } from "nanoid";
 
@@ -690,10 +694,18 @@ export default function KbImportDialogBody({
       for (let di = 0; di < databases.length; di++) {
         const db = databases[di];
         try {
-          const containerPageId =
-            db.containerUuid && uuidMap.has(db.containerUuid)
-              ? uuidMap.get(db.containerUuid)!.pageId
-              : parentId;
+          // Уважаем выбор пользователя (Codex P2): если у базы есть
+          // страница-контейнер, но она НЕ импортирована (снята с
+          // выбора / отсутствует) — базу пропускаем целиком, не
+          // подкладываем её под selectedRoot. Контейнер=null
+          // (база в корне экспорта) → кладём под выбранный root.
+          let containerPageId: string | null;
+          if (db.containerUuid) {
+            if (!uuidMap.has(db.containerUuid)) continue;
+            containerPageId = uuidMap.get(db.containerUuid)!.pageId;
+          } else {
+            containerPageId = parentId;
+          }
           if (!containerPageId) {
             failures.push(`«${db.title}»: нет страницы-контейнера`);
             continue;
@@ -730,15 +742,40 @@ export default function KbImportDialogBody({
           const snapEntry = snapshot.find(
             (s) => s.pageId === containerPageId,
           );
-          const containerBlocks = snapEntry
-            ? [...snapEntry.blocks, collectionBlock]
-            : [collectionBlock];
-          if (snapEntry) snapEntry.blocks = containerBlocks;
+          let containerBlocks: KbBlock[];
+          let containerTitle: string;
+          let containerIcon: string | null = null;
+          let containerIconColor: string | null = null;
+          if (snapEntry) {
+            containerBlocks = [...snapEntry.blocks, collectionBlock];
+            containerTitle = snapEntry.title;
+            snapEntry.blocks = containerBlocks;
+          } else {
+            // Контейнер — уже существующая страница (импорт в неё), её
+            // НЕ затираем (Codex P1): читаем текущий контент/заголовок
+            // и ДОБАВЛЯЕМ блок-коллекцию в конец.
+            const { row: existing, error: getErr } =
+              await getKbPageById(containerPageId);
+            if (getErr || !existing) {
+              failures.push(
+                `«${db.title}» (контейнер): ${getErr ?? "страница не найдена"}`,
+              );
+              continue;
+            }
+            const existingBlocks =
+              (existing.content as unknown as KbBlock[]) ?? [];
+            containerBlocks = [...existingBlocks, collectionBlock];
+            containerTitle = existing.title;
+            containerIcon =
+              (existing as { icon?: string | null }).icon ?? null;
+            containerIconColor =
+              (existing as { icon_color?: string | null }).icon_color ?? null;
+          }
           const { error: blockErr } = await saveKbPage({
             id: containerPageId,
-            title: snapEntry?.title ?? db.title,
-            icon: null,
-            icon_color: null,
+            title: containerTitle,
+            icon: containerIcon,
+            icon_color: containerIconColor,
             content: containerBlocks,
             plain_text: blocksToPlainText(containerBlocks),
           });

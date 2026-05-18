@@ -35,11 +35,38 @@ import {
   type KbImportResultItem,
 } from "@/lib/knowledge/import";
 import { uploadKbAttachment } from "@/lib/knowledge/attachments";
-import { saveKbPage, setKbPageParent } from "@/lib/knowledge/pages";
+import {
+  saveKbPage,
+  setKbPageParent,
+  getKbPageById,
+} from "@/lib/knowledge/pages";
+import { saveKbPageProperties } from "@/lib/knowledge/properties";
+import { nanoid } from "nanoid";
+
+import {
+  inferKbPropertiesFromPairs,
+  inferCollectionFieldsFromCsv,
+  coerceCsvCellToFieldValue,
+  cleanNotionPropertyValue,
+} from "@/lib/knowledge/notion-properties";
+import { parseCsv } from "@/lib/knowledge/csv";
+import {
+  getOrCreateKbPageCollection,
+  createKbCollectionRecord,
+  updateKbCollection,
+  updateKbCollectionRecordTitle,
+} from "@/lib/knowledge/collection-actions";
+import {
+  getPageCollectionId,
+  serializeCollectionSchema,
+  type KbCollectionSchema,
+} from "@/lib/knowledge/collection";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
   parseNotionZip,
-  stripNotionProperties,
+  extractNotionProperties,
+  buildNotionPropertiesToggle,
+  extractNotionUuidFromName,
   dropDuplicateTitleHeading,
   relinkNotionMentions,
   preprocessNotionCallouts,
@@ -332,7 +359,11 @@ export default function KbImportDialogBody({
         const rawBlocks = postprocessNotionCallouts(parsed);
 
         const titleStripped = dropDuplicateTitleHeading(rawBlocks, node.title);
-        const propsStripped = stripNotionProperties(titleStripped);
+        // Notion-DB property-параграфы вырезаем из контента и мапим в
+        // типизированные KB page-properties (см. saveKbPageProperties
+        // ниже) — вместо сырого toggle «Свойства».
+        const { blocks: propsStripped, pairs: notionPropertyPairs } =
+          extractNotionProperties(titleStripped);
 
         const refs = collectRelativeMediaRefs(propsStripped);
         const urlMap = new Map<string, string>();
@@ -369,6 +400,44 @@ export default function KbImportDialogBody({
             slug: row.slug,
             title: row.title,
           });
+        }
+
+        // Notion-DB-свойства страницы → типизированные KB
+        // page-properties. Best-effort: ошибка не валит импорт.
+        if (notionPropertyPairs.length > 0) {
+          const props = inferKbPropertiesFromPairs(notionPropertyPairs);
+          let propsPersisted = false;
+          if (props.length > 0) {
+            const { error: propErr } = await saveKbPageProperties({
+              pageId: row.id,
+              properties: props,
+            });
+            if (propErr) {
+              failures.push(`«${node.title}» (свойства): ${propErr}`);
+            } else {
+              propsPersisted = true;
+            }
+          }
+          // Fallback (Codex P1): типизированное сохранение не удалось
+          // или ни одно свойство не выведено — НЕ теряем метаданные,
+          // возвращаем их в контент скрытым toggle «Свойства».
+          if (!propsPersisted) {
+            const toggle = buildNotionPropertiesToggle(notionPropertyPairs);
+            const withProps = [toggle, ...cleanedNoImagesNoLinks];
+            const { error: restoreErr } = await saveKbPage({
+              id: row.id,
+              title: node.title,
+              icon: null,
+              icon_color: null,
+              content: withProps,
+              plain_text: blocksToPlainText(withProps),
+            });
+            if (restoreErr) {
+              failures.push(
+                `«${node.title}» (свойства, fallback): ${restoreErr}`,
+              );
+            }
+          }
         }
 
         // Ключуем urlMap по **resolved full-path** внутри ZIP'а
@@ -612,6 +681,258 @@ export default function KbImportDialogBody({
       }
       done++;
       setProgress({ phase: "hierarchy", done, total: ordered.length });
+    }
+
+    // ─── Notion-базы → KB-коллекции ──────────────────────────────────
+    // Каждая база: collection-блок на странице-контейнере + kb_collections
+    // со схемой из CSV + по записи-подстранице на строку с
+    // типизированными scoped-значениями. Best-effort: сбой одной базы
+    // не валит остальной импорт.
+    const databases = result.databases ?? [];
+    if (databases.length > 0) {
+      setProgress({ phase: "import", done: 0, total: databases.length });
+      for (let di = 0; di < databases.length; di++) {
+        const db = databases[di];
+        try {
+          // Уважаем выбор пользователя (Codex P2): если у базы есть
+          // страница-контейнер, но она НЕ импортирована (снята с
+          // выбора / отсутствует) — базу пропускаем целиком, не
+          // подкладываем её под selectedRoot. Контейнер=null
+          // (база в корне экспорта) → кладём под выбранный root.
+          let containerPageId: string | null;
+          if (db.containerUuid) {
+            if (!uuidMap.has(db.containerUuid)) continue;
+            containerPageId = uuidMap.get(db.containerUuid)!.pageId;
+          } else {
+            containerPageId = parentId;
+          }
+          if (!containerPageId) {
+            failures.push(`«${db.title}»: нет страницы-контейнера`);
+            continue;
+          }
+          const table = parseCsv(db.csvText);
+          const headers = table[0] ?? [];
+          const dataRows = table
+            .slice(1)
+            .filter((r) => r.some((c) => c.trim().length > 0));
+          if (headers.length === 0 || dataRows.length === 0) continue;
+
+          const { titleColumnIndex, fields } = inferCollectionFieldsFromCsv(
+            headers,
+            dataRows,
+          );
+          const schema: KbCollectionSchema = { version: 1, fields };
+          const schemaJson = serializeCollectionSchema(schema);
+          const collectionKey = getPageCollectionId(containerPageId);
+
+          // 1. collection-блок в контент страницы-контейнера.
+          const blockId = nanoid();
+          const collectionBlock = {
+            id: blockId,
+            type: "collection",
+            props: {
+              collectionId: collectionKey,
+              title: db.title,
+              schemaJson,
+              view: "table",
+            },
+            content: [],
+            children: [],
+          } as unknown as KbBlock;
+          const snapEntry = snapshot.find(
+            (s) => s.pageId === containerPageId,
+          );
+          let containerBlocks: KbBlock[];
+          let containerTitle: string;
+          let containerIcon: string | null = null;
+          let containerIconColor: string | null = null;
+          if (snapEntry) {
+            containerBlocks = [...snapEntry.blocks, collectionBlock];
+            containerTitle = snapEntry.title;
+            snapEntry.blocks = containerBlocks;
+          } else {
+            // Контейнер — уже существующая страница (импорт в неё), её
+            // НЕ затираем (Codex P1): читаем текущий контент/заголовок
+            // и ДОБАВЛЯЕМ блок-коллекцию в конец.
+            const { row: existing, error: getErr } =
+              await getKbPageById(containerPageId);
+            if (getErr || !existing) {
+              failures.push(
+                `«${db.title}» (контейнер): ${getErr ?? "страница не найдена"}`,
+              );
+              continue;
+            }
+            const existingBlocks =
+              (existing.content as unknown as KbBlock[]) ?? [];
+            containerBlocks = [...existingBlocks, collectionBlock];
+            containerTitle = existing.title;
+            containerIcon =
+              (existing as { icon?: string | null }).icon ?? null;
+            containerIconColor =
+              (existing as { icon_color?: string | null }).icon_color ?? null;
+          }
+          const { error: blockErr } = await saveKbPage({
+            id: containerPageId,
+            title: containerTitle,
+            icon: containerIcon,
+            icon_color: containerIconColor,
+            content: containerBlocks,
+            plain_text: blocksToPlainText(containerBlocks),
+          });
+          if (blockErr) failures.push(`«${db.title}» (блок): ${blockErr}`);
+
+          // 2. kb_collections + схема.
+          const { state, error: colErr } = await getOrCreateKbPageCollection({
+            pageId: containerPageId,
+            blockId,
+          });
+          if (colErr || !state) {
+            failures.push(`«${db.title}»: ${colErr ?? "коллекция не создана"}`);
+            continue;
+          }
+          await updateKbCollection({
+            collectionId: state.collection.id,
+            title: db.title,
+            schemaJson,
+          });
+
+          // 3. Строки → записи.
+          for (const dataRow of dataRows) {
+            const titleVal =
+              cleanNotionPropertyValue(dataRow[titleColumnIndex] ?? "") ||
+              "Без названия";
+            const rec = await createKbCollectionRecord({
+              parentPageId: containerPageId,
+              collectionId: collectionKey,
+              collectionTitle: db.title,
+              schemaJson,
+            });
+            if (rec.error || !rec.id || !rec.row) {
+              if (rec.error)
+                failures.push(`«${db.title}» (строка «${titleVal}»): ${rec.error}`);
+              continue;
+            }
+            // Типизированные значения по полям.
+            const props = (rec.row.properties ?? []).map((p) => {
+              const scope = (p as { scope?: { type?: string; fieldId?: string } })
+                .scope;
+              if (scope?.type !== "collection") return p;
+              const field =
+                fields.find((f) => f.id === scope.fieldId) ??
+                fields.find((f) => f.name === p.name);
+              if (!field) return p;
+              const colIdx = headers.findIndex(
+                (h) => h.trim() === field.name,
+              );
+              if (colIdx < 0) return p;
+              const value = coerceCsvCellToFieldValue(
+                field,
+                dataRow[colIdx] ?? "",
+              );
+              return { ...p, value } as typeof p;
+            });
+            await saveKbPageProperties({
+              pageId: rec.id,
+              properties: props,
+            });
+            await updateKbCollectionRecordTitle({
+              pageId: rec.id,
+              title: titleVal,
+            });
+            imported.push({
+              id: rec.id,
+              slug: rec.slug ?? "",
+              title: titleVal,
+            });
+
+            // Тело записи из соответствующего .md (best-effort).
+            const rowFile = db.rows.find(
+              (r) => r.title.trim().toLowerCase() === titleVal.toLowerCase(),
+            );
+            // Регистрируем UUID строки-базы → запись: ссылки из других
+            // импортированных страниц на эту строку станут mention'ами
+            // (финальный relink-pass ниже, PR3). Регистрируем даже без
+            // распарсенного тела.
+            const rowUuid = rowFile
+              ? extractNotionUuidFromName(rowFile.file.name)
+              : null;
+            if (rowUuid) {
+              uuidMap.set(rowUuid, {
+                pageId: rec.id,
+                slug: rec.slug ?? "",
+                title: titleVal,
+              });
+            }
+            if (rowFile) {
+              try {
+                const md = preprocessNotionCallouts(await rowFile.file.text());
+                const parsed = (await editor.tryParseMarkdownToBlocks(
+                  md,
+                )) as unknown as KbBlock[];
+                const post = postprocessNotionCallouts(parsed);
+                const noTitle = dropDuplicateTitleHeading(post, titleVal);
+                const { blocks: noProps } = extractNotionProperties(noTitle);
+                const body = rewriteBrokenMediaBlocks(noProps);
+                await saveKbPage({
+                  id: rec.id,
+                  title: titleVal,
+                  icon: null,
+                  icon_color: null,
+                  content: body,
+                  plain_text: blocksToPlainText(body),
+                });
+                // В финальный relink-pass (PR3): тело записи может
+                // ссылаться на другие импортированные страницы/строки.
+                snapshot.push({
+                  pageId: rec.id,
+                  title: titleVal,
+                  blocks: body,
+                  hadZipParent: true,
+                });
+              } catch {
+                /* тело best-effort — пропускаем при сбое парсинга */
+              }
+            }
+          }
+        } catch (err) {
+          failures.push(
+            `«${db.title}»: ${err instanceof Error ? err.message : "ошибка базы"}`,
+          );
+        }
+        setProgress({ phase: "import", done: di + 1, total: databases.length });
+      }
+    }
+
+    // ─── Финальный relink-pass (PR3) ─────────────────────────────────
+    // uuidMap теперь содержит и обычные страницы, и строки-записи баз.
+    // Перепроходим весь snapshot (страницы + тела записей) — внутренние
+    // Notion-ссылки (`*.md`, `notion.so/<uuid>`) → kbPageMention.
+    // Перезаписываем только изменённые. Это «нераспознанные → читаемый
+    // текст» уже обеспечено cleanNotionPropertyValue для свойств.
+    if (snapshot.length > 0) {
+      setProgress({ phase: "relink", done: 0, total: snapshot.length });
+      for (let i = 0; i < snapshot.length; i++) {
+        const entry = snapshot[i];
+        const { blocks, replacements } = relinkNotionMentions(
+          entry.blocks,
+          uuidMap,
+        );
+        if (replacements > 0) {
+          entry.blocks = blocks;
+          const { error: relinkErr } = await saveKbPage({
+            id: entry.pageId,
+            title: entry.title,
+            icon: null,
+            icon_color: null,
+            content: blocks,
+            plain_text: blocksToPlainText(blocks),
+          });
+          if (relinkErr) {
+            failures.push(`«${entry.title}» (перелинковка): ${relinkErr}`);
+          }
+        }
+        setProgress({ phase: "relink", done: i + 1, total: snapshot.length });
+      }
     }
 
     setPending(false);

@@ -53,9 +53,26 @@ export interface NotionZipNode {
   file: File;
 }
 
+/** Notion-база (таблица): папка с `*.csv` + строками-`.md`. */
+export interface NotionZipDatabase {
+  /** Путь папки базы внутри ZIP'а. */
+  folderPath: string;
+  /** Человекочитаемый заголовок (имя папки без 32-hex hash). */
+  title: string;
+  /** Сырой CSV (предпочитаем `*_all.csv` — полный набор строк). */
+  csvText: string;
+  /** UUID .md-страницы, физически содержащей базу (родитель блока-
+   *  коллекции). null → база в корне импорта. */
+  containerUuid: string | null;
+  /** Строки базы: .md прямо внутри папки базы (контент строки). */
+  rows: { zipPath: string; title: string; file: File }[];
+}
+
 export interface NotionZipParseResult {
   /** Markdown-файлы в DFS pre-order: parent перед children. */
   pages: NotionZipNode[];
+  /** Notion-базы (таблицы) — импортируются как KB-коллекции. */
+  databases: NotionZipDatabase[];
   /** Все картинки, ключуются по полному пути в ZIP'е. Lookup-стратегия:
    *  сначала relative-resolve от .md-страницы, потом fallback по basename. */
   imagesByPath: Map<string, File>;
@@ -122,6 +139,39 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     // прочее (csv, json и т.п.) — игнорируем.
   }
 
+  // Папки Notion-БАЗ: директория, СОДЕРЖАЩАЯ `*.csv` (Notion кладёт
+  // `<Имя> <hash>.csv` + `_all.csv` рядом со строками-`.md` внутри
+  // папки базы). Имя такой папки = `<Имя> <32-hex>` — без фикса
+  // `extractNotionUuidFromName` принимает hash за UUID родителя,
+  // которого нет среди узлов → строки орфанятся в root плоско.
+  // В walk-up такие сегменты пропускаем: настоящий родитель строки —
+  // ближайшая выше .md-страница, физически содержащая базу.
+  const dbFolderPaths = new Set<string>();
+  const csvByDir = new Map<string, { name: string; blob: Blob }[]>();
+  for (const [p, blob] of flat) {
+    const nm = p.split("/").pop() ?? "";
+    if (!/\.csv$/i.test(nm)) continue;
+    const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+    if (!dir) continue;
+    // Сигнатура Notion-БАЗЫ: CSV назван РОВНО как папка-контейнер
+    // (`<Name> <hash>.csv` / `<Name> <hash>_all.csv` внутри папки
+    // `<Name> <hash>`). Просто «папка с каким-то .csv» базой НЕ
+    // считается — иначе обычная страница со вложенным CSV-аттачментом
+    // потеряла бы детей при walk-up (Codex P2). Сравнение
+    // нечувствительно к регистру.
+    const csvStem = nm
+      .replace(/\.csv$/i, "")
+      .replace(/_all$/i, "")
+      .trim()
+      .toLowerCase();
+    const folderBase = (dir.split("/").pop() ?? "").trim().toLowerCase();
+    if (csvStem !== folderBase) continue;
+    dbFolderPaths.add(dir);
+    const arr = csvByDir.get(dir) ?? [];
+    arr.push({ name: nm, blob });
+    csvByDir.set(dir, arr);
+  }
+
   const isNotionExport = mdEntries.some(
     (e) => extractNotionUuidFromName(e.name) !== null,
   );
@@ -147,9 +197,61 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     folderToUuid.set(childrenFolderPath, fileUuid);
   }
 
+  // Notion-базы: для каждой папки-базы выбираем CSV (предпочитаем
+  // `*_all.csv` — полный набор), строки = прямые .md-дети папки,
+  // containerUuid = ближайшая выше .md-страница (пропуская вложенные
+  // папки-базы). Строки-.md ИСКЛЮЧАЕМ из обычных страниц — они станут
+  // записями коллекции.
+  const databases: NotionZipDatabase[] = [];
+  const rowZipPathSet = new Set<string>();
+  for (const dir of dbFolderPaths) {
+    const csvs = csvByDir.get(dir);
+    if (!csvs || csvs.length === 0) continue;
+    const chosen =
+      csvs.find((c) => /_all\.csv$/i.test(c.name)) ?? csvs[0];
+    const csvText = await chosen.blob.text();
+    const rowEntries = mdEntries.filter((e) => {
+      const d = e.path.includes("/")
+        ? e.path.slice(0, e.path.lastIndexOf("/"))
+        : "";
+      return d === dir;
+    });
+    const rows = rowEntries.map((e) => ({
+      zipPath: e.path,
+      title: cleanNotionTitle(e.name),
+      file: new File([e.blob], e.name, { type: "text/markdown" }),
+    }));
+    for (const e of rowEntries) rowZipPathSet.add(e.path);
+    let containerUuid: string | null = null;
+    const segs = dir.split("/").filter(Boolean);
+    for (let s = segs.length - 2; s >= 0; s--) {
+      const fp = segs.slice(0, s + 1).join("/");
+      if (dbFolderPaths.has(fp)) continue;
+      const direct = extractNotionUuidFromName(segs[s]);
+      if (direct) {
+        containerUuid = direct;
+        break;
+      }
+      const viaFolder = folderToUuid.get(fp);
+      if (viaFolder) {
+        containerUuid = viaFolder;
+        break;
+      }
+    }
+    databases.push({
+      folderPath: dir,
+      title: cleanNotionTitle(dir.split("/").pop() ?? "") || "Коллекция",
+      csvText,
+      containerUuid,
+      rows,
+    });
+  }
+
   const nodesByUuid = new Map<string, NotionZipNode>();
   const orphanNodes: NotionZipNode[] = [];
   for (const { path, name, blob } of mdEntries) {
+    // Строки Notion-базы → записи коллекции, не отдельные страницы.
+    if (rowZipPathSet.has(path)) continue;
     const uuid = extractNotionUuidFromName(name);
     const segments = path.split("/").filter(Boolean);
     const depth = segments.length - 1;
@@ -173,12 +275,16 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     //      дальше вверх к фактической parent-странице.
     let effectiveParentUuid: string | null = null;
     for (let s = segments.length - 2; s >= 0; s--) {
+      const folderPath = segments.slice(0, s + 1).join("/");
+      // Папка-база — не страница: пропускаем сегмент, идём выше к
+      // фактической странице-контейнеру (иначе hash папки-базы
+      // принимается за parentUuid → строки орфанятся в root).
+      if (dbFolderPaths.has(folderPath)) continue;
       const direct = extractNotionUuidFromName(segments[s]);
       if (direct && direct !== uuid) {
         effectiveParentUuid = direct;
         break;
       }
-      const folderPath = segments.slice(0, s + 1).join("/");
       const viaFolder = folderToUuid.get(folderPath);
       if (viaFolder && viaFolder !== uuid) {
         effectiveParentUuid = viaFolder;
@@ -247,7 +353,7 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
   }
   pages.push(...orphanNodes);
 
-  return { pages, imagesByPath, isNotionExport };
+  return { pages, databases, imagesByPath, isNotionExport };
 }
 
 /** Резолвит relative-path внутри ZIP относительно директории страницы.
@@ -438,12 +544,16 @@ function parsePropertiesText(text: string): { key: string; value: string }[] {
   return out;
 }
 
-/** Если первые блоки — параграфы со свойствами Notion'овской DB-страницы,
- *  оборачивает их в `toggleListItem` «Свойства» (скрывающийся список).
- *  Каждая пара `Key: Value` становится отдельным дочерним paragraph'ом —
- *  это позволяет читать аккуратный список при раскрытии toggle. */
-export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
-  if (blocks.length === 0) return blocks;
+/** Детектирует ведущие property-параграфы Notion-DB-страницы и
+ *  возвращает распарсенные пары `{key,value}` + индекс, с которого
+ *  начинается «настоящий» контент (после свойств). Если свойств нет —
+ *  `{ pairs: [], cursor: 0 }`. Общая логика для `stripNotionProperties`
+ *  (legacy toggle) и `extractNotionProperties` (маппинг в KB-props). */
+function extractLeadingProperties(blocks: KbBlock[]): {
+  pairs: { key: string; value: string }[];
+  cursor: number;
+} {
+  if (blocks.length === 0) return { pairs: [], cursor: 0 };
   const propertyBlocks: KbBlock[] = [];
   let cursor = 0;
   while (cursor < blocks.length) {
@@ -455,23 +565,18 @@ export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
     propertyBlocks.push(b);
     cursor++;
   }
-  if (propertyBlocks.length === 0) return blocks;
+  if (propertyBlocks.length === 0) return { pairs: [], cursor: 0 };
 
   // Stronger signal — иначе одиночный intro-параграф вида «Note: …»
-  // (или любая другая фраза с двоеточием) ошибочно сворачивается в
-  // toggle «Свойства», превращая авторский контент в DB-метаданные.
-  // Требуем либо ≥2 consecutive property-параграфов, либо одиночный
-  // параграф со склеенными multi-property парами (≥3 двоеточий —
-  // реальный кейс Notion DB-export'а с merged properties).
+  // ошибочно засчитался бы за DB-метаданные. Требуем ≥2 property-
+  // параграфов либо один склееный с ≥3 двоеточиями (реальный кейс
+  // Notion DB-export'а с merged properties).
   if (propertyBlocks.length === 1) {
     const text = blockPlainText(propertyBlocks[0]).trim();
     const colonCount = (text.match(/[:：]\s/g) ?? []).length;
-    if (colonCount < 3) return blocks;
+    if (colonCount < 3) return { pairs: [], cursor: 0 };
   }
 
-  // Собираем пары {key, value}: для multi-line — каждая строка парсится
-  // отдельно как `Key: Value`, для single-line — режется position-based
-  // парсером (распознаёт ключи внутри склеенного paragraph'а).
   const pairs: { key: string; value: string }[] = [];
   for (const p of propertyBlocks) {
     const text = blockPlainText(p).trim();
@@ -490,18 +595,34 @@ export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
       }
     } else {
       const parsed = parsePropertiesText(text);
-      if (parsed.length === 0) {
-        // не распознали структуру — кладём как одно entry без ключа
-        pairs.push({ key: "", value: text });
-      } else {
-        pairs.push(...parsed);
-      }
+      if (parsed.length === 0) pairs.push({ key: "", value: text });
+      else pairs.push(...parsed);
     }
   }
-  if (pairs.length === 0) return blocks;
+  if (pairs.length === 0) return { pairs: [], cursor: 0 };
+  return { pairs, cursor };
+}
 
-  // Каждое entry — параграф `**ключ:** значение`. Жирный ключ + plain value
-  // через два text-run'а.
+/** Извлекает ведущие Notion-DB property-параграфы как пары
+ *  `{key,value}` и ОТРЕЗАЕТ их из контента (без toggle-обёртки —
+ *  caller замапит их в типизированные KB page-properties через
+ *  inferKbPropertiesFromPairs / saveKbPageProperties). */
+export function extractNotionProperties(blocks: KbBlock[]): {
+  blocks: KbBlock[];
+  pairs: { key: string; value: string }[];
+} {
+  const { pairs, cursor } = extractLeadingProperties(blocks);
+  if (pairs.length === 0) return { blocks, pairs: [] };
+  return { blocks: blocks.slice(cursor), pairs };
+}
+
+/** Собирает скрывающийся toggle-блок «Свойства» из пар {key,value}.
+ *  Используется как fallback: если типизированное сохранение
+ *  page-properties упало (лимиты схемы / RPC) — не теряем метаданные,
+ *  а возвращаем их в контент текстом (Codex P1). */
+export function buildNotionPropertiesToggle(
+  pairs: { key: string; value: string }[],
+): KbBlock {
   const children: KbBlock[] = pairs.map(({ key, value }) => ({
     type: "paragraph",
     props: {},
@@ -513,13 +634,21 @@ export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
       : [{ type: "text", text: value, styles: {} }],
     children: [],
   }));
-  const toggle: KbBlock = {
+  return {
     type: "toggleListItem",
     props: {},
     content: [{ type: "text", text: "Свойства", styles: { bold: true } }],
     children,
   };
-  return [toggle, ...blocks.slice(cursor)];
+}
+
+/** Legacy: ведущие property-параграфы → скрывающийся toggle
+ *  «Свойства». Оставлено для обратной совместимости; новый импорт
+ *  использует `extractNotionProperties` + page-properties. */
+export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
+  const { pairs, cursor } = extractLeadingProperties(blocks);
+  if (pairs.length === 0) return blocks;
+  return [buildNotionPropertiesToggle(pairs), ...blocks.slice(cursor)];
 }
 
 // ─── 4. Internal-link relinking → kbPageMention ─────────────────────────────

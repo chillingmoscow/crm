@@ -190,6 +190,18 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     arr.push(e);
     mdByTitle.set(key, arr);
   }
+  // Директории, содержащие CSV (= поддеревья Notion-баз). Кандидаты
+  // в строки ограничиваем этими поддеревьями: иначе обычная страница
+  // с тем же заголовком, что и строка БД, ошибочно приклеилась бы
+  // телом к записи И выпала бы из обычных страниц (Codex P1 #343).
+  const csvDirs: string[] = [];
+  for (const [p] of flat) {
+    if (!/\.csv$/i.test(p)) continue;
+    const d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+    if (d) csvDirs.push(d);
+  }
+  const underAnyCsvDir = (mdPath: string) =>
+    csvDirs.some((d) => mdPath === d || mdPath.startsWith(d + "/"));
   const CSV_LINK_RE = /\[([^\]]*)\]\(\s*<?([^)>\s]+)>?\s*\)/g;
   const databases: NotionZipDatabase[] = [];
   const rowZipPathSet = new Set<string>();
@@ -243,7 +255,10 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
         if (!rowTitle) continue;
         recordTitles.push(rowTitle);
         const cand = (mdByTitle.get(rowTitle.toLowerCase()) ?? []).find(
-          (e) => e.path !== path && !usedRowPaths.has(e.path),
+          (e) =>
+            e.path !== path &&
+            !usedRowPaths.has(e.path) &&
+            underAnyCsvDir(e.path),
         );
         if (!cand) continue;
         usedRowPaths.add(cand.path);

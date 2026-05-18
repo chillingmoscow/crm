@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { embedTexts } from "@/lib/ai/siliconflow-client";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
 
 /**
  * Pipeline embedding'ов KB-страниц.
@@ -32,6 +33,12 @@ const MIN_CHUNK_CHARS = 50;
 export async function reembedKbPage(pageId: string): Promise<{
   chunks_count: number;
   error: string | null;
+  /** Что реально произошло. `embedded` — вектора записаны;
+   *  `unchanged` — content-hash guard, эмбеддинга не было;
+   *  `stale` — обогнала более свежая job; `error` — провал.
+   *  Нужно bulk-переиндексации, чтобы не считать no-op как
+   *  «проиндексировано» (Codex P2 на #338). */
+  outcome: "embedded" | "unchanged" | "stale" | "error";
 }> {
   const supabase = await createClient();
   const { data: page, error: pageErr } = await supabase
@@ -40,8 +47,14 @@ export async function reembedKbPage(pageId: string): Promise<{
     .eq("id", pageId)
     .is("deleted_at", null)
     .maybeSingle();
-  if (pageErr) return { chunks_count: 0, error: pageErr.message };
-  if (!page) return { chunks_count: 0, error: "Страница не найдена" };
+  if (pageErr)
+    return { chunks_count: 0, error: pageErr.message, outcome: "error" };
+  if (!page)
+    return {
+      chunks_count: 0,
+      error: "Страница не найдена",
+      outcome: "error",
+    };
 
   // Snapshot updated_at ДО embedding-network-trip — потом передаём в
   // RPC как freshness-token. Если страница изменится за это время,
@@ -95,7 +108,11 @@ export async function reembedKbPage(pageId: string): Promise<{
     }
     if (same) {
       // Pure content no-op: текст не менялся, embeddings актуальны.
-      return { chunks_count: allChunks.length, error: null };
+      return {
+        chunks_count: allChunks.length,
+        error: null,
+        outcome: "unchanged",
+      };
     }
   }
 
@@ -108,12 +125,17 @@ export async function reembedKbPage(pageId: string): Promise<{
     } catch (err) {
       const msg = err instanceof Error ? err.message : "embed error";
       console.error("[reembedKbPage] embed failed", { pageId, error: msg });
-      return { chunks_count: 0, error: `Embed failed: ${msg}` };
+      return {
+        chunks_count: 0,
+        error: `Embed failed: ${msg}`,
+        outcome: "error",
+      };
     }
     if (embeddings.length !== allChunks.length) {
       return {
         chunks_count: 0,
         error: `Embed count mismatch: expected ${allChunks.length}, got ${embeddings.length}`,
+        outcome: "error",
       };
     }
   }
@@ -137,19 +159,28 @@ export async function reembedKbPage(pageId: string): Promise<{
       p_chunks: chunkPayload as unknown as never,
     },
   );
-  if (rpcErr) return { chunks_count: 0, error: rpcErr.message };
+  if (rpcErr)
+    return { chunks_count: 0, error: rpcErr.message, outcome: "error" };
 
   const status = (result as unknown as string) ?? "unknown";
   if (status === "stale") {
     // Newer save проехал мимо нас — это ОК, не ошибка. Свежий re-embed
     // уже запущен или вот-вот запустится из той save'ы.
-    return { chunks_count: 0, error: null };
+    return { chunks_count: 0, error: null, outcome: "stale" };
   }
   if (status !== "ok") {
-    return { chunks_count: 0, error: `Replace status: ${status}` };
+    return {
+      chunks_count: 0,
+      error: `Replace status: ${status}`,
+      outcome: "error",
+    };
   }
 
-  return { chunks_count: chunkPayload.length, error: null };
+  return {
+    chunks_count: chunkPayload.length,
+    error: null,
+    outcome: "embedded",
+  };
 }
 
 /** Splits plain-text на chunks ~MAX_CHUNK_CHARS. Стратегия:
@@ -207,6 +238,121 @@ function chunkText(text: string): string[] {
   if (buffer) chunks.push(buffer);
 
   return chunks;
+}
+
+/**
+ * Массовая переиндексация всех живых страниц активного account для
+ * AI-поиска. Нужна, потому что `reembedKbPage` — fire-and-forget
+ * после save'а: страницы, созданные ДО включения AI (или до смены
+ * embedding-модели), эмбеддингов не имеют, и RAG отвечает «в базе
+ * нет страниц». Кнопка на дашборде дёргает этот экшен один раз.
+ *
+ * Gate: `kb.ask_ai` (потребитель эмбеддингов — RAG) + accounts
+ * .ai_enabled, паритет с `askKbAi`. Запись в kb_page_embeddings
+ * дополнительно гейтится RLS (`kb.create_pages`) — экшен под RLS-
+ * клиентом, прав writer'а это не обходит.
+ *
+ * Best-effort: ошибка на одной странице не прерывает остальные
+ * (в отличие от abort-on-throw у runWithConcurrency — поэтому
+ * worker ловит сам). Concurrency 3 — бережём SiliconFlow rate-limit
+ * и Supabase pool. Content-hash guard внутри reembedKbPage делает
+ * повторный вызов на уже-проиндексированной странице дешёвым (один
+ * SELECT), так что кнопку безопасно жать повторно.
+ */
+export async function reembedAllKbPages(): Promise<{
+  total: number;
+  embedded: number;
+  skipped: number;
+  failed: number;
+  error: string | null;
+}> {
+  const empty = { total: 0, embedded: 0, skipped: 0, failed: 0 };
+  const supabase = await createClient();
+
+  const [{ data: canAsk }, { data: canWrite }, { data: accountId }] =
+    await Promise.all([
+      supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
+      supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
+      supabase.rpc("get_active_account_id"),
+    ]);
+  if (!canAsk) {
+    return { ...empty, error: "Нет права использовать AI" };
+  }
+  // Запись в kb_page_embeddings гейтится RLS на kb.create_pages —
+  // проверяем заранее, чтобы не словить N RLS-ошибок построчно.
+  if (!canWrite) {
+    return {
+      ...empty,
+      error: "Нужно право создавать страницы базы знаний",
+    };
+  }
+  if (!accountId) {
+    return { ...empty, error: "Нет активного account" };
+  }
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("ai_enabled")
+    .eq("id", accountId as unknown as string)
+    .maybeSingle();
+  if (!account?.ai_enabled) {
+    return { ...empty, error: "AI отключён для этого аккаунта" };
+  }
+
+  // RLS scope'ит выборку к активному account; берём только живые.
+  // Пагинируем .range() — PostgREST режет ответ по `api.max_rows`
+  // (в этом репо 1000), без пагинации аккаунт с >1000 страниц
+  // переиндексировал бы только первую тысячу, отрапортовав успех
+  // (Codex P2 на #338).
+  const PAGE = 1000;
+  const ids: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data: batch, error: pagesErr } = await supabase
+      .from("kb_pages")
+      .select("id")
+      .is("deleted_at", null)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (pagesErr) return { ...empty, error: pagesErr.message };
+    const rows = batch ?? [];
+    for (const r of rows) ids.push(r.id as string);
+    if (rows.length < PAGE) break;
+  }
+  if (ids.length === 0) {
+    return { ...empty, error: null };
+  }
+
+  let embedded = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  await runWithConcurrency(ids, 3, async (pageId) => {
+    try {
+      const { error, outcome } = await reembedKbPage(pageId);
+      if (error || outcome === "error") {
+        failed += 1;
+        console.error("[reembedAllKbPages] page failed", { pageId, error });
+        return;
+      }
+      // `unchanged` (content-hash no-op) и `stale` — НЕ переиндексация,
+      // иначе повторный прогон врал бы «проиндексировано N» (Codex P2).
+      if (outcome === "embedded") embedded += 1;
+      else skipped += 1;
+    } catch (err) {
+      failed += 1;
+      console.error("[reembedAllKbPages] page crashed", {
+        pageId,
+        error: err instanceof Error ? err.message : "unknown",
+      });
+    }
+  });
+
+  return {
+    total: ids.length,
+    embedded,
+    skipped,
+    failed,
+    error: null,
+  };
 }
 
 /** pgvector принимает текстовое представление вектора `[1.0,2.0,...]`.

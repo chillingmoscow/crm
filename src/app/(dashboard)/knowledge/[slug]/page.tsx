@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import { ShieldAlert } from "lucide-react";
 
 import { createClient, getCachedActiveAccountId, getCachedPermissions } from "@/lib/supabase/server";
 import {
@@ -20,6 +21,8 @@ import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlink
 import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-children-list";
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
+import { KbLockHeaderChip } from "@/app/(dashboard)/knowledge/_components/kb-lock-header-chip";
+import { getKbMyActiveSeconds } from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type {
@@ -40,10 +43,22 @@ export default async function KbPageView({ params }: PageProps) {
   if (!row) {
     // Notion-style: страница из корзины не 404-ит, а открывается
     // read-only с баннером. getDeletedKbPageBySlug RLS-гейтится на
-    // `kb.delete_pages` — рядовой сотрудник получит null → notFound.
+    // `kb.delete_pages` — рядовой сотрудник получит null.
     const { row: deletedRow } = await getDeletedKbPageBySlug(slug);
-    if (!deletedRow) notFound();
-    return <DeletedKbPageView row={deletedRow} />;
+    if (deletedRow) return <DeletedKbPageView row={deletedRow} />;
+
+    // deletedRow=null — две причины неразличимы по RLS: (а) slug не
+    // существует; (б) страница в корзине, но нет `kb.delete_pages`.
+    // Привилегированная boolean-проверка (контент не утекает): если
+    // удалённая страница реально есть — показываем «нет прав» вместо
+    // 404 (404 выглядит как поломка). Иначе — честный notFound().
+    const sb = await createClient();
+    const { data: deletedExists } = await sb.rpc(
+      "kb_deleted_page_slug_exists",
+      { p_slug: slug },
+    );
+    if (deletedExists) return <DeletedPageAccessDenied />;
+    notFound();
   }
 
   // Auth context for permission gating. RLS on the row already ran;
@@ -136,6 +151,16 @@ export default async function KbPageView({ params }: PageProps) {
     myReadAt: pageViewData?.my_read_at ?? null,
     needsReread: pageViewData?.needs_reread ?? false,
   };
+  // Накопленное активное время текущего юзера на странице — нужно
+  // только для read-gate на ещё-не-подтверждённой обязательной
+  // странице (иначе лишний RPC). Read-gate стартует с этого значения,
+  // а не с нуля — повторный заход / обновление страницы не требуют
+  // вычитывать порог заново.
+  const accumulatedActiveSeconds =
+    readStatus.required && !readStatus.myReadAt
+      ? await getKbMyActiveSeconds(row.id)
+      : 0;
+
   const chain = pageViewData?.breadcrumbs ?? [];
   const backlinkRows = pageViewData?.backlinks ?? [];
   const permissions = new Set(permissionCodes);
@@ -269,6 +294,15 @@ export default async function KbPageView({ params }: PageProps) {
         <KbBackLink href={backHref} label={backLabel} />
       </PageBreadcrumb>
       <PageHeaderActions>
+        {/* Порядок справа налево: колокольчик (в layout) → ⋯-меню →
+            «Заблокировано». В DOM-слоте, значит, сначала lock-чип,
+            потом меню. */}
+        <KbLockHeaderChip
+          pageId={row.id}
+          initialLocked={isLocked}
+          canEditBase={canEditBase}
+          canLock={canLock}
+        />
         {/* Notion-style ⋯-меню: все page-level действия (избранное,
          *  required-reading, lock, undo/redo, дублировать, экспорт,
          *  импорт, аналитика, история версий, удалить) свернуты в один
@@ -297,23 +331,25 @@ export default async function KbPageView({ params }: PageProps) {
         />
       </PageHeaderActions>
 
+      {/* Required-reading баннер — edge-to-edge (как плашка корзины в
+          Notion): во всю ширину области, до центрированного тела. */}
+      <KbRequiredReadingBanner
+        pageId={row.id}
+        required={readStatus.required}
+        initialReadAt={readStatus.myReadAt}
+        needsReread={readStatus.needsReread}
+        accumulatedActiveSeconds={accumulatedActiveSeconds}
+        readingMinutes={
+          row.plain_text && row.plain_text.trim().length > 0
+            ? estimateReadingMinutes(row.plain_text)
+            : null
+        }
+      />
+
       {/* Page body — full-width container; editor itself is centred
           to ~720px for Notion-like reading width. */}
       <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          {/* Required-reading баннер (только если флаг включён) или
-              compact-badge «✓ Прочитано» если уже подтверждено. */}
-          <KbRequiredReadingBanner
-            pageId={row.id}
-            required={readStatus.required}
-            initialReadAt={readStatus.myReadAt}
-            needsReread={readStatus.needsReread}
-            readingMinutes={
-              row.plain_text && row.plain_text.trim().length > 0
-                ? estimateReadingMinutes(row.plain_text)
-                : null
-            }
-          />
           {/*
             Key by (id, updated_at). Normal auto-save doesn't bump
             updated_at in the current view (no router.refresh after save),
@@ -334,7 +370,6 @@ export default async function KbPageView({ params }: PageProps) {
             trashedMentionSlugs={trashedMentionSlugs}
             canEditBase={canEditBase}
             initialLocked={isLocked}
-            canLock={canLock}
             canCreate={hasCreate}
             aiSlashEnabled={aiSlashEnabled}
             canComment={hasComment}
@@ -438,17 +473,19 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
         <KbBackLink href="/knowledge/trash" label="Корзина" />
       </PageBreadcrumb>
 
+      {/* Edge-to-edge плашка «в корзине» (как красная плашка Notion) */}
+      <KbDeletedPageBanner
+        pageId={row.id}
+        pageSlug={row.slug}
+        title={row.title}
+        deletedAt={row.deleted_at}
+        deletedByName={deletedByName}
+        descendantsCount={descendantsCount}
+        canManage={canManage}
+      />
+
       <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          <KbDeletedPageBanner
-            pageId={row.id}
-            pageSlug={row.slug}
-            title={row.title}
-            deletedAt={row.deleted_at}
-            deletedByName={deletedByName}
-            descendantsCount={descendantsCount}
-            canManage={canManage}
-          />
           <KbPageEditor
             key={`${row.id}-deleted`}
             pageId={row.id}
@@ -460,6 +497,45 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
             canEditBase={false}
             initialLocked={row.locked_at !== null}
           />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Экран «недостаточно прав» для URL удалённой страницы под рядовым
+ * сотрудником (нет `kb.delete_pages`). Раньше тут был notFound() →
+ * пользователь видел 404, что выглядело как поломка. Контент удалённой
+ * страницы НЕ загружается и НЕ рендерится (проверка существования —
+ * только boolean через kb_deleted_page_slug_exists).
+ */
+function DeletedPageAccessDenied() {
+  return (
+    <div className="flex-1 flex flex-col">
+      <PageBreadcrumb>
+        <KbBackLink href="/knowledge" label="База знаний" />
+      </PageBreadcrumb>
+
+      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
+        <div className="mx-auto w-full max-w-[760px]">
+          <div
+            className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4
+                       dark:border-yellow-900 dark:bg-yellow-950"
+          >
+            <span className="shrink-0 inline-flex items-center justify-center size-8 rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
+              <ShieldAlert className="size-4" />
+            </span>
+            <div className="flex-1 flex flex-col gap-1 min-w-0">
+              <div className="text-sm font-semibold text-yellow-900 dark:text-yellow-100">
+                Недостаточно прав
+              </div>
+              <div className="text-[13px] leading-snug text-yellow-800 dark:text-yellow-200">
+                Эта страница перемещена в корзину. У вас недостаточно
+                прав для её просмотра — обратитесь к администратору.
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

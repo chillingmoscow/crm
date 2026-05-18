@@ -93,48 +93,52 @@ export function KbDeletedPageBanner({
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3">
-      <div className="flex min-w-0 flex-1 items-center gap-2.5">
-        <Trash2 className="size-4 shrink-0 text-destructive" />
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-foreground">
-            «{title || "Без названия"}» в корзине — только для чтения
-          </p>
-          {meta.length > 0 && (
-            <p className="truncate text-xs text-muted-foreground">
-              {meta.join(" · ")}
+    <div className="w-full border-b border-destructive/30 bg-destructive/5 px-6 py-3 md:px-8">
+      <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center justify-center gap-x-5 gap-y-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Trash2 className="size-4 shrink-0 text-destructive" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              Данная страница находится в корзине и доступна только для
+              чтения
             </p>
-          )}
-        </div>
-      </div>
-
-      {canManage && (
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            size="sm"
-            onClick={onRestore}
-            disabled={pending}
-            className="gap-1.5"
-          >
-            {pending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RotateCcw className="size-4" />
+            {meta.length > 0 && (
+              <p className="truncate text-xs text-muted-foreground">
+                {meta.join(" · ")}
+              </p>
             )}
-            Восстановить
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setConfirmDelete(true)}
-            disabled={pending}
-            className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          >
-            <Trash2 className="size-4" />
-            Удалить навсегда
-          </Button>
+          </div>
         </div>
-      )}
+
+        {canManage && (
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onRestore}
+              disabled={pending}
+              className="gap-1.5 border-border bg-background hover:bg-accent"
+            >
+              {pending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RotateCcw className="size-4" />
+              )}
+              Восстановить
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setConfirmDelete(true)}
+              disabled={pending}
+              className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="size-4" />
+              Удалить навсегда
+            </Button>
+          </div>
+        )}
+      </div>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

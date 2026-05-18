@@ -71,6 +71,9 @@ export interface NotionZipDatabase {
   /** Строки базы: сопоставленные по заголовку (Наименование)
    *  .md-файлы — тело записи. Нет .md → запись без тела. */
   rows: { zipPath: string; title: string; file: File }[];
+  /** Заголовки всех строк CSV (первая колонка) — для read-only
+   *  превью в диалоге импорта (что приедет вместе со страницей). */
+  recordTitles: string[];
 }
 
 export interface NotionZipParseResult {
@@ -234,9 +237,11 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
       // же заголовком (без повторного использования одного .md).
       const table = parseCsv(csvText);
       const rows: NotionZipDatabase["rows"] = [];
+      const recordTitles: string[] = [];
       for (const r of table.slice(1)) {
         const rowTitle = (r[0] ?? "").trim();
         if (!rowTitle) continue;
+        recordTitles.push(rowTitle);
         const cand = (mdByTitle.get(rowTitle.toLowerCase()) ?? []).find(
           (e) => e.path !== path && !usedRowPaths.has(e.path),
         );
@@ -257,6 +262,7 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
         containerUuid,
         csvHref: hrefNoQuery,
         rows,
+        recordTitles,
       });
     }
   }

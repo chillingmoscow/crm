@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Upload, X, Check, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -1465,6 +1471,26 @@ function NotionSummary({
   const total = result.pages.length;
   const selected = selectedPaths.size;
   const allSelected = selected === total && total > 0;
+  // Базы, привязанные к странице-контейнеру (по uuid) — для read-only
+  // превью «приедет вместе со страницей».
+  const dbByUuid = useMemo(() => {
+    const m = new Map<string, NotionZipParseResult["databases"]>();
+    for (const d of result.databases ?? []) {
+      if (!d.containerUuid) continue;
+      const arr = m.get(d.containerUuid) ?? [];
+      arr.push(d);
+      m.set(d.containerUuid, arr);
+    }
+    return m;
+  }, [result.databases]);
+  const [expandedDb, setExpandedDb] = useState<Set<string>>(new Set());
+  const toggleDb = (key: string) =>
+    setExpandedDb((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   return (
     <div className="rounded-lg border border-border bg-muted/20 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border bg-muted/30">
@@ -1506,34 +1532,92 @@ function NotionSummary({
       <ul className="flex flex-col max-h-[380px] overflow-y-auto py-1.5">
         {result.pages.map((p) => {
           const checked = selectedPaths.has(p.zipPath);
+          const dbs = p.uuid ? dbByUuid.get(p.uuid) ?? [] : [];
           return (
-            <li
-              key={p.zipPath}
-              className="flex items-center gap-2.5 px-4 py-2 hover:bg-muted/40 transition-colors"
-            >
-              <Checkbox
-                checked={checked}
-                onCheckedChange={(v) => onToggle(p.zipPath, v === true)}
-                className="shrink-0 size-[18px]"
-                aria-label={`Импортировать «${p.title}»`}
-              />
-              <span
-                className="text-sm truncate flex-1"
-                style={{ paddingLeft: `${p.depth * 18}px` }}
-              >
-                <span className="text-muted-foreground/60 mr-1">
-                  {p.depth > 0 ? "↳" : "•"}
+            <Fragment key={p.zipPath}>
+              <li className="flex items-center gap-2.5 px-4 py-2 hover:bg-muted/40 transition-colors">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(v) => onToggle(p.zipPath, v === true)}
+                  className="shrink-0 size-[18px]"
+                  aria-label={`Импортировать «${p.title}»`}
+                />
+                <span
+                  className="text-sm truncate flex-1"
+                  style={{ paddingLeft: `${p.depth * 18}px` }}
+                >
+                  <span className="text-muted-foreground/60 mr-1">
+                    {p.depth > 0 ? "↳" : "•"}
+                  </span>
+                  <span
+                    className={
+                      checked
+                        ? "text-foreground"
+                        : "text-muted-foreground/60 line-through"
+                    }
+                  >
+                    {p.title}
+                  </span>
                 </span>
-                <span className={checked ? "text-foreground" : "text-muted-foreground/60 line-through"}>
-                  {p.title}
-                </span>
-              </span>
-            </li>
+              </li>
+              {dbs.map((d, di) => {
+                const key = `${p.zipPath}::db${di}`;
+                const isOpen = expandedDb.has(key);
+                const n = d.recordTitles.length;
+                return (
+                  <li key={key} className="px-4">
+                    <div
+                      style={{ paddingLeft: `${(p.depth + 1) * 18}px` }}
+                      className="flex flex-col"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleDb(key)}
+                        className="flex items-center gap-1.5 py-1.5 text-left text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <span className="text-muted-foreground/60">
+                          {isOpen ? "▾" : "▸"}
+                        </span>
+                        <span>🗂</span>
+                        <span className="truncate">
+                          Коллекция «{d.title}» — {n} {recordWord(n)}
+                        </span>
+                      </button>
+                      {isOpen && n > 0 && (
+                        <ul className="pb-1">
+                          {d.recordTitles.map((rt, ri) => (
+                            <li
+                              key={`${key}-r${ri}`}
+                              className="flex items-center gap-1.5 py-0.5 pl-5 text-[12px] text-muted-foreground/70 truncate"
+                            >
+                              <span className="text-muted-foreground/40">
+                                ·
+                              </span>
+                              <span className="truncate">{rt}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </Fragment>
           );
         })}
       </ul>
     </div>
   );
+}
+
+/** Русское склонение «N запись/записи/записей». */
+function recordWord(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 14) return "записей";
+  if (m10 === 1) return "запись";
+  if (m10 >= 2 && m10 <= 4) return "записи";
+  return "записей";
 }
 
 function mergeFiles(prev: File[], next: File[]): File[] {

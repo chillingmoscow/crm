@@ -788,15 +788,23 @@ export default function KbImportDialogBody({
           : `Импортировано страниц: ${imported.length}`,
       );
     }
-    // Сначала refresh (фоновый RSC-fetch, sidebar обновится), потом
-    // close — отложенный в микротаск. Если делать в обратном порядке или
-    // синхронно, `onClose()` сносит body из дерева через `{open && <Body/>}`,
-    // а параллельно `router.refresh()` ре-рендерит соседнее RSC-поддерево
-    // и Radix-портал DialogContent не успевает отдетачиться чисто →
-    // `removeChild on null` в commitDeletion. `resetAll()` тут больше не
-    // нужен — body конструируется заново при следующем open'е через
-    // conditional mount, локальный useState стартует с чистого листа.
-    router.refresh();
+    // Если что-то импортировалось — НАВИГИРУЕМ на первую (корневую)
+    // импортированную страницу, как это делают все create-flow'ы в
+    // дереве (router.push на новый slug). Голый router.refresh() здесь
+    // не давал sidebar'у подхватить новые страницы — пользователь
+    // видел «импортировано N», но дерево оставалось прежним. push
+    // форсирует свежий серверный рендер layout'а с деревом и сразу
+    // показывает результат. Иначе (всё упало) — refresh на месте.
+    //
+    // Порядок: navigation ДО close, close отложен в микротаск. Если
+    // close синхронно или раньше — `onClose()` сносит body через
+    // `{open && <Body/>}`, а параллельный RSC-ре-рендер не даёт
+    // Radix-порталу отдетачиться чисто → `removeChild on null`.
+    if (imported.length > 0) {
+      router.push(`/knowledge/${imported[0].slug}`);
+    } else {
+      router.refresh();
+    }
     queueMicrotask(onClose);
   };
 
@@ -808,8 +816,8 @@ export default function KbImportDialogBody({
     (notionResult ? selectedCount > 0 : files.length > 0);
 
   return (
-    <DialogContent className="max-w-[480px] p-0 gap-0 [&>button:last-child]:hidden">
-      <div className="flex items-start gap-3.5 px-6 pt-6 pb-4">
+    <DialogContent className="max-w-[560px] p-0 gap-0 [&>button:last-child]:hidden">
+      <div className="flex items-start gap-3.5 px-7 pt-7 pb-4">
         <span className="inline-flex shrink-0 items-center justify-center size-10 rounded-full bg-brand/10 text-brand">
           <Upload className="size-[18px]" />
         </span>
@@ -835,24 +843,24 @@ export default function KbImportDialogBody({
         </DialogClose>
       </div>
       <div
-        className="px-6 pb-4 pl-[78px] flex flex-col gap-3"
+        className="px-7 pb-5 flex flex-col gap-3.5"
         onDrop={(e) => void onDrop(e)}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
       >
         <label
           className={
-            "relative flex flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed px-4 py-5 cursor-pointer transition-colors " +
+            "relative flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed px-4 py-9 cursor-pointer transition-colors " +
             (isDragOver
               ? "border-brand bg-brand/5 text-foreground"
               : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40")
           }
         >
-          <Upload className="size-5 opacity-70" />
-          <span className="text-[13px] font-medium leading-tight">
+          <Upload className="size-6 opacity-70" />
+          <span className="text-sm font-medium leading-tight">
             Перетащите файлы сюда или нажмите, чтобы выбрать
           </span>
-          <span className="text-[11px] leading-tight text-muted-foreground/80">
+          <span className="text-xs leading-tight text-muted-foreground/80">
             .zip из Notion · .md / .markdown · изображения
           </span>
           <input
@@ -885,7 +893,7 @@ export default function KbImportDialogBody({
           />
         )}
         {!notionResult && (files.length > 0 || imageFiles.length > 0) && (
-          <ul className="text-[13px] text-muted-foreground flex flex-col gap-0.5 max-h-32 overflow-y-auto">
+          <ul className="text-sm text-muted-foreground flex flex-col gap-1 max-h-44 overflow-y-auto">
             {files.map((f, i) => (
               <li
                 key={`md-${f.name}-${i}`}
@@ -976,7 +984,7 @@ export default function KbImportDialogBody({
           </div>
         )}
       </div>
-      <div className="flex justify-end gap-2 px-6 py-4 border-t">
+      <div className="flex justify-end gap-2 px-7 py-4 border-t">
         <Button variant="outline" onClick={onClose} disabled={pending}>
           Отмена
         </Button>
@@ -1019,7 +1027,7 @@ function NotionSummary({
   const allSelected = selected === total && total > 0;
   return (
     <div className="rounded-lg border border-border bg-muted/20 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
+      <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border bg-muted/30">
         <div className="flex items-center gap-2 text-[12px] min-w-0">
           <span className="inline-flex items-center justify-center size-5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 text-[10px]">
             ✓
@@ -1043,7 +1051,7 @@ function NotionSummary({
           <X className="size-3" /> сбросить
         </button>
       </div>
-      <div className="flex items-center gap-3 px-3 py-1.5 border-b border-border text-[11px]">
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-border text-[11px]">
         <button
           type="button"
           onClick={allSelected ? onDeselectAll : onSelectAll}
@@ -1055,23 +1063,23 @@ function NotionSummary({
           снимите чекбокс, чтобы пропустить страницу
         </span>
       </div>
-      <ul className="flex flex-col max-h-[320px] overflow-y-auto py-1">
+      <ul className="flex flex-col max-h-[380px] overflow-y-auto py-1.5">
         {result.pages.map((p) => {
           const checked = selectedPaths.has(p.zipPath);
           return (
             <li
               key={p.zipPath}
-              className="flex items-center gap-2 px-3 py-1 hover:bg-muted/40 transition-colors"
+              className="flex items-center gap-2.5 px-4 py-2 hover:bg-muted/40 transition-colors"
             >
               <Checkbox
                 checked={checked}
                 onCheckedChange={(v) => onToggle(p.zipPath, v === true)}
-                className="shrink-0"
+                className="shrink-0 size-[18px]"
                 aria-label={`Импортировать «${p.title}»`}
               />
               <span
-                className="text-[13px] truncate flex-1"
-                style={{ paddingLeft: `${p.depth * 14}px` }}
+                className="text-sm truncate flex-1"
+                style={{ paddingLeft: `${p.depth * 18}px` }}
               >
                 <span className="text-muted-foreground/60 mr-1">
                   {p.depth > 0 ? "↳" : "•"}

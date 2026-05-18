@@ -55,11 +55,13 @@ import {
   getOrCreateKbPageCollection,
   createKbCollectionRecord,
   updateKbCollection,
+  updateKbCollectionView,
   updateKbCollectionRecordTitle,
 } from "@/lib/knowledge/collection-actions";
 import {
   getPageCollectionId,
   serializeCollectionSchema,
+  KB_COLLECTION_VIEW_LABELS,
   type KbCollectionSchema,
   type KbCollectionField,
 } from "@/lib/knowledge/collection";
@@ -868,10 +870,22 @@ export default function KbImportDialogBody({
           });
           if (blockErr) failures.push(`«${db.title}» (блок): ${blockErr}`);
 
-          // 2. kb_collections + схема.
+          // 2. kb_collections + схема. По умолчанию — вид «таблица»
+          // (legacyBlocks с view:"table"); затем форсим table +
+          // wrapContent на созданных видах (длинные описания должны
+          // переноситься в ячейке, а не обрезаться).
           const { state, error: colErr } = await getOrCreateKbPageCollection({
             pageId: containerPageId,
             blockId,
+            legacyBlocks: [
+              {
+                blockId,
+                view: "table",
+                viewTitle: KB_COLLECTION_VIEW_LABELS.table,
+                visibleFieldIdsJson: "",
+                fieldOrderIdsJson: "",
+              },
+            ],
           });
           if (colErr || !state) {
             failures.push(`«${db.title}»: ${colErr ?? "коллекция не создана"}`);
@@ -882,6 +896,16 @@ export default function KbImportDialogBody({
             title: db.title,
             schemaJson,
           });
+          for (const v of state.views) {
+            await updateKbCollectionView({
+              viewId: v.id,
+              viewType: "table",
+              layoutSettings: {
+                ...v.layoutSettings,
+                wrapContent: true,
+              },
+            });
+          }
 
           // 3. Строки → записи.
           for (const record of records) {

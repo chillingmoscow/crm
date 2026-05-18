@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { SyntheticEvent } from "react";
 import {
@@ -61,6 +61,7 @@ export function KbTreeNodeMenu({
   onFavoriteChange,
 }: KbTreeNodeMenuProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [duplicatePending, setDuplicatePending] = useState(false);
@@ -248,6 +249,7 @@ export function KbTreeNodeMenu({
           childCount={childCount}
           open={deleteOpen}
           onOpenChange={setDeleteOpen}
+          isCurrentPage={pathname === `/knowledge/${page.slug}`}
         />
       )}
     </>

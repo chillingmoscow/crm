@@ -191,9 +191,11 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
   const databases: NotionZipDatabase[] = [];
   const rowZipPathSet = new Set<string>();
   const usedRowPaths = new Set<string>();
+  const containerPaths = new Set<string>();
   for (const { path, name } of mdEntries) {
     const raw = mdText.get(path) ?? "";
     if (!raw.includes(".csv")) continue;
+    containerPaths.add(path);
     const containerUuid = extractNotionUuidFromName(name);
     const pageDir = path.includes("/")
       ? path.slice(0, path.lastIndexOf("/") + 1)
@@ -257,6 +259,23 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
         rows,
       });
     }
+  }
+  // Папка строк-базы содержит ещё и служебный .md самой базы
+  // (Notion-экспорт «Untitled <uuid>.md» — placeholder вида БД).
+  // Любой .md в директории, где лежат сопоставленные строки, и сам
+  // НЕ контейнер — это артефакт базы: исключаем из обычных страниц
+  // (иначе появляется лишняя «Untitled» с сырым property-текстом).
+  const rowDirs = new Set<string>();
+  for (const p of rowZipPathSet) {
+    const d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+    if (d) rowDirs.add(d);
+  }
+  for (const e of mdEntries) {
+    if (containerPaths.has(e.path)) continue;
+    const d = e.path.includes("/")
+      ? e.path.slice(0, e.path.lastIndexOf("/"))
+      : "";
+    if (d && rowDirs.has(d)) rowZipPathSet.add(e.path);
   }
 
   const nodesByUuid = new Map<string, NotionZipNode>();

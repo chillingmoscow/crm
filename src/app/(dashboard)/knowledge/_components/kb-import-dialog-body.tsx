@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Upload, X, Check } from "lucide-react";
+import { Loader2, Upload, X, Check, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -810,6 +810,11 @@ export default function KbImportDialogBody({
 
   const missingCount = expectedRefs.filter((r) => !r.matched).length;
   const selectedCount = selectedPaths.size;
+  // Уже что-то добавлено → большую дропзону схлопываем в компактную
+  // кнопку «Добавить ещё» (не занимает пол-диалога). DnD на body всё
+  // равно работает (onDrop на контейнере ниже).
+  const hasAdded =
+    notionResult !== null || files.length > 0 || imageFiles.length > 0;
   const canImport =
     !pending &&
     !parsingZip &&
@@ -826,10 +831,8 @@ export default function KbImportDialogBody({
             Импорт из Markdown / Notion
           </DialogTitle>
           <DialogDescription className="text-sm leading-snug text-muted-foreground">
-            Можно загрузить ZIP-экспорт из Notion (Markdown & CSV) — мы
-            распакуем, восстановим иерархию и перелинкуем внутренние
-            ссылки. Или россыпь <span className="font-mono text-[12px]">.md</span>
-            {" "}файлов с картинками — каждый файл станет отдельной страницей.
+            Загрузите ZIP-экспорт из Notion или отдельные
+            {" "}<span className="font-mono text-[12px]">.md</span>-файлы.
           </DialogDescription>
         </div>
         <DialogClose asChild>
@@ -848,32 +851,56 @@ export default function KbImportDialogBody({
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
       >
-        <label
-          className={
-            "relative flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed px-4 py-9 cursor-pointer transition-colors " +
-            (isDragOver
-              ? "border-brand bg-brand/5 text-foreground"
-              : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40")
-          }
-        >
-          <Upload className="size-6 opacity-70" />
-          <span className="text-sm font-medium leading-tight">
-            Перетащите файлы сюда или нажмите, чтобы выбрать
-          </span>
-          <span className="text-xs leading-tight text-muted-foreground/80">
-            .zip из Notion · .md / .markdown · изображения
-          </span>
-          <input
-            type="file"
-            accept=".md,.markdown,text/markdown,.zip,application/zip,application/x-zip-compressed,image/*"
-            multiple
-            onChange={(e) => {
-              void onFilesPicked(e);
-              e.target.value = "";
-            }}
-            className="absolute inset-0 cursor-pointer opacity-0"
-          />
-        </label>
+        {hasAdded ? (
+          <label
+            className="relative inline-flex w-fit items-center gap-2 self-start rounded-md border border-border bg-muted/30 px-3 py-1.5 text-[13px] font-medium text-muted-foreground cursor-pointer transition-colors hover:bg-muted/60 hover:text-foreground"
+          >
+            <Plus className="size-4" />
+            Добавить ещё
+            <input
+              type="file"
+              accept=".md,.markdown,text/markdown,.zip,application/zip,application/x-zip-compressed,image/*"
+              multiple
+              onChange={(e) => {
+                void onFilesPicked(e);
+                e.target.value = "";
+              }}
+              className="absolute inset-0 cursor-pointer opacity-0"
+            />
+          </label>
+        ) : (
+          <>
+            <label
+              className={
+                "relative flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed px-4 py-9 cursor-pointer transition-colors " +
+                (isDragOver
+                  ? "border-brand bg-brand/5 text-foreground"
+                  : "border-border bg-muted/20 text-muted-foreground hover:bg-muted/40")
+              }
+            >
+              <Upload className="size-6 opacity-70" />
+              <span className="text-sm font-medium leading-tight">
+                Перетащите файлы сюда или нажмите, чтобы выбрать
+              </span>
+              <input
+                type="file"
+                accept=".md,.markdown,text/markdown,.zip,application/zip,application/x-zip-compressed,image/*"
+                multiple
+                onChange={(e) => {
+                  void onFilesPicked(e);
+                  e.target.value = "";
+                }}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              />
+            </label>
+            {/* Footnote — мелким шрифтом под полем: форматы + что делаем */}
+            <p className="text-[11px] leading-snug text-muted-foreground/70">
+              .zip из Notion · .md / .markdown · изображения. ZIP
+              распакуем, восстановим иерархию и перелинкуем внутренние
+              ссылки; каждый отдельный .md станет своей страницей.
+            </p>
+          </>
+        )}
         {parsingZip && (
           <div className="text-[12px] text-muted-foreground flex items-center gap-1.5">
             <Loader2 className="size-3 animate-spin" /> распаковка ZIP…

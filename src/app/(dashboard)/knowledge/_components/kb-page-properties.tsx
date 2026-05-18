@@ -11,19 +11,9 @@ import {
 import { nanoid } from "nanoid";
 import {
   Plus,
-  Trash2,
-  Pencil,
-  Type as TypeIcon,
-  Copy,
-  Replace,
   GripVertical,
-  Check,
-  Minimize2,
-  Maximize2,
-  Ruler,
-  ToggleRight,
   Database,
-  Info,
+  Type as TypeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -49,24 +39,14 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
-import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import type { Unit } from "@/lib/units";
 import {
   saveKbPageProperties,
@@ -84,7 +64,6 @@ import { SelectControl } from "./page-properties/controls/select-control";
 import { MultiSelectControl } from "./page-properties/controls/multi-select-control";
 import { NumberValueControl } from "./page-properties/controls/number-control";
 import { RatingValueControl } from "./page-properties/controls/rating-control";
-import { UnitPickerItems } from "./page-properties/controls/unit-picker-items";
 import { PropertyIconButton } from "./page-properties/controls/property-icon-button";
 import { DateValueControl } from "./page-properties/controls/date-control";
 import {
@@ -95,9 +74,8 @@ import {
   getCollectionScope,
   isPageProperty,
   makeProperty,
-  propertyTypeOptions,
 } from "./page-properties/helpers";
-import { OptionEditorPopover } from "./page-properties/option-editor-popover";
+import { PropertyEditorPopover } from "./page-properties/option-editor-popover";
 
 interface KbPagePropertiesProps {
   /** Идентификатор страницы или шаблона. */
@@ -425,49 +403,6 @@ export function KbPageProperties({
         if (variant === undefined) delete updated.displayVariant;
         else updated.displayVariant = variant;
         return updated as KbProperty;
-      });
-      scheduleSave(next);
-      return next;
-    });
-  };
-
-  const changeNumberRatingVariant = (
-    id: string,
-    variant: "stars" | "slider",
-  ) => {
-    setProperties((prev) => {
-      const next = prev.map((p) => {
-        if (
-          p.id !== id ||
-          p.type !== "number" ||
-          p.displayVariant !== "rating"
-        ) {
-          return p;
-        }
-        return {
-          ...p,
-          ratingVariant: variant,
-        } as KbProperty;
-      });
-      scheduleSave(next);
-      return next;
-    });
-  };
-
-  const changeNumberRatingShowValue = (id: string, showValue: boolean) => {
-    setProperties((prev) => {
-      const next = prev.map((p) => {
-        if (
-          p.id !== id ||
-          p.type !== "number" ||
-          p.displayVariant !== "rating"
-        ) {
-          return p;
-        }
-        return {
-          ...p,
-          ratingShowValue: showValue,
-        } as KbProperty;
       });
       scheduleSave(next);
       return next;
@@ -822,12 +757,6 @@ export function KbPageProperties({
                     onChangeDisplayVariant={(variant) =>
                       changeDisplayVariant(prop.id, variant)
                     }
-                    onChangeNumberRatingVariant={(variant) =>
-                      changeNumberRatingVariant(prop.id, variant)
-                    }
-                    onChangeNumberRatingShowValue={(showValue) =>
-                      changeNumberRatingShowValue(prop.id, showValue)
-                    }
                     onChangeNumberView={(view) =>
                       changeNumberView(prop.id, view)
                     }
@@ -973,8 +902,6 @@ interface PropertyRowProps {
   /** Меняет displayVariant для checkbox ("checkbox" | "switch") и
    *  rating ("stars" | "slider"). undefined = вернуть default. */
   onChangeDisplayVariant: (variant: string | undefined) => void;
-  onChangeNumberRatingVariant: (variant: "stars" | "slider") => void;
-  onChangeNumberRatingShowValue: (showValue: boolean) => void;
   /** Единый «Вид» number: Число / Звёзды / Слайдер. */
   onChangeNumberView: (view: "number" | "stars" | "slider") => void;
   /** Округление number при отображении. undefined = «Авто». */
@@ -1056,19 +983,7 @@ function PropertyRow({
   onDuplicate,
   onChangeType,
 }: PropertyRowProps) {
-  const [name, setName] = useState(property.name);
-  const [descOpen, setDescOpen] = useState(false);
-  const [renameOpen, setRenameOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [descriptionDraft, setDescriptionDraft] = useState(
-    property.description ?? "",
-  );
-  // Sync external rename (e.g., другой клиент) на случай контролируемой
-  // mutation сверху.
-  useEffect(() => setName(property.name), [property.name]);
-  useEffect(() => {
-    setDescriptionDraft(property.description ?? "");
-  }, [property.description]);
 
   // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
   // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
@@ -1144,94 +1059,21 @@ function PropertyRow({
         />
       </div>
       {canEdit && (
-        <Popover open={descOpen} onOpenChange={setDescOpen}>
-          <PopoverTrigger asChild>
-            <span
-              className="pointer-events-none absolute left-0 top-1/2 size-px"
-              aria-hidden="true"
-            />
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            sideOffset={6}
-            className="w-[260px] p-2"
-            onOpenAutoFocus={(e) => e.preventDefault()}
-          >
-            <Input
-              value={descriptionDraft}
-              placeholder="Описание свойства"
-              className="h-8"
-              aria-label="Описание свойства"
-              onChange={(e) => setDescriptionDraft(e.currentTarget.value)}
-              onBlur={() => onChangeDescription(descriptionDraft)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  onChangeDescription(e.currentTarget.value);
-                  setDescOpen(false);
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setDescriptionDraft(property.description ?? "");
-                  setDescOpen(false);
-                }
-              }}
-            />
-          </PopoverContent>
-        </Popover>
-      )}
-      {canEdit && (
-        <Popover open={renameOpen} onOpenChange={setRenameOpen}>
-          <PopoverTrigger asChild>
-            <span
-              className="pointer-events-none absolute left-0 top-1/2 size-px"
-              aria-hidden="true"
-            />
-          </PopoverTrigger>
-          <PopoverContent
-            align="start"
-            sideOffset={6}
-            className="w-[260px] p-2"
-          >
-            <Input
-              autoFocus
-              value={name}
-              placeholder="Имя свойства"
-              className="h-8"
-              aria-label="Имя свойства"
-              onChange={(e) => setName(e.currentTarget.value)}
-              onBlur={() => {
-                const t = name.trim();
-                if (t && t !== property.name) onRename(t);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  const t = e.currentTarget.value.trim();
-                  if (t && t !== property.name) onRename(t);
-                  setRenameOpen(false);
-                }
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  setName(property.name);
-                  setRenameOpen(false);
-                }
-              }}
-            />
-          </PopoverContent>
-        </Popover>
-      )}
-      {canEdit &&
-        (property.type === "select" || property.type === "multi-select") ? (
-        <OptionEditorPopover
+        <PropertyEditorPopover
           open={menuOpen}
           onOpenChange={setMenuOpen}
-          propertyName={property.name}
+          property={property}
+          canEdit={canEdit}
           onRename={onRename}
-          typeLabel={TYPE_LABELS[property.type]}
-          typeIcon={TYPE_ICONS[property.type]}
-          options={property.options}
-          optionColors={property.optionColors}
+          onChangeIcon={onChangeIcon}
+          onChangeDescription={onChangeDescription}
+          onChangeType={onChangeType}
+          onChangeUnit={onChangeUnit}
+          onChangeRatingScale={onChangeRatingScale}
+          onChangeDisplayVariant={onChangeDisplayVariant}
+          onChangeNumberView={onChangeNumberView}
+          onChangeNumberDecimals={onChangeNumberDecimals}
+          onToggleCollapse={onToggleCollapse}
           onChangeOptions={onChangeOptions}
           onChangeOptionColors={onChangeOptionColors}
           onRenameOption={onRenameOption}
@@ -1239,311 +1081,6 @@ function PropertyRow({
           onDuplicate={onDuplicate}
           onRemove={onRemove}
         />
-      ) : (
-        canEdit && (
-          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-            <DropdownMenuTrigger asChild>
-              <span
-                className="pointer-events-none absolute left-0 top-1/2 size-px"
-                aria-hidden="true"
-              />
-            </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[200px]">
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setRenameOpen(true);
-                  }}
-                >
-                  <Pencil className="size-3.5 text-muted-foreground" />
-                  Переименовать
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setDescOpen(true);
-                  }}
-                >
-                  <Info className="size-3.5 text-muted-foreground" />
-                  Описание
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <Replace className="size-3.5 text-muted-foreground" />
-                    Изменить тип
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[160px]">
-                    {propertyTypeOptions(property.type).map((t) => {
-                      const TIcon = TYPE_ICONS[t];
-                      const isCurrent = t === property.type;
-                      return (
-                        <DropdownMenuItem
-                          key={t}
-                          disabled={isCurrent}
-                          onSelect={() => onChangeType(t)}
-                        >
-                          <TIcon className="size-3.5 text-muted-foreground" />
-                          {TYPE_LABELS[t]}
-                          {isCurrent && (
-                            <span className="ml-auto text-[11px] text-muted-foreground/60">
-                              текущий
-                            </span>
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                <DropdownMenuItem onSelect={onDuplicate}>
-                  <Copy className="size-3.5 text-muted-foreground" />
-                  Дублировать
-                </DropdownMenuItem>
-              {/* Свернуть / Развернуть для text-property:
-               *  collapsed = single-line truncate. */}
-              {property.type === "text" && (
-                <DropdownMenuItem onSelect={onToggleCollapse}>
-                  {property.collapsed ? (
-                    <Maximize2 className="size-3.5 text-muted-foreground" />
-                  ) : (
-                    <Minimize2 className="size-3.5 text-muted-foreground" />
-                  )}
-                  {property.collapsed ? "Развернуть" : "Свернуть"}
-                </DropdownMenuItem>
-              )}
-              {/* Показать полностью / сокращённо для url:
-               *  urlCollapsed = убираем https:// из visible-текста. */}
-              {property.type === "url" && (
-                <DropdownMenuItem onSelect={onToggleCollapse}>
-                  {property.urlCollapsed ? (
-                    <Maximize2 className="size-3.5 text-muted-foreground" />
-                  ) : (
-                    <Minimize2 className="size-3.5 text-muted-foreground" />
-                  )}
-                  {property.urlCollapsed
-                    ? "Показывать полностью"
-                    : "Показывать сокращённо"}
-                </DropdownMenuItem>
-              )}
-              {/* Единый «Вид» для number: Число / Звёзды / Слайдер.
-               *  Заменяет прежнее разделение «Внешний вид» + «Рейтинг»
-               *  + «Показывать число». */}
-              {property.type === "number" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <ToggleRight className="size-3.5 text-muted-foreground" />
-                    Вид
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[140px]">
-                    {(
-                      [
-                        ["number", "Число"],
-                        ["stars", "Звёзды"],
-                        ["slider", "Слайдер"],
-                      ] as const
-                    ).map(([view, label]) => {
-                      const current =
-                        property.displayVariant !== "rating"
-                          ? "number"
-                          : (property.ratingVariant ?? "stars");
-                      const isCurrent = current === view;
-                      return (
-                        <DropdownMenuItem
-                          key={view}
-                          onSelect={() => onChangeNumberView(view)}
-                        >
-                          {label}
-                          {isCurrent && (
-                            <Check className="ml-auto size-3.5" />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {/* Единица измерения + Округление — только для «Число». */}
-              {property.type === "number" && property.displayVariant !== "rating" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <Ruler className="size-3.5 text-muted-foreground" />
-                    Единица измерения
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[200px] max-h-[360px] overflow-y-auto">
-                    <UnitPickerItems
-                      current={property.unit}
-                      onChange={onChangeUnit}
-                    />
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {property.type === "number" && property.displayVariant !== "rating" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
-                    Округление
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[140px]">
-                    {(
-                      [
-                        [undefined, "Авто"],
-                        [0, "0 (целое)"],
-                        [1, "1 знак"],
-                        [2, "2 знака"],
-                        [3, "3 знака"],
-                      ] as const
-                    ).map(([dec, label]) => {
-                      const isCurrent = property.decimals === dec;
-                      return (
-                        <DropdownMenuItem
-                          key={String(dec)}
-                          onSelect={() => onChangeNumberDecimals(dec)}
-                        >
-                          {label}
-                          {isCurrent && (
-                            <Check className="ml-auto size-3.5" />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {/* Шкала — для number в виде звёзд/слайдера. */}
-              {property.type === "number" && property.displayVariant === "rating" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
-                    Шкала
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[120px]">
-                    {[3, 5, 10].map((max) => {
-                      const isCurrent = (property.max ?? 5) === max;
-                      return (
-                        <DropdownMenuItem
-                          key={max}
-                          onSelect={() => onChangeRatingScale(max)}
-                        >
-                          <span className="text-[13px] tabular-nums w-6 shrink-0">
-                            {max}
-                          </span>
-                          <span className="text-muted-foreground">
-                            {max === 3 ? "звезды" : "звёзд"}
-                          </span>
-                          {isCurrent && (
-                            <Check className="ml-auto size-3.5" />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {/* Шкала — только для rating (Stage 5). 3 / 5 / 10. */}
-              {property.type === "rating" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
-                    Шкала
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[120px]">
-                    {[3, 5, 10].map((max) => {
-                      const isCurrent = (property.max ?? 5) === max;
-                      return (
-                        <DropdownMenuItem
-                          key={max}
-                          onSelect={() => onChangeRatingScale(max)}
-                        >
-                          <span className="text-[13px] tabular-nums w-6 shrink-0">
-                            {max}
-                          </span>
-                          <span className="text-muted-foreground">
-                            {max === 3 ? "звезды" : "звёзд"}
-                          </span>
-                          {isCurrent && (
-                            <Check className="ml-auto size-3.5" />
-                          )}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {/* Внешний вид — для checkbox (Чекбокс / Триггер) и rating
-               *  (Звёзды / Слайдер). Семантика значения та же; меняется
-               *  только рендер. */}
-              {property.type === "checkbox" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <ToggleRight className="size-3.5 text-muted-foreground" />
-                    Внешний вид
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[140px]">
-                    {(
-                      [
-                        ["checkbox", "Чекбокс"],
-                        ["switch", "Триггер"],
-                      ] as const
-                    ).map(([variant, label]) => {
-                      const isCurrent =
-                        (property.displayVariant ?? "checkbox") === variant;
-                      return (
-                        <DropdownMenuItem
-                          key={variant}
-                          onSelect={() =>
-                            onChangeDisplayVariant(
-                              variant === "checkbox" ? undefined : variant,
-                            )
-                          }
-                        >
-                          {label}
-                          {isCurrent && <Check className="ml-auto size-3.5" />}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {property.type === "rating" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <ToggleRight className="size-3.5 text-muted-foreground" />
-                    Внешний вид
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[140px]">
-                    {(
-                      [
-                        ["stars", "Звёзды"],
-                        ["slider", "Слайдер"],
-                      ] as const
-                    ).map(([variant, label]) => {
-                      const isCurrent =
-                        (property.displayVariant ?? "stars") === variant;
-                      return (
-                        <DropdownMenuItem
-                          key={variant}
-                          onSelect={() =>
-                            onChangeDisplayVariant(
-                              variant === "stars" ? undefined : variant,
-                            )
-                          }
-                        >
-                          {label}
-                          {isCurrent && <Check className="ml-auto size-3.5" />}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onRemove}>
-                  <Trash2 className="size-3.5 text-destructive" />
-                  <span className="text-destructive">Удалить</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-          </DropdownMenu>
-        )
       )}
     </li>
   );

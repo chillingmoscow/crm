@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Copy, GripVertical, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, GripVertical, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -25,63 +25,97 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { PALETTE_GRID, paletteDot } from "@/lib/palette";
-import type { KbPropertyColor } from "@/types/knowledge";
+import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
+import type { Unit } from "@/lib/units";
+import type { KbProperty, KbPropertyColor, KbPropertyType } from "@/types/knowledge";
 
-interface OptionEditorProps {
+import { PropertyIconButton } from "./controls/property-icon-button";
+import { UnitPickerItems } from "./controls/unit-picker-items";
+import { propertyTypeOptions, TYPE_LABELS, TYPE_ICONS } from "./helpers";
+
+interface PropertyEditorPopoverProps {
   /** Опциональный триггер. Если не задан — поповер контролируется
-   *  через `open`/`onOpenChange` и якорится скрытым span'ом слева
-   *  строки (клик по имени свойства открывает меню). */
+   *  через `open`/`onOpenChange` и якорится скрытым span'ом. */
   trigger?: React.ReactNode;
   open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-  /** Имя свойства + переименование (поле сверху поповера). */
-  propertyName?: string;
-  onRename?: (name: string) => void;
-  typeLabel: string;
-  typeIcon: React.ComponentType<{ className?: string }>;
-  options: string[];
-  optionColors: Partial<Record<string, KbPropertyColor>> | undefined;
-  /** Reorder + add only — НЕ для rename/delete (там нужна
-   *  reconciliation выбранного значения, см. onRenameOption/onRemoveOption). */
+  onOpenChange?: (o: boolean) => void;
+  property: KbProperty;
+  canEdit: boolean;
+  onRename: (name: string) => void;
+  onChangeIcon: (icon: string | null, iconColor: string | null) => void;
+  onChangeDescription: (description: string) => void;
+  onChangeType: (t: KbPropertyType) => void;
+  onChangeUnit: (unit: Unit | null) => void;
+  onChangeRatingScale: (max: number) => void;
+  onChangeDisplayVariant: (variant: string | undefined) => void;
+  onChangeNumberView: (view: "number" | "stars" | "slider") => void;
+  onChangeNumberDecimals: (decimals: number | undefined) => void;
+  onToggleCollapse: () => void;
   onChangeOptions: (options: string[]) => void;
   onChangeOptionColors: (
-    next: Partial<Record<string, KbPropertyColor>> | undefined,
+    c: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
-  /** Переименование опции: родитель атомарно мигрирует options +
-   *  optionColors + текущее value (select/multi-select). */
   onRenameOption: (from: string, to: string) => void;
-  /** Удаление опции: родитель атомарно чистит options + optionColors +
-   *  сбрасывает/фильтрует текущее value. */
   onRemoveOption: (option: string) => void;
   onDuplicate: () => void;
   onRemove: () => void;
 }
 
-export function OptionEditorPopover({
+export function PropertyEditorPopover({
   trigger,
   open,
   onOpenChange,
-  propertyName,
+  property,
+  canEdit,
   onRename,
-  typeLabel,
-  typeIcon: TypeIcon,
-  options,
-  optionColors,
+  onChangeIcon,
+  onChangeDescription,
+  onChangeType,
+  onChangeUnit,
+  onChangeRatingScale,
+  onChangeDisplayVariant,
+  onChangeNumberView,
+  onChangeNumberDecimals,
+  onToggleCollapse,
   onChangeOptions,
   onChangeOptionColors,
   onRenameOption,
   onRemoveOption,
   onDuplicate,
   onRemove,
-}: OptionEditorProps) {
+}: PropertyEditorPopoverProps) {
+  // ── Name draft ──────────────────────────────────────────────────────
+  const [nameDraft, setNameDraft] = useState(property.name);
+  useEffect(() => setNameDraft(property.name), [property.name]);
+
+  // ── Description toggle + draft ──────────────────────────────────────
+  const [descOpen, setDescOpen] = useState(false);
+  const [descDraft, setDescDraft] = useState(property.description ?? "");
+  useEffect(() => setDescDraft(property.description ?? ""), [property.description]);
+
+  // ── Options DnD ─────────────────────────────────────────────────────
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [nameDraft, setNameDraft] = useState(propertyName ?? "");
-  useEffect(() => setNameDraft(propertyName ?? ""), [propertyName]);
+  const [optDraft, setOptDraft] = useState("");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
+
+  const options =
+    property.type === "select" || property.type === "multi-select"
+      ? property.options
+      : [];
+  const optionColors =
+    property.type === "select" || property.type === "multi-select"
+      ? property.optionColors
+      : undefined;
 
   const setColor = (option: string, color: KbPropertyColor | null) => {
     const next: Partial<Record<string, KbPropertyColor>> = {
@@ -93,9 +127,6 @@ export function OptionEditorPopover({
   };
 
   const removeOption = (option: string) => {
-    // Атомарная reconciliation (options + optionColors + value) — в
-    // родителе. Здесь не трогаем onChangeOptions, иначе выбранное
-    // значение «протекает» (Codex P1).
     onRemoveOption(option);
   };
 
@@ -106,16 +137,14 @@ export function OptionEditorPopover({
       toast.warning("Такая опция уже есть");
       return;
     }
-    // Родитель мигрирует options + optionColors + текущее value за один
-    // patch (rename = explicit intent, не выводится из diff'а options).
     onRenameOption(from, v);
   };
 
   const commitAdd = () => {
-    const v = draft.trim();
+    const v = optDraft.trim();
     if (!v) {
       setAdding(false);
-      setDraft("");
+      setOptDraft("");
       return;
     }
     if (options.includes(v)) {
@@ -123,7 +152,7 @@ export function OptionEditorPopover({
       return;
     }
     onChangeOptions([...options, v]);
-    setDraft("");
+    setOptDraft("");
     setAdding(false);
   };
 
@@ -135,6 +164,26 @@ export function OptionEditorPopover({
     if (from === -1 || to === -1) return;
     onChangeOptions(arrayMove(options, from, to));
   };
+
+  // ── Number view derived state ────────────────────────────────────────
+  const numberView: "number" | "stars" | "slider" =
+    property.type === "number"
+      ? property.displayVariant !== "rating"
+        ? "number"
+        : (property.ratingVariant ?? "stars")
+      : "number";
+
+  // ── Unit display label ───────────────────────────────────────────────
+  const unitLabel =
+    property.type === "number" && property.unit
+      ? property.unit.kind === "currency"
+        ? property.unit.code
+        : property.unit.kind === "mass" || property.unit.kind === "volume"
+          ? property.unit.code
+          : property.unit.kind === "piece"
+            ? "шт."
+            : "—"
+      : "—";
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
@@ -149,106 +198,370 @@ export function OptionEditorPopover({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[320px] p-0 rounded-[10px]"
+        className="w-[300px] p-0 rounded-[12px]"
       >
-        {onRename !== undefined && (
-          <div className="border-b border-border p-2">
+        {/* ── a) Header: icon + name input + desc toggle ───────────────── */}
+        <div className="flex items-center gap-2 p-2 border-b border-border">
+          <PropertyIconButton
+            property={property}
+            canEdit={canEdit}
+            onChangeIcon={onChangeIcon}
+          />
+          <input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => {
+              const t = nameDraft.trim();
+              if (t && t !== property.name) onRename(t);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                const t = e.currentTarget.value.trim();
+                if (t && t !== property.name) onRename(t);
+                e.currentTarget.blur();
+              }
+              if (e.key === "Escape") {
+                setNameDraft(property.name);
+                e.currentTarget.blur();
+              }
+            }}
+            placeholder="Имя свойства"
+            aria-label="Имя свойства"
+            className="flex-1 h-8 rounded-md border border-input bg-transparent
+                       px-2 text-[13px] font-medium outline-none
+                       focus:border-brand focus:ring-2 focus:ring-brand/30"
+          />
+          <button
+            type="button"
+            aria-label="Описание свойства"
+            onClick={() => setDescOpen((v) => !v)}
+            className={cn(
+              "size-7 inline-flex items-center justify-center rounded-md transition-colors",
+              descOpen
+                ? "bg-secondary text-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            <KB_PROPERTY_UI_ICONS.description className="size-3.5" />
+          </button>
+        </div>
+
+        {/* ── b) Description input (conditional) ──────────────────────── */}
+        {descOpen && (
+          <div className="p-2 border-b border-border">
             <input
-              value={nameDraft}
-              onChange={(e) => setNameDraft(e.target.value)}
+              autoFocus
+              value={descDraft}
+              onChange={(e) => setDescDraft(e.target.value)}
               onBlur={() => {
-                const t = nameDraft.trim();
-                if (t && t !== propertyName) onRename(t);
+                onChangeDescription(descDraft);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  const t = e.currentTarget.value.trim();
-                  if (t && t !== propertyName) onRename(t);
-                  e.currentTarget.blur();
+                  onChangeDescription(e.currentTarget.value);
+                  setDescOpen(false);
                 }
                 if (e.key === "Escape") {
-                  setNameDraft(propertyName ?? "");
-                  e.currentTarget.blur();
+                  setDescDraft(property.description ?? "");
+                  setDescOpen(false);
                 }
               }}
-              placeholder="Имя свойства"
-              aria-label="Имя свойства"
+              placeholder="Описание свойства"
+              aria-label="Описание свойства"
               className="h-8 w-full rounded-md border border-input bg-transparent
-                         px-2 text-[13px] font-medium outline-none
+                         px-2 text-[13px] outline-none
                          focus:border-brand focus:ring-2 focus:ring-brand/30"
             />
           </div>
         )}
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
-          <TypeIcon className="size-4 text-muted-foreground" />
-          <span className="text-[13px] font-semibold">{typeLabel}</span>
-        </div>
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-          <span className="text-[12px] text-muted-foreground">Тип:</span>
-          <span className="inline-flex items-center rounded-md bg-secondary px-2 py-0.5 text-[12px] text-muted-foreground">
-            {typeLabel}
+
+        {/* ── c) Type row ──────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
+          <span className="flex items-center gap-2 text-muted-foreground">
+            <KB_PROPERTY_UI_ICONS.changeType className="size-3.5" />
+            Тип
           </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-md border border-input
+                           bg-transparent px-2 h-7 text-[13px] hover:bg-accent transition-colors"
+              >
+                {TYPE_LABELS[property.type]}
+                <ChevronDown className="size-3 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[160px]">
+              {propertyTypeOptions(property.type).map((t) => {
+                const TIcon = TYPE_ICONS[t];
+                const isCurrent = t === property.type;
+                return (
+                  <DropdownMenuItem
+                    key={t}
+                    disabled={isCurrent}
+                    onSelect={() => onChangeType(t)}
+                  >
+                    <TIcon className="size-3.5 text-muted-foreground" />
+                    {TYPE_LABELS[t]}
+                    {isCurrent && (
+                      <span className="ml-auto text-[11px] text-muted-foreground/60">
+                        текущий
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-        <div className="px-2 py-2">
-          <div className="px-1 pb-1 text-[12px] text-muted-foreground/70">
-            Опции
+
+        {/* ── d) Per-type params ───────────────────────────────────────── */}
+
+        {/* select / multi-select: options list */}
+        {(property.type === "select" || property.type === "multi-select") && (
+          <div className="p-2 border-b border-border">
+            <div className="px-1 pb-1 text-[12px] text-muted-foreground/70">
+              Опции
+            </div>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={options}
+                strategy={verticalListSortingStrategy}
+              >
+                <ul className="flex flex-col">
+                  {options.map((o) => (
+                    <OptionRow
+                      key={o}
+                      option={o}
+                      color={optionColors?.[o]}
+                      onRename={(to) => renameOption(o, to)}
+                      onRemove={() => removeOption(o)}
+                      onSetColor={(c) => setColor(o, c)}
+                    />
+                  ))}
+                </ul>
+              </SortableContext>
+            </DndContext>
+            {adding || options.length === 0 ? (
+              <input
+                autoFocus
+                value={optDraft}
+                onChange={(e) => setOptDraft(e.target.value)}
+                onBlur={commitAdd}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commitAdd();
+                  } else if (e.key === "Escape") {
+                    setAdding(false);
+                    setOptDraft("");
+                  }
+                }}
+                placeholder="Новая опция"
+                className="mt-1 h-8 w-full rounded-md bg-transparent px-2 text-[13px]
+                           border border-input outline-none
+                           focus:border-brand focus:ring-2 focus:ring-brand/30"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5
+                           text-[13px] font-medium text-brand hover:bg-brand/10 transition-colors"
+              >
+                <Plus className="size-3.5" />
+                Добавить опцию
+              </button>
+            )}
           </div>
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={options}
-              strategy={verticalListSortingStrategy}
-            >
-              <ul className="flex flex-col">
-                {options.map((o) => (
-                  <OptionRow
-                    key={o}
-                    option={o}
-                    color={optionColors?.[o]}
-                    onRename={(to) => renameOption(o, to)}
-                    onRemove={() => removeOption(o)}
-                    onSetColor={(c) => setColor(o, c)}
-                  />
-                ))}
-              </ul>
-            </SortableContext>
-          </DndContext>
-          {adding || options.length === 0 ? (
-            <input
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commitAdd}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  commitAdd();
-                } else if (e.key === "Escape") {
-                  setAdding(false);
-                  setDraft("");
+        )}
+
+        {/* number */}
+        {property.type === "number" && (
+          <>
+            {/* Вид: Число | Звёзды | Слайдер */}
+            <div className="p-2 border-b border-border">
+              <div className="pb-1.5 text-[12px] text-muted-foreground/70">
+                Вид
+              </div>
+              <SegmentedControl
+                options={[
+                  { value: "number", label: "Число" },
+                  { value: "stars", label: "Звёзды" },
+                  { value: "slider", label: "Слайдер" },
+                ]}
+                value={numberView}
+                onChange={(v) =>
+                  onChangeNumberView(v as "number" | "stars" | "slider")
                 }
-              }}
-              placeholder="Новая опция"
-              className="mt-1 h-8 w-full rounded-md bg-transparent px-2 text-[13px]
-                         border border-input outline-none
-                         focus:border-brand focus:ring-2 focus:ring-brand/30"
+              />
+            </div>
+
+            {numberView === "number" && (
+              <>
+                {/* Единица измерения */}
+                <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <KB_PROPERTY_UI_ICONS.unit className="size-3.5" />
+                    Единица измерения
+                  </span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-input
+                                   bg-transparent px-2 h-7 text-[13px] hover:bg-accent transition-colors"
+                      >
+                        {unitLabel}
+                        <ChevronDown className="size-3 text-muted-foreground" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      align="end"
+                      className="min-w-[200px] max-h-[360px] overflow-y-auto"
+                    >
+                      <UnitPickerItems
+                        current={property.unit}
+                        onChange={onChangeUnit}
+                      />
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                {/* Округление */}
+                <div className="p-2 border-b border-border">
+                  <div className="pb-1.5 text-[12px] text-muted-foreground/70">
+                    Округление
+                  </div>
+                  <SegmentedControl
+                    options={[
+                      { value: "auto", label: "Авто" },
+                      { value: "0", label: "Целое" },
+                      { value: "1", label: "1" },
+                      { value: "2", label: "2" },
+                      { value: "3", label: "3" },
+                    ]}
+                    value={
+                      property.decimals === undefined
+                        ? "auto"
+                        : String(property.decimals)
+                    }
+                    onChange={(v) => {
+                      if (v === "auto") onChangeNumberDecimals(undefined);
+                      else onChangeNumberDecimals(Number(v));
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
+            {(numberView === "stars" || numberView === "slider") && (
+              <div className="p-2 border-b border-border">
+                <div className="pb-1.5 text-[12px] text-muted-foreground/70">
+                  Шкала
+                </div>
+                <SegmentedControl
+                  options={[
+                    { value: "3", label: "3" },
+                    { value: "5", label: "5" },
+                    { value: "10", label: "10" },
+                  ]}
+                  value={String(
+                    property.type === "number" ? (property.max ?? 5) : 5,
+                  )}
+                  onChange={(v) => onChangeRatingScale(Number(v))}
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* checkbox: Вид (Чекбокс | Триггер) */}
+        {property.type === "checkbox" && (
+          <div className="p-2 border-b border-border">
+            <div className="pb-1.5 text-[12px] text-muted-foreground/70">
+              Вид
+            </div>
+            <SegmentedControl
+              options={[
+                { value: "checkbox", label: "Чекбокс" },
+                { value: "switch", label: "Триггер" },
+              ]}
+              value={property.displayVariant ?? "checkbox"}
+              onChange={(v) =>
+                onChangeDisplayVariant(v === "checkbox" ? undefined : "switch")
+              }
             />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setAdding(true)}
-              className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5
-                         text-[13px] font-medium text-brand hover:bg-brand/10 transition-colors"
-            >
-              <Plus className="size-3.5" />
-              Добавить опцию
-            </button>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* rating: Вид (Звёзды | Слайдер) + Шкала */}
+        {property.type === "rating" && (
+          <>
+            <div className="p-2 border-b border-border">
+              <div className="pb-1.5 text-[12px] text-muted-foreground/70">
+                Вид
+              </div>
+              <SegmentedControl
+                options={[
+                  { value: "stars", label: "Звёзды" },
+                  { value: "slider", label: "Слайдер" },
+                ]}
+                value={property.displayVariant ?? "stars"}
+                onChange={(v) =>
+                  onChangeDisplayVariant(v === "stars" ? undefined : "slider")
+                }
+              />
+            </div>
+            <div className="p-2 border-b border-border">
+              <div className="pb-1.5 text-[12px] text-muted-foreground/70">
+                Шкала
+              </div>
+              <SegmentedControl
+                options={[
+                  { value: "3", label: "3" },
+                  { value: "5", label: "5" },
+                  { value: "10", label: "10" },
+                ]}
+                value={String(property.max ?? 5)}
+                onChange={(v) => onChangeRatingScale(Number(v))}
+              />
+            </div>
+          </>
+        )}
+
+        {/* text: Свернуть toggle */}
+        {property.type === "text" && (
+          <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
+            <span className="text-muted-foreground">Свернуть</span>
+            <Switch
+              checked={property.collapsed === true}
+              onCheckedChange={() => onToggleCollapse()}
+            />
+          </div>
+        )}
+
+        {/* url: Сокращать ссылку toggle */}
+        {property.type === "url" && (
+          <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
+            <span className="text-muted-foreground">Сокращать ссылку</span>
+            <Switch
+              checked={property.urlCollapsed === true}
+              onCheckedChange={() => onToggleCollapse()}
+            />
+          </div>
+        )}
+
+        {/* date: no extra block */}
+
+        {/* ── e) Footer ───────────────────────────────────────────────── */}
         <div className="border-t border-border p-1.5">
           <button
             type="button"
@@ -256,7 +569,7 @@ export function OptionEditorPopover({
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5
                        text-[13px] hover:bg-accent transition-colors"
           >
-            <Copy className="size-3.5 text-muted-foreground" />
+            <KB_PROPERTY_UI_ICONS.duplicate className="size-3.5 text-muted-foreground" />
             Дублировать свойство
           </button>
           <button
@@ -265,7 +578,7 @@ export function OptionEditorPopover({
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5
                        text-[13px] text-destructive hover:bg-destructive/10 transition-colors"
           >
-            <Trash2 className="size-3.5" />
+            <KB_PROPERTY_UI_ICONS.delete className="size-3.5" />
             Удалить свойство
           </button>
         </div>
@@ -274,6 +587,46 @@ export function OptionEditorPopover({
   );
 }
 
+/** @deprecated Use PropertyEditorPopover instead. Kept for backwards compatibility. */
+export { PropertyEditorPopover as OptionEditorPopover };
+
+// ── Segmented control ──────────────────────────────────────────────────────
+function SegmentedControl({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex gap-1">
+      {options.map((opt) => {
+        const isCurrent = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => {
+              if (!isCurrent) onChange(opt.value);
+            }}
+            className={cn(
+              "h-7 flex-1 rounded-md px-2.5 text-[13px] transition-colors",
+              isCurrent
+                ? "bg-secondary text-foreground font-medium"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── OptionRow ──────────────────────────────────────────────────────────────
 function OptionRow({
   option,
   color,
@@ -311,7 +664,12 @@ function OptionRow({
       >
         <GripVertical className="size-3.5" />
       </button>
-      <OptionColorButton color={color} onSetColor={onSetColor} optionName={option} onRemove={onRemove} />
+      <OptionColorButton
+        color={color}
+        onSetColor={onSetColor}
+        optionName={option}
+        onRemove={onRemove}
+      />
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -397,9 +755,7 @@ function OptionColorButton({
               <button
                 key={c.name}
                 type="button"
-                onClick={() =>
-                  onSetColor(c.name === "default" ? null : c.name)
-                }
+                onClick={() => onSetColor(c.name === "default" ? null : c.name)}
                 className="flex flex-col items-center gap-1"
                 aria-label={c.label}
               >

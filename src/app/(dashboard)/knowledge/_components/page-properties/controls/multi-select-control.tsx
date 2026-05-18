@@ -10,6 +10,7 @@ import { OptionValuePicker } from "./option-value-picker";
 export function MultiSelectControl({
   property,
   canEdit,
+  canEditOptions = true,
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
@@ -46,6 +47,7 @@ export function MultiSelectControl({
   return (
     <OptionValuePicker
       multi
+      canEditOptions={canEditOptions}
       value={property.value}
       options={property.options}
       optionColors={property.optionColors}

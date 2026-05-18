@@ -47,6 +47,7 @@ export function OptionValuePicker({
   optionColors,
   optionDescriptions,
   optionSort,
+  canEditOptions = true,
   onChange,
   onChangeOptions,
   onChangeOptionColors,
@@ -57,6 +58,10 @@ export function OptionValuePicker({
   multi: boolean;
   value: string[];
   options: string[];
+  /** false для collection-scoped строк: набор вариантов фиксирован
+   *  схемой коллекции — нельзя создавать/менять варианты, только
+   *  выбирать из существующих. */
+  canEditOptions?: boolean;
   optionColors?: Partial<Record<string, KbPropertyColor>>;
   optionDescriptions?: Partial<Record<string, string>>;
   optionSort?: OptionSort;
@@ -85,7 +90,7 @@ export function OptionValuePicker({
     ? ordered.filter((o) => o.toLowerCase().includes(q.toLowerCase()))
     : ordered;
   const exact = options.some((o) => o.toLowerCase() === q.toLowerCase());
-  const canCreate = q.length > 0 && !exact;
+  const canCreate = canEditOptions && q.length > 0 && !exact;
 
   const pick = (option: string) => {
     if (multi) {
@@ -118,7 +123,8 @@ export function OptionValuePicker({
   };
 
   // Управление вариантом доступно, когда проброшены rename/remove.
-  const canManage = !!onRenameOption && !!onRemoveOption;
+  const canManage =
+    canEditOptions && !!onRenameOption && !!onRemoveOption;
 
   const setOptionColor = (option: string, c: KbPropertyColor | null) => {
     if (!onChangeOptionColors) return;

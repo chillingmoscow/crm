@@ -8,6 +8,7 @@ import { OptionValuePicker } from "./option-value-picker";
 export function SelectControl({
   property,
   canEdit,
+  canEditOptions = true,
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
@@ -43,6 +44,7 @@ export function SelectControl({
   return (
     <OptionValuePicker
       multi={false}
+      canEditOptions={canEditOptions}
       value={property.value ? [property.value] : []}
       options={property.options}
       optionColors={property.optionColors}

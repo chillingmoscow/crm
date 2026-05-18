@@ -46,6 +46,49 @@ export function UnitPickerItems({
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Штуки
+      </div>
+      <DropdownMenuItem onSelect={() => onChange({ kind: "piece" })}>
+        <span className="w-8 shrink-0 text-left text-[13px] text-muted-foreground">
+          {PIECE_UNIT.label}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{PIECE_UNIT.longLabel}</span>
+        {isPiece && <Check className="ml-auto size-3.5" />}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Масса
+      </div>
+      {MASS_UNITS.map((m) => (
+        <DropdownMenuItem
+          key={m.code}
+          onSelect={() => onChange({ kind: "mass", code: m.code })}
+        >
+          <span className="w-8 shrink-0 text-left text-[13px] text-muted-foreground">
+            {m.label}
+          </span>
+          <span className="min-w-0 flex-1 truncate">{m.longLabel}</span>
+          {isMass(m.code) && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Объём
+      </div>
+      {VOLUME_UNITS.map((v) => (
+        <DropdownMenuItem
+          key={v.code}
+          onSelect={() => onChange({ kind: "volume", code: v.code })}
+        >
+          <span className="w-8 shrink-0 text-left text-[13px] text-muted-foreground">
+            {v.label}
+          </span>
+          <span className="min-w-0 flex-1 truncate">{v.longLabel}</span>
+          {isVolume(v.code) && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
         Валюта
       </div>
       {UNIT_CURRENCIES.map((c) => (
@@ -62,48 +105,6 @@ export function UnitPickerItems({
           {isCurrency(c.value) && <Check className="ml-auto size-3.5" />}
         </DropdownMenuItem>
       ))}
-      <DropdownMenuSeparator />
-      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-        Масса
-      </div>
-      {MASS_UNITS.map((m) => (
-        <DropdownMenuItem
-          key={m.code}
-          onSelect={() => onChange({ kind: "mass", code: m.code })}
-        >
-          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
-            {m.label}
-          </span>
-          <span className="flex-1 truncate">{m.longLabel}</span>
-          {isMass(m.code) && <Check className="ml-auto size-3.5" />}
-        </DropdownMenuItem>
-      ))}
-      <DropdownMenuSeparator />
-      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-        Объём
-      </div>
-      {VOLUME_UNITS.map((v) => (
-        <DropdownMenuItem
-          key={v.code}
-          onSelect={() => onChange({ kind: "volume", code: v.code })}
-        >
-          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
-            {v.label}
-          </span>
-          <span className="flex-1 truncate">{v.longLabel}</span>
-          {isVolume(v.code) && <Check className="ml-auto size-3.5" />}
-        </DropdownMenuItem>
-      ))}
-      <DropdownMenuSeparator />
-      <DropdownMenuItem
-        onSelect={() => onChange({ kind: "piece" })}
-      >
-        <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
-          {PIECE_UNIT.label}
-        </span>
-        <span className="flex-1 truncate">{PIECE_UNIT.longLabel}</span>
-        {isPiece && <Check className="ml-auto size-3.5" />}
-      </DropdownMenuItem>
     </>
   );
 }

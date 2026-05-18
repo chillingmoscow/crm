@@ -51,7 +51,11 @@ export function NumberValueControl({
       ? "—"
       : property.decimals === undefined
         ? formatWithUnit(rounded, unit)
-        : `${rounded.toFixed(property.decimals)}${suffix ? ` ${suffix}` : ""}`;
+        : `${rounded.toLocaleString("ru-RU", {
+            minimumFractionDigits: property.decimals,
+            maximumFractionDigits: property.decimals,
+            useGrouping: false,
+          })}${suffix ? ` ${suffix}` : ""}`;
 
   if (!canEdit) {
     return <span className="text-[13px] tabular-nums">{display}</span>;

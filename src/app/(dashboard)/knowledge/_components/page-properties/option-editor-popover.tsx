@@ -353,9 +353,9 @@ export function PropertyEditorPopover({
         </DropdownMenu>
 
         {/* ── Per-type params ─────────────────────────────────────────── */}
-        <div className="px-3 py-2">
+        <div className="py-1">
           {isOptionType && (
-            <div>
+            <div className="px-3 py-1">
               <SectionLabel>Опции</SectionLabel>
               <DndContext
                 sensors={sensors}
@@ -417,7 +417,7 @@ export function PropertyEditorPopover({
 
           {property.type === "number" && (
             <div className="flex flex-col gap-1">
-              <div>
+              <div className="px-3 py-1">
                 <ViewCards
                   value={numberView}
                   onChange={(v) =>
@@ -441,7 +441,7 @@ export function PropertyEditorPopover({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2
+                        className="flex w-full items-center justify-between px-3 py-2
                                    text-[13px] transition-colors hover:bg-muted/40"
                       >
                         <span className="flex items-center gap-2.5 text-muted-foreground">
@@ -465,28 +465,10 @@ export function PropertyEditorPopover({
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  <div>
-                    <SectionLabel>Округление</SectionLabel>
-                    <Segmented
-                      options={[
-                        { value: "auto", label: "Авто" },
-                        { value: "0", label: "Целое" },
-                        { value: "1", label: "1" },
-                        { value: "2", label: "2" },
-                        { value: "3", label: "3" },
-                      ]}
-                      value={
-                        property.decimals === undefined
-                          ? "auto"
-                          : String(property.decimals)
-                      }
-                      onChange={(v) =>
-                        v === "auto"
-                          ? onChangeNumberDecimals(undefined)
-                          : onChangeNumberDecimals(Number(v))
-                      }
-                    />
-                  </div>
+                  <RoundingDropdownRow
+                    value={property.decimals}
+                    onChange={onChangeNumberDecimals}
+                  />
                 </>
               ) : (
                 /* stars or slider */
@@ -520,7 +502,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "checkbox" && (
-            <div>
+            <div className="px-3 py-1">
               <ViewCards
                 value={property.displayVariant ?? "checkbox"}
                 onChange={(v) =>
@@ -546,7 +528,7 @@ export function PropertyEditorPopover({
 
           {property.type === "rating" && (
             <div className="flex flex-col gap-1">
-              <div>
+              <div className="px-3 py-1">
                 <ViewCards
                   value={property.displayVariant ?? "stars"}
                   onChange={(v) =>
@@ -591,7 +573,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "text" && (
-            <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
+            <div className="flex w-full items-center justify-between px-3 py-2 text-[13px]">
               <span className="text-muted-foreground">
                 Сворачивать длинный текст
               </span>
@@ -603,7 +585,7 @@ export function PropertyEditorPopover({
           )}
 
           {property.type === "url" && (
-            <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
+            <div className="flex w-full items-center justify-between px-3 py-2 text-[13px]">
               <span className="text-muted-foreground">Сокращать ссылку</span>
               <Switch
                 checked={property.urlCollapsed === true}
@@ -648,7 +630,7 @@ function ScaleDropdownRow({
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2
+          className="flex w-full items-center justify-between px-3 py-2
                      text-[13px] transition-colors hover:bg-muted/40"
         >
           <span className="flex items-center gap-2.5 text-muted-foreground">
@@ -693,7 +675,7 @@ function SliderMaxRow({
   onCommit: (v: string) => void;
 }) {
   return (
-    <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
+    <div className="flex w-full items-center justify-between px-3 py-2 text-[13px]">
       <span className="text-muted-foreground">Максимальное значение</span>
       <input
         type="number"
@@ -729,7 +711,7 @@ function ShowValueRow({
   onCheckedChange: (v: boolean) => void;
 }) {
   return (
-    <div className="-mx-1.5 flex w-full items-center justify-between rounded-md px-1.5 py-2 text-[13px]">
+    <div className="flex w-full items-center justify-between px-3 py-2 text-[13px]">
       <span className="text-muted-foreground">Показывать число</span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} />
     </div>
@@ -764,7 +746,7 @@ function ColorRow({
               className={cn(
                 "size-3.5 shrink-0 rounded-full",
                 currentName === "default"
-                  ? "border border-border"
+                  ? "bg-muted"
                   : paletteDot(currentName),
               )}
             />
@@ -792,7 +774,7 @@ function ColorRow({
                 className={cn(
                   "size-4 shrink-0 rounded-full",
                   c.name === "default"
-                    ? "border border-border"
+                    ? "bg-muted"
                     : paletteDot(c.name),
                 )}
               />
@@ -859,37 +841,60 @@ function ViewCards({
   );
 }
 
-// ── iOS/Notion-style segmented track ────────────────────────────────────────
-function Segmented({
-  options,
+// ── «Округление» dropdown row ────────────────────────────────────────────────
+const ROUNDING_OPTIONS: { value: number | undefined; label: string }[] = [
+  { value: undefined, label: "Авто" },
+  { value: 0, label: "Целое" },
+  { value: 1, label: "1 знак" },
+  { value: 2, label: "2 знака" },
+  { value: 3, label: "3 знака" },
+];
+
+function RoundingDropdownRow({
   value,
   onChange,
 }: {
-  options: { value: string; label: string }[];
-  value: string;
-  onChange: (v: string) => void;
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
 }) {
+  const currentLabel =
+    ROUNDING_OPTIONS.find((o) => o.value === value)?.label ?? "Авто";
   return (
-    <div className="flex gap-0.5 rounded-lg bg-muted/60 p-0.5">
-      {options.map((opt) => {
-        const isCurrent = opt.value === value;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => !isCurrent && onChange(opt.value)}
-            className={cn(
-              "h-7 flex-1 rounded-md text-[12.5px] transition-colors",
-              isCurrent
-                ? "bg-background font-medium text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center justify-between px-3 py-2
+                     text-[13px] transition-colors hover:bg-muted/40"
+        >
+          <span className="flex items-center gap-2.5 text-muted-foreground">
+            <KB_PROPERTY_UI_ICONS.rounding className="size-4 text-muted-foreground/70" />
+            Округление
+          </span>
+          <span className="flex items-center gap-1 text-foreground">
+            {currentLabel}
+            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[140px]">
+        {ROUNDING_OPTIONS.map((o) => {
+          const isCurrent = o.value === value;
+          return (
+            <DropdownMenuItem
+              key={String(o.value)}
+              disabled={isCurrent}
+              onSelect={() => onChange(o.value)}
+            >
+              {o.label}
+              {isCurrent && (
+                <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Clock, Loader2, Lock, Pencil, Unlock } from "lucide-react";
+import { Clock } from "lucide-react";
 import { toast } from "sonner";
 
-import { createKbPage, setKbPageLock } from "@/lib/knowledge/pages";
-import { cn } from "@/lib/utils";
+import { createKbPage } from "@/lib/knowledge/pages";
 import {
   uploadKbAttachment,
   getKbAttachmentSignedUrl,
@@ -21,19 +20,12 @@ import { setKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-s
 import { useKbPageViewTracker } from "@/lib/knowledge/use-page-view-tracker";
 import {
   clearKbPageLocalUnlock,
-  setKbPageStateOverride,
   useKbPageStateOverride,
 } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import { useKbCommentsBundle } from "@/app/(dashboard)/knowledge/_components/use-kb-comments-bundle";
 import { useKbTitleAutoHeight } from "@/app/(dashboard)/knowledge/_components/use-kb-title-auto-height";
 import { useKbAutosave } from "@/app/(dashboard)/knowledge/_components/use-kb-autosave";
 import { KbMentionResolutionProvider } from "@/components/knowledge/blocks/kb-mention-context";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 // Dynamic-import — оба компонента статически зависят от @blocknote/react.
 // Без SSR-skip бандл /knowledge/[slug] раздуло бы до ~530 kB.
 const KbMentionMenu = dynamic(
@@ -123,8 +115,6 @@ interface KbPageEditorProps {
   /** Server-rendered lock-state (`row.locked_at !== null`). Override
    *  сверху может его перебить — см. kb-page-state-overrides-store. */
   initialLocked: boolean;
-  /** `kb.lock_pages`: глобально заблокировать/разблокировать страницу. */
-  canLock?: boolean;
   /** `kb.create_pages` permission. Если true — slash-меню «/» содержит
    *  пункт «Новая страница», который создаёт вложенный kb_page и
    *  переводит юзера на него. */
@@ -212,7 +202,6 @@ export function KbPageEditor({
   initialContent,
   canEditBase,
   initialLocked,
-  canLock = false,
   canCreate = false,
   aiSlashEnabled = false,
   canComment = false,
@@ -323,14 +312,8 @@ export function KbPageEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      {globalLocked && (
-        <KbLockedPill
-          pageId={pageId}
-          canEditBase={canEditBase}
-          canLock={canLock}
-          localUnlocked={localUnlocked}
-        />
-      )}
+      {/* Lock-индикатор перенесён в верхнюю панель (KbLockHeaderChip
+          рядом с ⋯-меню) — больше не ест строку в теле страницы. */}
       {/* Notion-style header: icon на отдельной строке, ниже title. */}
       <div className="flex flex-col gap-2">
         <div className="-ml-2">
@@ -546,130 +529,6 @@ export function KbPageEditor({
           }}
         />
       </KbMentionResolutionProvider>
-    </div>
-  );
-}
-
-function KbLockedPill({
-  pageId,
-  canEditBase,
-  canLock,
-  localUnlocked,
-}: {
-  pageId: string;
-  canEditBase: boolean;
-  canLock: boolean;
-  localUnlocked: boolean;
-}) {
-  const [unlockPending, setUnlockPending] = useState(false);
-  const hasActions = canEditBase || canLock;
-  const pillClassName = cn(
-    "inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
-    localUnlocked
-      ? "border border-amber-300/70 bg-amber-50 text-amber-900 hover:bg-amber-100 data-[state=open]:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200 dark:hover:bg-amber-500/20 dark:data-[state=open]:bg-amber-500/20"
-      : "bg-muted/70 text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground",
-  );
-  const PillIcon = localUnlocked ? Unlock : Lock;
-  const pillLabel = localUnlocked ? "Разблокировано" : "Заблокировано";
-
-  const unlockForMe = () => {
-    setKbPageStateOverride(pageId, { localUnlocked: true });
-  };
-
-  const lockForMe = () => {
-    setKbPageStateOverride(pageId, { localUnlocked: false });
-  };
-
-  const unlockForEveryone = async () => {
-    setKbPageStateOverride(pageId, { locked: false, localUnlocked: false });
-    setUnlockPending(true);
-    const { error } = await setKbPageLock({ pageId, locked: false });
-    setUnlockPending(false);
-    if (error) {
-      setKbPageStateOverride(pageId, {
-        locked: true,
-        localUnlocked: false,
-      });
-      toast.error(`Не удалось разблокировать страницу: ${error}`);
-    }
-  };
-
-  if (!hasActions) {
-    return (
-      <div className="px-2 -ml-2">
-        <span className={pillClassName}>
-          <PillIcon className="size-4" />
-          <span>{pillLabel}</span>
-        </span>
-      </div>
-    );
-  }
-
-  if (localUnlocked) {
-    return (
-      <div className="px-2 -ml-2">
-        <button
-          type="button"
-          className={pillClassName}
-          aria-label="Снова заблокировать страницу для себя"
-          onClick={lockForMe}
-        >
-          <PillIcon className="size-4" />
-          <span>{pillLabel}</span>
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-2 -ml-2">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={pillClassName}
-            aria-label="Страница заблокирована"
-          >
-            <PillIcon className="size-4" />
-            <span>{pillLabel}</span>
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="start"
-          sideOffset={6}
-          className="w-[260px] rounded-[10px] p-1.5"
-        >
-          {canEditBase && !localUnlocked && (
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                unlockForMe();
-              }}
-              className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
-            >
-              <Pencil className="size-4 shrink-0" />
-              <span>Редактировать</span>
-            </DropdownMenuItem>
-          )}
-          {canLock && (
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                if (!unlockPending) void unlockForEveryone();
-              }}
-              disabled={unlockPending}
-              className="gap-3 rounded-md px-2.5 py-2 text-[15px]"
-            >
-              {unlockPending ? (
-                <Loader2 className="size-4 shrink-0 animate-spin" />
-              ) : (
-                <Unlock className="size-4 shrink-0" />
-              )}
-              <span>Разблокировать</span>
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }

@@ -3153,6 +3153,10 @@ export type Database = {
         Args: { p_slug: string }
         Returns: boolean
       }
+      kb_my_active_seconds: {
+        Args: { p_page_id: string }
+        Returns: number
+      }
       kb_threads_set_positions_batch: {
         Args: { p_positions: Json }
         Returns: undefined

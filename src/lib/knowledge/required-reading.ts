@@ -74,6 +74,22 @@ export async function getKbPageReadStatus(
   };
 }
 
+/** Сумма активных секунд текущего юзера по странице (накопленная за
+ *  все визиты, считает сервер). Read-gate обязательного чтения
+ *  ориентируется на это, а не на свежий per-mount таймер — иначе
+ *  повторный заход / обновление страницы требовали бы вычитывать
+ *  порог заново. Backed by RPC kb_my_active_seconds (миграция 183). */
+export async function getKbMyActiveSeconds(
+  pageId: string,
+): Promise<number> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("kb_my_active_seconds", {
+    p_page_id: pageId,
+  });
+  if (error) return 0;
+  return typeof data === "number" ? data : 0;
+}
+
 /** User подтверждает прочтение страницы. INSERT в kb_page_reads с
  *  read_version = current latest version_number из kb_page_versions.
  *  Если строка для (user, page, version) уже есть — идемпотентно ОК

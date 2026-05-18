@@ -21,6 +21,8 @@ import { KbBacklinks } from "@/app/(dashboard)/knowledge/_components/kb-backlink
 import { KbChildrenList } from "@/app/(dashboard)/knowledge/_components/kb-children-list";
 import { KbRequiredReadingBanner } from "@/app/(dashboard)/knowledge/_components/kb-required-reading-banner";
 import { KbPageMenu } from "@/app/(dashboard)/knowledge/_components/kb-page-menu";
+import { KbLockHeaderChip } from "@/app/(dashboard)/knowledge/_components/kb-lock-header-chip";
+import { getKbMyActiveSeconds } from "@/lib/knowledge/required-reading";
 import { estimateReadingMinutes } from "@/lib/knowledge/reading-time";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
 import type {
@@ -149,6 +151,16 @@ export default async function KbPageView({ params }: PageProps) {
     myReadAt: pageViewData?.my_read_at ?? null,
     needsReread: pageViewData?.needs_reread ?? false,
   };
+  // Накопленное активное время текущего юзера на странице — нужно
+  // только для read-gate на ещё-не-подтверждённой обязательной
+  // странице (иначе лишний RPC). Read-gate стартует с этого значения,
+  // а не с нуля — повторный заход / обновление страницы не требуют
+  // вычитывать порог заново.
+  const accumulatedActiveSeconds =
+    readStatus.required && !readStatus.myReadAt
+      ? await getKbMyActiveSeconds(row.id)
+      : 0;
+
   const chain = pageViewData?.breadcrumbs ?? [];
   const backlinkRows = pageViewData?.backlinks ?? [];
   const permissions = new Set(permissionCodes);
@@ -308,25 +320,36 @@ export default async function KbPageView({ params }: PageProps) {
           canViewAnalytics={canViewAnalytics}
           canViewVersionHistory={hasViewVersionHistory}
         />
+        {/* Lock-чип рядом с ⋯-меню (как в Notion): «🔒 Заблокировано»
+            с dropdown «Редактировать / Разблокировать». Раньше был
+            отдельной строкой в теле страницы — ел вертикальное место. */}
+        <KbLockHeaderChip
+          pageId={row.id}
+          initialLocked={isLocked}
+          canEditBase={canEditBase}
+          canLock={canLock}
+        />
       </PageHeaderActions>
+
+      {/* Required-reading баннер — edge-to-edge (как плашка корзины в
+          Notion): во всю ширину области, до центрированного тела. */}
+      <KbRequiredReadingBanner
+        pageId={row.id}
+        required={readStatus.required}
+        initialReadAt={readStatus.myReadAt}
+        needsReread={readStatus.needsReread}
+        accumulatedActiveSeconds={accumulatedActiveSeconds}
+        readingMinutes={
+          row.plain_text && row.plain_text.trim().length > 0
+            ? estimateReadingMinutes(row.plain_text)
+            : null
+        }
+      />
 
       {/* Page body — full-width container; editor itself is centred
           to ~720px for Notion-like reading width. */}
       <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          {/* Required-reading баннер (только если флаг включён) или
-              compact-badge «✓ Прочитано» если уже подтверждено. */}
-          <KbRequiredReadingBanner
-            pageId={row.id}
-            required={readStatus.required}
-            initialReadAt={readStatus.myReadAt}
-            needsReread={readStatus.needsReread}
-            readingMinutes={
-              row.plain_text && row.plain_text.trim().length > 0
-                ? estimateReadingMinutes(row.plain_text)
-                : null
-            }
-          />
           {/*
             Key by (id, updated_at). Normal auto-save doesn't bump
             updated_at in the current view (no router.refresh after save),
@@ -347,7 +370,6 @@ export default async function KbPageView({ params }: PageProps) {
             trashedMentionSlugs={trashedMentionSlugs}
             canEditBase={canEditBase}
             initialLocked={isLocked}
-            canLock={canLock}
             canCreate={hasCreate}
             aiSlashEnabled={aiSlashEnabled}
             canComment={hasComment}
@@ -451,17 +473,19 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
         <KbBackLink href="/knowledge/trash" label="Корзина" />
       </PageBreadcrumb>
 
+      {/* Edge-to-edge плашка «в корзине» (как красная плашка Notion) */}
+      <KbDeletedPageBanner
+        pageId={row.id}
+        pageSlug={row.slug}
+        title={row.title}
+        deletedAt={row.deleted_at}
+        deletedByName={deletedByName}
+        descendantsCount={descendantsCount}
+        canManage={canManage}
+      />
+
       <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
-          <KbDeletedPageBanner
-            pageId={row.id}
-            pageSlug={row.slug}
-            title={row.title}
-            deletedAt={row.deleted_at}
-            deletedByName={deletedByName}
-            descendantsCount={descendantsCount}
-            canManage={canManage}
-          />
           <KbPageEditor
             key={`${row.id}-deleted`}
             pageId={row.id}

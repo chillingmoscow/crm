@@ -11,19 +11,11 @@ import {
 import { nanoid } from "nanoid";
 import {
   Plus,
-  Trash2,
-  MoreHorizontal,
-  Type as TypeIcon,
-  Copy,
-  Replace,
   GripVertical,
-  Check,
-  Minimize2,
-  Maximize2,
-  Ruler,
-  ToggleRight,
   Database,
-  Info,
+  Type as TypeIcon,
+  Pencil,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -49,22 +41,13 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import type { Unit } from "@/lib/units";
@@ -84,8 +67,8 @@ import { SelectControl } from "./page-properties/controls/select-control";
 import { MultiSelectControl } from "./page-properties/controls/multi-select-control";
 import { NumberValueControl } from "./page-properties/controls/number-control";
 import { RatingValueControl } from "./page-properties/controls/rating-control";
-import { UnitPickerItems } from "./page-properties/controls/unit-picker-items";
 import { PropertyIconButton } from "./page-properties/controls/property-icon-button";
+import { DateValueControl } from "./page-properties/controls/date-control";
 import {
   CREATABLE_PROPERTY_TYPES,
   SAVE_DEBOUNCE_MS,
@@ -94,8 +77,8 @@ import {
   getCollectionScope,
   isPageProperty,
   makeProperty,
-  propertyTypeOptions,
 } from "./page-properties/helpers";
+import { PropertyEditorPopover } from "./page-properties/option-editor-popover";
 
 interface KbPagePropertiesProps {
   /** Идентификатор страницы или шаблона. */
@@ -402,9 +385,17 @@ export function KbPageProperties({
         const updated = { ...p } as KbProperty & { displayVariant?: string };
         if (p.type === "number") {
           if (variant === "rating") {
+            const nMax = (p as Extract<KbProperty, { type: "number" }>).max ?? 5;
             updated.displayVariant = "rating";
-            (updated as Extract<KbProperty, { type: "number" }>).max =
-              (p as Extract<KbProperty, { type: "number" }>).max ?? 5;
+            (updated as Extract<KbProperty, { type: "number" }>).max = nMax;
+            if (
+              (updated as Extract<KbProperty, { type: "number" }>).value !==
+                null &&
+              ((updated as Extract<KbProperty, { type: "number" }>)
+                .value as number) > nMax
+            ) {
+              (updated as Extract<KbProperty, { type: "number" }>).value = nMax;
+            }
             (updated as Extract<KbProperty, { type: "number" }>).ratingVariant =
               (p as Extract<KbProperty, { type: "number" }>).ratingVariant ??
               "stars";
@@ -422,6 +413,11 @@ export function KbPageProperties({
         }
         if (variant === undefined) delete updated.displayVariant;
         else updated.displayVariant = variant;
+        if (p.type === "rating") {
+          const rMax = (p as Extract<KbProperty, { type: "rating" }>).max ?? 5;
+          const r = updated as Extract<KbProperty, { type: "rating" }>;
+          if (r.value !== null && r.value > rMax) r.value = rMax;
+        }
         return updated as KbProperty;
       });
       scheduleSave(next);
@@ -429,22 +425,36 @@ export function KbPageProperties({
     });
   };
 
-  const changeNumberRatingVariant = (
+  // Единый «Вид» для number: Число / Звёзды / Слайдер (заменяет
+  // прежнее разделение «Внешний вид» + «Рейтинг» + «Показывать число»).
+  const changeNumberView = (
     id: string,
-    variant: "stars" | "slider",
+    view: "number" | "stars" | "slider",
   ) => {
     setProperties((prev) => {
       const next = prev.map((p) => {
-        if (
-          p.id !== id ||
-          p.type !== "number" ||
-          p.displayVariant !== "rating"
-        ) {
-          return p;
+        if (p.id !== id || p.type !== "number") return p;
+        if (view === "number") {
+          const u = { ...p } as Extract<KbProperty, { type: "number" }>;
+          delete u.displayVariant;
+          delete u.max;
+          delete u.ratingVariant;
+          delete u.ratingShowValue;
+          return u as KbProperty;
         }
+        const max = p.max ?? 5;
+        // Переход «число → звёзды/слайдер»: значение не может
+        // превышать шкалу — иначе server-схема (rating ≤ max)
+        // отвергает сохранение. Зажимаем до max.
+        const clampedValue =
+          p.value !== null && p.value > max ? max : p.value;
         return {
           ...p,
-          ratingVariant: variant,
+          value: clampedValue,
+          displayVariant: "rating",
+          max,
+          ratingVariant: view,
+          ratingShowValue: p.ratingShowValue ?? true,
         } as KbProperty;
       });
       scheduleSave(next);
@@ -452,20 +462,57 @@ export function KbPageProperties({
     });
   };
 
-  const changeNumberRatingShowValue = (id: string, showValue: boolean) => {
+  // Округление number при отображении. undefined = «Авто».
+  const changeNumberDecimals = (
+    id: string,
+    decimals: number | undefined,
+  ) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id || p.type !== "number") return p;
+        const u = { ...p } as Extract<KbProperty, { type: "number" }>;
+        if (decimals === undefined) delete u.decimals;
+        else u.decimals = decimals;
+        return u as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  // Цвет звёзд / слайдера. null = убрать (amber-default).
+  const changeRatingColor = (id: string, color: KbPropertyColor | null) => {
     setProperties((prev) => {
       const next = prev.map((p) => {
         if (
           p.id !== id ||
-          p.type !== "number" ||
-          p.displayVariant !== "rating"
+          (p.type !== "rating" &&
+            !(p.type === "number" && p.displayVariant === "rating"))
         ) {
           return p;
         }
-        return {
-          ...p,
-          ratingShowValue: showValue,
-        } as KbProperty;
+        const updated = { ...p } as KbProperty & { ratingColor?: KbPropertyColor };
+        if (color === null) delete updated.ratingColor;
+        else updated.ratingColor = color;
+        return updated as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  // Показывать / скрывать числовой лейбл рядом со слайдером.
+  const changeRatingShowValue = (id: string, show: boolean) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (
+          p.id !== id ||
+          (p.type !== "rating" &&
+            !(p.type === "number" && p.displayVariant === "rating"))
+        ) {
+          return p;
+        }
+        return { ...p, ratingShowValue: show } as KbProperty;
       });
       scheduleSave(next);
       return next;
@@ -576,7 +623,7 @@ export function KbPageProperties({
   return (
     <section
       aria-label="Свойства страницы"
-      className="flex flex-col gap-2 px-2 -ml-2"
+      className="flex flex-col gap-1 px-2 -ml-2"
     >
       {collectionGroups.length > 0 && (
         <div className="flex flex-col gap-2 pb-1">
@@ -691,6 +738,73 @@ export function KbPageProperties({
                         optionColors,
                       } as Partial<KbProperty>)
                     }
+                    onRenameOption={(from, to) => {
+                      if (
+                        prop.type !== "select" &&
+                        prop.type !== "multi-select"
+                      ) {
+                        return;
+                      }
+                      const p = prop as
+                        | Extract<KbProperty, { type: "select" }>
+                        | Extract<KbProperty, { type: "multi-select" }>;
+                      const options = p.options.map((o) =>
+                        o === from ? to : o,
+                      );
+                      let optionColors = p.optionColors;
+                      if (optionColors && from in optionColors) {
+                        const next = { ...optionColors };
+                        const carried = next[from];
+                        delete next[from];
+                        if (carried !== undefined) next[to] = carried;
+                        optionColors =
+                          Object.keys(next).length > 0 ? next : undefined;
+                      }
+                      const patch = {
+                        options,
+                        optionColors,
+                      } as Partial<KbProperty>;
+                      if (p.type === "select") {
+                        (patch as { value?: string | null }).value =
+                          p.value === from ? to : p.value;
+                      } else {
+                        (patch as { value?: string[] }).value = p.value.map(
+                          (v) => (v === from ? to : v),
+                        );
+                      }
+                      updateProperty(prop.id, patch);
+                    }}
+                    onRemoveOption={(option) => {
+                      if (
+                        prop.type !== "select" &&
+                        prop.type !== "multi-select"
+                      ) {
+                        return;
+                      }
+                      const p = prop as
+                        | Extract<KbProperty, { type: "select" }>
+                        | Extract<KbProperty, { type: "multi-select" }>;
+                      const options = p.options.filter((o) => o !== option);
+                      let optionColors = p.optionColors;
+                      if (optionColors && option in optionColors) {
+                        const next = { ...optionColors };
+                        delete next[option];
+                        optionColors =
+                          Object.keys(next).length > 0 ? next : undefined;
+                      }
+                      const patch = {
+                        options,
+                        optionColors,
+                      } as Partial<KbProperty>;
+                      if (p.type === "select") {
+                        (patch as { value?: string | null }).value =
+                          p.value === option ? null : p.value;
+                      } else {
+                        (patch as { value?: string[] }).value =
+                          p.value.filter((v) => v !== option);
+                      }
+                      updateProperty(prop.id, patch);
+                    }}
                     onChangeIcon={(icon, iconColor) =>
                       changePropertyIcon(prop.id, icon, iconColor)
                     }
@@ -705,15 +819,17 @@ export function KbPageProperties({
                     onChangeDisplayVariant={(variant) =>
                       changeDisplayVariant(prop.id, variant)
                     }
-                    onChangeNumberRatingVariant={(variant) =>
-                      changeNumberRatingVariant(prop.id, variant)
+                    onChangeNumberView={(view) =>
+                      changeNumberView(prop.id, view)
                     }
-                    onChangeNumberRatingShowValue={(showValue) =>
-                      changeNumberRatingShowValue(prop.id, showValue)
+                    onChangeNumberDecimals={(decimals) =>
+                      changeNumberDecimals(prop.id, decimals)
                     }
                     onRemove={() => removeProperty(prop.id)}
                     onDuplicate={() => duplicateProperty(prop.id)}
                     onChangeType={(t) => changePropertyType(prop.id, t)}
+                    onChangeRatingColor={(c) => changeRatingColor(prop.id, c)}
+                    onChangeRatingShowValue={(s) => changeRatingShowValue(prop.id, s)}
                   />
                 ))}
               </ul>
@@ -734,7 +850,7 @@ export function KbPageProperties({
         </>
       )}
       {showAddButton && (
-        <div className="flex min-h-8 items-center gap-2 pt-1">
+        <div className="flex min-h-8 items-center gap-2 pt-1.5">
           {canEdit ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -742,7 +858,7 @@ export function KbPageProperties({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  className="h-7 px-1.5 -ml-1.5 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <Plus className="size-3.5" />
                   {collectionGroups.length > 0
@@ -750,7 +866,11 @@ export function KbPageProperties({
                     : "Добавить свойство"}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-[160px]">
+              <DropdownMenuContent align="start" className="min-w-[220px]">
+                <div className="px-2 py-1.5 text-[12px] font-medium text-muted-foreground/70">
+                  Добавить свойство
+                </div>
+                <DropdownMenuSeparator />
                 {CREATABLE_PROPERTY_TYPES.map((t) => {
                   const Icon = TYPE_ICONS[t];
                   return (
@@ -769,7 +889,7 @@ export function KbPageProperties({
               size="sm"
               disabled
               aria-disabled="true"
-              className="h-7 px-2 text-xs text-muted-foreground opacity-40"
+              className="h-7 px-1.5 -ml-1.5 text-xs text-muted-foreground opacity-40"
             >
               <Plus className="size-3.5" />
               {collectionGroups.length > 0
@@ -828,6 +948,12 @@ interface PropertyRowProps {
   onChangeOptionColors: (
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
+  /** Rename опции select/multi-select: атомарно мигрирует options +
+   *  optionColors + текущее value. */
+  onRenameOption: (from: string, to: string) => void;
+  /** Delete опции select/multi-select: атомарно чистит options +
+   *  optionColors + reconcile'ит value. */
+  onRemoveOption: (option: string) => void;
   onChangeIcon: (icon: string | null, iconColor: string | null) => void;
   onChangeDescription: (description: string) => void;
   /** Toggle для text-property: collapsed (single-line truncate) ↔
@@ -840,11 +966,17 @@ interface PropertyRowProps {
   /** Меняет displayVariant для checkbox ("checkbox" | "switch") и
    *  rating ("stars" | "slider"). undefined = вернуть default. */
   onChangeDisplayVariant: (variant: string | undefined) => void;
-  onChangeNumberRatingVariant: (variant: "stars" | "slider") => void;
-  onChangeNumberRatingShowValue: (showValue: boolean) => void;
+  /** Единый «Вид» number: Число / Звёзды / Слайдер. */
+  onChangeNumberView: (view: "number" | "stars" | "slider") => void;
+  /** Округление number при отображении. undefined = «Авто». */
+  onChangeNumberDecimals: (decimals: number | undefined) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
+  /** Цвет звёзд / слайдера. null = amber-default. */
+  onChangeRatingColor: (color: KbPropertyColor | null) => void;
+  /** Показывать / скрывать числовой лейбл рядом со слайдером. */
+  onChangeRatingShowValue: (show: boolean) => void;
 }
 
 function CollectionScopedPropertyRow({
@@ -859,7 +991,7 @@ function CollectionScopedPropertyRow({
   const Icon = TYPE_ICONS[property.type];
 
   return (
-    <li className="group/collection-row flex min-h-[30px] items-center gap-1.5 rounded-md py-0.5">
+    <li className="group/collection-row flex min-h-[36px] items-center gap-2 rounded-md py-1">
       <span
         className="size-5 -ml-1 inline-flex shrink-0 items-center justify-center"
         aria-hidden="true"
@@ -880,7 +1012,7 @@ function CollectionScopedPropertyRow({
         ) : (
           <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
         )}
-        <span className="w-[140px] shrink-0 truncate text-[13px] text-muted-foreground">
+        <span className="w-[168px] shrink-0 truncate text-[13px] text-muted-foreground">
           {property.name}
         </span>
       </div>
@@ -905,28 +1037,24 @@ function PropertyRow({
   onChangeValue,
   onChangeOptions,
   onChangeOptionColors,
+  onRenameOption,
+  onRemoveOption,
   onChangeIcon,
   onChangeDescription,
   onToggleCollapse,
   onChangeUnit,
   onChangeRatingScale,
   onChangeDisplayVariant,
-  onChangeNumberRatingVariant,
-  onChangeNumberRatingShowValue,
+  onChangeNumberView,
+  onChangeNumberDecimals,
   onRemove,
   onDuplicate,
   onChangeType,
+  onChangeRatingColor,
+  onChangeRatingShowValue,
 }: PropertyRowProps) {
-  const [name, setName] = useState(property.name);
-  const [descriptionDraft, setDescriptionDraft] = useState(
-    property.description ?? "",
-  );
-  // Sync external rename (e.g., другой клиент) на случай контролируемой
-  // mutation сверху.
-  useEffect(() => setName(property.name), [property.name]);
-  useEffect(() => {
-    setDescriptionDraft(property.description ?? "");
-  }, [property.description]);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
   // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
@@ -955,18 +1083,22 @@ function PropertyRow({
       ref={setNodeRef}
       style={dragStyle}
       className={cn(
-        "group/row flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md",
+        "group/row relative flex items-center gap-2 min-h-[36px] py-1 rounded-md",
         // Subtle background ТОЛЬКО на active-drag (визуальный feedback
         // reorder'а). Фоновая подсветка всего ряда специально НЕ
         // ставим — только label с именем (просьба юзера, см. ниже).
         isDragging && "bg-muted/60 shadow-sm",
       )}
     >
-      {canEdit ? (
+      {/* Grip живёт в левом «жёлобе» (absolute, вне flow) — иконка
+       *  свойства встаёт ровно под левым краем заголовка страницы,
+       *  без сдвига от ручки перетаскивания. */}
+      {canEdit && (
         <button
           type="button"
           aria-label="Перетащить свойство"
-          className="size-5 -ml-1 flex items-center justify-center text-muted-foreground/40
+          className="absolute right-full top-1/2 -translate-y-1/2 mr-1 size-5
+                     flex items-center justify-center text-muted-foreground/40
                      cursor-grab active:cursor-grabbing
                      opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
                      hover:text-foreground transition-opacity"
@@ -975,89 +1107,19 @@ function PropertyRow({
         >
           <GripVertical className="size-3.5" />
         </button>
-      ) : (
-        // Read-only: тот же spacer что и у grip'а, чтобы layout не
-        // съезжал при переключении canEdit.
-        <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
       )}
       {/* Label area: icon + name. Hover-bg ТОЛЬКО здесь (Notion-style —
        *  юзер хочет подсветку имени, не всего ряда). Заметная подсветка
        *  через `bg-foreground/10` — работает одинаково ярко на light /
        *  dark theme'ах, в отличие от `bg-accent` (которая в light тонет). */}
-      <div
-        className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 rounded-md
-                   hover:bg-foreground/[0.08] dark:hover:bg-foreground/10
-                   transition-colors"
-      >
-        <PropertyIconButton
-          property={property}
-          canEdit={canEdit}
-          onChangeIcon={onChangeIcon}
-        />
-        {canEdit ? (
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => {
-              const trimmed = name.trim();
-              if (trimmed !== property.name) onRename(trimmed);
-              setName(trimmed);
-            }}
-            className="w-[140px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
-            aria-label="Имя свойства"
-          />
-        ) : (
-          <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
-            {property.name}
-          </span>
-        )}
-        {canEdit && (
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "size-5 shrink-0 inline-flex items-center justify-center rounded text-muted-foreground/70 hover:bg-accent hover:text-foreground",
-                  property.description && "text-foreground",
-                )}
-                aria-label="Описание свойства"
-              >
-                <Info className="size-3.5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              sideOffset={6}
-              className="w-[260px] p-2"
-              onOpenAutoFocus={(event) => event.preventDefault()}
-            >
-              <Input
-                value={descriptionDraft}
-                placeholder="Описание свойства"
-                className="h-8"
-                aria-label="Описание свойства"
-                onChange={(event) =>
-                  setDescriptionDraft(event.currentTarget.value)
-                }
-                onBlur={() => onChangeDescription(descriptionDraft)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onChangeDescription(event.currentTarget.value);
-                    event.currentTarget.blur();
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setDescriptionDraft(property.description ?? "");
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
+      {/* Label = trigger меню настроек свойства (клик по имени).
+       *  Иконка — отдельная кнопка (свой пикер), не вложена в trigger. */}
+      <PropertyLabelTrigger
+        property={property}
+        canEdit={canEdit}
+        onChangeIcon={onChangeIcon}
+        onOpenMenu={() => setMenuOpen(true)}
+      />
       <div className="flex-1 min-w-0">
         <PropertyValueControl
           property={property}
@@ -1067,308 +1129,111 @@ function PropertyRow({
           onChangeOptionColors={onChangeOptionColors}
         />
       </div>
-      <div className="size-6 shrink-0">
-        {canEdit && (
-          <DropdownMenu>
+      {canEdit && (
+        <>
+          {/* Primary context menu: Редактировать / Дублировать / Удалить */}
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-6 opacity-0 group-hover/row:opacity-100 focus:opacity-100"
-                aria-label="Действия со свойством"
-              >
-                <MoreHorizontal className="size-3.5" />
-              </Button>
+              <span className="pointer-events-none absolute left-0 top-1/2 size-px" aria-hidden />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[180px]">
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Replace className="size-3.5 text-muted-foreground" />
-                  Изменить тип
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[160px]">
-                  {propertyTypeOptions(property.type).map((t) => {
-                    const TIcon = TYPE_ICONS[t];
-                    const isCurrent = t === property.type;
-                    return (
-                      <DropdownMenuItem
-                        key={t}
-                        disabled={isCurrent}
-                        onSelect={() => onChangeType(t)}
-                      >
-                        <TIcon className="size-3.5 text-muted-foreground" />
-                        {TYPE_LABELS[t]}
-                        {isCurrent && (
-                          <span className="ml-auto text-[11px] text-muted-foreground/60">
-                            текущий
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+            <DropdownMenuContent align="start" className="min-w-[180px]">
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setMenuOpen(false);
+                  setEditorOpen(true);
+                }}
+              >
+                <Pencil className="size-3.5 text-muted-foreground" />
+                Редактировать
+                <ChevronRight className="ml-auto size-3.5 text-muted-foreground/60" />
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={onDuplicate}>
-                <Copy className="size-3.5 text-muted-foreground" />
+                <KB_PROPERTY_UI_ICONS.duplicate className="size-3.5 text-muted-foreground" />
                 Дублировать
               </DropdownMenuItem>
-            {/* Свернуть / Развернуть для text-property:
-             *  collapsed = single-line truncate. */}
-            {property.type === "text" && (
-              <DropdownMenuItem onSelect={onToggleCollapse}>
-                {property.collapsed ? (
-                  <Maximize2 className="size-3.5 text-muted-foreground" />
-                ) : (
-                  <Minimize2 className="size-3.5 text-muted-foreground" />
-                )}
-                {property.collapsed ? "Развернуть" : "Свернуть"}
-              </DropdownMenuItem>
-            )}
-            {/* Показать полностью / сокращённо для url:
-             *  urlCollapsed = убираем https:// из visible-текста. */}
-            {property.type === "url" && (
-              <DropdownMenuItem onSelect={onToggleCollapse}>
-                {property.urlCollapsed ? (
-                  <Maximize2 className="size-3.5 text-muted-foreground" />
-                ) : (
-                  <Minimize2 className="size-3.5 text-muted-foreground" />
-                )}
-                {property.urlCollapsed
-                  ? "Показывать полностью"
-                  : "Показывать сокращённо"}
-              </DropdownMenuItem>
-            )}
-            {/* Единица измерения — только для number (Stage 4).
-             *  Submenu с группами: Без единицы / Валюта (CURRENCIES) /
-             *  Масса / Объём / Штук. */}
-            {property.type === "number" && property.displayVariant !== "rating" && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <Ruler className="size-3.5 text-muted-foreground" />
-                  Единица измерения
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[200px] max-h-[360px] overflow-y-auto">
-                  <UnitPickerItems
-                    current={property.unit}
-                    onChange={onChangeUnit}
-                  />
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {property.type === "number" && property.displayVariant === "rating" && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
-                  Шкала
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[120px]">
-                  {[3, 5, 10].map((max) => {
-                    const isCurrent = (property.max ?? 5) === max;
-                    return (
-                      <DropdownMenuItem
-                        key={max}
-                        onSelect={() => onChangeRatingScale(max)}
-                      >
-                        <span className="text-[13px] tabular-nums w-6 shrink-0">
-                          {max}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {max === 3 ? "звезды" : "звёзд"}
-                        </span>
-                        {isCurrent && (
-                          <Check className="ml-auto size-3.5" />
-                        )}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {property.type === "number" && property.displayVariant === "rating" && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <KB_PROPERTY_UI_ICONS.rating className="size-3.5 text-muted-foreground" />
-                  Рейтинг
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[140px]">
-                  {(
-                    [
-                      ["stars", "Звёзды"],
-                      ["slider", "Слайдер"],
-                    ] as const
-                  ).map(([variant, label]) => {
-                    const isCurrent =
-                      (property.ratingVariant ?? "stars") === variant;
-                    return (
-                      <DropdownMenuItem
-                        key={variant}
-                        onSelect={() => onChangeNumberRatingVariant(variant)}
-                      >
-                        {label}
-                        {isCurrent && <Check className="ml-auto size-3.5" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {property.type === "number" &&
-              property.displayVariant === "rating" &&
-              property.ratingVariant === "slider" && (
-                <DropdownMenuItem
-                  onSelect={() =>
-                    onChangeNumberRatingShowValue(
-                      property.ratingShowValue === false,
-                    )
-                  }
-                >
-                  <KB_PROPERTY_UI_ICONS.showValue className="size-3.5 text-muted-foreground" />
-                  Показывать число
-                  {(property.ratingShowValue ?? true) && (
-                    <Check className="ml-auto size-3.5" />
-                  )}
-                </DropdownMenuItem>
-              )}
-            {/* Шкала — только для rating (Stage 5). 3 / 5 / 10. */}
-            {property.type === "rating" && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
-                  Шкала
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[120px]">
-                  {[3, 5, 10].map((max) => {
-                    const isCurrent = (property.max ?? 5) === max;
-                    return (
-                      <DropdownMenuItem
-                        key={max}
-                        onSelect={() => onChangeRatingScale(max)}
-                      >
-                        <span className="text-[13px] tabular-nums w-6 shrink-0">
-                          {max}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {max === 3 ? "звезды" : "звёзд"}
-                        </span>
-                        {isCurrent && (
-                          <Check className="ml-auto size-3.5" />
-                        )}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {/* Внешний вид — для checkbox (Чекбокс / Триггер) и rating
-             *  (Звёзды / Слайдер). Семантика значения та же; меняется
-             *  только рендер. */}
-            {property.type === "number" && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <ToggleRight className="size-3.5 text-muted-foreground" />
-                  Внешний вид
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[140px]">
-                  {(
-                    [
-                      ["number", "Число"],
-                      ["rating", "Рейтинг"],
-                    ] as const
-                  ).map(([variant, label]) => {
-                    const isCurrent =
-                      (property.displayVariant ?? "number") === variant;
-                    return (
-                      <DropdownMenuItem
-                        key={variant}
-                        onSelect={() =>
-                          onChangeDisplayVariant(
-                            variant === "number" ? undefined : variant,
-                          )
-                        }
-                      >
-                        {label}
-                        {isCurrent && <Check className="ml-auto size-3.5" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {property.type === "checkbox" && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <ToggleRight className="size-3.5 text-muted-foreground" />
-                  Внешний вид
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[140px]">
-                  {(
-                    [
-                      ["checkbox", "Чекбокс"],
-                      ["switch", "Триггер"],
-                    ] as const
-                  ).map(([variant, label]) => {
-                    const isCurrent =
-                      (property.displayVariant ?? "checkbox") === variant;
-                    return (
-                      <DropdownMenuItem
-                        key={variant}
-                        onSelect={() =>
-                          onChangeDisplayVariant(
-                            variant === "checkbox" ? undefined : variant,
-                          )
-                        }
-                      >
-                        {label}
-                        {isCurrent && <Check className="ml-auto size-3.5" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
-            {property.type === "rating" && (
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                  <ToggleRight className="size-3.5 text-muted-foreground" />
-                  Внешний вид
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="min-w-[140px]">
-                  {(
-                    [
-                      ["stars", "Звёзды"],
-                      ["slider", "Слайдер"],
-                    ] as const
-                  ).map(([variant, label]) => {
-                    const isCurrent =
-                      (property.displayVariant ?? "stars") === variant;
-                    return (
-                      <DropdownMenuItem
-                        key={variant}
-                        onSelect={() =>
-                          onChangeDisplayVariant(
-                            variant === "stars" ? undefined : variant,
-                          )
-                        }
-                      >
-                        {label}
-                        {isCurrent && <Check className="ml-auto size-3.5" />}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
-            )}
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onRemove}>
-                <Trash2 className="size-3.5 text-destructive" />
-                <span className="text-destructive">Удалить</span>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={onRemove}
+              >
+                <KB_PROPERTY_UI_ICONS.delete className="size-3.5" />
+                Удалить
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        )}
-      </div>
+          {/* Editor popover — открывается из «Редактировать» */}
+          <PropertyEditorPopover
+            open={editorOpen}
+            onOpenChange={setEditorOpen}
+            property={property}
+            canEdit={canEdit}
+            onRename={onRename}
+            onChangeIcon={onChangeIcon}
+            onChangeDescription={onChangeDescription}
+            onChangeType={onChangeType}
+            onChangeUnit={onChangeUnit}
+            onChangeRatingScale={onChangeRatingScale}
+            onChangeDisplayVariant={onChangeDisplayVariant}
+            onChangeNumberView={onChangeNumberView}
+            onChangeNumberDecimals={onChangeNumberDecimals}
+            onToggleCollapse={onToggleCollapse}
+            onChangeOptions={onChangeOptions}
+            onChangeOptionColors={onChangeOptionColors}
+            onRenameOption={onRenameOption}
+            onRemoveOption={onRemoveOption}
+            onChangeRatingColor={onChangeRatingColor}
+            onChangeRatingShowValue={onChangeRatingShowValue}
+          />
+        </>
+      )}
     </li>
+  );
+}
+
+/** Pill «иконка + имя». Имя — кнопка, открывающая меню настроек
+ *  свойства (Notion-style: клик по свойству, без ⋯ справа). Иконка —
+ *  отдельная кнопка (свой пикер), не вложена в кнопку имени. Без
+ *  отрицательного сдвига контента — иконка встаёт ровно под левым
+ *  краем заголовка страницы. */
+function PropertyLabelTrigger({
+  property,
+  canEdit,
+  onChangeIcon,
+  onOpenMenu,
+}: {
+  property: KbProperty;
+  canEdit: boolean;
+  onChangeIcon: (icon: string | null, iconColor: string | null) => void;
+  onOpenMenu: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 -ml-1.5 rounded-md px-1.5 py-1
+                 transition-colors hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
+    >
+      <PropertyIconButton
+        property={property}
+        canEdit={canEdit}
+        onChangeIcon={onChangeIcon}
+      />
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          className="w-[168px] shrink-0 truncate text-left text-[13px]
+                     text-muted-foreground outline-none transition-colors
+                     hover:text-foreground"
+          aria-label="Настройки свойства"
+        >
+          {property.name}
+        </button>
+      ) : (
+        <span className="w-[168px] shrink-0 truncate text-[13px] text-muted-foreground">
+          {property.name}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -1381,7 +1246,7 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
   return (
     <li
       className={cn(
-        "flex items-center gap-1.5 min-h-[28px] py-0.5 rounded-md",
+        "flex items-center gap-2 min-h-[36px] py-1 rounded-md",
         "bg-card shadow-md ring-1 ring-border/40",
         "px-2",
       )}
@@ -1399,7 +1264,7 @@ function PropertyRowDragPreview({ property }: { property: KbProperty }) {
         ) : (
           <Icon className="size-3.5 shrink-0 text-muted-foreground/70" />
         )}
-        <span className="w-[140px] shrink-0 text-[13px] text-muted-foreground">
+        <span className="w-[168px] shrink-0 text-[13px] text-muted-foreground">
           {property.name}
         </span>
       </div>
@@ -1462,17 +1327,12 @@ export function PropertyValueControl({
         />
       );
     case "date":
-      return canEdit ? (
-        <Input
-          type="date"
-          value={property.value ?? ""}
-          onChange={(e) => onChangeValue(e.target.value || null)}
-          className="h-7 text-[13px] tabular-nums border-transparent bg-transparent px-0 hover:border-input focus:border-input"
+      return (
+        <DateValueControl
+          value={property.value}
+          canEdit={canEdit}
+          onChange={onChangeValue}
         />
-      ) : (
-        <span className="text-[13px] tabular-nums">
-          {property.value ?? "—"}
-        </span>
       );
     case "checkbox":
       // displayVariant = "switch" → toggle-триггер; иначе — классический
@@ -1514,6 +1374,7 @@ export function PropertyValueControl({
         max={property.max ?? 5}
         variant={property.displayVariant ?? "stars"}
         showValue={property.ratingShowValue ?? true}
+        color={property.ratingColor}
         canEdit={canEdit}
         onChange={onChangeValue}
       />;

@@ -11,10 +11,11 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { User } from "lucide-react";
+import { Search } from "lucide-react";
 
 import { searchKbMentions, type KbMentionPerson } from "@/lib/knowledge/mentions";
 import { cn } from "@/lib/utils";
+import { avatarDotClass } from "@/lib/avatar-color";
 
 /**
  * @-mention dropdown для plain-textarea-композеров комментариев.
@@ -280,6 +281,7 @@ export function useCommentMentionDropdown({
           items={state.items}
           loading={state.loading}
           activeIndex={state.activeIndex}
+          query={state.query}
           onSelect={applyItem}
           onHover={(i) => setState((prev) => ({ ...prev, activeIndex: i }))}
         />
@@ -295,68 +297,85 @@ function DropdownList({
   items,
   loading,
   activeIndex,
+  query,
   onSelect,
   onHover,
 }: {
   items: KbMentionPerson[];
   loading: boolean;
   activeIndex: number;
+  query: string;
   onSelect: (item: KbMentionPerson) => void;
   onHover: (index: number) => void;
 }) {
-  if (loading && items.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-popover shadow-md min-w-[220px] py-2 px-3 text-xs text-muted-foreground">
-        Поиск…
-      </div>
-    );
-  }
-  if (items.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-popover shadow-md min-w-[220px] py-2 px-3 text-xs text-muted-foreground">
-        Никого не нашлось
-      </div>
-    );
-  }
   return (
-    <ul className="rounded-lg border border-border bg-popover shadow-md min-w-[220px] max-h-64 overflow-y-auto py-1">
-      {items.map((it, i) => (
-        <li key={it.id}>
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              // mousedown вместо click — иначе textarea теряет фокус
-              // ДО click-handler'а, dropdown'у пора закрываться.
-              e.preventDefault();
-              onSelect(it);
-            }}
-            onMouseEnter={() => onHover(i)}
-            className={cn(
-              "w-full flex items-center gap-2 px-2.5 py-1.5 text-left text-sm",
-              "transition-colors",
-              i === activeIndex
-                ? "bg-accent text-accent-foreground"
-                : "hover:bg-accent/50",
-            )}
-          >
-            {it.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={it.avatar_url}
-                alt=""
-                className="size-5 rounded-full object-cover bg-muted shrink-0"
-              />
-            ) : (
-              <span className="size-5 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center shrink-0">
-                <User className="size-3" />
-              </span>
-            )}
-            <span className="truncate">{it.full_name}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
+    <div className="w-[280px] rounded-[10px] border border-border bg-popover shadow-md overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
+        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+        <span
+          className={cn(
+            "text-[13px] truncate",
+            query ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {query || "Найти пользователя…"}
+        </span>
+      </div>
+      <div className="px-3 pt-2 pb-1 text-[12px] text-muted-foreground/70">
+        Участники
+      </div>
+      {loading && items.length === 0 ? (
+        <div className="px-3 py-2 text-xs text-muted-foreground">Поиск…</div>
+      ) : items.length === 0 ? (
+        <div className="px-3 py-2 text-xs text-muted-foreground">
+          Никого не нашлось
+        </div>
+      ) : (
+        <ul className="max-h-64 overflow-y-auto py-1">
+          {items.map((it, i) => (
+            <li key={it.id}>
+              <button
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelect(it);
+                }}
+                onMouseEnter={() => onHover(i)}
+                className={cn(
+                  "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[13px] transition-colors",
+                  i === activeIndex ? "bg-accent" : "hover:bg-accent/50",
+                )}
+              >
+                {it.avatar_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={it.avatar_url}
+                    alt=""
+                    className="size-6 rounded-full object-cover bg-muted shrink-0"
+                  />
+                ) : (
+                  <span
+                    className={cn(
+                      "size-6 rounded-full inline-flex items-center justify-center shrink-0 text-[10px] font-semibold text-white",
+                      avatarDotClass(it.id || it.full_name),
+                    )}
+                  >
+                    {initialsOf(it.full_name)}
+                  </span>
+                )}
+                <span className="truncate">{it.full_name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
+}
+
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
 /**

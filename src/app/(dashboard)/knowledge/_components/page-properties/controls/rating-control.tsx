@@ -2,9 +2,34 @@
 
 import { useState } from "react";
 
-import { Star, X } from "lucide-react";
+import { Star } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import type { KbPropertyColor } from "@/types/knowledge";
+
+const RATING_STAR: Record<string, string> = {
+  gray:   "fill-gray-400 text-gray-400",
+  brown:  "fill-amber-700 text-amber-700",
+  orange: "fill-orange-400 text-orange-400",
+  yellow: "fill-yellow-400 text-yellow-400",
+  green:  "fill-emerald-400 text-emerald-400",
+  blue:   "fill-brand text-brand",
+  purple: "fill-violet-400 text-violet-400",
+  pink:   "fill-pink-400 text-pink-400",
+  red:    "fill-red-400 text-red-400",
+};
+
+const RATING_ACCENT: Record<string, string> = {
+  gray:   "accent-gray-400",
+  brown:  "accent-amber-700",
+  orange: "accent-orange-400",
+  yellow: "accent-yellow-400",
+  green:  "accent-emerald-400",
+  blue:   "accent-brand",
+  purple: "accent-violet-400",
+  pink:   "accent-pink-400",
+  red:    "accent-red-400",
+};
 
 /** Rating value-control. Два variant'а:
  *  - `stars` (default): ★★★☆☆ строка из звёзд. Click по N-й ставит
@@ -16,6 +41,7 @@ export function RatingValueControl({
   max,
   variant,
   showValue = true,
+  color,
   canEdit,
   onChange,
 }: {
@@ -23,6 +49,7 @@ export function RatingValueControl({
   max: number;
   variant: "stars" | "slider";
   showValue?: boolean;
+  color?: KbPropertyColor;
   canEdit: boolean;
   onChange: (value: number | null) => void;
 }) {
@@ -30,6 +57,10 @@ export function RatingValueControl({
 
   if (variant === "slider") {
     const effective = value ?? 0;
+    const accentClass =
+      color && color !== "default" && RATING_ACCENT[color]
+        ? RATING_ACCENT[color]
+        : "accent-zinc-400";
     return (
       <div className="inline-flex items-center gap-2 max-w-full">
         <input
@@ -47,7 +78,8 @@ export function RatingValueControl({
           }}
           aria-label={`Оценка от 0 до ${max}`}
           className={cn(
-            "w-32 accent-amber-400",
+            "w-32",
+            accentClass,
             canEdit ? "cursor-pointer" : "cursor-default",
           )}
         />
@@ -62,6 +94,10 @@ export function RatingValueControl({
 
   // variant === "stars"
   const effective = hover ?? value ?? 0;
+  const filledClass =
+    color && color !== "default" && RATING_STAR[color]
+      ? RATING_STAR[color]
+      : "fill-zinc-400 text-zinc-400";
 
   return (
     <div
@@ -90,7 +126,7 @@ export function RatingValueControl({
             className={cn(
               "size-5 inline-flex items-center justify-center rounded transition-colors",
               canEdit
-                ? "hover:bg-amber-100/60 dark:hover:bg-amber-900/20"
+                ? "hover:bg-foreground/[0.06]"
                 : "cursor-default",
             )}
           >
@@ -99,30 +135,14 @@ export function RatingValueControl({
                 "size-3.5 transition-colors",
                 filled
                   ? isHoverPreview && hover !== null && (value ?? 0) < star
-                    ? "fill-amber-300 text-amber-400/80"
-                    : "fill-amber-400 text-amber-400"
+                    ? cn(filledClass, "opacity-60")
+                    : filledClass
                   : "text-muted-foreground/30",
               )}
             />
           </button>
         );
       })}
-      {value !== null && (
-        <button
-          type="button"
-          aria-label="Сбросить оценку"
-          disabled={!canEdit}
-          onClick={() => onChange(null)}
-          className={cn(
-            "ml-1 size-5 inline-flex items-center justify-center rounded",
-            "text-muted-foreground/40 transition-colors opacity-0",
-            canEdit &&
-              "hover:text-destructive group-hover/row:opacity-100",
-          )}
-        >
-          <X className="size-3" />
-        </button>
-      )}
     </div>
   );
 }

@@ -120,21 +120,25 @@ export function PageCommentComposer({
   const canSubmit = trimmed.length > 0 && !submitting;
   const initials = getInitials(currentUserName);
 
+  // Кнопки показываем только когда есть что отправить или это режим
+  // редактирования — иначе строка остаётся «лёгкой», как в Notion.
+  const showActions = canSubmit || Boolean(onCancel);
+
   return (
-    <div className="flex items-start gap-2">
+    <div className="group flex items-center gap-2">
       {currentUserAvatarUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={currentUserAvatarUrl}
           alt=""
-          className="size-7 rounded-full object-cover bg-muted shrink-0"
+          className="size-6 rounded-full object-cover bg-muted shrink-0"
         />
       ) : (
-        <span className="size-7 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-xs font-semibold shrink-0">
+        <span className="size-6 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[11px] font-semibold shrink-0">
           {initials}
         </span>
       )}
-      <div className="flex-1 min-w-0 flex flex-col gap-1.5 rounded-xl border border-border bg-card px-3 py-2 focus-within:border-brand transition-colors">
+      <div className="flex-1 min-w-0 flex items-center gap-2">
         <textarea
           ref={textareaRef}
           value={text}
@@ -144,39 +148,41 @@ export function PageCommentComposer({
           rows={1}
           disabled={submitting}
           className={cn(
-            "w-full resize-none bg-transparent outline-none",
-            "text-sm text-foreground placeholder:text-muted-foreground",
-            "leading-snug py-0.5",
+            "flex-1 min-w-0 resize-none bg-transparent outline-none",
+            "text-[13px] text-foreground placeholder:text-muted-foreground/70",
+            "leading-snug py-1",
             "max-h-40 overflow-y-auto",
           )}
         />
-        <div className="flex items-center justify-end gap-2">
-          {onCancel && (
+        {showActions && (
+          <div className="flex items-center gap-2 shrink-0">
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={submitting}
+                className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                Отмена
+              </button>
+            )}
             <button
               type="button"
-              onClick={onCancel}
-              disabled={submitting}
-              className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+              aria-label="Отправить"
+              data-tip="Отправить (⌘↵)"
+              disabled={!canSubmit}
+              onClick={() => void handleSubmit()}
+              className={cn(
+                "inline-flex items-center justify-center size-6 rounded-full transition-colors",
+                canSubmit
+                  ? "bg-brand text-brand-foreground hover:bg-brand/90"
+                  : "bg-muted text-muted-foreground cursor-not-allowed",
+              )}
             >
-              Отмена
+              <ArrowUp className="size-3.5" />
             </button>
-          )}
-          <button
-            type="button"
-            aria-label="Отправить"
-            data-tip="Отправить (⌘↵)"
-            disabled={!canSubmit}
-            onClick={() => void handleSubmit()}
-            className={cn(
-              "inline-flex items-center justify-center size-7 rounded-full transition-colors",
-              canSubmit
-                ? "bg-brand text-brand-foreground hover:bg-brand/90"
-                : "bg-muted text-muted-foreground cursor-not-allowed",
-            )}
-          >
-            <ArrowUp className="size-4" />
-          </button>
-        </div>
+          </div>
+        )}
       </div>
       {dropdown}
     </div>

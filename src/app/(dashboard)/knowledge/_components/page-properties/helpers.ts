@@ -38,19 +38,29 @@ export const TYPE_LABELS: Record<KbPropertyType, string> = {
   rating: "Рейтинг",
 };
 
-export const CREATABLE_PROPERTY_TYPES: KbPropertyType[] = (
-  Object.keys(TYPE_LABELS) as KbPropertyType[]
-).filter((type) => type !== "rating");
+/** Canonical UI order (sheerly.pen → ozpX7 / DNk3D). */
+export const PROPERTY_TYPE_ORDER: KbPropertyType[] = [
+  "text",
+  "number",
+  "date",
+  "checkbox",
+  "select",
+  "multi-select",
+  "url",
+  "rating",
+];
+
+export const CREATABLE_PROPERTY_TYPES: KbPropertyType[] = PROPERTY_TYPE_ORDER;
 
 export const SAVE_DEBOUNCE_MS = 1500;
 
 export function propertyTypeOptions(
   current?: KbPropertyType,
 ): KbPropertyType[] {
-  if (current && !CREATABLE_PROPERTY_TYPES.includes(current)) {
-    return [...CREATABLE_PROPERTY_TYPES, current];
+  if (current && !PROPERTY_TYPE_ORDER.includes(current)) {
+    return [...PROPERTY_TYPE_ORDER, current];
   }
-  return CREATABLE_PROPERTY_TYPES;
+  return PROPERTY_TYPE_ORDER;
 }
 
 /** Создаёт пустое property указанного типа с дефолтным `name`.

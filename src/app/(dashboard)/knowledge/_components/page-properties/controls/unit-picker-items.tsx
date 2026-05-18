@@ -46,22 +46,15 @@ export function UnitPickerItems({
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-        Валюта
+        Штуки
       </div>
-      {UNIT_CURRENCIES.map((c) => (
-        <DropdownMenuItem
-          key={c.value}
-          onSelect={() => onChange({ kind: "currency", code: c.value })}
-        >
-          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
-            {c.label.split(" ")[0]}
-          </span>
-          <span className="flex-1 truncate">
-            {c.label.replace(/^\S+\s+/, "")}
-          </span>
-          {isCurrency(c.value) && <Check className="ml-auto size-3.5" />}
-        </DropdownMenuItem>
-      ))}
+      <DropdownMenuItem onSelect={() => onChange({ kind: "piece" })}>
+        <span className="w-8 shrink-0 text-left text-[13px] text-muted-foreground">
+          {PIECE_UNIT.label}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{PIECE_UNIT.longLabel}</span>
+        {isPiece && <Check className="ml-auto size-3.5" />}
+      </DropdownMenuItem>
       <DropdownMenuSeparator />
       <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
         Масса
@@ -71,10 +64,10 @@ export function UnitPickerItems({
           key={m.code}
           onSelect={() => onChange({ kind: "mass", code: m.code })}
         >
-          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
+          <span className="w-8 shrink-0 text-left text-[13px] text-muted-foreground">
             {m.label}
           </span>
-          <span className="flex-1 truncate">{m.longLabel}</span>
+          <span className="min-w-0 flex-1 truncate">{m.longLabel}</span>
           {isMass(m.code) && <Check className="ml-auto size-3.5" />}
         </DropdownMenuItem>
       ))}
@@ -87,23 +80,31 @@ export function UnitPickerItems({
           key={v.code}
           onSelect={() => onChange({ kind: "volume", code: v.code })}
         >
-          <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
+          <span className="w-8 shrink-0 text-left text-[13px] text-muted-foreground">
             {v.label}
           </span>
-          <span className="flex-1 truncate">{v.longLabel}</span>
+          <span className="min-w-0 flex-1 truncate">{v.longLabel}</span>
           {isVolume(v.code) && <Check className="ml-auto size-3.5" />}
         </DropdownMenuItem>
       ))}
       <DropdownMenuSeparator />
-      <DropdownMenuItem
-        onSelect={() => onChange({ kind: "piece" })}
-      >
-        <span className="text-[13px] w-6 shrink-0 text-muted-foreground">
-          {PIECE_UNIT.label}
-        </span>
-        <span className="flex-1 truncate">{PIECE_UNIT.longLabel}</span>
-        {isPiece && <Check className="ml-auto size-3.5" />}
-      </DropdownMenuItem>
+      <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+        Валюта
+      </div>
+      {UNIT_CURRENCIES.map((c) => (
+        <DropdownMenuItem
+          key={c.value}
+          onSelect={() => onChange({ kind: "currency", code: c.value })}
+        >
+          <span className="w-8 shrink-0 truncate text-left text-[13px] text-muted-foreground">
+            {c.label.split(" ")[0]}
+          </span>
+          <span className="min-w-0 flex-1 truncate">
+            {c.label.replace(/^\S+\s+/, "")}
+          </span>
+          {isCurrency(c.value) && <Check className="ml-auto size-3.5" />}
+        </DropdownMenuItem>
+      ))}
     </>
   );
 }

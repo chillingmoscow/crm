@@ -28,6 +28,7 @@ export function NumberValueControl({
         max={property.max ?? 5}
         variant={property.ratingVariant ?? "stars"}
         showValue={property.ratingShowValue ?? true}
+        color={property.ratingColor}
         canEdit={canEdit}
         onChange={onChangeValue}
       />
@@ -37,8 +38,24 @@ export function NumberValueControl({
   const unit: Unit = property.unit ?? { kind: "none" };
   const suffix = unitSuffix(unit);
 
+  // Округление при отображении (опция «Округление»): фиксируем число
+  // знаков после запятой. undefined = «Авто» (как есть).
+  const rounded =
+    property.value === null
+      ? null
+      : property.decimals === undefined
+        ? property.value
+        : Number(property.value.toFixed(property.decimals));
   const display =
-    property.value === null ? "—" : formatWithUnit(property.value, unit);
+    rounded === null
+      ? "—"
+      : property.decimals === undefined
+        ? formatWithUnit(rounded, unit)
+        : `${rounded.toLocaleString("ru-RU", {
+            minimumFractionDigits: property.decimals,
+            maximumFractionDigits: property.decimals,
+            useGrouping: false,
+          })}${suffix ? ` ${suffix}` : ""}`;
 
   if (!canEdit) {
     return <span className="text-[13px] tabular-nums">{display}</span>;

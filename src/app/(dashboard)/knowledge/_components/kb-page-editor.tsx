@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { Clock } from "lucide-react";
 import { toast } from "sonner";
 
 import { createKbPage } from "@/lib/knowledge/pages";
@@ -209,13 +208,10 @@ export function KbPageEditor({
   userId = null,
   currentUserName = null,
   currentUserAvatarUrl = null,
-  readingMinutes = null,
   checkedMentionSlugs = null,
   deletedMentionSlugs = null,
   trashedMentionSlugs = null,
   initialProperties = [],
-  authorName = null,
-  authorAvatarUrl = null,
 }: KbPageEditorProps) {
   const router = useRouter();
 
@@ -311,7 +307,7 @@ export function KbPageEditor({
   );
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
       {/* Lock-индикатор перенесён в верхнюю панель (KbLockHeaderChip
           рядом с ⋯-меню) — больше не ест строку в теле страницы. */}
       {/* Notion-style header: icon на отдельной строке, ниже title. */}
@@ -377,48 +373,6 @@ export function KbPageEditor({
                      placeholder:text-muted-foreground/50
                      disabled:opacity-100 disabled:text-foreground"
         />
-        {/* Header-meta line: автор + reading-time. Notion-style: тонкая
-            строка под title с компактными chip'ами. authorName/
-            authorAvatarUrl приходят с server-render'а, пустые →
-            chip скрывается. readingMinutes тоже опционален. */}
-        {(readingMinutes !== null && readingMinutes !== undefined) ||
-        authorName ? (
-          <div className="px-2 -ml-2 flex items-center gap-3 flex-wrap">
-            {authorName && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                {authorAvatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={authorAvatarUrl}
-                    alt=""
-                    className="size-4 rounded-full object-cover bg-muted shrink-0"
-                  />
-                ) : (
-                  <span className="size-4 rounded-full bg-muted text-muted-foreground inline-flex items-center justify-center text-[8px] font-semibold shrink-0">
-                    {authorName
-                      .split(" ")
-                      .filter(Boolean)
-                      .slice(0, 2)
-                      .map((p) => p[0]?.toUpperCase() ?? "")
-                      .join("") || "?"}
-                  </span>
-                )}
-                <span>{authorName}</span>
-              </span>
-            )}
-            {readingMinutes !== null && readingMinutes !== undefined && (
-              <span
-                className="inline-flex items-center gap-1 text-xs text-muted-foreground"
-                data-tip={`Примерное время чтения: ${readingMinutes} мин`}
-              >
-                <Clock className="size-3.5" />
-                <span className="tabular-nums">
-                  ≈ {readingMinutes} мин чтения
-                </span>
-              </span>
-            )}
-          </div>
-        ) : null}
       </div>
 
       {/* Properties panel — Notion-style key-value fields, рендерится

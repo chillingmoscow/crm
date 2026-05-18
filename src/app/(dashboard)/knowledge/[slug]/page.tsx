@@ -294,6 +294,15 @@ export default async function KbPageView({ params }: PageProps) {
         <KbBackLink href={backHref} label={backLabel} />
       </PageBreadcrumb>
       <PageHeaderActions>
+        {/* Порядок справа налево: колокольчик (в layout) → ⋯-меню →
+            «Заблокировано». В DOM-слоте, значит, сначала lock-чип,
+            потом меню. */}
+        <KbLockHeaderChip
+          pageId={row.id}
+          initialLocked={isLocked}
+          canEditBase={canEditBase}
+          canLock={canLock}
+        />
         {/* Notion-style ⋯-меню: все page-level действия (избранное,
          *  required-reading, lock, undo/redo, дублировать, экспорт,
          *  импорт, аналитика, история версий, удалить) свернуты в один
@@ -319,15 +328,6 @@ export default async function KbPageView({ params }: PageProps) {
           canLock={canLock}
           canViewAnalytics={canViewAnalytics}
           canViewVersionHistory={hasViewVersionHistory}
-        />
-        {/* Lock-чип рядом с ⋯-меню (как в Notion): «🔒 Заблокировано»
-            с dropdown «Редактировать / Разблокировать». Раньше был
-            отдельной строкой в теле страницы — ел вертикальное место. */}
-        <KbLockHeaderChip
-          pageId={row.id}
-          initialLocked={isLocked}
-          canEditBase={canEditBase}
-          canLock={canLock}
         />
       </PageHeaderActions>
 

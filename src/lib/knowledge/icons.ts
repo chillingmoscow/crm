@@ -41,6 +41,7 @@ import {
   Clock,
   AlarmClock,
   Bell,
+  MessageCircle,
   MessageSquare,
   Mail,
   Phone,
@@ -254,6 +255,7 @@ export const KB_ICONS: KbIcon[] = [
 
   // ─── Связь ─────────────────────────────────────────────
   { name: "message-square",   icon: MessageSquare,    group: "Связь",       label: "Сообщение" },
+  { name: "message-circle",   icon: MessageCircle,    group: "Связь",       label: "Сообщение (круг)" },
   { name: "mail",             icon: Mail,             group: "Связь",       label: "Письмо" },
   { name: "phone",            icon: Phone,            group: "Связь",       label: "Телефон" },
   { name: "at-sign",          icon: AtSign,           group: "Связь",       label: "@" },

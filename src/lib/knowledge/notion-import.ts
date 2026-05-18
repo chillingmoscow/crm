@@ -3,6 +3,7 @@
 import JSZip from "jszip";
 
 import type { KbBlock, KbInlineContent } from "@/types/knowledge";
+import { parseCsv } from "@/lib/knowledge/csv";
 
 // ─── 1. Title / UUID utilities ──────────────────────────────────────────────
 
@@ -53,19 +54,26 @@ export interface NotionZipNode {
   file: File;
 }
 
-/** Notion-база (таблица): папка с `*.csv` + строками-`.md`. */
+/** Notion-база (таблица). Сигнал — inline-ссылка на `.csv` в теле
+ *  страницы (`[label](path/to/db.csv)`), а НЕ имя папки. */
 export interface NotionZipDatabase {
-  /** Путь папки базы внутри ZIP'а. */
-  folderPath: string;
-  /** Человекочитаемый заголовок (имя папки без 32-hex hash). */
+  /** Человекочитаемый заголовок: ближайший заголовок над ссылкой,
+   *  иначе текст ссылки, иначе «Коллекция». */
   title: string;
-  /** Сырой CSV (предпочитаем `*_all.csv` — полный набор строк). */
+  /** Сырой CSV целевого файла ссылки. */
   csvText: string;
-  /** UUID .md-страницы, физически содержащей базу (родитель блока-
-   *  коллекции). null → база в корне импорта. */
+  /** UUID .md-страницы, в теле которой стоит ссылка на CSV
+   *  (контейнер для блока-коллекции). null → корневой импорт. */
   containerUuid: string | null;
-  /** Строки базы: .md прямо внутри папки базы (контент строки). */
+  /** Decoded href ссылки на CSV (для замены конкретного
+   *  link-параграфа на collection-блок in place). */
+  csvHref: string;
+  /** Строки базы: сопоставленные по заголовку (Наименование)
+   *  .md-файлы — тело записи. Нет .md → запись без тела. */
   rows: { zipPath: string; title: string; file: File }[];
+  /** Заголовки всех строк CSV (первая колонка) — для read-only
+   *  превью в диалоге импорта (что приедет вместе со страницей). */
+  recordTitles: string[];
 }
 
 export interface NotionZipParseResult {
@@ -139,39 +147,6 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     // прочее (csv, json и т.п.) — игнорируем.
   }
 
-  // Папки Notion-БАЗ: директория, СОДЕРЖАЩАЯ `*.csv` (Notion кладёт
-  // `<Имя> <hash>.csv` + `_all.csv` рядом со строками-`.md` внутри
-  // папки базы). Имя такой папки = `<Имя> <32-hex>` — без фикса
-  // `extractNotionUuidFromName` принимает hash за UUID родителя,
-  // которого нет среди узлов → строки орфанятся в root плоско.
-  // В walk-up такие сегменты пропускаем: настоящий родитель строки —
-  // ближайшая выше .md-страница, физически содержащая базу.
-  const dbFolderPaths = new Set<string>();
-  const csvByDir = new Map<string, { name: string; blob: Blob }[]>();
-  for (const [p, blob] of flat) {
-    const nm = p.split("/").pop() ?? "";
-    if (!/\.csv$/i.test(nm)) continue;
-    const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
-    if (!dir) continue;
-    // Сигнатура Notion-БАЗЫ: CSV назван РОВНО как папка-контейнер
-    // (`<Name> <hash>.csv` / `<Name> <hash>_all.csv` внутри папки
-    // `<Name> <hash>`). Просто «папка с каким-то .csv» базой НЕ
-    // считается — иначе обычная страница со вложенным CSV-аттачментом
-    // потеряла бы детей при walk-up (Codex P2). Сравнение
-    // нечувствительно к регистру.
-    const csvStem = nm
-      .replace(/\.csv$/i, "")
-      .replace(/_all$/i, "")
-      .trim()
-      .toLowerCase();
-    const folderBase = (dir.split("/").pop() ?? "").trim().toLowerCase();
-    if (csvStem !== folderBase) continue;
-    dbFolderPaths.add(dir);
-    const arr = csvByDir.get(dir) ?? [];
-    arr.push({ name: nm, blob });
-    csvByDir.set(dir, arr);
-  }
-
   const isNotionExport = mdEntries.some(
     (e) => extractNotionUuidFromName(e.name) !== null,
   );
@@ -197,54 +172,131 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     folderToUuid.set(childrenFolderPath, fileUuid);
   }
 
-  // Notion-базы: для каждой папки-базы выбираем CSV (предпочитаем
-  // `*_all.csv` — полный набор), строки = прямые .md-дети папки,
-  // containerUuid = ближайшая выше .md-страница (пропуская вложенные
-  // папки-базы). Строки-.md ИСКЛЮЧАЕМ из обычных страниц — они станут
-  // записями коллекции.
+  // Notion-БАЗЫ детектим по СИГНАЛУ: inline-ссылка на `.csv` в теле
+  // .md-страницы (`[label](relative/path/db.csv)`). Это и есть то,
+  // как Notion встраивает базу. Папочные эвристики убраны (ломали
+  // иерархию). Строки CSV сопоставляем со .md по заголовку
+  // (Наименование = первая колонка); такие .md исключаем из обычных
+  // страниц — они станут записями коллекции.
+  const mdText = new Map<string, string>();
+  for (const { path, blob } of mdEntries) {
+    mdText.set(path, await blob.text());
+  }
+  // Индекс .md по очищенному заголовку (lowercase) для матчинга строк.
+  const mdByTitle = new Map<string, typeof mdEntries>();
+  for (const e of mdEntries) {
+    const key = cleanNotionTitle(e.name).trim().toLowerCase();
+    const arr = mdByTitle.get(key) ?? [];
+    arr.push(e);
+    mdByTitle.set(key, arr);
+  }
+  // Директории, содержащие CSV (= поддеревья Notion-баз). Кандидаты
+  // в строки ограничиваем этими поддеревьями: иначе обычная страница
+  // с тем же заголовком, что и строка БД, ошибочно приклеилась бы
+  // телом к записи И выпала бы из обычных страниц (Codex P1 #343).
+  const csvDirs: string[] = [];
+  for (const [p] of flat) {
+    if (!/\.csv$/i.test(p)) continue;
+    const d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+    if (d) csvDirs.push(d);
+  }
+  const underAnyCsvDir = (mdPath: string) =>
+    csvDirs.some((d) => mdPath === d || mdPath.startsWith(d + "/"));
+  const CSV_LINK_RE = /\[([^\]]*)\]\(\s*<?([^)>\s]+)>?\s*\)/g;
   const databases: NotionZipDatabase[] = [];
   const rowZipPathSet = new Set<string>();
-  for (const dir of dbFolderPaths) {
-    const csvs = csvByDir.get(dir);
-    if (!csvs || csvs.length === 0) continue;
-    const chosen =
-      csvs.find((c) => /_all\.csv$/i.test(c.name)) ?? csvs[0];
-    const csvText = await chosen.blob.text();
-    const rowEntries = mdEntries.filter((e) => {
-      const d = e.path.includes("/")
-        ? e.path.slice(0, e.path.lastIndexOf("/"))
-        : "";
-      return d === dir;
-    });
-    const rows = rowEntries.map((e) => ({
-      zipPath: e.path,
-      title: cleanNotionTitle(e.name),
-      file: new File([e.blob], e.name, { type: "text/markdown" }),
-    }));
-    for (const e of rowEntries) rowZipPathSet.add(e.path);
-    let containerUuid: string | null = null;
-    const segs = dir.split("/").filter(Boolean);
-    for (let s = segs.length - 2; s >= 0; s--) {
-      const fp = segs.slice(0, s + 1).join("/");
-      if (dbFolderPaths.has(fp)) continue;
-      const direct = extractNotionUuidFromName(segs[s]);
-      if (direct) {
-        containerUuid = direct;
-        break;
+  const usedRowPaths = new Set<string>();
+  const containerPaths = new Set<string>();
+  for (const { path, name } of mdEntries) {
+    const raw = mdText.get(path) ?? "";
+    if (!raw.includes(".csv")) continue;
+    containerPaths.add(path);
+    const containerUuid = extractNotionUuidFromName(name);
+    const pageDir = path.includes("/")
+      ? path.slice(0, path.lastIndexOf("/") + 1)
+      : "";
+    const lines = raw.split("\n");
+    for (const m of raw.matchAll(CSV_LINK_RE)) {
+      const linkText = (m[1] ?? "").trim();
+      let href = m[2] ?? "";
+      try {
+        href = decodeURIComponent(href);
+      } catch {
+        /* keep raw */
       }
-      const viaFolder = folderToUuid.get(fp);
-      if (viaFolder) {
-        containerUuid = viaFolder;
-        break;
+      const hrefNoQuery = href.replace(/[#?].*$/, "");
+      if (!/\.csv$/i.test(hrefNoQuery)) continue;
+      const csvPath = resolveZipPath(pageDir, hrefNoQuery);
+      const csvBlob = flat.get(csvPath);
+      if (!csvBlob) continue;
+      const csvText = await csvBlob.text();
+      // Заголовок: ближайший markdown-heading НАД ссылкой; иначе
+      // текст ссылки (если не «Untitled»); иначе «Коллекция».
+      const linkLineIdx = lines.findIndex((l) => l.includes(m[2] ?? ""));
+      let title = "";
+      for (let i = linkLineIdx - 1; i >= 0; i--) {
+        const hm = lines[i].match(/^#{1,6}\s+(.+?)\s*$/);
+        if (hm) {
+          title = hm[1].trim();
+          break;
+        }
       }
+      if (!title) {
+        title =
+          linkText && !/^untitled$/i.test(linkText) ? linkText : "Коллекция";
+      }
+      // Строки: первая колонка CSV = Наименование → ищем .md с тем
+      // же заголовком (без повторного использования одного .md).
+      const table = parseCsv(csvText);
+      const rows: NotionZipDatabase["rows"] = [];
+      const recordTitles: string[] = [];
+      for (const r of table.slice(1)) {
+        const rowTitle = (r[0] ?? "").trim();
+        if (!rowTitle) continue;
+        recordTitles.push(rowTitle);
+        const cand = (mdByTitle.get(rowTitle.toLowerCase()) ?? []).find(
+          (e) =>
+            e.path !== path &&
+            !usedRowPaths.has(e.path) &&
+            underAnyCsvDir(e.path),
+        );
+        if (!cand) continue;
+        usedRowPaths.add(cand.path);
+        rowZipPathSet.add(cand.path);
+        rows.push({
+          zipPath: cand.path,
+          title: cleanNotionTitle(cand.name),
+          file: new File([cand.blob], cand.name, {
+            type: "text/markdown",
+          }),
+        });
+      }
+      databases.push({
+        title,
+        csvText,
+        containerUuid,
+        csvHref: hrefNoQuery,
+        rows,
+        recordTitles,
+      });
     }
-    databases.push({
-      folderPath: dir,
-      title: cleanNotionTitle(dir.split("/").pop() ?? "") || "Коллекция",
-      csvText,
-      containerUuid,
-      rows,
-    });
+  }
+  // Папка строк-базы содержит ещё и служебный .md самой базы
+  // (Notion-экспорт «Untitled <uuid>.md» — placeholder вида БД).
+  // Любой .md в директории, где лежат сопоставленные строки, и сам
+  // НЕ контейнер — это артефакт базы: исключаем из обычных страниц
+  // (иначе появляется лишняя «Untitled» с сырым property-текстом).
+  const rowDirs = new Set<string>();
+  for (const p of rowZipPathSet) {
+    const d = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+    if (d) rowDirs.add(d);
+  }
+  for (const e of mdEntries) {
+    if (containerPaths.has(e.path)) continue;
+    const d = e.path.includes("/")
+      ? e.path.slice(0, e.path.lastIndexOf("/"))
+      : "";
+    if (d && rowDirs.has(d)) rowZipPathSet.add(e.path);
   }
 
   const nodesByUuid = new Map<string, NotionZipNode>();
@@ -276,10 +328,6 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     let effectiveParentUuid: string | null = null;
     for (let s = segments.length - 2; s >= 0; s--) {
       const folderPath = segments.slice(0, s + 1).join("/");
-      // Папка-база — не страница: пропускаем сегмент, идём выше к
-      // фактической странице-контейнеру (иначе hash папки-базы
-      // принимается за parentUuid → строки орфанятся в root).
-      if (dbFolderPaths.has(folderPath)) continue;
       const direct = extractNotionUuidFromName(segments[s]);
       if (direct && direct !== uuid) {
         effectiveParentUuid = direct;

@@ -23,6 +23,11 @@ interface KbDeletePageDialogProps {
   childCount: number;
   open: boolean;
   onOpenChange: (next: boolean) => void;
+  /** Удаляем ли страницу, на которой пользователь сейчас находится.
+   *  true (из ⋯-меню страницы) → уводим с неё на /knowledge. false
+   *  (из меню узла дерева) → НЕ навигируем: остаёмся где были,
+   *  только обновляем дерево. По умолчанию true (безопасно). */
+  isCurrentPage?: boolean;
 }
 
 /**
@@ -41,6 +46,7 @@ export function KbDeletePageDialog({
   childCount,
   open,
   onOpenChange,
+  isCurrentPage = true,
 }: KbDeletePageDialogProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -57,8 +63,15 @@ export function KbDeletePageDialog({
     // из tree сами по себе достаточный feedback. Дублирующий toast
     // отвлекал пользователя.
     onOpenChange(false);
-    router.push("/knowledge");
-    router.refresh();
+    if (isCurrentPage) {
+      // Удалили страницу, на которой стояли — нужно с неё уйти.
+      router.push("/knowledge");
+      router.refresh();
+    } else {
+      // Удалили чужую страницу из дерева — остаёмся где были,
+      // просто обновляем дерево (никаких перекидываний на дашборд).
+      router.refresh();
+    }
   };
 
   return (

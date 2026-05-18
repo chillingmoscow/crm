@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Upload, X, Check, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -45,21 +51,25 @@ import { nanoid } from "nanoid";
 
 import {
   inferKbPropertiesFromPairs,
-  inferCollectionFieldsFromCsv,
+  inferCollectionField,
   coerceCsvCellToFieldValue,
   cleanNotionPropertyValue,
+  parseNotionPropertyLines,
 } from "@/lib/knowledge/notion-properties";
 import { parseCsv } from "@/lib/knowledge/csv";
 import {
   getOrCreateKbPageCollection,
   createKbCollectionRecord,
   updateKbCollection,
+  updateKbCollectionView,
   updateKbCollectionRecordTitle,
 } from "@/lib/knowledge/collection-actions";
 import {
   getPageCollectionId,
   serializeCollectionSchema,
+  KB_COLLECTION_VIEW_LABELS,
   type KbCollectionSchema,
+  type KbCollectionField,
 } from "@/lib/knowledge/collection";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
@@ -359,11 +369,13 @@ export default function KbImportDialogBody({
         const rawBlocks = postprocessNotionCallouts(parsed);
 
         const titleStripped = dropDuplicateTitleHeading(rawBlocks, node.title);
-        // Notion-DB property-параграфы вырезаем из контента и мапим в
-        // типизированные KB page-properties (см. saveKbPageProperties
-        // ниже) — вместо сырого toggle «Свойства».
-        const { blocks: propsStripped, pairs: notionPropertyPairs } =
+        // Property-блок вырезаем из контента (по блокам), но пары
+        // {key,value} берём из СЫРОГО markdown построчно — BlockNote
+        // склеивает soft-wrapped строки в один абзац, из-за чего
+        // свойства слипались. parseNotionPropertyLines парсит точно.
+        const { blocks: propsStripped } =
           extractNotionProperties(titleStripped);
+        const notionPropertyPairs = parseNotionPropertyLines(mdRaw);
 
         const refs = collectRelativeMediaRefs(propsStripped);
         const urlMap = new Map<string, string>();
@@ -711,21 +723,70 @@ export default function KbImportDialogBody({
             continue;
           }
           const table = parseCsv(db.csvText);
-          const headers = table[0] ?? [];
-          const dataRows = table
+          const headers = (table[0] ?? []).map((h) => h.trim());
+          const csvRows = table
             .slice(1)
             .filter((r) => r.some((c) => c.trim().length > 0));
-          if (headers.length === 0 || dataRows.length === 0) continue;
+          if (headers.length === 0 || csvRows.length === 0) continue;
 
-          const { titleColumnIndex, fields } = inferCollectionFieldsFromCsv(
-            headers,
-            dataRows,
+          // Тело+property-строки каждой строки-.md читаем один раз.
+          const rowMd = new Map<string, { text: string; file: File }>();
+          for (const r of db.rows) {
+            rowMd.set(r.title.trim().toLowerCase(), {
+              text: await r.file.text(),
+              file: r.file,
+            });
+          }
+
+          // Унифицированный набор «сырых» значений на запись: CSV-ячейки
+          // + property-строки соответствующего .md (md приоритетнее —
+          // богаче, с url для relation). Поля = объединение CSV-колонок
+          // и ключей property-блоков. Первая колонка = заголовок.
+          const fieldNames: string[] = [];
+          const fieldNameSet = new Set<string>();
+          for (let c = 1; c < headers.length; c++) {
+            if (headers[c] && !fieldNameSet.has(headers[c])) {
+              fieldNameSet.add(headers[c]);
+              fieldNames.push(headers[c]);
+            }
+          }
+          const records: {
+            title: string;
+            values: Map<string, string>;
+            md?: { text: string; file: File };
+          }[] = [];
+          for (const row of csvRows) {
+            const title =
+              cleanNotionPropertyValue(row[0] ?? "") || "Без названия";
+            const md = rowMd.get((row[0] ?? "").trim().toLowerCase());
+            const values = new Map<string, string>();
+            for (let c = 1; c < headers.length; c++) {
+              values.set(headers[c], row[c] ?? "");
+            }
+            if (md) {
+              for (const { key, value } of parseNotionPropertyLines(md.text)) {
+                if (!fieldNameSet.has(key)) {
+                  fieldNameSet.add(key);
+                  fieldNames.push(key);
+                }
+                values.set(key, value);
+              }
+            }
+            records.push({ title, values, md });
+          }
+
+          const fields: KbCollectionField[] = fieldNames.map((nm) =>
+            inferCollectionField(
+              nm,
+              records.map((r) => r.values.get(nm) ?? ""),
+            ),
           );
           const schema: KbCollectionSchema = { version: 1, fields };
           const schemaJson = serializeCollectionSchema(schema);
           const collectionKey = getPageCollectionId(containerPageId);
 
-          // 1. collection-блок в контент страницы-контейнера.
+          // 1. Заменяем inline-ссылку на .csv в контейнере на
+          // collection-блок IN PLACE (не append, не clobber).
           const blockId = nanoid();
           const collectionBlock = {
             id: blockId,
@@ -739,6 +800,35 @@ export default function KbImportDialogBody({
             content: [],
             children: [],
           } as unknown as KbBlock;
+          const replaceCsvLink = (
+            blocks: KbBlock[],
+          ): { out: KbBlock[]; replaced: boolean } => {
+            let replaced = false;
+            const out: KbBlock[] = [];
+            for (const b of blocks) {
+              if (
+                !replaced &&
+                Array.isArray(b.content) &&
+                b.content.some((inl) => {
+                  if (inl?.type !== "link") return false;
+                  let href = (inl as { href?: string }).href ?? "";
+                  try {
+                    href = decodeURIComponent(href);
+                  } catch {
+                    /* keep */
+                  }
+                  return /\.csv(?:[#?].*)?$/i.test(href);
+                })
+              ) {
+                out.push(collectionBlock);
+                replaced = true;
+                continue;
+              }
+              out.push(b);
+            }
+            return { out, replaced };
+          };
+
           const snapEntry = snapshot.find(
             (s) => s.pageId === containerPageId,
           );
@@ -747,13 +837,15 @@ export default function KbImportDialogBody({
           let containerIcon: string | null = null;
           let containerIconColor: string | null = null;
           if (snapEntry) {
-            containerBlocks = [...snapEntry.blocks, collectionBlock];
+            const r = replaceCsvLink(snapEntry.blocks);
+            containerBlocks = r.replaced
+              ? r.out
+              : [...snapEntry.blocks, collectionBlock];
             containerTitle = snapEntry.title;
             snapEntry.blocks = containerBlocks;
           } else {
-            // Контейнер — уже существующая страница (импорт в неё), её
-            // НЕ затираем (Codex P1): читаем текущий контент/заголовок
-            // и ДОБАВЛЯЕМ блок-коллекцию в конец.
+            // Контейнер — уже существующая страница: не затираем,
+            // заменяем csv-ссылку (или дописываем в конец).
             const { row: existing, error: getErr } =
               await getKbPageById(containerPageId);
             if (getErr || !existing) {
@@ -764,7 +856,10 @@ export default function KbImportDialogBody({
             }
             const existingBlocks =
               (existing.content as unknown as KbBlock[]) ?? [];
-            containerBlocks = [...existingBlocks, collectionBlock];
+            const r = replaceCsvLink(existingBlocks);
+            containerBlocks = r.replaced
+              ? r.out
+              : [...existingBlocks, collectionBlock];
             containerTitle = existing.title;
             containerIcon =
               (existing as { icon?: string | null }).icon ?? null;
@@ -781,10 +876,22 @@ export default function KbImportDialogBody({
           });
           if (blockErr) failures.push(`«${db.title}» (блок): ${blockErr}`);
 
-          // 2. kb_collections + схема.
+          // 2. kb_collections + схема. По умолчанию — вид «таблица»
+          // (legacyBlocks с view:"table"); затем форсим table +
+          // wrapContent на созданных видах (длинные описания должны
+          // переноситься в ячейке, а не обрезаться).
           const { state, error: colErr } = await getOrCreateKbPageCollection({
             pageId: containerPageId,
             blockId,
+            legacyBlocks: [
+              {
+                blockId,
+                view: "table",
+                viewTitle: KB_COLLECTION_VIEW_LABELS.table,
+                visibleFieldIdsJson: "",
+                fieldOrderIdsJson: "",
+              },
+            ],
           });
           if (colErr || !state) {
             failures.push(`«${db.title}»: ${colErr ?? "коллекция не создана"}`);
@@ -795,12 +902,20 @@ export default function KbImportDialogBody({
             title: db.title,
             schemaJson,
           });
+          for (const v of state.views) {
+            await updateKbCollectionView({
+              viewId: v.id,
+              viewType: "table",
+              layoutSettings: {
+                ...v.layoutSettings,
+                wrapContent: true,
+              },
+            });
+          }
 
           // 3. Строки → записи.
-          for (const dataRow of dataRows) {
-            const titleVal =
-              cleanNotionPropertyValue(dataRow[titleColumnIndex] ?? "") ||
-              "Без названия";
+          for (const record of records) {
+            const titleVal = record.title;
             const rec = await createKbCollectionRecord({
               parentPageId: containerPageId,
               collectionId: collectionKey,
@@ -812,7 +927,6 @@ export default function KbImportDialogBody({
                 failures.push(`«${db.title}» (строка «${titleVal}»): ${rec.error}`);
               continue;
             }
-            // Типизированные значения по полям.
             const props = (rec.row.properties ?? []).map((p) => {
               const scope = (p as { scope?: { type?: string; fieldId?: string } })
                 .scope;
@@ -821,14 +935,8 @@ export default function KbImportDialogBody({
                 fields.find((f) => f.id === scope.fieldId) ??
                 fields.find((f) => f.name === p.name);
               if (!field) return p;
-              const colIdx = headers.findIndex(
-                (h) => h.trim() === field.name,
-              );
-              if (colIdx < 0) return p;
-              const value = coerceCsvCellToFieldValue(
-                field,
-                dataRow[colIdx] ?? "",
-              );
+              const raw = record.values.get(field.name) ?? "";
+              const value = coerceCsvCellToFieldValue(field, raw);
               return { ...p, value } as typeof p;
             });
             await saveKbPageProperties({
@@ -845,16 +953,8 @@ export default function KbImportDialogBody({
               title: titleVal,
             });
 
-            // Тело записи из соответствующего .md (best-effort).
-            const rowFile = db.rows.find(
-              (r) => r.title.trim().toLowerCase() === titleVal.toLowerCase(),
-            );
-            // Регистрируем UUID строки-базы → запись: ссылки из других
-            // импортированных страниц на эту строку станут mention'ами
-            // (финальный relink-pass ниже, PR3). Регистрируем даже без
-            // распарсенного тела.
-            const rowUuid = rowFile
-              ? extractNotionUuidFromName(rowFile.file.name)
+            const rowUuid = record.md
+              ? extractNotionUuidFromName(record.md.file.name)
               : null;
             if (rowUuid) {
               uuidMap.set(rowUuid, {
@@ -863,11 +963,11 @@ export default function KbImportDialogBody({
                 title: titleVal,
               });
             }
-            if (rowFile) {
+            if (record.md) {
               try {
-                const md = preprocessNotionCallouts(await rowFile.file.text());
+                const mdBody = preprocessNotionCallouts(record.md.text);
                 const parsed = (await editor.tryParseMarkdownToBlocks(
-                  md,
+                  mdBody,
                 )) as unknown as KbBlock[];
                 const post = postprocessNotionCallouts(parsed);
                 const noTitle = dropDuplicateTitleHeading(post, titleVal);
@@ -881,8 +981,6 @@ export default function KbImportDialogBody({
                   content: body,
                   plain_text: blocksToPlainText(body),
                 });
-                // В финальный relink-pass (PR3): тело записи может
-                // ссылаться на другие импортированные страницы/строки.
                 snapshot.push({
                   pageId: rec.id,
                   title: titleVal,
@@ -1373,6 +1471,26 @@ function NotionSummary({
   const total = result.pages.length;
   const selected = selectedPaths.size;
   const allSelected = selected === total && total > 0;
+  // Базы, привязанные к странице-контейнеру (по uuid) — для read-only
+  // превью «приедет вместе со страницей».
+  const dbByUuid = useMemo(() => {
+    const m = new Map<string, NotionZipParseResult["databases"]>();
+    for (const d of result.databases ?? []) {
+      if (!d.containerUuid) continue;
+      const arr = m.get(d.containerUuid) ?? [];
+      arr.push(d);
+      m.set(d.containerUuid, arr);
+    }
+    return m;
+  }, [result.databases]);
+  const [expandedDb, setExpandedDb] = useState<Set<string>>(new Set());
+  const toggleDb = (key: string) =>
+    setExpandedDb((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   return (
     <div className="rounded-lg border border-border bg-muted/20 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border bg-muted/30">
@@ -1414,34 +1532,92 @@ function NotionSummary({
       <ul className="flex flex-col max-h-[380px] overflow-y-auto py-1.5">
         {result.pages.map((p) => {
           const checked = selectedPaths.has(p.zipPath);
+          const dbs = p.uuid ? dbByUuid.get(p.uuid) ?? [] : [];
           return (
-            <li
-              key={p.zipPath}
-              className="flex items-center gap-2.5 px-4 py-2 hover:bg-muted/40 transition-colors"
-            >
-              <Checkbox
-                checked={checked}
-                onCheckedChange={(v) => onToggle(p.zipPath, v === true)}
-                className="shrink-0 size-[18px]"
-                aria-label={`Импортировать «${p.title}»`}
-              />
-              <span
-                className="text-sm truncate flex-1"
-                style={{ paddingLeft: `${p.depth * 18}px` }}
-              >
-                <span className="text-muted-foreground/60 mr-1">
-                  {p.depth > 0 ? "↳" : "•"}
+            <Fragment key={p.zipPath}>
+              <li className="flex items-center gap-2.5 px-4 py-2 hover:bg-muted/40 transition-colors">
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={(v) => onToggle(p.zipPath, v === true)}
+                  className="shrink-0 size-[18px]"
+                  aria-label={`Импортировать «${p.title}»`}
+                />
+                <span
+                  className="text-sm truncate flex-1"
+                  style={{ paddingLeft: `${p.depth * 18}px` }}
+                >
+                  <span className="text-muted-foreground/60 mr-1">
+                    {p.depth > 0 ? "↳" : "•"}
+                  </span>
+                  <span
+                    className={
+                      checked
+                        ? "text-foreground"
+                        : "text-muted-foreground/60 line-through"
+                    }
+                  >
+                    {p.title}
+                  </span>
                 </span>
-                <span className={checked ? "text-foreground" : "text-muted-foreground/60 line-through"}>
-                  {p.title}
-                </span>
-              </span>
-            </li>
+              </li>
+              {dbs.map((d, di) => {
+                const key = `${p.zipPath}::db${di}`;
+                const isOpen = expandedDb.has(key);
+                const n = d.recordTitles.length;
+                return (
+                  <li key={key} className="px-4">
+                    <div
+                      style={{ paddingLeft: `${(p.depth + 1) * 18}px` }}
+                      className="flex flex-col"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => toggleDb(key)}
+                        className="flex items-center gap-1.5 py-1.5 text-left text-[12px] text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        <span className="text-muted-foreground/60">
+                          {isOpen ? "▾" : "▸"}
+                        </span>
+                        <span>🗂</span>
+                        <span className="truncate">
+                          Коллекция «{d.title}» — {n} {recordWord(n)}
+                        </span>
+                      </button>
+                      {isOpen && n > 0 && (
+                        <ul className="pb-1">
+                          {d.recordTitles.map((rt, ri) => (
+                            <li
+                              key={`${key}-r${ri}`}
+                              className="flex items-center gap-1.5 py-0.5 pl-5 text-[12px] text-muted-foreground/70 truncate"
+                            >
+                              <span className="text-muted-foreground/40">
+                                ·
+                              </span>
+                              <span className="truncate">{rt}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </Fragment>
           );
         })}
       </ul>
     </div>
   );
+}
+
+/** Русское склонение «N запись/записи/записей». */
+function recordWord(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m100 >= 11 && m100 <= 14) return "записей";
+  if (m10 === 1) return "запись";
+  if (m10 >= 2 && m10 <= 4) return "записи";
+  return "записей";
 }
 
 function mergeFiles(prev: File[], next: File[]): File[] {

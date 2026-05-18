@@ -62,6 +62,7 @@ import {
   parseNotionZip,
   extractNotionProperties,
   buildNotionPropertiesToggle,
+  extractNotionUuidFromName,
   dropDuplicateTitleHeading,
   relinkNotionMentions,
   preprocessNotionCallouts,
@@ -811,6 +812,20 @@ export default function KbImportDialogBody({
             const rowFile = db.rows.find(
               (r) => r.title.trim().toLowerCase() === titleVal.toLowerCase(),
             );
+            // Регистрируем UUID строки-базы → запись: ссылки из других
+            // импортированных страниц на эту строку станут mention'ами
+            // (финальный relink-pass ниже, PR3). Регистрируем даже без
+            // распарсенного тела.
+            const rowUuid = rowFile
+              ? extractNotionUuidFromName(rowFile.file.name)
+              : null;
+            if (rowUuid) {
+              uuidMap.set(rowUuid, {
+                pageId: rec.id,
+                slug: rec.slug ?? "",
+                title: titleVal,
+              });
+            }
             if (rowFile) {
               try {
                 const md = preprocessNotionCallouts(await rowFile.file.text());
@@ -829,6 +844,14 @@ export default function KbImportDialogBody({
                   content: body,
                   plain_text: blocksToPlainText(body),
                 });
+                // В финальный relink-pass (PR3): тело записи может
+                // ссылаться на другие импортированные страницы/строки.
+                snapshot.push({
+                  pageId: rec.id,
+                  title: titleVal,
+                  blocks: body,
+                  hadZipParent: true,
+                });
               } catch {
                 /* тело best-effort — пропускаем при сбое парсинга */
               }
@@ -840,6 +863,38 @@ export default function KbImportDialogBody({
           );
         }
         setProgress({ phase: "import", done: di + 1, total: databases.length });
+      }
+    }
+
+    // ─── Финальный relink-pass (PR3) ─────────────────────────────────
+    // uuidMap теперь содержит и обычные страницы, и строки-записи баз.
+    // Перепроходим весь snapshot (страницы + тела записей) — внутренние
+    // Notion-ссылки (`*.md`, `notion.so/<uuid>`) → kbPageMention.
+    // Перезаписываем только изменённые. Это «нераспознанные → читаемый
+    // текст» уже обеспечено cleanNotionPropertyValue для свойств.
+    if (snapshot.length > 0) {
+      setProgress({ phase: "relink", done: 0, total: snapshot.length });
+      for (let i = 0; i < snapshot.length; i++) {
+        const entry = snapshot[i];
+        const { blocks, replacements } = relinkNotionMentions(
+          entry.blocks,
+          uuidMap,
+        );
+        if (replacements > 0) {
+          entry.blocks = blocks;
+          const { error: relinkErr } = await saveKbPage({
+            id: entry.pageId,
+            title: entry.title,
+            icon: null,
+            icon_color: null,
+            content: blocks,
+            plain_text: blocksToPlainText(blocks),
+          });
+          if (relinkErr) {
+            failures.push(`«${entry.title}» (перелинковка): ${relinkErr}`);
+          }
+        }
+        setProgress({ phase: "relink", done: i + 1, total: snapshot.length });
       }
     }
 

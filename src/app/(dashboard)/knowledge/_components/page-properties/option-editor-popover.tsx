@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, GripVertical, Plus, X } from "lucide-react";
+import { Check, ChevronRight, GripVertical, Plus, Star, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -185,6 +185,9 @@ export function PropertyEditorPopover({
             : "—"
       : "—";
 
+  const isOptionType =
+    property.type === "select" || property.type === "multi-select";
+
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
@@ -198,10 +201,10 @@ export function PropertyEditorPopover({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-[300px] p-0 rounded-[12px]"
+        className="w-[296px] overflow-hidden rounded-xl p-0"
       >
-        {/* ── a) Header: icon + name input + desc toggle ───────────────── */}
-        <div className="flex items-center gap-2 p-2 border-b border-border">
+        {/* ── Header: icon · name · description ──────────────────────── */}
+        <div className="flex items-center gap-2 px-3 pt-3 pb-2.5">
           <PropertyIconButton
             property={property}
             canEdit={canEdit}
@@ -226,37 +229,34 @@ export function PropertyEditorPopover({
                 e.currentTarget.blur();
               }
             }}
-            placeholder="Имя свойства"
+            placeholder="Без названия"
             aria-label="Имя свойства"
-            className="flex-1 h-8 rounded-md border border-input bg-transparent
-                       px-2 text-[13px] font-medium outline-none
-                       focus:border-brand focus:ring-2 focus:ring-brand/30"
+            className="min-w-0 flex-1 bg-transparent text-[15px] font-semibold
+                       leading-tight tracking-tight text-foreground outline-none
+                       placeholder:font-normal placeholder:text-muted-foreground/50"
           />
           <button
             type="button"
             aria-label="Описание свойства"
             onClick={() => setDescOpen((v) => !v)}
             className={cn(
-              "size-7 inline-flex items-center justify-center rounded-md transition-colors",
+              "size-6 inline-flex shrink-0 items-center justify-center rounded-full transition-colors",
               descOpen
-                ? "bg-secondary text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                ? "bg-foreground/10 text-foreground"
+                : "text-muted-foreground/60 hover:bg-foreground/[0.06] hover:text-foreground",
             )}
           >
             <KB_PROPERTY_UI_ICONS.description className="size-3.5" />
           </button>
         </div>
 
-        {/* ── b) Description input (conditional) ──────────────────────── */}
         {descOpen && (
-          <div className="p-2 border-b border-border">
+          <div className="px-3 pb-2.5">
             <input
               autoFocus
               value={descDraft}
               onChange={(e) => setDescDraft(e.target.value)}
-              onBlur={() => {
-                onChangeDescription(descDraft);
-              }}
+              onBlur={() => onChangeDescription(descDraft)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -268,159 +268,161 @@ export function PropertyEditorPopover({
                   setDescOpen(false);
                 }
               }}
-              placeholder="Описание свойства"
+              placeholder="Добавить описание…"
               aria-label="Описание свойства"
-              className="h-8 w-full rounded-md border border-input bg-transparent
-                         px-2 text-[13px] outline-none
-                         focus:border-brand focus:ring-2 focus:ring-brand/30"
+              className="w-full bg-transparent text-[13px] text-muted-foreground
+                         outline-none placeholder:text-muted-foreground/40"
             />
           </div>
         )}
 
-        {/* ── c) Type row ──────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
-          <span className="flex items-center gap-2 text-muted-foreground">
-            <KB_PROPERTY_UI_ICONS.changeType className="size-3.5" />
-            Тип
-          </span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-md border border-input
-                           bg-transparent px-2 h-7 text-[13px] hover:bg-accent transition-colors"
-              >
-                {TYPE_LABELS[property.type]}
-                <ChevronDown className="size-3 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[160px]">
-              {propertyTypeOptions(property.type).map((t) => {
-                const TIcon = TYPE_ICONS[t];
-                const isCurrent = t === property.type;
-                return (
-                  <DropdownMenuItem
-                    key={t}
-                    disabled={isCurrent}
-                    onSelect={() => onChangeType(t)}
-                  >
-                    <TIcon className="size-3.5 text-muted-foreground" />
-                    {TYPE_LABELS[t]}
-                    {isCurrent && (
-                      <span className="ml-auto text-[11px] text-muted-foreground/60">
-                        текущий
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <div className="h-px bg-border/60" />
 
-        {/* ── d) Per-type params ───────────────────────────────────────── */}
-
-        {/* select / multi-select: options list */}
-        {(property.type === "select" || property.type === "multi-select") && (
-          <div className="p-2 border-b border-border">
-            <div className="px-1 pb-1 text-[12px] text-muted-foreground/70">
-              Опции
-            </div>
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
+        {/* ── Type ─────────────────────────────────────────────────────── */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-3 py-2.5
+                         text-[13px] transition-colors hover:bg-muted/40"
             >
-              <SortableContext
-                items={options}
-                strategy={verticalListSortingStrategy}
-              >
-                <ul className="flex flex-col">
-                  {options.map((o) => (
-                    <OptionRow
-                      key={o}
-                      option={o}
-                      color={optionColors?.[o]}
-                      onRename={(to) => renameOption(o, to)}
-                      onRemove={() => removeOption(o)}
-                      onSetColor={(c) => setColor(o, c)}
-                    />
-                  ))}
-                </ul>
-              </SortableContext>
-            </DndContext>
-            {adding || options.length === 0 ? (
-              <input
-                autoFocus
-                value={optDraft}
-                onChange={(e) => setOptDraft(e.target.value)}
-                onBlur={commitAdd}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    commitAdd();
-                  } else if (e.key === "Escape") {
-                    setAdding(false);
-                    setOptDraft("");
-                  }
-                }}
-                placeholder="Новая опция"
-                className="mt-1 h-8 w-full rounded-md bg-transparent px-2 text-[13px]
-                           border border-input outline-none
-                           focus:border-brand focus:ring-2 focus:ring-brand/30"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setAdding(true)}
-                className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5
-                           text-[13px] font-medium text-brand hover:bg-brand/10 transition-colors"
-              >
-                <Plus className="size-3.5" />
-                Добавить опцию
-              </button>
-            )}
-          </div>
-        )}
+              <span className="flex items-center gap-2.5 text-muted-foreground">
+                <KB_PROPERTY_UI_ICONS.changeType className="size-4 text-muted-foreground/70" />
+                Тип
+              </span>
+              <span className="flex items-center gap-1 text-foreground">
+                {TYPE_LABELS[property.type]}
+                <ChevronRight className="size-3.5 text-muted-foreground/50" />
+              </span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[176px]">
+            {propertyTypeOptions(property.type).map((t) => {
+              const TIcon = TYPE_ICONS[t];
+              const isCurrent = t === property.type;
+              return (
+                <DropdownMenuItem
+                  key={t}
+                  disabled={isCurrent}
+                  onSelect={() => onChangeType(t)}
+                >
+                  <TIcon className="size-3.5 text-muted-foreground" />
+                  {TYPE_LABELS[t]}
+                  {isCurrent && (
+                    <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+                  )}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        {/* number */}
-        {property.type === "number" && (
-          <>
-            {/* Вид: Число | Звёзды | Слайдер */}
-            <div className="p-2 border-b border-border">
-              <div className="pb-1.5 text-[12px] text-muted-foreground/70">
-                Вид
-              </div>
-              <SegmentedControl
-                options={[
-                  { value: "number", label: "Число" },
-                  { value: "stars", label: "Звёзды" },
-                  { value: "slider", label: "Слайдер" },
-                ]}
-                value={numberView}
-                onChange={(v) =>
-                  onChangeNumberView(v as "number" | "stars" | "slider")
-                }
-              />
+        <div className="h-px bg-border/60" />
+
+        {/* ── Per-type params ─────────────────────────────────────────── */}
+        <div className="px-3 py-3">
+          {isOptionType && (
+            <div>
+              <SectionLabel>Опции</SectionLabel>
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={options}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <ul className="flex flex-col">
+                    {options.map((o) => (
+                      <OptionRow
+                        key={o}
+                        option={o}
+                        color={optionColors?.[o]}
+                        onRename={(to) => renameOption(o, to)}
+                        onRemove={() => removeOption(o)}
+                        onSetColor={(c) => setColor(o, c)}
+                      />
+                    ))}
+                  </ul>
+                </SortableContext>
+              </DndContext>
+              {adding || options.length === 0 ? (
+                <input
+                  autoFocus
+                  value={optDraft}
+                  onChange={(e) => setOptDraft(e.target.value)}
+                  onBlur={commitAdd}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      commitAdd();
+                    } else if (e.key === "Escape") {
+                      setAdding(false);
+                      setOptDraft("");
+                    }
+                  }}
+                  placeholder="Новая опция"
+                  className="mt-1.5 h-8 w-full rounded-lg bg-muted/50 px-2.5 text-[13px]
+                             outline-none ring-brand/30 transition-shadow
+                             focus:bg-transparent focus:ring-2"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="mt-1 flex w-full items-center gap-2 rounded-md px-1.5 py-1.5
+                             text-[13px] font-medium text-brand transition-colors
+                             hover:bg-brand/[0.08]"
+                >
+                  <Plus className="size-3.5" />
+                  Добавить опцию
+                </button>
+              )}
             </div>
+          )}
 
-            {numberView === "number" && (
-              <>
-                {/* Единица измерения */}
-                <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
-                  <span className="flex items-center gap-2 text-muted-foreground">
-                    <KB_PROPERTY_UI_ICONS.unit className="size-3.5" />
-                    Единица измерения
-                  </span>
+          {property.type === "number" && (
+            <div className="flex flex-col gap-3.5">
+              <div>
+                <SectionLabel>Вид</SectionLabel>
+                <ViewCards
+                  value={numberView}
+                  onChange={(v) =>
+                    onChangeNumberView(v as "number" | "stars" | "slider")
+                  }
+                  options={[
+                    { value: "number", label: "Число", glyph: <NumberGlyph /> },
+                    { value: "stars", label: "Звёзды", glyph: <StarsGlyph /> },
+                    {
+                      value: "slider",
+                      label: "Слайдер",
+                      glyph: <SliderGlyph />,
+                    },
+                  ]}
+                />
+                <p className="mt-2 text-[11px] leading-snug text-muted-foreground/60">
+                  Меняет отображение везде, где встречается это свойство.
+                </p>
+              </div>
+
+              {numberView === "number" ? (
+                <>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="inline-flex items-center gap-1.5 rounded-md border border-input
-                                   bg-transparent px-2 h-7 text-[13px] hover:bg-accent transition-colors"
+                        className="-mx-1 flex items-center justify-between rounded-md px-1 py-1
+                                   text-[13px] transition-colors hover:bg-muted/40"
                       >
-                        {unitLabel}
-                        <ChevronDown className="size-3 text-muted-foreground" />
+                        <span className="flex items-center gap-2.5 text-muted-foreground">
+                          <KB_PROPERTY_UI_ICONS.unit className="size-4 text-muted-foreground/70" />
+                          Единица измерения
+                        </span>
+                        <span className="flex items-center gap-1 text-foreground">
+                          {unitLabel}
+                          <ChevronRight className="size-3.5 text-muted-foreground/50" />
+                        </span>
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
@@ -433,153 +435,160 @@ export function PropertyEditorPopover({
                       />
                     </DropdownMenuContent>
                   </DropdownMenu>
-                </div>
 
-                {/* Округление */}
-                <div className="p-2 border-b border-border">
-                  <div className="pb-1.5 text-[12px] text-muted-foreground/70">
-                    Округление
+                  <div>
+                    <SectionLabel>Округление</SectionLabel>
+                    <Segmented
+                      options={[
+                        { value: "auto", label: "Авто" },
+                        { value: "0", label: "Целое" },
+                        { value: "1", label: "1" },
+                        { value: "2", label: "2" },
+                        { value: "3", label: "3" },
+                      ]}
+                      value={
+                        property.decimals === undefined
+                          ? "auto"
+                          : String(property.decimals)
+                      }
+                      onChange={(v) =>
+                        v === "auto"
+                          ? onChangeNumberDecimals(undefined)
+                          : onChangeNumberDecimals(Number(v))
+                      }
+                    />
                   </div>
-                  <SegmentedControl
+                </>
+              ) : (
+                <div>
+                  <SectionLabel>Шкала</SectionLabel>
+                  <Segmented
                     options={[
-                      { value: "auto", label: "Авто" },
-                      { value: "0", label: "Целое" },
-                      { value: "1", label: "1" },
-                      { value: "2", label: "2" },
                       { value: "3", label: "3" },
+                      { value: "5", label: "5" },
+                      { value: "10", label: "10" },
                     ]}
-                    value={
-                      property.decimals === undefined
-                        ? "auto"
-                        : String(property.decimals)
-                    }
-                    onChange={(v) => {
-                      if (v === "auto") onChangeNumberDecimals(undefined);
-                      else onChangeNumberDecimals(Number(v));
-                    }}
+                    value={String(property.max ?? 5)}
+                    onChange={(v) => onChangeRatingScale(Number(v))}
                   />
                 </div>
-              </>
-            )}
+              )}
+            </div>
+          )}
 
-            {(numberView === "stars" || numberView === "slider") && (
-              <div className="p-2 border-b border-border">
-                <div className="pb-1.5 text-[12px] text-muted-foreground/70">
-                  Шкала
-                </div>
-                <SegmentedControl
+          {property.type === "checkbox" && (
+            <div>
+              <SectionLabel>Вид</SectionLabel>
+              <ViewCards
+                value={property.displayVariant ?? "checkbox"}
+                onChange={(v) =>
+                  onChangeDisplayVariant(
+                    v === "checkbox" ? undefined : "switch",
+                  )
+                }
+                options={[
+                  {
+                    value: "checkbox",
+                    label: "Чекбокс",
+                    glyph: <CheckboxGlyph />,
+                  },
+                  {
+                    value: "switch",
+                    label: "Триггер",
+                    glyph: <SwitchGlyph />,
+                  },
+                ]}
+              />
+            </div>
+          )}
+
+          {property.type === "rating" && (
+            <div className="flex flex-col gap-3.5">
+              <div>
+                <SectionLabel>Вид</SectionLabel>
+                <ViewCards
+                  value={property.displayVariant ?? "stars"}
+                  onChange={(v) =>
+                    onChangeDisplayVariant(
+                      v === "stars" ? undefined : "slider",
+                    )
+                  }
+                  options={[
+                    { value: "stars", label: "Звёзды", glyph: <StarsGlyph /> },
+                    {
+                      value: "slider",
+                      label: "Слайдер",
+                      glyph: <SliderGlyph />,
+                    },
+                  ]}
+                />
+              </div>
+              <div>
+                <SectionLabel>Шкала</SectionLabel>
+                <Segmented
                   options={[
                     { value: "3", label: "3" },
                     { value: "5", label: "5" },
                     { value: "10", label: "10" },
                   ]}
-                  value={String(
-                    property.type === "number" ? (property.max ?? 5) : 5,
-                  )}
+                  value={String(property.max ?? 5)}
                   onChange={(v) => onChangeRatingScale(Number(v))}
                 />
               </div>
-            )}
-          </>
-        )}
-
-        {/* checkbox: Вид (Чекбокс | Триггер) */}
-        {property.type === "checkbox" && (
-          <div className="p-2 border-b border-border">
-            <div className="pb-1.5 text-[12px] text-muted-foreground/70">
-              Вид
             </div>
-            <SegmentedControl
-              options={[
-                { value: "checkbox", label: "Чекбокс" },
-                { value: "switch", label: "Триггер" },
-              ]}
-              value={property.displayVariant ?? "checkbox"}
-              onChange={(v) =>
-                onChangeDisplayVariant(v === "checkbox" ? undefined : "switch")
-              }
-            />
-          </div>
-        )}
+          )}
 
-        {/* rating: Вид (Звёзды | Слайдер) + Шкала */}
-        {property.type === "rating" && (
-          <>
-            <div className="p-2 border-b border-border">
-              <div className="pb-1.5 text-[12px] text-muted-foreground/70">
-                Вид
-              </div>
-              <SegmentedControl
-                options={[
-                  { value: "stars", label: "Звёзды" },
-                  { value: "slider", label: "Слайдер" },
-                ]}
-                value={property.displayVariant ?? "stars"}
-                onChange={(v) =>
-                  onChangeDisplayVariant(v === "stars" ? undefined : "slider")
-                }
+          {property.type === "text" && (
+            <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-0.5 text-[13px]">
+              <span className="text-muted-foreground">
+                Сворачивать длинный текст
+              </span>
+              <Switch
+                checked={property.collapsed === true}
+                onCheckedChange={() => onToggleCollapse()}
               />
             </div>
-            <div className="p-2 border-b border-border">
-              <div className="pb-1.5 text-[12px] text-muted-foreground/70">
-                Шкала
-              </div>
-              <SegmentedControl
-                options={[
-                  { value: "3", label: "3" },
-                  { value: "5", label: "5" },
-                  { value: "10", label: "10" },
-                ]}
-                value={String(property.max ?? 5)}
-                onChange={(v) => onChangeRatingScale(Number(v))}
+          )}
+
+          {property.type === "url" && (
+            <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-0.5 text-[13px]">
+              <span className="text-muted-foreground">Сокращать ссылку</span>
+              <Switch
+                checked={property.urlCollapsed === true}
+                onCheckedChange={() => onToggleCollapse()}
               />
             </div>
-          </>
-        )}
+          )}
 
-        {/* text: Свернуть toggle */}
-        {property.type === "text" && (
-          <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
-            <span className="text-muted-foreground">Свернуть</span>
-            <Switch
-              checked={property.collapsed === true}
-              onCheckedChange={() => onToggleCollapse()}
-            />
-          </div>
-        )}
+          {property.type === "date" && (
+            <p className="text-[12px] leading-snug text-muted-foreground/60">
+              Дата редактируется прямо в значении свойства — нажмите на него.
+            </p>
+          )}
+        </div>
 
-        {/* url: Сокращать ссылку toggle */}
-        {property.type === "url" && (
-          <div className="flex items-center justify-between p-2 border-b border-border text-[13px]">
-            <span className="text-muted-foreground">Сокращать ссылку</span>
-            <Switch
-              checked={property.urlCollapsed === true}
-              onCheckedChange={() => onToggleCollapse()}
-            />
-          </div>
-        )}
+        <div className="h-px bg-border/60" />
 
-        {/* date: no extra block */}
-
-        {/* ── e) Footer ───────────────────────────────────────────────── */}
-        <div className="border-t border-border p-1.5">
+        {/* ── Footer ───────────────────────────────────────────────────── */}
+        <div className="p-1.5">
           <button
             type="button"
             onClick={onDuplicate}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5
-                       text-[13px] hover:bg-accent transition-colors"
+            className="flex w-full items-center gap-2.5 rounded-md px-2 py-2
+                       text-[13px] transition-colors hover:bg-muted/50"
           >
-            <KB_PROPERTY_UI_ICONS.duplicate className="size-3.5 text-muted-foreground" />
-            Дублировать свойство
+            <KB_PROPERTY_UI_ICONS.duplicate className="size-4 text-muted-foreground/70" />
+            Дублировать
           </button>
           <button
             type="button"
             onClick={onRemove}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5
-                       text-[13px] text-destructive hover:bg-destructive/10 transition-colors"
+            className="flex w-full items-center gap-2.5 rounded-md px-2 py-2
+                       text-[13px] text-destructive transition-colors
+                       hover:bg-destructive/[0.08]"
           >
-            <KB_PROPERTY_UI_ICONS.delete className="size-3.5" />
-            Удалить свойство
+            <KB_PROPERTY_UI_ICONS.delete className="size-4" />
+            Удалить
           </button>
         </div>
       </PopoverContent>
@@ -590,8 +599,68 @@ export function PropertyEditorPopover({
 /** @deprecated Use PropertyEditorPopover instead. Kept for backwards compatibility. */
 export { PropertyEditorPopover as OptionEditorPopover };
 
-// ── Segmented control ──────────────────────────────────────────────────────
-function SegmentedControl({
+// ── Section eyebrow ─────────────────────────────────────────────────────────
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="pb-2 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground/55">
+      {children}
+    </div>
+  );
+}
+
+// ── Graphic «view» cards (Notion «Show as») ─────────────────────────────────
+function ViewCards({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: string; label: string; glyph: React.ReactNode }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div
+      className="grid gap-1.5"
+      style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0,1fr))` }}
+    >
+      {options.map((opt) => {
+        const isCurrent = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => !isCurrent && onChange(opt.value)}
+            className={cn(
+              "flex flex-col items-center gap-2 rounded-lg border px-2 pt-3 pb-2",
+              "transition-[border-color,background-color,transform] active:scale-[0.98]",
+              isCurrent
+                ? "border-brand bg-brand/[0.05] ring-1 ring-brand/30"
+                : "border-border hover:border-foreground/25 hover:bg-muted/30",
+            )}
+            aria-pressed={isCurrent}
+          >
+            <span className="flex h-6 items-center justify-center text-foreground/80">
+              {opt.glyph}
+            </span>
+            <span
+              className={cn(
+                "text-[11px] leading-none",
+                isCurrent
+                  ? "font-medium text-brand"
+                  : "text-muted-foreground",
+              )}
+            >
+              {opt.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── iOS/Notion-style segmented track ────────────────────────────────────────
+function Segmented({
   options,
   value,
   onChange,
@@ -601,21 +670,19 @@ function SegmentedControl({
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="flex gap-1">
+    <div className="flex gap-0.5 rounded-lg bg-muted/60 p-0.5">
       {options.map((opt) => {
         const isCurrent = opt.value === value;
         return (
           <button
             key={opt.value}
             type="button"
-            onClick={() => {
-              if (!isCurrent) onChange(opt.value);
-            }}
+            onClick={() => !isCurrent && onChange(opt.value)}
             className={cn(
-              "h-7 flex-1 rounded-md px-2.5 text-[13px] transition-colors",
+              "h-7 flex-1 rounded-md text-[12.5px] transition-colors",
               isCurrent
-                ? "bg-secondary text-foreground font-medium"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                ? "bg-background font-medium text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {opt.label}
@@ -623,6 +690,50 @@ function SegmentedControl({
         );
       })}
     </div>
+  );
+}
+
+// ── Tiny graphics for ViewCards ─────────────────────────────────────────────
+function NumberGlyph() {
+  return (
+    <span className="text-[17px] font-semibold tabular-nums tracking-tight">
+      42
+    </span>
+  );
+}
+
+function StarsGlyph() {
+  return (
+    <span className="flex items-center gap-0.5">
+      {[0, 1, 2].map((i) => (
+        <Star key={i} className="size-3 fill-amber-400 text-amber-400" />
+      ))}
+    </span>
+  );
+}
+
+function SliderGlyph() {
+  return (
+    <span className="relative block h-1 w-9 rounded-full bg-muted-foreground/25">
+      <span className="absolute inset-y-0 left-0 w-5 rounded-full bg-foreground/50" />
+      <span className="absolute left-5 top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground shadow-sm" />
+    </span>
+  );
+}
+
+function CheckboxGlyph() {
+  return (
+    <span className="inline-flex size-[18px] items-center justify-center rounded-[5px] bg-brand text-white">
+      <Check className="size-3" strokeWidth={3} />
+    </span>
+  );
+}
+
+function SwitchGlyph() {
+  return (
+    <span className="relative block h-[18px] w-7 rounded-full bg-brand">
+      <span className="absolute right-0.5 top-1/2 size-3.5 -translate-y-1/2 rounded-full bg-white shadow-sm" />
+    </span>
   );
 }
 

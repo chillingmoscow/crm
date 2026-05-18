@@ -61,6 +61,7 @@ import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
   parseNotionZip,
   extractNotionProperties,
+  buildNotionPropertiesToggle,
   dropDuplicateTitleHeading,
   relinkNotionMentions,
   preprocessNotionCallouts,
@@ -400,6 +401,7 @@ export default function KbImportDialogBody({
         // page-properties. Best-effort: ошибка не валит импорт.
         if (notionPropertyPairs.length > 0) {
           const props = inferKbPropertiesFromPairs(notionPropertyPairs);
+          let propsPersisted = false;
           if (props.length > 0) {
             const { error: propErr } = await saveKbPageProperties({
               pageId: row.id,
@@ -407,6 +409,28 @@ export default function KbImportDialogBody({
             });
             if (propErr) {
               failures.push(`«${node.title}» (свойства): ${propErr}`);
+            } else {
+              propsPersisted = true;
+            }
+          }
+          // Fallback (Codex P1): типизированное сохранение не удалось
+          // или ни одно свойство не выведено — НЕ теряем метаданные,
+          // возвращаем их в контент скрытым toggle «Свойства».
+          if (!propsPersisted) {
+            const toggle = buildNotionPropertiesToggle(notionPropertyPairs);
+            const withProps = [toggle, ...cleanedNoImagesNoLinks];
+            const { error: restoreErr } = await saveKbPage({
+              id: row.id,
+              title: node.title,
+              icon: null,
+              icon_color: null,
+              content: withProps,
+              plain_text: blocksToPlainText(withProps),
+            });
+            if (restoreErr) {
+              failures.push(
+                `«${node.title}» (свойства, fallback): ${restoreErr}`,
+              );
             }
           }
         }

@@ -150,15 +150,26 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
   const csvByDir = new Map<string, { name: string; blob: Blob }[]>();
   for (const [p, blob] of flat) {
     const nm = p.split("/").pop() ?? "";
-    if (/\.csv$/i.test(nm)) {
-      const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
-      if (dir) {
-        dbFolderPaths.add(dir);
-        const arr = csvByDir.get(dir) ?? [];
-        arr.push({ name: nm, blob });
-        csvByDir.set(dir, arr);
-      }
-    }
+    if (!/\.csv$/i.test(nm)) continue;
+    const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+    if (!dir) continue;
+    // Сигнатура Notion-БАЗЫ: CSV назван РОВНО как папка-контейнер
+    // (`<Name> <hash>.csv` / `<Name> <hash>_all.csv` внутри папки
+    // `<Name> <hash>`). Просто «папка с каким-то .csv» базой НЕ
+    // считается — иначе обычная страница со вложенным CSV-аттачментом
+    // потеряла бы детей при walk-up (Codex P2). Сравнение
+    // нечувствительно к регистру.
+    const csvStem = nm
+      .replace(/\.csv$/i, "")
+      .replace(/_all$/i, "")
+      .trim()
+      .toLowerCase();
+    const folderBase = (dir.split("/").pop() ?? "").trim().toLowerCase();
+    if (csvStem !== folderBase) continue;
+    dbFolderPaths.add(dir);
+    const arr = csvByDir.get(dir) ?? [];
+    arr.push({ name: nm, blob });
+    csvByDir.set(dir, arr);
   }
 
   const isNotionExport = mdEntries.some(
@@ -605,12 +616,13 @@ export function extractNotionProperties(blocks: KbBlock[]): {
   return { blocks: blocks.slice(cursor), pairs };
 }
 
-/** Legacy: ведущие property-параграфы → скрывающийся toggle
- *  «Свойства». Оставлено для обратной совместимости; новый импорт
- *  использует `extractNotionProperties` + page-properties. */
-export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
-  const { pairs, cursor } = extractLeadingProperties(blocks);
-  if (pairs.length === 0) return blocks;
+/** Собирает скрывающийся toggle-блок «Свойства» из пар {key,value}.
+ *  Используется как fallback: если типизированное сохранение
+ *  page-properties упало (лимиты схемы / RPC) — не теряем метаданные,
+ *  а возвращаем их в контент текстом (Codex P1). */
+export function buildNotionPropertiesToggle(
+  pairs: { key: string; value: string }[],
+): KbBlock {
   const children: KbBlock[] = pairs.map(({ key, value }) => ({
     type: "paragraph",
     props: {},
@@ -622,13 +634,21 @@ export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
       : [{ type: "text", text: value, styles: {} }],
     children: [],
   }));
-  const toggle: KbBlock = {
+  return {
     type: "toggleListItem",
     props: {},
     content: [{ type: "text", text: "Свойства", styles: { bold: true } }],
     children,
   };
-  return [toggle, ...blocks.slice(cursor)];
+}
+
+/** Legacy: ведущие property-параграфы → скрывающийся toggle
+ *  «Свойства». Оставлено для обратной совместимости; новый импорт
+ *  использует `extractNotionProperties` + page-properties. */
+export function stripNotionProperties(blocks: KbBlock[]): KbBlock[] {
+  const { pairs, cursor } = extractLeadingProperties(blocks);
+  if (pairs.length === 0) return blocks;
+  return [buildNotionPropertiesToggle(pairs), ...blocks.slice(cursor)];
 }
 
 // ─── 4. Internal-link relinking → kbPageMention ─────────────────────────────

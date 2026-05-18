@@ -19,16 +19,36 @@ export function quickDateISO(kind: QuickDate, anchor: Date = new Date()): string
   return toISO(base);
 }
 
-/** Display form for a stored date property value. Empty/invalid → "". */
+/** Разбирает хранимое значение даты на дату и опциональное время.
+ *  Формат: `YYYY-MM-DD` либо `YYYY-MM-DDTHH:mm`. */
+export function splitDateValue(value: string | null | undefined): {
+  date: string;
+  time: string | null;
+} {
+  if (!value) return { date: "", time: null };
+  const [date, time] = value.split("T");
+  return { date: date ?? "", time: time ? time.slice(0, 5) : null };
+}
+
+/** Склеивает дату и опциональное время обратно в хранимое значение. */
+export function joinDateValue(date: string, time: string | null): string {
+  if (!date) return "";
+  return time ? `${date}T${time}` : date;
+}
+
+/** Display form for a stored date property value. Empty/invalid → "".
+ *  При наличии времени добавляет «, HH:mm». */
 export function formatPropertyDate(value: string | null | undefined): string {
-  if (!value) return "";
-  const [y, m, d] = value.split("-").map(Number);
+  const { date, time } = splitDateValue(value);
+  if (!date) return "";
+  const [y, m, d] = date.split("-").map(Number);
   if (!y || !m || !d) return "";
   const dt = new Date(y, m - 1, d);
   if (Number.isNaN(dt.getTime())) return "";
-  return dt.toLocaleDateString("ru-RU", {
+  const base = dt.toLocaleDateString("ru-RU", {
     day: "numeric",
     month: "short",
     year: "numeric",
   });
+  return time ? `${base}, ${time}` : base;
 }

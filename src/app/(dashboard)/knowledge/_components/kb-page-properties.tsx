@@ -12,7 +12,7 @@ import { nanoid } from "nanoid";
 import {
   Plus,
   Trash2,
-  MoreHorizontal,
+  Pencil,
   Type as TypeIcon,
   Copy,
   Replace,
@@ -803,7 +803,7 @@ export function KbPageProperties({
         </>
       )}
       {showAddButton && (
-        <div className="flex min-h-8 items-center gap-2 pt-1">
+        <div className="flex min-h-8 items-center gap-2 pt-1.5">
           {canEdit ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -811,7 +811,7 @@ export function KbPageProperties({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  className="h-7 px-1.5 -ml-1.5 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <Plus className="size-3.5" />
                   {collectionGroups.length > 0
@@ -842,7 +842,7 @@ export function KbPageProperties({
               size="sm"
               disabled
               aria-disabled="true"
-              className="h-7 px-2 text-xs text-muted-foreground opacity-40"
+              className="h-7 px-1.5 -ml-1.5 text-xs text-muted-foreground opacity-40"
             >
               <Plus className="size-3.5" />
               {collectionGroups.length > 0
@@ -1000,6 +1000,8 @@ function PropertyRow({
 }: PropertyRowProps) {
   const [name, setName] = useState(property.name);
   const [descOpen, setDescOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [descriptionDraft, setDescriptionDraft] = useState(
     property.description ?? "",
   );
@@ -1037,18 +1039,22 @@ function PropertyRow({
       ref={setNodeRef}
       style={dragStyle}
       className={cn(
-        "group/row flex items-center gap-2 min-h-[36px] py-1 rounded-md",
+        "group/row relative flex items-center gap-2 min-h-[36px] py-1 rounded-md",
         // Subtle background ТОЛЬКО на active-drag (визуальный feedback
         // reorder'а). Фоновая подсветка всего ряда специально НЕ
         // ставим — только label с именем (просьба юзера, см. ниже).
         isDragging && "bg-muted/60 shadow-sm",
       )}
     >
-      {canEdit ? (
+      {/* Grip живёт в левом «жёлобе» (absolute, вне flow) — иконка
+       *  свойства встаёт ровно под левым краем заголовка страницы,
+       *  без сдвига от ручки перетаскивания. */}
+      {canEdit && (
         <button
           type="button"
           aria-label="Перетащить свойство"
-          className="size-5 -ml-1 flex items-center justify-center text-muted-foreground/40
+          className="absolute right-full top-1/2 -translate-y-1/2 mr-1 size-5
+                     flex items-center justify-center text-muted-foreground/40
                      cursor-grab active:cursor-grabbing
                      opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100
                      hover:text-foreground transition-opacity"
@@ -1057,78 +1063,19 @@ function PropertyRow({
         >
           <GripVertical className="size-3.5" />
         </button>
-      ) : (
-        // Read-only: тот же spacer что и у grip'а, чтобы layout не
-        // съезжал при переключении canEdit.
-        <span className="size-5 -ml-1 shrink-0" aria-hidden="true" />
       )}
       {/* Label area: icon + name. Hover-bg ТОЛЬКО здесь (Notion-style —
        *  юзер хочет подсветку имени, не всего ряда). Заметная подсветка
        *  через `bg-foreground/10` — работает одинаково ярко на light /
        *  dark theme'ах, в отличие от `bg-accent` (которая в light тонет). */}
-      <div
-        className="flex items-center gap-1.5 px-1.5 py-0.5 -mx-1.5 rounded-md
-                   hover:bg-foreground/[0.08] dark:hover:bg-foreground/10
-                   transition-colors"
-      >
-        <PropertyIconButton
-          property={property}
-          canEdit={canEdit}
-          onChangeIcon={onChangeIcon}
-        />
-        {canEdit ? (
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => {
-              const trimmed = name.trim();
-              if (trimmed !== property.name) onRename(trimmed);
-              setName(trimmed);
-            }}
-            className="w-[168px] shrink-0 bg-transparent text-[13px] text-muted-foreground outline-none focus:text-foreground"
-            aria-label="Имя свойства"
-          />
-        ) : (
-          <span className="w-[168px] shrink-0 text-[13px] text-muted-foreground">
-            {property.name}
-          </span>
-        )}
-        {canEdit && (
-          <Popover open={descOpen} onOpenChange={setDescOpen}>
-            <PopoverTrigger asChild>
-              <span className="sr-only" aria-hidden="true" />
-            </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              sideOffset={6}
-              className="w-[260px] p-2"
-              onOpenAutoFocus={(e) => e.preventDefault()}
-            >
-              <Input
-                value={descriptionDraft}
-                placeholder="Описание свойства"
-                className="h-8"
-                aria-label="Описание свойства"
-                onChange={(e) => setDescriptionDraft(e.currentTarget.value)}
-                onBlur={() => onChangeDescription(descriptionDraft)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    onChangeDescription(e.currentTarget.value);
-                    setDescOpen(false);
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setDescriptionDraft(property.description ?? "");
-                    setDescOpen(false);
-                  }
-                }}
-              />
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
+      {/* Label = trigger меню настроек свойства (клик по имени).
+       *  Иконка — отдельная кнопка (свой пикер), не вложена в trigger. */}
+      <PropertyLabelTrigger
+        property={property}
+        canEdit={canEdit}
+        onChangeIcon={onChangeIcon}
+        onOpenMenu={() => setMenuOpen(true)}
+      />
       <div className="flex-1 min-w-0">
         <PropertyValueControl
           property={property}
@@ -1138,47 +1085,121 @@ function PropertyRow({
           onChangeOptionColors={onChangeOptionColors}
         />
       </div>
-      <div className="size-6 shrink-0">
-        {canEdit &&
+      {canEdit && (
+        <Popover open={descOpen} onOpenChange={setDescOpen}>
+          <PopoverTrigger asChild>
+            <span
+              className="pointer-events-none absolute left-0 top-1/2 size-px"
+              aria-hidden="true"
+            />
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={6}
+            className="w-[260px] p-2"
+            onOpenAutoFocus={(e) => e.preventDefault()}
+          >
+            <Input
+              value={descriptionDraft}
+              placeholder="Описание свойства"
+              className="h-8"
+              aria-label="Описание свойства"
+              onChange={(e) => setDescriptionDraft(e.currentTarget.value)}
+              onBlur={() => onChangeDescription(descriptionDraft)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onChangeDescription(e.currentTarget.value);
+                  setDescOpen(false);
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDescriptionDraft(property.description ?? "");
+                  setDescOpen(false);
+                }
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      )}
+      {canEdit && (
+        <Popover open={renameOpen} onOpenChange={setRenameOpen}>
+          <PopoverTrigger asChild>
+            <span
+              className="pointer-events-none absolute left-0 top-1/2 size-px"
+              aria-hidden="true"
+            />
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={6}
+            className="w-[260px] p-2"
+          >
+            <Input
+              autoFocus
+              value={name}
+              placeholder="Имя свойства"
+              className="h-8"
+              aria-label="Имя свойства"
+              onChange={(e) => setName(e.currentTarget.value)}
+              onBlur={() => {
+                const t = name.trim();
+                if (t && t !== property.name) onRename(t);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const t = e.currentTarget.value.trim();
+                  if (t && t !== property.name) onRename(t);
+                  setRenameOpen(false);
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setName(property.name);
+                  setRenameOpen(false);
+                }
+              }}
+            />
+          </PopoverContent>
+        </Popover>
+      )}
+      {canEdit &&
         (property.type === "select" || property.type === "multi-select") ? (
-          <OptionEditorPopover
-            typeLabel={TYPE_LABELS[property.type]}
-            typeIcon={TYPE_ICONS[property.type]}
-            options={property.options}
-            optionColors={property.optionColors}
-            onChangeOptions={onChangeOptions}
-            onChangeOptionColors={onChangeOptionColors}
-            onRenameOption={onRenameOption}
-            onRemoveOption={onRemoveOption}
-            onDuplicate={onDuplicate}
-            onRemove={onRemove}
-            trigger={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-6 opacity-0 group-hover/row:opacity-100 focus:opacity-100"
-                aria-label="Действия со свойством"
-              >
-                <MoreHorizontal className="size-3.5" />
-              </Button>
-            }
-          />
-        ) : (
-          canEdit && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-6 opacity-0 group-hover/row:opacity-100 focus:opacity-100"
-                  aria-label="Действия со свойством"
+        <OptionEditorPopover
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          propertyName={property.name}
+          onRename={onRename}
+          typeLabel={TYPE_LABELS[property.type]}
+          typeIcon={TYPE_ICONS[property.type]}
+          options={property.options}
+          optionColors={property.optionColors}
+          onChangeOptions={onChangeOptions}
+          onChangeOptionColors={onChangeOptionColors}
+          onRenameOption={onRenameOption}
+          onRemoveOption={onRemoveOption}
+          onDuplicate={onDuplicate}
+          onRemove={onRemove}
+        />
+      ) : (
+        canEdit && (
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <span
+                className="pointer-events-none absolute left-0 top-1/2 size-px"
+                aria-hidden="true"
+              />
+            </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[200px]">
+                <DropdownMenuItem
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    setRenameOpen(true);
+                  }}
                 >
-                  <MoreHorizontal className="size-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[180px]">
+                  <Pencil className="size-3.5 text-muted-foreground" />
+                  Переименовать
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={(e) => {
                     e.preventDefault();
@@ -1472,11 +1493,56 @@ function PropertyRow({
                   <span className="text-destructive">Удалить</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
-            </DropdownMenu>
-          )
-        )}
-      </div>
+          </DropdownMenu>
+        )
+      )}
     </li>
+  );
+}
+
+/** Pill «иконка + имя». Имя — кнопка, открывающая меню настроек
+ *  свойства (Notion-style: клик по свойству, без ⋯ справа). Иконка —
+ *  отдельная кнопка (свой пикер), не вложена в кнопку имени. Без
+ *  отрицательного сдвига контента — иконка встаёт ровно под левым
+ *  краем заголовка страницы. */
+function PropertyLabelTrigger({
+  property,
+  canEdit,
+  onChangeIcon,
+  onOpenMenu,
+}: {
+  property: KbProperty;
+  canEdit: boolean;
+  onChangeIcon: (icon: string | null, iconColor: string | null) => void;
+  onOpenMenu: () => void;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 -ml-1.5 rounded-md px-1.5 py-1
+                 transition-colors hover:bg-foreground/[0.06] dark:hover:bg-foreground/10"
+    >
+      <PropertyIconButton
+        property={property}
+        canEdit={canEdit}
+        onChangeIcon={onChangeIcon}
+      />
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={onOpenMenu}
+          className="w-[168px] shrink-0 truncate text-left text-[13px]
+                     text-muted-foreground outline-none transition-colors
+                     hover:text-foreground"
+          aria-label="Настройки свойства"
+        >
+          {property.name}
+        </button>
+      ) : (
+        <span className="w-[168px] shrink-0 truncate text-[13px] text-muted-foreground">
+          {property.name}
+        </span>
+      )}
+    </div>
   );
 }
 

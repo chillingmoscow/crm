@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { ru } from "date-fns/locale";
 
-import { cn } from "@/lib/utils";
 import { Calendar } from "@/components/ui/calendar";
+import { Switch } from "@/components/ui/switch";
 import {
   Popover,
   PopoverContent,
@@ -13,6 +13,8 @@ import {
 import {
   quickDateISO,
   formatPropertyDate,
+  splitDateValue,
+  joinDateValue,
   toISO,
   type QuickDate,
 } from "./date-control-helpers";
@@ -25,16 +27,24 @@ function parseISO(value: string): Date | undefined {
   return Number.isNaN(dt.getTime()) ? undefined : dt;
 }
 
-const QUICK: { kind: QuickDate; label: string; brand?: boolean }[] = [
+function nowTime(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(
+    d.getMinutes(),
+  ).padStart(2, "0")}`;
+}
+
+const QUICK: { kind: QuickDate; label: string }[] = [
   { kind: "today", label: "Сегодня" },
   { kind: "tomorrow", label: "Завтра" },
-  { kind: "in7", label: "Через 7 дней", brand: true },
+  { kind: "in7", label: "Через 7 дней" },
 ];
 
 /**
- * KB date-property control. sheerly.pen → rS3Ej.
- * Триггер: «15 апр. 2026 г.» либо «—». Popover: быстрые чипы +
- * Calendar (наш shadcn, ru) + футер «Без даты» / «Выбрать сегодня».
+ * KB date-property control. sheerly.pen → rS3Ej (адаптировано).
+ * Триггер: «15 апр. 2026 г.» (+ «, HH:mm» если задано время) либо «—».
+ * Попап: быстрые чипы (нейтральные) + Calendar (ru) + переключатель
+ * «Время» + футер «Без даты». Единственный акцент — выбранный день.
  * Общий <Calendar> НЕ трогаем — только обёртка/оверрайды этого попапа.
  */
 export function DateValueControl({
@@ -47,7 +57,8 @@ export function DateValueControl({
   onChange: (value: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const selected = parseISO(value ?? "");
+  const { date: dateStr, time } = splitDateValue(value);
+  const selected = parseISO(dateStr);
   const display = formatPropertyDate(value);
 
   if (!canEdit) {
@@ -55,6 +66,19 @@ export function DateValueControl({
       <span className="text-[13px] tabular-nums">{display || "—"}</span>
     );
   }
+
+  const commitDate = (d: string) => {
+    onChange(joinDateValue(d, time));
+  };
+
+  const toggleTime = (on: boolean) => {
+    if (on) {
+      const base = dateStr || quickDateISO("today");
+      onChange(joinDateValue(base, nowTime()));
+    } else {
+      onChange(dateStr ? joinDateValue(dateStr, null) : null);
+    }
+  };
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -82,15 +106,11 @@ export function DateValueControl({
               key={q.kind}
               type="button"
               onClick={() => {
-                onChange(quickDateISO(q.kind));
+                commitDate(quickDateISO(q.kind));
                 setOpen(false);
               }}
-              className={cn(
-                "h-7 rounded-md px-2.5 text-[13px] font-medium transition-colors",
-                q.brand
-                  ? "text-brand hover:bg-brand/10"
-                  : "bg-secondary text-foreground hover:bg-accent",
-              )}
+              className="h-7 rounded-md bg-secondary px-2.5 text-[13px] font-medium
+                         text-foreground transition-colors hover:bg-accent"
             >
               {q.label}
             </button>
@@ -100,41 +120,64 @@ export function DateValueControl({
           mode="single"
           selected={selected}
           onSelect={(d) => {
-            onChange(d ? toISO(d) : null);
-            setOpen(false);
+            if (d) {
+              commitDate(toISO(d));
+              setOpen(false);
+            }
           }}
           locale={ru}
           showOutsideDays
           className="p-0"
           classNames={{
-            caption_label:
-              "select-none text-sm font-semibold text-brand bg-brand/10 rounded-full px-2.5 py-1",
+            caption_label: "select-none text-sm font-semibold text-foreground",
             button_previous:
-              "h-7 w-7 rounded-md bg-secondary hover:bg-accent inline-flex items-center justify-center",
+              "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent inline-flex items-center justify-center",
             button_next:
-              "h-7 w-7 rounded-md bg-secondary hover:bg-accent inline-flex items-center justify-center",
+              "h-7 w-7 rounded-md text-muted-foreground hover:bg-accent inline-flex items-center justify-center",
           }}
         />
-        <div className="flex items-center justify-between pt-2 text-[13px]">
+        <div className="mt-2 flex items-center justify-between border-t border-border pt-3">
+          <label
+            htmlFor="kb-date-time-toggle"
+            className="text-[13px] text-foreground"
+          >
+            Время
+          </label>
+          <Switch
+            id="kb-date-time-toggle"
+            checked={time !== null}
+            onCheckedChange={toggleTime}
+            aria-label="Добавить время"
+          />
+        </div>
+        {time !== null && (
+          <input
+            type="time"
+            value={time}
+            onChange={(e) =>
+              onChange(
+                joinDateValue(
+                  dateStr || quickDateISO("today"),
+                  e.target.value || null,
+                ),
+              )
+            }
+            className="mt-2 h-8 w-full rounded-md border border-input bg-transparent
+                       px-2 text-[13px] tabular-nums outline-none
+                       focus:border-brand focus:ring-2 focus:ring-brand/30"
+            aria-label="Время"
+          />
+        )}
+        <div className="mt-3 border-t border-border pt-2">
           <button
             type="button"
             onClick={() => {
               onChange(null);
               setOpen(false);
             }}
-            className="text-muted-foreground hover:text-foreground transition-colors"
+            className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Без даты
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onChange(quickDateISO("today"));
-              setOpen(false);
-            }}
-            className="font-medium text-brand hover:underline"
-          >
-            Выбрать сегодня
           </button>
         </div>
       </PopoverContent>

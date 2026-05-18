@@ -29,8 +29,15 @@ import { PALETTE_GRID, paletteDot } from "@/lib/palette";
 import type { KbPropertyColor } from "@/types/knowledge";
 
 interface OptionEditorProps {
-  /** Триггер (обычно ⋯-кнопка строки свойства). */
-  trigger: React.ReactNode;
+  /** Опциональный триггер. Если не задан — поповер контролируется
+   *  через `open`/`onOpenChange` и якорится скрытым span'ом слева
+   *  строки (клик по имени свойства открывает меню). */
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Имя свойства + переименование (поле сверху поповера). */
+  propertyName?: string;
+  onRename?: (name: string) => void;
   typeLabel: string;
   typeIcon: React.ComponentType<{ className?: string }>;
   options: string[];
@@ -53,6 +60,10 @@ interface OptionEditorProps {
 
 export function OptionEditorPopover({
   trigger,
+  open,
+  onOpenChange,
+  propertyName,
+  onRename,
   typeLabel,
   typeIcon: TypeIcon,
   options,
@@ -66,6 +77,8 @@ export function OptionEditorPopover({
 }: OptionEditorProps) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  const [nameDraft, setNameDraft] = useState(propertyName ?? "");
+  useEffect(() => setNameDraft(propertyName ?? ""), [propertyName]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -124,13 +137,49 @@ export function OptionEditorPopover({
   };
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
+        {trigger ?? (
+          <span
+            className="pointer-events-none absolute left-0 top-1/2 size-px"
+            aria-hidden="true"
+          />
+        )}
+      </PopoverTrigger>
       <PopoverContent
-        align="end"
+        align="start"
         sideOffset={6}
         className="w-[320px] p-0 rounded-[10px]"
       >
+        {onRename !== undefined && (
+          <div className="border-b border-border p-2">
+            <input
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={() => {
+                const t = nameDraft.trim();
+                if (t && t !== propertyName) onRename(t);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const t = e.currentTarget.value.trim();
+                  if (t && t !== propertyName) onRename(t);
+                  e.currentTarget.blur();
+                }
+                if (e.key === "Escape") {
+                  setNameDraft(propertyName ?? "");
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder="Имя свойства"
+              aria-label="Имя свойства"
+              className="h-8 w-full rounded-md border border-input bg-transparent
+                         px-2 text-[13px] font-medium outline-none
+                         focus:border-brand focus:ring-2 focus:ring-brand/30"
+            />
+          </div>
+        )}
         <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border">
           <TypeIcon className="size-4 text-muted-foreground" />
           <span className="text-[13px] font-semibold">{typeLabel}</span>

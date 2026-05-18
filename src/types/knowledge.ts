@@ -135,6 +135,8 @@ export type KbProperty =
       ratingVariant?: "stars" | "slider";
       /** Показывать подпись значения рядом со слайдером рейтинга. */
       ratingShowValue?: boolean;
+      /** Цвет звёзд / акцент слайдера. null / undefined = amber (default). */
+      ratingColor?: KbPropertyColor;
       /** Единица измерения (Stage 4). Default отсутствие = `kind: "none"`
        *  (просто число). Discriminated union из shared-слоя
        *  `src/lib/units/`. Хранится в jsonb как-есть. */
@@ -214,6 +216,8 @@ export type KbProperty =
        *  только рендер. Rollback-safe. */
       displayVariant?: "stars" | "slider";
       ratingShowValue?: boolean;
+      /** Цвет звёзд / акцент слайдера. null / undefined = amber (default). */
+      ratingColor?: KbPropertyColor;
     } & KbPropertyIconOverride &
       KbPropertyMetadata &
       KbPropertyOwnership);

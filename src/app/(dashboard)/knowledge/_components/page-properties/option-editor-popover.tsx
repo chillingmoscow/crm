@@ -65,8 +65,8 @@ interface PropertyEditorPopoverProps {
   ) => void;
   onRenameOption: (from: string, to: string) => void;
   onRemoveOption: (option: string) => void;
-  onDuplicate: () => void;
-  onRemove: () => void;
+  onChangeRatingColor: (c: KbPropertyColor | null) => void;
+  onChangeRatingShowValue: (show: boolean) => void;
 }
 
 export function PropertyEditorPopover({
@@ -89,8 +89,8 @@ export function PropertyEditorPopover({
   onChangeOptionColors,
   onRenameOption,
   onRemoveOption,
-  onDuplicate,
-  onRemove,
+  onChangeRatingColor,
+  onChangeRatingShowValue,
 }: PropertyEditorPopoverProps) {
   // ── Name draft ──────────────────────────────────────────────────────
   const [nameDraft, setNameDraft] = useState(property.name);
@@ -188,6 +188,45 @@ export function PropertyEditorPopover({
   const isOptionType =
     property.type === "select" || property.type === "multi-select";
 
+  // ── Is stars / slider for number & rating ───────────────────────────
+  const isStars =
+    (property.type === "number" && numberView === "stars") ||
+    (property.type === "rating" && (property.displayVariant ?? "stars") === "stars");
+  const isSlider =
+    (property.type === "number" && numberView === "slider") ||
+    (property.type === "rating" && property.displayVariant === "slider");
+
+  // ── ratingColor for both number & rating ────────────────────────────
+  const ratingColor: KbPropertyColor | undefined =
+    property.type === "number" || property.type === "rating"
+      ? (property as { ratingColor?: KbPropertyColor }).ratingColor
+      : undefined;
+
+  // ── ratingShowValue ─────────────────────────────────────────────────
+  const ratingShowValue =
+    (property.type === "number" && property.displayVariant === "rating")
+      ? (property.ratingShowValue ?? true)
+      : property.type === "rating"
+        ? (property.ratingShowValue ?? true)
+        : true;
+
+  // ── Max value ───────────────────────────────────────────────────────
+  const currentMax =
+    (property.type === "number" || property.type === "rating")
+      ? ((property as { max?: number }).max ?? 5)
+      : 5;
+
+  // ── Slider max input draft ───────────────────────────────────────────
+  const [sliderMaxDraft, setSliderMaxDraft] = useState(String(currentMax));
+  useEffect(() => {
+    setSliderMaxDraft(String(currentMax));
+  }, [currentMax]);
+
+  const commitSliderMax = (raw: string) => {
+    const n = Math.max(1, Math.round(Number(raw) || 1));
+    onChangeRatingScale(n);
+  };
+
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
@@ -229,11 +268,9 @@ export function PropertyEditorPopover({
                 e.currentTarget.blur();
               }
             }}
-            placeholder="Без названия"
+            placeholder="Имя свойства"
             aria-label="Имя свойства"
-            className="min-w-0 flex-1 bg-transparent text-[15px] font-semibold
-                       leading-tight tracking-tight text-foreground outline-none
-                       placeholder:font-normal placeholder:text-muted-foreground/50"
+            className="min-w-0 flex-1 h-8 rounded-md border border-input bg-transparent px-2 text-[13px] text-foreground outline-none focus:border-brand focus:ring-2 focus:ring-brand/30 placeholder:text-muted-foreground/50"
           />
           <button
             type="button"
@@ -401,9 +438,6 @@ export function PropertyEditorPopover({
                     },
                   ]}
                 />
-                <p className="mt-2 text-[11px] leading-snug text-muted-foreground/60">
-                  Меняет отображение везде, где встречается это свойство.
-                </p>
               </div>
 
               {numberView === "number" ? (
@@ -460,18 +494,32 @@ export function PropertyEditorPopover({
                   </div>
                 </>
               ) : (
-                <div>
-                  <SectionLabel>Шкала</SectionLabel>
-                  <Segmented
-                    options={[
-                      { value: "3", label: "3" },
-                      { value: "5", label: "5" },
-                      { value: "10", label: "10" },
-                    ]}
-                    value={String(property.max ?? 5)}
-                    onChange={(v) => onChangeRatingScale(Number(v))}
+                /* stars or slider */
+                <>
+                  {isStars && (
+                    <ScaleDropdownRow
+                      current={currentMax}
+                      onChange={onChangeRatingScale}
+                    />
+                  )}
+                  {isSlider && (
+                    <>
+                      <SliderMaxRow
+                        value={sliderMaxDraft}
+                        onChange={setSliderMaxDraft}
+                        onCommit={commitSliderMax}
+                      />
+                      <ShowValueRow
+                        checked={ratingShowValue}
+                        onCheckedChange={onChangeRatingShowValue}
+                      />
+                    </>
+                  )}
+                  <ColorRow
+                    color={ratingColor}
+                    onChange={onChangeRatingColor}
                   />
-                </div>
+                </>
               )}
             </div>
           )}
@@ -523,18 +571,29 @@ export function PropertyEditorPopover({
                   ]}
                 />
               </div>
-              <div>
-                <SectionLabel>Шкала</SectionLabel>
-                <Segmented
-                  options={[
-                    { value: "3", label: "3" },
-                    { value: "5", label: "5" },
-                    { value: "10", label: "10" },
-                  ]}
-                  value={String(property.max ?? 5)}
-                  onChange={(v) => onChangeRatingScale(Number(v))}
+              {isStars && (
+                <ScaleDropdownRow
+                  current={currentMax}
+                  onChange={onChangeRatingScale}
                 />
-              </div>
+              )}
+              {isSlider && (
+                <>
+                  <SliderMaxRow
+                    value={sliderMaxDraft}
+                    onChange={setSliderMaxDraft}
+                    onCommit={commitSliderMax}
+                  />
+                  <ShowValueRow
+                    checked={ratingShowValue}
+                    onCheckedChange={onChangeRatingShowValue}
+                  />
+                </>
+              )}
+              <ColorRow
+                color={ratingColor}
+                onChange={onChangeRatingColor}
+              />
             </div>
           )}
 
@@ -566,31 +625,6 @@ export function PropertyEditorPopover({
             </p>
           )}
         </div>
-
-        <div className="h-px bg-border/60" />
-
-        {/* ── Footer ───────────────────────────────────────────────────── */}
-        <div className="p-1.5">
-          <button
-            type="button"
-            onClick={onDuplicate}
-            className="flex w-full items-center gap-2.5 rounded-md px-2 py-2
-                       text-[13px] transition-colors hover:bg-muted/50"
-          >
-            <KB_PROPERTY_UI_ICONS.duplicate className="size-4 text-muted-foreground/70" />
-            Дублировать
-          </button>
-          <button
-            type="button"
-            onClick={onRemove}
-            className="flex w-full items-center gap-2.5 rounded-md px-2 py-2
-                       text-[13px] text-destructive transition-colors
-                       hover:bg-destructive/[0.08]"
-          >
-            <KB_PROPERTY_UI_ICONS.delete className="size-4" />
-            Удалить
-          </button>
-        </div>
       </PopoverContent>
     </Popover>
   );
@@ -605,6 +639,179 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <div className="pb-2 text-[11px] font-medium uppercase tracking-[0.05em] text-muted-foreground/55">
       {children}
     </div>
+  );
+}
+
+// ── «Шкала» dropdown row (for stars mode) ────────────────────────────────────
+function ScaleDropdownRow({
+  current,
+  onChange,
+}: {
+  current: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="-mx-1 flex items-center justify-between rounded-md px-1 py-1
+                     text-[13px] transition-colors hover:bg-muted/40"
+        >
+          <span className="flex items-center gap-2.5 text-muted-foreground">
+            <KB_PROPERTY_UI_ICONS.scale className="size-4 text-muted-foreground/70" />
+            Шкала
+          </span>
+          <span className="flex items-center gap-1 text-foreground">
+            {current}
+            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+          </span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[100px]">
+        {[3, 5, 10].map((n) => {
+          const isCurrent = current === n;
+          return (
+            <DropdownMenuItem
+              key={n}
+              disabled={isCurrent}
+              onSelect={() => onChange(n)}
+            >
+              {n}
+              {isCurrent && (
+                <Check className="ml-auto size-3.5 text-muted-foreground/60" />
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// ── «Максимальное значение» numeric input row (for slider mode) ───────────────
+function SliderMaxRow({
+  value,
+  onChange,
+  onCommit,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: (v: string) => void;
+}) {
+  return (
+    <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-1 text-[13px]">
+      <span className="text-muted-foreground">Максимальное значение</span>
+      <input
+        type="number"
+        min={1}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={(e) => onCommit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCommit(e.currentTarget.value);
+            e.currentTarget.blur();
+          }
+        }}
+        className="w-14 h-7 rounded-md border border-input bg-transparent px-2 text-right
+                   text-[13px] text-foreground outline-none
+                   focus:border-brand focus:ring-2 focus:ring-brand/30
+                   [appearance:textfield]
+                   [&::-webkit-outer-spin-button]:appearance-none
+                   [&::-webkit-inner-spin-button]:appearance-none"
+        aria-label="Максимальное значение шкалы"
+      />
+    </div>
+  );
+}
+
+// ── «Показывать число» switch row ─────────────────────────────────────────────
+function ShowValueRow({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (v: boolean) => void;
+}) {
+  return (
+    <div className="-mx-1 flex items-center justify-between rounded-md px-1 py-0.5 text-[13px]">
+      <span className="text-muted-foreground">Показывать число</span>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  );
+}
+
+// ── «Цвет» row with palette grid popover ─────────────────────────────────────
+function ColorRow({
+  color,
+  onChange,
+}: {
+  color?: import("@/lib/palette").PaletteColor;
+  onChange: (c: import("@/lib/palette").PaletteColor | null) => void;
+}) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="-mx-1 flex items-center justify-between rounded-md px-1 py-1
+                     text-[13px] transition-colors hover:bg-muted/40"
+        >
+          <span className="flex items-center gap-2.5 text-muted-foreground">
+            <KB_PROPERTY_UI_ICONS.appearance className="size-4 text-muted-foreground/70" />
+            Цвет
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className={cn("size-3.5 rounded-full shrink-0", paletteDot(color ?? "default"))}
+            />
+            <ChevronRight className="size-3.5 text-muted-foreground/50" />
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={6} className="w-[220px] p-3 rounded-[10px]">
+        <div className="text-[12px] text-muted-foreground/70 pb-1.5">Цвет</div>
+        <div className="grid grid-cols-5 gap-1.5">
+          {PALETTE_GRID.map((c) => {
+            const isCurrent = (color ?? "default") === c.name;
+            return (
+              <button
+                key={c.name}
+                type="button"
+                onClick={() => onChange(c.name === "default" ? null : c.name)}
+                className="flex flex-col items-center gap-1"
+                aria-label={c.label}
+              >
+                <span
+                  className={cn(
+                    "relative size-9 rounded-lg inline-flex items-center justify-center",
+                    c.name === "default"
+                      ? "border border-border bg-background"
+                      : paletteDot(c.name),
+                  )}
+                >
+                  {isCurrent && (
+                    <Check
+                      className={cn(
+                        "size-4",
+                        c.name === "default"
+                          ? "text-foreground"
+                          : "text-white",
+                      )}
+                    />
+                  )}
+                </span>
+                <span className="text-[10px] text-muted-foreground leading-none">
+                  {c.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

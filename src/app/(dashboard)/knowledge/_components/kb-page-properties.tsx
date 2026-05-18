@@ -14,6 +14,8 @@ import {
   GripVertical,
   Database,
   Type as TypeIcon,
+  Pencil,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -47,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
+import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import type { Unit } from "@/lib/units";
 import {
   saveKbPageProperties,
@@ -457,6 +460,45 @@ export function KbPageProperties({
     });
   };
 
+  // Цвет звёзд / слайдера. null = убрать (amber-default).
+  const changeRatingColor = (id: string, color: KbPropertyColor | null) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (
+          p.id !== id ||
+          (p.type !== "rating" &&
+            !(p.type === "number" && p.displayVariant === "rating"))
+        ) {
+          return p;
+        }
+        const updated = { ...p } as KbProperty & { ratingColor?: KbPropertyColor };
+        if (color === null) delete updated.ratingColor;
+        else updated.ratingColor = color;
+        return updated as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  // Показывать / скрывать числовой лейбл рядом со слайдером.
+  const changeRatingShowValue = (id: string, show: boolean) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (
+          p.id !== id ||
+          (p.type !== "rating" &&
+            !(p.type === "number" && p.displayVariant === "rating"))
+        ) {
+          return p;
+        }
+        return { ...p, ratingShowValue: show } as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
   // Меняет icon override property. value=null/undefined для обоих
   // полей = «без override» (рендерим default TYPE_ICONS[type]).
   const changePropertyIcon = (
@@ -766,6 +808,8 @@ export function KbPageProperties({
                     onRemove={() => removeProperty(prop.id)}
                     onDuplicate={() => duplicateProperty(prop.id)}
                     onChangeType={(t) => changePropertyType(prop.id, t)}
+                    onChangeRatingColor={(c) => changeRatingColor(prop.id, c)}
+                    onChangeRatingShowValue={(s) => changeRatingShowValue(prop.id, s)}
                   />
                 ))}
               </ul>
@@ -909,6 +953,10 @@ interface PropertyRowProps {
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
+  /** Цвет звёзд / слайдера. null = amber-default. */
+  onChangeRatingColor: (color: KbPropertyColor | null) => void;
+  /** Показывать / скрывать числовой лейбл рядом со слайдером. */
+  onChangeRatingShowValue: (show: boolean) => void;
 }
 
 function CollectionScopedPropertyRow({
@@ -982,8 +1030,11 @@ function PropertyRow({
   onRemove,
   onDuplicate,
   onChangeType,
+  onChangeRatingColor,
+  onChangeRatingShowValue,
 }: PropertyRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   // Sortable: ref + transforms + drag-listeners. Listeners прицепляем
   // ТОЛЬКО к grip-handle (не к <li>) — иначе клик/select на name/value
@@ -1059,28 +1110,62 @@ function PropertyRow({
         />
       </div>
       {canEdit && (
-        <PropertyEditorPopover
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          property={property}
-          canEdit={canEdit}
-          onRename={onRename}
-          onChangeIcon={onChangeIcon}
-          onChangeDescription={onChangeDescription}
-          onChangeType={onChangeType}
-          onChangeUnit={onChangeUnit}
-          onChangeRatingScale={onChangeRatingScale}
-          onChangeDisplayVariant={onChangeDisplayVariant}
-          onChangeNumberView={onChangeNumberView}
-          onChangeNumberDecimals={onChangeNumberDecimals}
-          onToggleCollapse={onToggleCollapse}
-          onChangeOptions={onChangeOptions}
-          onChangeOptionColors={onChangeOptionColors}
-          onRenameOption={onRenameOption}
-          onRemoveOption={onRemoveOption}
-          onDuplicate={onDuplicate}
-          onRemove={onRemove}
-        />
+        <>
+          {/* Primary context menu: Редактировать / Дублировать / Удалить */}
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <span className="pointer-events-none absolute left-0 top-1/2 size-px" aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-[180px]">
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setMenuOpen(false);
+                  setEditorOpen(true);
+                }}
+              >
+                <Pencil className="size-3.5 text-muted-foreground" />
+                Редактировать
+                <ChevronRight className="ml-auto size-3.5 text-muted-foreground/60" />
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onDuplicate}>
+                <KB_PROPERTY_UI_ICONS.duplicate className="size-3.5 text-muted-foreground" />
+                Дублировать
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onSelect={onRemove}
+              >
+                <KB_PROPERTY_UI_ICONS.delete className="size-3.5" />
+                Удалить
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {/* Editor popover — открывается из «Редактировать» */}
+          <PropertyEditorPopover
+            open={editorOpen}
+            onOpenChange={setEditorOpen}
+            property={property}
+            canEdit={canEdit}
+            onRename={onRename}
+            onChangeIcon={onChangeIcon}
+            onChangeDescription={onChangeDescription}
+            onChangeType={onChangeType}
+            onChangeUnit={onChangeUnit}
+            onChangeRatingScale={onChangeRatingScale}
+            onChangeDisplayVariant={onChangeDisplayVariant}
+            onChangeNumberView={onChangeNumberView}
+            onChangeNumberDecimals={onChangeNumberDecimals}
+            onToggleCollapse={onToggleCollapse}
+            onChangeOptions={onChangeOptions}
+            onChangeOptionColors={onChangeOptionColors}
+            onRenameOption={onRenameOption}
+            onRemoveOption={onRemoveOption}
+            onChangeRatingColor={onChangeRatingColor}
+            onChangeRatingShowValue={onChangeRatingShowValue}
+          />
+        </>
       )}
     </li>
   );
@@ -1269,6 +1354,7 @@ export function PropertyValueControl({
         max={property.max ?? 5}
         variant={property.displayVariant ?? "stars"}
         showValue={property.ratingShowValue ?? true}
+        color={property.ratingColor}
         canEdit={canEdit}
         onChange={onChangeValue}
       />;

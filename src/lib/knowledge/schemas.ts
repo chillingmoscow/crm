@@ -153,7 +153,8 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     displayVariant: z.enum(["number", "rating"]).optional(),
     ratingVariant: z.enum(["stars", "slider"]).optional(),
     ratingShowValue: z.boolean().optional(),
-    max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
+    max: z.number().int().positive().optional(),
+    ratingColor: kbPropertyColorEnum.optional(),
     decimals: z.number().int().min(0).max(4).optional(),
   }),
   z.object({
@@ -197,13 +198,12 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     ...kbPropertyBase,
     type: z.literal("rating"),
     value: z.number().int().min(0).max(10).nullable(),
-    // Шкала ограничена дискретным набором — UI даёт ровно эти три
-    // варианта в picker'е. Сужение enum'а на стороне zod закрывает
-    // дыру, в которую старый клиент / прямой API-call мог послать
-    // произвольный max и получить inconsistent data (Codex P2 на #144).
-    max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
+    // Шкала теперь принимает произвольный положительный int (slider-режим
+    // позволяет задать произвольный max). UI clamp'ит значение при сужении.
+    max: z.number().int().positive().optional(),
     displayVariant: z.enum(["stars", "slider"]).optional(),
     ratingShowValue: z.boolean().optional(),
+    ratingColor: kbPropertyColorEnum.optional(),
   }),
 ]).superRefine((p, ctx) => {
   // Cross-field invariant для rating: `value` не может превышать `max`.

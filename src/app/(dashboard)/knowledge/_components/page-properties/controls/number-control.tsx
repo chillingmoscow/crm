@@ -28,6 +28,7 @@ export function NumberValueControl({
         max={property.max ?? 5}
         variant={property.ratingVariant ?? "stars"}
         showValue={property.ratingShowValue ?? true}
+        color={property.ratingColor}
         canEdit={canEdit}
         onChange={onChangeValue}
       />

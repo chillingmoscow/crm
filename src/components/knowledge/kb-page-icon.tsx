@@ -62,6 +62,25 @@ export function KbPageIcon({
     );
   }
 
+  // Незарегистрированное, но «похожее на имя Lucide-иконки» значение
+  // (kebab/ascii, напр. `message-circle` из старого пикера/импорта) —
+  // НЕ печатаем сырой строкой (иначе в дереве/уведомлениях вылезает
+  // текст вроде «message-circle»). Показываем fallback-иконку.
+  if (icon && /^[a-z][a-z0-9-]+$/.test(icon.trim())) {
+    const FallbackUnknown = fallback ?? File;
+    return (
+      <span
+        className={cn(
+          "kb-page-icon inline-flex items-center justify-center shrink-0 text-muted-foreground",
+          className,
+        )}
+        style={{ width: size, height: size }}
+      >
+        <FallbackUnknown className="w-full h-full" />
+      </span>
+    );
+  }
+
   if (icon && icon.trim().length > 0) {
     // Emoji / свободный текст — игнорируем color (emoji уже цветной).
     return (

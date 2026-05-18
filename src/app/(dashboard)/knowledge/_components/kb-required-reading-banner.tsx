@@ -94,20 +94,9 @@ export function KbRequiredReadingBanner({
 
   if (!effectiveRequired) return null;
 
-  if (readAt) {
-    // Edge-to-edge slim green bar — единая разметка с жёлтым баром,
-    // чтобы статус не «прыгал» по ширине после подтверждения.
-    return (
-      <div
-        className="flex w-full items-center gap-2 border-b border-emerald-200 bg-emerald-50
-                   px-6 py-2.5 text-[13px] font-medium text-emerald-700
-                   md:px-8 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"
-      >
-        <CheckCircle2 className="size-4 shrink-0" />
-        Прочитано {formatReadAt(readAt)}
-      </div>
-    );
-  }
+  // После подтверждения баннер просто исчезает — отдельной зелёной
+  // плашки «Прочитано» не показываем (достаточно уведомления сверху).
+  if (readAt) return null;
 
   const onConfirm = async () => {
     setPending(true);
@@ -131,55 +120,48 @@ export function KbRequiredReadingBanner({
     // Edge-to-edge: w-full + горизонтальный паддинг, нижний бордер,
     // без скруглений — плашка во всю ширину области (как в Notion).
     <div
-      className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 border-b border-yellow-200 bg-yellow-50
-                 px-6 py-3 md:px-8 dark:border-yellow-900 dark:bg-yellow-950"
+      className="w-full border-b border-yellow-200 bg-yellow-50 px-6 py-3
+                 md:px-8 dark:border-yellow-900 dark:bg-yellow-950"
     >
-      <span className="shrink-0 inline-flex size-8 items-center justify-center rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
-        <Icon className="size-4" />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-yellow-900 dark:text-yellow-100">
-          {title}
-          {readingMinutes !== null && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
-              title={`Примерное время чтения: ${readingMinutes} мин`}
-            >
-              ≈ {readingMinutes} мин
-            </span>
+      <div className="mx-auto flex w-full max-w-[1100px] flex-wrap items-center justify-center gap-x-5 gap-y-2">
+        <span className="shrink-0 inline-flex size-8 items-center justify-center rounded-full bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
+          <Icon className="size-4" />
+        </span>
+        <div className="flex min-w-0 max-w-[680px] flex-col gap-0.5">
+          <div className="flex items-center gap-2 text-sm font-semibold text-yellow-900 dark:text-yellow-100">
+            {title}
+            {readingMinutes !== null && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2 py-0.5 text-[11px] font-medium text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"
+                title={`Примерное время чтения: ${readingMinutes} мин`}
+              >
+                ≈ {readingMinutes} мин
+              </span>
+            )}
+          </div>
+          <div className="text-[13px] leading-snug text-yellow-800 dark:text-yellow-200">
+            {description}
+          </div>
+        </div>
+        <Button
+          size="sm"
+          onClick={onConfirm}
+          disabled={pending || !gateReady}
+          title={
+            gateReady
+              ? undefined
+              : "Ознакомьтесь со страницей, прежде чем подтверждать прочтение"
+          }
+          className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
+        >
+          {pending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <CheckCircle2 className="size-4" />
           )}
-        </div>
-        <div className="text-[13px] leading-snug text-yellow-800 dark:text-yellow-200">
-          {description}
-        </div>
+          Прочитано
+        </Button>
       </div>
-      <Button
-        size="sm"
-        onClick={onConfirm}
-        disabled={pending || !gateReady}
-        title={
-          gateReady
-            ? undefined
-            : "Ознакомьтесь со страницей, прежде чем подтверждать прочтение"
-        }
-        className="shrink-0 bg-yellow-600 hover:bg-yellow-700 text-white"
-      >
-        {pending ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <CheckCircle2 className="size-4" />
-        )}
-        Прочитано
-      </Button>
     </div>
   );
-}
-
-function formatReadAt(iso: string): string {
-  const date = new Date(iso);
-  return date.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
 }

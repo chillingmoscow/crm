@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 
 import type { KbProperty } from "@/types/knowledge";
+import type { KbCollectionField } from "./collection";
 
 /**
  * Маппинг Notion-овских property-строк («Ключ: Значение») в типизированные
@@ -165,4 +166,114 @@ export function inferKbPropertiesFromPairs(
     out.push({ ...base, type: "text", value: cleaned });
   }
   return out;
+}
+
+// ─── CSV (Notion-база) → схема коллекции ────────────────────────────────────
+
+function isCheckboxToken(v: string): boolean {
+  const l = v.trim().toLowerCase();
+  return CHECKBOX_TRUE.has(l) || CHECKBOX_FALSE.has(l);
+}
+function checkboxValue(v: string): boolean {
+  return CHECKBOX_TRUE.has(v.trim().toLowerCase());
+}
+function splitMulti(v: string): string[] {
+  return v
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+type FieldType = KbCollectionField["type"];
+
+function inferColumnType(values: string[]): {
+  type: FieldType;
+  options?: string[];
+} {
+  const nonEmpty = values.map((v) => v.trim()).filter(Boolean);
+  if (nonEmpty.length === 0) return { type: "text" };
+
+  if (nonEmpty.every((v) => /^https?:\/\/\S+$/.test(v))) {
+    return { type: "url" };
+  }
+  if (nonEmpty.every(isCheckboxToken)) return { type: "checkbox" };
+  if (nonEmpty.every((v) => parseDate(v) !== null)) return { type: "date" };
+  if (nonEmpty.every((v) => parseNumber(v) !== null)) {
+    return { type: "number" };
+  }
+
+  // multi-select: большинство ячеек — список через запятую (≥2 части).
+  const multiCells = nonEmpty.filter((v) => splitMulti(v).length >= 2);
+  if (multiCells.length >= Math.ceil(nonEmpty.length / 2)) {
+    const opts = new Set<string>();
+    for (const v of nonEmpty) for (const p of splitMulti(v)) opts.add(p);
+    const options = [...opts].filter((o) => o.length <= 60).slice(0, 50);
+    if (options.length > 0) return { type: "multi-select", options };
+  }
+
+  // select: ограниченный набор различных коротких значений.
+  const distinct = [...new Set(nonEmpty)];
+  const cap = Math.min(20, Math.max(2, Math.ceil(values.length * 0.6)));
+  if (
+    distinct.length <= cap &&
+    distinct.every((d) => d.length <= 60) &&
+    distinct.length >= 1
+  ) {
+    return { type: "select", options: distinct.slice(0, 50) };
+  }
+  return { type: "text" };
+}
+
+/**
+ * Строит схему полей KB-коллекции из CSV Notion-базы. Первая колонка
+ * Notion-CSV — это title-свойство строки (становится заголовком
+ * record-страницы), её в поля НЕ включаем. Тип каждой остальной
+ * колонки выводим агрегированно по значениям (автоинференс, fallback
+ * в text). Значения чистятся от relative `.md`/`notion.so` ссылок.
+ */
+export function inferCollectionFieldsFromCsv(
+  headers: string[],
+  dataRows: string[][],
+): { titleColumnIndex: number; fields: KbCollectionField[] } {
+  const fields: KbCollectionField[] = [];
+  for (let col = 1; col < headers.length; col++) {
+    const name = (headers[col] ?? "").trim() || `Колонка ${col + 1}`;
+    const colValues = dataRows.map((r) =>
+      cleanNotionPropertyValue(r[col] ?? ""),
+    );
+    const { type, options } = inferColumnType(colValues);
+    const field: KbCollectionField = { id: nanoid(8), name, type };
+    if (options && (type === "select" || type === "multi-select")) {
+      field.options = options;
+    }
+    fields.push(field);
+  }
+  return { titleColumnIndex: 0, fields };
+}
+
+/** Типизированное значение CSV-ячейки под конкретное поле коллекции.
+ *  Возвращает то, что нужно положить в `value` соответствующей
+ *  KbProperty (тип берётся из field.type). */
+export function coerceCsvCellToFieldValue(
+  field: KbCollectionField,
+  rawCell: string,
+): string | number | boolean | string[] | null {
+  const v = cleanNotionPropertyValue(rawCell ?? "");
+  switch (field.type) {
+    case "number":
+    case "rating":
+      return v ? parseNumber(v) : null;
+    case "date":
+      return v ? parseDate(v) : null;
+    case "checkbox":
+      return v ? checkboxValue(v) : false;
+    case "multi-select":
+      return splitMulti(v);
+    case "select":
+      return v || null;
+    case "url":
+    case "text":
+    default:
+      return v;
+  }
 }

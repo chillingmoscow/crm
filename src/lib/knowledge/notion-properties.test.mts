@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   cleanNotionPropertyValue,
   inferKbPropertiesFromPairs,
+  inferCollectionFieldsFromCsv,
+  coerceCsvCellToFieldValue,
 } from "./notion-properties.ts";
 
 test("cleanNotionPropertyValue strips relative .md links", () => {
@@ -80,6 +82,49 @@ test("infer: ISO and dotted date", () => {
   assert.equal(p[0].type, "date");
   assert.equal((p[0] as { value: string }).value, "2026-05-18");
   assert.equal((p[1] as { value: string }).value, "2026-06-01");
+});
+
+test("csv schema: first col is title, types inferred", () => {
+  const headers = ["Наименование", "Объём", "Активна", "Вкус", "Категория"];
+  const rows = [
+    ["Граф Толстой", "800", "Да", "Кислый, Ягодный", "Авторский чай"],
+    ["Мистер Оранжевый", "800", "нет", "Кислый, Цитрусовый", "Авторский чай"],
+  ];
+  const { titleColumnIndex, fields } = inferCollectionFieldsFromCsv(
+    headers,
+    rows,
+  );
+  assert.equal(titleColumnIndex, 0);
+  assert.equal(fields.length, 4);
+  assert.equal(fields[0].type, "number"); // Объём
+  assert.equal(fields[1].type, "checkbox"); // Активна
+  assert.equal(fields[2].type, "multi-select"); // Вкус
+  assert.equal(fields[3].type, "select"); // Категория (1 distinct)
+});
+
+test("coerce cell to field value by type", () => {
+  assert.equal(
+    coerceCsvCellToFieldValue({ id: "x", name: "n", type: "number" }, "800 мл"),
+    800,
+  );
+  assert.equal(
+    coerceCsvCellToFieldValue({ id: "x", name: "n", type: "checkbox" }, "Да"),
+    true,
+  );
+  assert.deepEqual(
+    coerceCsvCellToFieldValue(
+      { id: "x", name: "n", type: "multi-select" },
+      "A, B, C",
+    ),
+    ["A", "B", "C"],
+  );
+  assert.equal(
+    coerceCsvCellToFieldValue(
+      { id: "x", name: "n", type: "url" },
+      "Имя (https://www.notion.so/abc?pvs=21)",
+    ),
+    "Имя",
+  );
 });
 
 test("infer: plain scalar → text; empty skipped; dup name skipped", () => {

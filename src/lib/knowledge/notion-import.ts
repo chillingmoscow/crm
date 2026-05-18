@@ -53,9 +53,26 @@ export interface NotionZipNode {
   file: File;
 }
 
+/** Notion-база (таблица): папка с `*.csv` + строками-`.md`. */
+export interface NotionZipDatabase {
+  /** Путь папки базы внутри ZIP'а. */
+  folderPath: string;
+  /** Человекочитаемый заголовок (имя папки без 32-hex hash). */
+  title: string;
+  /** Сырой CSV (предпочитаем `*_all.csv` — полный набор строк). */
+  csvText: string;
+  /** UUID .md-страницы, физически содержащей базу (родитель блока-
+   *  коллекции). null → база в корне импорта. */
+  containerUuid: string | null;
+  /** Строки базы: .md прямо внутри папки базы (контент строки). */
+  rows: { zipPath: string; title: string; file: File }[];
+}
+
 export interface NotionZipParseResult {
   /** Markdown-файлы в DFS pre-order: parent перед children. */
   pages: NotionZipNode[];
+  /** Notion-базы (таблицы) — импортируются как KB-коллекции. */
+  databases: NotionZipDatabase[];
   /** Все картинки, ключуются по полному пути в ZIP'е. Lookup-стратегия:
    *  сначала relative-resolve от .md-страницы, потом fallback по basename. */
   imagesByPath: Map<string, File>;
@@ -130,11 +147,17 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
   // В walk-up такие сегменты пропускаем: настоящий родитель строки —
   // ближайшая выше .md-страница, физически содержащая базу.
   const dbFolderPaths = new Set<string>();
-  for (const [p] of flat) {
+  const csvByDir = new Map<string, { name: string; blob: Blob }[]>();
+  for (const [p, blob] of flat) {
     const nm = p.split("/").pop() ?? "";
     if (/\.csv$/i.test(nm)) {
       const dir = p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
-      if (dir) dbFolderPaths.add(dir);
+      if (dir) {
+        dbFolderPaths.add(dir);
+        const arr = csvByDir.get(dir) ?? [];
+        arr.push({ name: nm, blob });
+        csvByDir.set(dir, arr);
+      }
     }
   }
 
@@ -163,9 +186,61 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
     folderToUuid.set(childrenFolderPath, fileUuid);
   }
 
+  // Notion-базы: для каждой папки-базы выбираем CSV (предпочитаем
+  // `*_all.csv` — полный набор), строки = прямые .md-дети папки,
+  // containerUuid = ближайшая выше .md-страница (пропуская вложенные
+  // папки-базы). Строки-.md ИСКЛЮЧАЕМ из обычных страниц — они станут
+  // записями коллекции.
+  const databases: NotionZipDatabase[] = [];
+  const rowZipPathSet = new Set<string>();
+  for (const dir of dbFolderPaths) {
+    const csvs = csvByDir.get(dir);
+    if (!csvs || csvs.length === 0) continue;
+    const chosen =
+      csvs.find((c) => /_all\.csv$/i.test(c.name)) ?? csvs[0];
+    const csvText = await chosen.blob.text();
+    const rowEntries = mdEntries.filter((e) => {
+      const d = e.path.includes("/")
+        ? e.path.slice(0, e.path.lastIndexOf("/"))
+        : "";
+      return d === dir;
+    });
+    const rows = rowEntries.map((e) => ({
+      zipPath: e.path,
+      title: cleanNotionTitle(e.name),
+      file: new File([e.blob], e.name, { type: "text/markdown" }),
+    }));
+    for (const e of rowEntries) rowZipPathSet.add(e.path);
+    let containerUuid: string | null = null;
+    const segs = dir.split("/").filter(Boolean);
+    for (let s = segs.length - 2; s >= 0; s--) {
+      const fp = segs.slice(0, s + 1).join("/");
+      if (dbFolderPaths.has(fp)) continue;
+      const direct = extractNotionUuidFromName(segs[s]);
+      if (direct) {
+        containerUuid = direct;
+        break;
+      }
+      const viaFolder = folderToUuid.get(fp);
+      if (viaFolder) {
+        containerUuid = viaFolder;
+        break;
+      }
+    }
+    databases.push({
+      folderPath: dir,
+      title: cleanNotionTitle(dir.split("/").pop() ?? "") || "Коллекция",
+      csvText,
+      containerUuid,
+      rows,
+    });
+  }
+
   const nodesByUuid = new Map<string, NotionZipNode>();
   const orphanNodes: NotionZipNode[] = [];
   for (const { path, name, blob } of mdEntries) {
+    // Строки Notion-базы → записи коллекции, не отдельные страницы.
+    if (rowZipPathSet.has(path)) continue;
     const uuid = extractNotionUuidFromName(name);
     const segments = path.split("/").filter(Boolean);
     const depth = segments.length - 1;
@@ -267,7 +342,7 @@ export async function parseNotionZip(zip: File): Promise<NotionZipParseResult> {
   }
   pages.push(...orphanNodes);
 
-  return { pages, imagesByPath, isNotionExport };
+  return { pages, databases, imagesByPath, isNotionExport };
 }
 
 /** Резолвит relative-path внутри ZIP относительно директории страницы.

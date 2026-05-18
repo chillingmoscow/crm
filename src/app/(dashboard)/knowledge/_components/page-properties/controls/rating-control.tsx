@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { Star, X } from "lucide-react";
+import { Star } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -107,22 +107,6 @@ export function RatingValueControl({
           </button>
         );
       })}
-      {value !== null && (
-        <button
-          type="button"
-          aria-label="Сбросить оценку"
-          disabled={!canEdit}
-          onClick={() => onChange(null)}
-          className={cn(
-            "ml-1 size-5 inline-flex items-center justify-center rounded",
-            "text-muted-foreground/40 transition-colors opacity-0",
-            canEdit &&
-              "hover:text-destructive group-hover/row:opacity-100",
-          )}
-        >
-          <X className="size-3" />
-        </button>
-      )}
     </div>
   );
 }

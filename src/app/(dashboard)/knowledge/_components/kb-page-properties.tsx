@@ -474,6 +474,54 @@ export function KbPageProperties({
     });
   };
 
+  // Единый «Вид» для number: Число / Звёзды / Слайдер (заменяет
+  // прежнее разделение «Внешний вид» + «Рейтинг» + «Показывать число»).
+  const changeNumberView = (
+    id: string,
+    view: "number" | "stars" | "slider",
+  ) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id || p.type !== "number") return p;
+        if (view === "number") {
+          const u = { ...p } as Extract<KbProperty, { type: "number" }>;
+          delete u.displayVariant;
+          delete u.max;
+          delete u.ratingVariant;
+          delete u.ratingShowValue;
+          return u as KbProperty;
+        }
+        return {
+          ...p,
+          displayVariant: "rating",
+          max: p.max ?? 5,
+          ratingVariant: view,
+          ratingShowValue: p.ratingShowValue ?? true,
+        } as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
+  // Округление number при отображении. undefined = «Авто».
+  const changeNumberDecimals = (
+    id: string,
+    decimals: number | undefined,
+  ) => {
+    setProperties((prev) => {
+      const next = prev.map((p) => {
+        if (p.id !== id || p.type !== "number") return p;
+        const u = { ...p } as Extract<KbProperty, { type: "number" }>;
+        if (decimals === undefined) delete u.decimals;
+        else u.decimals = decimals;
+        return u as KbProperty;
+      });
+      scheduleSave(next);
+      return next;
+    });
+  };
+
   // Меняет icon override property. value=null/undefined для обоих
   // полей = «без override» (рендерим default TYPE_ICONS[type]).
   const changePropertyIcon = (
@@ -780,6 +828,12 @@ export function KbPageProperties({
                     onChangeNumberRatingShowValue={(showValue) =>
                       changeNumberRatingShowValue(prop.id, showValue)
                     }
+                    onChangeNumberView={(view) =>
+                      changeNumberView(prop.id, view)
+                    }
+                    onChangeNumberDecimals={(decimals) =>
+                      changeNumberDecimals(prop.id, decimals)
+                    }
                     onRemove={() => removeProperty(prop.id)}
                     onDuplicate={() => duplicateProperty(prop.id)}
                     onChangeType={(t) => changePropertyType(prop.id, t)}
@@ -921,6 +975,10 @@ interface PropertyRowProps {
   onChangeDisplayVariant: (variant: string | undefined) => void;
   onChangeNumberRatingVariant: (variant: "stars" | "slider") => void;
   onChangeNumberRatingShowValue: (showValue: boolean) => void;
+  /** Единый «Вид» number: Число / Звёзды / Слайдер. */
+  onChangeNumberView: (view: "number" | "stars" | "slider") => void;
+  /** Округление number при отображении. undefined = «Авто». */
+  onChangeNumberDecimals: (decimals: number | undefined) => void;
   onRemove: () => void;
   onDuplicate: () => void;
   onChangeType: (type: KbPropertyType) => void;
@@ -992,8 +1050,8 @@ function PropertyRow({
   onChangeUnit,
   onChangeRatingScale,
   onChangeDisplayVariant,
-  onChangeNumberRatingVariant,
-  onChangeNumberRatingShowValue,
+  onChangeNumberView,
+  onChangeNumberDecimals,
   onRemove,
   onDuplicate,
   onChangeType,
@@ -1267,9 +1325,44 @@ function PropertyRow({
                     : "Показывать сокращённо"}
                 </DropdownMenuItem>
               )}
-              {/* Единица измерения — только для number (Stage 4).
-               *  Submenu с группами: Без единицы / Валюта (CURRENCIES) /
-               *  Масса / Объём / Штук. */}
+              {/* Единый «Вид» для number: Число / Звёзды / Слайдер.
+               *  Заменяет прежнее разделение «Внешний вид» + «Рейтинг»
+               *  + «Показывать число». */}
+              {property.type === "number" && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ToggleRight className="size-3.5 text-muted-foreground" />
+                    Вид
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="min-w-[140px]">
+                    {(
+                      [
+                        ["number", "Число"],
+                        ["stars", "Звёзды"],
+                        ["slider", "Слайдер"],
+                      ] as const
+                    ).map(([view, label]) => {
+                      const current =
+                        property.displayVariant !== "rating"
+                          ? "number"
+                          : (property.ratingVariant ?? "stars");
+                      const isCurrent = current === view;
+                      return (
+                        <DropdownMenuItem
+                          key={view}
+                          onSelect={() => onChangeNumberView(view)}
+                        >
+                          {label}
+                          {isCurrent && (
+                            <Check className="ml-auto size-3.5" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              {/* Единица измерения + Округление — только для «Число». */}
               {property.type === "number" && property.displayVariant !== "rating" && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
@@ -1284,6 +1377,39 @@ function PropertyRow({
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               )}
+              {property.type === "number" && property.displayVariant !== "rating" && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <KB_PROPERTY_UI_ICONS.scale className="size-3.5 text-muted-foreground" />
+                    Округление
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="min-w-[140px]">
+                    {(
+                      [
+                        [undefined, "Авто"],
+                        [0, "0 (целое)"],
+                        [1, "1 знак"],
+                        [2, "2 знака"],
+                        [3, "3 знака"],
+                      ] as const
+                    ).map(([dec, label]) => {
+                      const isCurrent = property.decimals === dec;
+                      return (
+                        <DropdownMenuItem
+                          key={String(dec)}
+                          onSelect={() => onChangeNumberDecimals(dec)}
+                        >
+                          {label}
+                          {isCurrent && (
+                            <Check className="ml-auto size-3.5" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+              {/* Шкала — для number в виде звёзд/слайдера. */}
               {property.type === "number" && property.displayVariant === "rating" && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
@@ -1313,51 +1439,6 @@ function PropertyRow({
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               )}
-              {property.type === "number" && property.displayVariant === "rating" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <KB_PROPERTY_UI_ICONS.rating className="size-3.5 text-muted-foreground" />
-                    Рейтинг
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[140px]">
-                    {(
-                      [
-                        ["stars", "Звёзды"],
-                        ["slider", "Слайдер"],
-                      ] as const
-                    ).map(([variant, label]) => {
-                      const isCurrent =
-                        (property.ratingVariant ?? "stars") === variant;
-                      return (
-                        <DropdownMenuItem
-                          key={variant}
-                          onSelect={() => onChangeNumberRatingVariant(variant)}
-                        >
-                          {label}
-                          {isCurrent && <Check className="ml-auto size-3.5" />}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
-              {property.type === "number" &&
-                property.displayVariant === "rating" &&
-                property.ratingVariant === "slider" && (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      onChangeNumberRatingShowValue(
-                        property.ratingShowValue === false,
-                      )
-                    }
-                  >
-                    <KB_PROPERTY_UI_ICONS.showValue className="size-3.5 text-muted-foreground" />
-                    Показывать число
-                    {(property.ratingShowValue ?? true) && (
-                      <Check className="ml-auto size-3.5" />
-                    )}
-                  </DropdownMenuItem>
-                )}
               {/* Шкала — только для rating (Stage 5). 3 / 5 / 10. */}
               {property.type === "rating" && (
                 <DropdownMenuSub>
@@ -1391,38 +1472,6 @@ function PropertyRow({
               {/* Внешний вид — для checkbox (Чекбокс / Триггер) и rating
                *  (Звёзды / Слайдер). Семантика значения та же; меняется
                *  только рендер. */}
-              {property.type === "number" && (
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <ToggleRight className="size-3.5 text-muted-foreground" />
-                    Внешний вид
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="min-w-[140px]">
-                    {(
-                      [
-                        ["number", "Число"],
-                        ["rating", "Рейтинг"],
-                      ] as const
-                    ).map(([variant, label]) => {
-                      const isCurrent =
-                        (property.displayVariant ?? "number") === variant;
-                      return (
-                        <DropdownMenuItem
-                          key={variant}
-                          onSelect={() =>
-                            onChangeDisplayVariant(
-                              variant === "number" ? undefined : variant,
-                            )
-                          }
-                        >
-                          {label}
-                          {isCurrent && <Check className="ml-auto size-3.5" />}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              )}
               {property.type === "checkbox" && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>

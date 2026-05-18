@@ -139,6 +139,9 @@ export type KbProperty =
        *  (просто число). Discriminated union из shared-слоя
        *  `src/lib/units/`. Хранится в jsonb как-есть. */
       unit?: Unit;
+      /** Округление при отображении: число знаков после запятой
+       *  (0–4). undefined = «Авто» (показываем как есть). */
+      decimals?: number;
     } & KbPropertyIconOverride &
       KbPropertyMetadata &
       KbPropertyOwnership)

@@ -154,13 +154,17 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     ratingVariant: z.enum(["stars", "slider"]).optional(),
     ratingShowValue: z.boolean().optional(),
     max: z.union([z.literal(3), z.literal(5), z.literal(10)]).optional(),
+    decimals: z.number().int().min(0).max(4).optional(),
   }),
   z.object({
     ...kbPropertyBase,
     type: z.literal("date"),
     value: z
       .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/, "Ожидается ISO дата YYYY-MM-DD")
+      .regex(
+        /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/,
+        "Ожидается ISO дата YYYY-MM-DD (опц. THH:mm)",
+      )
       .nullable(),
   }),
   z.object({

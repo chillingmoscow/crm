@@ -37,8 +37,20 @@ export function NumberValueControl({
   const unit: Unit = property.unit ?? { kind: "none" };
   const suffix = unitSuffix(unit);
 
+  // Округление при отображении (опция «Округление»): фиксируем число
+  // знаков после запятой. undefined = «Авто» (как есть).
+  const rounded =
+    property.value === null
+      ? null
+      : property.decimals === undefined
+        ? property.value
+        : Number(property.value.toFixed(property.decimals));
   const display =
-    property.value === null ? "—" : formatWithUnit(property.value, unit);
+    rounded === null
+      ? "—"
+      : property.decimals === undefined
+        ? formatWithUnit(rounded, unit)
+        : `${rounded.toFixed(property.decimals)}${suffix ? ` ${suffix}` : ""}`;
 
   if (!canEdit) {
     return <span className="text-[13px] tabular-nums">{display}</span>;

@@ -17,7 +17,9 @@ import {
   joinDateValue,
   toISO,
   type QuickDate,
+  type DateFormat,
 } from "./date-control-helpers";
+import { TimePicker } from "./time-picker";
 
 function parseISO(value: string): Date | undefined {
   if (!value) return undefined;
@@ -50,16 +52,18 @@ const QUICK: { kind: QuickDate; label: string }[] = [
 export function DateValueControl({
   value,
   canEdit,
+  format = "full",
   onChange,
 }: {
   value: string | null;
   canEdit: boolean;
+  format?: DateFormat;
   onChange: (value: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const { date: dateStr, time } = splitDateValue(value);
   const selected = parseISO(dateStr);
-  const display = formatPropertyDate(value);
+  const display = formatPropertyDate(value, format);
 
   if (!canEdit) {
     return (
@@ -86,8 +90,7 @@ export function DateValueControl({
         <button
           type="button"
           className="min-h-7 inline-flex items-center text-left text-[13px] tabular-nums
-                     rounded px-1 border border-transparent transition-colors
-                     hover:border-input data-[state=open]:border-input
+                     rounded px-1 transition-colors
                      text-muted-foreground/50 data-[has-value=true]:text-foreground"
           data-has-value={display ? "true" : "false"}
           aria-label="Дата"
@@ -151,22 +154,14 @@ export function DateValueControl({
           />
         </div>
         {time !== null && (
-          <input
-            type="time"
-            value={time}
-            onChange={(e) =>
-              onChange(
-                joinDateValue(
-                  dateStr || quickDateISO("today"),
-                  e.target.value || null,
-                ),
-              )
-            }
-            className="mt-2 h-8 w-full rounded-md border border-input bg-transparent
-                       px-2 text-[13px] tabular-nums outline-none
-                       focus:border-brand focus:ring-2 focus:ring-brand/30"
-            aria-label="Время"
-          />
+          <div className="mt-2">
+            <TimePicker
+              value={time}
+              onChange={(t) =>
+                onChange(joinDateValue(dateStr || quickDateISO("today"), t))
+              }
+            />
+          </div>
         )}
         <div className="mt-3 border-t border-border pt-2">
           <button

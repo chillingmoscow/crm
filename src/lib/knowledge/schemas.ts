@@ -167,6 +167,7 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
         "Ожидается ISO дата YYYY-MM-DD (опц. THH:mm)",
       )
       .nullable(),
+    dateFormat: z.enum(["full", "short", "relative"]).optional(),
   }),
   z.object({
     ...kbPropertyBase,
@@ -180,6 +181,10 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     value: z.string().max(200).nullable(),
     options: z.array(z.string().trim().min(1).max(200)).max(50),
     optionColors: z.record(z.string(), kbPropertyColorEnum).optional(),
+    optionDescriptions: z
+      .record(z.string(), z.string().trim().max(280))
+      .optional(),
+    optionSort: z.enum(["manual", "alpha", "alpha-desc"]).optional(),
   }),
   z.object({
     ...kbPropertyBase,
@@ -187,6 +192,10 @@ export const kbPropertySchema = z.discriminatedUnion("type", [
     value: z.array(z.string().max(200)).max(50),
     options: z.array(z.string().trim().min(1).max(200)).max(50),
     optionColors: z.record(z.string(), kbPropertyColorEnum).optional(),
+    optionDescriptions: z
+      .record(z.string(), z.string().trim().max(280))
+      .optional(),
+    optionSort: z.enum(["manual", "alpha", "alpha-desc"]).optional(),
   }),
   z.object({
     ...kbPropertyBase,

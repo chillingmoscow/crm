@@ -152,6 +152,11 @@ export type KbProperty =
       name: string;
       type: "date";
       value: string | null; // ISO yyyy-mm-dd
+      /** Формат отображения даты. `full` (default) — «15 апреля 2026 г.»,
+       *  `short` — «15.04.2026», `relative` — «Сегодня»/«Завтра»/«через
+       *  N дн.». Rollback-safe: старый клиент игнорирует и показывает
+       *  дефолтный формат. */
+      dateFormat?: "full" | "short" | "relative";
     } & KbPropertyIconOverride &
       KbPropertyMetadata &
       KbPropertyOwnership)
@@ -177,6 +182,11 @@ export type KbProperty =
       /** Per-option override цвета. Map от option string → color name.
        *  Если опции нет в map'е — fallback на hash-derived цвет. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
+      /** Per-option описание (показывается подсказкой при выборе). */
+      optionDescriptions?: Partial<Record<string, string>>;
+      /** Порядок вариантов в пикере: `manual` (default, порядок
+       *  массива `options`), `alpha` (А–Я) или `alpha-desc` (Я–А). */
+      optionSort?: "manual" | "alpha" | "alpha-desc";
     } & KbPropertyIconOverride &
       KbPropertyMetadata &
       KbPropertyOwnership)
@@ -188,6 +198,10 @@ export type KbProperty =
       options: string[];
       /** Тот же mapping что у select, переиспользуется. */
       optionColors?: Partial<Record<string, KbPropertyColor>>;
+      /** Per-option описание (показывается подсказкой при выборе). */
+      optionDescriptions?: Partial<Record<string, string>>;
+      /** Порядок вариантов: `manual` | `alpha` | `alpha-desc`. */
+      optionSort?: "manual" | "alpha" | "alpha-desc";
     } & KbPropertyIconOverride &
       KbPropertyMetadata &
       KbPropertyOwnership)

@@ -1,31 +1,33 @@
 "use client";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import type { KbProperty, KbPropertyColor } from "@/types/knowledge";
 
 import { OptionChip } from "../option-chip";
+import { OptionValuePicker } from "./option-value-picker";
 
 export function SelectControl({
   property,
   canEdit,
   onChangeValue,
+  onChangeOptions,
+  onChangeOptionColors,
+  onChangeOptionDescriptions,
+  onRenameOption,
+  onRemoveOption,
 }: {
   property: Extract<KbProperty, { type: "select" }>;
   canEdit: boolean;
-  // Принимаются call-site'ом, но не используются: редактирование опций
-  // перенесено в OptionEditorPopover. Оставлены в типе для совместимости
-  // с PropertyValueControl call-site (structural typing).
   canEditOptions?: boolean;
   onChangeValue: (value: string | null) => void;
   onChangeOptions?: (options: string[]) => void;
   onChangeOptionColors?: (
     optionColors: Partial<Record<string, KbPropertyColor>> | undefined,
   ) => void;
+  onChangeOptionDescriptions?: (
+    d: Partial<Record<string, string>> | undefined,
+  ) => void;
+  onRenameOption?: (from: string, to: string) => void;
+  onRemoveOption?: (option: string) => void;
 }) {
   if (!canEdit) {
     return property.value ? (
@@ -39,39 +41,19 @@ export function SelectControl({
   }
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      <Select
-        value={property.value ?? ""}
-        onValueChange={(v) => onChangeValue(v === "__none__" ? null : v)}
-      >
-        <SelectTrigger
-          className="h-7 w-auto min-w-[100px] max-w-[280px] text-[13px] border-transparent bg-transparent px-1
-                     hover:border-input focus:border-input
-                     [&>svg]:opacity-50 hover:[&>svg]:opacity-100"
-        >
-          {property.value ? (
-            <OptionChip
-              value={property.value}
-              explicit={property.optionColors?.[property.value]}
-            />
-          ) : (
-            <span className="text-muted-foreground/50">—</span>
-          )}
-        </SelectTrigger>
-        <SelectContent className="max-w-[320px]">
-          <SelectItem value="__none__" className="text-muted-foreground">
-            (не задано)
-          </SelectItem>
-          {property.options.map((o) => (
-            <SelectItem key={o} value={o} className="py-1.5">
-              <OptionChip
-                value={o}
-                explicit={property.optionColors?.[o]}
-              />
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
+    <OptionValuePicker
+      multi={false}
+      value={property.value ? [property.value] : []}
+      options={property.options}
+      optionColors={property.optionColors}
+      optionDescriptions={property.optionDescriptions}
+      optionSort={property.optionSort}
+      onChange={(next) => onChangeValue(next[0] ?? null)}
+      onChangeOptions={(opts) => onChangeOptions?.(opts)}
+      onChangeOptionColors={onChangeOptionColors}
+      onChangeOptionDescriptions={onChangeOptionDescriptions}
+      onRenameOption={onRenameOption}
+      onRemoveOption={onRemoveOption}
+    />
   );
 }

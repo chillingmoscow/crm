@@ -1,6 +1,5 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import type { SyntheticEvent } from "react";
@@ -30,14 +29,7 @@ import {
   type KbFavoritePage,
 } from "@/lib/knowledge/favorites";
 import { duplicateKbPage } from "@/lib/knowledge/pages";
-
-const KbDeletePageDialog = dynamic(
-  () =>
-    import("@/app/(dashboard)/knowledge/_components/kb-delete-page-dialog").then(
-      (m) => m.KbDeletePageDialog,
-    ),
-  { ssr: false, loading: () => null },
-);
+import { softDeletePageWithUndo } from "@/app/(dashboard)/knowledge/_components/kb-soft-delete-page";
 
 interface KbTreeNodeMenuProps {
   page: KbFavoritePage;
@@ -62,7 +54,6 @@ export function KbTreeNodeMenu({
 }: KbTreeNodeMenuProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
   const [duplicatePending, setDuplicatePending] = useState(false);
   const [, startFavoriteTransition] = useTransition();
 
@@ -228,7 +219,14 @@ export function KbTreeNodeMenu({
           )}
           {canDelete && (
             <DropdownMenuItem
-              onSelect={() => setDeleteOpen(true)}
+              onSelect={() =>
+                void softDeletePageWithUndo({
+                  pageId: page.id,
+                  pageTitle: page.title,
+                  childCount,
+                  router,
+                })
+              }
               className={cn(
                 menuItemClass,
                 "text-destructive focus:text-destructive focus:bg-destructive/10",
@@ -241,15 +239,6 @@ export function KbTreeNodeMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {canDelete && deleteOpen && (
-        <KbDeletePageDialog
-          pageId={page.id}
-          pageTitle={page.title}
-          childCount={childCount}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
-        />
-      )}
     </>
   );
 }

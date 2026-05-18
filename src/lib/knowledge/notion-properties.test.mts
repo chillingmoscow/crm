@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import {
   cleanNotionPropertyValue,
   inferKbPropertiesFromPairs,
-  inferCollectionFieldsFromCsv,
+  inferCollectionField,
   coerceCsvCellToFieldValue,
+  splitRelationValues,
+  parseNotionPropertyLines,
 } from "./notion-properties.ts";
 
 test("cleanNotionPropertyValue strips relative .md links", () => {
@@ -84,22 +86,72 @@ test("infer: ISO and dotted date", () => {
   assert.equal((p[1] as { value: string }).value, "2026-06-01");
 });
 
-test("csv schema: first col is title, types inferred", () => {
-  const headers = ["Наименование", "Объём", "Активна", "Вкус", "Категория"];
-  const rows = [
-    ["Граф Толстой", "800", "Да", "Кислый, Ягодный", "Авторский чай"],
-    ["Мистер Оранжевый", "800", "нет", "Кислый, Цитрусовый", "Авторский чай"],
-  ];
-  const { titleColumnIndex, fields } = inferCollectionFieldsFromCsv(
-    headers,
-    rows,
+test("inferCollectionField: types from real-export values", () => {
+  // Реальные значения архива пользователя.
+  assert.equal(
+    inferCollectionField("Порция / Объём", ["800 мл", "800 мл", "215 мл"])
+      .type,
+    "number",
   );
-  assert.equal(titleColumnIndex, 0);
-  assert.equal(fields.length, 4);
-  assert.equal(fields[0].type, "number"); // Объём
-  assert.equal(fields[1].type, "checkbox"); // Активна
-  assert.equal(fields[2].type, "multi-select"); // Вкус
-  assert.equal(fields[3].type, "select"); // Категория (1 distinct)
+  assert.equal(
+    inferCollectionField("Вкус", [
+      "Кислый, Травянистый, Фруктовый, Ягодный",
+      "Сладкий, Фруктовый",
+    ]).type,
+    "multi-select",
+  );
+  const cat = inferCollectionField("Категория", [
+    "Авторский чай (../../%D0%90.md)",
+    "Авторский чай (../../%D0%90.md)",
+  ]);
+  assert.equal(cat.type, "select");
+  assert.deepEqual(cat.options, ["Авторский чай"]);
+  const podacha = inferCollectionField("Подача", [
+    'Чайник заварочный “Гефест” (https://www.notion.so/90f2?pvs=21) Стеклянная чашка с двойными стенками (https://www.notion.so/d660?pvs=21) Подставка для чашки “Бамбук” (https://www.notion.so/4104?pvs=21)',
+  ]);
+  assert.equal(podacha.type, "multi-select");
+  assert.equal(podacha.options?.length, 3);
+  assert.equal(
+    inferCollectionField("Статус", ["Осень", "Классический", "Стоп-лист"])
+      .type,
+    "select",
+  );
+  assert.equal(
+    inferCollectionField("Краткое описание (RU)", [
+      "Очень длинное уникальное описание номер один с деталями вкуса и истории напитка для гостя бара",
+      "Совершенно другое длинное уникальное описание номер два, не повторяющееся ни с чем",
+    ]).type,
+    "text",
+  );
+});
+
+test("splitRelationValues", () => {
+  assert.deepEqual(
+    splitRelationValues(
+      'Чайник “Гефест” (https://www.notion.so/90f2?pvs=21) Стеклянная чашка (https://www.notion.so/d660?pvs=21)',
+    ),
+    ["Чайник “Гефест”", "Стеклянная чашка"],
+  );
+  assert.deepEqual(splitRelationValues("Просто текст"), ["Просто текст"]);
+});
+
+test("parseNotionPropertyLines: раздельные свойства из сырого md", () => {
+  const md = [
+    "# Граф Толстой",
+    "",
+    "Категория: Авторский чай (../x.md)",
+    "Статус: Осень",
+    "Краткое описание (RU): Ароматы черной смородины.",
+    "Порция / Объём: 800 мл",
+    "Вкус: Кислый, Травянистый",
+    "",
+    "**Рецепт:**",
+    "- Пюре - 110 г",
+  ].join("\n");
+  const pairs = parseNotionPropertyLines(md);
+  assert.equal(pairs.length, 5);
+  assert.deepEqual(pairs[1], { key: "Статус", value: "Осень" });
+  assert.deepEqual(pairs[3], { key: "Порция / Объём", value: "800 мл" });
 });
 
 test("coerce cell to field value by type", () => {

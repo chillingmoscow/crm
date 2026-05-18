@@ -45,9 +45,10 @@ import { nanoid } from "nanoid";
 
 import {
   inferKbPropertiesFromPairs,
-  inferCollectionFieldsFromCsv,
+  inferCollectionField,
   coerceCsvCellToFieldValue,
   cleanNotionPropertyValue,
+  parseNotionPropertyLines,
 } from "@/lib/knowledge/notion-properties";
 import { parseCsv } from "@/lib/knowledge/csv";
 import {
@@ -60,6 +61,7 @@ import {
   getPageCollectionId,
   serializeCollectionSchema,
   type KbCollectionSchema,
+  type KbCollectionField,
 } from "@/lib/knowledge/collection";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
@@ -359,11 +361,13 @@ export default function KbImportDialogBody({
         const rawBlocks = postprocessNotionCallouts(parsed);
 
         const titleStripped = dropDuplicateTitleHeading(rawBlocks, node.title);
-        // Notion-DB property-параграфы вырезаем из контента и мапим в
-        // типизированные KB page-properties (см. saveKbPageProperties
-        // ниже) — вместо сырого toggle «Свойства».
-        const { blocks: propsStripped, pairs: notionPropertyPairs } =
+        // Property-блок вырезаем из контента (по блокам), но пары
+        // {key,value} берём из СЫРОГО markdown построчно — BlockNote
+        // склеивает soft-wrapped строки в один абзац, из-за чего
+        // свойства слипались. parseNotionPropertyLines парсит точно.
+        const { blocks: propsStripped } =
           extractNotionProperties(titleStripped);
+        const notionPropertyPairs = parseNotionPropertyLines(mdRaw);
 
         const refs = collectRelativeMediaRefs(propsStripped);
         const urlMap = new Map<string, string>();
@@ -711,21 +715,70 @@ export default function KbImportDialogBody({
             continue;
           }
           const table = parseCsv(db.csvText);
-          const headers = table[0] ?? [];
-          const dataRows = table
+          const headers = (table[0] ?? []).map((h) => h.trim());
+          const csvRows = table
             .slice(1)
             .filter((r) => r.some((c) => c.trim().length > 0));
-          if (headers.length === 0 || dataRows.length === 0) continue;
+          if (headers.length === 0 || csvRows.length === 0) continue;
 
-          const { titleColumnIndex, fields } = inferCollectionFieldsFromCsv(
-            headers,
-            dataRows,
+          // Тело+property-строки каждой строки-.md читаем один раз.
+          const rowMd = new Map<string, { text: string; file: File }>();
+          for (const r of db.rows) {
+            rowMd.set(r.title.trim().toLowerCase(), {
+              text: await r.file.text(),
+              file: r.file,
+            });
+          }
+
+          // Унифицированный набор «сырых» значений на запись: CSV-ячейки
+          // + property-строки соответствующего .md (md приоритетнее —
+          // богаче, с url для relation). Поля = объединение CSV-колонок
+          // и ключей property-блоков. Первая колонка = заголовок.
+          const fieldNames: string[] = [];
+          const fieldNameSet = new Set<string>();
+          for (let c = 1; c < headers.length; c++) {
+            if (headers[c] && !fieldNameSet.has(headers[c])) {
+              fieldNameSet.add(headers[c]);
+              fieldNames.push(headers[c]);
+            }
+          }
+          const records: {
+            title: string;
+            values: Map<string, string>;
+            md?: { text: string; file: File };
+          }[] = [];
+          for (const row of csvRows) {
+            const title =
+              cleanNotionPropertyValue(row[0] ?? "") || "Без названия";
+            const md = rowMd.get((row[0] ?? "").trim().toLowerCase());
+            const values = new Map<string, string>();
+            for (let c = 1; c < headers.length; c++) {
+              values.set(headers[c], row[c] ?? "");
+            }
+            if (md) {
+              for (const { key, value } of parseNotionPropertyLines(md.text)) {
+                if (!fieldNameSet.has(key)) {
+                  fieldNameSet.add(key);
+                  fieldNames.push(key);
+                }
+                values.set(key, value);
+              }
+            }
+            records.push({ title, values, md });
+          }
+
+          const fields: KbCollectionField[] = fieldNames.map((nm) =>
+            inferCollectionField(
+              nm,
+              records.map((r) => r.values.get(nm) ?? ""),
+            ),
           );
           const schema: KbCollectionSchema = { version: 1, fields };
           const schemaJson = serializeCollectionSchema(schema);
           const collectionKey = getPageCollectionId(containerPageId);
 
-          // 1. collection-блок в контент страницы-контейнера.
+          // 1. Заменяем inline-ссылку на .csv в контейнере на
+          // collection-блок IN PLACE (не append, не clobber).
           const blockId = nanoid();
           const collectionBlock = {
             id: blockId,
@@ -739,6 +792,35 @@ export default function KbImportDialogBody({
             content: [],
             children: [],
           } as unknown as KbBlock;
+          const replaceCsvLink = (
+            blocks: KbBlock[],
+          ): { out: KbBlock[]; replaced: boolean } => {
+            let replaced = false;
+            const out: KbBlock[] = [];
+            for (const b of blocks) {
+              if (
+                !replaced &&
+                Array.isArray(b.content) &&
+                b.content.some((inl) => {
+                  if (inl?.type !== "link") return false;
+                  let href = (inl as { href?: string }).href ?? "";
+                  try {
+                    href = decodeURIComponent(href);
+                  } catch {
+                    /* keep */
+                  }
+                  return /\.csv(?:[#?].*)?$/i.test(href);
+                })
+              ) {
+                out.push(collectionBlock);
+                replaced = true;
+                continue;
+              }
+              out.push(b);
+            }
+            return { out, replaced };
+          };
+
           const snapEntry = snapshot.find(
             (s) => s.pageId === containerPageId,
           );
@@ -747,13 +829,15 @@ export default function KbImportDialogBody({
           let containerIcon: string | null = null;
           let containerIconColor: string | null = null;
           if (snapEntry) {
-            containerBlocks = [...snapEntry.blocks, collectionBlock];
+            const r = replaceCsvLink(snapEntry.blocks);
+            containerBlocks = r.replaced
+              ? r.out
+              : [...snapEntry.blocks, collectionBlock];
             containerTitle = snapEntry.title;
             snapEntry.blocks = containerBlocks;
           } else {
-            // Контейнер — уже существующая страница (импорт в неё), её
-            // НЕ затираем (Codex P1): читаем текущий контент/заголовок
-            // и ДОБАВЛЯЕМ блок-коллекцию в конец.
+            // Контейнер — уже существующая страница: не затираем,
+            // заменяем csv-ссылку (или дописываем в конец).
             const { row: existing, error: getErr } =
               await getKbPageById(containerPageId);
             if (getErr || !existing) {
@@ -764,7 +848,10 @@ export default function KbImportDialogBody({
             }
             const existingBlocks =
               (existing.content as unknown as KbBlock[]) ?? [];
-            containerBlocks = [...existingBlocks, collectionBlock];
+            const r = replaceCsvLink(existingBlocks);
+            containerBlocks = r.replaced
+              ? r.out
+              : [...existingBlocks, collectionBlock];
             containerTitle = existing.title;
             containerIcon =
               (existing as { icon?: string | null }).icon ?? null;
@@ -797,10 +884,8 @@ export default function KbImportDialogBody({
           });
 
           // 3. Строки → записи.
-          for (const dataRow of dataRows) {
-            const titleVal =
-              cleanNotionPropertyValue(dataRow[titleColumnIndex] ?? "") ||
-              "Без названия";
+          for (const record of records) {
+            const titleVal = record.title;
             const rec = await createKbCollectionRecord({
               parentPageId: containerPageId,
               collectionId: collectionKey,
@@ -812,7 +897,6 @@ export default function KbImportDialogBody({
                 failures.push(`«${db.title}» (строка «${titleVal}»): ${rec.error}`);
               continue;
             }
-            // Типизированные значения по полям.
             const props = (rec.row.properties ?? []).map((p) => {
               const scope = (p as { scope?: { type?: string; fieldId?: string } })
                 .scope;
@@ -821,14 +905,8 @@ export default function KbImportDialogBody({
                 fields.find((f) => f.id === scope.fieldId) ??
                 fields.find((f) => f.name === p.name);
               if (!field) return p;
-              const colIdx = headers.findIndex(
-                (h) => h.trim() === field.name,
-              );
-              if (colIdx < 0) return p;
-              const value = coerceCsvCellToFieldValue(
-                field,
-                dataRow[colIdx] ?? "",
-              );
+              const raw = record.values.get(field.name) ?? "";
+              const value = coerceCsvCellToFieldValue(field, raw);
               return { ...p, value } as typeof p;
             });
             await saveKbPageProperties({
@@ -845,16 +923,8 @@ export default function KbImportDialogBody({
               title: titleVal,
             });
 
-            // Тело записи из соответствующего .md (best-effort).
-            const rowFile = db.rows.find(
-              (r) => r.title.trim().toLowerCase() === titleVal.toLowerCase(),
-            );
-            // Регистрируем UUID строки-базы → запись: ссылки из других
-            // импортированных страниц на эту строку станут mention'ами
-            // (финальный relink-pass ниже, PR3). Регистрируем даже без
-            // распарсенного тела.
-            const rowUuid = rowFile
-              ? extractNotionUuidFromName(rowFile.file.name)
+            const rowUuid = record.md
+              ? extractNotionUuidFromName(record.md.file.name)
               : null;
             if (rowUuid) {
               uuidMap.set(rowUuid, {
@@ -863,11 +933,11 @@ export default function KbImportDialogBody({
                 title: titleVal,
               });
             }
-            if (rowFile) {
+            if (record.md) {
               try {
-                const md = preprocessNotionCallouts(await rowFile.file.text());
+                const mdBody = preprocessNotionCallouts(record.md.text);
                 const parsed = (await editor.tryParseMarkdownToBlocks(
-                  md,
+                  mdBody,
                 )) as unknown as KbBlock[];
                 const post = postprocessNotionCallouts(parsed);
                 const noTitle = dropDuplicateTitleHeading(post, titleVal);
@@ -881,8 +951,6 @@ export default function KbImportDialogBody({
                   content: body,
                   plain_text: blocksToPlainText(body),
                 });
-                // В финальный relink-pass (PR3): тело записи может
-                // ссылаться на другие импортированные страницы/строки.
                 snapshot.push({
                   pageId: rec.id,
                   title: titleVal,

@@ -1101,7 +1101,11 @@ export async function syncQuickRestoInventory(input?: {
           "inventory_products",
         )
         .select("id, external_id, archived_at")
-        .eq("account_id", ctx.accountId);
+        .eq("account_id", ctx.accountId)
+        // Архивируем только ингредиенты: этот sync-путь владеет
+        // kind='ingredient'. Иначе позиции других типов (dish/product/
+        // semi_finished) ошибочно архивировались бы при синке ингредиентов.
+        .eq("kind", "ingredient");
       const toArchive = (localProducts ?? [])
         .filter((p) => p.external_id && !incoming.has(p.external_id) && !p.archived_at)
         .map((p) => p.id);

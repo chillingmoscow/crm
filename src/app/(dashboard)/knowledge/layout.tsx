@@ -10,6 +10,7 @@ import {
   KbTreeSkeleton,
 } from "@/app/(dashboard)/knowledge/_components/kb-tree-loader";
 import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
+import { KbHotkeyListener } from "@/app/(dashboard)/knowledge/_components/kb-hotkey-listener";
 import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -70,6 +71,7 @@ export default async function KnowledgeLayout({
 
   return (
     <>
+      <KbHotkeyListener />
       <div className="flex w-full min-h-svh">
         <KbSidebarShell
           initialHidden={sidebarHidden}

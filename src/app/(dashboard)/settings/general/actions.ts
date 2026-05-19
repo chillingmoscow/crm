@@ -37,7 +37,7 @@ export async function updateGeneralSettings(formData: FormData) {
   revalidatePath("/finance");
   revalidatePath("/finance/transactions");
   revalidatePath("/finance/accounts");
-  revalidatePath("/inventory/products");
-  revalidatePath("/inventory/documents");
-  revalidatePath("/inventory/documents/[id]/results", "page");
+  revalidatePath("/catalog/ingredients");
+  revalidatePath("/documents");
+  revalidatePath("/documents/[id]/results", "page");
 }

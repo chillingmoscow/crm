@@ -115,7 +115,7 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Аккаунт",   href: "/org/account",        icon: Settings,   permission: "org.view_account" },
       { title: "Юрлица",    href: "/org/legal-entities", icon: FileBadge2, permission: "org.view_legal_entities" },
       { title: "Заведения", href: "/org/venues",         icon: Building2,  permission: "org.view_venues" },
-      { title: "Склады",    href: "/inventory/stores",   icon: Warehouse,  permission: "inventory.view_stores" },
+      { title: "Склады",    href: "/org/stores",   icon: Warehouse,  permission: "inventory.view_stores" },
       { title: "Журнал",    href: "/org/audit",          icon: ScrollText, permission: "org.view_audit" },
     ],
   },
@@ -142,7 +142,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       {
         title: "Ингредиенты",
-        href: "/inventory/products",
+        href: "/catalog/ingredients",
         icon: PackageSearch,
         permission: "inventory.view_products",
         roles: ["owner", "admin", "manager"],
@@ -157,7 +157,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       {
         title: "Акты инвентаризации",
-        href: "/inventory/documents",
+        href: "/documents",
         icon: ClipboardList,
         permissions: ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"],
         roles: ["owner", "admin", "manager", "hostess", "waiter"],

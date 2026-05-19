@@ -7,7 +7,7 @@ import { ChevronDown, ChevronRight, Folder, ImageOff, Package, Search } from "lu
 import { formatAmount, type AmountRoundingScale } from "@/lib/format/amount";
 import { cn } from "@/lib/utils";
 import { ProductImageUpload } from "./product-image-upload";
-import { GroupImageUpload } from "../../categories/_components/group-image-upload";
+import { GroupImageUpload } from "@/app/(dashboard)/inventory/categories/_components/group-image-upload";
 
 export type CatalogGroup = {
   id: string;
@@ -261,7 +261,7 @@ export function InventoryCatalogTree({
                 </div>
                 <div className="min-w-0" style={{ paddingLeft: row.depth * 20 }}>
                   <Link
-                    href={`/inventory/products/${row.product.id}`}
+                    href={`/catalog/ingredients/${row.product.id}`}
                     className="flex min-w-0 items-center gap-2 hover:underline"
                   >
                     <Package className="h-4 w-4 shrink-0 text-muted-foreground" />

@@ -4,7 +4,7 @@ import { Warehouse } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { StoresClient } from "./_components/stores-client";
-import { InventorySyncButton } from "../_components/inventory-sync-button";
+import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
 
 type StoreRow = {
   id: string;

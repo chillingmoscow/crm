@@ -27,7 +27,7 @@ import {
   setInventoryResultItemExcluded,
   updateInventoryResultComment,
   voidInventoryResultResort,
-} from "../../../../actions";
+} from "@/app/(dashboard)/inventory/actions";
 import {
   calculateManagementTotals,
   type InventoryResortAllocationItem,

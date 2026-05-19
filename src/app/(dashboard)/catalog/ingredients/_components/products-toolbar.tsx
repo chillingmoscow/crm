@@ -34,7 +34,7 @@ function buildHref(input: {
   if (input.groupId) params.set("group", input.groupId);
   if (input.pageSize !== input.defaultPageSize) params.set("size", String(input.pageSize));
   const qs = params.toString();
-  return qs ? `/inventory/products?${qs}` : "/inventory/products";
+  return qs ? `/catalog/ingredients?${qs}` : "/catalog/ingredients";
 }
 
 export function ProductsToolbar({

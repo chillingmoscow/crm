@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
-import { assignInventoryDocument, syncQuickRestoInventory } from "../../actions";
+import { assignInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
 
 type DocumentRow = {
   id: string;
@@ -190,14 +190,14 @@ export function DocumentsClient({
               <div className="flex justify-end gap-2">
                 {doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked" ? (
                   <Button asChild variant="outline" size="sm">
-                    <Link href={`/inventory/documents/${doc.id}/results`}>
+                    <Link href={`/documents/${doc.id}/results`}>
                       <CheckCircle2 className="h-4 w-4" />
                       <span className="ml-2">Итоги</span>
                     </Link>
                   </Button>
                 ) : null}
                 <Button asChild variant="outline" size="sm">
-                  <Link href={`/inventory/documents/${doc.id}`}>
+                  <Link href={`/documents/${doc.id}`}>
                     <ClipboardCheck className="h-4 w-4" />
                     <span className="ml-2">Открыть</span>
                   </Link>

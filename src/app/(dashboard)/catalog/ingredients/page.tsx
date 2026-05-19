@@ -10,7 +10,7 @@ import {
   type CatalogGroup,
   type CatalogProduct,
 } from "./_components/inventory-catalog-tree";
-import { InventorySyncButton } from "../_components/inventory-sync-button";
+import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
 
 type GroupRow = {
   id: string;

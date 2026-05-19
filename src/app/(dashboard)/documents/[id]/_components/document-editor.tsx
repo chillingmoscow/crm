@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { submitInventoryDocumentDraft } from "../../../actions";
+import { submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/actions";
 
 type EditorDocument = {
   id: string;
@@ -308,13 +308,13 @@ export function InventoryDocumentEditor({
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <Button asChild variant="ghost" size="sm">
-          <Link href="/inventory/documents">
+          <Link href="/documents">
             <ArrowLeft className="h-4 w-4" />
             <span className="ml-2">Акты</span>
           </Link>
         </Button>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Link className="underline underline-offset-2" href={`/inventory/documents/${document.id}/results`}>
+          <Link className="underline underline-offset-2" href={`/documents/${document.id}/results`}>
             Итоги
           </Link>
           {!online ? (

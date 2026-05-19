@@ -294,7 +294,7 @@ export default async function InventoryDocumentResultsPage({
     .maybeSingle();
 
   if (!document) notFound();
-  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/inventory/documents");
+  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents");
 
   const { data: store } = document.store_id
     ? await admin
@@ -477,7 +477,7 @@ export default async function InventoryDocumentResultsPage({
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
       <div className="mb-5 flex items-center justify-between gap-3">
         <Button asChild variant="ghost" size="sm">
-          <Link href={`/inventory/documents/${document.id}`}>
+          <Link href={`/documents/${document.id}`}>
             <ArrowLeft className="h-4 w-4" />
             <span className="ml-2">К акту</span>
           </Link>

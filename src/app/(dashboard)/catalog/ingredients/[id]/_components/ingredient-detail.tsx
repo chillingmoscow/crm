@@ -46,7 +46,7 @@ import {
   removeIngredientSupplier,
   updateIngredientDescription,
   updateIngredientSupplier,
-} from "../../../actions";
+} from "@/app/(dashboard)/inventory/actions";
 import { ProductImageUpload } from "../../_components/product-image-upload";
 
 type Props = {
@@ -115,7 +115,7 @@ export function IngredientDetail({
     <div className="flex-1 flex flex-col">
       <PageBreadcrumb>
         <Link
-          href="/inventory/products"
+          href="/catalog/ingredients"
           className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -359,7 +359,7 @@ export function IngredientDetail({
                         <tr key={item.documentId} className="border-t">
                           <td className="px-3 py-2">
                             <Link
-                              href={`/inventory/documents/${item.documentId}`}
+                              href={`/documents/${item.documentId}`}
                               className="text-foreground underline-offset-2 hover:underline"
                             >
                               {item.documentNumber}

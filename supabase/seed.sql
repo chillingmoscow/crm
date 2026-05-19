@@ -421,14 +421,14 @@ begin
   on conflict (id) do nothing;
 
   -- Группы номенклатуры
-  insert into public.inventory_product_groups (id, account_id, external_id, name) values
+  insert into public.ingredient_groups (id, account_id, external_id, name) values
     (v_g_veg,  v_account, 'grp-veg',  'Овощи'),
     (v_g_milk, v_account, 'grp-milk', 'Молочные продукты'),
     (v_g_meat, v_account, 'grp-meat', 'Мясо')
   on conflict (id) do nothing;
 
   -- Ингредиенты
-  insert into public.inventory_products
+  insert into public.ingredients
     (id, account_id, external_id, name, article, barcode, measure_unit_name,
      current_prime_cost, store_quantity_kg, stock_limit, group_id,
      local_description, synced_at)
@@ -448,19 +448,19 @@ begin
   on conflict (id) do nothing;
 
   -- Склад
-  insert into public.inventory_stores (id, account_id, external_id, title, store_code) values
+  insert into public.stores (id, account_id, external_id, title, store_code) values
     (v_store, v_account, 'store-1', 'Основной склад', 'MAIN')
   on conflict (id) do nothing;
 
   -- Акт инвентаризации + позиции (для вкладки «Где используется»)
-  insert into public.inventory_documents
+  insert into public.documents
     (id, account_id, external_id, document_number, invoice_date, store_id, status)
   values
     (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed')
   on conflict (id) do nothing;
 
-  insert into public.inventory_document_items
-    (account_id, document_id, external_item_id, inventory_product_id, product_name,
+  insert into public.document_items
+    (account_id, document_id, external_item_id, ingredient_id, product_name,
      actual_amount, calculated_amount, difference_amount)
   values
     (v_account, v_doc, 'it-1', v_p_tom,  'Помидоры свежие', 33.0, 34.2, -1.2),

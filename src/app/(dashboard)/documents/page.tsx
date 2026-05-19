@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import { DocumentsClient } from "./_components/documents-client";
+import { VenueFilter } from "./_components/venue-filter";
 
 type StaffRow = {
   id: string;
@@ -32,6 +33,7 @@ type InventoryDocumentRow = {
   surplus_sum: number | null;
   results_has_line_amounts: boolean;
   store_id: string | null;
+  venue_id: string | null;
 };
 
 type StoreTitleRow = {
@@ -39,8 +41,9 @@ type StoreTitleRow = {
   title: string;
 };
 
-type VenueIdRow = {
+type VenueRow = {
   id: string;
+  name: string;
 };
 
 type AccountOwnerRow = {
@@ -63,7 +66,12 @@ function isRecentInventoryDocument(row: InventoryDocumentRow) {
   return invoiceMs >= cutoff.getTime();
 }
 
-export default async function InventoryDocumentsPage() {
+export default async function InventoryDocumentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ venue?: string }>;
+}) {
+  const { venue: venueFilter } = await searchParams;
   const supabase = await createClient();
   const admin = asLooseDb(createAdminClient());
 
@@ -92,7 +100,7 @@ export default async function InventoryDocumentsPage() {
 
   let docsQuery = admin
     .from<InventoryDocumentRow[]>("documents")
-    .select("id, document_number, invoice_date, status, processed, assigned_to, shortfall_sum, surplus_sum, results_has_line_amounts, store_id")
+    .select("id, document_number, invoice_date, status, processed, assigned_to, shortfall_sum, surplus_sum, results_has_line_amounts, store_id, venue_id")
     .eq("account_id", accountId)
     // Этап 2: список — только акты инвентаризации. Будущие типы
     // (write_off/transfer) не должны протекать сюда.
@@ -100,18 +108,34 @@ export default async function InventoryDocumentsPage() {
     .order("invoice_date", { ascending: false, nullsFirst: false });
   if (!canView) docsQuery = docsQuery.eq("assigned_to", user.id);
   const { data: documentsRaw } = await docsQuery;
-  const documents = (documentsRaw ?? []).filter(isRecentInventoryDocument);
+  const documents = (documentsRaw ?? [])
+    .filter(isRecentInventoryDocument)
+    // Venue-фильтр (UI). RLS уже ограничивает видимое множество по
+    // заведению/праву view_all_venues; этот фильтр — выбор внутри него.
+    .filter((doc) => {
+      if (!venueFilter || venueFilter === "all") return true;
+      if (venueFilter === "unassigned") return doc.venue_id == null;
+      return doc.venue_id === venueFilter;
+    });
 
   const documentIds = documents.map((doc) => doc.id);
   const storeIds = documents.map((doc) => doc.store_id).filter((id): id is string => Boolean(id));
-  const [{ data: itemsRaw }, { data: storesRaw }, { data: venuesRaw }] = await Promise.all([
+  const [{ data: itemsRaw }, { data: storesRaw }, { data: venuesRaw }, { data: venuesForFilter }] = await Promise.all([
     documentIds.length > 0
       ? admin.from<Array<{ document_id: string }>>("document_items").select("document_id").in("document_id", documentIds)
       : Promise.resolve({ data: [] as Array<{ document_id: string }>, error: null }),
     storeIds.length > 0
       ? admin.from<StoreTitleRow[]>("stores").select("id, title").in("id", storeIds)
       : Promise.resolve({ data: [] as StoreTitleRow[], error: null }),
-    admin.from<VenueIdRow[]>("venues").select("id").eq("account_id", accountId),
+    // venueIds/staff — admin (поведение назначения не меняем).
+    admin.from<VenueRow[]>("venues").select("id, name").eq("account_id", accountId).order("name"),
+    // Список для селектора — через RLS-клиент: venues_select отдаёт
+    // только venues членства пользователя (owner → все), чтобы не
+    // светить имена чужих заведений (Codex P1 #365).
+    asLooseDb(supabase)
+      .from<VenueRow[]>("venues")
+      .select("id, name")
+      .order("name"),
   ]);
 
   const itemCountByDocument = new Map<string, number>();
@@ -169,6 +193,10 @@ export default async function InventoryDocumentsPage() {
 
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
+      <VenueFilter
+        venues={(venuesForFilter ?? []) as VenueRow[]}
+        value={venueFilter ?? "all"}
+      />
       <DocumentsClient
         documents={rows}
         staff={staff}

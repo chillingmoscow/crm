@@ -74,6 +74,30 @@ create trigger trg_documents_set_venue_from_store
   before insert or update of store_id on public.documents
   for each row execute function public.tg_documents_set_venue_from_store();
 
+-- 3b. Обратная сторона: при смене venue у склада — атомарно (в той же
+--     транзакции UPDATE stores) пропагируем в documents.venue_id всех
+--     его документов. Так app-коду не нужен второй write (устраняет
+--     риск частичной рассинхронизации, Codex P1 #363).
+create or replace function public.tg_stores_propagate_venue_to_documents()
+returns trigger
+language plpgsql
+set search_path = public, pg_catalog
+as $$
+begin
+  update public.documents
+  set venue_id = new.local_venue_id
+  where store_id = new.id
+    and venue_id is distinct from new.local_venue_id;
+  return new;
+end;
+$$;
+
+create trigger trg_stores_propagate_venue_to_documents
+  after update of local_venue_id on public.stores
+  for each row
+  when (old.local_venue_id is distinct from new.local_venue_id)
+  execute function public.tg_stores_propagate_venue_to_documents();
+
 -- 4. inventory.view_all_venues — НЕ дефолтное право (как finance.view_all_venues:
 --    грантится явно, не модульным авто-триггером). Триггер
 --    apply_default_inventory_permissions_to_role() (миграция 175) грантит

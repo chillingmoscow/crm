@@ -91,7 +91,7 @@ export default async function InventoryDocumentsPage() {
   if (!canView && !canFill) redirect("/dashboard");
 
   let docsQuery = admin
-    .from<InventoryDocumentRow[]>("inventory_documents")
+    .from<InventoryDocumentRow[]>("documents")
     .select("id, document_number, invoice_date, status, processed, assigned_to, shortfall_sum, surplus_sum, results_has_line_amounts, store_id")
     .eq("account_id", accountId)
     // Этап 2: список — только акты инвентаризации. Будущие типы
@@ -106,10 +106,10 @@ export default async function InventoryDocumentsPage() {
   const storeIds = documents.map((doc) => doc.store_id).filter((id): id is string => Boolean(id));
   const [{ data: itemsRaw }, { data: storesRaw }, { data: venuesRaw }] = await Promise.all([
     documentIds.length > 0
-      ? admin.from<Array<{ document_id: string }>>("inventory_document_items").select("document_id").in("document_id", documentIds)
+      ? admin.from<Array<{ document_id: string }>>("document_items").select("document_id").in("document_id", documentIds)
       : Promise.resolve({ data: [] as Array<{ document_id: string }>, error: null }),
     storeIds.length > 0
-      ? admin.from<StoreTitleRow[]>("inventory_stores").select("id, title").in("id", storeIds)
+      ? admin.from<StoreTitleRow[]>("stores").select("id, title").in("id", storeIds)
       : Promise.resolve({ data: [] as StoreTitleRow[], error: null }),
     admin.from<VenueIdRow[]>("venues").select("id").eq("account_id", accountId),
   ]);

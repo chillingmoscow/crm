@@ -103,7 +103,7 @@ export async function getIngredientDetail(
 ): Promise<IngredientDetail | null> {
   const admin = asLooseDb(createAdminClient());
   const { data: product } = await admin
-    .from<ProductRow>("inventory_products")
+    .from<ProductRow>("ingredients")
     .select(
       "id, external_id, name, item_title, group_id, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, stock_limit, local_description, primary_image_file_id, synced_at, archived_at",
     )
@@ -118,7 +118,7 @@ export async function getIngredientDetail(
   let groupName: string | null = null;
   if (product.group_id) {
     const { data: group } = await admin
-      .from<{ id: string; name: string }>("inventory_product_groups")
+      .from<{ id: string; name: string }>("ingredient_groups")
       .select("id, name")
       .eq("account_id", accountId)
       .eq("id", product.group_id)
@@ -236,7 +236,7 @@ type UsageItemRow = {
   document_id: string;
   actual_amount: number | null;
   calculated_amount: number | null;
-  inventory_documents:
+  documents:
     | { document_number: string; invoice_date: string | null; status: string }
     | { document_number: string; invoice_date: string | null; status: string }[]
     | null;
@@ -248,18 +248,19 @@ export async function listIngredientUsage(
 ): Promise<IngredientUsage[]> {
   const admin = asLooseDb(createAdminClient());
   const { data } = await admin
-    .from<UsageItemRow[]>("inventory_document_items")
+    .from<UsageItemRow[]>("document_items")
     .select(
-      // Два FK на inventory_documents (простой document_id + композитный
-      // tenant). Дизамбигуируем embed по имени простого FK, иначе PostgREST
-      // вернёт ambiguous-relationship.
-      "document_id, actual_amount, calculated_amount, inventory_documents!inventory_document_items_document_id_fkey(document_number, invoice_date, status)",
+      // Два FK на documents (простой document_id + композитный tenant).
+      // Дизамбигуируем embed по имени простого FK-констрейнта (имя пока
+      // прежнее — ренейм констрейнтов в Pass 4.4), иначе PostgREST вернёт
+      // ambiguous-relationship.
+      "document_id, actual_amount, calculated_amount, documents!inventory_document_items_document_id_fkey(document_number, invoice_date, status)",
     )
     .eq("account_id", accountId)
     .eq("inventory_product_id", ingredientId);
 
   return (data ?? []).map((row) => {
-    const doc = oneRelation(row.inventory_documents);
+    const doc = oneRelation(row.documents);
     return {
       documentId: row.document_id,
       documentNumber: doc?.document_number ?? "—",

@@ -34,7 +34,7 @@ export default async function InventoryStoresPage() {
   if (!accountId) redirect("/dashboard");
 
   const { data: lastSynced } = await db
-    .from<Array<{ synced_at: string | null }>>("inventory_stores")
+    .from<Array<{ synced_at: string | null }>>("stores")
     .select("synced_at")
     .eq("account_id", accountId)
     .order("synced_at", { ascending: false })
@@ -43,7 +43,7 @@ export default async function InventoryStoresPage() {
 
   const [{ data: stores }, { data: venues }] = await Promise.all([
     db
-      .from<StoreRow[]>("inventory_stores")
+      .from<StoreRow[]>("stores")
       .select("id, external_id, title, store_code, description, local_venue_id")
       .eq("account_id", accountId)
       .order("title"),

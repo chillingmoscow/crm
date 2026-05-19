@@ -79,7 +79,7 @@ export default async function InventoryProductsPage() {
   if (!accountId) redirect("/dashboard");
 
   const { data: lastSynced } = await db
-    .from<Array<{ synced_at: string | null }>>("inventory_products")
+    .from<Array<{ synced_at: string | null }>>("ingredients")
     .select("synced_at")
     .eq("account_id", accountId)
     .eq("kind", "ingredient")
@@ -89,12 +89,12 @@ export default async function InventoryProductsPage() {
 
   const [{ data: groups }, { data: products }] = await Promise.all([
     db
-      .from<GroupRow[]>("inventory_product_groups")
+      .from<GroupRow[]>("ingredient_groups")
       .select("id, external_id, name, parent_group_id, primary_image_file_id")
       .eq("account_id", accountId)
       .order("name"),
     db
-      .from<ProductRow[]>("inventory_products")
+      .from<ProductRow[]>("ingredients")
       .select("id, external_id, name, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, primary_image_file_id, group_id, archived_at, raw_payload")
       .eq("account_id", accountId)
       // Этап 3: дерево — только ингредиенты. Будущие типы

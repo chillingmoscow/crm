@@ -116,18 +116,27 @@ drop trigger trg_resort_items_sync_ingredient_id on public.inventory_result_reso
 drop function public.tg_document_items_sync_ingredient_id();
 drop function public.tg_sync_ingredient_product_id();
 
--- 4. Старые FK на inventory_product_id.
+-- 4. Старые FK на inventory_product_id (вкл. composite tenant-FK
+--    exclusion_rules из 178 — имя без подстроки inventory_product_id).
 alter table public.document_items
   drop constraint inventory_document_items_inventory_product_id_fkey;
 alter table public.inventory_result_exclusion_rules
   drop constraint inventory_result_exclusion_rules_inventory_product_id_fkey;
+alter table public.inventory_result_exclusion_rules
+  drop constraint inventory_result_exclusion_rules_product_tenant_fkey;
 alter table public.inventory_result_resort_items
   drop constraint inventory_result_resort_items_inventory_product_id_fkey;
 
--- 5. Старые индексы по inventory_product_id.
+-- 4a. Старый check (178): хотя бы один из product/external обязателен.
+alter table public.inventory_result_exclusion_rules
+  drop constraint inventory_result_exclusion_rules_product_required;
+
+-- 5. Старые индексы по inventory_product_id (вкл. второй уникальный
+--    из 178 — _active_external_idx с условием inventory_product_id is null).
 drop index public.inventory_document_items_product_idx;
 drop index public.inventory_result_resort_items_product_idx;
 drop index public.inventory_result_exclusion_rules_active_product_idx;
+drop index public.inventory_result_exclusion_rules_active_external_idx;
 
 -- 6. compat-view, зависящий от колонки (кодом не используется с 4.2).
 drop view public.inventory_document_items;
@@ -139,3 +148,21 @@ alter table public.inventory_result_exclusion_rules
   drop column inventory_product_id;
 alter table public.inventory_result_resort_items
   drop column inventory_product_id;
+
+-- 8. Эквиваленты на ingredient_id для exclusion_rules (P1: бизнес-
+--    инвариант и tenant-FK из 178 должны сохраниться).
+alter table public.inventory_result_exclusion_rules
+  add constraint inventory_result_exclusion_rules_ingredient_required
+  check (ingredient_id is not null or external_product_id is not null);
+
+alter table public.inventory_result_exclusion_rules
+  add constraint inventory_result_exclusion_rules_ingredient_tenant_fkey
+  foreign key (account_id, ingredient_id)
+  references public.ingredients(account_id, id)
+  on delete cascade;
+
+create unique index inventory_result_exclusion_rules_active_external_idx
+  on public.inventory_result_exclusion_rules(account_id, external_product_id)
+  where status = 'active'
+    and ingredient_id is null
+    and external_product_id is not null;

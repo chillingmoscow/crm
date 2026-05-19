@@ -17,15 +17,17 @@ export default async function CounterpartiesArchivePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Только владелец аккаунта может видеть архив и удалять навсегда.
-  // RLS counterparties_select допускает deleted_at для manage_counterparties,
-  // но страница архива по конвенции — owner-only (как venues).
-  const { data: account } = await supabase
-    .from("accounts")
-    .select("id")
-    .eq("owner_id", user.id)
-    .maybeSingle();
-  if (!account) redirect("/finance/counterparties");
+  // Только владелец активного аккаунта может видеть архив и удалять
+  // навсегда. Codex P2 #372: не использовать
+  // `accounts.eq(owner_id, user.id).maybeSingle()` — упадёт если юзер
+  // владеет несколькими аккаунтами. Правильно — через
+  // get_active_account_id + is_account_owner.
+  const { data: activeAccountId } = await supabase.rpc("get_active_account_id");
+  if (!activeAccountId) redirect("/finance/counterparties");
+  const { data: isOwner } = await supabase.rpc("is_account_owner", {
+    p_account_id: activeAccountId,
+  });
+  if (!isOwner) redirect("/finance/counterparties");
 
   const { rows } = await listCounterparties({ include_deleted: true });
   const archived = rows.filter((cp) => cp.deleted_at !== null);

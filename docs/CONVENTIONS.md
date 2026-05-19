@@ -117,6 +117,38 @@ helper-функции (`get_active_venue_id`, `get_active_account_id`) долж�
 **отказывать** на архивных строках — иначе RLS других модулей продолжит
 пускать пользователя с архивированным active-context'ом.
 
+### Owner-check для архив-страниц
+
+Архив-страницы (`/<area>/<entity>/archive`) — owner-only. **Не использовать**
+паттерн «найти аккаунт по owner_id»:
+
+```ts
+// ❌ ПЛОХО — упадёт если юзер владеет несколькими аккаунтами
+const { data: account } = await supabase
+  .from("accounts")
+  .select("id")
+  .eq("owner_id", user.id)
+  .maybeSingle();
+if (!account) redirect(...);
+```
+
+`maybeSingle()` возвращает `null` когда строк больше одной → юзер с двумя
+аккаунтами теряет доступ к собственному архиву. Codex P2 #372.
+
+```ts
+// ✅ ПРАВИЛЬНО — через активный аккаунт + is_account_owner
+const { data: activeAccountId } = await supabase.rpc("get_active_account_id");
+if (!activeAccountId) redirect(...);
+const { data: isOwner } = await supabase.rpc("is_account_owner", {
+  p_account_id: activeAccountId,
+});
+if (!isOwner) redirect(...);
+```
+
+Тот же паттерн — для любых owner-only действий на серверной стороне
+(`assertEntityOwner` хелперы в server actions: через `entity.account_id`
++ `is_account_owner`, не через `accounts.owner_id` lookup).
+
 ### Server actions — триплет
 
 Каждая soft-deletable сущность экспортирует:

@@ -2115,6 +2115,10 @@ export async function updateInventoryStoreVenue(input: {
     .eq("account_id", ctx.accountId);
 
   if (error) return { error: error.message };
+
+  // Пропагация venue в documents.venue_id — на уровне БД (триггер
+  // trg_stores_propagate_venue_to_documents, миграция 194), атомарно
+  // в той же транзакции UPDATE stores. Второй write из app не нужен.
   revalidatePath("/org/stores");
   return { error: null };
 }

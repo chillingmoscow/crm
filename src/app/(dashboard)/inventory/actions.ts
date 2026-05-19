@@ -67,7 +67,7 @@ type InventoryStoreLookup = {
 
 type InventoryExclusionRuleLookup = {
   id: string;
-  inventory_product_id: string | null;
+  ingredient_id: string | null;
   external_product_id: string | null;
   reason: string | null;
   created_by: string | null;
@@ -84,7 +84,7 @@ type InventoryResultItemRow = {
   id: string;
   document_id: string;
   account_id: string;
-  inventory_product_id: string | null;
+  ingredient_id: string | null;
   external_product_id: string | null;
   product_name: string;
   measure_unit_id: number | null;
@@ -616,13 +616,13 @@ async function syncDocumentItems(input: {
   let resultsFound = false;
   const { data: exclusionRulesRaw } = await input.admin
     .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
-    .select("id, inventory_product_id, external_product_id, reason, created_by, created_at")
+    .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
     .eq("account_id", input.accountId)
     .eq("status", "active");
   const exclusionRuleByProductId = new Map(
     (exclusionRulesRaw ?? [])
-      .filter((rule) => rule.inventory_product_id)
-      .map((rule) => [rule.inventory_product_id as string, rule]),
+      .filter((rule) => rule.ingredient_id)
+      .map((rule) => [rule.ingredient_id as string, rule]),
   );
   const exclusionRuleByExternalProductId = new Map(
     (exclusionRulesRaw ?? [])
@@ -645,7 +645,7 @@ async function syncDocumentItems(input: {
       account_id: input.accountId,
       document_id: input.documentId,
       external_item_id: itemExternalId,
-      inventory_product_id: localProduct?.id ?? null,
+      ingredient_id: localProduct?.id ?? null,
       external_product_id: productId,
       product_name:
         text(item.productName) ??
@@ -872,7 +872,7 @@ async function loadResultItemsForAdjustment(input: {
   const { data: items } = await input.admin
     .from<InventoryResultItemRow[]>("document_items")
     .select(
-      "id, document_id, account_id, inventory_product_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals"
+      "id, document_id, account_id, ingredient_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals"
     )
     .eq("account_id", input.accountId)
     .eq("document_id", input.documentId)
@@ -888,7 +888,7 @@ async function resolveResultItemGroup(input: {
   items: InventoryResultItemRow[];
 }) {
   const productIds = input.items
-    .map((item) => item.inventory_product_id)
+    .map((item) => item.ingredient_id)
     .filter((id): id is string => Boolean(id));
   if (productIds.length === 0) throw new Error("Для пересорта нужны позиции, связанные с ингредиентами");
 
@@ -899,7 +899,7 @@ async function resolveResultItemGroup(input: {
     .in("id", productIds);
   const groupByProductId = new Map((products ?? []).map((product) => [product.id, product.group_id]));
   const groupIds = new Set(
-    input.items.map((item) => item.inventory_product_id ? groupByProductId.get(item.inventory_product_id) ?? null : null)
+    input.items.map((item) => item.ingredient_id ? groupByProductId.get(item.ingredient_id) ?? null : null)
   );
   if (groupIds.size !== 1) throw new Error("Для пересорта можно выбрать позиции только одной группы");
   const groupId = Array.from(groupIds)[0];
@@ -1550,13 +1550,13 @@ export async function createInventoryResultExclusionRule(input: {
     });
     const { data: item } = await admin
       .from<InventoryResultItemRow>("document_items")
-      .select("id, document_id, account_id, inventory_product_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
+      .select("id, document_id, account_id, ingredient_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     if (!item?.id) throw new Error("Строка акта не найдена");
-    if (!item.inventory_product_id && !item.external_product_id) {
+    if (!item.ingredient_id && !item.external_product_id) {
       throw new Error("У строки нет QR ID продукта, автоисключение создать нельзя.");
     }
 
@@ -1572,11 +1572,11 @@ export async function createInventoryResultExclusionRule(input: {
 
     let existingRuleQuery = admin
       .from<InventoryExclusionRuleLookup>("inventory_result_exclusion_rules")
-      .select("id, inventory_product_id, external_product_id, reason, created_by, created_at")
+      .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
       .eq("account_id", ctx.accountId)
       .eq("status", "active");
-    if (item.inventory_product_id) {
-      existingRuleQuery = existingRuleQuery.eq("inventory_product_id", item.inventory_product_id);
+    if (item.ingredient_id) {
+      existingRuleQuery = existingRuleQuery.eq("ingredient_id", item.ingredient_id);
     } else {
       existingRuleQuery = existingRuleQuery.eq("external_product_id", item.external_product_id);
     }
@@ -1589,13 +1589,13 @@ export async function createInventoryResultExclusionRule(input: {
           .from<InventoryExclusionRuleLookup>("inventory_result_exclusion_rules")
           .insert({
             account_id: ctx.accountId,
-            inventory_product_id: item.inventory_product_id,
+            ingredient_id: item.ingredient_id,
             external_product_id: item.external_product_id,
             product_name: item.product_name,
             reason,
             created_by: ctx.user.id,
           })
-          .select("id, inventory_product_id, external_product_id, reason, created_by, created_at")
+          .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
           .single();
     if (ruleError || !rule?.id) throw new Error(ruleError?.message ?? "Не удалось создать правило автоисключения");
 
@@ -1655,7 +1655,7 @@ export async function deleteInventoryResultExclusionRule(input: {
     const reason = normalizeReason(input.reason, "Укажите причину удаления автоисключения");
     const { data: item } = await admin
       .from<InventoryResultItemRow>("document_items")
-      .select("id, document_id, account_id, inventory_product_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
+      .select("id, document_id, account_id, ingredient_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
       .eq("account_id", ctx.accountId)
@@ -1667,8 +1667,8 @@ export async function deleteInventoryResultExclusionRule(input: {
       .select("id")
       .eq("account_id", ctx.accountId)
       .eq("status", "active");
-    if (item.inventory_product_id) {
-      ruleQuery = ruleQuery.eq("inventory_product_id", item.inventory_product_id);
+    if (item.ingredient_id) {
+      ruleQuery = ruleQuery.eq("ingredient_id", item.ingredient_id);
     } else if (item.external_product_id) {
       ruleQuery = ruleQuery.eq("external_product_id", item.external_product_id);
     } else {
@@ -1826,7 +1826,7 @@ export async function createInventoryResultResort(input: {
         resort_id: resort.id,
         document_id: input.documentId,
         document_item_id: item.id,
-        inventory_product_id: item.inventory_product_id,
+        ingredient_id: item.ingredient_id,
         external_product_id: item.external_product_id,
         product_name: item.product_name,
         role: allocationItem.role,

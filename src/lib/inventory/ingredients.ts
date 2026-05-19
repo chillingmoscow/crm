@@ -257,7 +257,7 @@ export async function listIngredientUsage(
       "document_id, actual_amount, calculated_amount, documents!inventory_document_items_document_id_fkey(document_number, invoice_date, status)",
     )
     .eq("account_id", accountId)
-    .eq("inventory_product_id", ingredientId);
+    .eq("ingredient_id", ingredientId);
 
   return (data ?? []).map((row) => {
     const doc = oneRelation(row.documents);

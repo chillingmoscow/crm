@@ -18,7 +18,7 @@ type InventoryDocumentDetailRow = {
 
 type InventoryDocumentItemRow = {
   id: string;
-  inventory_product_id: string | null;
+  ingredient_id: string | null;
   product_name: string;
   article: string | null;
   barcode: string | null;
@@ -100,8 +100,8 @@ function groupsUsedByDocument(
   const allowed = new Set<string>();
 
   for (const item of items) {
-    const groupId = item.inventory_product_id
-      ? productById.get(item.inventory_product_id)?.group_id ?? null
+    const groupId = item.ingredient_id
+      ? productById.get(item.ingredient_id)?.group_id ?? null
       : null;
     let currentId = groupId;
     const guard = new Set<string>();
@@ -157,7 +157,7 @@ export default async function InventoryDocumentPage({
       : Promise.resolve({ data: null, error: null }),
     admin
       .from<InventoryDocumentItemRow[]>("document_items")
-      .select("id, inventory_product_id, product_name, article, barcode, measure_unit_name, actual_amount, submitted_amount, sort_order")
+      .select("id, ingredient_id, product_name, article, barcode, measure_unit_name, actual_amount, submitted_amount, sort_order")
       .eq("document_id", document.id)
       .order("sort_order"),
     admin
@@ -167,7 +167,7 @@ export default async function InventoryDocumentPage({
   ]);
 
   const items = itemsRaw ?? [];
-  const productIds = items.map((item) => item.inventory_product_id).filter((productId): productId is string => Boolean(productId));
+  const productIds = items.map((item) => item.ingredient_id).filter((productId): productId is string => Boolean(productId));
   const imageByProductId = new Map<string, string | null>();
   const productById = new Map<string, InventoryProductImageRow>();
   const {
@@ -240,10 +240,10 @@ export default async function InventoryDocumentPage({
         measureUnitName: item.measure_unit_name,
         actualAmount: item.actual_amount,
         submittedAmount: item.submitted_amount,
-        imageUrl: item.inventory_product_id ? imageByProductId.get(item.inventory_product_id) ?? null : null,
-        groupId: item.inventory_product_id ? productById.get(item.inventory_product_id)?.group_id ?? null : null,
-        groupPath: item.inventory_product_id
-          ? groupPathById.get(productById.get(item.inventory_product_id)?.group_id ?? "") ?? null
+        imageUrl: item.ingredient_id ? imageByProductId.get(item.ingredient_id) ?? null : null,
+        groupId: item.ingredient_id ? productById.get(item.ingredient_id)?.group_id ?? null : null,
+        groupPath: item.ingredient_id
+          ? groupPathById.get(productById.get(item.ingredient_id)?.group_id ?? "") ?? null
           : null,
       }))}
     />

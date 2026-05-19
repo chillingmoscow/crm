@@ -57,13 +57,12 @@ function buildGrid(visible: Set<ColKey>) {
   return COL_DEFS.filter((c) => visible.has(c.key)).map((c) => c.width).join(" ");
 }
 
-const VENUE_TYPE_LABELS: Record<string, string> = {
-  restaurant: "Ресторан",
-  bar:        "Бар",
-  cafe:       "Кафе",
-  club:       "Клуб",
-  other:      "Другое",
-};
+// Единый источник правды по типам — VENUE_TYPES в @/lib/constants
+// (11 значений). Локальная карта на 5 элементов оставляла «hookah» и
+// прочие новые типы (миграция 026) без локализации в списке.
+const VENUE_TYPE_LABELS: Record<string, string> = Object.fromEntries(
+  VENUE_TYPES.map((t) => [t.value, t.label]),
+);
 
 const INITIAL_WORKING_HOURS: WorkingHours = {
   mon: { open: "10:00", close: "22:00", closed: false },
@@ -77,7 +76,12 @@ const INITIAL_WORKING_HOURS: WorkingHours = {
 
 const schema = z.object({
   name:     z.string().min(1, "Введите название"),
-  type:     z.enum(["restaurant", "bar", "cafe", "club", "other"]),
+  // Принимаем любой непустой type — VENUE_TYPES в дропдауне даёт 11
+  // значений (миграция 026), DB-enum — источник правды. Был жёсткий
+  // z.enum на 5 старых типов → выбор «Кальянной» молча падал на
+  // zod-валидации (форма не сабмитилась). См. тот же фикс в
+  // venue-detail-page.tsx (комментарий там).
+  type:     z.string().min(1),
   address:  z.string().optional(),
   phone:    z.string().optional(),
   currency: z.string().min(1),

@@ -11,6 +11,7 @@ import {
   type CatalogProduct,
 } from "./_components/inventory-catalog-tree";
 import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
+import { ScopeToggle } from "./_components/scope-toggle";
 
 type GroupRow = {
   id: string;
@@ -64,15 +65,22 @@ async function createSignedImageUrls(accountId: string, fileIds: string[]) {
   return imageUrlByFileId;
 }
 
-export default async function InventoryProductsPage() {
+export default async function InventoryProductsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ scope?: string }>;
+}) {
+  const { scope } = await searchParams;
+  const venueScoped = scope !== "all"; // default — «этого заведения»
   const supabase = await createClient();
   const db = asLooseDb(supabase);
 
-  const [{ data: canView }, { data: canManage }, { data: canSync }, { data: accountId }, amountRoundingScale] = await Promise.all([
+  const [{ data: canView }, { data: canManage }, { data: canSync }, { data: accountId }, { data: activeVenueId }, amountRoundingScale] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "inventory.view_products" }),
     supabase.rpc("has_permission", { permission_code: "inventory.manage_products" }),
     supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
     supabase.rpc("get_active_account_id"),
+    supabase.rpc("get_active_venue_id"),
     getActiveAccountAmountRoundingScale(),
   ]);
   if (!canView) redirect("/dashboard");
@@ -103,9 +111,36 @@ export default async function InventoryProductsPage() {
       .order("name"),
   ]);
 
+  // Тоггл «Этого заведения»: ингредиенты, встречающиеся в актах
+  // активного venue. RLS уже venue-scope-ит documents/document_items;
+  // дополнительно сужаем по venue_id активного заведения, чтобы режим
+  // означал именно «этого заведения» (а не «всех видимых»).
+  let venueIngredientIds: Set<string> | null = null;
+  if (venueScoped && activeVenueId) {
+    const { data: venueDocs } = await db
+      .from<Array<{ id: string }>>("documents")
+      .select("id")
+      .eq("venue_id", activeVenueId);
+    const docIds = (venueDocs ?? []).map((d) => d.id);
+    if (docIds.length > 0) {
+      const { data: usedItems } = await db
+        .from<Array<{ ingredient_id: string | null }>>("document_items")
+        .select("ingredient_id")
+        .in("document_id", docIds);
+      venueIngredientIds = new Set(
+        (usedItems ?? [])
+          .map((i) => i.ingredient_id)
+          .filter((id): id is string => Boolean(id)),
+      );
+    } else {
+      venueIngredientIds = new Set();
+    }
+  }
+
   const productRows = (products ?? [])
     .filter((row) => !row.archived_at)
-    .filter(isQuickRestoProduct);
+    .filter(isQuickRestoProduct)
+    .filter((row) => !venueIngredientIds || venueIngredientIds.has(row.id));
   const imageUrlByFileId = await createSignedImageUrls(
     accountId,
     [
@@ -152,6 +187,19 @@ export default async function InventoryProductsPage() {
           </p>
         </div>
         <InventorySyncButton canSync={Boolean(canSync)} lastSyncedAt={lastSyncedAt} />
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <ScopeToggle value={venueScoped ? "venue" : "all"} />
+        {venueScoped && !activeVenueId ? (
+          <span className="text-sm text-muted-foreground">
+            Активное заведение не выбрано — переключитесь на «Весь каталог».
+          </span>
+        ) : venueScoped && productRows.length === 0 ? (
+          <span className="text-sm text-muted-foreground">
+            В этом заведении пока нет актов с ингредиентами — переключитесь на «Весь каталог».
+          </span>
+        ) : null}
       </div>
 
       <InventoryCatalogTree

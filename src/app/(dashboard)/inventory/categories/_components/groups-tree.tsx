@@ -135,7 +135,7 @@ export function GroupsTree({ groups, canManage }: Props) {
               <div className="flex justify-end gap-2">
                 {canManage ? <GroupImageUpload groupId={group.id} /> : null}
                 <Button asChild size="sm" variant="outline">
-                  <Link href={`/inventory/products?group=${group.id}`}>Открыть</Link>
+                  <Link href={`/catalog/ingredients?group=${group.id}`}>Открыть</Link>
                 </Button>
               </div>
             </div>

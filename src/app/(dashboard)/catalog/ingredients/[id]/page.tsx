@@ -30,7 +30,7 @@ export default async function IngredientDetailPage({
   if (!accountId) redirect("/dashboard");
 
   const ingredient = await getIngredientDetail(accountId as string, id);
-  if (!ingredient) redirect("/inventory/products");
+  if (!ingredient) redirect("/catalog/ingredients");
 
   const [suppliers, usage, journal, counterparties] = await Promise.all([
     listIngredientSuppliers(accountId as string, id),

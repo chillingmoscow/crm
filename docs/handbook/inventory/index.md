@@ -65,7 +65,8 @@
 
 ## Где в коде
 
-- `src/app/(dashboard)/inventory/products/` — дерево и карточка ингредиента
-- `src/app/(dashboard)/inventory/documents/` — акты
+- `src/app/(dashboard)/catalog/ingredients/` — дерево и карточка ингредиента
+- `src/app/(dashboard)/documents/` — акты инвентаризации
+- `src/app/(dashboard)/org/stores/` — склады
 - `src/lib/inventory/ingredients.ts` — доменный слой ингредиента
-- `src/app/(dashboard)/inventory/actions.ts` — server actions
+- `src/app/(dashboard)/inventory/actions.ts` — server actions (нероутовый модуль)

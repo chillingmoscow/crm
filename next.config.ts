@@ -75,6 +75,16 @@ const nextConfig: NextConfig = {
       { source: "/settings/venues/:path*",   destination: "/org/venues/:path*",    permanent: true },
       { source: "/settings/account",         destination: "/org/account",   permanent: true },
       { source: "/settings/profile",         destination: "/profile",       permanent: true },
+      // Этап 4 Pass 4.3: /inventory/* разведён на /catalog, /documents, /org.
+      { source: "/inventory/products",          destination: "/catalog/ingredients",        permanent: true },
+      { source: "/inventory/products/:path*",   destination: "/catalog/ingredients/:path*", permanent: true },
+      { source: "/inventory/categories",        destination: "/catalog/ingredients",        permanent: true },
+      { source: "/inventory/categories/:path*", destination: "/catalog/ingredients",        permanent: true },
+      { source: "/inventory/documents",         destination: "/documents",                  permanent: true },
+      { source: "/inventory/documents/:path*",  destination: "/documents/:path*",           permanent: true },
+      { source: "/inventory/stores",            destination: "/org/stores",                 permanent: true },
+      { source: "/inventory/stores/:path*",     destination: "/org/stores/:path*",          permanent: true },
+      { source: "/inventory",                   destination: "/documents",                  permanent: true },
     ];
   },
 };

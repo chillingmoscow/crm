@@ -916,9 +916,9 @@ async function resolveResultItemGroup(input: {
 }
 
 function revalidateInventoryResultPages(documentId: string) {
-  revalidatePath("/inventory/documents");
-  revalidatePath(`/inventory/documents/${documentId}`);
-  revalidatePath(`/inventory/documents/${documentId}/results`);
+  revalidatePath("/documents");
+  revalidatePath(`/documents/${documentId}`);
+  revalidatePath(`/documents/${documentId}/results`);
 }
 
 export async function syncQuickRestoInventory(input?: {
@@ -1267,13 +1267,13 @@ export async function syncQuickRestoInventory(input?: {
     await saveSnapshot({ accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
   }
 
-  revalidatePath("/inventory");
+  revalidatePath("/documents");
   if (scope === "full") {
-    revalidatePath("/inventory/categories");
-    revalidatePath("/inventory/products");
-    revalidatePath("/inventory/stores");
+    revalidatePath("/catalog/ingredients");
+    revalidatePath("/catalog/ingredients");
+    revalidatePath("/org/stores");
   }
-  revalidatePath("/inventory/documents");
+  revalidatePath("/documents");
   return { summary, error: null };
   } catch (error) {
     return {
@@ -1301,8 +1301,8 @@ export async function assignInventoryDocument(input: {
     .eq("account_id", ctx.accountId);
 
   if (error) return { error: error.message };
-  revalidatePath("/inventory/documents");
-  revalidatePath(`/inventory/documents/${input.documentId}`);
+  revalidatePath("/documents");
+  revalidatePath(`/documents/${input.documentId}`);
   return { error: null };
 }
 
@@ -1382,9 +1382,9 @@ export async function refreshInventoryDocumentResults(input: {
       status: qrDocument.processed ? "processed" : undefined,
     });
 
-    revalidatePath("/inventory/documents");
-    revalidatePath(`/inventory/documents/${document.id}`);
-    revalidatePath(`/inventory/documents/${document.id}/results`);
+    revalidatePath("/documents");
+    revalidatePath(`/documents/${document.id}`);
+    revalidatePath(`/documents/${document.id}/results`);
 
     return {
       processed: Boolean(qrDocument.processed),
@@ -2115,7 +2115,7 @@ export async function updateInventoryStoreVenue(input: {
     .eq("account_id", ctx.accountId);
 
   if (error) return { error: error.message };
-  revalidatePath("/inventory/stores");
+  revalidatePath("/org/stores");
   return { error: null };
 }
 
@@ -2172,8 +2172,8 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
     .eq("account_id", ctx.accountId);
   if (productError) return { error: productError.message };
 
-  revalidatePath("/inventory/products");
-  revalidatePath(`/inventory/products/${productId}`);
+  revalidatePath("/catalog/ingredients");
+  revalidatePath(`/catalog/ingredients/${productId}`);
   return { error: null };
 }
 
@@ -2230,7 +2230,7 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
     .eq("account_id", ctx.accountId);
   if (groupError) return { error: groupError.message };
 
-  revalidatePath("/inventory/categories");
+  revalidatePath("/catalog/ingredients");
   return { error: null };
 }
 
@@ -2296,9 +2296,9 @@ export async function submitInventoryDocumentDraft(input: {
         .eq("id", document.id)
         .eq("account_id", ctx.accountId);
 
-      revalidatePath("/inventory/documents");
-      revalidatePath(`/inventory/documents/${document.id}`);
-      revalidatePath(`/inventory/documents/${document.id}/results`);
+      revalidatePath("/documents");
+      revalidatePath(`/documents/${document.id}`);
+      revalidatePath(`/documents/${document.id}/results`);
       return {
         resultsHasLineAmounts: false,
         refreshDocument: true,
@@ -2427,9 +2427,9 @@ export async function submitInventoryDocumentDraft(input: {
 
     if (updateLocalError) return { resultsHasLineAmounts: false, error: updateLocalError.message };
 
-    revalidatePath("/inventory/documents");
-    revalidatePath(`/inventory/documents/${document.id}`);
-    revalidatePath(`/inventory/documents/${document.id}/results`);
+    revalidatePath("/documents");
+    revalidatePath(`/documents/${document.id}`);
+    revalidatePath(`/documents/${document.id}/results`);
     return { resultsHasLineAmounts: syncResult.resultsFound, error: null };
   } catch (error) {
     return {
@@ -2509,7 +2509,7 @@ export async function updateIngredientDescription(input: {
     actorId: ctx.user.id,
   });
 
-  revalidatePath(`/inventory/products/${ingredientId}`);
+  revalidatePath(`/catalog/ingredients/${ingredientId}`);
   return { error: null };
 }
 
@@ -2573,7 +2573,7 @@ export async function addIngredientSupplier(input: {
     actorId: ctx.user.id,
   });
 
-  revalidatePath(`/inventory/products/${ingredientId}`);
+  revalidatePath(`/catalog/ingredients/${ingredientId}`);
   return { error: null };
 }
 
@@ -2620,7 +2620,7 @@ export async function updateIngredientSupplier(input: {
     actorId: ctx.user.id,
   });
 
-  revalidatePath(`/inventory/products/${existing.ingredient_id}`);
+  revalidatePath(`/catalog/ingredients/${existing.ingredient_id}`);
   return { error: null };
 }
 
@@ -2658,6 +2658,6 @@ export async function removeIngredientSupplier(input: {
     actorId: ctx.user.id,
   });
 
-  revalidatePath(`/inventory/products/${existing.ingredient_id}`);
+  revalidatePath(`/catalog/ingredients/${existing.ingredient_id}`);
   return { error: null };
 }

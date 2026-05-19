@@ -6,7 +6,7 @@ import { Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { uploadInventoryProductImage } from "../../actions";
+import { uploadInventoryProductImage } from "@/app/(dashboard)/inventory/actions";
 
 type Props = {
   productId: string;

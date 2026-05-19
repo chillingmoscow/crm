@@ -1211,6 +1211,7 @@ export async function syncQuickRestoInventory(input?: {
         {
           account_id: ctx.accountId,
           external_id: String(document.id),
+          document_kind: "inventory",
           document_number: inventoryDocumentNumber(document),
           invoice_date: dateText(document.invoiceDate),
           store_id: storeId,

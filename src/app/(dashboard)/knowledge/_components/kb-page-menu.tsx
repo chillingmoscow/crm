@@ -354,6 +354,13 @@ export function KbPageMenu(props: KbPageMenuProps) {
     props.canDuplicate,
     props.canViewVersionHistory,
     duplicatePending,
+    // Toggle-состояние: onToggle{Favorite,Lock} читают эти значения
+    // из замыкания. Без re-subscribe повторный Mod+Shift+F/L работал
+    // бы со stale-значением и не мог выключить избранное/разблокировать
+    // (Codex P2 #348). Те же значения, что у пунктов ⋯-меню.
+    favorited,
+    locked,
+    localUnlocked,
   ]);
 
   const onExport = async () => {

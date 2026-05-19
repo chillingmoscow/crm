@@ -586,12 +586,14 @@ function KbTreeHeader({
   };
 
   // Хоткей создания страницы (Mod+Shift+P) — тот же путь, что кнопка
-  // «+ Новая страница». Server-action всё равно проверяет kb.create_pages.
+  // «+ Новая страница». Без kb.create_pages — тихий no-op, как скрытая
+  // кнопка (Codex P2 #348), не дёргаем server action ради error-тоста.
   useEffect(() => {
     const onCommand = (e: Event) => {
       const command = (e as CustomEvent<{ command: KbCommand }>).detail
         .command;
       if (command === "create-page") {
+        if (!canCreate) return;
         if (kbCreatePageInFlight) return;
         kbCreatePageInFlight = true;
         void onCreateRoot().finally(() => {

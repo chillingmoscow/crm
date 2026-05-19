@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import Link from "next/link";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -24,9 +24,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { VENUE_TYPES, CURRENCIES, TIMEZONES, DAYS_OF_WEEK, type DayKey } from "@/lib/constants";
-import { updateVenue, deleteVenue } from "../../actions";
+import { updateVenue, type VenueArchiveImpact } from "../../actions";
 import type { VenueType, WorkingHours } from "@/types/database";
 import { FloorPlanTab } from "./floor-plan-tab";
+import { VenueDangerZone } from "./venue-danger-zone";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
 
@@ -87,6 +88,8 @@ export function VenueDetailPage({
   importedFromQuickResto,
   legalEntities,
   canViewAudit,
+  canHardDelete,
+  archiveImpact,
   initialAuditEvents,
   initialAuditHasMore,
 }: {
@@ -94,6 +97,8 @@ export function VenueDetailPage({
   importedFromQuickResto: boolean;
   legalEntities: LegalEntityOption[];
   canViewAudit: boolean;
+  canHardDelete: boolean;
+  archiveImpact: VenueArchiveImpact;
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
 }) {
@@ -102,7 +107,6 @@ export function VenueDetailPage({
   const [workingHours, setWorkingHours] = useState<WorkingHours>(
     venue.working_hours ?? INITIAL_WORKING_HOURS
   );
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("Основное");
   const TABS: Tab[] = canViewAudit
     ? [...BASE_TABS, "Журнал"]
@@ -151,15 +155,6 @@ export function VenueDetailPage({
       });
       if (result.error) { toast.error(result.error); return; }
       toast.success("Изменения сохранены");
-    });
-  };
-
-  const handleDelete = () => {
-    startTransition(async () => {
-      const result = await deleteVenue(venue.id);
-      if (result.error) { toast.error(result.error); return; }
-      toast.success("Заведение удалено");
-      router.push("/org/venues");
     });
   };
 
@@ -370,41 +365,12 @@ export function VenueDetailPage({
             />
           </div>
 
-          {/* Danger zone */}
-          <div className="pt-8 border-t mt-10">
-            <h2 className="text-base font-medium text-destructive mb-1">Удалить заведение</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              Это действие необратимо. Все данные заведения будут удалены.
-            </p>
-            {confirmDelete ? (
-              <div className="flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={isPending}
-                  onClick={handleDelete}
-                >
-                  <Trash2 className="w-4 h-4 mr-1.5" />
-                  Да, удалить
-                </Button>
-                <Button type="button" variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>
-                  Отмена
-                </Button>
-              </div>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Trash2 className="w-4 h-4 mr-1.5" />
-                Удалить заведение
-              </Button>
-            )}
-          </div>
+          <VenueDangerZone
+            venueId={venue.id}
+            venueName={venue.name}
+            impact={archiveImpact}
+            canHardDelete={canHardDelete}
+          />
         </form>
         </div>
       )}

@@ -23,6 +23,7 @@ export default async function VenuesPage() {
   select: (columns: string) => LooseQueryBuilder;
   eq: (column: string, value: unknown) => LooseQueryBuilder;
   in: (column: string, values: string[]) => LooseQueryBuilder;
+  order: (column: string, options?: Record<string, unknown>) => LooseQueryBuilder;
 };
 
 const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
@@ -48,13 +49,28 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     );
   }
 
-  const { data: venuesRaw } = await supabase
+  // ВСЕ venues аккаунта (live + archived), потом разделяем в JS.
+  // RLS пустит owner'а к обоим состояниям (venues_select + archived_owner).
+  type RawVenue = {
+    id: string;
+    name: string;
+    type: string;
+    address: string | null;
+    phone: string | null;
+    currency: string;
+    timezone: string;
+    working_hours: WorkingHours | null;
+    archived_at: string | null;
+  };
+  const { data: venuesRaw } = (await db
     .from("venues")
-    .select("id, name, type, address, phone, currency, timezone, working_hours")
+    .select("id, name, type, address, phone, currency, timezone, working_hours, archived_at")
     .eq("account_id", account.id)
-    .order("name");
+    .order("name")) as unknown as { data: RawVenue[] | null };
 
-  const rawList = venuesRaw ?? [];
+  const allList = venuesRaw ?? [];
+  const archivedCount = allList.filter((v) => v.archived_at !== null).length;
+  const rawList = allList.filter((v) => v.archived_at === null);
   const venueIds = rawList.map((v) => v.id);
 
   const hallCountMap: Record<string, number> = {};
@@ -119,5 +135,5 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     imported_from_quickresto: importedVenueSet.has(venue.id),
   }));
 
-  return <VenuesClient venues={enrichedVenues} />;
+  return <VenuesClient venues={enrichedVenues} archivedCount={archivedCount} />;
 }

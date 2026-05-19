@@ -87,6 +87,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Игнорируемые папки
 [`_legacy_from_crm2/`](_legacy_from_crm2) и [`_legacy_from_finance/`](_legacy_from_finance) — архив до слияния, исключены из `tsconfig.json` и ESLint. Не править, не импортировать.
 
+### Конвенции для новых сущностей
+При добавлении новой top-level таблицы или сущности — **обязательно** пройти по чек-листам в [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md):
+- **Тенантность**: `account_id` + композитный `UNIQUE (account_id, id)` + композитные FK от детей. Прецеденты боли от пропуска — finance Stage 4, inventory Stages 1-4.
+- **Жизненный цикл удаления**: `archived_at` + `archived_by` + RLS-сплит live/archive + триплет server actions (`archive`/`restore`/`delete`) + переиспользуемые dialog'и + архив-страница. Прецедент-эталон — venues (миграция 198, PR соответствующий).
+
 ## Политика репозитория
 
 ### Handbook — обязательное обновление при user-visible PR

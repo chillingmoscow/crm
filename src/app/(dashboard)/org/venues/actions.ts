@@ -1,6 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { revalidatePath } from "next/cache";
 import type { Json, VenueType, WorkingHours } from "@/types/database";
 
@@ -125,7 +127,176 @@ export async function updateVenue(
   return { error: null };
 }
 
-export async function deleteVenue(
+// ────────────────────────────────────────────────────────────────────────
+//  Archive / Restore / Hard-delete — docs/CONVENTIONS.md §2
+// ────────────────────────────────────────────────────────────────────────
+
+export type VenueArchiveImpact = {
+  documents: number;
+  transactions: number;
+  staff: number;
+  departments: number;
+  roles: number;
+  invitations: number;
+  halls: number;
+  stores: number;
+  bankAccounts: number;
+};
+
+/**
+ * Считает связанные сущности заведения для preview в диалогах.
+ * Возвращает 0 для всего, если venue не найдено / нет доступа.
+ */
+export async function getVenueArchiveImpact(
+  id: string
+): Promise<VenueArchiveImpact> {
+  const supabase = await createClient();
+  const db = asLooseDb(supabase);
+
+  const zero: VenueArchiveImpact = {
+    documents: 0, transactions: 0, staff: 0, departments: 0,
+    roles: 0, invitations: 0, halls: 0, stores: 0, bankAccounts: 0,
+  };
+
+  // count={ count: 'exact', head: true } — не возвращает строки, только count
+  const headOpts = { count: "exact" as const, head: true };
+
+  const [
+    documents, transactions, staff, departments,
+    roles, invitations, halls, stores, bankAccounts,
+  ] = await Promise.all([
+    db.from("documents").select("id", headOpts).eq("venue_id", id),
+    db.from("transactions").select("id", headOpts).eq("venue_id", id),
+    db.from("user_venue_roles").select("user_id", headOpts).eq("venue_id", id),
+    db.from("departments").select("id", headOpts).eq("venue_id", id),
+    db.from("roles").select("id", headOpts).eq("venue_id", id),
+    db.from("invitations").select("id", headOpts).eq("venue_id", id),
+    db.from("venue_halls").select("id", headOpts).eq("venue_id", id),
+    db.from("stores").select("id", headOpts).eq("local_venue_id", id),
+    db.from("bank_accounts").select("id", headOpts).eq("venue_id", id),
+  ]);
+
+  return {
+    documents:   documents.count ?? zero.documents,
+    transactions: transactions.count ?? zero.transactions,
+    staff:       staff.count ?? zero.staff,
+    departments: departments.count ?? zero.departments,
+    roles:       roles.count ?? zero.roles,
+    invitations: invitations.count ?? zero.invitations,
+    halls:       halls.count ?? zero.halls,
+    stores:      stores.count ?? zero.stores,
+    bankAccounts: bankAccounts.count ?? zero.bankAccounts,
+  };
+}
+
+/**
+ * Owner-check через venue.account_id → accounts.owner_id. Read-only.
+ * Используем вместо has_permission в archive/restore/delete, потому что
+ * has_permission резолвится через get_active_venue_id() — а после
+ * архивации текущего venue active context сбрасывается (см. archiveVenue),
+ * и has_permission вернёт false. Owner-check не зависит от active_venue.
+ * archive/restore/delete по дизайну owner-only — это контрактное решение
+ * (org.delete_venue уже owner-only в seed; org.manage_venues тоже).
+ */
+async function assertVenueOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  venueId: string,
+  userId: string,
+): Promise<{ ok: true; account_id: string; name: string } | { ok: false; error: string }> {
+  const db = asLooseDb(supabase);
+  const { data: venue } = await db
+    .from<{ id: string; name: string; account_id: string; archived_at: string | null }>(
+      "venues",
+    )
+    .select("id, name, account_id, archived_at")
+    .eq("id", venueId)
+    .maybeSingle();
+  if (!venue) return { ok: false, error: "Заведение не найдено" };
+
+  const { data: account } = await db
+    .from<{ owner_id: string }>("accounts")
+    .select("owner_id")
+    .eq("id", venue.account_id)
+    .maybeSingle();
+  if (!account || account.owner_id !== userId) {
+    return { ok: false, error: "Действие доступно только владельцу аккаунта" };
+  }
+  return { ok: true, account_id: venue.account_id, name: venue.name };
+}
+
+/**
+ * Архивирует заведение (soft-delete). Скрывает из всех живых списков,
+ * связанные данные не трогаются. Идемпотентно: повторный вызов на
+ * уже архивном venue → success без изменений. confirmName проверяется
+ * на сервере; клиент использует это для UX.
+ */
+export async function archiveVenue(
+  id: string,
+  opts: { confirmName: string }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertVenueOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  // archived_at/archived_by — миграция 198, ещё не в Database-типах,
+  // используем asLooseDb (как другие свежие миграции в проекте).
+  const db = asLooseDb(supabase);
+  const { data: venueRow, error: fetchErr } = await db
+    .from<{ id: string; name: string; archived_at: string | null }>("venues")
+    .select("id, name, archived_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) return { error: fetchErr.message };
+  if (!venueRow) return { error: "Заведение не найдено" };
+
+  if (venueRow.archived_at) {
+    // Идемпотентно: уже в архиве — успех без действия.
+    return { error: null };
+  }
+
+  if (opts.confirmName.trim() !== venueRow.name.trim()) {
+    return { error: "Введите название точно как у заведения" };
+  }
+
+  const { error: updateErr } = await db
+    .from("venues")
+    .update({
+      archived_at: new Date().toISOString(),
+      archived_by: user.id,
+    })
+    .eq("id", id);
+  if (updateErr) return { error: updateErr.message };
+
+  // Сброс active_venue_id у всех профилей, у которых это venue активное —
+  // иначе get_active_venue_id() вернёт NULL (из-за archived_at-фильтра
+  // в самой функции), но в profiles останется устаревшая ссылка.
+  // Делаем через admin client, чтобы охватить всех юзеров (не только
+  // текущего): RLS на profiles ограничивает write своим id.
+  const admin = createAdminClient();
+  await asLooseDb(admin)
+    .from("profiles")
+    .update({ active_venue_id: null })
+    .eq("active_venue_id", id);
+
+  revalidatePath("/org/venues");
+  revalidatePath("/org/venues/archive");
+  revalidatePath(`/org/venues/${id}`);
+  // sidebar / venue switcher отрисовывается в dashboard layout
+  revalidatePath("/", "layout");
+  return { error: null };
+}
+
+/**
+ * Восстанавливает заведение из архива. Снимает флаг archived_at —
+ * venue снова доступно во всех списках. profiles.active_venue_id
+ * НЕ восстанавливается (пользователь сам переключится на venue).
+ */
+export async function restoreVenue(
   id: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
@@ -134,10 +305,71 @@ export async function deleteVenue(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const { error } = await supabase.from("venues").delete().eq("id", id);
+  const ownerCheck = await assertVenueOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
 
-  if (error) return { error: error.message };
+  // venues_select_archived_owner пустит owner'а к archived row
+  const db = asLooseDb(supabase);
+  const { data: venueRow, error: fetchErr } = await db
+    .from<{ id: string; archived_at: string | null }>("venues")
+    .select("id, archived_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) return { error: fetchErr.message };
+  if (!venueRow) return { error: "Заведение не найдено" };
+  if (!venueRow.archived_at) return { error: null }; // уже live
+
+  const { error: updateErr } = await db
+    .from("venues")
+    .update({ archived_at: null, archived_by: null })
+    .eq("id", id);
+  if (updateErr) return { error: updateErr.message };
 
   revalidatePath("/org/venues");
+  revalidatePath("/org/venues/archive");
+  revalidatePath(`/org/venues/${id}`);
+  revalidatePath("/", "layout");
+  return { error: null };
+}
+
+/**
+ * Полное удаление заведения с каскадом. По миграции 197+198:
+ *   - CASCADE: departments, invitations (с role_id CASCADE), roles
+ *     (с role_permissions + UVR + invitations CASCADE), user_venue_roles,
+ *     venue_halls (→ hall_layouts).
+ *   - SET NULL: audit_logs, bank_accounts.venue_id, documents.venue_id,
+ *     notifications.venue_id, profiles.active_venue_id, stores.local_venue_id,
+ *     transactions.venue_id.
+ * RESTRICT-блокеров в текущей схеме нет; precheck сохранён как защита
+ * на будущее (новые FK с RESTRICT нужно отлавливать сразу).
+ */
+export async function deleteVenue(
+  id: string,
+  opts: { confirmName: string }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertVenueOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у заведения" };
+  }
+
+  // audit-событие venue.deleted эмитится триггером venues_audit_trigger
+  // (миграция 156+198) перед физическим DELETE.
+  const { error: deleteErr } = await supabase
+    .from("venues")
+    .delete()
+    .eq("id", id);
+  if (deleteErr) return { error: deleteErr.message };
+
+  revalidatePath("/org/venues");
+  revalidatePath("/org/venues/archive");
+  revalidatePath("/", "layout");
   return { error: null };
 }

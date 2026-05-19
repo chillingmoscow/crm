@@ -6,7 +6,8 @@ import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Plus, Building2, X, Settings2, Search, Filter } from "lucide-react";
+import Link from "next/link";
+import { Plus, Building2, X, Settings2, Search, Filter, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
@@ -92,6 +93,7 @@ type Form = z.infer<typeof schema>;
 
 type Props = {
   venues: VenueRow[];
+  archivedCount: number;
 };
 
 // ── Column settings dropdown ─────────────────────────────────
@@ -229,7 +231,7 @@ function FilterPanel({ filter, onChange }: {
 }
 
 // ── Main component ───────────────────────────────────────────
-export function VenuesClient({ venues: initialVenues }: Props) {
+export function VenuesClient({ venues: initialVenues, archivedCount }: Props) {
   const router = useRouter();
   const [venues, setVenues] = useState(initialVenues);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -407,6 +409,15 @@ export function VenuesClient({ venues: initialVenues }: Props) {
 
           <FilterPanel filter={filter} onChange={setFilter} />
           <ColumnSettings visible={visibleCols} onChange={toggleCol} />
+
+          {archivedCount > 0 ? (
+            <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+              <Link href="/org/venues/archive">
+                <Archive className="w-4 h-4 mr-1.5" />
+                Архив ({archivedCount})
+              </Link>
+            </Button>
+          ) : null}
 
           <Button onClick={openCreate} size="sm">
             <Plus className="w-4 h-4 mr-1.5" />

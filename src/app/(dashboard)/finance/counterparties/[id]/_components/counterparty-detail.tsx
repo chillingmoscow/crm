@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, RefreshCw, RotateCcw, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,10 +15,11 @@ import {
 import { AttachmentUploader, type AttachmentRowDisplay } from "@/components/shared/attachment-uploader";
 import {
   restoreCounterparty,
-  softDeleteCounterparty,
   syncCounterpartyFromDadata,
+  type CounterpartyArchiveImpact,
 } from "@/lib/finance/counterparties";
 import { CounterpartyForm } from "../../_components/counterparty-form";
+import { CounterpartyDangerZone } from "./counterparty-danger-zone";
 import type {
   CounterpartyGroupRow,
   CounterpartyRow,
@@ -31,6 +32,8 @@ type Props = {
   canManage: boolean;
   canUploadAttachments: boolean;
   canDeleteAttachments: boolean;
+  canHardDelete: boolean;
+  archiveImpact: CounterpartyArchiveImpact;
   /** Hide the «Обновить из DaData» button + disable address suggestions. */
   dadataEnabled?: boolean;
 };
@@ -42,10 +45,12 @@ export function CounterpartyDetail({
   canManage,
   canUploadAttachments,
   canDeleteAttachments,
+  canHardDelete,
+  archiveImpact,
   dadataEnabled = true,
 }: Props) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"sync" | "delete" | "restore" | null>(null);
+  const [busy, setBusy] = useState<"sync" | "restore" | null>(null);
   const [, startTransition] = useTransition();
 
   const isDeleted = !!row.deleted_at;
@@ -65,27 +70,6 @@ export function CounterpartyDetail({
       }
       toast.success("Данные обновлены из DaData");
       router.refresh();
-    });
-  };
-
-  const handleSoftDelete = () => {
-    if (
-      !window.confirm(
-        `Удалить контрагента «${row.name}»? Существующие транзакции сохранят ссылку.`
-      )
-    ) {
-      return;
-    }
-    setBusy("delete");
-    startTransition(async () => {
-      const { error } = await softDeleteCounterparty(row.id);
-      setBusy(null);
-      if (error) {
-        toast.error(error);
-        return;
-      }
-      toast.success("Контрагент удалён");
-      router.push("/finance/counterparties");
     });
   };
 
@@ -138,23 +122,7 @@ export function CounterpartyDetail({
               )}
               Восстановить
             </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleSoftDelete}
-              disabled={busy !== null}
-              className="text-destructive hover:text-destructive"
-            >
-              {busy === "delete" ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="mr-1.5 h-4 w-4" />
-              )}
-              Удалить
-            </Button>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -215,6 +183,17 @@ export function CounterpartyDetail({
           />
         </CardContent>
       </Card>
+
+      {/* Danger zone — только для не-архивных. Архивные имеют кнопку
+          «Восстановить» в шапке + могут быть удалены из /archive. */}
+      {canManage && !isDeleted ? (
+        <CounterpartyDangerZone
+          counterpartyId={row.id}
+          counterpartyName={row.name}
+          impact={archiveImpact}
+          canHardDelete={canHardDelete}
+        />
+      ) : null}
     </div>
   );
 }

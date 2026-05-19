@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { findPartyByInn } from "@/lib/dadata/party";
 import type {
   CounterpartyFormInput,
@@ -130,12 +131,141 @@ export async function updateCounterparty(
   return { error: null };
 }
 
+// ────────────────────────────────────────────────────────────────────────
+//  Archive / Restore / Hard-delete — docs/CONVENTIONS.md §2
+// ────────────────────────────────────────────────────────────────────────
+
+export type CounterpartyArchiveImpact = {
+  /** Транзакции с этим контрагентом (SET NULL — данные сохранятся). */
+  transactions: number;
+  /** Загруженные документы (CASCADE — удалятся вместе). */
+  attachments: number;
+  /** Связки «ингредиент ↔ поставщик» (CASCADE — удалятся). */
+  ingredient_suppliers: number;
+};
+
 /**
- * Soft delete a counterparty. Composite FK on transactions does
- * ON DELETE SET NULL (counterparty_id) (migration 040), but we still
- * prefer soft delete so historical transactions retain the link.
+ * Owner-check через accounts.owner_id — не зависит от active_venue_id
+ * (см. venues actions.ts assertVenueOwner для контекста и обоснования).
+ * archive/restore/delete по дизайну owner-only.
+ */
+async function assertCounterpartyOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  counterpartyId: string,
+  userId: string,
+): Promise<{ ok: true; account_id: string; name: string } | { ok: false; error: string }> {
+  const { data: row } = await supabase
+    .from("counterparties")
+    .select("id, name, account_id")
+    .eq("id", counterpartyId)
+    .maybeSingle();
+  if (!row) return { ok: false, error: "Контрагент не найден" };
+
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("owner_id")
+    .eq("id", row.account_id)
+    .maybeSingle();
+  if (!account || account.owner_id !== userId) {
+    return { ok: false, error: "Действие доступно только владельцу аккаунта" };
+  }
+  return { ok: true, account_id: row.account_id, name: row.name };
+}
+
+/**
+ * Считает связанные сущности контрагента для preview в диалогах.
+ */
+export async function getCounterpartyArchiveImpact(
+  id: string
+): Promise<CounterpartyArchiveImpact> {
+  const supabase = await createClient();
+  const headOpts = { count: "exact" as const, head: true };
+  const db = asLooseDb(supabase);
+
+  const [transactions, attachments, ingredient_suppliers] = await Promise.all([
+    supabase.from("transactions").select("id", headOpts).eq("counterparty_id", id),
+    supabase.from("counterparty_attachments").select("id", headOpts).eq("counterparty_id", id),
+    // ingredient_suppliers — миграция 185, ещё не в Database-типах
+    db.from("ingredient_suppliers").select("id", headOpts).eq("counterparty_id", id),
+  ]);
+
+  return {
+    transactions: transactions.count ?? 0,
+    attachments: attachments.count ?? 0,
+    ingredient_suppliers: ingredient_suppliers.count ?? 0,
+  };
+}
+
+/**
+ * Архивирует контрагента (soft-delete). Скрывает из всех живых списков
+ * и выборов; транзакции сохраняют ссылку (composite FK ON DELETE SET
+ * NULL (counterparty_id), миграция 040). Идемпотентно: повторный вызов
+ * на уже архивном → no-op success. confirmName проверяется на сервере.
+ *
+ * Колонка `deleted_at` — legacy-имя (см. docs/CONVENTIONS.md §2: не
+ * мигрируем, адаптер на уровне action).
+ */
+export async function archiveCounterparty(
+  id: string,
+  opts: { confirmName: string }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertCounterpartyOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  const { data: row, error: fetchErr } = await supabase
+    .from("counterparties")
+    .select("id, name, deleted_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) return { error: fetchErr.message };
+  if (!row) return { error: "Контрагент не найден" };
+
+  if (row.deleted_at) return { error: null }; // идемпотентно
+
+  if (opts.confirmName.trim() !== row.name.trim()) {
+    return { error: "Введите название точно как у контрагента" };
+  }
+
+  const { error: updateErr } = await supabase
+    .from("counterparties")
+    .update({
+      deleted_at: new Date().toISOString(),
+      deleted_by: user.id,
+      is_active:  false,
+    })
+    .eq("id", id);
+  if (updateErr) return { error: updateErr.message };
+
+  revalidatePath("/finance/counterparties");
+  revalidatePath("/finance/counterparties/archive");
+  revalidatePath(`/finance/counterparties/${id}`);
+  return { error: null };
+}
+
+/**
+ * Backwards-compat alias. Use archiveCounterparty in new code.
+ * @deprecated
  */
 export async function softDeleteCounterparty(
+  id: string
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from("counterparties")
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return { error: "Контрагент не найден" };
+  return archiveCounterparty(id, { confirmName: row.name });
+}
+
+export async function restoreCounterparty(
   id: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
@@ -144,29 +274,51 @@ export async function softDeleteCounterparty(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const { error } = await supabase
-    .from("counterparties")
-    .update({
-      deleted_at: new Date().toISOString(),
-      deleted_by: user.id,
-      is_active:  false,
-    })
-    .eq("id", id);
-  if (error) return { error: error.message };
-  revalidatePath("/finance/counterparties");
-  return { error: null };
-}
+  const ownerCheck = await assertCounterpartyOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
 
-export async function restoreCounterparty(
-  id: string
-): Promise<{ error: string | null }> {
-  const supabase = await createClient();
   const { error } = await supabase
     .from("counterparties")
     .update({ deleted_at: null, deleted_by: null, is_active: true })
     .eq("id", id);
   if (error) return { error: error.message };
+
   revalidatePath("/finance/counterparties");
+  revalidatePath("/finance/counterparties/archive");
+  revalidatePath(`/finance/counterparties/${id}`);
+  return { error: null };
+}
+
+/**
+ * Полное удаление контрагента с каскадом.
+ *   - CASCADE: counterparty_attachments, ingredient_suppliers.
+ *   - SET NULL: transactions.counterparty_id (history-bearing, сохраняем).
+ * RESTRICT-блокеров в текущей схеме нет; precheck сохранён как защита
+ * на будущее. Требует отдельного права `finance.delete_counterparty`
+ * (owner-only по дефолту, миграция 199).
+ */
+export async function deleteCounterparty(
+  id: string,
+  opts: { confirmName: string }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertCounterpartyOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у контрагента" };
+  }
+
+  const { error } = await supabase.from("counterparties").delete().eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/finance/counterparties");
+  revalidatePath("/finance/counterparties/archive");
   return { error: null };
 }
 

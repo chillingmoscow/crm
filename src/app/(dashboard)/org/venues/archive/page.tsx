@@ -14,14 +14,17 @@ export default async function VenuesArchivePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Только владелец аккаунта — archived venue видны через
-  // venues_select_archived_owner (миграция 198).
-  const { data: account } = await supabase
-    .from("accounts")
-    .select("id")
-    .eq("owner_id", user.id)
-    .maybeSingle();
-  if (!account) redirect("/org/venues");
+  // Только владелец активного аккаунта — archived venue видны через
+  // venues_select_archived_owner (миграция 198). Codex P2 #372: не
+  // использовать `accounts.eq(owner_id, user.id).maybeSingle()` — упадёт
+  // если юзер владеет несколькими аккаунтами. Через get_active_account_id
+  // + is_account_owner.
+  const { data: activeAccountId } = await supabase.rpc("get_active_account_id");
+  if (!activeAccountId) redirect("/org/venues");
+  const { data: isOwner } = await supabase.rpc("is_account_owner", {
+    p_account_id: activeAccountId,
+  });
+  if (!isOwner) redirect("/org/venues");
 
   // Venues аккаунта — RLS пустит и live (is_account_owner), и archived
   // (venues_select_archived_owner). Архивные фильтруем в JS (LooseQuery
@@ -37,7 +40,7 @@ export default async function VenuesArchivePage() {
       address: string | null;
     }>>("venues")
     .select("id, name, type, archived_at, archived_by, address")
-    .eq("account_id", account.id)
+    .eq("account_id", activeAccountId)
     .order("archived_at", { ascending: false });
 
   const archived = (rows ?? []).filter(

@@ -32,6 +32,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 
+import { KB_COMMAND_EVENT, type KbCommand } from "@/lib/kb-hotkeys";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -577,6 +578,21 @@ function KbTreeHeader({
     }
     router.push(`/knowledge/${slug}`);
   };
+
+  // Хоткей создания страницы (Mod+Shift+P) — тот же путь, что кнопка
+  // «+ Новая страница». Server-action всё равно проверяет kb.create_pages.
+  useEffect(() => {
+    const onCommand = (e: Event) => {
+      const command = (e as CustomEvent<{ command: KbCommand }>).detail
+        .command;
+      if (command === "create-page") {
+        void onCreateRoot();
+      }
+    };
+    window.addEventListener(KB_COMMAND_EVENT, onCommand);
+    return () => window.removeEventListener(KB_COMMAND_EVENT, onCommand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex items-center justify-between px-2 py-2">

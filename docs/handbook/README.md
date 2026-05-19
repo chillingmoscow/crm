@@ -26,6 +26,7 @@
 | [`crm/`](./crm/index.md) | CRM: клиенты, карточки, взаимодействия |
 | [`knowledge/`](./knowledge/index.md) | Внутренняя база знаний пользователя (BlockNote-страницы) |
 | [`finance/`](./finance/index.md) | Финансы: счета, категории, контрагенты, транзакции |
+| [`inventory/`](./inventory/index.md) | Номенклатура (ингредиенты) и документы (акты инвентаризации) |
 | [`notifications/`](./notifications/index.md) | Уведомления |
 | [`people/`](./people/index.md) | Сотрудники |
 | [`org/`](./org/index.md) | Оргструктура |

@@ -122,6 +122,18 @@ function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+// Принимает число или строку из формы (в т.ч. с запятой-разделителем).
+function priceNum(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(",", ".");
+    if (normalized === "") return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function className(value: unknown): string {
   return text(asObject(value).className) ?? "";
 }
@@ -1076,6 +1088,37 @@ export async function syncQuickRestoInventory(input?: {
         localId: data.id,
       });
       await saveSnapshot({ accountId: ctx.accountId, entityType: "ingredient", externalId: String(product.id), payload: product });
+    }
+
+    // Soft-archive ингредиентов, пропавших из QuickResto. Не удаляем:
+    // сохраняем историю в актах, локальные поля, поставщиков, журнал.
+    // Вернувшиеся в выгрузку — разархивируем.
+    {
+      const incoming = new Set(productExternalIds);
+      const { data: localProducts } = await admin
+        .from<Array<{ id: string; external_id: string; archived_at: string | null }>>(
+          "inventory_products",
+        )
+        .select("id, external_id, archived_at")
+        .eq("account_id", ctx.accountId);
+      const toArchive = (localProducts ?? [])
+        .filter((p) => p.external_id && !incoming.has(p.external_id) && !p.archived_at)
+        .map((p) => p.id);
+      const toUnarchive = (localProducts ?? [])
+        .filter((p) => p.external_id && incoming.has(p.external_id) && p.archived_at)
+        .map((p) => p.id);
+      if (toArchive.length > 0) {
+        await admin
+          .from("inventory_products")
+          .update({ archived_at: syncedAt })
+          .in("id", toArchive);
+      }
+      if (toUnarchive.length > 0) {
+        await admin
+          .from("inventory_products")
+          .update({ archived_at: null })
+          .in("id", toUnarchive);
+      }
     }
 
     for (const store of stores) {
@@ -2388,4 +2431,227 @@ export async function submitInventoryDocumentDraft(input: {
       error: actionErrorMessage(error, "Не удалось отправить акт в Quick Resto"),
     };
   }
+}
+
+// ============================================================
+// Детальная страница ингредиента (Этап 1 «Номенклатура»/«Документы»):
+// локальное описание, связка с поставщиками, журнал событий.
+// ============================================================
+
+async function writeIngredientJournal(input: {
+  admin: LooseDb;
+  accountId: string;
+  ingredientId: string;
+  eventType:
+    | "synced"
+    | "description_updated"
+    | "photo_updated"
+    | "supplier_added"
+    | "supplier_updated"
+    | "supplier_removed";
+  payload?: Record<string, unknown>;
+  actorId: string;
+}) {
+  await input.admin.from("ingredient_journal").insert({
+    account_id: input.accountId,
+    ingredient_id: input.ingredientId,
+    event_type: input.eventType,
+    payload: input.payload ?? {},
+    actor_id: input.actorId,
+  });
+}
+
+async function assertOwnedIngredient(admin: LooseDb, accountId: string, ingredientId: string) {
+  const { data } = await admin
+    .from<{ id: string }>("inventory_products")
+    .select("id")
+    .eq("id", ingredientId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  return Boolean(data?.id);
+}
+
+export async function updateIngredientDescription(input: {
+  ingredientId: string;
+  description: string;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.manage_products");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const ingredientId = text(input.ingredientId);
+  if (!ingredientId) return { error: "Не указан ингредиент" };
+  const description = typeof input.description === "string" ? input.description.trim() : "";
+
+  const admin = asLooseDb(createAdminClient());
+  if (!(await assertOwnedIngredient(admin, ctx.accountId, ingredientId))) {
+    return { error: "Ингредиент не найден" };
+  }
+
+  const { error } = await admin
+    .from("inventory_products")
+    .update({ local_description: description || null })
+    .eq("id", ingredientId)
+    .eq("account_id", ctx.accountId);
+  if (error) return { error: error.message };
+
+  await writeIngredientJournal({
+    admin,
+    accountId: ctx.accountId,
+    ingredientId,
+    eventType: "description_updated",
+    payload: { hasText: description.length > 0 },
+    actorId: ctx.user.id,
+  });
+
+  revalidatePath(`/inventory/products/${ingredientId}`);
+  return { error: null };
+}
+
+async function assertOwnedCounterparty(admin: LooseDb, accountId: string, counterpartyId: string) {
+  const { data } = await admin
+    .from<{ id: string }>("counterparties")
+    .select("id")
+    .eq("id", counterpartyId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  return Boolean(data?.id);
+}
+
+export async function addIngredientSupplier(input: {
+  ingredientId: string;
+  counterpartyId: string;
+  supplierArticle?: string | null;
+  supplierPrice?: number | string | null;
+  isPreferred?: boolean;
+  note?: string | null;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.manage_products");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const ingredientId = text(input.ingredientId);
+  const counterpartyId = text(input.counterpartyId);
+  if (!ingredientId) return { error: "Не указан ингредиент" };
+  if (!counterpartyId) return { error: "Выберите контрагента-поставщика" };
+
+  const admin = asLooseDb(createAdminClient());
+  if (!(await assertOwnedIngredient(admin, ctx.accountId, ingredientId))) {
+    return { error: "Ингредиент не найден" };
+  }
+  if (!(await assertOwnedCounterparty(admin, ctx.accountId, counterpartyId))) {
+    return { error: "Контрагент не найден" };
+  }
+
+  const { error } = await admin.from("ingredient_suppliers").insert({
+    account_id: ctx.accountId,
+    ingredient_id: ingredientId,
+    counterparty_id: counterpartyId,
+    supplier_article: text(input.supplierArticle),
+    supplier_price: priceNum(input.supplierPrice),
+    is_preferred: Boolean(input.isPreferred),
+    note: text(input.note),
+  });
+  if (error) {
+    return {
+      error: /duplicate key|unique/i.test(error.message)
+        ? "Этот поставщик уже добавлен к ингредиенту"
+        : error.message,
+    };
+  }
+
+  await writeIngredientJournal({
+    admin,
+    accountId: ctx.accountId,
+    ingredientId,
+    eventType: "supplier_added",
+    payload: { counterpartyId },
+    actorId: ctx.user.id,
+  });
+
+  revalidatePath(`/inventory/products/${ingredientId}`);
+  return { error: null };
+}
+
+export async function updateIngredientSupplier(input: {
+  supplierId: string;
+  supplierArticle?: string | null;
+  supplierPrice?: number | string | null;
+  isPreferred?: boolean;
+  note?: string | null;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.manage_products");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const supplierId = text(input.supplierId);
+  if (!supplierId) return { error: "Не указана связка поставщика" };
+
+  const admin = asLooseDb(createAdminClient());
+  const { data: existing } = await admin
+    .from<{ id: string; ingredient_id: string }>("ingredient_suppliers")
+    .select("id, ingredient_id")
+    .eq("id", supplierId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
+  if (!existing?.id) return { error: "Связка поставщика не найдена" };
+
+  const { error } = await admin
+    .from("ingredient_suppliers")
+    .update({
+      supplier_article: text(input.supplierArticle),
+      supplier_price: priceNum(input.supplierPrice),
+      is_preferred: Boolean(input.isPreferred),
+      note: text(input.note),
+    })
+    .eq("id", supplierId)
+    .eq("account_id", ctx.accountId);
+  if (error) return { error: error.message };
+
+  await writeIngredientJournal({
+    admin,
+    accountId: ctx.accountId,
+    ingredientId: existing.ingredient_id,
+    eventType: "supplier_updated",
+    payload: { supplierId },
+    actorId: ctx.user.id,
+  });
+
+  revalidatePath(`/inventory/products/${existing.ingredient_id}`);
+  return { error: null };
+}
+
+export async function removeIngredientSupplier(input: {
+  supplierId: string;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.manage_products");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const supplierId = text(input.supplierId);
+  if (!supplierId) return { error: "Не указана связка поставщика" };
+
+  const admin = asLooseDb(createAdminClient());
+  const { data: existing } = await admin
+    .from<{ id: string; ingredient_id: string; counterparty_id: string }>("ingredient_suppliers")
+    .select("id, ingredient_id, counterparty_id")
+    .eq("id", supplierId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
+  if (!existing?.id) return { error: "Связка поставщика не найдена" };
+
+  const { error } = await admin
+    .from("ingredient_suppliers")
+    .delete()
+    .eq("id", supplierId)
+    .eq("account_id", ctx.accountId);
+  if (error) return { error: error.message };
+
+  await writeIngredientJournal({
+    admin,
+    accountId: ctx.accountId,
+    ingredientId: existing.ingredient_id,
+    eventType: "supplier_removed",
+    payload: { counterpartyId: existing.counterparty_id },
+    actorId: ctx.user.id,
+  });
+
+  revalidatePath(`/inventory/products/${existing.ingredient_id}`);
+  return { error: null };
 }

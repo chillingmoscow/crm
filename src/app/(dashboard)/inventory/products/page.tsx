@@ -10,6 +10,7 @@ import {
   type CatalogGroup,
   type CatalogProduct,
 } from "./_components/inventory-catalog-tree";
+import { InventorySyncButton } from "../_components/inventory-sync-button";
 
 type GroupRow = {
   id: string;
@@ -30,6 +31,7 @@ type ProductRow = {
   store_quantity_kg: number | null;
   primary_image_file_id: string | null;
   group_id: string | null;
+  archived_at: string | null;
   raw_payload: Record<string, unknown> | null;
 };
 
@@ -66,14 +68,23 @@ export default async function InventoryProductsPage() {
   const supabase = await createClient();
   const db = asLooseDb(supabase);
 
-  const [{ data: canView }, { data: canManage }, { data: accountId }, amountRoundingScale] = await Promise.all([
+  const [{ data: canView }, { data: canManage }, { data: canSync }, { data: accountId }, amountRoundingScale] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "inventory.view_products" }),
     supabase.rpc("has_permission", { permission_code: "inventory.manage_products" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
     supabase.rpc("get_active_account_id"),
     getActiveAccountAmountRoundingScale(),
   ]);
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
+
+  const { data: lastSynced } = await db
+    .from<Array<{ synced_at: string | null }>>("inventory_products")
+    .select("synced_at")
+    .eq("account_id", accountId)
+    .order("synced_at", { ascending: false })
+    .range(0, 0);
+  const lastSyncedAt = lastSynced?.[0]?.synced_at ?? null;
 
   const [{ data: groups }, { data: products }] = await Promise.all([
     db
@@ -83,12 +94,14 @@ export default async function InventoryProductsPage() {
       .order("name"),
     db
       .from<ProductRow[]>("inventory_products")
-      .select("id, external_id, name, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, primary_image_file_id, group_id, raw_payload")
+      .select("id, external_id, name, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, primary_image_file_id, group_id, archived_at, raw_payload")
       .eq("account_id", accountId)
       .order("name"),
   ]);
 
-  const productRows = (products ?? []).filter(isQuickRestoProduct);
+  const productRows = (products ?? [])
+    .filter((row) => !row.archived_at)
+    .filter(isQuickRestoProduct);
   const imageUrlByFileId = await createSignedImageUrls(
     accountId,
     [
@@ -124,14 +137,17 @@ export default async function InventoryProductsPage() {
 
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      <div className="mb-6">
-        <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
-          <PackageSearch className="h-5 w-5" />
+      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+            <PackageSearch className="h-5 w-5" />
+          </div>
+          <h1 className="text-2xl font-semibold">Ингредиенты</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Дерево групп и ингредиентов Quick Resto с локальными фото для инвентаризации.
+          </p>
         </div>
-        <h1 className="text-2xl font-semibold">Ингредиенты</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Дерево групп и ингредиентов Quick Resto с локальными фото для инвентаризации.
-        </p>
+        <InventorySyncButton canSync={Boolean(canSync)} lastSyncedAt={lastSyncedAt} />
       </div>
 
       <InventoryCatalogTree

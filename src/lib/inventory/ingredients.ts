@@ -109,6 +109,9 @@ export async function getIngredientDetail(
     )
     .eq("account_id", accountId)
     .eq("id", ingredientId)
+    // Карточка ингредиента не должна открываться по id позиции другого
+    // типа (dish/product/semi_finished) — страница сделает redirect.
+    .eq("kind", "ingredient")
     .maybeSingle();
   if (!product?.id) return null;
 

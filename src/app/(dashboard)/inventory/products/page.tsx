@@ -82,6 +82,7 @@ export default async function InventoryProductsPage() {
     .from<Array<{ synced_at: string | null }>>("inventory_products")
     .select("synced_at")
     .eq("account_id", accountId)
+    .eq("kind", "ingredient")
     .order("synced_at", { ascending: false })
     .range(0, 0);
   const lastSyncedAt = lastSynced?.[0]?.synced_at ?? null;
@@ -96,6 +97,9 @@ export default async function InventoryProductsPage() {
       .from<ProductRow[]>("inventory_products")
       .select("id, external_id, name, article, barcode, measure_unit_name, current_prime_cost, store_quantity_kg, primary_image_file_id, group_id, archived_at, raw_payload")
       .eq("account_id", accountId)
+      // Этап 3: дерево — только ингредиенты. Будущие типы
+      // (dish/product/semi_finished) не должны протекать сюда.
+      .eq("kind", "ingredient")
       .order("name"),
   ]);
 

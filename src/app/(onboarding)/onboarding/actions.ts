@@ -747,6 +747,7 @@ async function syncQuickRestoInventoryCatalog(params: {
           {
             account_id: params.accountId,
             external_id: String(product.id),
+            kind: "ingredient",
             external_version: typeof product.version === "number" ? product.version : null,
             name: productName(product, `Ингредиент #${product.id}`),
             item_title: text(product.itemTitle),

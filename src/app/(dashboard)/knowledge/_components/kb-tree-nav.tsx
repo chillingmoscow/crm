@@ -32,6 +32,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 
+import { KB_COMMAND_EVENT, type KbCommand } from "@/lib/kb-hotkeys";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -45,6 +46,12 @@ import { useKbTreeOverride } from "@/app/(dashboard)/knowledge/_components/kb-tr
 import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/kb-page-state-overrides-store";
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
+
+// Общий для всех инстансов KbTreeHeader (desktop + mobile drawer
+// монтируются одновременно) флаг «создание страницы уже идёт» —
+// защищает от двойного создания при мультиинстансе и быстром
+// повторном нажатии Mod+Shift+P.
+let kbCreatePageInFlight = false;
 
 interface KbTreeNavProps {
   nodes: KbTreeNode[];
@@ -577,6 +584,27 @@ function KbTreeHeader({
     }
     router.push(`/knowledge/${slug}`);
   };
+
+  // Хоткей создания страницы (Mod+Shift+P) — тот же путь, что кнопка
+  // «+ Новая страница». Без kb.create_pages — тихий no-op, как скрытая
+  // кнопка (Codex P2 #348), не дёргаем server action ради error-тоста.
+  useEffect(() => {
+    const onCommand = (e: Event) => {
+      const command = (e as CustomEvent<{ command: KbCommand }>).detail
+        .command;
+      if (command === "create-page") {
+        if (!canCreate) return;
+        if (kbCreatePageInFlight) return;
+        kbCreatePageInFlight = true;
+        void onCreateRoot().finally(() => {
+          kbCreatePageInFlight = false;
+        });
+      }
+    };
+    window.addEventListener(KB_COMMAND_EVENT, onCommand);
+    return () => window.removeEventListener(KB_COMMAND_EVENT, onCommand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="flex items-center justify-between px-2 py-2">

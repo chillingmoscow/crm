@@ -2,16 +2,15 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 
-import { createClient } from "@/lib/supabase/server";
-import { getCachedPermissions, getCachedActiveAccountId } from "@/lib/supabase/server";
+import { getCachedPermissions } from "@/lib/supabase/server";
 import { KbSidebarShell } from "@/app/(dashboard)/knowledge/_components/kb-sidebar-shell";
 import {
   KbTreeLoader,
   KbMobileTreeLoader,
   KbTreeSkeleton,
 } from "@/app/(dashboard)/knowledge/_components/kb-tree-loader";
-import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
+import { KbHotkeyListener } from "@/app/(dashboard)/knowledge/_components/kb-hotkey-listener";
 import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -40,12 +39,7 @@ export default async function KnowledgeLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-
-  const [permissions, activeAccountId] = await Promise.all([
-    getCachedPermissions(),
-    getCachedActiveAccountId(),
-  ]);
+  const permissions = await getCachedPermissions();
 
   const permSet = new Set(permissions);
   const canView = permSet.has("kb.view_pages");
@@ -53,20 +47,9 @@ export default async function KnowledgeLayout({
   const canImport = permSet.has("kb.import_pages");
   const canCreate = permSet.has("kb.create_pages");
   const canManageTemplates = permSet.has("kb.manage_templates");
-  const canAskAi = permSet.has("kb.ask_ai");
   const canViewAudit = permSet.has("org.view_audit");
   const canViewAnalytics = permSet.has("kb.view_analytics");
   if (!canView) redirect("/dashboard");
-
-  let aiAskEnabled = false;
-  if (canAskAi && activeAccountId) {
-    const { data: accountRow } = await supabase
-      .from("accounts")
-      .select("ai_enabled")
-      .eq("id", activeAccountId)
-      .maybeSingle();
-    aiAskEnabled = Boolean(accountRow?.ai_enabled);
-  }
 
   const cookieStore = await cookies();
   const sidebarWidthCookie = cookieStore.get("kb_sidebar_width")?.value;
@@ -87,7 +70,8 @@ export default async function KnowledgeLayout({
   };
 
   return (
-    <KbSearchProvider aiAskEnabled={aiAskEnabled}>
+    <>
+      <KbHotkeyListener />
       <div className="flex w-full min-h-svh">
         <KbSidebarShell
           initialHidden={sidebarHidden}
@@ -123,6 +107,6 @@ export default async function KnowledgeLayout({
         </main>
       </div>
       <KbLinkPreview />
-    </KbSearchProvider>
+    </>
   );
 }

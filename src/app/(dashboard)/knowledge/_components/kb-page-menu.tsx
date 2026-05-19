@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { KB_COMMAND_EVENT, type KbCommand } from "@/lib/kb-hotkeys";
 import { useKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 import {
   setKbPageStateOverride,
@@ -315,6 +316,45 @@ export function KbPageMenu(props: KbPageMenuProps) {
     toast.success("Создана копия страницы");
     router.push(`/knowledge/${slug}`);
   };
+
+  // Хоткеи действий страницы (Mod+Shift+L/F/D/H). Вызываем те же
+  // обработчики, что и пункты ⋯-меню — flush-before-lock, optimistic
+  // override и тосты об ошибках живут внутри них. Нет права → тихий
+  // no-op (как и скрытый пункт меню).
+  useEffect(() => {
+    const onCommand = (e: Event) => {
+      const command = (e as CustomEvent<{ command: KbCommand }>).detail
+        .command;
+      if (command === "toggle-lock") {
+        if (!props.canLock) return;
+        void onToggleLock();
+      } else if (command === "toggle-favorite") {
+        onToggleFavorite();
+      } else if (command === "duplicate") {
+        if (!props.canDuplicate || duplicatePending) return;
+        void onDuplicate();
+      } else if (command === "version-history") {
+        if (!props.canViewVersionHistory) return;
+        setVersionsOpen(true);
+      }
+    };
+    window.addEventListener(KB_COMMAND_EVENT, onCommand);
+    return () => window.removeEventListener(KB_COMMAND_EVENT, onCommand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    props.pageId,
+    props.canLock,
+    props.canDuplicate,
+    props.canViewVersionHistory,
+    duplicatePending,
+    // Toggle-состояние: onToggle{Favorite,Lock} читают эти значения
+    // из замыкания. Без re-subscribe повторный Mod+Shift+F/L работал
+    // бы со stale-значением и не мог выключить избранное/разблокировать
+    // (Codex P2 #348). Те же значения, что у пунктов ⋯-меню.
+    favorited,
+    locked,
+    localUnlocked,
+  ]);
 
   const onExport = async () => {
     setExporting(true);

@@ -25,28 +25,22 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 -- SELECT нет — ссылку на файл выдаёт сервер (service-role admin-клиент,
 -- который обходит RLS). SELECT-own оставлен, чтобы загрузивший мог
 -- перевыпустить ссылку при необходимости.
-create policy "support_attachments_insert"
-  on storage.objects for insert
-  to authenticated
-  with check (
-    bucket_id = 'support-attachments'
-    and (storage.foldername(name))[1] = (select auth.uid())::text
-  );
+-- Никаких policy на storage.objects для этого бакета НЕТ намеренно.
+-- Аплоад и выдача signed URL идут ТОЛЬКО серверно через service-role
+-- (createAdminClient), уже после rate-limit проверки в submitSupportReport.
+-- Публичный INSERT-policy открыл бы прямой неметрируемый аплоад в обход
+-- лимита 10/час (Codex P2). Bucket приватный → без policy authenticated
+-- юзер не имеет доступа, service-role обходит RLS.
 
-create policy "support_attachments_select_own"
-  on storage.objects for select
-  to authenticated
-  using (
-    bucket_id = 'support-attachments'
-    and owner = (select auth.uid())
-  );
-
--- ─── Audit / rate-limit log ───────────────────────────────────────────────
+-- ─── Audit log + rate-limit + восстановление при сбое доставки ─────────────
 create table public.support_reports (
   id               uuid        primary key default gen_random_uuid(),
   user_id          uuid        not null references auth.users(id) on delete cascade,
   account_id       uuid,
   category         text        not null,
+  description      text        not null,
+  page_url         text,
+  attachment_path  text,
   github_issue_url text,
   created_at       timestamptz not null default now()
 );
@@ -68,5 +62,6 @@ create index support_reports_user_created_idx
   on public.support_reports (user_id, created_at desc);
 
 comment on table public.support_reports is
-  'Лёг audit/rate-limit log репортов из формы «Помощь и поддержка». '
-  'Без admin-UI: содержимое уходит в GitHub-issue + email разработчику.';
+  'Audit/rate-limit log репортов из формы «Помощь и поддержка». '
+  'Хранит содержание (description/page_url/attachment_path), чтобы репорт '
+  'можно было восстановить, если оба канала доставки (GitHub+email) упали.';

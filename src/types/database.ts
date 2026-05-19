@@ -2615,26 +2615,35 @@ export type Database = {
       support_reports: {
         Row: {
           account_id: string | null
+          attachment_path: string | null
           category: string
           created_at: string
+          description: string
           github_issue_url: string | null
           id: string
+          page_url: string | null
           user_id: string
         }
         Insert: {
           account_id?: string | null
+          attachment_path?: string | null
           category: string
           created_at?: string
+          description: string
           github_issue_url?: string | null
           id?: string
+          page_url?: string | null
           user_id: string
         }
         Update: {
           account_id?: string | null
+          attachment_path?: string | null
           category?: string
           created_at?: string
+          description?: string
           github_issue_url?: string | null
           id?: string
+          page_url?: string | null
           user_id?: string
         }
         Relationships: []

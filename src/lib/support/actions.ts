@@ -83,16 +83,21 @@ export async function submitSupportReport(
   const accountId = await getCachedActiveAccountId();
 
   // ─── Вложение (опционально) ────────────────────────────────────────────
+  // Аплоад идёт service-role клиентом (бакет без storage-policy), уже
+  // ПОСЛЕ rate-limit выше — иначе прямой Storage API дал бы юзеру
+  // неметрируемый аплоад в обход лимита (Codex P2).
   let attachmentUrl: string | null = null;
   let attachmentName: string | null = null;
+  let attachmentPath: string | null = null;
   const file = formData.get("attachment");
   if (file instanceof File && file.size > 0) {
     if (file.size > MAX_FILE_BYTES) {
       return { ok: false, error: "Файл больше 25 МБ" };
     }
     attachmentName = file.name;
+    const admin = createAdminClient();
     const path = `${user.id}/${crypto.randomUUID()}-${sanitizeName(file.name)}`;
-    const { error: upErr } = await supabase.storage
+    const { error: upErr } = await admin.storage
       .from(BUCKET)
       .upload(path, file, {
         contentType: file.type || "application/octet-stream",
@@ -100,9 +105,10 @@ export async function submitSupportReport(
     if (upErr) {
       return { ok: false, error: `Не удалось загрузить файл: ${upErr.message}` };
     }
-    // Подписанную ссылку минтим service-role клиентом (обходит RLS),
-    // чтобы она работала из GitHub-issue / письма независимо от сессии.
-    const admin = createAdminClient();
+    attachmentPath = path;
+    // Signed URL минтим тем же service-role клиентом, чтобы ссылка
+    // работала из GitHub-issue / письма независимо от сессии. Сам path
+    // персистится в support_reports — ссылку можно перевыпустить.
     const { data: signed } = await admin.storage
       .from(BUCKET)
       .createSignedUrl(path, attachmentTtlSeconds());
@@ -161,11 +167,15 @@ export async function submitSupportReport(
     }
   }
 
-  // ─── Аудит / rate-limit log (файл и запись не теряем даже при фейле) ────
+  // ─── Аудит-лог: содержание персистим всегда, чтобы при падении обоих
+  // каналов репорт можно было восстановить (Codex P2). ───────────────────
   await supabase.from("support_reports").insert({
     user_id: user.id,
     account_id: accountId,
     category,
+    description: input.description,
+    page_url: input.pageUrl || null,
+    attachment_path: attachmentPath,
     github_issue_url: issueUrl,
   });
 

@@ -2115,6 +2115,18 @@ export async function updateInventoryStoreVenue(input: {
     .eq("account_id", ctx.accountId);
 
   if (error) return { error: error.message };
+
+  // venue склада сменился — пропагируем в documents.venue_id. Триггер
+  // documents срабатывает только при изменении store_id, не при смене
+  // venue у самого склада; venue-scoping RLS (Pass 2) опирается на
+  // documents.venue_id.
+  const { error: propagateError } = await admin
+    .from("documents")
+    .update({ venue_id: input.venueId || null })
+    .eq("store_id", input.storeId)
+    .eq("account_id", ctx.accountId);
+  if (propagateError) return { error: propagateError.message };
+
   revalidatePath("/org/stores");
   return { error: null };
 }

@@ -448,8 +448,9 @@ begin
   on conflict (id) do nothing;
 
   -- Склад
-  insert into public.stores (id, account_id, external_id, title, store_code) values
-    (v_store, v_account, 'store-1', 'Основной склад', 'MAIN')
+  insert into public.stores (id, account_id, external_id, title, store_code, local_venue_id) values
+    (v_store, v_account, 'store-1', 'Основной склад', 'MAIN',
+     'dddddddd-0000-0000-0000-000000000001')
   on conflict (id) do nothing;
 
   -- Акт инвентаризации + позиции (для вкладки «Где используется»)

@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { KB_COMMAND_EVENT, type KbCommand } from "@/lib/kb-hotkeys";
 import { useKbEditor } from "@/app/(dashboard)/knowledge/_components/kb-editor-store";
 import {
   setKbPageStateOverride,
@@ -322,6 +323,36 @@ export function KbPageMenu(props: KbPageMenuProps) {
     toast.success("Создана копия страницы");
     router.push(`/knowledge/${slug}`);
   };
+
+  // Хоткеи действий страницы (Mod+Shift+L/F/D/H). Исполняем те же
+  // обработчики, что и пункты ⋯-меню — никакой дублирующей логики
+  // (flush-before-lock, optimistic override, тосты — всё внутри них).
+  useEffect(() => {
+    const onCommand = (e: Event) => {
+      const command = (e as CustomEvent<{ command: KbCommand }>).detail
+        .command;
+      if (command === "toggle-lock") {
+        if (!props.canLock) return;
+        void onToggleLock();
+      } else if (command === "toggle-favorite") {
+        onToggleFavorite();
+      } else if (command === "duplicate") {
+        if (!props.canDuplicate || duplicatePending) return;
+        void onDuplicate();
+      } else if (command === "version-history") {
+        if (!props.canViewVersionHistory) return;
+        setVersionsOpen(true);
+      }
+    };
+    window.addEventListener(KB_COMMAND_EVENT, onCommand);
+    return () => window.removeEventListener(KB_COMMAND_EVENT, onCommand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    props.canLock,
+    props.canDuplicate,
+    props.canViewVersionHistory,
+    duplicatePending,
+  ]);
 
   const onExport = async () => {
     setExporting(true);

@@ -94,6 +94,9 @@ export default async function InventoryDocumentsPage() {
     .from<InventoryDocumentRow[]>("inventory_documents")
     .select("id, document_number, invoice_date, status, processed, assigned_to, shortfall_sum, surplus_sum, results_has_line_amounts, store_id")
     .eq("account_id", accountId)
+    // Этап 2: список — только акты инвентаризации. Будущие типы
+    // (write_off/transfer) не должны протекать сюда.
+    .eq("document_kind", "inventory")
     .order("invoice_date", { ascending: false, nullsFirst: false });
   if (!canView) docsQuery = docsQuery.eq("assigned_to", user.id);
   const { data: documentsRaw } = await docsQuery;

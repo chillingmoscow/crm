@@ -53,14 +53,8 @@ import {
   setKbPageLock,
 } from "@/lib/knowledge/pages";
 import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
+import { softDeletePageWithUndo } from "@/app/(dashboard)/knowledge/_components/kb-soft-delete-page";
 
-const KbDeletePageDialog = dynamic(
-  () =>
-    import("@/app/(dashboard)/knowledge/_components/kb-delete-page-dialog").then(
-      (m) => m.KbDeletePageDialog,
-    ),
-  { ssr: false, loading: () => null },
-);
 const KbVersionHistory = dynamic(
   () =>
     import("@/app/(dashboard)/knowledge/_components/kb-version-history").then(
@@ -189,7 +183,6 @@ export function KbPageMenu(props: KbPageMenuProps) {
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const [requiredPending, setRequiredPending] = useState(false);
   const [lockPending, setLockPending] = useState(false);
@@ -614,7 +607,14 @@ export function KbPageMenu(props: KbPageMenuProps) {
 
           {props.canDelete && (
             <DropdownMenuItem
-              onSelect={() => setDeleteOpen(true)}
+              onSelect={() =>
+                void softDeletePageWithUndo({
+                  pageId: props.pageId,
+                  pageTitle: props.pageTitle,
+                  childCount: props.childCount,
+                  router,
+                })
+              }
               className="px-2.5 py-2 rounded-md text-[13px] gap-2.5 text-destructive focus:text-destructive focus:bg-destructive/10"
             >
               <Trash2 className="size-4 shrink-0" />
@@ -657,15 +657,6 @@ export function KbPageMenu(props: KbPageMenuProps) {
           triggerLabel="Импорт в эту страницу"
           open={importOpen}
           onOpenChange={setImportOpen}
-        />
-      )}
-      {props.canDelete && deleteOpen && (
-        <KbDeletePageDialog
-          pageId={props.pageId}
-          pageTitle={props.pageTitle}
-          childCount={props.childCount}
-          open={deleteOpen}
-          onOpenChange={setDeleteOpen}
         />
       )}
     </>

@@ -33,6 +33,7 @@
 | [`dashboard/`](./dashboard/index.md) | Главная |
 | [`profile/`](./profile/index.md) | Профиль пользователя |
 | [`auth-onboarding/`](./auth-onboarding/index.md) | Авторизация и онбординг |
+| [`support/`](./support/index.md) | Помощь и поддержка (форма обратной связи) |
 
 Внутри каждой папки — как минимум `index.md` (обзор раздела). По мере роста добавляются страницы под конкретные фичи: `crm/contact-card.md`, `finance/transactions.md` и т.д.
 

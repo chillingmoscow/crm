@@ -2612,6 +2612,33 @@ export type Database = {
           },
         ]
       }
+      support_reports: {
+        Row: {
+          account_id: string | null
+          category: string
+          created_at: string
+          github_issue_url: string | null
+          id: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          category: string
+          created_at?: string
+          github_issue_url?: string | null
+          id?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          category?: string
+          created_at?: string
+          github_issue_url?: string | null
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_venue_roles: {
         Row: {
           created_at: string

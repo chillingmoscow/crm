@@ -16,7 +16,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ChevronsUpDown,
-  ExternalLink,
   FileBadge2,
   Keyboard,
   Laptop,
@@ -53,6 +52,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
+import { SupportReportDialog } from "@/components/shared/support-report-dialog";
 import { KbNavLink } from "@/app/(dashboard)/knowledge/_components/kb-nav-link";
 import { cn } from "@/lib/utils";
 
@@ -312,6 +312,7 @@ function SidebarBody({
   const collapsed = state === "collapsed";
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
 
   const handleSignOut = async () => {
     const { error } = await supabase.auth.signOut();
@@ -465,6 +466,7 @@ function SidebarBody({
             <ProfileMenu
               onSignOut={handleSignOut}
               onClose={() => setUserMenuOpen(false)}
+              onOpenSupport={() => setSupportOpen(true)}
             />
           </Popover>
         ) : (
@@ -497,10 +499,12 @@ function SidebarBody({
             <ProfileMenu
               onSignOut={handleSignOut}
               onClose={() => setUserMenuOpen(false)}
+              onOpenSupport={() => setSupportOpen(true)}
             />
           </Popover>
         )}
       </SidebarFooter>
+      <SupportReportDialog open={supportOpen} onOpenChange={setSupportOpen} />
     </>
   );
 }
@@ -768,9 +772,11 @@ function UserAvatar({
 function ProfileMenu({
   onSignOut,
   onClose,
+  onOpenSupport,
 }: {
   onSignOut: () => void;
   onClose: () => void;
+  onOpenSupport: () => void;
 }) {
   // Note: верхний user-блок (name + role · account + avatar) намеренно
   // убран — он дублировал trigger-кнопку в футере сайдбара (на которую
@@ -800,17 +806,17 @@ function ProfileMenu({
           <Settings className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Настройки профиля</span>
         </Link>
-        <a
-          href="https://sheerly.app/help"
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={onClose}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors"
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onOpenSupport();
+          }}
+          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
         >
           <LifeBuoy className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Помощь и поддержка</span>
-          <ExternalLink className="w-2.5 h-2.5 text-muted-foreground" />
-        </a>
+        </button>
         <button
           type="button"
           onClick={() => {

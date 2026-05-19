@@ -53,7 +53,7 @@ type AccountSettingsRow = {
 
 type ExclusionRuleRow = {
   id: string;
-  inventory_product_id: string | null;
+  ingredient_id: string | null;
   external_product_id: string | null;
   reason: string | null;
 };
@@ -74,7 +74,7 @@ type HistoryResortRow = {
 
 type HistoryResortItemRow = {
   resort_id: string;
-  inventory_product_id: string | null;
+  ingredient_id: string | null;
   document_item_id: string;
   role: "shortage" | "surplus";
   product_name: string;
@@ -101,7 +101,7 @@ function buildHistorySuggestions(input: {
 }) {
   const currentByLocalProductId = new Map<string, InventoryDocumentResultItem>();
   for (const item of input.currentItems) {
-    const productId = item.inventory_product_id;
+    const productId = item.ingredient_id;
     const amount = Number(item.difference_amount ?? 0);
     if (!productId || amount === 0 || item.excluded_from_totals || input.activeResortItemIds.has(item.id)) continue;
     currentByLocalProductId.set(productId, item);
@@ -118,7 +118,7 @@ function buildHistorySuggestions(input: {
   const suggestions = new Map<string, InventoryResortSuggestion & { hits: number }>();
   for (const [resortId, historyItems] of itemsByResortId) {
     const matched = historyItems
-      .map((historyItem) => historyItem.inventory_product_id ? currentByLocalProductId.get(historyItem.inventory_product_id) ?? null : null)
+      .map((historyItem) => historyItem.ingredient_id ? currentByLocalProductId.get(historyItem.ingredient_id) ?? null : null)
       .filter((item): item is InventoryDocumentResultItem => Boolean(item));
     const uniqueMatched = Array.from(new Map(matched.map((item) => [item.id, item])).values());
     if (uniqueMatched.length < 2) continue;
@@ -307,13 +307,13 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
-    .select("id, inventory_product_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment")
     .eq("document_id", document.id)
     .order("product_name");
 
   const itemsBase = itemsRaw ?? [];
   const productIds = itemsBase
-    .map((item) => item.inventory_product_id)
+    .map((item) => item.ingredient_id)
     .filter((productId): productId is string => Boolean(productId));
   const { data: products } = productIds.length > 0
     ? await admin
@@ -335,7 +335,7 @@ export default async function InventoryDocumentResultsPage({
     : { data: [] };
   const groupById = new Map((groups ?? []).map((group) => [group.id, group.name]));
   const items = itemsBase.map((item) => {
-    const groupId = item.inventory_product_id ? productGroupById.get(item.inventory_product_id) ?? null : null;
+    const groupId = item.ingredient_id ? productGroupById.get(item.ingredient_id) ?? null : null;
     return {
       ...item,
       group_id: groupId,
@@ -373,7 +373,7 @@ export default async function InventoryDocumentResultsPage({
       .order("created_at", { ascending: false }),
     admin
       .from<ExclusionRuleRow[]>("inventory_result_exclusion_rules")
-      .select("id, inventory_product_id, external_product_id, reason")
+      .select("id, ingredient_id, external_product_id, reason")
       .eq("account_id", accountId)
       .eq("status", "active"),
     admin
@@ -385,8 +385,8 @@ export default async function InventoryDocumentResultsPage({
   const resorts = resortsRaw ?? [];
   const exclusionRuleByProductId = new Map(
     (exclusionRulesRaw ?? [])
-      .filter((rule) => rule.inventory_product_id)
-      .map((rule) => [rule.inventory_product_id as string, rule]),
+      .filter((rule) => rule.ingredient_id)
+      .map((rule) => [rule.ingredient_id as string, rule]),
   );
   const exclusionRuleByExternalProductId = new Map(
     (exclusionRulesRaw ?? [])
@@ -395,7 +395,7 @@ export default async function InventoryDocumentResultsPage({
   );
   const itemsWithRules = items.map((item) => {
     const rule =
-      (item.inventory_product_id ? exclusionRuleByProductId.get(item.inventory_product_id) : null) ??
+      (item.ingredient_id ? exclusionRuleByProductId.get(item.ingredient_id) : null) ??
       (item.external_product_id ? exclusionRuleByExternalProductId.get(item.external_product_id) : null);
     return {
       ...item,
@@ -452,7 +452,7 @@ export default async function InventoryDocumentResultsPage({
   const { data: historyItemsRaw } = historyResorts.length > 0
     ? await admin
         .from<HistoryResortItemRow[]>("inventory_result_resort_items")
-        .select("resort_id, inventory_product_id, document_item_id, role, product_name")
+        .select("resort_id, ingredient_id, document_item_id, role, product_name")
         .eq("account_id", accountId)
         .in("resort_id", historyResorts.map((resort) => resort.id))
     : { data: [] };

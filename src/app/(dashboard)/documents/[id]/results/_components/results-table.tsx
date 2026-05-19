@@ -60,7 +60,7 @@ import { DataTableToolbar } from "@/components/shared/data-table-toolbar";
 
 export type InventoryDocumentResultItem = {
   id: string;
-  inventory_product_id: string | null;
+  ingredient_id: string | null;
   external_product_id: string | null;
   product_name: string;
   article: string | null;

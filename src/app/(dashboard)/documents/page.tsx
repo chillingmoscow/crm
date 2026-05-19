@@ -120,14 +120,22 @@ export default async function InventoryDocumentsPage({
 
   const documentIds = documents.map((doc) => doc.id);
   const storeIds = documents.map((doc) => doc.store_id).filter((id): id is string => Boolean(id));
-  const [{ data: itemsRaw }, { data: storesRaw }, { data: venuesRaw }] = await Promise.all([
+  const [{ data: itemsRaw }, { data: storesRaw }, { data: venuesRaw }, { data: venuesForFilter }] = await Promise.all([
     documentIds.length > 0
       ? admin.from<Array<{ document_id: string }>>("document_items").select("document_id").in("document_id", documentIds)
       : Promise.resolve({ data: [] as Array<{ document_id: string }>, error: null }),
     storeIds.length > 0
       ? admin.from<StoreTitleRow[]>("stores").select("id, title").in("id", storeIds)
       : Promise.resolve({ data: [] as StoreTitleRow[], error: null }),
+    // venueIds/staff — admin (поведение назначения не меняем).
     admin.from<VenueRow[]>("venues").select("id, name").eq("account_id", accountId).order("name"),
+    // Список для селектора — через RLS-клиент: venues_select отдаёт
+    // только venues членства пользователя (owner → все), чтобы не
+    // светить имена чужих заведений (Codex P1 #365).
+    asLooseDb(supabase)
+      .from<VenueRow[]>("venues")
+      .select("id, name")
+      .order("name"),
   ]);
 
   const itemCountByDocument = new Map<string, number>();
@@ -186,7 +194,7 @@ export default async function InventoryDocumentsPage({
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
       <VenueFilter
-        venues={(venuesRaw ?? []) as VenueRow[]}
+        venues={(venuesForFilter ?? []) as VenueRow[]}
         value={venueFilter ?? "all"}
       />
       <DocumentsClient

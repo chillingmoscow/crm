@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getCounterparty,
   listCounterpartyGroups,
+  getCounterpartyArchiveImpact,
 } from "@/lib/finance/counterparties";
 import { listCounterpartyAttachments } from "@/lib/files/attachments";
 import { isDadataConfigured } from "@/lib/dadata/client";
@@ -40,20 +41,23 @@ export default async function CounterpartyDetailPage({
     { data: canManage },
     { data: canUploadAttachments },
     { data: canDeleteAttachments },
+    { data: canHardDelete },
   ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "finance.view_counterparties" }),
     supabase.rpc("has_permission", { permission_code: "finance.manage_counterparties" }),
     supabase.rpc("has_permission", { permission_code: "finance.upload_attachments" }),
     supabase.rpc("has_permission", { permission_code: "finance.delete_attachments" }),
+    supabase.rpc("has_permission", { permission_code: "finance.delete_counterparty" }),
   ]);
   if (!canView) redirect("/dashboard");
 
   const { row, error } = await getCounterparty(id);
   if (error || !row) redirect("/finance/counterparties");
 
-  const [{ rows: groups }, { rows: attachmentRows }] = await Promise.all([
+  const [{ rows: groups }, { rows: attachmentRows }, archiveImpact] = await Promise.all([
     listCounterpartyGroups(),
     listCounterpartyAttachments(id),
+    getCounterpartyArchiveImpact(id),
   ]);
 
   // Map server-side joined rows to the AttachmentRowDisplay shape used
@@ -96,6 +100,8 @@ export default async function CounterpartyDetailPage({
         canManage={!!canManage}
         canUploadAttachments={!!canUploadAttachments}
         canDeleteAttachments={!!canDeleteAttachments}
+        canHardDelete={!!canHardDelete}
+        archiveImpact={archiveImpact}
         dadataEnabled={isDadataConfigured()}
       />
     </div>

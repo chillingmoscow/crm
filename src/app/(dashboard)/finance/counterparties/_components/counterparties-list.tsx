@@ -2,13 +2,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Archive, Plus, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -26,6 +24,7 @@ type Props = {
   counterparties: CounterpartyRow[];
   groups: CounterpartyGroupRow[];
   canManage: boolean;
+  archivedCount: number;
 };
 
 const ALL_GROUPS = "__all__";
@@ -40,16 +39,17 @@ const LEGAL_FORM_LABELS: Record<string, string> = {
   OTHER: "—",
 };
 
-export function CounterpartiesList({ counterparties, groups, canManage }: Props) {
+export function CounterpartiesList({ counterparties, groups, canManage, archivedCount }: Props) {
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState<string>(ALL_GROUPS);
-  const [showDeleted, setShowDeleted] = useState(false);
 
+  // Архивные в общем списке не показываем — для них отдельная страница
+  // /finance/counterparties/archive. Список тут — только live.
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("ru-RU");
     const cleanQ = q.replace(/\D/g, "");
     return counterparties.filter((cp) => {
-      if (!showDeleted && cp.deleted_at) return false;
+      if (cp.deleted_at) return false;
       if (groupFilter === NO_GROUP && cp.group_id) return false;
       if (groupFilter !== ALL_GROUPS && groupFilter !== NO_GROUP && cp.group_id !== groupFilter) return false;
       if (!q) return true;
@@ -60,7 +60,7 @@ export function CounterpartiesList({ counterparties, groups, canManage }: Props)
       if (cleanQ.length >= 4 && cp.inn && cp.inn.includes(cleanQ)) return true;
       return false;
     });
-  }, [counterparties, search, groupFilter, showDeleted]);
+  }, [counterparties, search, groupFilter]);
 
   const groupName = (id: string | null): string | null => {
     if (!id) return null;
@@ -76,14 +76,24 @@ export function CounterpartiesList({ counterparties, groups, canManage }: Props)
             Поставщики, клиенты и партнёры аккаунта.
           </p>
         </div>
-        {canManage && (
-          <Button asChild>
-            <Link href="/finance/counterparties/new">
-              <Plus className="mr-1.5 h-4 w-4" />
-              Создать
-            </Link>
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {archivedCount > 0 ? (
+            <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+              <Link href="/finance/counterparties/archive">
+                <Archive className="mr-1.5 h-4 w-4" />
+                Архив ({archivedCount})
+              </Link>
+            </Button>
+          ) : null}
+          {canManage && (
+            <Button asChild>
+              <Link href="/finance/counterparties/new">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Создать
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -111,15 +121,6 @@ export function CounterpartiesList({ counterparties, groups, canManage }: Props)
               ))}
             </SelectContent>
           </Select>
-        )}
-        {canManage && (
-          <Label className="flex items-center gap-2 text-sm text-muted-foreground font-normal cursor-pointer select-none">
-            <Checkbox
-              checked={showDeleted}
-              onCheckedChange={(v) => setShowDeleted(v === true)}
-            />
-            Показать удалённых
-          </Label>
         )}
       </div>
 

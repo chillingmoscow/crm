@@ -19,16 +19,21 @@ export default async function CounterpartiesPage() {
   ]);
   if (!canView) redirect("/dashboard");
 
+  // Подгружаем все строки видимые для роли (incl. archived если canManage),
+  // чтобы посчитать archivedCount; live-список фильтрует в клиенте.
   const [{ rows: counterparties }, { rows: groups }] = await Promise.all([
     listCounterparties({ include_deleted: !!canManage }),
     listCounterpartyGroups(),
   ]);
+
+  const archivedCount = counterparties.filter((cp) => cp.deleted_at).length;
 
   return (
     <CounterpartiesList
       counterparties={counterparties}
       groups={groups}
       canManage={!!canManage}
+      archivedCount={archivedCount}
     />
   );
 }

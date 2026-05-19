@@ -32,6 +32,11 @@ export const HOTKEY_GROUPS: HotkeyGroup[] = [
     title: "База знаний",
     entries: [
       { keys: ["Mod", "K"], description: "Открыть поиск по страницам" },
+      { keys: ["Mod", "Shift", "L"], description: "Заблокировать / разблокировать страницу" },
+      { keys: ["Mod", "Shift", "F"], description: "Добавить / убрать страницу из избранного" },
+      { keys: ["Mod", "Shift", "D"], description: "Дублировать страницу" },
+      { keys: ["Mod", "Shift", "P"], description: "Создать новую страницу" },
+      { keys: ["Mod", "Shift", "H"], description: "Открыть историю версий" },
       { keys: ["Mod", "Z"], description: "Отменить удаление вида коллекции" },
       { keys: ["Mod", "Enter"], description: "Отправить комментарий / ответ в треде" },
       { keys: ["Esc"], description: "Закрыть композер или всплывающее окно" },

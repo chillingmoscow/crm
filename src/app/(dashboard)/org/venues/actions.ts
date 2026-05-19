@@ -190,6 +190,41 @@ export async function getVenueArchiveImpact(
 }
 
 /**
+ * Owner-check через venue.account_id → accounts.owner_id. Read-only.
+ * Используем вместо has_permission в archive/restore/delete, потому что
+ * has_permission резолвится через get_active_venue_id() — а после
+ * архивации текущего venue active context сбрасывается (см. archiveVenue),
+ * и has_permission вернёт false. Owner-check не зависит от active_venue.
+ * archive/restore/delete по дизайну owner-only — это контрактное решение
+ * (org.delete_venue уже owner-only в seed; org.manage_venues тоже).
+ */
+async function assertVenueOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  venueId: string,
+  userId: string,
+): Promise<{ ok: true; account_id: string; name: string } | { ok: false; error: string }> {
+  const db = asLooseDb(supabase);
+  const { data: venue } = await db
+    .from<{ id: string; name: string; account_id: string; archived_at: string | null }>(
+      "venues",
+    )
+    .select("id, name, account_id, archived_at")
+    .eq("id", venueId)
+    .maybeSingle();
+  if (!venue) return { ok: false, error: "Заведение не найдено" };
+
+  const { data: account } = await db
+    .from<{ owner_id: string }>("accounts")
+    .select("owner_id")
+    .eq("id", venue.account_id)
+    .maybeSingle();
+  if (!account || account.owner_id !== userId) {
+    return { ok: false, error: "Действие доступно только владельцу аккаунта" };
+  }
+  return { ok: true, account_id: venue.account_id, name: venue.name };
+}
+
+/**
  * Архивирует заведение (soft-delete). Скрывает из всех живых списков,
  * связанные данные не трогаются. Идемпотентно: повторный вызов на
  * уже архивном venue → success без изменений. confirmName проверяется
@@ -205,11 +240,8 @@ export async function archiveVenue(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  // Permission: archive — это manage.
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "org.manage_venues",
-  });
-  if (!canManage) return { error: "Недостаточно прав для архивации" };
+  const ownerCheck = await assertVenueOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
 
   // archived_at/archived_by — миграция 198, ещё не в Database-типах,
   // используем asLooseDb (как другие свежие миграции в проекте).
@@ -273,10 +305,8 @@ export async function restoreVenue(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "org.manage_venues",
-  });
-  if (!canManage) return { error: "Недостаточно прав для восстановления" };
+  const ownerCheck = await assertVenueOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
 
   // venues_select_archived_owner пустит owner'а к archived row
   const db = asLooseDb(supabase);
@@ -323,22 +353,10 @@ export async function deleteVenue(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  // Permission: hard-delete отделён от manage, owner-only по дефолту.
-  const { data: canDelete } = await supabase.rpc("has_permission", {
-    permission_code: "org.delete_venue",
-  });
-  if (!canDelete) return { error: "Удаление заведения доступно только владельцу" };
+  const ownerCheck = await assertVenueOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
 
-  // Venue читается через любую select-policy (live или archived).
-  const { data: venue, error: fetchErr } = await supabase
-    .from("venues")
-    .select("id, name")
-    .eq("id", id)
-    .maybeSingle();
-  if (fetchErr) return { error: fetchErr.message };
-  if (!venue) return { error: "Заведение не найдено" };
-
-  if (opts.confirmName.trim() !== venue.name.trim()) {
+  if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
     return { error: "Введите название точно как у заведения" };
   }
 

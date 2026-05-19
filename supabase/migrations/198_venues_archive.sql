@@ -98,10 +98,14 @@ as $$
 $$;
 
 -- get_active_account_id зависит от p.active_venue_id → venues.account_id.
--- Если active_venue в архиве, юзер не должен резолвить account_id
--- (иначе RLS других модулей продолжит пускать его в tenant). Добавляем
--- фильтр archived_at IS NULL — теперь функция вернёт NULL, и middleware
--- увидит «нет активного workspace» (стандартный fallback).
+-- Два гарда (зеркало get_active_venue_id):
+--   1. venue не должно быть архивным (новое в 198) — иначе RLS других
+--      модулей продолжит пускать в tenant.
+--   2. у пользователя есть активный membership в этом venue
+--      (Codex P1 #371): без UVR-check stale active_venue_id у юзера,
+--      удалённого из user_venue_roles, продолжит резолвить account_id.
+-- Оба условия — symmetric с get_active_venue_id, чтобы функции были
+-- консистентны: либо обе возвращают значения, либо обе NULL.
 create or replace function public.get_active_account_id()
 returns uuid
 language sql
@@ -113,7 +117,14 @@ as $$
   from public.profiles p
   join public.venues v on v.id = p.active_venue_id
   where p.id = auth.uid()
-    and v.archived_at is null;
+    and v.archived_at is null
+    and exists (
+      select 1
+      from public.user_venue_roles uvr
+      where uvr.user_id = auth.uid()
+        and uvr.venue_id = p.active_venue_id
+        and uvr.status = 'active'
+    );
 $$;
 
 -- ── расширяем venues_audit_trigger: archived / restored ───────

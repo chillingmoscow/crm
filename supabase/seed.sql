@@ -389,3 +389,103 @@ values
     true,
     now() - interval '1 day'
   );
+
+-- ============================================================
+-- Демо-данные номенклатуры/документов для локальной разработки
+-- account = Тестовое заведение (cccccccc-0000-0000-0000-000000000001)
+-- ============================================================
+do $$
+declare
+  v_account uuid := 'cccccccc-0000-0000-0000-000000000001';
+  v_owner   uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
+  v_g_veg   uuid := '11111111-1111-0000-0000-000000000001';
+  v_g_milk  uuid := '11111111-1111-0000-0000-000000000002';
+  v_g_meat  uuid := '11111111-1111-0000-0000-000000000003';
+  v_p_tom   uuid := '22222222-2222-0000-0000-000000000001';
+  v_p_cuc   uuid := '22222222-2222-0000-0000-000000000002';
+  v_p_milk  uuid := '22222222-2222-0000-0000-000000000003';
+  v_p_chs   uuid := '22222222-2222-0000-0000-000000000004';
+  v_p_beef  uuid := '22222222-2222-0000-0000-000000000005';
+  v_p_chk   uuid := '22222222-2222-0000-0000-000000000006';
+  v_cp1     uuid := '33333333-3333-0000-0000-000000000001';
+  v_cp2     uuid := '33333333-3333-0000-0000-000000000002';
+  v_cp3     uuid := '33333333-3333-0000-0000-000000000003';
+  v_store   uuid := '44444444-4444-0000-0000-000000000001';
+  v_doc     uuid := '55555555-5555-0000-0000-000000000001';
+begin
+  -- Контрагенты-поставщики
+  insert into public.counterparties (id, account_id, name, inn) values
+    (v_cp1, v_account, 'ООО «Овощная база»',  '7700000001'),
+    (v_cp2, v_account, 'ИП Молочников А.А.',   '7700000002'),
+    (v_cp3, v_account, 'ООО «Мясокомбинат»',   '7700000003')
+  on conflict (id) do nothing;
+
+  -- Группы номенклатуры
+  insert into public.inventory_product_groups (id, account_id, external_id, name) values
+    (v_g_veg,  v_account, 'grp-veg',  'Овощи'),
+    (v_g_milk, v_account, 'grp-milk', 'Молочные продукты'),
+    (v_g_meat, v_account, 'grp-meat', 'Мясо')
+  on conflict (id) do nothing;
+
+  -- Ингредиенты
+  insert into public.inventory_products
+    (id, account_id, external_id, name, article, barcode, measure_unit_name,
+     current_prime_cost, store_quantity_kg, stock_limit, group_id,
+     local_description, synced_at)
+  values
+    (v_p_tom,  v_account, 'qr-1001', 'Помидоры свежие',  'OV-001', '4600001000017', 'кг',
+       120.50, 34.2, 10, v_g_veg, 'Брать только грунтовые в сезон.', now() - interval '2 hours'),
+    (v_p_cuc,  v_account, 'qr-1002', 'Огурцы свежие',    'OV-002', '4600001000024', 'кг',
+       98.00, 21.7, 8,  v_g_veg, null, now() - interval '2 hours'),
+    (v_p_milk, v_account, 'qr-2001', 'Молоко 3.2%',      'ML-001', '4600002000010', 'л',
+       72.30, 56.0, 20, v_g_milk, 'Срок годности проверять при приёмке.', now() - interval '1 day'),
+    (v_p_chs,  v_account, 'qr-2002', 'Сыр Моцарелла',    'ML-002', '4600002000027', 'кг',
+       640.00, 12.5, 5,  v_g_milk, null, now() - interval '1 day'),
+    (v_p_beef, v_account, 'qr-3001', 'Говядина (вырезка)','MS-001', '4600003000013', 'кг',
+       890.00, 18.0, 6,  v_g_meat, 'Охлаждённая, не замороженная.', now() - interval '3 hours'),
+    (v_p_chk,  v_account, 'qr-3002', 'Куриное филе',     'MS-002', '4600003000020', 'кг',
+       310.00, 27.4, 10, v_g_meat, null, now() - interval '3 hours')
+  on conflict (id) do nothing;
+
+  -- Склад
+  insert into public.inventory_stores (id, account_id, external_id, title, store_code) values
+    (v_store, v_account, 'store-1', 'Основной склад', 'MAIN')
+  on conflict (id) do nothing;
+
+  -- Акт инвентаризации + позиции (для вкладки «Где используется»)
+  insert into public.inventory_documents
+    (id, account_id, external_id, document_number, invoice_date, store_id, status)
+  values
+    (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed')
+  on conflict (id) do nothing;
+
+  insert into public.inventory_document_items
+    (account_id, document_id, external_item_id, inventory_product_id, product_name,
+     actual_amount, calculated_amount, difference_amount)
+  values
+    (v_account, v_doc, 'it-1', v_p_tom,  'Помидоры свежие', 33.0, 34.2, -1.2),
+    (v_account, v_doc, 'it-2', v_p_milk, 'Молоко 3.2%',     56.0, 56.0, 0),
+    (v_account, v_doc, 'it-3', v_p_beef, 'Говядина (вырезка)',17.5, 18.0, -0.5)
+  on conflict (document_id, external_item_id) do nothing;
+
+  -- Связки с поставщиками
+  insert into public.ingredient_suppliers
+    (account_id, ingredient_id, counterparty_id, supplier_article, supplier_price, is_preferred, note)
+  values
+    (v_account, v_p_tom,  v_cp1, 'OVB-TOM', 115.00, true,  'Минимальный заказ 20 кг'),
+    (v_account, v_p_tom,  v_cp3, 'MK-TOM',  128.00, false, 'Запасной поставщик'),
+    (v_account, v_p_cuc,  v_cp1, 'OVB-CUC', 92.00,  true,  null),
+    (v_account, v_p_milk, v_cp2, 'ML-32',   70.00,  true,  'Доставка по утрам'),
+    (v_account, v_p_beef, v_cp3, 'MK-BEEF', 870.00, true,  'Охлаждённая поставка')
+  on conflict (account_id, ingredient_id, counterparty_id) do nothing;
+
+  -- Журнал событий по «Помидоры свежие»
+  insert into public.ingredient_journal
+    (account_id, ingredient_id, event_type, payload, actor_id, created_at)
+  values
+    (v_account, v_p_tom, 'synced',              '{}'::jsonb,                       null,    now() - interval '2 hours'),
+    (v_account, v_p_tom, 'description_updated',  '{"hasText": true}'::jsonb,        v_owner, now() - interval '90 minutes'),
+    (v_account, v_p_tom, 'supplier_added',       '{"counterpartyId": "33333333-3333-0000-0000-000000000001"}'::jsonb, v_owner, now() - interval '80 minutes'),
+    (v_account, v_p_tom, 'supplier_added',       '{"counterpartyId": "33333333-3333-0000-0000-000000000003"}'::jsonb, v_owner, now() - interval '70 minutes')
+  on conflict do nothing;
+end $$;

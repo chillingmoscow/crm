@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { ChevronDown, ChevronRight, Folder, ImageOff, Package, Search } from "lucide-react";
 
 import { formatAmount, type AmountRoundingScale } from "@/lib/format/amount";
@@ -259,10 +260,13 @@ export function InventoryCatalogTree({
                   )}
                 </div>
                 <div className="min-w-0" style={{ paddingLeft: row.depth * 20 }}>
-                  <div className="flex min-w-0 items-center gap-2">
+                  <Link
+                    href={`/inventory/products/${row.product.id}`}
+                    className="flex min-w-0 items-center gap-2 hover:underline"
+                  >
                     <Package className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <div className="truncate text-sm font-medium">{row.product.name}</div>
-                  </div>
+                  </Link>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span>QR #{row.product.externalId}</span>
                     {row.product.article ? <span>Арт. {row.product.article}</span> : null}

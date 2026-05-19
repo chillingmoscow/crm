@@ -115,6 +115,7 @@ const NAV_SECTIONS: NavSection[] = [
       { title: "Аккаунт",   href: "/org/account",        icon: Settings,   permission: "org.view_account" },
       { title: "Юрлица",    href: "/org/legal-entities", icon: FileBadge2, permission: "org.view_legal_entities" },
       { title: "Заведения", href: "/org/venues",         icon: Building2,  permission: "org.view_venues" },
+      { title: "Склады",    href: "/inventory/stores",   icon: Warehouse,  permission: "inventory.view_stores" },
       { title: "Журнал",    href: "/org/audit",          icon: ScrollText, permission: "org.view_audit" },
     ],
   },
@@ -134,16 +135,11 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    label: "Инвентаризация",
-    icon: ClipboardList,
+    // Номенклатура — справочник сущностей. Сейчас только ингредиенты;
+    // позже Блюда/Товары/Полуфабрикаты (Этап 3 разведения доменов).
+    label: "Номенклатура",
+    icon: PackageSearch,
     items: [
-      {
-        title: "Акты",
-        href: "/inventory/documents",
-        icon: ClipboardList,
-        permissions: ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"],
-        roles: ["owner", "admin", "manager", "hostess", "waiter"],
-      },
       {
         title: "Ингредиенты",
         href: "/inventory/products",
@@ -151,12 +147,20 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "inventory.view_products",
         roles: ["owner", "admin", "manager"],
       },
+    ],
+  },
+  {
+    // Документы — учётные документы. Сейчас акты инвентаризации;
+    // позже Списания/Перемещения (Этап 2).
+    label: "Документы",
+    icon: ClipboardList,
+    items: [
       {
-        title: "Склады",
-        href: "/inventory/stores",
-        icon: Warehouse,
-        permission: "inventory.view_stores",
-        roles: ["owner", "admin", "manager"],
+        title: "Акты инвентаризации",
+        href: "/inventory/documents",
+        icon: ClipboardList,
+        permissions: ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"],
+        roles: ["owner", "admin", "manager", "hostess", "waiter"],
       },
     ],
   },

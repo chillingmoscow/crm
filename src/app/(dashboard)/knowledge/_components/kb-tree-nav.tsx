@@ -47,6 +47,12 @@ import { useKbPageStateOverride } from "@/app/(dashboard)/knowledge/_components/
 import type { KbFavoritePage } from "@/lib/knowledge/favorites";
 import type { KbTreeNode } from "@/types/knowledge";
 
+// Общий для всех инстансов KbTreeHeader (desktop + mobile drawer
+// монтируются одновременно) флаг «создание страницы уже идёт» —
+// защищает от двойного создания при мультиинстансе и быстром
+// повторном нажатии Mod+Shift+P.
+let kbCreatePageInFlight = false;
+
 interface KbTreeNavProps {
   nodes: KbTreeNode[];
   /** Список favorited-страниц текущего юзера. Рендерится отдельной
@@ -586,7 +592,11 @@ function KbTreeHeader({
       const command = (e as CustomEvent<{ command: KbCommand }>).detail
         .command;
       if (command === "create-page") {
-        void onCreateRoot();
+        if (kbCreatePageInFlight) return;
+        kbCreatePageInFlight = true;
+        void onCreateRoot().finally(() => {
+          kbCreatePageInFlight = false;
+        });
       }
     };
     window.addEventListener(KB_COMMAND_EVENT, onCommand);

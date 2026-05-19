@@ -14,7 +14,7 @@ export type KbCommand =
   | "version-history";
 
 /** Имя CustomEvent, через которое listener сообщает команду. */
-export const KB_COMMAND_EVENT = "kb:command";
+export const KB_COMMAND_EVENT = "kb:command" as const;
 
 const KEY_TO_COMMAND: Record<string, KbCommand> = {
   l: "toggle-lock",

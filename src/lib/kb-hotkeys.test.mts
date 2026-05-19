@@ -24,6 +24,7 @@ const cases: Array<[string, Ev, KbCommand | null]> = [
   ["no mod → null", ev({ key: "l", metaKey: false, ctrlKey: false }), null],
   ["alt held → null", ev({ key: "l", altKey: true }), null],
   ["unmapped letter → null", ev({ key: "z" }), null],
+  ["meta+ctrl+shift+l → toggle-lock", ev({ key: "l", ctrlKey: true }), "toggle-lock"],
 ];
 
 for (const [name, input, expected] of cases) {

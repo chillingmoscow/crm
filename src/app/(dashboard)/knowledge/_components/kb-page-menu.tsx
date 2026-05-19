@@ -324,9 +324,10 @@ export function KbPageMenu(props: KbPageMenuProps) {
     router.push(`/knowledge/${slug}`);
   };
 
-  // Хоткеи действий страницы (Mod+Shift+L/F/D/H). Исполняем те же
-  // обработчики, что и пункты ⋯-меню — никакой дублирующей логики
-  // (flush-before-lock, optimistic override, тосты — всё внутри них).
+  // Хоткеи действий страницы (Mod+Shift+L/F/D/H). Вызываем те же
+  // обработчики, что и пункты ⋯-меню — flush-before-lock, optimistic
+  // override и тосты об ошибках живут внутри них. Нет права → тихий
+  // no-op (как и скрытый пункт меню).
   useEffect(() => {
     const onCommand = (e: Event) => {
       const command = (e as CustomEvent<{ command: KbCommand }>).detail
@@ -348,6 +349,7 @@ export function KbPageMenu(props: KbPageMenuProps) {
     return () => window.removeEventListener(KB_COMMAND_EVENT, onCommand);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    props.pageId,
     props.canLock,
     props.canDuplicate,
     props.canViewVersionHistory,

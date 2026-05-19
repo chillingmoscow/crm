@@ -679,13 +679,13 @@ async function syncDocumentItems(input: {
 
   if (rows.length > 0) {
     const { error } = await input.admin
-      .from("inventory_document_items")
+      .from("document_items")
       .upsert(rows, { onConflict: "document_id,external_item_id" });
     if (error) throw new Error(error.message);
 
     const keepExternalIds = new Set(rows.map((row) => row.external_item_id));
     const { data: existingRows } = await input.admin
-      .from<Array<{ external_item_id: string }>>("inventory_document_items")
+      .from<Array<{ external_item_id: string }>>("document_items")
       .select("external_item_id")
       .eq("document_id", input.documentId);
     const staleExternalIds = (existingRows ?? [])
@@ -693,13 +693,13 @@ async function syncDocumentItems(input: {
       .filter((externalId) => !keepExternalIds.has(externalId));
     if (staleExternalIds.length > 0) {
       await input.admin
-        .from("inventory_document_items")
+        .from("document_items")
         .delete()
         .eq("document_id", input.documentId)
         .in("external_item_id", staleExternalIds);
     }
   } else {
-    await input.admin.from("inventory_document_items").delete().eq("document_id", input.documentId);
+    await input.admin.from("document_items").delete().eq("document_id", input.documentId);
   }
 
   return { count: rows.length, resultsFound };
@@ -715,7 +715,7 @@ async function refreshLocalInventoryDocumentFromPayload(input: {
 }) {
   const itemsPreview = inventoryDocumentItems(input.document);
   const productRows = await input.admin
-    .from<InventoryProductLookup[]>("inventory_products")
+    .from<InventoryProductLookup[]>("ingredients")
     .select("id, external_id, article, barcode")
     .eq("account_id", input.accountId);
   const productByExternalId = new Map(
@@ -738,7 +738,7 @@ async function refreshLocalInventoryDocumentFromPayload(input: {
         : "results_blocked");
 
   const { error } = await input.admin
-    .from("inventory_documents")
+    .from("documents")
     .update({
       status,
       processed: Boolean(input.document.processed),
@@ -790,7 +790,7 @@ async function getResultDocumentForAction(input: {
   requireOpen?: boolean;
 }) {
   const { data: document } = await input.admin
-    .from<InventoryResultDocumentRow>("inventory_documents")
+    .from<InventoryResultDocumentRow>("documents")
     .select("id, account_id, results_finalized_at")
     .eq("id", input.documentId)
     .eq("account_id", input.accountId)
@@ -870,7 +870,7 @@ async function loadResultItemsForAdjustment(input: {
 }) {
   const uniqueItemIds = Array.from(new Set(input.itemIds));
   const { data: items } = await input.admin
-    .from<InventoryResultItemRow[]>("inventory_document_items")
+    .from<InventoryResultItemRow[]>("document_items")
     .select(
       "id, document_id, account_id, inventory_product_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals"
     )
@@ -893,7 +893,7 @@ async function resolveResultItemGroup(input: {
   if (productIds.length === 0) throw new Error("Для пересорта нужны позиции, связанные с ингредиентами");
 
   const { data: products } = await input.admin
-    .from<InventoryResultProductGroupRow[]>("inventory_products")
+    .from<InventoryResultProductGroupRow[]>("ingredients")
     .select("id, group_id")
     .eq("account_id", input.accountId)
     .in("id", productIds);
@@ -906,7 +906,7 @@ async function resolveResultItemGroup(input: {
   if (!groupId) throw new Error("Для пересорта нужны позиции с группой ингредиентов");
 
   const { data: group } = await input.admin
-    .from<InventoryResultGroupRow>("inventory_product_groups")
+    .from<InventoryResultGroupRow>("ingredient_groups")
     .select("id, name")
     .eq("id", groupId)
     .eq("account_id", input.accountId)
@@ -982,14 +982,14 @@ export async function syncQuickRestoInventory(input?: {
       .filter((id): id is string => Boolean(id));
     if (groupExternalIds.length > 0) {
       await admin
-        .from("inventory_products")
+        .from("ingredients")
         .delete()
         .eq("account_id", ctx.accountId)
         .in("external_id", groupExternalIds);
     }
     if (productExternalIds.length > 0) {
       await admin
-        .from("inventory_product_groups")
+        .from("ingredient_groups")
         .delete()
         .eq("account_id", ctx.accountId)
         .in("external_id", productExternalIds);
@@ -1000,7 +1000,7 @@ export async function syncQuickRestoInventory(input?: {
       const parentExternalId = quickRestoParentExternalId(group);
 
       const { data, error } = await admin
-        .from<{ id: string }>("inventory_product_groups")
+        .from<{ id: string }>("ingredient_groups")
         .upsert(
           {
             account_id: ctx.accountId,
@@ -1024,7 +1024,7 @@ export async function syncQuickRestoInventory(input?: {
         accountId: ctx.accountId,
         entityType: "ingredient_group",
         externalId: String(group.id),
-        localTable: "inventory_product_groups",
+        localTable: "ingredient_groups",
         localId: data.id,
       });
       await saveSnapshot({ accountId: ctx.accountId, entityType: "ingredient_group", externalId: String(group.id), payload: group });
@@ -1036,7 +1036,7 @@ export async function syncQuickRestoInventory(input?: {
       const parentId = parentExternalId ? groupByExternalId.get(parentExternalId) : null;
       if (localId) {
         await admin
-          .from("inventory_product_groups")
+          .from("ingredient_groups")
           .update({ parent_group_id: parentId ?? null })
           .eq("id", localId);
       }
@@ -1048,7 +1048,7 @@ export async function syncQuickRestoInventory(input?: {
       const groupId = parentExternalId ? groupByExternalId.get(parentExternalId) ?? null : null;
 
       const { data, error } = await admin
-        .from<InventoryProductLookup>("inventory_products")
+        .from<InventoryProductLookup>("ingredients")
         .upsert(
           {
             account_id: ctx.accountId,
@@ -1085,7 +1085,7 @@ export async function syncQuickRestoInventory(input?: {
         accountId: ctx.accountId,
         entityType: "ingredient",
         externalId: String(product.id),
-        localTable: "inventory_products",
+        localTable: "ingredients",
         localId: data.id,
       });
       await saveSnapshot({ accountId: ctx.accountId, entityType: "ingredient", externalId: String(product.id), payload: product });
@@ -1098,7 +1098,7 @@ export async function syncQuickRestoInventory(input?: {
       const incoming = new Set(productExternalIds);
       const { data: localProducts } = await admin
         .from<Array<{ id: string; external_id: string; archived_at: string | null }>>(
-          "inventory_products",
+          "ingredients",
         )
         .select("id, external_id, archived_at")
         .eq("account_id", ctx.accountId)
@@ -1114,13 +1114,13 @@ export async function syncQuickRestoInventory(input?: {
         .map((p) => p.id);
       if (toArchive.length > 0) {
         await admin
-          .from("inventory_products")
+          .from("ingredients")
           .update({ archived_at: syncedAt })
           .in("id", toArchive);
       }
       if (toUnarchive.length > 0) {
         await admin
-          .from("inventory_products")
+          .from("ingredients")
           .update({ archived_at: null })
           .in("id", toUnarchive);
       }
@@ -1129,13 +1129,13 @@ export async function syncQuickRestoInventory(input?: {
     for (const store of stores) {
       if (typeof store.id !== "number") continue;
       const { data: existingStore } = await admin
-        .from<{ id: string; local_venue_id: string | null }>("inventory_stores")
+        .from<{ id: string; local_venue_id: string | null }>("stores")
         .select("id, local_venue_id")
         .eq("account_id", ctx.accountId)
         .eq("external_id", String(store.id))
         .maybeSingle();
       const { data, error } = await admin
-        .from<{ id: string }>("inventory_stores")
+        .from<{ id: string }>("stores")
         .upsert(
           {
             account_id: ctx.accountId,
@@ -1159,7 +1159,7 @@ export async function syncQuickRestoInventory(input?: {
         accountId: ctx.accountId,
         entityType: "store",
         externalId: String(store.id),
-        localTable: "inventory_stores",
+        localTable: "stores",
         localId: data.id,
       });
       await saveSnapshot({ accountId: ctx.accountId, entityType: "store", externalId: String(store.id), payload: store });
@@ -1167,11 +1167,11 @@ export async function syncQuickRestoInventory(input?: {
   } else {
     const [{ data: productRows }, { data: storeRows }, loadedDocuments] = await Promise.all([
       admin
-        .from<InventoryProductLookup[]>("inventory_products")
+        .from<InventoryProductLookup[]>("ingredients")
         .select("id, external_id, article, barcode")
         .eq("account_id", ctx.accountId),
       admin
-        .from<InventoryStoreLookup[]>("inventory_stores")
+        .from<InventoryStoreLookup[]>("stores")
         .select("id, external_id")
         .eq("account_id", ctx.accountId),
       listInventoryDocuments(auth),
@@ -1195,7 +1195,7 @@ export async function syncQuickRestoInventory(input?: {
     const storeId = externalStoreId ? storeByExternalId.get(externalStoreId) ?? null : null;
 
     const { data: existing } = await admin
-      .from<{ id: string; status: string }>("inventory_documents")
+      .from<{ id: string; status: string }>("documents")
       .select("id, status")
       .eq("account_id", ctx.accountId)
       .eq("external_id", String(document.id))
@@ -1211,7 +1211,7 @@ export async function syncQuickRestoInventory(input?: {
     const precheckHasResults = items.some((item) => extractLineResult(item).hasResult);
 
     const { data, error } = await admin
-      .from<{ id: string }>("inventory_documents")
+      .from<{ id: string }>("documents")
       .upsert(
         {
           account_id: ctx.accountId,
@@ -1250,7 +1250,7 @@ export async function syncQuickRestoInventory(input?: {
       if (!result.resultsFound) summary.resultsBlocked += 1;
       if (result.resultsFound !== precheckHasResults) {
         await admin
-          .from("inventory_documents")
+          .from("documents")
           .update({ results_has_line_amounts: result.resultsFound })
           .eq("id", data.id);
       }
@@ -1261,7 +1261,7 @@ export async function syncQuickRestoInventory(input?: {
       accountId: ctx.accountId,
       entityType: "inventory_document",
       externalId: String(document.id),
-      localTable: "inventory_documents",
+      localTable: "documents",
       localId: data.id,
     });
     await saveSnapshot({ accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
@@ -1292,7 +1292,7 @@ export async function assignInventoryDocument(input: {
 
   const admin = asLooseDb(createAdminClient());
   const { error } = await admin
-    .from("inventory_documents")
+    .from("documents")
     .update({
       assigned_to: input.assignedTo,
       status: input.assignedTo ? "assigned" : "synced",
@@ -1334,7 +1334,7 @@ export async function refreshInventoryDocumentResults(input: {
       account_id: string;
       external_id: string;
       assigned_to: string | null;
-    }>("inventory_documents")
+    }>("documents")
     .select("id, account_id, external_id, assigned_to")
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
@@ -1419,7 +1419,7 @@ export async function updateInventoryResultComment(input: {
 
     const comment = text(input.comment);
     const { data: item } = await admin
-      .from<{ id: string; product_name: string }>("inventory_document_items")
+      .from<{ id: string; product_name: string }>("document_items")
       .select("id, product_name")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
@@ -1428,7 +1428,7 @@ export async function updateInventoryResultComment(input: {
     if (!item?.id) throw new Error("Строка акта не найдена");
 
     const { error } = await admin
-      .from("inventory_document_items")
+      .from("document_items")
       .update({
         result_comment: comment,
         result_comment_updated_by: comment ? ctx.user.id : null,
@@ -1477,7 +1477,7 @@ export async function setInventoryResultItemExcluded(input: {
       requireOpen: true,
     });
     const { data: item } = await admin
-      .from<{ id: string; product_name: string }>("inventory_document_items")
+      .from<{ id: string; product_name: string }>("document_items")
       .select("id, product_name")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
@@ -1500,7 +1500,7 @@ export async function setInventoryResultItemExcluded(input: {
     const reason = input.excluded ? text(input.reason) : null;
     const now = new Date().toISOString();
     const { error } = await admin
-      .from("inventory_document_items")
+      .from("document_items")
       .update({
         excluded_from_totals: input.excluded,
         exclude_reason: reason,
@@ -1549,7 +1549,7 @@ export async function createInventoryResultExclusionRule(input: {
       requireOpen: true,
     });
     const { data: item } = await admin
-      .from<InventoryResultItemRow>("inventory_document_items")
+      .from<InventoryResultItemRow>("document_items")
       .select("id, document_id, account_id, inventory_product_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
@@ -1601,7 +1601,7 @@ export async function createInventoryResultExclusionRule(input: {
 
     const now = new Date().toISOString();
     const { error: itemError } = await admin
-      .from("inventory_document_items")
+      .from("document_items")
       .update({
         excluded_from_totals: true,
         exclude_reason: reason,
@@ -1654,7 +1654,7 @@ export async function deleteInventoryResultExclusionRule(input: {
     });
     const reason = normalizeReason(input.reason, "Укажите причину удаления автоисключения");
     const { data: item } = await admin
-      .from<InventoryResultItemRow>("inventory_document_items")
+      .from<InventoryResultItemRow>("document_items")
       .select("id, document_id, account_id, inventory_product_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
@@ -1690,7 +1690,7 @@ export async function deleteInventoryResultExclusionRule(input: {
     if (ruleError) throw new Error(ruleError.message);
 
     const { error: itemError } = await admin
-      .from("inventory_document_items")
+      .from("document_items")
       .update({
         excluded_from_totals: false,
         exclude_reason: null,
@@ -2026,7 +2026,7 @@ export async function finalizeInventoryResults(input: {
     if (document.results_finalized_at) return { error: null };
 
     const { error } = await admin
-      .from("inventory_documents")
+      .from("documents")
       .update({
         results_finalized_at: new Date().toISOString(),
         results_finalized_by: ctx.user.id,
@@ -2071,7 +2071,7 @@ export async function reopenInventoryResults(input: {
     if (!document.results_finalized_at) return { error: null };
 
     const { error } = await admin
-      .from("inventory_documents")
+      .from("documents")
       .update({
         results_finalized_at: null,
         results_finalized_by: null,
@@ -2109,7 +2109,7 @@ export async function updateInventoryStoreVenue(input: {
 
   const admin = asLooseDb(createAdminClient());
   const { error } = await admin
-    .from("inventory_stores")
+    .from("stores")
     .update({ local_venue_id: input.venueId || null })
     .eq("id", input.storeId)
     .eq("account_id", ctx.accountId);
@@ -2131,7 +2131,7 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
 
   const admin = asLooseDb(createAdminClient());
   const { data: product } = await admin
-    .from<{ id: string }>("inventory_products")
+    .from<{ id: string }>("ingredients")
     .select("id")
     .eq("id", productId)
     .eq("account_id", ctx.accountId)
@@ -2166,7 +2166,7 @@ export async function uploadInventoryProductImage(formData: FormData): Promise<{
   }
 
   const { error: productError } = await admin
-    .from("inventory_products")
+    .from("ingredients")
     .update({ primary_image_file_id: fileRow.id })
     .eq("id", productId)
     .eq("account_id", ctx.accountId);
@@ -2189,7 +2189,7 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
 
   const admin = asLooseDb(createAdminClient());
   const { data: group } = await admin
-    .from<{ id: string }>("inventory_product_groups")
+    .from<{ id: string }>("ingredient_groups")
     .select("id")
     .eq("id", groupId)
     .eq("account_id", ctx.accountId)
@@ -2224,7 +2224,7 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
   }
 
   const { error: groupError } = await admin
-    .from("inventory_product_groups")
+    .from("ingredient_groups")
     .update({ primary_image_file_id: fileRow.id })
     .eq("id", groupId)
     .eq("account_id", ctx.accountId);
@@ -2258,7 +2258,7 @@ export async function submitInventoryDocumentDraft(input: {
       assigned_to: string | null;
       processed: boolean;
       base_last_update_date: string | null;
-    }>("inventory_documents")
+    }>("documents")
     .select("id, account_id, external_id, assigned_to, processed, base_last_update_date")
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
@@ -2282,7 +2282,7 @@ export async function submitInventoryDocumentDraft(input: {
       const freshItemsPreview = inventoryDocumentItems(fresh);
       const precheckHasResults = freshItemsPreview.items.some((item) => extractLineResult(item).hasResult);
       await admin
-        .from("inventory_documents")
+        .from("documents")
         .update({
           processed: Boolean(fresh.processed),
           base_last_update_date: dateText(fresh.lastUpdateDate),
@@ -2307,7 +2307,7 @@ export async function submitInventoryDocumentDraft(input: {
     }
 
     const localItemsResult = await admin
-      .from<Array<{ id: string; external_item_id: string }>>("inventory_document_items")
+      .from<Array<{ id: string; external_item_id: string }>>("document_items")
       .select("id, external_item_id")
       .eq("document_id", document.id);
     const localItems = (localItemsResult.data ?? []) as Array<{ id: string; external_item_id: string }>;
@@ -2387,7 +2387,7 @@ export async function submitInventoryDocumentDraft(input: {
     }
 
     const productRows = await admin
-      .from<InventoryProductLookup[]>("inventory_products")
+      .from<InventoryProductLookup[]>("ingredients")
       .select("id, external_id, article, barcode")
       .eq("account_id", ctx.accountId);
     const productByExternalId = new Map(
@@ -2408,7 +2408,7 @@ export async function submitInventoryDocumentDraft(input: {
 
     const nextStatus = syncResult.resultsFound ? "ready_for_review" : "results_blocked";
     const { error: updateLocalError } = await admin
-      .from("inventory_documents")
+      .from("documents")
       .update({
         status: nextStatus,
         processed: Boolean(reread.processed),
@@ -2469,7 +2469,7 @@ async function writeIngredientJournal(input: {
 
 async function assertOwnedIngredient(admin: LooseDb, accountId: string, ingredientId: string) {
   const { data } = await admin
-    .from<{ id: string }>("inventory_products")
+    .from<{ id: string }>("ingredients")
     .select("id")
     .eq("id", ingredientId)
     .eq("account_id", accountId)
@@ -2494,7 +2494,7 @@ export async function updateIngredientDescription(input: {
   }
 
   const { error } = await admin
-    .from("inventory_products")
+    .from("ingredients")
     .update({ local_description: description || null })
     .eq("id", ingredientId)
     .eq("account_id", ctx.accountId);

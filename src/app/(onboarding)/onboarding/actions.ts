@@ -636,14 +636,14 @@ async function syncQuickRestoInventoryCatalog(params: {
 
   if (params.importIngredients && groupExternalIds.length > 0) {
     await params.adminDb
-      .from("inventory_products")
+      .from("ingredients")
       .delete()
       .eq("account_id", params.accountId)
       .in("external_id", groupExternalIds);
   }
   if (params.importIngredientGroups && productExternalIds.length > 0) {
     await params.adminDb
-      .from("inventory_product_groups")
+      .from("ingredient_groups")
       .delete()
       .eq("account_id", params.accountId)
       .in("external_id", productExternalIds);
@@ -662,7 +662,7 @@ async function syncQuickRestoInventoryCatalog(params: {
             : null;
 
       const { data: row, error } = await params.adminDb
-        .from("inventory_product_groups")
+        .from("ingredient_groups")
         .upsert(
           {
             account_id: params.accountId,
@@ -693,7 +693,7 @@ async function syncQuickRestoInventoryCatalog(params: {
         provider: "quickresto",
         entityType: "ingredient_group",
         externalId: String(group.id),
-        localTable: "inventory_product_groups",
+        localTable: "ingredient_groups",
         localId: saved.id,
       });
       await saveSnapshot({
@@ -716,14 +716,14 @@ async function syncQuickRestoInventoryCatalog(params: {
             : null;
       const parentId = parentExternalId ? groupByExternalId.get(parentExternalId) : null;
       if (localId && parentId) {
-        await params.adminDb.from("inventory_product_groups").update({ parent_group_id: parentId }).eq("id", localId);
+        await params.adminDb.from("ingredient_groups").update({ parent_group_id: parentId }).eq("id", localId);
       }
     }
   }
 
   if (params.importIngredients) {
     const groupsResult = await params.adminDb
-      .from("inventory_product_groups")
+      .from("ingredient_groups")
       .select("id, external_id")
       .eq("account_id", params.accountId);
     const groupByExternalId = new Map(
@@ -742,7 +742,7 @@ async function syncQuickRestoInventoryCatalog(params: {
             : null;
 
       const { data: row, error } = await params.adminDb
-        .from("inventory_products")
+        .from("ingredients")
         .upsert(
           {
             account_id: params.accountId,
@@ -785,7 +785,7 @@ async function syncQuickRestoInventoryCatalog(params: {
         provider: "quickresto",
         entityType: "ingredient",
         externalId: String(product.id),
-        localTable: "inventory_products",
+        localTable: "ingredients",
         localId: saved.id,
       });
       await saveSnapshot({
@@ -804,7 +804,7 @@ async function syncQuickRestoInventoryCatalog(params: {
       if (typeof store.id !== "number") continue;
 
       const { data: existing } = await params.adminDb
-        .from("inventory_stores")
+        .from("stores")
         .select("id, local_venue_id")
         .eq("account_id", params.accountId)
         .eq("external_id", String(store.id))
@@ -812,7 +812,7 @@ async function syncQuickRestoInventoryCatalog(params: {
       const existingStore = existing as { id?: string; local_venue_id?: string | null } | null;
 
       const { data: row, error } = await params.adminDb
-        .from("inventory_stores")
+        .from("stores")
         .upsert(
           {
             account_id: params.accountId,
@@ -842,7 +842,7 @@ async function syncQuickRestoInventoryCatalog(params: {
         provider: "quickresto",
         entityType: "store",
         externalId: String(store.id),
-        localTable: "inventory_stores",
+        localTable: "stores",
         localId: saved.id,
       });
       await saveSnapshot({

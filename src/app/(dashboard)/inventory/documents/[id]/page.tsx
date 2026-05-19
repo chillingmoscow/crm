@@ -142,7 +142,7 @@ export default async function InventoryDocumentPage({
   if (!accountId || (!canView && !canFill)) redirect("/dashboard");
 
   const { data: document } = await admin
-    .from<InventoryDocumentDetailRow>("inventory_documents")
+    .from<InventoryDocumentDetailRow>("documents")
     .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date")
     .eq("id", id)
     .eq("account_id", accountId)
@@ -153,15 +153,15 @@ export default async function InventoryDocumentPage({
 
   const [{ data: store }, { data: itemsRaw }, { data: groupsRaw }] = await Promise.all([
     document.store_id
-      ? admin.from<InventoryStoreTitleRow>("inventory_stores").select("title").eq("id", document.store_id).maybeSingle()
+      ? admin.from<InventoryStoreTitleRow>("stores").select("title").eq("id", document.store_id).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     admin
-      .from<InventoryDocumentItemRow[]>("inventory_document_items")
+      .from<InventoryDocumentItemRow[]>("document_items")
       .select("id, inventory_product_id, product_name, article, barcode, measure_unit_name, actual_amount, submitted_amount, sort_order")
       .eq("document_id", document.id)
       .order("sort_order"),
     admin
-      .from<InventoryProductGroupRow[]>("inventory_product_groups")
+      .from<InventoryProductGroupRow[]>("ingredient_groups")
       .select("id, name, parent_group_id")
       .eq("account_id", accountId),
   ]);
@@ -178,7 +178,7 @@ export default async function InventoryDocumentPage({
 
   if (productIds.length > 0) {
     const { data: products } = await admin
-      .from<InventoryProductImageRow[]>("inventory_products")
+      .from<InventoryProductImageRow[]>("ingredients")
       .select("id, primary_image_file_id, group_id")
       .eq("account_id", accountId)
       .in("id", productIds);

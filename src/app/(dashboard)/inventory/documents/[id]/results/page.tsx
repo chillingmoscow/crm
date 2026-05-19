@@ -287,7 +287,7 @@ export default async function InventoryDocumentResultsPage({
   if (!accountId || !canViewResults) redirect("/dashboard");
 
   const { data: document } = await admin
-    .from<InventoryDocumentResultRow>("inventory_documents")
+    .from<InventoryDocumentResultRow>("documents")
     .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at")
     .eq("id", id)
     .eq("account_id", accountId)
@@ -298,7 +298,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: store } = document.store_id
     ? await admin
-        .from<InventoryStoreTitleRow>("inventory_stores")
+        .from<InventoryStoreTitleRow>("stores")
         .select("id, title")
         .eq("id", document.store_id)
         .eq("account_id", accountId)
@@ -306,7 +306,7 @@ export default async function InventoryDocumentResultsPage({
     : { data: null };
 
   const { data: itemsRaw } = await admin
-    .from<InventoryDocumentResultItem[]>("inventory_document_items")
+    .from<InventoryDocumentResultItem[]>("document_items")
     .select("id, inventory_product_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment")
     .eq("document_id", document.id)
     .order("product_name");
@@ -317,7 +317,7 @@ export default async function InventoryDocumentResultsPage({
     .filter((productId): productId is string => Boolean(productId));
   const { data: products } = productIds.length > 0
     ? await admin
-        .from<ProductGroupLookupRow[]>("inventory_products")
+        .from<ProductGroupLookupRow[]>("ingredients")
         .select("id, group_id")
         .eq("account_id", accountId)
         .in("id", productIds)
@@ -328,7 +328,7 @@ export default async function InventoryDocumentResultsPage({
   );
   const { data: groups } = groupIds.length > 0
     ? await admin
-        .from<GroupLookupRow[]>("inventory_product_groups")
+        .from<GroupLookupRow[]>("ingredient_groups")
         .select("id, name")
         .eq("account_id", accountId)
         .in("id", groupIds)

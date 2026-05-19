@@ -823,7 +823,7 @@ function ProfileMenu({
           <Keyboard className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Горячие клавиши</span>
           <kbd className="inline-flex items-center px-1 py-px rounded-[3px] bg-muted border border-border text-[9px] font-semibold text-muted-foreground font-mono">
-            ⌘ ?
+            Shift ?
           </kbd>
         </button>
       </div>

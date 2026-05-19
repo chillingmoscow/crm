@@ -9,6 +9,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/shared/sidebar";
 import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
+import { HotkeysDialogProvider } from "@/components/shared/hotkeys-dialog";
+import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function DashboardLayout({
@@ -99,13 +101,19 @@ export default async function DashboardLayout({
     supabaseUntyped.rpc("count_venue_staff_attention", { p_venue_id: activeVenueId }),
   ]);
   let accountName: string | null = null;
+  // KB-поиск (Cmd+K) поднят на dashboard-layout, чтобы работать из
+  // любого раздела. aiAskEnabled — та же логика, что была в
+  // knowledge/layout: kb.ask_ai в правах + accounts.ai_enabled.
+  let aiAskEnabled = false;
   if (accountId) {
     const { data: account } = await supabase
       .from("accounts")
-      .select("name")
+      .select("name, ai_enabled")
       .eq("id", accountId)
       .maybeSingle();
     accountName = account?.name ?? null;
+    aiAskEnabled =
+      userPermissions.includes("kb.ask_ai") && Boolean(account?.ai_enabled);
   }
   // RPC возвращает int; на ошибке/null трактуем как 0 (бейдж не рисуем).
   const staffAttentionCount =
@@ -150,13 +158,16 @@ export default async function DashboardLayout({
         kbSidebarHidden={kbSidebarHidden}
       />
       <SidebarInset>
-        <PageHeaderActionsProvider>
-          {/* Top bar: [trigger | breadcrumb] … [actions | bell].
-              На /knowledge скрывается — KB рендерит собственный topbar
-              (см. components/shared/dashboard-topbar.tsx). */}
-          <DashboardTopbar />
-          <main className="flex-1 flex flex-col">{children}</main>
-        </PageHeaderActionsProvider>
+        <KbSearchProvider aiAskEnabled={aiAskEnabled}>
+          <PageHeaderActionsProvider>
+            {/* Top bar: [trigger | breadcrumb] … [actions | bell].
+                На /knowledge скрывается — KB рендерит собственный topbar
+                (см. components/shared/dashboard-topbar.tsx). */}
+            <DashboardTopbar />
+            <main className="flex-1 flex flex-col">{children}</main>
+          </PageHeaderActionsProvider>
+        </KbSearchProvider>
+        <HotkeysDialogProvider />
       </SidebarInset>
     </SidebarProvider>
     </TooltipProvider>

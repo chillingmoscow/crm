@@ -122,6 +122,18 @@ function num(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+// Принимает число или строку из формы (в т.ч. с запятой-разделителем).
+function priceNum(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const normalized = value.trim().replace(",", ".");
+    if (normalized === "") return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function className(value: unknown): string {
   return text(asObject(value).className) ?? "";
 }
@@ -2534,7 +2546,7 @@ export async function addIngredientSupplier(input: {
     ingredient_id: ingredientId,
     counterparty_id: counterpartyId,
     supplier_article: text(input.supplierArticle),
-    supplier_price: num(input.supplierPrice),
+    supplier_price: priceNum(input.supplierPrice),
     is_preferred: Boolean(input.isPreferred),
     note: text(input.note),
   });
@@ -2585,7 +2597,7 @@ export async function updateIngredientSupplier(input: {
     .from("ingredient_suppliers")
     .update({
       supplier_article: text(input.supplierArticle),
-      supplier_price: num(input.supplierPrice),
+      supplier_price: priceNum(input.supplierPrice),
       is_preferred: Boolean(input.isPreferred),
       note: text(input.note),
     })

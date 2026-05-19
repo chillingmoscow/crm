@@ -247,7 +247,10 @@ export async function listIngredientUsage(
   const { data } = await admin
     .from<UsageItemRow[]>("inventory_document_items")
     .select(
-      "document_id, actual_amount, calculated_amount, inventory_documents(document_number, invoice_date, status)",
+      // Два FK на inventory_documents (простой document_id + композитный
+      // tenant). Дизамбигуируем embed по имени простого FK, иначе PostgREST
+      // вернёт ambiguous-relationship.
+      "document_id, actual_amount, calculated_amount, inventory_documents!inventory_document_items_document_id_fkey(document_number, invoice_date, status)",
     )
     .eq("account_id", accountId)
     .eq("inventory_product_id", ingredientId);

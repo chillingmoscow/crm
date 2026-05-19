@@ -115,25 +115,28 @@ export default async function InventoryProductsPage({
   // активного venue. RLS уже venue-scope-ит documents/document_items;
   // дополнительно сужаем по venue_id активного заведения, чтобы режим
   // означал именно «этого заведения» (а не «всех видимых»).
+  // venue-режим ВСЕГДА фильтрует (пустой набор без активного venue) —
+  // иначе данные не соответствовали бы лейблу (Codex P1 #366).
   let venueIngredientIds: Set<string> | null = null;
-  if (venueScoped && activeVenueId) {
-    const { data: venueDocs } = await db
-      .from<Array<{ id: string }>>("documents")
-      .select("id")
-      .eq("venue_id", activeVenueId);
-    const docIds = (venueDocs ?? []).map((d) => d.id);
-    if (docIds.length > 0) {
-      const { data: usedItems } = await db
-        .from<Array<{ ingredient_id: string | null }>>("document_items")
-        .select("ingredient_id")
-        .in("document_id", docIds);
-      venueIngredientIds = new Set(
-        (usedItems ?? [])
-          .map((i) => i.ingredient_id)
-          .filter((id): id is string => Boolean(id)),
-      );
-    } else {
-      venueIngredientIds = new Set();
+  if (venueScoped) {
+    venueIngredientIds = new Set();
+    if (activeVenueId) {
+      const { data: venueDocs } = await db
+        .from<Array<{ id: string }>>("documents")
+        .select("id")
+        .eq("venue_id", activeVenueId);
+      const docIds = (venueDocs ?? []).map((d) => d.id);
+      if (docIds.length > 0) {
+        const { data: usedItems } = await db
+          .from<Array<{ ingredient_id: string | null }>>("document_items")
+          .select("ingredient_id")
+          .in("document_id", docIds);
+        venueIngredientIds = new Set(
+          (usedItems ?? [])
+            .map((i) => i.ingredient_id)
+            .filter((id): id is string => Boolean(id)),
+        );
+      }
     }
   }
 

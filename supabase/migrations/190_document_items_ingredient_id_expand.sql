@@ -33,11 +33,21 @@ language plpgsql
 set search_path = public, pg_catalog
 as $$
 begin
-  -- Зеркалим обе колонки: какой бы версией кода ни писалась строка
-  -- (старая → inventory_product_id, новая → ingredient_id), обе
-  -- остаются согласованы на время перехода.
-  new.ingredient_id := coalesce(new.ingredient_id, new.inventory_product_id);
-  new.inventory_product_id := coalesce(new.inventory_product_id, new.ingredient_id);
+  -- Держим обе колонки согласованными независимо от версии кода.
+  if tg_op = 'INSERT' then
+    -- Заполнена одна — зеркалим в другую.
+    new.ingredient_id := coalesce(new.ingredient_id, new.inventory_product_id);
+    new.inventory_product_id := coalesce(new.inventory_product_id, new.ingredient_id);
+  else
+    -- UPDATE: пропагируем именно ИЗМЕНЁННУЮ колонку (coalesce-fill
+    -- здесь недостаточно — если обе non-null, изменение одной не
+    -- доходило бы до другой и строки расходились бы).
+    if new.ingredient_id is distinct from old.ingredient_id then
+      new.inventory_product_id := new.ingredient_id;
+    elsif new.inventory_product_id is distinct from old.inventory_product_id then
+      new.ingredient_id := new.inventory_product_id;
+    end if;
+  end if;
   return new;
 end;
 $$;

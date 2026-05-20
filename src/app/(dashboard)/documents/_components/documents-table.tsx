@@ -150,6 +150,7 @@ export function DocumentsTable({
 
   const [search, setSearch] = useState(filtersFromUrl.q ?? "");
   const [searchOpen, setSearchOpen] = useState(Boolean(filtersFromUrl.q));
+  const [filtersVisible, setFiltersVisible] = useState(true);
   const [isSyncing, startSyncTransition] = useTransition();
 
   // ── URL sync ───────────────────────────────────────────────
@@ -333,6 +334,11 @@ export function DocumentsTable({
               onOpenChange: setSearchOpen,
               placeholder: "Поиск",
             }}
+            filters={{
+              active: filtersVisible || hasActiveControls,
+              label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
+              onClick: () => setFiltersVisible((v) => !v),
+            }}
             sort={{
               active: sortFromUrl !== DEFAULT_SORT,
               content: <SortPanel value={sortFromUrl} onChange={onSortChange} />,
@@ -362,7 +368,9 @@ export function DocumentsTable({
         }
       />
 
-      {/* Filter pins row — всегда видимая, как в финансах */}
+      {/* Filter pins row — показывается/скрывается кнопкой «Фильтры» в шапке
+          (паттерн controlsVariant="pins" из dev/table-lab → FinanceDemo). */}
+      {filtersVisible ? (
       <div className="flex flex-wrap items-center gap-2">
         <TableControlPin
           active={Boolean(filtersFromUrl.venue) && filtersFromUrl.venue !== "all"}
@@ -436,6 +444,7 @@ export function DocumentsTable({
           </Button>
         ) : null}
       </div>
+      ) : null}
 
       {/* Desktop table */}
       <div className="hidden overflow-hidden rounded-lg border bg-background md:block">

@@ -1,30 +1,26 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  Archive,
   ArrowDownCircle,
   ArrowUpCircle,
   Loader2,
   Pencil,
   Plus,
-  RotateCcw,
   Search,
-  Trash2,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
-  deactivateFinanceCategory,
-  deleteFinanceCategory,
-  reactivateFinanceCategory,
+  archiveFinanceCategory,
 } from "@/lib/finance/categories";
 import type {
   FinanceCategoryGroupRow,
@@ -36,15 +32,15 @@ type Props = {
   categories: FinanceCategoryRow[];
   groups: FinanceCategoryGroupRow[];
   canManage: boolean;
+  archivedCount: number;
 };
 
 type TypeTab = "all" | "income" | "expense";
 
-export function CategoriesClient({ categories, groups, canManage }: Props) {
+export function CategoriesClient({ categories, groups, canManage, archivedCount }: Props) {
   const router = useRouter();
   const [tab, setTab] = useState<TypeTab>("all");
   const [search, setSearch] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [createMode, setCreateMode] = useState<null | { type: "income" | "expense" }>(null);
@@ -57,15 +53,16 @@ export function CategoriesClient({ categories, groups, canManage }: Props) {
     return map;
   }, [groups]);
 
+  // Архивные не показываем в общем списке — для них /archive страница.
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("ru-RU");
     return categories.filter((c) => {
-      if (!showInactive && !c.is_active) return false;
+      if (c.archived_at) return false;
       if (tab !== "all" && c.type !== tab) return false;
       if (q && !c.name.toLocaleLowerCase("ru-RU").includes(q)) return false;
       return true;
     });
-  }, [categories, search, tab, showInactive]);
+  }, [categories, search, tab]);
 
   const incomeRows  = filtered.filter((c) => c.type === "income");
   const expenseRows = filtered.filter((c) => c.type === "expense");
@@ -75,52 +72,17 @@ export function CategoriesClient({ categories, groups, canManage }: Props) {
       ? categories.find((c) => c.id === editingId) ?? null
       : null;
 
-  const handleDeactivate = (id: string, name: string) => {
-    if (!window.confirm(`Скрыть статью «${name}»? Существующие транзакции сохранят ссылку.`)) return;
+  const handleArchive = (id: string, name: string) => {
+    if (!window.confirm(`Архивировать статью «${name}»? Существующие транзакции сохранят ссылку. Восстановить можно из /finance/categories/archive.`)) return;
     setBusyId(id);
     startTransition(async () => {
-      const { error } = await deactivateFinanceCategory(id);
+      const { error } = await archiveFinanceCategory(id, { confirmName: name });
       setBusyId(null);
       if (error) {
         toast.error(error);
         return;
       }
-      toast.success("Статья скрыта");
-      router.refresh();
-    });
-  };
-
-  const handleRestore = (id: string) => {
-    setBusyId(id);
-    startTransition(async () => {
-      const { error } = await reactivateFinanceCategory(id);
-      setBusyId(null);
-      if (error) {
-        toast.error(error);
-        return;
-      }
-      toast.success("Статья восстановлена");
-      router.refresh();
-    });
-  };
-
-  const handleDelete = (id: string, name: string) => {
-    if (
-      !window.confirm(
-        `Удалить статью «${name}» безвозвратно? Если на неё ссылаются транзакции, ссылка станет пустой.`
-      )
-    ) {
-      return;
-    }
-    setBusyId(id);
-    startTransition(async () => {
-      const { error } = await deleteFinanceCategory(id);
-      setBusyId(null);
-      if (error) {
-        toast.error(error);
-        return;
-      }
-      toast.success("Статья удалена");
+      toast.success("Статья в архиве");
       router.refresh();
     });
   };
@@ -171,15 +133,14 @@ export function CategoriesClient({ categories, groups, canManage }: Props) {
             className="pl-9"
           />
         </div>
-        {canManage && (
-          <Label className="flex items-center gap-2 text-sm text-muted-foreground font-normal cursor-pointer select-none">
-            <Checkbox
-              checked={showInactive}
-              onCheckedChange={(v) => setShowInactive(v === true)}
-            />
-            Показать скрытые
-          </Label>
-        )}
+        {archivedCount > 0 ? (
+          <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+            <Link href="/finance/categories/archive">
+              <Archive className="mr-1.5 h-4 w-4" />
+              Архив ({archivedCount})
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       {/* Lists */}
@@ -193,9 +154,7 @@ export function CategoriesClient({ categories, groups, canManage }: Props) {
             canManage={canManage}
             busyId={busyId}
             onEdit={setEditingId}
-            onDeactivate={handleDeactivate}
-            onRestore={handleRestore}
-            onDelete={handleDelete}
+            onArchive={handleArchive}
           />
         )}
         {(tab === "all" || tab === "expense") && (
@@ -207,9 +166,7 @@ export function CategoriesClient({ categories, groups, canManage }: Props) {
             canManage={canManage}
             busyId={busyId}
             onEdit={setEditingId}
-            onDeactivate={handleDeactivate}
-            onRestore={handleRestore}
-            onDelete={handleDelete}
+            onArchive={handleArchive}
           />
         )}
       </div>
@@ -272,9 +229,7 @@ function CategoryColumn({
   canManage,
   busyId,
   onEdit,
-  onDeactivate,
-  onRestore,
-  onDelete,
+  onArchive,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -283,9 +238,7 @@ function CategoryColumn({
   canManage: boolean;
   busyId: string | null;
   onEdit: (id: string) => void;
-  onDeactivate: (id: string, name: string) => void;
-  onRestore: (id: string) => void;
-  onDelete: (id: string, name: string) => void;
+  onArchive: (id: string, name: string) => void;
 }) {
   return (
     <section className="space-y-2">
@@ -300,14 +253,10 @@ function CategoryColumn({
         <ul className="divide-y rounded-md border bg-background">
           {rows.map((row) => {
             const group = row.group_id ? groupsById.get(row.group_id) : null;
-            const inactive = !row.is_active;
             return (
               <li
                 key={row.id}
-                className={cn(
-                  "flex items-center justify-between gap-3 px-3 py-2",
-                  inactive && "opacity-60"
-                )}
+                className="flex items-center justify-between gap-3 px-3 py-2"
               >
                 <div className="flex items-center gap-2 min-w-0">
                   {row.color && (
@@ -328,13 +277,8 @@ function CategoryColumn({
                       системная
                     </Badge>
                   )}
-                  {inactive && (
-                    <Badge variant="outline" className="text-xs font-normal shrink-0">
-                      скрыта
-                    </Badge>
-                  )}
                 </div>
-                {canManage && (
+                {canManage && !row.is_system && (
                   <div className="flex items-center gap-1 shrink-0">
                     <IconTooltip label="Редактировать">
                       <Button
@@ -347,53 +291,21 @@ function CategoryColumn({
                         <Pencil className="h-4 w-4" />
                       </Button>
                     </IconTooltip>
-                    {row.is_active ? (
-                      <IconTooltip label="Скрыть категорию">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onDeactivate(row.id, row.name)}
-                          disabled={busyId === row.id}
-                        >
-                          {busyId === row.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </IconTooltip>
-                    ) : (
-                      <IconTooltip label="Восстановить">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onRestore(row.id)}
-                          disabled={busyId === row.id}
-                        >
-                          {busyId === row.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <RotateCcw className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </IconTooltip>
-                    )}
-                    {!row.is_active && (
-                      <IconTooltip label="Удалить навсегда">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onDelete(row.id, row.name)}
-                          disabled={busyId === row.id}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </IconTooltip>
-                    )}
+                    <IconTooltip label="Архивировать">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onArchive(row.id, row.name)}
+                        disabled={busyId === row.id}
+                      >
+                        {busyId === row.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Archive className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </IconTooltip>
                   </div>
                 )}
               </li>

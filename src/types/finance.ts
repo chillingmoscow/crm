@@ -9,7 +9,14 @@ import type { Tables } from "./database";
 export type BankAccountGroupRow      = Tables<"bank_account_groups">;
 export type BankAccountRow           = Tables<"bank_accounts">;
 export type FinanceCategoryGroupRow  = Tables<"finance_category_groups">;
-export type FinanceCategoryRow       = Tables<"finance_categories">;
+// Adapter: миграция 202 заменила is_active на archived_at + archived_by;
+// Database-типы ещё не регенерены. Берём базовый Tables-row и наслаиваем
+// новые поля + убираем удалённые. Это идиоматичный паттерн для свежих миграций.
+type FinanceCategoryRowBase = Omit<Tables<"finance_categories">, "is_active">;
+export type FinanceCategoryRow = FinanceCategoryRowBase & {
+  archived_at: string | null;
+  archived_by: string | null;
+};
 export type CounterpartyGroupRow     = Tables<"counterparty_groups">;
 export type CounterpartyRow          = Tables<"counterparties">;
 export type TransactionRow           = Tables<"transactions">;

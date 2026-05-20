@@ -403,17 +403,27 @@ async function resolveDefaultVenueId(input: {
 }) {
   // 1. QR-импортированное venue (priority — основной кейс).
   // В норме строка одна на (account, provider='quickresto', entity_type='venue').
-  // Если их несколько (multi-cloud, issue #362) — берём любую: пока
-  // multi-cloud не реализован, такой случай не возникает; когда дойдём
-  // до него, придётся выбирать venue по connection_id sync-сессии.
+  // Codex P1 #378: нет FK external_entity_links.local_id → venues.id,
+  // поэтому возможен orphan (venue hard-удалён, link остался) или
+  // ссылка на архивный venue. Перед использованием проверяем что
+  // venue физически существует и live — иначе fallback ниже.
+  // Multi-cloud (issue #362) пока не реализован.
   const { data: qrVenueLinks } = await input.admin
     .from<Array<{ local_id: string }>>("external_entity_links")
     .select("local_id")
     .eq("account_id", input.accountId)
     .eq("provider", "quickresto")
     .eq("entity_type", "venue");
-  if (qrVenueLinks && qrVenueLinks.length > 0 && qrVenueLinks[0].local_id) {
-    return qrVenueLinks[0].local_id;
+  const qrVenueId = qrVenueLinks?.[0]?.local_id;
+  if (qrVenueId) {
+    const { data: qrVenue } = await input.admin
+      .from<{ id: string; archived_at: string | null }>("venues")
+      .select("id, archived_at")
+      .eq("id", qrVenueId)
+      .eq("account_id", input.accountId)
+      .maybeSingle();
+    if (qrVenue?.id && !qrVenue.archived_at) return qrVenue.id;
+    // orphan / archived — пропускаем, идём на fallback
   }
 
   // 2. Fallback: активный venue (legacy-поведение, защита от регресса)

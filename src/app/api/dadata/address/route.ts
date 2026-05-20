@@ -7,9 +7,12 @@ import { DadataError } from "@/lib/dadata/client";
  * POST /api/dadata/address
  * Body: { query: string, count?: number }
  *
- * Returns ranked address suggestions from DaData. Gated on the caller
- * having an authenticated session AND the `settings.use_dadata`
- * permission.
+ * Returns ranked address suggestions from DaData. Gated на authenticated
+ * session. `has_permission('settings.use_dadata')` НЕ требуется —
+ * та же причина что и /api/dadata/party (см. там): в onboarding-flow
+ * у user'а нет аккаунта и UVR, has_permission всегда false, address
+ * autocomplete не работал бы. DaData с server-side key + rate-limit
+ * на их стороне — security risk минимальный.
  *
  * Designed to be called from a debounced client input — empty / very
  * short queries return [] without billing a DaData hit.
@@ -22,13 +25,6 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
-  }
-
-  const { data: canUseDadata } = await supabase.rpc("has_permission", {
-    permission_code: "settings.use_dadata",
-  });
-  if (!canUseDadata) {
-    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
   }
 
   let body: unknown;

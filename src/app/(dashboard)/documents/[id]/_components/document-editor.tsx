@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/actions";
 
 type EditorDocument = {
@@ -134,6 +135,16 @@ export function InventoryDocumentEditor({
   const [sortMode, setSortMode] = useState("order");
   const [isPending, startTransition] = useTransition();
 
+  // Snapshot значений «на момент сортировки» — обновляется только при
+  // blur input'а или смене sortMode. Без этого режим «Пустые сверху/снизу»
+  // перестраивал список на КАЖДЫЙ keystroke (sort использовал live
+  // values), выкидывая активную ячейку в другое место (UX-баг).
+  // Теперь строка остаётся на месте пока user печатает; перестановка
+  // случается после выхода из поля.
+  const [sortValuesSnapshot, setSortValuesSnapshot] = useState<Record<string, string>>(() =>
+    Object.fromEntries(items.map((item) => [item.id, toInputValue(item.submittedAmount)]))
+  );
+
   const itemOrderById = useMemo(
     () => new Map(items.map((item, index) => [item.id, index])),
     [items]
@@ -192,8 +203,10 @@ export function InventoryDocumentEditor({
         return sortMode === "group_asc" ? result : -result;
       }
       if (sortMode === "empty_first" || sortMode === "empty_last") {
-        const leftEmpty = (values[left.id] ?? "").trim() === "";
-        const rightEmpty = (values[right.id] ?? "").trim() === "";
+        // Используем snapshot, не live values — иначе на каждый
+        // keystroke в active input строка перепрыгивала.
+        const leftEmpty = (sortValuesSnapshot[left.id] ?? "").trim() === "";
+        const rightEmpty = (sortValuesSnapshot[right.id] ?? "").trim() === "";
         if (leftEmpty !== rightEmpty) {
           return sortMode === "empty_first"
             ? leftEmpty ? -1 : 1
@@ -202,7 +215,16 @@ export function InventoryDocumentEditor({
       }
       return (itemOrderById.get(left.id) ?? 0) - (itemOrderById.get(right.id) ?? 0);
     });
-  }, [itemOrderById, items, searchQuery, selectedGroupIds, sortMode, values]);
+  }, [itemOrderById, items, searchQuery, selectedGroupIds, sortMode, sortValuesSnapshot]);
+
+  // При переключении sortMode на «пусто-фильтр» — обновить snapshot, чтобы
+  // первая сортировка отражала текущие values.
+  useEffect(() => {
+    if (sortMode === "empty_first" || sortMode === "empty_last") {
+      setSortValuesSnapshot({ ...values });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sortMode]);
 
   const draftKey = useMemo(
     () => `inventory:${document.id}`,
@@ -434,8 +456,20 @@ export function InventoryDocumentEditor({
           <div className="rounded-lg border bg-background px-4 py-10 text-center text-sm text-muted-foreground">
             По текущему поиску и группе позиций нет.
           </div>
-        ) : visibleItems.map((item) => (
-          <div key={item.id} className="grid grid-cols-[64px_1fr_112px] items-center gap-3 rounded-lg border bg-background p-2">
+        ) : visibleItems.map((item) => {
+          const isFilled = (values[item.id] ?? "").trim() !== "";
+          return (
+          <div
+            key={item.id}
+            className={cn(
+              "grid grid-cols-[64px_1fr_112px] items-center gap-3 rounded-lg border p-2 transition-colors",
+              // Визуальное различие: заполненные строки светло-зелёные,
+              // пустые — нейтральные. При скролле сразу видно прогресс.
+              isFilled
+                ? "border-emerald-200 bg-emerald-50/40"
+                : "border-border bg-background",
+            )}
+          >
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
               {item.imageUrl ? (
                 <img src={item.imageUrl} alt={item.productName} className="h-full w-full object-cover" />
@@ -459,11 +493,20 @@ export function InventoryDocumentEditor({
                 const next = event.target.value.replace(/[^\d.,-]/g, "");
                 setValues((prev) => ({ ...prev, [item.id]: next }));
               }}
+              onBlur={() => {
+                // Обновляем snapshot для sort режима «пусто-фильтр» —
+                // перестановка строк случается ТОЛЬКО при потере фокуса,
+                // не во время ввода.
+                if (sortMode === "empty_first" || sortMode === "empty_last") {
+                  setSortValuesSnapshot({ ...values });
+                }
+              }}
               aria-label={`Факт: ${item.productName}`}
               className="text-right"
             />
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="sticky bottom-0 mt-4 border-t bg-background/95 py-3 backdrop-blur">

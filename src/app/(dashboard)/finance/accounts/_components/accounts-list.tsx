@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  Archive,
   Banknote,
   CreditCard,
   Landmark,
@@ -15,9 +16,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -38,6 +37,7 @@ type Props = {
   groups: BankAccountGroupRow[];
   legalEntityNames: Record<string, string>;
   canManage: boolean;
+  archivedCount: number;
   amountRoundingScale: AmountRoundingScale;
 };
 
@@ -66,17 +66,19 @@ export function AccountsList({
   groups,
   legalEntityNames,
   canManage,
+  archivedCount,
   amountRoundingScale,
 }: Props) {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>(ALL_TYPES);
   const [groupFilter, setGroupFilter] = useState<string>(ALL_GROUPS);
-  const [showDeleted, setShowDeleted] = useState(false);
 
+  // Архивные счета в общем списке не показываем — для них отдельная
+  // /archive страница (owner-only).
   const filtered = useMemo(() => {
     const q = search.trim().toLocaleLowerCase("ru-RU");
     return accounts.filter((a) => {
-      if (!showDeleted && a.deleted_at) return false;
+      if (a.deleted_at) return false;
       if (typeFilter !== ALL_TYPES && a.type !== typeFilter) return false;
       if (groupFilter === NO_GROUP && a.group_id) return false;
       if (
@@ -91,7 +93,7 @@ export function AccountsList({
       if (a.bank_name && a.bank_name.toLocaleLowerCase("ru-RU").includes(q)) return true;
       return false;
     });
-  }, [accounts, search, typeFilter, groupFilter, showDeleted]);
+  }, [accounts, search, typeFilter, groupFilter]);
 
   const groupName = (id: string | null): string | null => {
     if (!id) return null;
@@ -115,14 +117,24 @@ export function AccountsList({
             автоматически при создании транзакций.
           </p>
         </div>
-        {canManage && (
-          <Button asChild>
-            <Link href="/finance/accounts/new">
-              <Plus className="mr-1.5 h-4 w-4" />
-              Создать
-            </Link>
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {archivedCount > 0 ? (
+            <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+              <Link href="/finance/accounts/archive">
+                <Archive className="mr-1.5 h-4 w-4" />
+                Архив ({archivedCount})
+              </Link>
+            </Button>
+          ) : null}
+          {canManage && (
+            <Button asChild>
+              <Link href="/finance/accounts/new">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Создать
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -163,15 +175,6 @@ export function AccountsList({
               ))}
             </SelectContent>
           </Select>
-        )}
-        {canManage && (
-          <Label className="flex items-center gap-2 text-sm text-muted-foreground font-normal cursor-pointer select-none">
-            <Checkbox
-              checked={showDeleted}
-              onCheckedChange={(v) => setShowDeleted(v === true)}
-            />
-            Показать удалённые
-          </Label>
         )}
       </div>
 

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
 import {
   getBankAccount,
+  getBankAccountArchiveImpact,
   listBankAccountGroups,
 } from "@/lib/finance/bank-accounts";
 import { listAuditEvents } from "@/lib/audit/list";
@@ -30,23 +31,35 @@ export default async function BankAccountDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: canView }, { data: canManage }, { data: canViewAudit }] =
-    await Promise.all([
-      supabase.rpc("has_permission", { permission_code: "finance.view_bank_accounts" }),
-      supabase.rpc("has_permission", { permission_code: "finance.manage_bank_accounts" }),
-      supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
-    ]);
+  const [
+    { data: canView },
+    { data: canManage },
+    { data: canViewAudit },
+    { data: canHardDelete },
+    { data: activeAccountId },
+  ] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "finance.view_bank_accounts" }),
+    supabase.rpc("has_permission", { permission_code: "finance.manage_bank_accounts" }),
+    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
+    supabase.rpc("has_permission", { permission_code: "finance.delete_bank_account" }),
+    supabase.rpc("get_active_account_id"),
+  ]);
   if (!canView) redirect("/dashboard");
+
+  const { data: isOwner } = activeAccountId
+    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+    : { data: false };
 
   const { row, error } = await getBankAccount(id);
   if (error || !row) redirect("/finance/accounts");
 
-  const [{ rows: legalEntities }, { rows: venues }, { rows: groups }, amountRoundingScale] =
+  const [{ rows: legalEntities }, { rows: venues }, { rows: groups }, amountRoundingScale, archiveImpact] =
     await Promise.all([
       listLegalEntities(),
       listAccountVenues(),
       listBankAccountGroups(),
       getActiveAccountAmountRoundingScale(),
+      getBankAccountArchiveImpact(id),
     ]);
 
   const auditResult = canViewAudit
@@ -85,6 +98,9 @@ export default async function BankAccountDetailPage({
             venues={venues}
             groups={groups}
             canManage={!!canManage}
+            canArchive={!!isOwner}
+            canHardDelete={!!canHardDelete}
+            archiveImpact={archiveImpact}
             amountRoundingScale={amountRoundingScale}
           />
         }

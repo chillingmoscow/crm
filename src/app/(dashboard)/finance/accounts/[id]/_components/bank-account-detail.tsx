@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2, RotateCcw, Trash2 } from "lucide-react";
+import { Loader2, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,10 +14,11 @@ import {
 } from "@/components/ui/card";
 import {
   restoreBankAccount,
-  softDeleteBankAccount,
+  type BankAccountArchiveImpact,
 } from "@/lib/finance/bank-accounts";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { BankAccountForm } from "../../_components/bank-account-form";
+import { BankAccountDangerZone } from "./bank-account-danger-zone";
 import type {
   BankAccountGroupRow,
   BankAccountRow,
@@ -41,6 +42,9 @@ type Props = {
   venues: VenueOption[];
   groups: BankAccountGroupRow[];
   canManage: boolean;
+  canArchive: boolean;
+  canHardDelete: boolean;
+  archiveImpact: BankAccountArchiveImpact;
   amountRoundingScale: AmountRoundingScale;
 };
 
@@ -50,34 +54,16 @@ export function BankAccountDetail({
   venues,
   groups,
   canManage,
+  canArchive,
+  canHardDelete,
+  archiveImpact,
   amountRoundingScale,
 }: Props) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"delete" | "restore" | null>(null);
+  const [busy, setBusy] = useState<"restore" | null>(null);
   const [, startTransition] = useTransition();
 
   const isDeleted = !!row.deleted_at;
-
-  const handleSoftDelete = () => {
-    if (
-      !window.confirm(
-        `Удалить счёт «${row.name}»? Существующие транзакции сохранят ссылку.`
-      )
-    ) {
-      return;
-    }
-    setBusy("delete");
-    startTransition(async () => {
-      const { error } = await softDeleteBankAccount(row.id);
-      setBusy(null);
-      if (error) {
-        toast.error(error);
-        return;
-      }
-      toast.success("Счёт удалён");
-      router.push("/finance/accounts");
-    });
-  };
 
   const handleRestore = () => {
     setBusy("restore");
@@ -113,40 +99,22 @@ export function BankAccountDetail({
         </CardContent>
       </Card>
 
-      {canManage && (
+      {isDeleted && canArchive && (
         <div className="flex flex-wrap items-center gap-2">
-          {isDeleted ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleRestore}
-              disabled={busy !== null}
-            >
-              {busy === "restore" ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <RotateCcw className="mr-1.5 h-4 w-4" />
-              )}
-              Восстановить
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleSoftDelete}
-              disabled={busy !== null}
-              className="text-destructive hover:text-destructive"
-            >
-              {busy === "delete" ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="mr-1.5 h-4 w-4" />
-              )}
-              Удалить
-            </Button>
-          )}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRestore}
+            disabled={busy !== null}
+          >
+            {busy === "restore" ? (
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-1.5 h-4 w-4" />
+            )}
+            Восстановить
+          </Button>
         </div>
       )}
 
@@ -170,11 +138,23 @@ export function BankAccountDetail({
           />
           {isDeleted && (
             <p className="mt-3 text-xs text-muted-foreground italic">
-              Счёт в удалённых. Восстановите его, чтобы редактировать.
+              Счёт в архиве. Восстановите его, чтобы редактировать.
             </p>
           )}
         </CardContent>
       </Card>
+
+      {/* Danger zone — только владельцу (archive/delete actions гейтятся
+          owner-check на сервере). Для не-архивных. Архивные имеют
+          кнопку «Восстановить» в шапке + могут быть удалены из /archive. */}
+      {canArchive && !isDeleted ? (
+        <BankAccountDangerZone
+          bankAccountId={row.id}
+          bankAccountName={row.name}
+          impact={archiveImpact}
+          canHardDelete={canHardDelete}
+        />
+      ) : null}
     </div>
   );
 }

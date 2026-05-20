@@ -145,20 +145,85 @@ export async function updateBankAccount(
   return { error: null };
 }
 
-/**
- * Soft-delete a bank account by setting deleted_at. The transactions
- * trigger keeps balance consistent — but RESTRICT on bank_account_id
- * means the account can't be hard-deleted while transactions reference
- * it. Soft delete sidesteps that.
- */
-export async function softDeleteBankAccount(
+// ────────────────────────────────────────────────────────────────────────
+//  Archive / Restore / Hard-delete — docs/CONVENTIONS.md §2
+//
+//  Bank accounts — **archive-only по дизайну**: hard-delete блокируется
+//  ON DELETE RESTRICT от transactions (миграция 040). UI скрывает кнопку
+//  hard-delete если есть транзакции. Action оставлен для случая снятых
+//  блокеров.
+// ────────────────────────────────────────────────────────────────────────
+
+export type BankAccountArchiveImpact = {
+  /** Транзакции, ссылающиеся на этот счёт (RESTRICT — блокируют hard-delete). */
+  transactions: number;
+};
+
+async function assertBankAccountOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  bankAccountId: string,
+  userId: string,
+): Promise<{ ok: true; account_id: string; name: string } | { ok: false; error: string }> {
+  const { data: row } = await supabase
+    .from("bank_accounts")
+    .select("id, name, account_id")
+    .eq("id", bankAccountId)
+    .maybeSingle();
+  if (!row) return { ok: false, error: "Счёт не найден" };
+
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("owner_id")
+    .eq("id", row.account_id)
+    .maybeSingle();
+  if (!account || account.owner_id !== userId) {
+    return { ok: false, error: "Действие доступно только владельцу аккаунта" };
+  }
+  return { ok: true, account_id: row.account_id, name: row.name };
+}
+
+export async function getBankAccountArchiveImpact(
   id: string
+): Promise<BankAccountArchiveImpact> {
+  const supabase = await createClient();
+  const headOpts = { count: "exact" as const, head: true };
+
+  const [from_, to_] = await Promise.all([
+    supabase.from("transactions").select("id", headOpts).eq("bank_account_id", id),
+    supabase.from("transactions").select("id", headOpts).eq("to_bank_account_id", id),
+  ]);
+  return { transactions: (from_.count ?? 0) + (to_.count ?? 0) };
+}
+
+/**
+ * Архивирует счёт. Транзакции сохраняют ссылку (composite FK RESTRICT,
+ * но при архиве оригинал жив — FK не срабатывает). Идемпотентно.
+ */
+export async function archiveBankAccount(
+  id: string,
+  opts: { confirmName: string }
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertBankAccountOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  const { data: row, error: fetchErr } = await supabase
+    .from("bank_accounts")
+    .select("id, name, deleted_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) return { error: fetchErr.message };
+  if (!row) return { error: "Счёт не найден" };
+  if (row.deleted_at) return { error: null }; // идемпотентно
+
+  if (opts.confirmName.trim() !== row.name.trim()) {
+    return { error: "Введите название точно как у счёта" };
+  }
 
   const { error } = await supabase
     .from("bank_accounts")
@@ -168,22 +233,86 @@ export async function softDeleteBankAccount(
       is_active: false,
     })
     .eq("id", id);
-
   if (error) return { error: error.message };
+
   revalidatePath("/finance/accounts");
+  revalidatePath("/finance/accounts/archive");
+  revalidatePath(`/finance/accounts/${id}`);
   return { error: null };
+}
+
+/** @deprecated Use archiveBankAccount. */
+export async function softDeleteBankAccount(
+  id: string
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const { data: row } = await supabase
+    .from("bank_accounts")
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return { error: "Счёт не найден" };
+  return archiveBankAccount(id, { confirmName: row.name });
 }
 
 export async function restoreBankAccount(
   id: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertBankAccountOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
   const { error } = await supabase
     .from("bank_accounts")
     .update({ deleted_at: null, deleted_by: null, is_active: true })
     .eq("id", id);
   if (error) return { error: error.message };
+
   revalidatePath("/finance/accounts");
+  revalidatePath("/finance/accounts/archive");
+  revalidatePath(`/finance/accounts/${id}`);
+  return { error: null };
+}
+
+/**
+ * Hard delete. RESTRICT-precheck по транзакциям; в большинстве случаев
+ * упадёт. Action оставлен для случая ручного снятия блокеров.
+ * Permission finance.delete_bank_account (миграция 201, owner-only).
+ */
+export async function deleteBankAccount(
+  id: string,
+  opts: { confirmName: string }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertBankAccountOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у счёта" };
+  }
+
+  const impact = await getBankAccountArchiveImpact(id);
+  if (impact.transactions > 0) {
+    return {
+      error: `Нельзя удалить — есть транзакции по этому счёту (${impact.transactions}). Используйте «Архивировать» или удалите транзакции.`,
+    };
+  }
+
+  const { error } = await supabase.from("bank_accounts").delete().eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/finance/accounts");
+  revalidatePath("/finance/accounts/archive");
   return { error: null };
 }
 

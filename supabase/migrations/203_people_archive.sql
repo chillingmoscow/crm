@@ -65,6 +65,68 @@ create trigger roles_guard_system_archive
   for each row
   execute function public.roles_guard_system_archive();
 
+-- ── Codex P1 #376: owner-only гард на UPDATE archived_at ──────
+-- RLS update-policy (roles_update_manage / dep_update_manage) разрешают
+-- любые UPDATE при наличии manage_roles — manager без owner-доступа
+-- мог бы архивировать роль/отдел прямо через PostgREST, минуя
+-- server-action owner-check. Триггеры блокируют не-owner для смены
+-- archived_at. Тот же подход — для hard-delete через RLS-policy ниже.
+create or replace function public.roles_guard_archive_owner_only()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_is_owner boolean;
+begin
+  v_is_owner := exists (
+    select 1 from public.accounts
+    where id = public.venue_account_id(NEW.venue_id)
+      and owner_id = auth.uid()
+  );
+  if not v_is_owner then
+    raise exception 'Архивирование/восстановление роли доступно только владельцу аккаунта';
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists roles_guard_archive_owner_only on public.roles;
+create trigger roles_guard_archive_owner_only
+  before update of archived_at on public.roles
+  for each row
+  when (OLD.archived_at is distinct from NEW.archived_at)
+  execute function public.roles_guard_archive_owner_only();
+
+create or replace function public.departments_guard_archive_owner_only()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_is_owner boolean;
+begin
+  v_is_owner := exists (
+    select 1 from public.accounts
+    where id = public.venue_account_id(NEW.venue_id)
+      and owner_id = auth.uid()
+  );
+  if not v_is_owner then
+    raise exception 'Архивирование/восстановление отдела доступно только владельцу аккаунта';
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists departments_guard_archive_owner_only on public.departments;
+create trigger departments_guard_archive_owner_only
+  before update of archived_at on public.departments
+  for each row
+  when (OLD.archived_at is distinct from NEW.archived_at)
+  execute function public.departments_guard_archive_owner_only();
+
 -- ── Permissions: hard-delete owner-only ───────────────────────
 insert into public.permissions (id, code, module, description)
 values
@@ -274,3 +336,24 @@ begin
   return NEW;
 end;
 $$;
+
+-- ── Codex P1 #376: RLS hard-delete owner-only ─────────────────
+-- Текущие *_delete_manage policies (миграция 172) разрешают DELETE
+-- любому с manage_roles. Ужесточаем до новых owner-only permissions
+-- people.delete_role / people.delete_department.
+drop policy if exists "roles_delete_manage" on public.roles;
+create policy "roles_delete_manage" on public.roles
+  for delete
+  using (
+    has_permission('people.delete_role')
+    and venue_id is not null
+    and venue_account_id(venue_id) = get_active_account_id()
+  );
+
+drop policy if exists "dep_delete_manage" on public.departments;
+create policy "dep_delete_manage" on public.departments
+  for delete
+  using (
+    has_permission('people.delete_department')
+    and venue_account_id(venue_id) = get_active_account_id()
+  );

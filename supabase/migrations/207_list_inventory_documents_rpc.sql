@@ -53,7 +53,7 @@ returns table (
   total bigint,
   id uuid,
   document_number text,
-  invoice_date date,
+  invoice_date timestamptz,
   status text,
   processed boolean,
   assigned_to uuid,
@@ -71,6 +71,7 @@ security invoker
 stable
 set search_path = public, pg_catalog
 as $$
+#variable_conflict use_column
 declare
   v_account_id uuid := public.get_active_account_id();
   v_user_id   uuid := (select auth.uid());
@@ -126,7 +127,7 @@ begin
       d.id,
       d.document_number,
       d.invoice_date,
-      d.status,
+      d.status::text as status,
       d.processed,
       d.assigned_to,
       d.shortfall_sum,
@@ -148,11 +149,11 @@ begin
         or (v_venue_unassigned and d.venue_id is null)
         or (v_venue_uuid is not null and d.venue_id = v_venue_uuid)
       )
-      -- status filter
+      -- status filter (status — enum, кастим в text для сравнения с text[])
       and (
         p_filter_status is null
         or array_length(p_filter_status, 1) is null
-        or d.status = any(p_filter_status)
+        or d.status::text = any(p_filter_status)
       )
       -- assigned filter
       and (

@@ -30,6 +30,7 @@ type DocumentRow = {
   results_has_line_amounts: boolean;
   item_count: number;
   store_title: string | null;
+  comment: string | null;
 };
 
 type StaffRow = {
@@ -144,15 +145,16 @@ export function DocumentsClient({
       </div>
 
       <div className="overflow-hidden rounded-lg border bg-background">
-        {/* Колонки: № | Дата | Статус | Склад | Итоги | Назначен | Действие.
+        {/* Колонки: № | Дата | Статус | Склад | Комментарий | Итоги | Назначен | Действие.
             «Строки» убран — счётчик позиций виден на детальной странице
-            акта; в общем списке он добавлял шума. Дата и Статус — теперь
-            отдельные столбцы (раньше были в подзаголовке ячейки «Акт»). */}
-        <div className="grid grid-cols-[1fr_140px] items-center border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground md:grid-cols-[110px_110px_160px_1fr_.9fr_180px_160px]">
+            акта; в общем списке он добавлял шума. Дата и Статус — отдельные
+            столбцы. Комментарий — труcate с full-text в title (hover). */}
+        <div className="grid grid-cols-[1fr_140px] items-center border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground md:grid-cols-[100px_100px_150px_.9fr_1fr_.9fr_180px_160px]">
           <div>№</div>
           <div className="hidden md:block">Дата</div>
           <div className="hidden md:block">Статус</div>
           <div className="hidden md:block">Склад</div>
+          <div className="hidden md:block">Комментарий</div>
           <div className="hidden md:block">Итоги</div>
           <div className="hidden md:block">Назначен</div>
           <div className="text-right">Действие</div>
@@ -165,7 +167,7 @@ export function DocumentsClient({
           documents.map((doc) => (
             <div
               key={doc.id}
-              className="grid grid-cols-[1fr_140px] items-center gap-3 border-b px-3 py-3 last:border-b-0 md:grid-cols-[110px_110px_160px_1fr_.9fr_180px_160px]"
+              className="grid grid-cols-[1fr_140px] items-center gap-3 border-b px-3 py-3 last:border-b-0 md:grid-cols-[100px_100px_150px_.9fr_1fr_.9fr_180px_160px]"
             >
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">№ {doc.document_number}</div>
@@ -191,6 +193,12 @@ export function DocumentsClient({
                 </Badge>
               </div>
               <div className="hidden truncate text-sm md:block">{doc.store_title ?? "—"}</div>
+              <div
+                className="hidden truncate text-sm text-muted-foreground md:block"
+                title={doc.comment ?? undefined}
+              >
+                {doc.comment ?? "—"}
+              </div>
               <div className="hidden text-sm md:block">
                 {doc.results_has_line_amounts ? (
                   <span>

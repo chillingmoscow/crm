@@ -5,7 +5,6 @@
  */
 
 export type DocumentSortMode =
-  | "inbox"
   | "date_desc"
   | "date_asc"
   | "number_desc"
@@ -13,13 +12,14 @@ export type DocumentSortMode =
   | "status";
 
 export const DOCUMENT_SORT_MODES = [
-  "inbox",
   "date_desc",
   "date_asc",
   "number_desc",
   "number_asc",
   "status",
 ] as const satisfies readonly DocumentSortMode[];
+
+export const DEFAULT_SORT: DocumentSortMode = "date_desc";
 
 export const DOCUMENT_STATUSES = [
   "synced",
@@ -41,7 +41,6 @@ export type ListDocumentsFilters = {
   status?: DocumentStatus[];
   /** 'any' | 'none' | 'me' | concrete user uuid. */
   assigned?: AssignedFilter;
-  store?: string[];
   date_from?: string;
   date_to?: string;
   q?: string;
@@ -93,27 +92,20 @@ export type NormalizedListOptions = {
   pageSize: number;
 };
 
-/**
- * Нормализует options → page/pageSize/sort с clamping и дефолтами.
- */
 export function normalizeListOptions(opts: ListDocumentsOptions = {}): NormalizedListOptions {
   const filters = opts.filters ?? {};
-  const sort = opts.sort ?? "inbox";
+  const sort = opts.sort ?? DEFAULT_SORT;
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, opts.pageSize ?? DEFAULT_PAGE_SIZE));
   return { filters, sort, page, pageSize };
 }
 
-/**
- * Собирает аргументы для RPC из нормализованных options.
- */
 export function buildRpcArgs(opts: NormalizedListOptions): Record<string, unknown> {
   const { filters, sort, page, pageSize } = opts;
   return {
     p_filter_venue: filters.venue ?? null,
     p_filter_status: filters.status && filters.status.length > 0 ? filters.status : null,
     p_filter_assigned: filters.assigned ?? null,
-    p_filter_store: filters.store && filters.store.length > 0 ? filters.store : null,
     p_filter_date_from: filters.date_from ?? null,
     p_filter_date_to: filters.date_to ?? null,
     p_filter_q: filters.q ?? null,
@@ -123,9 +115,6 @@ export function buildRpcArgs(opts: NormalizedListOptions): Record<string, unknow
   };
 }
 
-/**
- * Парсит ответ RPC: extract `total` из первой строки + чистит лишние поля.
- */
 export function parseRpcResponse(data: unknown): { rows: DocumentListRow[]; total: number } {
   const rows = (data as RpcRow[] | null) ?? [];
   if (rows.length === 0) {

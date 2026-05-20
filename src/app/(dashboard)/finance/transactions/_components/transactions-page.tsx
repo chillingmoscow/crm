@@ -68,7 +68,7 @@ import type {
 } from "@/lib/org/legal-entities";
 
 import { AmountRangeFilter } from "./filters/amount-range-filter";
-import { DateRangeFilter, type DateRangeValue } from "./filters/date-range-filter";
+import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import {
   MultiSelectFilter,
   type MultiSelectGroup,

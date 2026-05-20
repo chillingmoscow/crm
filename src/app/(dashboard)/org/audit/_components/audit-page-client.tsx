@@ -24,7 +24,7 @@ import { loadAuditFeedPage } from "@/lib/audit/feed";
 import {
   DateRangeFilter,
   type DateRangeValue,
-} from "@/app/(dashboard)/finance/transactions/_components/filters/date-range-filter";
+} from "@/components/shared/date-range-filter";
 import {
   MultiSelectFilter,
   type MultiSelectItem,

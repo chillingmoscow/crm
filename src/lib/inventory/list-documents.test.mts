@@ -6,12 +6,14 @@ import {
   normalizeListOptions,
   parseRpcResponse,
   DEFAULT_PAGE_SIZE,
+  DEFAULT_SORT,
   MAX_PAGE_SIZE,
 } from "./list-documents-shared.ts";
 
 test("normalizeListOptions: defaults", () => {
   const n = normalizeListOptions();
-  assert.equal(n.sort, "inbox");
+  assert.equal(n.sort, DEFAULT_SORT);
+  assert.equal(n.sort, "date_desc");
   assert.equal(n.page, 1);
   assert.equal(n.pageSize, DEFAULT_PAGE_SIZE);
   assert.deepEqual(n.filters, {});
@@ -35,34 +37,26 @@ test("buildRpcArgs: empty filters → all params null", () => {
   assert.equal(args.p_filter_venue, null);
   assert.equal(args.p_filter_status, null);
   assert.equal(args.p_filter_assigned, null);
-  assert.equal(args.p_filter_store, null);
   assert.equal(args.p_filter_date_from, null);
   assert.equal(args.p_filter_date_to, null);
   assert.equal(args.p_filter_q, null);
-  assert.equal(args.p_sort, "inbox");
+  assert.equal(args.p_sort, "date_desc");
   assert.equal(args.p_page, 1);
   assert.equal(args.p_page_size, 25);
 });
 
-test("buildRpcArgs: empty arrays → null (не отправляем пустой массив)", () => {
-  const args = buildRpcArgs(
-    normalizeListOptions({ filters: { status: [], store: [] } }),
-  );
+test("buildRpcArgs: пустой массив status → null", () => {
+  const args = buildRpcArgs(normalizeListOptions({ filters: { status: [] } }));
   assert.equal(args.p_filter_status, null);
-  assert.equal(args.p_filter_store, null);
 });
 
-test("buildRpcArgs: непустые массивы пробрасываются как есть", () => {
+test("buildRpcArgs: непустой status пробрасывается", () => {
   const args = buildRpcArgs(
     normalizeListOptions({
-      filters: {
-        status: ["assigned", "in_progress"],
-        store: ["store-uuid-1", "store-uuid-2"],
-      },
+      filters: { status: ["assigned", "in_progress"] },
     }),
   );
   assert.deepEqual(args.p_filter_status, ["assigned", "in_progress"]);
-  assert.deepEqual(args.p_filter_store, ["store-uuid-1", "store-uuid-2"]);
 });
 
 test("buildRpcArgs: assigned sentinel 'me' пробрасывается, раскрытие на сервере", () => {
@@ -92,11 +86,11 @@ test("buildRpcArgs: даты пробрасываются как ISO-строк�
   assert.equal(args.p_filter_date_to, "2026-05-31");
 });
 
-test("buildRpcArgs: sort пробрасывается, default inbox", () => {
-  assert.equal(buildRpcArgs(normalizeListOptions()).p_sort, "inbox");
+test("buildRpcArgs: sort пробрасывается, default date_desc", () => {
+  assert.equal(buildRpcArgs(normalizeListOptions()).p_sort, "date_desc");
   assert.equal(
-    buildRpcArgs(normalizeListOptions({ sort: "date_desc" })).p_sort,
-    "date_desc",
+    buildRpcArgs(normalizeListOptions({ sort: "number_desc" })).p_sort,
+    "number_desc",
   );
 });
 

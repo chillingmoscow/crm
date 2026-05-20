@@ -39,6 +39,7 @@ export {
   DOCUMENT_SORT_MODES,
   DOCUMENT_STATUSES,
   DEFAULT_PAGE_SIZE,
+  DEFAULT_SORT,
   MAX_PAGE_SIZE,
 } from "./list-documents-shared";
 

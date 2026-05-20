@@ -73,6 +73,18 @@ create policy "finance_categories_select_archived_owner" on public.finance_categ
     and is_account_owner(account_id)
   );
 
+-- Codex P1 #375: hard-delete policy ужесточаем до owner-only через
+-- новое право finance.delete_category. Раньше delete-policy (миграция
+-- 162) допускала finance.manage_categories — не-владелец мог обойти
+-- owner-check server actions через прямой Supabase-вызов.
+drop policy if exists "finance_categories_delete" on public.finance_categories;
+create policy "finance_categories_delete" on public.finance_categories
+  for delete
+  using (
+    account_id = get_active_account_id()
+    and has_permission('finance.delete_category')
+  );
+
 -- ── Audit-trigger: archived_at переходы + DELETE ветвь ────────
 create or replace function public.finance_categories_audit_trigger()
 returns trigger

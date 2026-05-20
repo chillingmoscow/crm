@@ -205,9 +205,10 @@ function EntityReference({
   }
 
   if (entity.type === "finance_category") {
-    // Архивированные категории (is_active=false) — без линка, по
+    // Архивированные категории (archived_at NOT NULL) — без линка, по
     // аналогии с soft-deleted transaction/bank_account/counterparty.
-    if (!entity.is_active) return null;
+    // Миграция 202: is_active → archived_at.
+    if (entity.archived_at) return null;
     return (
       <>
         <span className="text-muted-foreground/50">·</span>

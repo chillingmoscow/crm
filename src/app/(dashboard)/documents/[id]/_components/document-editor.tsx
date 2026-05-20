@@ -249,7 +249,15 @@ export function InventoryDocumentEditor({
       const draft = await readDraft(draftKey);
       if (!alive) return;
       if (draft?.values) {
-        setValues((prev) => ({ ...prev, ...draft.values }));
+        // Обновляем values + snapshot одной транзакцией: иначе если user
+        // включил «пустые сверху/снизу» ДО завершения hydration,
+        // sortValuesSnapshot оставался pre-draft → неправильный порядок
+        // строк после загрузки (Codex P2 #388).
+        setValues((prev) => {
+          const next = { ...prev, ...draft.values };
+          setSortValuesSnapshot(next);
+          return next;
+        });
         setSavedAt(draft.savedAt);
       }
       setLoaded(true);

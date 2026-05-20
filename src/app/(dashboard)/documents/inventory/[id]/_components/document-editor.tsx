@@ -1,10 +1,9 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, CheckCircle2, Filter, Loader2, Search, SlidersHorizontal, WifiOff, X } from "lucide-react";
+import { Check, CheckCircle2, Filter, Loader2, Search, SlidersHorizontal, WifiOff, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -384,17 +383,14 @@ export function InventoryDocumentEditor({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/documents">
-            <ArrowLeft className="h-4 w-4" />
-            <span className="ml-2">Акты</span>
-          </Link>
-        </Button>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Link className="underline underline-offset-2" href={`/documents/inventory/${document.id}/results`}>
-            Итоги
-          </Link>
+      {/* Back-кнопка, табы и Номер акта со статусом — в shared layout
+          (см. inventory/[id]/layout.tsx). Здесь оставляем только
+          контекст склада, статус draft'а и индикатор оффлайна. */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          Склад: {document.storeTitle ?? "не указан"} · {visibleItems.length} из {items.length} позиций
+        </span>
+        <div className="flex items-center gap-2">
           {!online ? (
             <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-amber-700">
               <WifiOff className="mr-1 h-3 w-3" />
@@ -403,13 +399,6 @@ export function InventoryDocumentEditor({
           ) : null}
           {savedAt ? <span>Черновик {new Date(savedAt).toLocaleTimeString("ru-RU")}</span> : null}
         </div>
-      </div>
-
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold">Акт № {document.documentNumber}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Склад: {document.storeTitle ?? "не указан"} · {visibleItems.length} из {items.length} позиций
-        </p>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center justify-end gap-2">

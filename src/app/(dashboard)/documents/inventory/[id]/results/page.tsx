@@ -1,13 +1,11 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
-import { Button } from "@/components/ui/button";
 import { RefreshResultsButton } from "./_components/refresh-results-button";
 import {
   InventoryResultsTable,
@@ -475,21 +473,14 @@ export default async function InventoryDocumentResultsPage({
 
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <Button asChild variant="ghost" size="sm">
-          <Link href={`/documents/inventory/${document.id}`}>
-            <ArrowLeft className="h-4 w-4" />
-            <span className="ml-2">К акту</span>
-          </Link>
-        </Button>
-        <RefreshResultsButton documentId={document.id} />
-      </div>
-
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Итоги акта № {document.document_number}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+      {/* Back-кнопка, табы и Номер акта со статусом — в shared layout
+          (см. inventory/[id]/layout.tsx). Здесь оставляем только
+          контекст склада и кнопку обновления данных. */}
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+        <span>
           Склад: {store?.title ?? (document.external_store_id ? `QR #${document.external_store_id}` : "не указан")}
-        </p>
+        </span>
+        <RefreshResultsButton documentId={document.id} />
       </div>
 
       {!document.results_has_line_amounts ? (

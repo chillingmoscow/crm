@@ -14,7 +14,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  CheckCircle2,
   ClipboardCheck,
   FileX2,
   Inbox,
@@ -970,12 +969,14 @@ function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: b
 
   const actions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/inventory/${doc.id}/results`) });
-      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    } else {
-      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    }
+    // После объединения экранов акта табами «Заполнение/Итоги» в shared
+    // layout — переключение через UI акта, поэтому в row-menu один
+    // пункт «Открыть» по умолчанию-табу из getDocHref.
+    items.push({
+      label: "Открыть",
+      icon: <ClipboardCheck className="h-4 w-4" />,
+      onSelect: () => router.push(getDocHref(doc)),
+    });
     if (canManage) {
       items.push({
         label: "Удалить",
@@ -1475,12 +1476,11 @@ function MobileCard({
 
   const rowActions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/inventory/${doc.id}/results`) });
-      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    } else {
-      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    }
+    items.push({
+      label: "Открыть",
+      icon: <ClipboardCheck className="h-4 w-4" />,
+      onSelect: () => router.push(getDocHref(doc)),
+    });
     if (canManage) {
       const lockReason = getAssignLockReason(doc.status);
       if (!lockReason) {

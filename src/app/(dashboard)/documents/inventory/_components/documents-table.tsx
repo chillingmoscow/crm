@@ -38,7 +38,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -53,6 +52,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
+import { InventoryStatusBadge, INVENTORY_STATUS_LABEL } from "@/components/shared/inventory-status-badge";
 import {
   TableColumnManager,
   TableControlPin,
@@ -82,25 +82,10 @@ import {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const STATUS_LABEL: Record<DocumentStatus, string> = {
-  synced: "Новый",
-  assigned: "Назначен",
-  in_progress: "В работе",
-  ready_for_review: "Готов к проверке",
-  processed: "Проведен",
-  results_blocked: "Итоги требуют проверки",
-  sync_error: "Ошибка синхронизации",
-};
-
-const STATUS_BADGE_CLASS: Record<DocumentStatus, string> = {
-  synced:           "bg-slate-100 text-slate-700 border-slate-200",
-  assigned:         "bg-blue-50 text-blue-700 border-blue-200",
-  in_progress:      "bg-amber-50 text-amber-700 border-amber-200",
-  ready_for_review: "bg-violet-50 text-violet-700 border-violet-200",
-  processed:        "bg-emerald-50 text-emerald-700 border-emerald-200",
-  results_blocked:  "bg-rose-50 text-rose-700 border-rose-200",
-  sync_error:       "bg-rose-50 text-rose-700 border-rose-200",
-};
+// STATUS_LABEL переиспользуется из shared-компонента InventoryStatusBadge
+// (там и dark-варианты палитры). Pin'ы и mobile-карточки рендерят бейдж
+// напрямую через <InventoryStatusBadge>.
+const STATUS_LABEL = INVENTORY_STATUS_LABEL as Record<DocumentStatus, string>;
 
 type SortField = "date" | "number" | "status";
 
@@ -336,20 +321,7 @@ export function DocumentsTable({
         id: "status",
         label: "Статус",
         size: 170,
-        cell: (row: DocumentListRow) => {
-          const statusKey = row.status as DocumentStatus;
-          return (
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-xs font-normal",
-                STATUS_BADGE_CLASS[statusKey] ?? "bg-slate-50 text-slate-700 border-slate-200",
-              )}
-            >
-              {STATUS_LABEL[statusKey] ?? row.status}
-            </Badge>
-          );
-        },
+        cell: (row: DocumentListRow) => <InventoryStatusBadge status={row.status} />,
       },
       {
         id: "store_title",
@@ -1454,7 +1426,6 @@ function MobileCard({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
   const href = getDocHref(doc);
-  const statusKey = doc.status as DocumentStatus;
   const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
 
   const runDelete = () => {
@@ -1517,15 +1488,7 @@ function MobileCard({
             <Link href={href} className="text-sm font-medium hover:underline" data-row-interactive>
               № {doc.document_number}
             </Link>
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-[10px] font-normal",
-                STATUS_BADGE_CLASS[statusKey] ?? "bg-slate-50 text-slate-700 border-slate-200",
-              )}
-            >
-              {STATUS_LABEL[statusKey] ?? doc.status}
-            </Badge>
+            <InventoryStatusBadge status={doc.status} className="text-[10px]" />
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
             {formatDate(doc.invoice_date)}

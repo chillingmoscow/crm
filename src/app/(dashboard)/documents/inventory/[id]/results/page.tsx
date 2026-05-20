@@ -30,11 +30,6 @@ type InventoryDocumentResultRow = {
   results_finalized_at: string | null;
 };
 
-type InventoryStoreTitleRow = {
-  id: string;
-  title: string;
-};
-
 type ProductGroupLookupRow = {
   id: string;
   group_id: string | null;
@@ -294,15 +289,6 @@ export default async function InventoryDocumentResultsPage({
   if (!document) notFound();
   if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents");
 
-  const { data: store } = document.store_id
-    ? await admin
-        .from<InventoryStoreTitleRow>("stores")
-        .select("id, title")
-        .eq("id", document.store_id)
-        .eq("account_id", accountId)
-        .maybeSingle()
-    : { data: null };
-
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
     .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment")
@@ -473,13 +459,10 @@ export default async function InventoryDocumentResultsPage({
 
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      {/* Back-кнопка, табы и Номер акта со статусом — в shared layout
-          (см. inventory/[id]/layout.tsx). Здесь оставляем только
-          контекст склада и кнопку обновления данных. */}
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-        <span>
-          Склад: {store?.title ?? (document.external_store_id ? `QR #${document.external_store_id}` : "не указан")}
-        </span>
+      {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout
+          (см. inventory/[id]/layout.tsx). Здесь только кнопка
+          обновления данных Quick Resto. */}
+      <div className="mb-5 flex items-center justify-end">
         <RefreshResultsButton documentId={document.id} />
       </div>
 

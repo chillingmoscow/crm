@@ -383,16 +383,14 @@ export function InventoryDocumentEditor({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
-      {/* Back-кнопка, табы и Номер акта со статусом — в shared layout
-          (см. inventory/[id]/layout.tsx). Здесь оставляем только
-          контекст склада, статус draft'а и индикатор оффлайна. */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>
-          Склад: {document.storeTitle ?? "не указан"} · {visibleItems.length} из {items.length} позиций
-        </span>
+      {/* Шапка с back-кнопкой, табами, номером, статусом и
+          контекстом склада/позиций — в shared layout (см.
+          inventory/[id]/layout.tsx). Здесь только status draft'а и
+          индикатор offline. */}
+      <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           {!online ? (
-            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-amber-700">
+            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
               <WifiOff className="mr-1 h-3 w-3" />
               Оффлайн
             </span>
@@ -508,11 +506,10 @@ export function InventoryDocumentEditor({
             key={item.id}
             className={cn(
               "grid grid-cols-[64px_1fr_112px] items-center gap-3 rounded-lg border p-2 transition-colors",
-              // Визуальное различие: заполненные строки светло-голубые
-              // (под общую тему системы), пустые — нейтральные.
-              // При скролле сразу видно прогресс.
+              // Заполненные строки — brand-tint (виден и в light, и в dark);
+              // пустые — neutral.
               isFilled
-                ? "border-blue-200 bg-blue-50/40"
+                ? "border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10"
                 : "border-border bg-background",
             )}
           >

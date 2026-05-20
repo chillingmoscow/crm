@@ -1,0 +1,34 @@
+import { notFound, redirect } from "next/navigation";
+
+import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+
+import { getCachedInventoryDocumentBasics } from "../layout";
+import { DangerZone } from "./_components/danger-zone";
+
+export default async function InventoryDocumentDangerPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const supabase = await createClient();
+
+  const [user, accountId, { data: canManage }] = await Promise.all([
+    getCachedUser(),
+    getCachedActiveAccountId(),
+    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+  ]);
+
+  if (!user) redirect("/login");
+  if (!accountId) redirect("/dashboard");
+  if (!canManage) redirect(`/documents/inventory/${id}`);
+
+  const document = await getCachedInventoryDocumentBasics(id, accountId as string);
+  if (!document) notFound();
+
+  return (
+    <div className="w-full px-4 py-6 md:px-8">
+      <DangerZone documentId={document.id} documentNumber={document.document_number} />
+    </div>
+  );
+}

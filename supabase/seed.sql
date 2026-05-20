@@ -456,20 +456,44 @@ begin
   -- Акт инвентаризации + позиции (для вкладки «Где используется»)
   -- assigned_to обязателен для processed-актов (workflow-инвариант:
   -- нельзя провести акт без явно указанного ответственного).
+  -- results_has_line_amounts=true + shortfall/surplus_sum нужны, чтобы
+  -- вкладка «Итоги» рендерила полную таблицу (см. results/page.tsx:474).
   insert into public.documents
-    (id, account_id, external_id, document_number, invoice_date, store_id, status, assigned_to, processed)
+    (id, account_id, external_id, document_number, invoice_date, store_id, status, assigned_to, processed,
+     results_has_line_amounts, shortfall_sum, surplus_sum)
   values
-    (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed', v_owner, true)
+    (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed', v_owner, true,
+     true, 667.00, 0)
   on conflict (id) do nothing;
 
+  -- prime_cost + difference_sum обязательны для отображения «Итогов»:
+  -- без них колонка «Сумма расхождения» пустая и AI-пересорт ломается.
   insert into public.document_items
     (account_id, document_id, external_item_id, ingredient_id, product_name,
-     actual_amount, calculated_amount, difference_amount)
+     actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum)
   values
-    (v_account, v_doc, 'it-1', v_p_tom,  'Помидоры свежие', 33.0, 34.2, -1.2),
-    (v_account, v_doc, 'it-2', v_p_milk, 'Молоко 3.2%',     56.0, 56.0, 0),
-    (v_account, v_doc, 'it-3', v_p_beef, 'Говядина (вырезка)',17.5, 18.0, -0.5)
+    (v_account, v_doc, 'it-1', v_p_tom,  'Помидоры свежие',     33.0, 34.2, -1.2, 110.00, -132.00),
+    (v_account, v_doc, 'it-2', v_p_milk, 'Молоко 3.2%',         56.0, 56.0,  0,    72.30,    0),
+    (v_account, v_doc, 'it-3', v_p_beef, 'Говядина (вырезка)',  17.5, 18.0, -0.5, 890.00, -445.00),
+    (v_account, v_doc, 'it-4', v_p_chk,  'Куриное филе',        27.4, 27.4,  0,   310.00,    0),
+    (v_account, v_doc, 'it-5', v_p_chs,  'Сыр Моцарелла',       12.5, 12.5,  0,   640.00,    0),
+    (v_account, v_doc, 'it-6', v_p_cuc,  'Огурцы свежие',       23.0, 24.0, -1.0,  90.00,  -90.00)
   on conflict (document_id, external_item_id) do nothing;
+
+  -- ИНВ-0004 (ready_for_review) — нужны итоги, чтобы менеджер мог открыть
+  -- вкладку «Итоги» перед approve. results_has_line_amounts=true,
+  -- но processed=false (workflow ещё не завершён).
+  update public.documents
+     set results_has_line_amounts = true,
+         shortfall_sum = 480.00,
+         surplus_sum = 0
+   where id = '55555555-5555-0000-0000-000000000004'::uuid;
+
+  update public.document_items
+     set prime_cost = 890.00,
+         difference_sum = -1335.00
+   where document_id = '55555555-5555-0000-0000-000000000004'::uuid
+     and external_item_id = 'd4-1';
 
   -- Доп. акты для проверки фильтров/сортировки на /documents.
   -- Покрываем разные статусы, разные даты, разное состояние assigned_to.

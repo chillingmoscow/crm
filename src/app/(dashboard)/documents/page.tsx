@@ -34,6 +34,7 @@ type InventoryDocumentRow = {
   results_has_line_amounts: boolean;
   store_id: string | null;
   venue_id: string | null;
+  comment: string | null;
 };
 
 type StoreTitleRow = {
@@ -100,7 +101,7 @@ export default async function InventoryDocumentsPage({
 
   let docsQuery = admin
     .from<InventoryDocumentRow[]>("documents")
-    .select("id, document_number, invoice_date, status, processed, assigned_to, shortfall_sum, surplus_sum, results_has_line_amounts, store_id, venue_id")
+    .select("id, document_number, invoice_date, status, processed, assigned_to, shortfall_sum, surplus_sum, results_has_line_amounts, store_id, venue_id, comment")
     .eq("account_id", accountId)
     // Этап 2: список — только акты инвентаризации. Будущие типы
     // (write_off/transfer) не должны протекать сюда.

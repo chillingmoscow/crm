@@ -10,10 +10,15 @@ export function ScopeToggle({ value }: { value: "venue" | "all" }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  // PR #380 поменял дефолт page.tsx с venue на all: теперь venue-mode
+  // включается ТОЛЬКО при scope === "venue" (явный). Раньше toggle
+  // удалял scope для venue (рассчитывая на старый дефолт !== "all"),
+  // что после фикса делало venue-mode недостижимым через UI (Codex P1).
+  // Симметричная установка: "venue" → set, "all" → delete (default).
   const set = (next: "venue" | "all") => {
     const params = new URLSearchParams(searchParams.toString());
-    if (next === "venue") params.delete("scope");
-    else params.set("scope", "all");
+    if (next === "venue") params.set("scope", "venue");
+    else params.delete("scope");
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
   };

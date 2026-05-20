@@ -597,14 +597,23 @@ async function listBackOfficeInventoryItemsWithSession(input: {
       documentId: input.documentExternalId,
     });
 
+  // На проде наблюдали: для одного из 10 актов backoffice items endpoint
+  // не вернул calculated/difference (вероятно временная network/timeout
+  // ошибка). Добавлен 1 ретрай через 500ms для не-auth ошибок —
+  // отсекает транзиентные сбои, auth-error retry с refresh-cookie
+  // оставлен отдельной веткой.
   try {
     return await readRows(cookieHeader);
   } catch (error) {
-    if (!isBackOfficeAuthError(error)) throw error;
-    cookieHeader = await refreshBackOfficeCookie({
-      connection: input.connection,
-      admin: input.admin,
-    });
+    if (isBackOfficeAuthError(error)) {
+      cookieHeader = await refreshBackOfficeCookie({
+        connection: input.connection,
+        admin: input.admin,
+      });
+      return readRows(cookieHeader);
+    }
+    // Транзиентная ошибка — ретрай раз через 500мс с тем же cookie.
+    await new Promise((resolve) => setTimeout(resolve, 500));
     return readRows(cookieHeader);
   }
 }

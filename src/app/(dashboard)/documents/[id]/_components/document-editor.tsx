@@ -263,16 +263,31 @@ export function InventoryDocumentEditor({
       const draft = await readDraft(draftKey);
       if (!alive) return;
       if (draft?.values) {
-        // Обновляем values + snapshot одной транзакцией: иначе если user
-        // включил «пустые сверху/снизу» ДО завершения hydration,
-        // sortValuesSnapshot оставался pre-draft → неправильный порядок
-        // строк после загрузки (Codex P2 #388).
-        setValues((prev) => {
-          const next = { ...prev, ...draft.values };
-          setSortValuesSnapshot(next);
-          return next;
-        });
-        setSavedAt(draft.savedAt);
+        // Игнорируем «пустой» черновик (все значения пусты): это
+        // default-state от старой сессии когда у нас не было QR-данных
+        // (actualAmount=null) и initial state был полностью пустой;
+        // autosave записал его в localStorage. После QR-sync БД получила
+        // actual_amount, prefill в editor работает (submittedAmount ??
+        // actualAmount), но пустой черновик из localStorage перезатирал
+        // prefill на «», поля визуально пустели через ~250ms после
+        // открытия страницы.
+        // Если в черновике есть хотя бы одно non-empty значение —
+        // это реальные правки пользователя, восстанавливаем как раньше.
+        const hasAnyValue = Object.values(draft.values).some(
+          (v) => typeof v === "string" && v.trim() !== "",
+        );
+        if (hasAnyValue) {
+          // Обновляем values + snapshot одной транзакцией: иначе если user
+          // включил «пустые сверху/снизу» ДО завершения hydration,
+          // sortValuesSnapshot оставался pre-draft → неправильный порядок
+          // строк после загрузки (Codex P2 #388).
+          setValues((prev) => {
+            const next = { ...prev, ...draft.values };
+            setSortValuesSnapshot(next);
+            return next;
+          });
+          setSavedAt(draft.savedAt);
+        }
       }
       setLoaded(true);
     })();

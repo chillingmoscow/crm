@@ -362,6 +362,22 @@ when always-relevant.
   страницы должны выровняться от топ-бара одинаково. Прецедент: акты
   инвентаризации поначалу имели `py-4` сверху и расходились по высоте с
   /people/staff. Исправлено в PR2 round-2.
+- **Вертикальный gap внутри страницы** — `space-y-6` (24px) на outer
+  wrapper. Накрывает расстояние между шапкой → pin-row → таблицей →
+  пагинацией. `space-y-4` (16px) визуально слипает controls с
+  таблицей — был на /documents/inventory до round-3, пользователь
+  поправил.
+- **Карточка таблицы** — обязательно: `rounded-xl border bg-card
+  overflow-hidden`. Внутри `<thead>` (или div-аналог) — `bg-muted/60`,
+  не `/40`. Эталон: `/people/staff`.
+  - `bg-card` важен в dark: в нашей теме card light-er чем background,
+    таблица читается как elevated блок, а не сливается со страницей.
+    `bg-background` в dark = почти то же что фон страницы → таблица
+    «исчезает».
+  - `rounded-xl` (12px) — staff/roles используют его, не `rounded-lg`.
+- **Mobile cards** (если есть отдельный layout для <md) — те же
+  `rounded-xl border bg-card`, чтобы в dark не было контраста между
+  desktop и mobile.
 - **Filter-кнопка**: `active` подсвечивается **только когда выбран хотя бы
   один фильтр** (есть значение в pin-чипе). Открытое состояние pin-row —
   отдельный bit (toggle), визуально кнопку не меняет.

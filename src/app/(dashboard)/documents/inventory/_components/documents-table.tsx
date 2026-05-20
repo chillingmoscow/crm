@@ -599,7 +599,7 @@ export function DocumentsTable({
   const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
 
   return (
-    <div className="w-full space-y-4 p-6 md:p-8">
+    <div className="w-full space-y-6 p-6 md:p-8">
       <TablePageHeader
         title="Акты инвентаризации"
         subtitle="Заполнение, итоги и пересорт по строкам Quick Resto"
@@ -795,8 +795,12 @@ export function DocumentsTable({
         </div>
       ) : null}
 
-      {/* Desktop table — TanStack для column-state, resize-handles */}
-      <div className="hidden overflow-hidden rounded-lg border bg-background md:block">
+      {/* Desktop table — TanStack для column-state, resize-handles.
+          Каркас (rounded-xl + bg-card + header bg-muted/60) совпадает с
+          /people/staff — это «стандартный кейс таблицы» из docs/design-system.md
+          §«List-страница». bg-card важен в dark: card light-er чем background,
+          таблица читается как elevated, а не сливается со страницей. */}
+      <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
         <div className="overflow-x-auto">
           <table
             // Браузерные расширения вроде TableConvert / Copy-As-Markdown
@@ -817,7 +821,7 @@ export function DocumentsTable({
                 />
               ))}
             </colgroup>
-            <thead className="group/header bg-muted/40 text-xs font-medium tracking-wide text-muted-foreground">
+            <thead className="group/header bg-muted/60 text-xs font-medium tracking-wide text-muted-foreground">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id} className="h-11">
                   {headerGroup.headers.map((header) => {
@@ -1507,7 +1511,7 @@ function MobileCard({
 
   return (
     <div
-      className="relative rounded-lg border bg-background p-3"
+      className="relative rounded-xl border bg-card p-3"
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest("[data-row-interactive]")) return;

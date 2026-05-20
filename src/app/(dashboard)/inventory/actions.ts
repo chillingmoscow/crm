@@ -1474,6 +1474,44 @@ export async function assignInventoryDocument(input: {
   }
 }
 
+/**
+ * Удаление акта инвентаризации. Полное delete с каскадом по FK
+ * (document_items → on delete cascade из миграции 122). Требуется
+ * право inventory.manage_documents.
+ *
+ * Caveat для актов, синхронизированных с Quick Resto (external_id != null):
+ * следующая синхронизация может вернуть удалённый акт. Это нормальное
+ * поведение — Quick Resto источник истины. Хочешь убрать навсегда —
+ * удаляй и в QR.
+ */
+export async function deleteInventoryDocument(input: {
+  documentId: string;
+}): Promise<{ error: string | null }> {
+  try {
+    const ctx = await getActiveContext("inventory.manage_documents");
+    if (ctx.error || !ctx.accountId) {
+      return { error: ctx.error ?? "Не удалось определить контекст" };
+    }
+    const admin = asLooseDb(createAdminClient());
+    const { error } = await admin
+      .from("documents")
+      .delete()
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId);
+    if (error) return { error: error.message };
+    revalidatePath("/documents");
+    return { error: null };
+  } catch (e) {
+    console.error("[deleteInventoryDocument] unhandled error:", e);
+    return {
+      error:
+        e instanceof Error && e.message
+          ? e.message
+          : "Не удалось удалить акт. Подробности в логах.",
+    };
+  }
+}
+
 export async function refreshInventoryDocumentResults(input: {
   documentId: string;
 }): Promise<{

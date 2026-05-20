@@ -25,7 +25,7 @@ export function TablePageHeader({
       )}
     >
       <div className="min-w-0">
-        <h1 className="truncate text-2xl font-semibold tracking-tight">{title}</h1>
+        <h1 className="truncate text-3xl font-bold tracking-tight">{title}</h1>
         {subtitle ? (
           <div className="mt-1 text-sm text-muted-foreground">{subtitle}</div>
         ) : null}

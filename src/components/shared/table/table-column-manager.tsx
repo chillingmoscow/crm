@@ -97,7 +97,7 @@ export function TableColumnManager({
         </SortableContext>
       </DndContext>
       <div className="text-xs text-muted-foreground">
-        Перетаскивайте строки, чтобы менять порядок колонок.
+        Перетаскивайте строки, чтобы менять порядок колонок
       </div>
     </div>
   );

@@ -58,8 +58,10 @@ import {
   type TableStateColumn,
 } from "@/components/shared/table";
 
+import { ViewPresetsDemo } from "./view-presets-demo";
+
 type Scenario = "normal" | "loading" | "empty" | "error";
-type DemoMode = "staff" | "inventory" | "document" | "finance";
+type DemoMode = "staff" | "inventory" | "document" | "finance" | "view-presets";
 
 type LabBaseRow = {
   id: string;
@@ -232,6 +234,7 @@ export function TableLabClient() {
           <TabsTrigger value="inventory">Итоги инвентаризации</TabsTrigger>
           <TabsTrigger value="document">Мобильный акт</TabsTrigger>
           <TabsTrigger value="finance">Финансы</TabsTrigger>
+          <TabsTrigger value="view-presets">Пресеты видов</TabsTrigger>
         </TabsList>
         <TabsContent value="staff" className="mt-5">
           <StaffDemo />
@@ -244,6 +247,9 @@ export function TableLabClient() {
         </TabsContent>
         <TabsContent value="finance" className="mt-5">
           <FinanceDemo />
+        </TabsContent>
+        <TabsContent value="view-presets" className="mt-5">
+          <ViewPresetsDemo />
         </TabsContent>
       </Tabs>
     </div>

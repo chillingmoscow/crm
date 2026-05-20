@@ -1,14 +1,32 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CheckCircle2, Filter, Loader2, Search, SlidersHorizontal, WifiOff, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  Loader2,
+  Plus,
+  Search as SearchIcon,
+  Trash2,
+  WifiOff,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { TableControls, TableControlPin } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import { submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/actions";
 
@@ -54,15 +72,54 @@ type DraftPayload = {
 
 const DB_NAME = "sheerly-inventory-drafts";
 const STORE_NAME = "drafts";
-const SORT_OPTIONS = [
-  { value: "order", label: "Порядок QR" },
-  { value: "name_asc", label: "Название А → Я" },
-  { value: "name_desc", label: "Название Я → А" },
-  { value: "empty_first", label: "Пустые сверху" },
-  { value: "empty_last", label: "Пустые снизу" },
-  { value: "group_asc", label: "Группа А → Я" },
-  { value: "group_desc", label: "Группа Я → А" },
-] as const;
+// Multi-sort 1-в-1 с эталоном documents-table.tsx: поле + направление в
+// одном combined-значении, sorts хранится массивом (порядок = приоритет).
+// Дефолт = пустой массив (порядок QR).
+type FormSortField = "name" | "group" | "empty";
+type FormSortMode =
+  | "name_asc"  | "name_desc"
+  | "group_asc" | "group_desc"
+  | "empty_first" | "empty_last";
+
+const FORM_SORT_FIELDS: FormSortField[] = ["name", "group", "empty"];
+
+const FORM_SORT_FIELD_LABEL: Record<FormSortField, string> = {
+  name:  "Название",
+  group: "Группа",
+  empty: "Заполненность",
+};
+
+function formSortToField(mode: FormSortMode): FormSortField {
+  if (mode === "name_asc"  || mode === "name_desc")  return "name";
+  if (mode === "group_asc" || mode === "group_desc") return "group";
+  return "empty";
+}
+
+function formSortToDirection(mode: FormSortMode): "asc" | "desc" {
+  if (mode === "empty_first") return "asc";
+  if (mode === "empty_last")  return "desc";
+  return mode.endsWith("_asc") ? "asc" : "desc";
+}
+
+function combineFormSort(field: FormSortField, direction: "asc" | "desc"): FormSortMode {
+  if (field === "name")  return direction === "asc" ? "name_asc"  : "name_desc";
+  if (field === "group") return direction === "asc" ? "group_asc" : "group_desc";
+  return direction === "asc" ? "empty_first" : "empty_last";
+}
+
+// Фильтр «Заполненность» — какие строки показывать в форме акта.
+// «all»     — все позиции (дефолт),
+// «filled»  — только те, где actual_amount уже введён,
+// «empty»   — только те, где значение пустое (это рабочая выборка
+//             для линейного сотрудника, чтобы видеть «что осталось
+//             посчитать»).
+type FillState = "all" | "filled" | "empty";
+const DEFAULT_FILL_STATE: FillState = "all";
+const FILL_STATE_LABEL: Record<FillState, string> = {
+  all:    "Все позиции",
+  filled: "Только заполненные",
+  empty:  "Только пустые",
+};
 
 function openDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -144,7 +201,13 @@ export function InventoryDocumentEditor({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [sortMode, setSortMode] = useState("order");
+  const [fillState, setFillState] = useState<FillState>(DEFAULT_FILL_STATE);
+  // sorts: пустой массив = «Порядок QR» (исходный). Каждый элемент = combined
+  // field+direction. Применяется по приоритету (первый — основной ключ).
+  const [sorts, setSorts] = useState<FormSortMode[]>([]);
+  // По дефолту pin-row скрыт, кнопка «Фильтры» нейтральна. Поведение —
+  // как у /documents/inventory (см. feedback_table_standardization_checklist).
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   // Snapshot значений «на момент сортировки» — обновляется только при
@@ -199,6 +262,14 @@ export function InventoryDocumentEditor({
       if (selectedGroupIds && (!item.groupId || !selectedGroupIds.has(item.groupId))) {
         return false;
       }
+      // Fill-state фильтр — на live values, не snapshot: пользователь
+      // ожидает, что после ввода значения строка пропадает из «только
+      // пустые» (а не сохраняется до blur, как snapshot-сортировка).
+      if (fillState !== "all") {
+        const isFilled = (values[item.id] ?? "").trim() !== "";
+        if (fillState === "filled" && !isFilled) return false;
+        if (fillState === "empty"  &&  isFilled) return false;
+      }
       if (!search) return true;
       return [
         item.productName,
@@ -212,36 +283,39 @@ export function InventoryDocumentEditor({
     });
 
     return [...filtered].sort((left, right) => {
-      if (sortMode === "name_asc") return left.productName.localeCompare(right.productName, "ru");
-      if (sortMode === "name_desc") return right.productName.localeCompare(left.productName, "ru");
-      if (sortMode === "group_asc" || sortMode === "group_desc") {
-        const byCategory = (left.groupPath ?? "—").localeCompare(right.groupPath ?? "—", "ru");
-        const result = byCategory || left.productName.localeCompare(right.productName, "ru");
-        return sortMode === "group_asc" ? result : -result;
-      }
-      if (sortMode === "empty_first" || sortMode === "empty_last") {
-        // Используем snapshot, не live values — иначе на каждый
-        // keystroke в active input строка перепрыгивала.
-        const leftEmpty = (sortValuesSnapshot[left.id] ?? "").trim() === "";
-        const rightEmpty = (sortValuesSnapshot[right.id] ?? "").trim() === "";
-        if (leftEmpty !== rightEmpty) {
-          return sortMode === "empty_first"
-            ? leftEmpty ? -1 : 1
-            : leftEmpty ? 1 : -1;
+      // Применяем сорты по приоритету. Tiebreaker — порядок QR (исходный).
+      for (const mode of sorts) {
+        const field = formSortToField(mode);
+        const dir = formSortToDirection(mode);
+        let cmp = 0;
+        if (field === "name") {
+          cmp = left.productName.localeCompare(right.productName, "ru");
+        } else if (field === "group") {
+          cmp = (left.groupPath ?? "—").localeCompare(right.groupPath ?? "—", "ru");
+        } else {
+          // «empty»: пустые сверху (asc) / снизу (desc). Используем snapshot,
+          // не live values — иначе на каждый keystroke в active input строка
+          // перепрыгивала бы.
+          const leftEmpty  = (sortValuesSnapshot[left.id]  ?? "").trim() === "";
+          const rightEmpty = (sortValuesSnapshot[right.id] ?? "").trim() === "";
+          if (leftEmpty !== rightEmpty) cmp = leftEmpty ? -1 : 1;
         }
+        if (cmp !== 0) return dir === "asc" ? cmp : -cmp;
       }
       return (itemOrderById.get(left.id) ?? 0) - (itemOrderById.get(right.id) ?? 0);
     });
-  }, [itemOrderById, items, searchQuery, selectedGroupIds, sortMode, sortValuesSnapshot]);
+  }, [fillState, itemOrderById, items, searchQuery, selectedGroupIds, sorts, sortValuesSnapshot, values]);
 
-  // При переключении sortMode на «пусто-фильтр» — обновить snapshot, чтобы
-  // первая сортировка отражала текущие values.
+  // При добавлении сорта по заполненности — обновить snapshot, чтобы первая
+  // сортировка отражала текущие values. На updateField/direction в уже
+  // активном пусто-сорте — тоже синхронизируем.
   useEffect(() => {
-    if (sortMode === "empty_first" || sortMode === "empty_last") {
+    const hasEmptySort = sorts.some((mode) => formSortToField(mode) === "empty");
+    if (hasEmptySort) {
       setSortValuesSnapshot({ ...values });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortMode]);
+  }, [sorts]);
 
   const draftKey = useMemo(
     () => `inventory:${document.id}`,
@@ -340,6 +414,30 @@ export function InventoryDocumentEditor({
     return () => window.removeEventListener("beforeunload", handler);
   }, [items, values]);
 
+  // ── Controls state-derivatives ────────────────────────────
+  const hasGroupFilter = Boolean(selectedGroupId);
+  const hasFillFilter = fillState !== DEFAULT_FILL_STATE;
+  const hasActiveFilters = hasGroupFilter || hasFillFilter;
+  const hasSortActive = sorts.length > 0;
+  const hasSearch = searchQuery.trim().length > 0;
+  const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
+  // search-пин показываем только когда уже видны другие pin-row контролы —
+  // 1-в-1 эталон documents-table.tsx.
+  const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
+
+  const selectedGroupPath = useMemo(
+    () => groups.find((group) => group.id === selectedGroupId)?.path ?? null,
+    [groups, selectedGroupId],
+  );
+
+  const onClearAll = useCallback(() => {
+    setSearchQuery("");
+    setSearchOpen(false);
+    setSelectedGroupId("");
+    setFillState(DEFAULT_FILL_STATE);
+    setSorts([]);
+  }, []);
+
   const submit = () => {
     if (!online) {
       toast.error("Нет соединения. Черновик сохранен на устройстве.");
@@ -383,12 +481,11 @@ export function InventoryDocumentEditor({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
-      {/* Шапка с back-кнопкой, табами, номером, статусом и
-          контекстом склада/позиций — в shared layout (см.
-          inventory/[id]/layout.tsx). Здесь только status draft'а и
-          индикатор offline. */}
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
+      {/* Шапка с back-кнопкой, табами, номером, статусом и контекстом
+          склада/позиций — в shared layout (см. inventory/[id]/layout.tsx).
+          Здесь: слева — статус draft'а / offline, справа — контролы. */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {!online ? (
             <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
               <WifiOff className="mr-1 h-3 w-3" />
@@ -397,106 +494,125 @@ export function InventoryDocumentEditor({
           ) : null}
           {savedAt ? <span>Черновик {new Date(savedAt).toLocaleTimeString("ru-RU")}</span> : null}
         </div>
+
+        {/* Контролы — search / filters-toggle / sort-popover.
+            Паттерн 1-в-1 с /documents/inventory. */}
+        <TableControls
+          search={{
+            value: searchQuery,
+            onChange: setSearchQuery,
+            open: searchOpen,
+            onOpenChange: setSearchOpen,
+            placeholder: "Поиск",
+          }}
+          filters={{
+            active: hasActiveFilters,
+            label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
+            onClick: () => setFiltersVisible((v) => !v),
+          }}
+          sort={{
+            active: hasSortActive,
+            content: <SortFieldPanel sorts={sorts} onChange={setSorts} />,
+          }}
+        />
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-        {searchOpen ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2 md:max-w-xl">
-            <Input
-              autoFocus
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Поиск по названию, артикулу, штрих-коду"
-              className="min-w-0"
-            />
-            <Button type="button" size="icon" variant="outline" aria-label="Скрыть поиск" onClick={() => {
-              setSearchQuery("");
-              setSearchOpen(false);
-            }}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : (
-          <Button type="button" size="icon" variant="outline" aria-label="Поиск" onClick={() => setSearchOpen(true)}>
-            <Search className="h-4 w-4" />
-          </Button>
-        )}
+      {/* Pin-row — порядок 1-в-1 с эталоном documents-table.tsx:
+          Сортировка → divider → Фильтры (Группа) → divider → Поиск → «Очистить все». */}
+      {(filtersVisible || hasSortActive || hasSearch) ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {hasSortActive ? (
+            <TableControlPin
+              active
+              icon={
+                sorts.length === 1
+                  ? formSortToDirection(sorts[0]) === "asc"
+                    ? <ArrowUp className="h-3.5 w-3.5" />
+                    : <ArrowDown className="h-3.5 w-3.5" />
+                  : <ArrowUpDown className="h-3.5 w-3.5" />
+              }
+              label={
+                sorts.length === 1
+                  ? FORM_SORT_FIELD_LABEL[formSortToField(sorts[0])]
+                  : `${sorts.length} сортировки`
+              }
+              onClear={() => setSorts([])}
+              clearLabel="Сбросить сортировку"
+              contentClassName="w-auto p-3"
+            >
+              <SortPinEditor sorts={sorts} onChange={setSorts} />
+            </TableControlPin>
+          ) : null}
 
-        <Popover>
-          <PopoverTrigger asChild>
+          {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
+
+          {filtersVisible ? (
+            <>
+              <TableControlPin
+                active={hasFillFilter}
+                label={hasFillFilter ? `Заполненность: ${FILL_STATE_LABEL[fillState]}` : "Заполненность"}
+                onClear={hasFillFilter ? () => setFillState(DEFAULT_FILL_STATE) : undefined}
+                clearLabel="Сбросить заполненность"
+              >
+                <FillStatePicker value={fillState} onChange={setFillState} />
+              </TableControlPin>
+
+              <TableControlPin
+                active={hasGroupFilter}
+                label={hasGroupFilter && selectedGroupPath ? `Группа: ${selectedGroupPath}` : "Группа"}
+                onClear={hasGroupFilter ? () => setSelectedGroupId("") : undefined}
+                clearLabel="Сбросить группу"
+              >
+                <GroupPicker
+                  value={selectedGroupId}
+                  groups={groups}
+                  onChange={setSelectedGroupId}
+                />
+              </TableControlPin>
+            </>
+          ) : null}
+
+          {filtersVisible && showSearchPin ? <PinDivider /> : null}
+
+          {showSearchPin ? (
+            <TableControlPin
+              active
+              icon={<SearchIcon className="h-3.5 w-3.5" />}
+              label={`Поиск: ${searchQuery.trim()}`}
+              onClear={() => { setSearchQuery(""); setSearchOpen(false); }}
+              clearLabel="Очистить поиск"
+            >
+              <div className="space-y-2 p-2">
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Поиск"
+                  className="h-8"
+                />
+                <p className="text-xs text-muted-foreground">
+                  По названию, артикулу, штрих-коду и группе.
+                </p>
+              </div>
+            </TableControlPin>
+          ) : null}
+
+          {hasAnyActive ? (
             <Button
               type="button"
-              size="icon"
-              variant={selectedGroupId ? "default" : "outline"}
-              aria-label="Фильтры"
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onClearAll}
             >
-              <Filter className="h-4 w-4" />
+              Очистить все
             </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Фильтры
-            </div>
-            <label className="text-sm font-medium" htmlFor="document-group-filter">
-              Группа ингредиентов
-            </label>
-            <select
-              id="document-group-filter"
-              value={selectedGroupId}
-              onChange={(event) => setSelectedGroupId(event.target.value)}
-              className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <option value="">Все группы акта</option>
-              {groups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {"\u00A0".repeat(Math.min(group.depth, 8) * 2)}
-                  {group.path}
-                </option>
-              ))}
-            </select>
-            {selectedGroupId ? (
-              <Button
-                type="button"
-                className="mt-3 w-full"
-                variant="outline"
-                onClick={() => setSelectedGroupId("")}
-              >
-                Сбросить фильтр
-              </Button>
-            ) : null}
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button type="button" size="icon" variant={sortMode === "order" ? "outline" : "default"} aria-label="Сортировка">
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Сортировка
-            </div>
-            <div className="space-y-1">
-              {SORT_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
-                  onClick={() => setSortMode(option.value)}
-                >
-                  <span>{option.label}</span>
-                  {sortMode === option.value ? <Check className="h-4 w-4" /> : null}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         {visibleItems.length === 0 ? (
-          <div className="rounded-lg border bg-background px-4 py-10 text-center text-sm text-muted-foreground">
+          <div className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
             По текущему поиску и группе позиций нет.
           </div>
         ) : visibleItems.map((item) => {
@@ -537,10 +653,10 @@ export function InventoryDocumentEditor({
                 setValues((prev) => ({ ...prev, [item.id]: next }));
               }}
               onBlur={() => {
-                // Обновляем snapshot для sort режима «пусто-фильтр» —
+                // Обновляем snapshot если активен сорт по заполненности —
                 // перестановка строк случается ТОЛЬКО при потере фокуса,
                 // не во время ввода.
-                if (sortMode === "empty_first" || sortMode === "empty_last") {
+                if (sorts.some((mode) => formSortToField(mode) === "empty")) {
                   setSortValuesSnapshot({ ...values });
                 }
               }}
@@ -552,12 +668,303 @@ export function InventoryDocumentEditor({
         })}
       </div>
 
-      <div className="sticky bottom-0 mt-4 border-t bg-background/95 py-3 backdrop-blur">
-        <Button type="button" size="lg" className="w-full" disabled={isPending || !loaded} onClick={submit}>
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          <span className="ml-2">Отправить в Quick Resto</span>
+      {/* Submit-кнопка — паттерн detail-страницы из spec §«Entity detail page»:
+          форма-действие живёт в футере формы, правым выравниванием, default
+          Button (не full-width, не sticky). Эталон — /people/staff/[userId]. */}
+      <div className="mt-6 flex justify-end pt-1">
+        <Button type="button" disabled={isPending || !loaded} onClick={submit}>
+          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Завершить
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function PinDivider() {
+  return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
+}
+
+/**
+ * Popover из шапки таблицы (TableControls.sort.content). Эталон 1-в-1 с
+ * SortFieldPanel из documents-table.tsx: title «СОРТИРОВКА», список полей,
+ * клик на свободном — APPEND с asc, уже добавленные показывают «Добавлено»
+ * и disabled-стиль.
+ */
+function SortFieldPanel({
+  sorts,
+  onChange,
+}: {
+  sorts: FormSortMode[];
+  onChange: (next: FormSortMode[]) => void;
+}) {
+  const usedFields = new Set(sorts.map((mode) => formSortToField(mode)));
+  return (
+    <div className="space-y-3">
+      <p className="px-3 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+        Сортировка
+      </p>
+      <div className="space-y-1">
+        {FORM_SORT_FIELDS.map((field) => {
+          const used = usedFields.has(field);
+          return (
+            <button
+              key={field}
+              type="button"
+              onClick={() => {
+                if (used) return;
+                onChange([...sorts, combineFormSort(field, "asc")]);
+              }}
+              className={cn(
+                "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+                used ? "bg-accent text-muted-foreground" : null,
+              )}
+            >
+              <span>{FORM_SORT_FIELD_LABEL[field]}</span>
+              {used ? <span className="text-xs">Добавлено</span> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Контент пина активной сортировки. Эталон 1-в-1 с SortPinEditor из
+ * documents-table.tsx: каждая сортировка — строка с field-Select +
+ * direction-Select (↑/↓) + крестик. Кнопки: «+ Добавить сортировку»
+ * (раскрывает список неиспользованных полей) и «🗑 Удалить сортировку»
+ * (очищает всё).
+ */
+function SortPinEditor({
+  sorts,
+  onChange,
+}: {
+  sorts: FormSortMode[];
+  onChange: (next: FormSortMode[]) => void;
+}) {
+  const [showAdd, setShowAdd] = useState(false);
+
+  const unusedFields = FORM_SORT_FIELDS.filter(
+    (field) => !sorts.some((mode) => formSortToField(mode) === field),
+  );
+
+  const updateAt = (index: number, next: FormSortMode) => {
+    onChange(sorts.map((mode, i) => (i === index ? next : mode)));
+  };
+
+  const replaceField = (index: number, field: FormSortField) => {
+    const currentDirection = formSortToDirection(sorts[index]);
+    updateAt(index, combineFormSort(field, currentDirection));
+  };
+
+  const removeAt = (index: number) => {
+    onChange(sorts.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        Сортировка
+      </p>
+
+      <div className="space-y-2">
+        {sorts.map((mode, index) => {
+          const field = formSortToField(mode);
+          const direction = formSortToDirection(mode);
+          return (
+            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_72px_32px] items-center gap-2">
+              <Select
+                value={field}
+                onValueChange={(value) => replaceField(index, value as FormSortField)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FORM_SORT_FIELDS.map((option) => {
+                    const disabled = sorts.some(
+                      (other, otherIndex) => otherIndex !== index && formSortToField(other) === option,
+                    );
+                    return (
+                      <SelectItem key={option} value={option} disabled={disabled}>
+                        {FORM_SORT_FIELD_LABEL[option]}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={direction}
+                onValueChange={(value) =>
+                  updateAt(index, combineFormSort(field, value as "asc" | "desc"))
+                }
+              >
+                <SelectTrigger
+                  className="h-9 w-[72px] justify-center gap-1 px-2"
+                  aria-label={direction === "asc" ? "По возрастанию" : "По убыванию"}
+                >
+                  {direction === "asc" ? (
+                    <ArrowUp className="h-4 w-4" />
+                  ) : (
+                    <ArrowDown className="h-4 w-4" />
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="asc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowUp className="h-3.5 w-3.5" /> По возрастанию
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="desc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowDown className="h-3.5 w-3.5" /> По убыванию
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => removeAt(index)}
+                aria-label="Удалить сортировку"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {showAdd && unusedFields.length > 0 ? (
+        <div className="rounded-lg border bg-background p-2">
+          {unusedFields.map((field) => (
+            <button
+              key={field}
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onChange([...sorts, combineFormSort(field, "asc")]);
+                setShowAdd(false);
+              }}
+            >
+              <ArrowUp className="h-4 w-4 text-muted-foreground" />
+              {FORM_SORT_FIELD_LABEL[field]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="space-y-1 border-t pt-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          disabled={unusedFields.length === 0}
+          onClick={() => setShowAdd((current) => !current)}
+        >
+          <Plus className="h-4 w-4" />
+          Добавить сортировку
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
+          onClick={() => onChange([])}
+        >
+          <Trash2 className="h-4 w-4" />
+          Удалить сортировку
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Контент popover'а Группа-фильтра. Эталон — VenuePicker/StorePicker
+ * в documents-table.tsx (max-h + overflow-y, кнопки rounded-sm
+ * px-3 py-2). Иерархия групп — paddingLeft по depth.
+ */
+function GroupPicker({
+  value,
+  groups,
+  onChange,
+}: {
+  value: string;
+  groups: EditorGroup[];
+  onChange: (groupId: string) => void;
+}) {
+  if (groups.length === 0) {
+    return (
+      <div className="px-3 py-2 text-sm text-muted-foreground">
+        В акте нет групп ингредиентов.
+      </div>
+    );
+  }
+  return (
+    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
+      <button
+        type="button"
+        onClick={() => onChange("")}
+        className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+      >
+        <span className="truncate">Все группы акта</span>
+        {value === "" ? <Check className="h-4 w-4 shrink-0" /> : null}
+      </button>
+      {groups.map((group) => (
+        <button
+          key={group.id}
+          type="button"
+          onClick={() => onChange(group.id)}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+          style={{ paddingLeft: 12 + Math.min(group.depth, 8) * 12 }}
+        >
+          <span className="truncate">{group.path}</span>
+          {value === group.id ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Контент popover'а Заполненность-фильтра. Three-state: все / только
+ * заполненные / только пустые.
+ */
+function FillStatePicker({
+  value,
+  onChange,
+}: {
+  value: FillState;
+  onChange: (next: FillState) => void;
+}) {
+  const options: { value: FillState; label: string }[] = [
+    { value: "all",    label: "Все позиции" },
+    { value: "filled", label: "Только заполненные" },
+    { value: "empty",  label: "Только пустые" },
+  ];
+  return (
+    <div className="space-y-0.5 p-1">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+        >
+          <span className="truncate">{option.label}</span>
+          {value === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
     </div>
   );
 }

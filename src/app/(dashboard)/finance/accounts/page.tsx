@@ -45,12 +45,15 @@ export default async function BankAccountsPage() {
     legalEntityNames[le.id] = le.short_name ?? le.name;
   }
 
+  const archivedCount = accounts.filter((a) => a.deleted_at).length;
+
   return (
     <AccountsList
       accounts={accounts}
       groups={groups}
       legalEntityNames={legalEntityNames}
       canManage={!!canManage}
+      archivedCount={archivedCount}
       amountRoundingScale={amountRoundingScale}
     />
   );

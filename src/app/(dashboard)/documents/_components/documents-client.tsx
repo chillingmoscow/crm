@@ -6,6 +6,7 @@ import { useTransition } from "react";
 import { CheckCircle2, ClipboardCheck, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,6 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { assignInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
 
@@ -43,6 +45,18 @@ const STATUS_LABEL: Record<string, string> = {
   processed: "Проведен",
   results_blocked: "Итоги требуют проверки",
   sync_error: "Ошибка синхронизации",
+};
+
+// Цвет badge подбирается по статусу — пользователю сразу видно
+// в каком акт состоянии (новый/в работе/готов/проблема).
+const STATUS_BADGE_CLASS: Record<string, string> = {
+  synced:           "bg-slate-100 text-slate-700 border-slate-200",
+  assigned:         "bg-blue-50 text-blue-700 border-blue-200",
+  in_progress:      "bg-amber-50 text-amber-700 border-amber-200",
+  ready_for_review: "bg-violet-50 text-violet-700 border-violet-200",
+  processed:        "bg-emerald-50 text-emerald-700 border-emerald-200",
+  results_blocked:  "bg-rose-50 text-rose-700 border-rose-200",
+  sync_error:       "bg-rose-50 text-rose-700 border-rose-200",
 };
 
 export function DocumentsClient({
@@ -130,10 +144,15 @@ export function DocumentsClient({
       </div>
 
       <div className="overflow-hidden rounded-lg border bg-background">
-        <div className="grid grid-cols-[1fr_140px] items-center border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground md:grid-cols-[1.1fr_.8fr_.7fr_.9fr_180px_160px]">
-          <div>Акт</div>
+        {/* Колонки: № | Дата | Статус | Склад | Итоги | Назначен | Действие.
+            «Строки» убран — счётчик позиций виден на детальной странице
+            акта; в общем списке он добавлял шума. Дата и Статус — теперь
+            отдельные столбцы (раньше были в подзаголовке ячейки «Акт»). */}
+        <div className="grid grid-cols-[1fr_140px] items-center border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground md:grid-cols-[110px_110px_160px_1fr_.9fr_180px_160px]">
+          <div>№</div>
+          <div className="hidden md:block">Дата</div>
+          <div className="hidden md:block">Статус</div>
           <div className="hidden md:block">Склад</div>
-          <div className="hidden md:block">Строки</div>
           <div className="hidden md:block">Итоги</div>
           <div className="hidden md:block">Назначен</div>
           <div className="text-right">Действие</div>
@@ -146,17 +165,32 @@ export function DocumentsClient({
           documents.map((doc) => (
             <div
               key={doc.id}
-              className="grid grid-cols-[1fr_140px] items-center gap-3 border-b px-3 py-3 last:border-b-0 md:grid-cols-[1.1fr_.8fr_.7fr_.9fr_180px_160px]"
+              className="grid grid-cols-[1fr_140px] items-center gap-3 border-b px-3 py-3 last:border-b-0 md:grid-cols-[110px_110px_160px_1fr_.9fr_180px_160px]"
             >
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">№ {doc.document_number}</div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                {/* На mobile (< md) дата и статус остаются под номером,
+                    т.к. отдельные колонки скрыты. */}
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground md:hidden">
                   <span>{STATUS_LABEL[doc.status] ?? doc.status}</span>
                   {doc.invoice_date ? <span>{new Date(doc.invoice_date).toLocaleDateString("ru-RU")}</span> : null}
                 </div>
               </div>
+              <div className="hidden text-sm md:block">
+                {doc.invoice_date ? new Date(doc.invoice_date).toLocaleDateString("ru-RU") : "—"}
+              </div>
+              <div className="hidden md:block">
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-xs font-normal",
+                    STATUS_BADGE_CLASS[doc.status] ?? "bg-slate-50 text-slate-700 border-slate-200",
+                  )}
+                >
+                  {STATUS_LABEL[doc.status] ?? doc.status}
+                </Badge>
+              </div>
               <div className="hidden truncate text-sm md:block">{doc.store_title ?? "—"}</div>
-              <div className="hidden text-sm md:block">{doc.item_count}</div>
               <div className="hidden text-sm md:block">
                 {doc.results_has_line_amounts ? (
                   <span>

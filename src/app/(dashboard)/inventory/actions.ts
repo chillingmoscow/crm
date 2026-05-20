@@ -1362,6 +1362,27 @@ export async function assignInventoryDocument(input: {
   if (ctx.error || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
+
+  // Читаем предыдущее значение assigned_to + метаданные акта.
+  // Codex P1 #383: если документа нет (id не существует или принадлежит
+  // другому аккаунту) — before = null. Без этого гарда:
+  //  - UPDATE становится no-op (фильтры eq не совпадают), error = null.
+  //  - Notification шлётся с пустым номером и dead /documents/{id} link.
+  //  - Abuse-vector: spammер с manage_documents в своём аккаунте
+  //    может рассылать spam любому user-id через arbitrary documentId.
+  // Гард: если документа нет — return error до UPDATE и notification.
+  const { data: before } = await admin
+    .from<{
+      assigned_to: string | null;
+      document_number: string;
+      venue_id: string | null;
+    }>("documents")
+    .select("assigned_to, document_number, venue_id")
+    .eq("id", input.documentId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
+  if (!before) return { error: "Акт не найден" };
+
   const { error } = await admin
     .from("documents")
     .update({
@@ -1372,6 +1393,33 @@ export async function assignInventoryDocument(input: {
     .eq("account_id", ctx.accountId);
 
   if (error) return { error: error.message };
+
+  // Notification назначенному, best-effort (не блокируем основной flow).
+  // Шлём только при реальной смене на нового assignee (не на unassign,
+  // не на повторный assign того же).
+  if (
+    input.assignedTo
+    && before.assigned_to !== input.assignedTo
+  ) {
+    try {
+      await admin.from("notifications").insert({
+        user_id: input.assignedTo,
+        venue_id: before.venue_id ?? null,
+        type: "inventory.document.assigned",
+        category: "inventory",
+        title: `Вам назначен акт инвентаризации № ${before.document_number}`,
+        body: "Откройте акт, проверьте позиции и заполните фактические остатки.",
+        link: `/documents/${input.documentId}`,
+        actor_user_id: ctx.user?.id ?? null,
+        entity_type: "inventory_document",
+        entity_id: input.documentId,
+      });
+    } catch (e) {
+      // Уведомление — bonus, не critical. Не валим основной flow.
+      console.error("[assignInventoryDocument] notification failed:", e);
+    }
+  }
+
   revalidatePath("/documents");
   revalidatePath(`/documents/${input.documentId}`);
   return { error: null };

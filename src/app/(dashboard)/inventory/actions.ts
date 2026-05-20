@@ -378,11 +378,55 @@ async function getActiveContext(permission?: string) {
   };
 }
 
+/**
+ * Резолвит venue для привязки QR-импортированных сущностей (stores,
+ * documents и т.д.). Приоритет:
+ *
+ * 1. **Venue, смапленное на QuickResto через external_entity_links**
+ *    (то самое, которое onboarding импортирует из QR TableScheme).
+ *    Это правильный target — все QR-данные должны привязываться к
+ *    QR-venue, не к manually-created venue в том же аккаунте.
+ *    Старое поведение «активный venue из profile» приводило к багу:
+ *    user заходит, активным был манально созданный CHILLING MOSCOW,
+ *    QR-sync лип данные к нему вместо QR-importированного CHILLING.
+ *
+ * 2. **Fallback:** если QR-маппинга нет (странный кейс — onboarding
+ *    не отрабатывал на venues), используем активный venue. Это
+ *    защита от регресса в редких сценариях; в норме сюда не доходим.
+ *
+ * 3. **Final fallback:** если venue в аккаунте ровно одно — оно.
+ */
 async function resolveDefaultVenueId(input: {
   admin: LooseDb;
   accountId: string;
   activeVenueId: string | null;
 }) {
+  // 1. QR-импортированное venue (priority — основной кейс).
+  // В норме строка одна на (account, provider='quickresto', entity_type='venue').
+  // Codex P1 #378: нет FK external_entity_links.local_id → venues.id,
+  // поэтому возможен orphan (venue hard-удалён, link остался) или
+  // ссылка на архивный venue. Перед использованием проверяем что
+  // venue физически существует и live — иначе fallback ниже.
+  // Multi-cloud (issue #362) пока не реализован.
+  const { data: qrVenueLinks } = await input.admin
+    .from<Array<{ local_id: string }>>("external_entity_links")
+    .select("local_id")
+    .eq("account_id", input.accountId)
+    .eq("provider", "quickresto")
+    .eq("entity_type", "venue");
+  const qrVenueId = qrVenueLinks?.[0]?.local_id;
+  if (qrVenueId) {
+    const { data: qrVenue } = await input.admin
+      .from<{ id: string; archived_at: string | null }>("venues")
+      .select("id, archived_at")
+      .eq("id", qrVenueId)
+      .eq("account_id", input.accountId)
+      .maybeSingle();
+    if (qrVenue?.id && !qrVenue.archived_at) return qrVenue.id;
+    // orphan / archived — пропускаем, идём на fallback
+  }
+
+  // 2. Fallback: активный venue (legacy-поведение, защита от регресса)
   if (input.activeVenueId) {
     const { data: activeVenue } = await input.admin
       .from<{ id: string }>("venues")
@@ -393,6 +437,7 @@ async function resolveDefaultVenueId(input: {
     if (activeVenue?.id) return activeVenue.id;
   }
 
+  // 3. Final fallback: единственное venue в аккаунте
   const { data: venues } = await input.admin
     .from<Array<{ id: string }>>("venues")
     .select("id")

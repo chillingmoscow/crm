@@ -19,6 +19,13 @@
 -- no rows with that exact value, so the trigger would stop granting
 -- inventory perms to newly-created custom_manager/custom_admin roles.
 -- Recreate the function with the new IN-list.
+--
+-- ВАЖНО: миграция 194 явно исключила `inventory.view_all_venues` из
+-- дефолтных грантов (право grantable, выдаётся только владельцу;
+-- остальным — вручную через управление ролями). Сохраняем это
+-- исключение, иначе любая новая custom_manager/custom_admin роль
+-- автоматически получит cross-venue видимость инвентаря (регрессия,
+-- которую поймал Codex P1 на PR #393).
 -- ============================================================
 
 update public.permissions
@@ -71,6 +78,8 @@ begin
       'inventory_integration',
       'inventory_scope'
     )
+      -- Сохраняем исключение из миграции 194: view_all_venues не дефолтное.
+      and p.code <> 'inventory.view_all_venues'
     on conflict (role_id, permission_id)
     do update set granted = excluded.granted;
   elsif new.code in ('custom_hostess', 'custom_waiter') then

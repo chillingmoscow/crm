@@ -454,10 +454,12 @@ begin
   on conflict (id) do nothing;
 
   -- Акт инвентаризации + позиции (для вкладки «Где используется»)
+  -- assigned_to обязателен для processed-актов (workflow-инвариант:
+  -- нельзя провести акт без явно указанного ответственного).
   insert into public.documents
-    (id, account_id, external_id, document_number, invoice_date, store_id, status)
+    (id, account_id, external_id, document_number, invoice_date, store_id, status, assigned_to, processed)
   values
-    (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed')
+    (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed', v_owner, true)
   on conflict (id) do nothing;
 
   insert into public.document_items

@@ -32,7 +32,6 @@ import {
   TablePagination,
   TableRowMenu,
   TableSplitButton,
-  useTableState,
 } from "@/components/shared/table";
 import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -79,7 +78,6 @@ const SORT_LABEL: Record<DocumentSortMode, string> = {
   status:      "По статусу",
 };
 
-const TABLE_ID = "documents.list";
 const SEARCH_DEBOUNCE_MS = 250;
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -148,9 +146,8 @@ export function DocumentsTable({
   const searchParams = useSearchParams();
 
   const [search, setSearch] = useState(filtersFromUrl.q ?? "");
+  const [searchOpen, setSearchOpen] = useState(Boolean(filtersFromUrl.q));
   const [isSyncing, startSyncTransition] = useTransition();
-
-  const tableState = useTableState({ tableId: TABLE_ID, columns: [] });
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -321,8 +318,8 @@ export function DocumentsTable({
             search={{
               value: search,
               onChange: setSearch,
-              open: tableState.searchOpen,
-              onOpenChange: tableState.setSearchOpen,
+              open: searchOpen,
+              onOpenChange: setSearchOpen,
               placeholder: "Поиск",
             }}
             sort={{

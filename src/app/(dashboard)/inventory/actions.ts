@@ -1252,7 +1252,33 @@ export async function syncQuickRestoInventory(input?: {
         ? existing.status
         : "synced";
 
-    const { items } = inventoryDocumentItems(document);
+    // Items: для не-проведённого акта public-API (readInventoryDocument)
+    // возвращает items БЕЗ расчётного остатка и разницы (calculated/
+    // difference приходят NULL). QR это всё считает в backoffice и не
+    // сериализует в public payload. Решение — обходной запрос через
+    // backoffice-cookie sheerly-bot'а: /platform/data/warehouse.inventory.
+    // items/select?ownerContextId=... возвращает items с полным набором
+    // полей. Если backoffice недоступен (нет cookie / нет creds) —
+    // fallback на public-payload items (хотя бы actualAmount будет).
+    const { items: publicItems } = inventoryDocumentItems(document);
+    let items: typeof publicItems = publicItems;
+    try {
+      const boItems = await listBackOfficeInventoryItemsWithSession({
+        connection,
+        admin,
+        documentExternalId: document.id,
+      });
+      if (boItems.length > 0) {
+        items = boItems as typeof publicItems;
+        // Сохраняем backoffice-items в qr_payload для дальнейшего
+        // использования (refresh-results / просмотр сырья).
+        // Заменяем effectedItems (если их не было — будут теперь).
+        (document as unknown as { effectedItems: typeof publicItems }).effectedItems = boItems as typeof publicItems;
+      }
+    } catch (e) {
+      // Backoffice не сработал — best-effort, идём с public items.
+      console.error(`[syncQuickRestoInventory] backoffice items fetch failed for doc ${document.id}:`, e);
+    }
     const precheckHasResults = items.some((item) => extractLineResult(item).hasResult);
 
     const { data, error } = await admin

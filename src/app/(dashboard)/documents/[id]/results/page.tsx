@@ -346,7 +346,7 @@ export default async function InventoryDocumentResultsPage({
   const [{ data: resortsRaw }, { data: resortItemsRaw }, { data: eventsRaw }, { data: exclusionRulesRaw }, { data: accountSettings }] = await Promise.all([
     admin
       .from<InventoryResultResortRow[]>("inventory_result_resorts")
-      .select("id, status, reason, group_name, offset_amount, residual_shortfall_sum, residual_surplus_sum, suggestion_source, created_at, void_reason")
+      .select("id, status, reason, group_name, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, suggestion_source, created_at, void_reason")
       .eq("account_id", accountId)
       .eq("document_id", document.id)
       .order("created_at", { ascending: false }),

@@ -142,6 +142,15 @@ function modeSummary(mode: DocumentSortMode): string {
 }
 
 const SEARCH_DEBOUNCE_MS = 250;
+
+// Статусы, в которых менять ответственного нельзя.
+// processed → акт закрыт, исторические данные.
+// sync_error → нужно чинить sync, до этого назначать бессмысленно.
+function getAssignLockReason(status: string): string | null {
+  if (status === "processed") return "Акт проведён — ответственного больше менять нельзя";
+  if (status === "sync_error") return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
+  return null;
+}
 const TABLE_ID = "documents.list";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -365,18 +374,25 @@ export function DocumentsTable({
       },
       {
         id: "assigned_to",
-        label: "Назначен",
+        label: "Ответственный",
         size: 200,
-        cell: (row: DocumentListRow) =>
-          canManage ? (
+        cell: (row: DocumentListRow) => {
+          const lockReason = getAssignLockReason(row.status);
+          return canManage ? (
             <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-              <AssigneeSelect documentId={row.id} assignedTo={row.assigned_to} staff={staff} />
+              <AssigneeSelect
+                documentId={row.id}
+                assignedTo={row.assigned_to}
+                staff={staff}
+                lockReason={lockReason}
+              />
             </div>
           ) : (
             <span className="text-sm text-muted-foreground">
               {staff.find((m) => m.id === row.assigned_to)?.name ?? "—"}
             </span>
-          ),
+          );
+        },
       },
       {
         id: "actions",
@@ -1023,10 +1039,10 @@ function statusPinLabel(status: DocumentStatus[] | undefined): string {
 }
 
 function assigneePinLabel(assigned: string | undefined, staff: AssigneeOption[]): string {
-  if (!assigned || assigned === "any") return "Исполнитель";
+  if (!assigned || assigned === "any") return "Ответственный";
   if (assigned === "me") return "На меня";
   if (assigned === "none") return "Без назначения";
-  return staff.find((s) => s.id === assigned)?.name ?? "Исполнитель";
+  return staff.find((s) => s.id === assigned)?.name ?? "Ответственный";
 }
 
 function storePinLabel(store: string[] | undefined, stores: StoreOption[]): string {
@@ -1135,7 +1151,7 @@ function AssignedPicker({
   onChange: (v: string) => void;
 }) {
   const options = [
-    { value: "any",  label: "Любой исполнитель" },
+    { value: "any",  label: "Любой ответственный" },
     { value: "me",   label: "На меня" },
     { value: "none", label: "Без назначения" },
     ...staff.map((s) => ({ value: s.id, label: s.name })),
@@ -1453,16 +1469,20 @@ function MobileCard({
       items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
     }
     if (canManage) {
-      items.push({
-        label: "Изменить назначение",
-        icon: <UserPlus className="h-4 w-4" />,
-        onSelect: () => setAssignSheetOpen(true),
-        separatorBefore: true,
-      });
+      const lockReason = getAssignLockReason(doc.status);
+      if (!lockReason) {
+        items.push({
+          label: "Изменить ответственного",
+          icon: <UserPlus className="h-4 w-4" />,
+          onSelect: () => setAssignSheetOpen(true),
+          separatorBefore: true,
+        });
+      }
       items.push({
         label: "Удалить",
         icon: <Trash2 className="h-4 w-4" />,
         destructive: true,
+        separatorBefore: lockReason !== null,
         onSelect: () => setConfirmDeleteOpen(true),
       });
     }
@@ -1544,7 +1564,12 @@ function MobileCard({
               <X className="h-4 w-4" />
             </button>
           </div>
-          <AssigneeSelect documentId={doc.id} assignedTo={doc.assigned_to} staff={staff} />
+          <AssigneeSelect
+            documentId={doc.id}
+            assignedTo={doc.assigned_to}
+            staff={staff}
+            lockReason={getAssignLockReason(doc.status)}
+          />
         </div>
       ) : null}
 

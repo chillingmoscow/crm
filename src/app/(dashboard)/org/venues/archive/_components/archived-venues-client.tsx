@@ -204,7 +204,7 @@ function buildDeleteImpact(impact: VenueArchiveImpact | null): DeleteImpact[] {
   return [
     { label: "Отделов", count: impact.departments, tone: "cascade" },
     { label: "Ролей", count: impact.roles, tone: "cascade" },
-    { label: "Членств", count: impact.staff, tone: "cascade" },
+    { label: "Привязок сотрудников", count: impact.staff, tone: "cascade" },
     { label: "Приглашений", count: impact.invitations, tone: "cascade" },
     { label: "Залов", count: impact.halls, tone: "cascade" },
     { label: "Документов", count: impact.documents, tone: "unbind" },

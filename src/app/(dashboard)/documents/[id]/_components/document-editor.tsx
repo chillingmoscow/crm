@@ -122,8 +122,17 @@ export function InventoryDocumentEditor({
   items: EditorItem[];
 }) {
   const router = useRouter();
+  // Initial value поля: приоритет submittedAmount (то что наш CRM писал
+  // через UI), fallback на actualAmount (то что синкнулось из QR — если
+  // user заполнял акт напрямую в QR, значения уже там). Без fallback
+  // форма выглядела пустой даже когда QR-данные подтянулись.
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(items.map((item) => [item.id, toInputValue(item.submittedAmount)]))
+    Object.fromEntries(
+      items.map((item) => [
+        item.id,
+        toInputValue(item.submittedAmount ?? item.actualAmount),
+      ])
+    )
   );
   const [loaded, setLoaded] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -253,7 +262,11 @@ export function InventoryDocumentEditor({
   }, [document, draftKey, items, loaded, values]);
 
   useEffect(() => {
-    const hasChanges = items.some((item) => values[item.id] !== toInputValue(item.submittedAmount));
+    // hasChanges: сравниваем с initial — submittedAmount или actualAmount
+    // (тот же fallback что в useState init выше).
+    const hasChanges = items.some(
+      (item) => values[item.id] !== toInputValue(item.submittedAmount ?? item.actualAmount)
+    );
     const handler = (event: BeforeUnloadEvent) => {
       if (!hasChanges) return;
       event.preventDefault();

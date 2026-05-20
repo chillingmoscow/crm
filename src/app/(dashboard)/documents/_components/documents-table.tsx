@@ -4,6 +4,13 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
+  type ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
+import {
   ArrowDown,
   ArrowUp,
   CheckCircle2,
@@ -22,16 +29,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import {
+  TableColumnManager,
   TableControlPin,
   TableControls,
   TablePageHeader,
   TablePagination,
   TableRowMenu,
   TableSplitButton,
+  useTableState,
+  type ManagedTableColumn,
+  type TableStateColumn,
 } from "@/components/shared/table";
 import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -69,9 +81,6 @@ const STATUS_BADGE_CLASS: Record<DocumentStatus, string> = {
   sync_error:       "bg-rose-50 text-rose-700 border-rose-200",
 };
 
-// Сортировка раздёлена на «поле» и «направление». В popover из TableControls
-// показываются только поля; направление меняется кликом на заголовок колонки
-// или в пине активной сортировки. Status — без направления (одна позиция).
 type SortField = "date" | "number" | "status";
 
 const SORT_FIELD_LABEL: Record<SortField, string> = {
@@ -107,6 +116,7 @@ function sortSummary(sort: DocumentSortMode): string {
 }
 
 const SEARCH_DEBOUNCE_MS = 250;
+const TABLE_ID = "documents.list";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -148,7 +158,6 @@ function formatDate(iso: string | null): string {
 }
 
 function toIsoDate(d: Date): string {
-  // local ISO date without timezone shift (yyyy-mm-dd)
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -238,6 +247,183 @@ export function DocumentsTable({
     };
   }, [accountId, router]);
 
+  // ── Columns (TanStack для visibility/order/sizing) ─────────
+  const searchActive = Boolean(filtersFromUrl.q);
+
+  const columnsConfig = useMemo(
+    () => [
+      {
+        id: "document_number",
+        label: "Номер",
+        size: 130,
+        canHide: false,
+        cell: (row: DocumentListRow) => (
+          <div className="min-w-0">
+            <Link
+              href={getDocHref(row)}
+              className="text-sm font-medium hover:underline"
+              data-row-interactive
+              onClick={(e) => e.stopPropagation()}
+            >
+              № {row.document_number}
+            </Link>
+            {searchActive && row.matched_ingredients && row.matched_ingredients.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {row.matched_ingredients.map((name) => (
+                  <span
+                    key={name}
+                    className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800"
+                  >
+                    <SearchIcon className="h-2.5 w-2.5" />
+                    {name}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        id: "invoice_date",
+        label: "Дата",
+        size: 110,
+        cell: (row: DocumentListRow) => <span className="text-sm">{formatDate(row.invoice_date)}</span>,
+      },
+      {
+        id: "status",
+        label: "Статус",
+        size: 170,
+        cell: (row: DocumentListRow) => {
+          const statusKey = row.status as DocumentStatus;
+          return (
+            <Badge
+              variant="outline"
+              className={cn(
+                "text-xs font-normal",
+                STATUS_BADGE_CLASS[statusKey] ?? "bg-slate-50 text-slate-700 border-slate-200",
+              )}
+            >
+              {STATUS_LABEL[statusKey] ?? row.status}
+            </Badge>
+          );
+        },
+      },
+      {
+        id: "store_title",
+        label: "Склад",
+        size: 200,
+        cell: (row: DocumentListRow) => <span className="truncate text-sm">{row.store_title ?? "—"}</span>,
+      },
+      {
+        id: "comment",
+        label: "Комментарий",
+        size: 240,
+        cell: (row: DocumentListRow) => (
+          <span className="block truncate text-sm text-muted-foreground" title={row.comment ?? undefined}>
+            {row.comment ?? "—"}
+          </span>
+        ),
+      },
+      {
+        id: "results",
+        label: "Итоги",
+        size: 200,
+        cell: (row: DocumentListRow) =>
+          row.results_has_line_amounts ? (
+            <span className="text-sm">
+              −{formatMoney(Math.abs(row.shortfall_sum ?? 0), "RUB", amountRoundingScale)} / +{formatMoney(Math.abs(row.surplus_sum ?? 0), "RUB", amountRoundingScale)}
+            </span>
+          ) : (
+            <span className="text-sm text-amber-700">Нет построчных итогов</span>
+          ),
+      },
+      {
+        id: "assigned_to",
+        label: "Назначен",
+        size: 200,
+        cell: (row: DocumentListRow) =>
+          canManage ? (
+            <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+              <AssigneeSelect documentId={row.id} assignedTo={row.assigned_to} staff={staff} />
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {staff.find((m) => m.id === row.assigned_to)?.name ?? "—"}
+            </span>
+          ),
+      },
+      {
+        id: "actions",
+        label: "",
+        size: 56,
+        canHide: false,
+        cell: (row: DocumentListRow) => <DesktopRowMenu doc={row} />,
+      },
+    ],
+    [amountRoundingScale, canManage, searchActive, staff],
+  );
+
+  const stateColumns: TableStateColumn[] = useMemo(
+    () =>
+      columnsConfig.map((column) => ({
+        id: column.id,
+        defaultVisible: true,
+        defaultSize: column.size,
+      })),
+    [columnsConfig],
+  );
+
+  const tableState = useTableState({ tableId: TABLE_ID, columns: stateColumns });
+
+  const tableColumns = useMemo<ColumnDef<DocumentListRow>[]>(
+    () =>
+      columnsConfig.map((column) => ({
+        id: column.id,
+        header: column.label,
+        size: column.size,
+        minSize: 72,
+        enableHiding: column.canHide !== false,
+        cell: ({ row }) => column.cell(row.original),
+      })),
+    [columnsConfig],
+  );
+
+  const table = useReactTable({
+    data: initial.rows,
+    columns: tableColumns,
+    state: {
+      columnVisibility: tableState.columnVisibility,
+      columnOrder: tableState.columnOrder,
+      columnSizing: tableState.columnSizing,
+    },
+    getRowId: (row) => row.id,
+    columnResizeMode: "onChange",
+    onColumnVisibilityChange: tableState.setColumnVisibility,
+    onColumnOrderChange: tableState.setColumnOrder,
+    onColumnSizingChange: tableState.setColumnSizing,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  const managedColumns: ManagedTableColumn[] = tableState.columnOrder
+    .map((id) => table.getAllLeafColumns().find((col) => col.id === id))
+    .filter((col): col is NonNullable<typeof col> => Boolean(col))
+    .map((col) => ({
+      id: col.id,
+      label: String(col.columnDef.header ?? col.id) || "Действия",
+      visible: col.getIsVisible(),
+      canHide: col.getCanHide(),
+      width: col.getSize(),
+    }));
+
+  const moveColumn = (activeId: string, overId: string) => {
+    tableState.setColumnOrder((current) => {
+      const oldIndex = current.indexOf(activeId);
+      const newIndex = current.indexOf(overId);
+      if (oldIndex < 0 || newIndex < 0) return current;
+      return arrayMove(current, oldIndex, newIndex);
+    });
+  };
+
   // ── Filter handlers ────────────────────────────────────────
   const onVenueChange = (next: string) =>
     updateUrl({ venue: next === "all" ? null : next }, { resetPage: true });
@@ -278,14 +464,16 @@ export function DocumentsTable({
     router.replace(pathname);
   };
 
-  const hasActiveControls =
+  const hasActiveFilters =
     (filtersFromUrl.venue && filtersFromUrl.venue !== "all") ||
     (filtersFromUrl.status && filtersFromUrl.status.length > 0) ||
     (filtersFromUrl.assigned && filtersFromUrl.assigned !== "any") ||
     (filtersFromUrl.store && filtersFromUrl.store.length > 0) ||
-    Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to) ||
-    Boolean(filtersFromUrl.q) ||
-    sortFromUrl !== DEFAULT_SORT;
+    Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
+
+  const hasSearch = Boolean(filtersFromUrl.q);
+  const hasSortActive = sortFromUrl !== DEFAULT_SORT;
+  const hasAnyActive = hasActiveFilters || hasSearch || hasSortActive;
 
   // ── Sync QR ────────────────────────────────────────────────
   const runSync = (scope: "documents" | "full") => {
@@ -309,33 +497,38 @@ export function DocumentsTable({
   };
 
   // ── Header click → sort cycle ──────────────────────────────
-  const cycleSort = (column: "document_number" | "invoice_date" | "status") => {
-    const mapping: Record<string, DocumentSortMode[]> = {
-      invoice_date:    ["date_desc", "date_asc"],
-      document_number: ["number_desc", "number_asc"],
-      status:          ["status", "status"],
-    };
-    const variants = mapping[column];
-    const idx = variants.indexOf(sortFromUrl);
-    const next =
-      idx === -1
-        ? variants[0]
-        : idx === variants.length - 1
-          ? DEFAULT_SORT
-          : variants[idx + 1];
-    onSortChange(next);
+  const cycleSort = (column: SortField) => {
+    const currentField = sortToField(sortFromUrl);
+    const currentDir = sortToDirection(sortFromUrl);
+    if (column !== currentField || sortFromUrl === DEFAULT_SORT) {
+      // first click → desc (или status — единственный режим)
+      onSortChange(combineSort(column, "desc"));
+      return;
+    }
+    // same column: cycle desc → asc → off
+    if (column === "status") {
+      onSortChange(DEFAULT_SORT);
+      return;
+    }
+    if (currentDir === "desc") onSortChange(combineSort(column, "asc"));
+    else onSortChange(DEFAULT_SORT);
   };
 
-  const sortIndicator = (column: "document_number" | "invoice_date" | "status") => {
-    if (column === "invoice_date" && sortFromUrl === "date_desc") return <ArrowDown className="h-3 w-3" />;
-    if (column === "invoice_date" && sortFromUrl === "date_asc")  return <ArrowUp className="h-3 w-3" />;
-    if (column === "document_number" && sortFromUrl === "number_desc") return <ArrowDown className="h-3 w-3" />;
-    if (column === "document_number" && sortFromUrl === "number_asc")  return <ArrowUp className="h-3 w-3" />;
-    if (column === "status" && sortFromUrl === "status") return <ArrowDown className="h-3 w-3" />;
-    return null;
+  const headerIndicator = (columnId: string) => {
+    const field =
+      columnId === "invoice_date" ? "date" :
+      columnId === "document_number" ? "number" :
+      columnId === "status" ? "status" : null;
+    if (!field) return null;
+    if (sortToField(sortFromUrl) !== field) return null;
+    if (field === "status") return <ArrowDown className="h-3 w-3" />;
+    return sortToDirection(sortFromUrl) === "asc"
+      ? <ArrowUp className="h-3 w-3" />
+      : <ArrowDown className="h-3 w-3" />;
   };
 
-  const rows = initial.rows;
+  const sortableHeaderIds = new Set(["document_number", "invoice_date", "status"]);
+
   const total = initial.total;
   const showingFrom = total === 0 ? 0 : (pageFromUrl - 1) * pageSizeFromUrl + 1;
   const showingTo = Math.min(total, pageFromUrl * pageSizeFromUrl);
@@ -347,6 +540,10 @@ export function DocumentsTable({
     }),
     [filtersFromUrl.date_from, filtersFromUrl.date_to],
   );
+
+  // Search pin показываем, как в эталоне: когда поиск активен, а pins-row
+  // уже виден из-за других условий — sort или filters или активные фильтры.
+  const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
 
   return (
     <div className="w-full space-y-4 px-4 py-4 md:px-8 md:py-6">
@@ -363,13 +560,26 @@ export function DocumentsTable({
               placeholder: "Поиск",
             }}
             filters={{
-              active: filtersVisible || hasActiveControls,
+              active: filtersVisible || hasActiveFilters,
               label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
               onClick: () => setFiltersVisible((v) => !v),
             }}
             sort={{
-              active: sortFromUrl !== DEFAULT_SORT,
+              active: hasSortActive,
               content: <SortPanel value={sortFromUrl} onChange={onSortChange} />,
+            }}
+            columns={{
+              active: managedColumns.some((column) => !column.visible),
+              content: (
+                <TableColumnManager
+                  columns={managedColumns}
+                  onVisibilityChange={(columnId, visible) =>
+                    tableState.setColumnVisibility((current) => ({ ...current, [columnId]: visible }))
+                  }
+                  onMoveColumn={moveColumn}
+                  onReset={tableState.resetColumns}
+                />
+              ),
             }}
             primaryActions={
               canSync ? (
@@ -396,160 +606,263 @@ export function DocumentsTable({
         }
       />
 
-      {/* Filter pins row — показывается/скрывается кнопкой «Фильтры» в шапке
-          (паттерн controlsVariant="pins" из dev/table-lab → FinanceDemo). */}
-      {filtersVisible ? (
-      <div className="flex flex-wrap items-center gap-2">
-        <TableControlPin
-          active={Boolean(filtersFromUrl.venue) && filtersFromUrl.venue !== "all"}
-          label={venuePinLabel(filtersFromUrl.venue, venues)}
-          onClear={
-            filtersFromUrl.venue && filtersFromUrl.venue !== "all"
-              ? () => onVenueChange("all")
-              : undefined
-          }
-          clearLabel="Сбросить заведение"
-        >
-          <VenuePicker value={filtersFromUrl.venue ?? "all"} venues={venues} onChange={onVenueChange} />
-        </TableControlPin>
+      {/* Pins row — порядок: Сортировка → Фильтры → Поиск. Эталон:
+          dev/table-lab → ActiveTablePins в FinanceDemo. */}
+      {(filtersVisible || hasSortActive || hasSearch) ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {/* 1. Сортировка */}
+          {hasSortActive ? (
+            <TableControlPin
+              active
+              icon={
+                sortToField(sortFromUrl) === "status" ? null :
+                sortToDirection(sortFromUrl) === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
+              }
+              label={sortSummary(sortFromUrl)}
+              onClear={() => onSortChange(DEFAULT_SORT)}
+              clearLabel="Сбросить сортировку"
+            >
+              <SortDirectionPanel value={sortFromUrl} onChange={onSortChange} />
+            </TableControlPin>
+          ) : null}
 
-        {canManage ? (
-          <TableControlPin
-            active={Boolean(filtersFromUrl.assigned) && filtersFromUrl.assigned !== "any"}
-            label={assigneePinLabel(filtersFromUrl.assigned, staff)}
-            onClear={
-              filtersFromUrl.assigned && filtersFromUrl.assigned !== "any"
-                ? () => onAssignedChange("any")
-                : undefined
-            }
-            clearLabel="Сбросить исполнителя"
-          >
-            <AssignedPicker value={filtersFromUrl.assigned ?? "any"} staff={staff} onChange={onAssignedChange} />
-          </TableControlPin>
-        ) : null}
+          {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
 
-        <TableControlPin
-          active={(filtersFromUrl.status?.length ?? 0) > 0}
-          label={statusPinLabel(filtersFromUrl.status)}
-          onClear={
-            (filtersFromUrl.status?.length ?? 0) > 0
-              ? () => onStatusToggle(filtersFromUrl.status![0])
-              : undefined
-          }
-          clearLabel="Сбросить статус"
-        >
-          <StatusPicker value={filtersFromUrl.status ?? []} onToggle={onStatusToggle} />
-        </TableControlPin>
+          {/* 2. Фильтры */}
+          {filtersVisible ? (
+            <>
+              <TableControlPin
+                active={Boolean(filtersFromUrl.venue) && filtersFromUrl.venue !== "all"}
+                label={venuePinLabel(filtersFromUrl.venue, venues)}
+                onClear={
+                  filtersFromUrl.venue && filtersFromUrl.venue !== "all"
+                    ? () => onVenueChange("all")
+                    : undefined
+                }
+                clearLabel="Сбросить заведение"
+              >
+                <VenuePicker value={filtersFromUrl.venue ?? "all"} venues={venues} onChange={onVenueChange} />
+              </TableControlPin>
 
-        <TableControlPin
-          active={(filtersFromUrl.store?.length ?? 0) > 0}
-          label={storePinLabel(filtersFromUrl.store, stores)}
-          onClear={
-            (filtersFromUrl.store?.length ?? 0) > 0
-              ? () => updateUrl({ store: null }, { resetPage: true })
-              : undefined
-          }
-          clearLabel="Сбросить склад"
-        >
-          <StorePicker value={filtersFromUrl.store ?? []} stores={stores} onToggle={onStoreToggle} />
-        </TableControlPin>
+              {canManage ? (
+                <TableControlPin
+                  active={Boolean(filtersFromUrl.assigned) && filtersFromUrl.assigned !== "any"}
+                  label={assigneePinLabel(filtersFromUrl.assigned, staff)}
+                  onClear={
+                    filtersFromUrl.assigned && filtersFromUrl.assigned !== "any"
+                      ? () => onAssignedChange("any")
+                      : undefined
+                  }
+                  clearLabel="Сбросить исполнителя"
+                >
+                  <AssignedPicker value={filtersFromUrl.assigned ?? "any"} staff={staff} onChange={onAssignedChange} />
+                </TableControlPin>
+              ) : null}
 
-        <DateRangeFilter
-          value={dateRange}
-          presetLabel={datePresetFromUrl}
-          onChange={onDateRangeChange}
-        />
+              <TableControlPin
+                active={(filtersFromUrl.status?.length ?? 0) > 0}
+                label={statusPinLabel(filtersFromUrl.status)}
+                onClear={
+                  (filtersFromUrl.status?.length ?? 0) > 0
+                    ? () => onStatusToggle(filtersFromUrl.status![0])
+                    : undefined
+                }
+                clearLabel="Сбросить статус"
+              >
+                <StatusPicker value={filtersFromUrl.status ?? []} onToggle={onStatusToggle} />
+              </TableControlPin>
 
-        {sortFromUrl !== DEFAULT_SORT ? (
-          <TableControlPin
-            active
-            icon={
-              sortToField(sortFromUrl) === "status" ? null :
-              sortToDirection(sortFromUrl) === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
-            }
-            label={sortSummary(sortFromUrl)}
-            onClear={() => onSortChange(DEFAULT_SORT)}
-            clearLabel="Сбросить сортировку"
-          >
-            <SortDirectionPanel value={sortFromUrl} onChange={onSortChange} />
-          </TableControlPin>
-        ) : null}
+              <TableControlPin
+                active={(filtersFromUrl.store?.length ?? 0) > 0}
+                label={storePinLabel(filtersFromUrl.store, stores)}
+                onClear={
+                  (filtersFromUrl.store?.length ?? 0) > 0
+                    ? () => updateUrl({ store: null }, { resetPage: true })
+                    : undefined
+                }
+                clearLabel="Сбросить склад"
+              >
+                <StorePicker value={filtersFromUrl.store ?? []} stores={stores} onToggle={onStoreToggle} />
+              </TableControlPin>
 
-        {hasActiveControls ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={onClearAll}
-          >
-            Очистить все
-          </Button>
-        ) : null}
-      </div>
+              <DateRangeFilter
+                value={dateRange}
+                presetLabel={datePresetFromUrl}
+                onChange={onDateRangeChange}
+              />
+            </>
+          ) : null}
+
+          {filtersVisible && showSearchPin ? <PinDivider /> : null}
+
+          {/* 3. Поиск */}
+          {showSearchPin ? (
+            <TableControlPin
+              active
+              label={`Поиск: ${(filtersFromUrl.q ?? "").trim()}`}
+              icon={<SearchIcon className="h-3.5 w-3.5" />}
+              onClear={() => setSearch("")}
+              clearLabel="Очистить поиск"
+            >
+              <div className="space-y-2 p-2">
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Поиск"
+                  className="h-8"
+                />
+                <p className="text-xs text-muted-foreground">
+                  По № акта, комментарию и названиям ингредиентов.
+                </p>
+              </div>
+            </TableControlPin>
+          ) : null}
+
+          {hasAnyActive ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onClearAll}
+            >
+              Очистить все
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
-      {/* Desktop table */}
+      {/* Desktop table — TanStack для column-state, resize-handles */}
       <div className="hidden overflow-hidden rounded-lg border bg-background md:block">
-        <table className="w-full table-fixed">
-          <thead className="bg-muted/40 text-xs font-medium tracking-wide text-muted-foreground">
-            <tr>
-              <SortableTh label="Номер"      width={110} onClick={() => cycleSort("document_number")} indicator={sortIndicator("document_number")} />
-              <SortableTh label="Дата"       width={110} onClick={() => cycleSort("invoice_date")}    indicator={sortIndicator("invoice_date")} />
-              <SortableTh label="Статус"     width={170} onClick={() => cycleSort("status")}          indicator={sortIndicator("status")} />
-              <th className="px-3 py-3 text-left" style={{ width: 200 }}>Склад</th>
-              <th className="px-3 py-3 text-left" style={{ width: 240 }}>Комментарий</th>
-              <th className="px-3 py-3 text-left" style={{ width: 200 }}>Итоги</th>
-              <th className="px-3 py-3 text-left" style={{ width: 200 }}>Назначен</th>
-              <th className="w-14 px-3 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="p-0">
-                  <EmptyTableBody
-                    canSync={canSync}
-                    hasActive={hasActiveControls}
-                    onClearAll={onClearAll}
-                    onSync={() => runSync("documents")}
-                  />
-                </td>
-              </tr>
-            ) : (
-              rows.map((doc) => (
-                <DesktopRow
-                  key={doc.id}
-                  doc={doc}
-                  staff={staff}
-                  canManage={canManage}
-                  amountRoundingScale={amountRoundingScale}
-                  searchActive={Boolean(filtersFromUrl.q)}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-full table-fixed" style={{ minWidth: table.getTotalSize() }}>
+            <colgroup>
+              {table.getVisibleLeafColumns().map((column) => (
+                <col
+                  key={column.id}
+                  style={{ width: column.id === "actions" ? 56 : column.getSize() }}
                 />
-              ))
-            )}
-          </tbody>
-        </table>
+              ))}
+            </colgroup>
+            <thead className="group/header bg-muted/40 text-xs font-medium tracking-wide text-muted-foreground">
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr key={headerGroup.id} className="h-11">
+                  {headerGroup.headers.map((header) => {
+                    const isActions = header.column.id === "actions";
+                    const isSortable = sortableHeaderIds.has(header.column.id);
+                    return (
+                      <th
+                        key={header.id}
+                        className={cn(
+                          "relative border-b px-3 py-3",
+                          isActions ? "w-14 max-w-14 text-right" : "text-left",
+                        )}
+                        style={{ width: isActions ? 56 : header.getSize() }}
+                      >
+                        {isActions ? null : isSortable ? (
+                          <button
+                            type="button"
+                            className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
+                            onClick={() =>
+                              cycleSort(
+                                header.column.id === "invoice_date" ? "date" :
+                                header.column.id === "document_number" ? "number" : "status",
+                              )
+                            }
+                          >
+                            <span className="truncate">
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </span>
+                            {headerIndicator(header.column.id)}
+                          </button>
+                        ) : (
+                          <span className="truncate">
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </span>
+                        )}
+                        {header.column.getCanResize() && !isActions ? (
+                          <div
+                            onMouseDown={header.getResizeHandler()}
+                            onTouchStart={header.getResizeHandler()}
+                            className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
+                          >
+                            <span
+                              className={cn(
+                                "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
+                                "group-hover/header:opacity-80",
+                                "hover:w-1 hover:bg-brand hover:opacity-100",
+                                header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
+                              )}
+                            />
+                          </div>
+                        ) : null}
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.length === 0 ? (
+                <tr>
+                  <td colSpan={table.getVisibleLeafColumns().length} className="p-0">
+                    <EmptyTableBody
+                      canSync={canSync}
+                      hasActive={hasAnyActive}
+                      onClearAll={onClearAll}
+                      onSync={() => runSync("documents")}
+                    />
+                  </td>
+                </tr>
+              ) : (
+                table.getRowModel().rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement;
+                      if (target.closest("[data-row-interactive]")) return;
+                      router.push(getDocHref(row.original));
+                    }}
+                    className="cursor-pointer border-b last:border-b-0 hover:bg-muted/30"
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          "px-3 py-3 align-top text-sm",
+                          cell.column.id === "actions" ? "w-14 max-w-14 text-right" : null,
+                        )}
+                        style={{ width: cell.column.id === "actions" ? 56 : cell.column.getSize() }}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Mobile cards */}
+      {/* Mobile cards (без TanStack — отдельный layout) */}
       <div className="grid gap-2 md:hidden">
-        {rows.length === 0 ? (
+        {initial.rows.length === 0 ? (
           <EmptyTableBody
             canSync={canSync}
-            hasActive={hasActiveControls}
+            hasActive={hasAnyActive}
             onClearAll={onClearAll}
             onSync={() => runSync("documents")}
           />
         ) : (
-          rows.map((doc) => (
+          initial.rows.map((doc) => (
             <MobileCard
               key={doc.id}
               doc={doc}
               staff={staff}
               canManage={canManage}
               amountRoundingScale={amountRoundingScale}
-              searchActive={Boolean(filtersFromUrl.q)}
+              searchActive={searchActive}
             />
           ))
         )}
@@ -562,6 +875,31 @@ export function DocumentsTable({
         onPageChange={(idx) => updateUrl({ page: String(idx + 1) }, { mode: "push" })}
         onPageSizeChange={(size) => updateUrl({ size: String(size), page: null })}
       />
+    </div>
+  );
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function PinDivider() {
+  return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
+}
+
+function DesktopRowMenu({ doc }: { doc: DocumentListRow }) {
+  const router = useRouter();
+  const actions = useMemo(() => {
+    const items: { label: string; icon: React.ReactNode; onSelect: () => void }[] = [];
+    if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
+      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/${doc.id}/results`) });
+      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+    } else {
+      items.push({ label: "Открыть акт",          icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+    }
+    return items;
+  }, [doc, router]);
+  return (
+    <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+      <TableRowMenu actions={actions} />
     </div>
   );
 }
@@ -841,113 +1179,6 @@ function EmptyTableBody({
   );
 }
 
-// ─── Desktop row ─────────────────────────────────────────────────────────────
-
-function DesktopRow({
-  doc,
-  staff,
-  canManage,
-  amountRoundingScale,
-  searchActive,
-}: {
-  doc: DocumentListRow;
-  staff: AssigneeOption[];
-  canManage: boolean;
-  amountRoundingScale: AmountRoundingScale;
-  searchActive: boolean;
-}) {
-  const router = useRouter();
-  const href = getDocHref(doc);
-  const statusKey = doc.status as DocumentStatus;
-
-  const rowMenuActions = useMemo(() => {
-    const items: { label: string; icon: React.ReactNode; onSelect: () => void; separatorBefore?: boolean }[] = [];
-    if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/${doc.id}/results`) });
-      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
-    } else {
-      items.push({ label: "Открыть акт",          icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
-    }
-    return items;
-  }, [doc, router]);
-
-  const onRowClick = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest("[data-row-interactive]")) return;
-    router.push(href);
-  };
-
-  return (
-    <tr
-      onClick={onRowClick}
-      className="cursor-pointer border-b last:border-b-0 hover:bg-muted/30"
-    >
-      <td className="px-3 py-3 align-top">
-        <Link
-          href={href}
-          className="text-sm font-medium hover:underline"
-          data-row-interactive
-          onClick={(e) => e.stopPropagation()}
-        >
-          № {doc.document_number}
-        </Link>
-        {searchActive && doc.matched_ingredients && doc.matched_ingredients.length > 0 ? (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {doc.matched_ingredients.map((name) => (
-              <span
-                key={name}
-                className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800"
-              >
-                <SearchIcon className="h-2.5 w-2.5" />
-                {name}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </td>
-      <td className="px-3 py-3 align-top text-sm">{formatDate(doc.invoice_date)}</td>
-      <td className="px-3 py-3 align-top">
-        <Badge
-          variant="outline"
-          className={cn(
-            "text-xs font-normal",
-            STATUS_BADGE_CLASS[statusKey] ?? "bg-slate-50 text-slate-700 border-slate-200",
-          )}
-        >
-          {STATUS_LABEL[statusKey] ?? doc.status}
-        </Badge>
-      </td>
-      <td className="truncate px-3 py-3 align-top text-sm">{doc.store_title ?? "—"}</td>
-      <td className="px-3 py-3 align-top">
-        <span className="block truncate text-sm text-muted-foreground" title={doc.comment ?? undefined}>
-          {doc.comment ?? "—"}
-        </span>
-      </td>
-      <td className="px-3 py-3 align-top text-sm">
-        {doc.results_has_line_amounts ? (
-          <span>
-            −{formatMoney(Math.abs(doc.shortfall_sum ?? 0), "RUB", amountRoundingScale)} / +{formatMoney(Math.abs(doc.surplus_sum ?? 0), "RUB", amountRoundingScale)}
-          </span>
-        ) : (
-          <span className="text-amber-700">Нет построчных итогов</span>
-        )}
-      </td>
-      <td className="px-3 py-3 align-top" data-row-interactive onClick={(e) => e.stopPropagation()}>
-        {canManage ? (
-          <AssigneeSelect documentId={doc.id} assignedTo={doc.assigned_to} staff={staff} />
-        ) : (
-          <span className="text-sm text-muted-foreground">
-            {staff.find((m) => m.id === doc.assigned_to)?.name ?? "—"}
-          </span>
-        )}
-      </td>
-      <td className="w-14 px-3 py-3 text-right align-top" data-row-interactive onClick={(e) => e.stopPropagation()}>
-        <TableRowMenu actions={rowMenuActions} />
-      </td>
-    </tr>
-  );
-}
-
 // ─── Mobile card ─────────────────────────────────────────────────────────────
 
 function MobileCard({
@@ -1067,32 +1298,5 @@ function MobileCard({
         </div>
       ) : null}
     </div>
-  );
-}
-
-// ─── Utility cell components ─────────────────────────────────────────────────
-
-function SortableTh({
-  label,
-  width,
-  onClick,
-  indicator,
-}: {
-  label: string;
-  width: number;
-  onClick: () => void;
-  indicator: React.ReactNode;
-}) {
-  return (
-    <th className="px-3 py-3 text-left" style={{ width }}>
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex items-center gap-1 hover:text-foreground"
-      >
-        <span>{label}</span>
-        {indicator}
-      </button>
-    </th>
   );
 }

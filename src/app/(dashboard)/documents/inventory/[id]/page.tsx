@@ -150,7 +150,7 @@ export default async function InventoryDocumentPage({
     .maybeSingle();
 
   if (!document) notFound();
-  if (!canView && document.assigned_to !== user.id) redirect("/documents");
+  if (!canView && document.assigned_to !== user.id) redirect("/documents/inventory");
 
   const [{ data: store }, { data: itemsRaw }, { data: groupsRaw }] = await Promise.all([
     document.store_id

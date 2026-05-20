@@ -287,7 +287,7 @@ export default async function InventoryDocumentResultsPage({
     .maybeSingle();
 
   if (!document) notFound();
-  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents");
+  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents/inventory");
 
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")

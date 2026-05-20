@@ -71,7 +71,6 @@ export default async function InventoryProductsPage({
   searchParams: Promise<{ scope?: string }>;
 }) {
   const { scope } = await searchParams;
-  const venueScoped = scope !== "all"; // default — «этого заведения»
   const supabase = await createClient();
   const db = asLooseDb(supabase);
 
@@ -85,6 +84,25 @@ export default async function InventoryProductsPage({
   ]);
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
+
+  // Сколько venue в аккаунте: при единственном venue toggle бессмыслен
+  // (фильтр «этого заведения» совпадает с «весь каталог»). Скрываем
+  // toggle и форсим режим «весь каталог» — это устраняет confusing
+  // empty state при свежем QR-импорте, когда актов ещё нет.
+  const { data: accountVenues } = await db
+    .from<Array<{ id: string }>>("venues")
+    .select("id")
+    .eq("account_id", accountId);
+  const venueCount = accountVenues?.length ?? 0;
+  const multiVenue = venueCount > 1;
+
+  // Дефолт — «весь каталог»:
+  //   - При первом QR-импорте актов нет → toggle на «этого заведения»
+  //     показывал бы пусто, что сбивало (Issue: empty groups + missing items).
+  //   - Когда у user'а появятся реальные акты, он сам переключит, чтобы
+  //     отфильтровать «что в этом venue».
+  // При venueCount<=1 toggle всё равно скрыт, режим всегда «весь каталог».
+  const venueScoped = multiVenue && scope === "venue";
 
   const { data: lastSynced } = await db
     .from<Array<{ synced_at: string | null }>>("ingredients")
@@ -192,18 +210,20 @@ export default async function InventoryProductsPage({
         <InventorySyncButton canSync={Boolean(canSync)} lastSyncedAt={lastSyncedAt} />
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-3">
-        <ScopeToggle value={venueScoped ? "venue" : "all"} />
-        {venueScoped && !activeVenueId ? (
-          <span className="text-sm text-muted-foreground">
-            Активное заведение не выбрано — переключитесь на «Весь каталог».
-          </span>
-        ) : venueScoped && productRows.length === 0 ? (
-          <span className="text-sm text-muted-foreground">
-            В этом заведении пока нет актов с ингредиентами — переключитесь на «Весь каталог».
-          </span>
-        ) : null}
-      </div>
+      {multiVenue ? (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <ScopeToggle value={venueScoped ? "venue" : "all"} />
+          {venueScoped && !activeVenueId ? (
+            <span className="text-sm text-muted-foreground">
+              Активное заведение не выбрано — переключитесь на «Весь каталог».
+            </span>
+          ) : venueScoped && productRows.length === 0 ? (
+            <span className="text-sm text-muted-foreground">
+              В этом заведении пока нет актов с ингредиентами — переключитесь на «Весь каталог».
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       <InventoryCatalogTree
         groups={catalogGroups}

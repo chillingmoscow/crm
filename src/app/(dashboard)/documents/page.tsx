@@ -81,8 +81,10 @@ function parseSearchParams(sp: SearchParams) {
 
   const q = sp.q?.trim() && sp.q.trim().length >= 2 ? sp.q.trim() : undefined;
 
-  const sortRaw = sp.sort as DocumentSortMode | undefined;
-  const sort = sortRaw && VALID_SORTS.has(sortRaw) ? sortRaw : DEFAULT_SORT;
+  const sortKeysRaw = parseCsv(sp.sort).filter(
+    (s): s is DocumentSortMode => VALID_SORTS.has(s as DocumentSortMode),
+  );
+  const sort: DocumentSortMode[] = sortKeysRaw.length > 0 ? sortKeysRaw : DEFAULT_SORT;
 
   const requestedPage = parseInt(sp.page ?? "1", 10);
   const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;

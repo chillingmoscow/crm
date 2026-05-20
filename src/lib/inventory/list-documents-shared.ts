@@ -9,17 +9,24 @@ export type DocumentSortMode =
   | "date_asc"
   | "number_desc"
   | "number_asc"
-  | "status";
+  | "status_desc"
+  | "status_asc";
 
 export const DOCUMENT_SORT_MODES = [
   "date_desc",
   "date_asc",
   "number_desc",
   "number_asc",
-  "status",
+  "status_desc",
+  "status_asc",
 ] as const satisfies readonly DocumentSortMode[];
 
-export const DEFAULT_SORT: DocumentSortMode = "date_desc";
+/** Дефолтная сортировка — единственный ключ date_desc. */
+export const DEFAULT_SORT: DocumentSortMode[] = ["date_desc"];
+
+export function isDefaultSort(sort: DocumentSortMode[]): boolean {
+  return sort.length === 1 && sort[0] === DEFAULT_SORT[0];
+}
 
 export const DOCUMENT_STATUSES = [
   "synced",
@@ -74,7 +81,8 @@ export type ListDocumentsResult = {
 
 export type ListDocumentsOptions = {
   filters?: ListDocumentsFilters;
-  sort?: DocumentSortMode;
+  /** Multi-key sort. Default = ['date_desc']. */
+  sort?: DocumentSortMode[];
   /** 1-based page. */
   page?: number;
   /** Page size, clamped to 1..200. */
@@ -88,14 +96,14 @@ type RpcRow = DocumentListRow & { total: number | string };
 
 export type NormalizedListOptions = {
   filters: ListDocumentsFilters;
-  sort: DocumentSortMode;
+  sort: DocumentSortMode[];
   page: number;
   pageSize: number;
 };
 
 export function normalizeListOptions(opts: ListDocumentsOptions = {}): NormalizedListOptions {
   const filters = opts.filters ?? {};
-  const sort = opts.sort ?? DEFAULT_SORT;
+  const sort = opts.sort && opts.sort.length > 0 ? opts.sort : DEFAULT_SORT;
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, opts.pageSize ?? DEFAULT_PAGE_SIZE));
   return { filters, sort, page, pageSize };

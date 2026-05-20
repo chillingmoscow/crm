@@ -12,11 +12,21 @@ import {
 
 test("normalizeListOptions: defaults", () => {
   const n = normalizeListOptions();
-  assert.equal(n.sort, DEFAULT_SORT);
-  assert.equal(n.sort, "date_desc");
+  assert.deepEqual(n.sort, DEFAULT_SORT);
+  assert.deepEqual(n.sort, ["date_desc"]);
   assert.equal(n.page, 1);
   assert.equal(n.pageSize, DEFAULT_PAGE_SIZE);
   assert.deepEqual(n.filters, {});
+});
+
+test("normalizeListOptions: пустой sort массив → DEFAULT_SORT", () => {
+  const n = normalizeListOptions({ sort: [] });
+  assert.deepEqual(n.sort, DEFAULT_SORT);
+});
+
+test("normalizeListOptions: multi-sort пробрасывается как есть", () => {
+  const n = normalizeListOptions({ sort: ["number_asc", "date_desc"] });
+  assert.deepEqual(n.sort, ["number_asc", "date_desc"]);
 });
 
 test("normalizeListOptions: page clamped to >= 1", () => {
@@ -41,7 +51,7 @@ test("buildRpcArgs: empty filters → all params null", () => {
   assert.equal(args.p_filter_date_from, null);
   assert.equal(args.p_filter_date_to, null);
   assert.equal(args.p_filter_q, null);
-  assert.equal(args.p_sort, "date_desc");
+  assert.deepEqual(args.p_sort, ["date_desc"]);
   assert.equal(args.p_page, 1);
   assert.equal(args.p_page_size, 25);
 });
@@ -94,11 +104,15 @@ test("buildRpcArgs: даты пробрасываются как ISO-строк�
   assert.equal(args.p_filter_date_to, "2026-05-31");
 });
 
-test("buildRpcArgs: sort пробрасывается, default date_desc", () => {
-  assert.equal(buildRpcArgs(normalizeListOptions()).p_sort, "date_desc");
-  assert.equal(
-    buildRpcArgs(normalizeListOptions({ sort: "number_desc" })).p_sort,
-    "number_desc",
+test("buildRpcArgs: sort пробрасывается, default = ['date_desc']", () => {
+  assert.deepEqual(buildRpcArgs(normalizeListOptions()).p_sort, ["date_desc"]);
+  assert.deepEqual(
+    buildRpcArgs(normalizeListOptions({ sort: ["number_desc"] })).p_sort,
+    ["number_desc"],
+  );
+  assert.deepEqual(
+    buildRpcArgs(normalizeListOptions({ sort: ["number_asc", "date_desc"] })).p_sort,
+    ["number_asc", "date_desc"],
   );
 });
 

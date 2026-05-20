@@ -18,8 +18,13 @@
 --   p_filter_store     — text[] store_id (uuid в виде text) | NULL
 --   p_filter_date_from / p_filter_date_to — даты (включительно)
 --   p_filter_q         — поисковая строка (>=2 символов после trim)
---   p_sort             — 'date_desc' (default) | 'date_asc' |
---                        'number_desc' | 'number_asc' | 'status'
+--   p_sort             — text[] из режимов сортировки в порядке приоритета.
+--                        Поддерживаются: 'date_desc', 'date_asc',
+--                        'number_desc', 'number_asc',
+--                        'status_desc', 'status_asc'.
+--                        До 3 ключей применяются как ORDER BY с tiebreaker
+--                        по id desc. Пустой массив / NULL → дефолт
+--                        'date_desc'.
 --   p_page, p_page_size — 1-based страница, размер 1..200
 --
 -- Возвращает row-per-document. Все строки текущей страницы содержат
@@ -36,6 +41,9 @@ drop function if exists public.list_inventory_documents(
 drop function if exists public.list_inventory_documents(
   text, text[], text, text[], date, date, text, text, int, int
 );
+drop function if exists public.list_inventory_documents(
+  text, text[], text, text[], date, date, text, text[], int, int
+);
 
 create or replace function public.list_inventory_documents(
   p_filter_venue text default null,
@@ -45,7 +53,7 @@ create or replace function public.list_inventory_documents(
   p_filter_date_from date default null,
   p_filter_date_to date default null,
   p_filter_q text default null,
-  p_sort text default 'date_desc',
+  p_sort text[] default array['date_desc']::text[],
   p_page int default 1,
   p_page_size int default 25
 )
@@ -91,7 +99,15 @@ declare
   v_venue_unassigned boolean := p_filter_venue = 'unassigned';
   v_venue_uuid uuid := null;
 
-  v_sort text := coalesce(nullif(p_sort, ''), 'date_desc');
+  -- До 3 ключей сортировки; «лишние» NULL → CASE-branches no-op'нутся.
+  v_sort_keys text[] := case
+    when p_sort is null or array_length(p_sort, 1) is null
+      then array['date_desc']::text[]
+    else p_sort
+  end;
+  v_s1 text := v_sort_keys[1];
+  v_s2 text := v_sort_keys[2];
+  v_s3 text := v_sort_keys[3];
 begin
   -- Если активного аккаунта нет (anon / не залогинен) — возвращаем пусто.
   if v_account_id is null then
@@ -190,11 +206,28 @@ begin
   ordered as (
     select * from windowed
     order by
-      case when v_sort = 'date_desc'   then invoice_date  end desc nulls last,
-      case when v_sort = 'date_asc'    then invoice_date  end asc  nulls last,
-      case when v_sort = 'number_desc' then document_number end desc nulls last,
-      case when v_sort = 'number_asc'  then document_number end asc  nulls last,
-      case when v_sort = 'status'      then status         end asc  nulls last,
+      -- Слот 1
+      case when v_s1 = 'date_desc'   then invoice_date    end desc nulls last,
+      case when v_s1 = 'date_asc'    then invoice_date    end asc  nulls last,
+      case when v_s1 = 'number_desc' then document_number end desc nulls last,
+      case when v_s1 = 'number_asc'  then document_number end asc  nulls last,
+      case when v_s1 = 'status_desc' then status          end desc nulls last,
+      case when v_s1 = 'status_asc'  then status          end asc  nulls last,
+      -- Слот 2
+      case when v_s2 = 'date_desc'   then invoice_date    end desc nulls last,
+      case when v_s2 = 'date_asc'    then invoice_date    end asc  nulls last,
+      case when v_s2 = 'number_desc' then document_number end desc nulls last,
+      case when v_s2 = 'number_asc'  then document_number end asc  nulls last,
+      case when v_s2 = 'status_desc' then status          end desc nulls last,
+      case when v_s2 = 'status_asc'  then status          end asc  nulls last,
+      -- Слот 3
+      case when v_s3 = 'date_desc'   then invoice_date    end desc nulls last,
+      case when v_s3 = 'date_asc'    then invoice_date    end asc  nulls last,
+      case when v_s3 = 'number_desc' then document_number end desc nulls last,
+      case when v_s3 = 'number_asc'  then document_number end asc  nulls last,
+      case when v_s3 = 'status_desc' then status          end desc nulls last,
+      case when v_s3 = 'status_asc'  then status          end asc  nulls last,
+      -- Tiebreaker
       id desc
   ),
   paged as (
@@ -234,9 +267,9 @@ end;
 $$;
 
 revoke all on function public.list_inventory_documents(
-  text, text[], text, text[], date, date, text, text, int, int
+  text, text[], text, text[], date, date, text, text[], int, int
 ) from public;
 
 grant execute on function public.list_inventory_documents(
-  text, text[], text, text[], date, date, text, text, int, int
+  text, text[], text, text[], date, date, text, text[], int, int
 ) to authenticated;

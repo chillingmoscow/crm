@@ -41,6 +41,7 @@ export {
   DEFAULT_PAGE_SIZE,
   DEFAULT_SORT,
   MAX_PAGE_SIZE,
+  isDefaultSort,
 } from "./list-documents-shared";
 
 /**

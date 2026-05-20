@@ -13,15 +13,19 @@ import { arrayMove } from "@dnd-kit/sortable";
 import {
   ArrowDown,
   ArrowUp,
+  ArrowUpDown,
   CheckCircle2,
   ClipboardCheck,
   FileX2,
   Inbox,
   Loader2,
+  Plus,
   RefreshCw,
   Search as SearchIcon,
+  Trash2,
   UserPlus,
   X,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +34,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
@@ -52,6 +63,7 @@ import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
 import {
   DEFAULT_SORT,
   DOCUMENT_STATUSES,
+  isDefaultSort,
   type DocumentListRow,
   type DocumentSortMode,
   type DocumentStatus,
@@ -91,27 +103,31 @@ const SORT_FIELD_LABEL: Record<SortField, string> = {
 
 const SORT_FIELDS: SortField[] = ["date", "number", "status"];
 
-function sortToField(sort: DocumentSortMode): SortField {
-  if (sort === "date_desc" || sort === "date_asc") return "date";
-  if (sort === "number_desc" || sort === "number_asc") return "number";
+// Привязка между UI-полем сортировки и заголовком колонки таблицы.
+const COLUMN_TO_FIELD: Record<string, SortField> = {
+  document_number: "number",
+  invoice_date:    "date",
+  status:          "status",
+};
+function sortToField(mode: DocumentSortMode): SortField {
+  if (mode === "date_desc" || mode === "date_asc") return "date";
+  if (mode === "number_desc" || mode === "number_asc") return "number";
   return "status";
 }
 
-function sortToDirection(sort: DocumentSortMode): "asc" | "desc" {
-  if (sort === "date_asc" || sort === "number_asc") return "asc";
-  return "desc";
+function sortToDirection(mode: DocumentSortMode): "asc" | "desc" {
+  return mode.endsWith("_asc") ? "asc" : "desc";
 }
 
 function combineSort(field: SortField, direction: "asc" | "desc"): DocumentSortMode {
-  if (field === "status") return "status";
+  if (field === "status") return direction === "asc" ? "status_asc" : "status_desc";
   if (field === "date")   return direction === "asc" ? "date_asc" : "date_desc";
   return direction === "asc" ? "number_asc" : "number_desc";
 }
 
-function sortSummary(sort: DocumentSortMode): string {
-  const field = sortToField(sort);
-  if (field === "status") return SORT_FIELD_LABEL.status;
-  const arrow = sortToDirection(sort) === "asc" ? "↑" : "↓";
+function modeSummary(mode: DocumentSortMode): string {
+  const field = sortToField(mode);
+  const arrow = sortToDirection(mode) === "asc" ? "↑" : "↓";
   return `${SORT_FIELD_LABEL[field]} ${arrow}`;
 }
 
@@ -126,7 +142,7 @@ export type StoreOption = { id: string; title: string };
 type Props = {
   initial: ListDocumentsResult;
   filtersFromUrl: ListDocumentsFilters;
-  sortFromUrl: DocumentSortMode;
+  sortFromUrl: DocumentSortMode[];
   pageFromUrl: number;
   pageSizeFromUrl: number;
   datePresetFromUrl: string | null;
@@ -456,8 +472,13 @@ export function DocumentsTable({
     );
   };
 
-  const onSortChange = (sort: DocumentSortMode) =>
-    updateUrl({ sort: sort === DEFAULT_SORT ? null : sort }, { resetPage: true });
+  const setSortKeys = (next: DocumentSortMode[]) => {
+    const cleaned = next.length === 0 ? DEFAULT_SORT : next;
+    updateUrl(
+      { sort: isDefaultSort(cleaned) ? null : cleaned },
+      { resetPage: true },
+    );
+  };
 
   const onClearAll = () => {
     setSearch("");
@@ -472,7 +493,7 @@ export function DocumentsTable({
     Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
 
   const hasSearch = Boolean(filtersFromUrl.q);
-  const hasSortActive = sortFromUrl !== DEFAULT_SORT;
+  const hasSortActive = !isDefaultSort(sortFromUrl);
   const hasAnyActive = hasActiveFilters || hasSearch || hasSortActive;
 
   // ── Sync QR ────────────────────────────────────────────────
@@ -496,38 +517,43 @@ export function DocumentsTable({
     });
   };
 
-  // ── Header click → sort cycle ──────────────────────────────
-  const cycleSort = (column: SortField) => {
-    const currentField = sortToField(sortFromUrl);
-    const currentDir = sortToDirection(sortFromUrl);
-    if (column !== currentField || sortFromUrl === DEFAULT_SORT) {
-      // first click → desc (или status — единственный режим)
-      onSortChange(combineSort(column, "desc"));
+  // ── Header click → multi-sort cycle (1-в-1 с эталоном) ────
+  // - Колонка не в сортировке → APPEND ascending.
+  // - Колонка в сортировке, asc → FLIP в desc.
+  // - Колонка в сортировке, desc → REMOVE из набора.
+  const cycleSort = (field: SortField) => {
+    const index = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
+    if (index < 0) {
+      setSortKeys([...sortFromUrl, combineSort(field, "asc")]);
       return;
     }
-    // same column: cycle desc → asc → off
-    if (column === "status") {
-      onSortChange(DEFAULT_SORT);
+    const currentMode = sortFromUrl[index];
+    if (sortToDirection(currentMode) === "asc") {
+      const next = sortFromUrl.slice();
+      next[index] = combineSort(field, "desc");
+      setSortKeys(next);
       return;
     }
-    if (currentDir === "desc") onSortChange(combineSort(column, "asc"));
-    else onSortChange(DEFAULT_SORT);
+    setSortKeys(sortFromUrl.filter((_, i) => i !== index));
   };
 
   const headerIndicator = (columnId: string) => {
-    const field =
-      columnId === "invoice_date" ? "date" :
-      columnId === "document_number" ? "number" :
-      columnId === "status" ? "status" : null;
+    const field = COLUMN_TO_FIELD[columnId];
     if (!field) return null;
-    if (sortToField(sortFromUrl) !== field) return null;
-    if (field === "status") return <ArrowDown className="h-3 w-3" />;
-    return sortToDirection(sortFromUrl) === "asc"
-      ? <ArrowUp className="h-3 w-3" />
-      : <ArrowDown className="h-3 w-3" />;
+    const idx = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
+    if (idx < 0) return null;
+    const dir = sortToDirection(sortFromUrl[idx]);
+    return (
+      <span className="inline-flex items-center gap-0.5">
+        {dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+        {sortFromUrl.length > 1 ? (
+          <span className="text-[10px] tabular-nums">{idx + 1}</span>
+        ) : null}
+      </span>
+    );
   };
 
-  const sortableHeaderIds = new Set(["document_number", "invoice_date", "status"]);
+  const sortableHeaderIds = new Set(Object.keys(COLUMN_TO_FIELD));
 
   const total = initial.total;
   const showingFrom = total === 0 ? 0 : (pageFromUrl - 1) * pageSizeFromUrl + 1;
@@ -566,7 +592,7 @@ export function DocumentsTable({
             }}
             sort={{
               active: hasSortActive,
-              content: <SortPanel value={sortFromUrl} onChange={onSortChange} />,
+              content: <SortFieldPanel sorts={sortFromUrl} onChange={setSortKeys} />,
             }}
             columns={{
               active: managedColumns.some((column) => !column.visible),
@@ -610,19 +636,25 @@ export function DocumentsTable({
           dev/table-lab → ActiveTablePins в FinanceDemo. */}
       {(filtersVisible || hasSortActive || hasSearch) ? (
         <div className="flex flex-wrap items-center gap-2">
-          {/* 1. Сортировка */}
+          {/* 1. Сортировка — один пин на все ключи (как в эталоне) */}
           {hasSortActive ? (
             <TableControlPin
               active
               icon={
-                sortToField(sortFromUrl) === "status" ? null :
-                sortToDirection(sortFromUrl) === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
+                sortFromUrl.length === 1
+                  ? sortToDirection(sortFromUrl[0]) === "asc"
+                    ? <ArrowUp className="h-3.5 w-3.5" />
+                    : <ArrowDown className="h-3.5 w-3.5" />
+                  : <ArrowUpDown className="h-3.5 w-3.5" />
               }
-              label={sortSummary(sortFromUrl)}
-              onClear={() => onSortChange(DEFAULT_SORT)}
-              clearLabel="Сбросить сортировку"
+              label={
+                sortFromUrl.length === 1
+                  ? modeSummary(sortFromUrl[0])
+                  : `${sortFromUrl.length} сортировки`
+              }
+              contentClassName="w-auto p-3"
             >
-              <SortDirectionPanel value={sortFromUrl} onChange={onSortChange} />
+              <SortPinEditor sorts={sortFromUrl} onChange={setSortKeys} />
             </TableControlPin>
           ) : null}
 
@@ -763,12 +795,7 @@ export function DocumentsTable({
                           <button
                             type="button"
                             className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
-                            onClick={() =>
-                              cycleSort(
-                                header.column.id === "invoice_date" ? "date" :
-                                header.column.id === "document_number" ? "number" : "status",
-                              )
-                            }
+                            onClick={() => cycleSort(COLUMN_TO_FIELD[header.column.id])}
                           >
                             <span className="truncate">
                               {flexRender(header.column.columnDef.header, header.getContext())}
@@ -1055,77 +1082,183 @@ function AssignedPicker({
   );
 }
 
-function SortPanel({
-  value,
+/**
+ * Popover из шапки таблицы (TableControls.sort.content). Эталон:
+ * SortFieldPanel в dev/table-lab. Один список полей; клик на поле,
+ * которого ещё нет в сортировке — APPEND с направлением asc.
+ * Поле, которое уже в сортировке, помечается «Добавлено».
+ */
+function SortFieldPanel({
+  sorts,
   onChange,
 }: {
-  value: DocumentSortMode;
-  onChange: (s: DocumentSortMode) => void;
+  sorts: DocumentSortMode[];
+  onChange: (next: DocumentSortMode[]) => void;
 }) {
-  const activeField = sortToField(value);
-  const activeDirection = sortToDirection(value);
+  const usedFields = new Set(sorts.map((mode) => sortToField(mode)));
   return (
-    <div className="space-y-1">
-      <p className="px-3 pb-1 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+    <div className="space-y-3">
+      <p className="px-3 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
         Сортировка
       </p>
-      {SORT_FIELDS.map((field) => (
-        <button
-          key={field}
-          type="button"
-          onClick={() => onChange(combineSort(field, activeDirection))}
-          className={cn(
-            "block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-            field === activeField ? "bg-accent text-foreground" : "text-muted-foreground",
-          )}
-        >
-          {SORT_FIELD_LABEL[field]}
-        </button>
-      ))}
+      <div className="space-y-1">
+        {SORT_FIELDS.map((field) => {
+          const used = usedFields.has(field);
+          return (
+            <button
+              key={field}
+              type="button"
+              onClick={() => {
+                if (used) return;
+                onChange([...sorts, combineSort(field, "asc")]);
+              }}
+              className={cn(
+                "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+                used ? "bg-accent text-muted-foreground" : null,
+              )}
+            >
+              <span>{SORT_FIELD_LABEL[field]}</span>
+              {used ? <span className="text-xs">Добавлено</span> : null}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function SortDirectionPanel({
-  value,
+/**
+ * Содержимое пина активной сортировки. Эталон: SortPinEditor в
+ * dev/table-lab. Каждая сортировка — строка с field-select +
+ * direction-select + крестик. Кнопки: «Добавить сортировку» (список
+ * неиспользованных полей) и «Удалить сортировку» (всё).
+ */
+function SortPinEditor({
+  sorts,
   onChange,
 }: {
-  value: DocumentSortMode;
-  onChange: (s: DocumentSortMode) => void;
+  sorts: DocumentSortMode[];
+  onChange: (next: DocumentSortMode[]) => void;
 }) {
-  const field = sortToField(value);
-  const direction = sortToDirection(value);
-  if (field === "status") {
-    return (
-      <div className="p-3 text-xs text-muted-foreground">
-        Сортировка по статусу без направления.
-      </div>
-    );
-  }
+  const [showAdd, setShowAdd] = useState(false);
+
+  const unusedFields = SORT_FIELDS.filter(
+    (field) => !sorts.some((mode) => sortToField(mode) === field),
+  );
+
+  const updateAt = (index: number, next: DocumentSortMode) => {
+    onChange(sorts.map((mode, i) => (i === index ? next : mode)));
+  };
+
+  const replaceField = (index: number, field: SortField) => {
+    const currentDirection = sortToDirection(sorts[index]);
+    updateAt(index, combineSort(field, currentDirection));
+  };
+
+  const removeAt = (index: number) => {
+    onChange(sorts.filter((_, i) => i !== index));
+  };
+
   return (
-    <div className="space-y-1 p-1">
-      <button
-        type="button"
-        onClick={() => onChange(combineSort(field, "desc"))}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-          direction === "desc" ? "bg-accent text-foreground" : "text-muted-foreground",
-        )}
-      >
-        <ArrowDown className="h-3.5 w-3.5" />
-        По убыванию
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange(combineSort(field, "asc"))}
-        className={cn(
-          "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-          direction === "asc" ? "bg-accent text-foreground" : "text-muted-foreground",
-        )}
-      >
-        <ArrowUp className="h-3.5 w-3.5" />
-        По возрастанию
-      </button>
+    <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        Сортировка
+      </p>
+
+      <div className="space-y-2">
+        {sorts.map((mode, index) => {
+          const field = sortToField(mode);
+          const direction = sortToDirection(mode);
+          return (
+            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_132px_32px] items-center gap-2">
+              <Select value={field} onValueChange={(value) => replaceField(index, value as SortField)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SORT_FIELDS.map((option) => {
+                    const disabled = sorts.some(
+                      (other, otherIndex) => otherIndex !== index && sortToField(other) === option,
+                    );
+                    return (
+                      <SelectItem key={option} value={option} disabled={disabled}>
+                        {SORT_FIELD_LABEL[option]}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={direction}
+                onValueChange={(value) => updateAt(index, combineSort(field, value as "asc" | "desc"))}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="asc">По возрастанию</SelectItem>
+                  <SelectItem value="desc">По убыванию</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => removeAt(index)}
+                aria-label="Удалить сортировку"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {showAdd && unusedFields.length > 0 ? (
+        <div className="rounded-lg border bg-background p-2">
+          {unusedFields.map((field) => (
+            <button
+              key={field}
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onChange([...sorts, combineSort(field, "asc")]);
+                setShowAdd(false);
+              }}
+            >
+              <ArrowUp className="h-4 w-4 text-muted-foreground" />
+              {SORT_FIELD_LABEL[field]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="space-y-1 border-t pt-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          disabled={unusedFields.length === 0}
+          onClick={() => setShowAdd((current) => !current)}
+        >
+          <Plus className="h-4 w-4" />
+          Добавить сортировку
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
+          onClick={() => onChange([])}
+        >
+          <Trash2 className="h-4 w-4" />
+          Удалить сортировку
+        </Button>
+      </div>
     </div>
   );
 }

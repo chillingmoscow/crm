@@ -10,13 +10,23 @@ import {
   Check,
   CheckCircle2,
   Loader2,
+  Plus,
   Search as SearchIcon,
+  Trash2,
   WifiOff,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TableControls, TableControlPin } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import { submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/actions";
@@ -63,31 +73,40 @@ type DraftPayload = {
 
 const DB_NAME = "sheerly-inventory-drafts";
 const STORE_NAME = "drafts";
-type SortMode =
-  | "order"
-  | "name_asc" | "name_desc"
-  | "empty_first" | "empty_last"
-  | "group_asc" | "group_desc";
+// Multi-sort 1-в-1 с эталоном documents-table.tsx: поле + направление в
+// одном combined-значении, sorts хранится массивом (порядок = приоритет).
+// Дефолт = пустой массив (порядок QR).
+type FormSortField = "name" | "group" | "empty";
+type FormSortMode =
+  | "name_asc"  | "name_desc"
+  | "group_asc" | "group_desc"
+  | "empty_first" | "empty_last";
 
-const SORT_OPTIONS: { value: SortMode; label: string; direction?: "asc" | "desc" }[] = [
-  { value: "order",       label: "Порядок QR" },
-  { value: "name_asc",    label: "Название А → Я",  direction: "asc"  },
-  { value: "name_desc",   label: "Название Я → А",  direction: "desc" },
-  { value: "empty_first", label: "Пустые сверху",   direction: "asc"  },
-  { value: "empty_last",  label: "Пустые снизу",    direction: "desc" },
-  { value: "group_asc",   label: "Группа А → Я",    direction: "asc"  },
-  { value: "group_desc",  label: "Группа Я → А",    direction: "desc" },
-];
+const FORM_SORT_FIELDS: FormSortField[] = ["name", "group", "empty"];
 
-const SORT_LABEL_BY_VALUE: Record<SortMode, string> = Object.fromEntries(
-  SORT_OPTIONS.map((option) => [option.value, option.label]),
-) as Record<SortMode, string>;
+const FORM_SORT_FIELD_LABEL: Record<FormSortField, string> = {
+  name:  "Название",
+  group: "Группа",
+  empty: "Заполненность",
+};
 
-const SORT_DIRECTION_BY_VALUE: Record<SortMode, "asc" | "desc" | undefined> = Object.fromEntries(
-  SORT_OPTIONS.map((option) => [option.value, option.direction]),
-) as Record<SortMode, "asc" | "desc" | undefined>;
+function formSortToField(mode: FormSortMode): FormSortField {
+  if (mode === "name_asc"  || mode === "name_desc")  return "name";
+  if (mode === "group_asc" || mode === "group_desc") return "group";
+  return "empty";
+}
 
-const DEFAULT_SORT_MODE: SortMode = "order";
+function formSortToDirection(mode: FormSortMode): "asc" | "desc" {
+  if (mode === "empty_first") return "asc";
+  if (mode === "empty_last")  return "desc";
+  return mode.endsWith("_asc") ? "asc" : "desc";
+}
+
+function combineFormSort(field: FormSortField, direction: "asc" | "desc"): FormSortMode {
+  if (field === "name")  return direction === "asc" ? "name_asc"  : "name_desc";
+  if (field === "group") return direction === "asc" ? "group_asc" : "group_desc";
+  return direction === "asc" ? "empty_first" : "empty_last";
+}
 
 // Фильтр «Заполненность» — какие строки показывать в форме акта.
 // «all»     — все позиции (дефолт),
@@ -184,7 +203,9 @@ export function InventoryDocumentEditor({
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [fillState, setFillState] = useState<FillState>(DEFAULT_FILL_STATE);
-  const [sortMode, setSortMode] = useState<SortMode>(DEFAULT_SORT_MODE);
+  // sorts: пустой массив = «Порядок QR» (исходный). Каждый элемент = combined
+  // field+direction. Применяется по приоритету (первый — основной ключ).
+  const [sorts, setSorts] = useState<FormSortMode[]>([]);
   // По дефолту pin-row скрыт, кнопка «Фильтры» нейтральна. Поведение —
   // как у /documents/inventory (см. feedback_table_standardization_checklist).
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -263,36 +284,39 @@ export function InventoryDocumentEditor({
     });
 
     return [...filtered].sort((left, right) => {
-      if (sortMode === "name_asc") return left.productName.localeCompare(right.productName, "ru");
-      if (sortMode === "name_desc") return right.productName.localeCompare(left.productName, "ru");
-      if (sortMode === "group_asc" || sortMode === "group_desc") {
-        const byCategory = (left.groupPath ?? "—").localeCompare(right.groupPath ?? "—", "ru");
-        const result = byCategory || left.productName.localeCompare(right.productName, "ru");
-        return sortMode === "group_asc" ? result : -result;
-      }
-      if (sortMode === "empty_first" || sortMode === "empty_last") {
-        // Используем snapshot, не live values — иначе на каждый
-        // keystroke в active input строка перепрыгивала.
-        const leftEmpty = (sortValuesSnapshot[left.id] ?? "").trim() === "";
-        const rightEmpty = (sortValuesSnapshot[right.id] ?? "").trim() === "";
-        if (leftEmpty !== rightEmpty) {
-          return sortMode === "empty_first"
-            ? leftEmpty ? -1 : 1
-            : leftEmpty ? 1 : -1;
+      // Применяем сорты по приоритету. Tiebreaker — порядок QR (исходный).
+      for (const mode of sorts) {
+        const field = formSortToField(mode);
+        const dir = formSortToDirection(mode);
+        let cmp = 0;
+        if (field === "name") {
+          cmp = left.productName.localeCompare(right.productName, "ru");
+        } else if (field === "group") {
+          cmp = (left.groupPath ?? "—").localeCompare(right.groupPath ?? "—", "ru");
+        } else {
+          // «empty»: пустые сверху (asc) / снизу (desc). Используем snapshot,
+          // не live values — иначе на каждый keystroke в active input строка
+          // перепрыгивала бы.
+          const leftEmpty  = (sortValuesSnapshot[left.id]  ?? "").trim() === "";
+          const rightEmpty = (sortValuesSnapshot[right.id] ?? "").trim() === "";
+          if (leftEmpty !== rightEmpty) cmp = leftEmpty ? -1 : 1;
         }
+        if (cmp !== 0) return dir === "asc" ? cmp : -cmp;
       }
       return (itemOrderById.get(left.id) ?? 0) - (itemOrderById.get(right.id) ?? 0);
     });
-  }, [fillState, itemOrderById, items, searchQuery, selectedGroupIds, sortMode, sortValuesSnapshot, values]);
+  }, [fillState, itemOrderById, items, searchQuery, selectedGroupIds, sorts, sortValuesSnapshot, values]);
 
-  // При переключении sortMode на «пусто-фильтр» — обновить snapshot, чтобы
-  // первая сортировка отражала текущие values.
+  // При добавлении сорта по заполненности — обновить snapshot, чтобы первая
+  // сортировка отражала текущие values. На updateField/direction в уже
+  // активном пусто-сорте — тоже синхронизируем.
   useEffect(() => {
-    if (sortMode === "empty_first" || sortMode === "empty_last") {
+    const hasEmptySort = sorts.some((mode) => formSortToField(mode) === "empty");
+    if (hasEmptySort) {
       setSortValuesSnapshot({ ...values });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortMode]);
+  }, [sorts]);
 
   const draftKey = useMemo(
     () => `inventory:${document.id}`,
@@ -395,7 +419,7 @@ export function InventoryDocumentEditor({
   const hasGroupFilter = Boolean(selectedGroupId);
   const hasFillFilter = fillState !== DEFAULT_FILL_STATE;
   const hasActiveFilters = hasGroupFilter || hasFillFilter;
-  const hasSortActive = sortMode !== DEFAULT_SORT_MODE;
+  const hasSortActive = sorts.length > 0;
   const hasSearch = searchQuery.trim().length > 0;
   const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
   // search-пин показываем только когда уже видны другие pin-row контролы —
@@ -412,10 +436,8 @@ export function InventoryDocumentEditor({
     setSearchOpen(false);
     setSelectedGroupId("");
     setFillState(DEFAULT_FILL_STATE);
-    setSortMode(DEFAULT_SORT_MODE);
+    setSorts([]);
   }, []);
-
-  const sortDirection = SORT_DIRECTION_BY_VALUE[sortMode];
 
   const submit = () => {
     if (!online) {
@@ -491,7 +513,7 @@ export function InventoryDocumentEditor({
           }}
           sort={{
             active: hasSortActive,
-            content: <SortFieldPanel sortMode={sortMode} onChange={setSortMode} />,
+            content: <SortFieldPanel sorts={sorts} onChange={setSorts} />,
           }}
         />
       </div>
@@ -504,16 +526,22 @@ export function InventoryDocumentEditor({
             <TableControlPin
               active
               icon={
-                sortDirection === "asc"  ? <ArrowUp   className="h-3.5 w-3.5" /> :
-                sortDirection === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> :
-                                           <ArrowUpDown className="h-3.5 w-3.5" />
+                sorts.length === 1
+                  ? formSortToDirection(sorts[0]) === "asc"
+                    ? <ArrowUp className="h-3.5 w-3.5" />
+                    : <ArrowDown className="h-3.5 w-3.5" />
+                  : <ArrowUpDown className="h-3.5 w-3.5" />
               }
-              label={SORT_LABEL_BY_VALUE[sortMode]}
-              onClear={() => setSortMode(DEFAULT_SORT_MODE)}
+              label={
+                sorts.length === 1
+                  ? FORM_SORT_FIELD_LABEL[formSortToField(sorts[0])]
+                  : `${sorts.length} сортировки`
+              }
+              onClear={() => setSorts([])}
               clearLabel="Сбросить сортировку"
               contentClassName="w-auto p-3"
             >
-              <SortFieldPanel sortMode={sortMode} onChange={setSortMode} />
+              <SortPinEditor sorts={sorts} onChange={setSorts} />
             </TableControlPin>
           ) : null}
 
@@ -626,10 +654,10 @@ export function InventoryDocumentEditor({
                 setValues((prev) => ({ ...prev, [item.id]: next }));
               }}
               onBlur={() => {
-                // Обновляем snapshot для sort режима «пусто-фильтр» —
+                // Обновляем snapshot если активен сорт по заполненности —
                 // перестановка строк случается ТОЛЬКО при потере фокуса,
                 // не во время ввода.
-                if (sortMode === "empty_first" || sortMode === "empty_last") {
+                if (sorts.some((mode) => formSortToField(mode) === "empty")) {
                   setSortValuesSnapshot({ ...values });
                 }
               }}
@@ -658,31 +686,203 @@ function PinDivider() {
 }
 
 /**
- * Контент popover'а сортировки (одиночный sort). Эталон вёрстки —
- * SortFieldPanel в documents-table.tsx (список полей через
- * `space-y-1` + кнопки `rounded-sm px-3 py-2`). Без min-w/p-обёрток —
- * padding даёт сам PopoverContent.
+ * Popover из шапки таблицы (TableControls.sort.content). Эталон 1-в-1 с
+ * SortFieldPanel из documents-table.tsx: title «СОРТИРОВКА», список полей,
+ * клик на свободном — APPEND с asc, уже добавленные показывают «Добавлено»
+ * и disabled-стиль.
  */
 function SortFieldPanel({
-  sortMode,
+  sorts,
   onChange,
 }: {
-  sortMode: SortMode;
-  onChange: (mode: SortMode) => void;
+  sorts: FormSortMode[];
+  onChange: (next: FormSortMode[]) => void;
 }) {
+  const usedFields = new Set(sorts.map((mode) => formSortToField(mode)));
   return (
-    <div className="space-y-1">
-      {SORT_OPTIONS.map((option) => (
-        <button
-          key={option.value}
+    <div className="space-y-3">
+      <p className="px-3 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+        Сортировка
+      </p>
+      <div className="space-y-1">
+        {FORM_SORT_FIELDS.map((field) => {
+          const used = usedFields.has(field);
+          return (
+            <button
+              key={field}
+              type="button"
+              onClick={() => {
+                if (used) return;
+                onChange([...sorts, combineFormSort(field, "asc")]);
+              }}
+              className={cn(
+                "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+                used ? "bg-accent text-muted-foreground" : null,
+              )}
+            >
+              <span>{FORM_SORT_FIELD_LABEL[field]}</span>
+              {used ? <span className="text-xs">Добавлено</span> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Контент пина активной сортировки. Эталон 1-в-1 с SortPinEditor из
+ * documents-table.tsx: каждая сортировка — строка с field-Select +
+ * direction-Select (↑/↓) + крестик. Кнопки: «+ Добавить сортировку»
+ * (раскрывает список неиспользованных полей) и «🗑 Удалить сортировку»
+ * (очищает всё).
+ */
+function SortPinEditor({
+  sorts,
+  onChange,
+}: {
+  sorts: FormSortMode[];
+  onChange: (next: FormSortMode[]) => void;
+}) {
+  const [showAdd, setShowAdd] = useState(false);
+
+  const unusedFields = FORM_SORT_FIELDS.filter(
+    (field) => !sorts.some((mode) => formSortToField(mode) === field),
+  );
+
+  const updateAt = (index: number, next: FormSortMode) => {
+    onChange(sorts.map((mode, i) => (i === index ? next : mode)));
+  };
+
+  const replaceField = (index: number, field: FormSortField) => {
+    const currentDirection = formSortToDirection(sorts[index]);
+    updateAt(index, combineFormSort(field, currentDirection));
+  };
+
+  const removeAt = (index: number) => {
+    onChange(sorts.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        Сортировка
+      </p>
+
+      <div className="space-y-2">
+        {sorts.map((mode, index) => {
+          const field = formSortToField(mode);
+          const direction = formSortToDirection(mode);
+          return (
+            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_72px_32px] items-center gap-2">
+              <Select
+                value={field}
+                onValueChange={(value) => replaceField(index, value as FormSortField)}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FORM_SORT_FIELDS.map((option) => {
+                    const disabled = sorts.some(
+                      (other, otherIndex) => otherIndex !== index && formSortToField(other) === option,
+                    );
+                    return (
+                      <SelectItem key={option} value={option} disabled={disabled}>
+                        {FORM_SORT_FIELD_LABEL[option]}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+
+              <Select
+                value={direction}
+                onValueChange={(value) =>
+                  updateAt(index, combineFormSort(field, value as "asc" | "desc"))
+                }
+              >
+                <SelectTrigger
+                  className="h-9 w-[72px] justify-center gap-1 px-2"
+                  aria-label={direction === "asc" ? "По возрастанию" : "По убыванию"}
+                >
+                  {direction === "asc" ? (
+                    <ArrowUp className="h-4 w-4" />
+                  ) : (
+                    <ArrowDown className="h-4 w-4" />
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="asc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowUp className="h-3.5 w-3.5" /> По возрастанию
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="desc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowDown className="h-3.5 w-3.5" /> По убыванию
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => removeAt(index)}
+                aria-label="Удалить сортировку"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {showAdd && unusedFields.length > 0 ? (
+        <div className="rounded-lg border bg-background p-2">
+          {unusedFields.map((field) => (
+            <button
+              key={field}
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onChange([...sorts, combineFormSort(field, "asc")]);
+                setShowAdd(false);
+              }}
+            >
+              <ArrowUp className="h-4 w-4 text-muted-foreground" />
+              {FORM_SORT_FIELD_LABEL[field]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="space-y-1 border-t pt-2">
+        <Button
           type="button"
-          onClick={() => onChange(option.value)}
-          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          disabled={unusedFields.length === 0}
+          onClick={() => setShowAdd((current) => !current)}
         >
-          <span className="truncate">{option.label}</span>
-          {sortMode === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
-        </button>
-      ))}
+          <Plus className="h-4 w-4" />
+          Добавить сортировку
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
+          onClick={() => onChange([])}
+        >
+          <Trash2 className="h-4 w-4" />
+          Удалить сортировку
+        </Button>
+      </div>
     </div>
   );
 }

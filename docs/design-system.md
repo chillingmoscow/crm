@@ -401,6 +401,58 @@ when always-relevant.
   Цикл клика по колонке: пусто → asc → desc → пусто. Серверный fallback
   отдаёт стабильный порядок (например, `invoice_date desc`), но это не
   визуальный sort-active state.
+- **Sort UX — паттерн SortFieldPanel + SortPinEditor (обязательно).** Любой
+  экран, где есть сортировка по нескольким полям (list или form внутри
+  detail-страницы), обязан использовать **тот же двухкомпонентный паттерн**,
+  что в [documents-table.tsx](src/app/(dashboard)/documents/inventory/_components/documents-table.tsx).
+  Single-sort (один dropdown с готовыми label'ами вроде «Название А → Я»)
+  запрещён даже если фактически активен только один sort — он расходится
+  визуально с list-страницами. Прецедент: round-3 PR #398, пришлось
+  переделывать.
+
+  **Сорт хранится массивом** combined field+direction значений
+  (`name_asc`, `group_desc`, …). Дефолт = пустой массив. Порядок элементов
+  = приоритет ключей. Парсятся хелперами `sortToField` / `sortToDirection`
+  / `combineSort`.
+
+  Из коробки нужно реализовать **два компонента**:
+
+  - **`SortFieldPanel`** — открывается из `TableControls.sort.content`
+    (popover у sort-кнопки в шапке). Title «СОРТИРОВКА», список полей
+    (`FORM_SORT_FIELD_LABEL`). Клик на свободном поле — APPEND с
+    `direction: "asc"`. Уже-добавленные поля — `bg-accent
+    text-muted-foreground`, лейбл «Добавлено» справа, disabled-стиль.
+
+  - **`SortPinEditor`** — открывается из активного sort-pin (`onClick`
+    pin'а). Title «СОРТИРОВКА». На каждый sort — строка `grid
+    grid-cols-[1fr_72px_32px]`:
+    - **field-Select** (h-9, full-width) — список всех полей; уже
+      используемые в других строках помечены `disabled`.
+    - **direction-Select** (h-9 w-[72px], icon-only trigger ↑/↓). В
+      раскрытом меню — `↑ По возрастанию` / `↓ По убыванию` с галочкой
+      на текущем.
+    - **`<XCircle>`-button** ghost, h-8 w-8 — удалить эту строку из
+      sorts.
+    
+    Под строками — две action-кнопки в `border-t pt-2`:
+    - **`+ Добавить сортировку`** (ghost, justify-start) раскрывает inline
+      список неиспользованных полей (rounded-lg border bg-background p-2,
+      каждое поле — кнопка с `<ArrowUp className="...text-muted-foreground" />`).
+      Disabled когда все поля уже добавлены.
+    - **`🗑 Удалить сортировку`** (ghost, hover:text-destructive) очищает
+      весь массив sorts.
+
+  **Pin** (`<TableControlPin>` в pin-row):
+  - Когда `sorts.length === 1`: icon = ↑ или ↓ по direction'у; label =
+    `FORM_SORT_FIELD_LABEL[field]` (например, «Дата»).
+  - Когда `sorts.length > 1`: icon = `<ArrowUpDown />`; label =
+    `${sorts.length} сортировки`.
+  - `onClear` = `() => setSorts([])`.
+  - `contentClassName="w-auto p-3"`.
+
+  Внутри pin'а — `<SortPinEditor>`, в шапочной кнопке — `<SortFieldPanel>`.
+  Не путать местами. Не делать «упрощённый» single-sort variant — этот
+  паттерн уже зафиксирован и должен повторяться везде без вариаций.
 - **Чекбоксы / Bulk** — выключены, пока в списке не появился пользовательский
   сценарий «массовая операция». Не вставлять «впрок».
 

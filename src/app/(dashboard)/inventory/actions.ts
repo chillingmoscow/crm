@@ -589,12 +589,17 @@ async function listBackOfficeInventoryItemsWithSession(input: {
     admin: input.admin,
   });
 
+  // pageSize=500 — обходим возможный bug пагинации backoffice
+  // (на проде CB303 = 0 items, при том что в QR backoffice 34 позиции;
+  // вероятная гипотеза — первая страница вернула пусто но total>0,
+  // и loop сразу exit'нул). Большой pageSize читает всё одним батчем.
   const readRows = (cookie: string) =>
     listInventoryItemsBackOffice({
       layerName: input.connection.login,
       baseUrl: input.connection.backoffice_base_url,
       cookieHeader: cookie,
       documentId: input.documentExternalId,
+      count: 500,
     });
 
   // На проде наблюдали: для одного из 10 актов backoffice items endpoint
@@ -1277,12 +1282,22 @@ export async function syncQuickRestoInventory(input?: {
         admin,
         documentExternalId: document.id,
       });
+      // Diagnostic: видно в Coolify logs какой акт сколько вернул через
+      // backoffice. CB303 (qr id 9890) на проде стабильно возвращает 0
+      // — нужны логи чтобы понять specific.
+      console.info(
+        `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): public=${publicItems.length}, backoffice=${boItems.length}`,
+      );
       if (boItems.length > 0) {
         items = boItems as typeof publicItems;
         // Сохраняем backoffice-items в qr_payload для дальнейшего
         // использования (refresh-results / просмотр сырья).
         // Заменяем effectedItems (если их не было — будут теперь).
         (document as unknown as { effectedItems: typeof publicItems }).effectedItems = boItems as typeof publicItems;
+      } else {
+        console.warn(
+          `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): backoffice returned 0 items, falling back to public items (no calculated/difference)`,
+        );
       }
     } catch (e) {
       // Backoffice не сработал — best-effort, идём с public items.

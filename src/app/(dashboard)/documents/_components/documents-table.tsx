@@ -39,7 +39,6 @@ import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/clie
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
 import {
   DEFAULT_SORT,
-  DOCUMENT_SORT_MODES,
   DOCUMENT_STATUSES,
   type DocumentListRow,
   type DocumentSortMode,
@@ -70,13 +69,42 @@ const STATUS_BADGE_CLASS: Record<DocumentStatus, string> = {
   sync_error:       "bg-rose-50 text-rose-700 border-rose-200",
 };
 
-const SORT_LABEL: Record<DocumentSortMode, string> = {
-  date_desc:   "Дата ↓",
-  date_asc:    "Дата ↑",
-  number_desc: "№ ↓",
-  number_asc:  "№ ↑",
-  status:      "По статусу",
+// Сортировка раздёлена на «поле» и «направление». В popover из TableControls
+// показываются только поля; направление меняется кликом на заголовок колонки
+// или в пине активной сортировки. Status — без направления (одна позиция).
+type SortField = "date" | "number" | "status";
+
+const SORT_FIELD_LABEL: Record<SortField, string> = {
+  date:   "Дата",
+  number: "Номер",
+  status: "Статус",
 };
+
+const SORT_FIELDS: SortField[] = ["date", "number", "status"];
+
+function sortToField(sort: DocumentSortMode): SortField {
+  if (sort === "date_desc" || sort === "date_asc") return "date";
+  if (sort === "number_desc" || sort === "number_asc") return "number";
+  return "status";
+}
+
+function sortToDirection(sort: DocumentSortMode): "asc" | "desc" {
+  if (sort === "date_asc" || sort === "number_asc") return "asc";
+  return "desc";
+}
+
+function combineSort(field: SortField, direction: "asc" | "desc"): DocumentSortMode {
+  if (field === "status") return "status";
+  if (field === "date")   return direction === "asc" ? "date_asc" : "date_desc";
+  return direction === "asc" ? "number_asc" : "number_desc";
+}
+
+function sortSummary(sort: DocumentSortMode): string {
+  const field = sortToField(sort);
+  if (field === "status") return SORT_FIELD_LABEL.status;
+  const arrow = sortToDirection(sort) === "asc" ? "↑" : "↓";
+  return `${SORT_FIELD_LABEL[field]} ${arrow}`;
+}
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -432,6 +460,21 @@ export function DocumentsTable({
           onChange={onDateRangeChange}
         />
 
+        {sortFromUrl !== DEFAULT_SORT ? (
+          <TableControlPin
+            active
+            icon={
+              sortToField(sortFromUrl) === "status" ? null :
+              sortToDirection(sortFromUrl) === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />
+            }
+            label={sortSummary(sortFromUrl)}
+            onClear={() => onSortChange(DEFAULT_SORT)}
+            clearLabel="Сбросить сортировку"
+          >
+            <SortDirectionPanel value={sortFromUrl} onChange={onSortChange} />
+          </TableControlPin>
+        ) : null}
+
         {hasActiveControls ? (
           <Button
             type="button"
@@ -681,24 +724,70 @@ function SortPanel({
   value: DocumentSortMode;
   onChange: (s: DocumentSortMode) => void;
 }) {
+  const activeField = sortToField(value);
+  const activeDirection = sortToDirection(value);
   return (
     <div className="space-y-1">
       <p className="px-3 pb-1 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
         Сортировка
       </p>
-      {DOCUMENT_SORT_MODES.map((mode) => (
+      {SORT_FIELDS.map((field) => (
         <button
-          key={mode}
+          key={field}
           type="button"
-          onClick={() => onChange(mode)}
+          onClick={() => onChange(combineSort(field, activeDirection))}
           className={cn(
             "block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-            mode === value ? "bg-accent text-foreground" : "text-muted-foreground",
+            field === activeField ? "bg-accent text-foreground" : "text-muted-foreground",
           )}
         >
-          {SORT_LABEL[mode]}
+          {SORT_FIELD_LABEL[field]}
         </button>
       ))}
+    </div>
+  );
+}
+
+function SortDirectionPanel({
+  value,
+  onChange,
+}: {
+  value: DocumentSortMode;
+  onChange: (s: DocumentSortMode) => void;
+}) {
+  const field = sortToField(value);
+  const direction = sortToDirection(value);
+  if (field === "status") {
+    return (
+      <div className="p-3 text-xs text-muted-foreground">
+        Сортировка по статусу без направления.
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1 p-1">
+      <button
+        type="button"
+        onClick={() => onChange(combineSort(field, "desc"))}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+          direction === "desc" ? "bg-accent text-foreground" : "text-muted-foreground",
+        )}
+      >
+        <ArrowDown className="h-3.5 w-3.5" />
+        По убыванию
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(combineSort(field, "asc"))}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+          direction === "asc" ? "bg-accent text-foreground" : "text-muted-foreground",
+        )}
+      >
+        <ArrowUp className="h-3.5 w-3.5" />
+        По возрастанию
+      </button>
     </div>
   );
 }

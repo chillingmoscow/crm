@@ -8,7 +8,6 @@ import {
   ArrowUp,
   ArrowUpDown,
   Check,
-  CheckCircle2,
   Loader2,
   Plus,
   Search as SearchIcon,
@@ -669,10 +668,13 @@ export function InventoryDocumentEditor({
         })}
       </div>
 
-      <div className="sticky bottom-0 mt-4 border-t bg-background/95 py-3 backdrop-blur">
-        <Button type="button" size="lg" className="w-full" disabled={isPending || !loaded} onClick={submit}>
-          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          <span className="ml-2">Отправить в Quick Resto</span>
+      {/* Submit-кнопка — паттерн detail-страницы из spec §«Entity detail page»:
+          форма-действие живёт в футере формы, правым выравниванием, default
+          Button (не full-width, не sticky). Эталон — /people/staff/[userId]. */}
+      <div className="mt-6 flex justify-end pt-1">
+        <Button type="button" disabled={isPending || !loaded} onClick={submit}>
+          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Завершить
         </Button>
       </div>
     </div>

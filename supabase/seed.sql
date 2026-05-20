@@ -469,6 +469,60 @@ begin
     (v_account, v_doc, 'it-3', v_p_beef, 'Говядина (вырезка)',17.5, 18.0, -0.5)
   on conflict (document_id, external_item_id) do nothing;
 
+  -- Доп. акты для проверки фильтров/сортировки на /documents.
+  -- Покрываем разные статусы, разные даты, разное состояние assigned_to.
+  insert into public.documents
+    (id, account_id, external_id, document_number, invoice_date, store_id, status, assigned_to, comment)
+  values
+    -- Новый, не назначен, со свежим комментарием. Самый недавний.
+    ('55555555-5555-0000-0000-000000000002'::uuid,
+     v_account, 'qr-doc-2', 'ИНВ-0002',
+     now() - interval '2 hours', v_store, 'synced', null,
+     'Срочно посчитать молочку до обеда'),
+    -- Назначен owner'у, в работе.
+    ('55555555-5555-0000-0000-000000000003'::uuid,
+     v_account, 'qr-doc-3', 'ИНВ-0003',
+     now() - interval '5 hours', v_store, 'in_progress', v_owner,
+     'Овощи и зелень — взвесить дважды'),
+    -- Готов к проверке (важно для inbox-ленты менеджера).
+    ('55555555-5555-0000-0000-000000000004'::uuid,
+     v_account, 'qr-doc-4', 'ИНВ-0004',
+     now() - interval '8 hours', v_store, 'ready_for_review', v_owner,
+     null),
+    -- Назначен, но не в работе.
+    ('55555555-5555-0000-0000-000000000005'::uuid,
+     v_account, 'qr-doc-5', 'ИНВ-0005',
+     now() - interval '3 days', v_store, 'assigned', v_owner,
+     'Контроль остатков мяса перед поставкой'),
+    -- Ошибка синхронизации (демонстрация bad-state badge).
+    ('55555555-5555-0000-0000-000000000006'::uuid,
+     v_account, 'qr-doc-6', 'ИНВ-0006',
+     now() - interval '7 days', v_store, 'sync_error', null,
+     null)
+  on conflict (id) do nothing;
+
+  -- Позиции для новых актов — нужны для (а) поиска по ингредиентам,
+  -- (б) демо matched_ingredients-чипов.
+  insert into public.document_items
+    (account_id, document_id, external_item_id, ingredient_id, product_name,
+     actual_amount, calculated_amount, difference_amount)
+  values
+    -- ИНВ-0002: молочка
+    (v_account, '55555555-5555-0000-0000-000000000002'::uuid, 'd2-1', v_p_milk, 'Молоко 3.2%',     0,    56.0, -56.0),
+    (v_account, '55555555-5555-0000-0000-000000000002'::uuid, 'd2-2', v_p_chs,  'Сыр Моцарелла',   0,    12.5, -12.5),
+    -- ИНВ-0003: овощи
+    (v_account, '55555555-5555-0000-0000-000000000003'::uuid, 'd3-1', v_p_tom,  'Помидоры свежие', 18.4, 21.0, -2.6),
+    (v_account, '55555555-5555-0000-0000-000000000003'::uuid, 'd3-2', v_p_cuc,  'Огурцы свежие',   25.0, 24.0,  1.0),
+    -- ИНВ-0004: мясо
+    (v_account, '55555555-5555-0000-0000-000000000004'::uuid, 'd4-1', v_p_beef, 'Говядина (вырезка)', 16.5, 18.0, -1.5),
+    (v_account, '55555555-5555-0000-0000-000000000004'::uuid, 'd4-2', v_p_chk,  'Куриное филе',       27.4, 27.4,  0),
+    -- ИНВ-0005: смешанное
+    (v_account, '55555555-5555-0000-0000-000000000005'::uuid, 'd5-1', v_p_beef, 'Говядина (вырезка)', 0,    18.0, -18.0),
+    (v_account, '55555555-5555-0000-0000-000000000005'::uuid, 'd5-2', v_p_chk,  'Куриное филе',       0,    27.4, -27.4),
+    -- ИНВ-0006: позиций нет (sync_error)
+    (v_account, '55555555-5555-0000-0000-000000000006'::uuid, 'd6-1', v_p_milk, 'Молоко 3.2%',        0,    56.0, -56.0)
+  on conflict (document_id, external_item_id) do nothing;
+
   -- Связки с поставщиками
   insert into public.ingredient_suppliers
     (account_id, ingredient_id, counterparty_id, supplier_article, supplier_price, is_preferred, note)

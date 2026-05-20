@@ -377,6 +377,14 @@ when always-relevant.
     «исчезает».
 - **Mobile cards** (если есть отдельный layout для <md) — те же
   `rounded-lg border bg-card`.
+- **Alignment actions внутри page-header:** `md:items-end justify-between`
+  — actions (search/filters/sort/columns/CTA) прижимаются к нижнему краю
+  строки заголовка, в линию с подзаголовком. **НЕ `items-start`** —
+  это оставляет лишний воздух между bottom-edge кнопок и верхней
+  границей таблицы. Прецедент: на /documents/inventory с `md:items-start`
+  визуальный отступ был ~48px (24px пустой колонки справа под actions +
+  24px space-y-6), пользователь поправил в round-5. `TablePageHeader`
+  уже исправлен — все consumers получают правильное выравнивание из коробки.
 - **Filter-кнопка**: `active` подсвечивается **только когда выбран хотя бы
   один фильтр** (есть значение в pin-чипе). Открытое состояние pin-row —
   отдельный bit (toggle), визуально кнопку не меняет.

@@ -20,7 +20,10 @@ export function TablePageHeader({
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 md:flex-row md:items-start md:justify-between",
+        // md:items-end — actions прижимаются к низу строки в линию с
+        // подзаголовком (как в /people/staff). С md:items-start между
+        // нижним краем actions и таблицей образуется лишний воздух.
+        "flex flex-col gap-4 md:flex-row md:items-end md:justify-between",
         className,
       )}
     >

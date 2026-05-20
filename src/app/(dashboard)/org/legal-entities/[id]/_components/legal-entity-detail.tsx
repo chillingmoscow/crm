@@ -19,6 +19,9 @@ type Props = {
   row: LegalEntityRow;
   canManage: boolean;
   canDelete: boolean;
+  /** True только для владельца аккаунта — гейт для archive/restore/delete
+      (server actions требуют ownership independently of canManage). */
+  canArchive: boolean;
   archiveImpact: LegalEntityArchiveImpact;
   /** Hide the «Обновить из DaData» button when DaData isn't configured. */
   dadataEnabled?: boolean;
@@ -28,6 +31,7 @@ export function LegalEntityDetailClient({
   row,
   canManage,
   canDelete,
+  canArchive,
   archiveImpact,
   dadataEnabled = true,
 }: Props) {
@@ -86,7 +90,7 @@ export function LegalEntityDetailClient({
             Обновить из DaData
           </Button>
         )}
-        {isArchived && canManage && (
+        {isArchived && canArchive && (
           <Button
             type="button"
             variant="outline"
@@ -150,10 +154,10 @@ export function LegalEntityDetailClient({
         }}
       />
 
-      {/* Danger zone — только для не-архивных и с правом на управление.
-          Архивные имеют кнопку «Восстановить» в шапке + могут быть
-          удалены навсегда из /archive. */}
-      {canManage && !isArchived ? (
+      {/* Danger zone — только владельцу аккаунта (archive/delete
+          actions гейтятся owner-check на сервере, см. Codex P2 #373).
+          Для не-архивных. Архивные имеют кнопку «Восстановить» в шапке. */}
+      {canArchive && !isArchived ? (
         <LegalEntityDangerZone
           legalEntityId={row.id}
           legalEntityName={row.name}

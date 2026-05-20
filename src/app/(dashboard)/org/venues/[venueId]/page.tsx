@@ -86,6 +86,9 @@ export default async function VenueDetailServerPage({
     ? await listAuditEvents({ entityType: "venue", entityId: venueId })
     : { events: [], hasMore: false, error: null };
 
+  // Эта страница уже редиректит не-владельца (account найден через
+  // owner_id выше), поэтому canArchive здесь всегда true. Передаём
+  // явно для консистентности контракта VenueDetailPage.
   return (
     <VenueDetailPage
       venue={venue}
@@ -96,6 +99,7 @@ export default async function VenueDetailServerPage({
         legal_form: le.legal_form,
       }))}
       canViewAudit={Boolean(canViewAudit)}
+      canArchive={true}
       canHardDelete={Boolean(canHardDelete)}
       archiveImpact={archiveImpact}
       initialAuditEvents={auditResult.events}

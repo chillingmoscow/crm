@@ -84,6 +84,31 @@ archived_by uuid NULL references public.profiles(id) on delete set null
 | `inventory_products` (ingredients) | `archived_at` | миграция 186 — первый явный outlier | Совпадает с конвенцией; добавить `archived_by` в Pass C. |
 | `notifications` | `archived_at` | органически выбрано | Совпадает с конвенцией. |
 
+### Фильтр archived_at в коде — обязателен
+
+**Не полагайся только на RLS для фильтра live/archived.** Codex P1 #373:
+`<table>_select` и `<table>_select_archived_owner` — обе PERMISSIVE,
+для owner'а OR-ятся, и владелец получает архивные строки в каждый
+обычный list-запрос. Архивные просочатся в выпадающие списки выборов.
+
+Каждый list-helper / list-запрос обязан явно фильтровать:
+
+```ts
+// ✅ ПРАВИЛЬНО — фильтр в коде, не только RLS
+const { data } = await supabase
+  .from("legal_entities")
+  .select("*")
+  .is("archived_at", null);
+```
+
+```ts
+// ❌ ПЛОХО — для owner'а вернёт И archived
+const { data } = await supabase.from("legal_entities").select("*");
+```
+
+Архив-страница — отдельный запрос с **снятым** фильтром (RLS
+`_select_archived_owner` пустит только owner'у).
+
 ### RLS-паттерн
 
 ```sql
@@ -186,10 +211,42 @@ async function delete<Entity>(
 
 ### Permission-модель
 
-- `<entity>.view` / `<entity>.manage` — как раньше.
-- `<entity>.delete` — **новый отдельный permission**, seed только в
-  системную роль `owner`. Не путать с `.manage` — менеджер архивирует,
-  только владелец удаляет.
+- `<entity>.view` / `<entity>.manage` — как раньше (просмотр, обычная
+  правка полей).
+- **`archive` / `restore` / `delete` — owner-only по дизайну.** Все
+  три действия гейтятся через `is_account_owner` (server-side в
+  `assertEntityOwner` хелперах). Причина — не `has_permission`:
+  - `has_permission` резолвится через `get_active_venue_id()` →
+    после архивации single-venue active context сбрасывается → permission
+    возвращает false → restore/delete падают «недостаточно прав».
+    Codex P1 #371 для venues.
+  - Owner-check через `accounts.owner_id` не зависит от active context.
+- `<entity>.delete` permission остаётся как **defense-in-depth** для
+  RLS-policy `<table>_delete` (миграции seed-ят owner-only), но action
+  всё равно делает прямой owner-check.
+
+#### UI-гейт DangerZone и Restore-кнопки
+
+DangerZone и кнопка «Восстановить» **обязательно** гейтятся отдельным
+prop'ом `canArchive` (= результат `is_account_owner(activeAccountId)`
+на серверной стороне в RSC). НЕ гейтить по `canManage` — manage-юзер
+без ownership увидит кнопки, нажмёт и получит `toast.error` с
+«доступно только владельцу». Codex P2 #373.
+
+```ts
+// В RSC-странице:
+const { data: activeAccountId } = await supabase.rpc("get_active_account_id");
+const { data: isOwner } = activeAccountId
+  ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+  : { data: false };
+// ...передать canArchive={!!isOwner} в client-компонент
+```
+
+```tsx
+// В client-компоненте detail:
+{canArchive && !isArchived ? <EntityDangerZone ... /> : null}
+{canArchive && isArchived ? <RestoreButton ... /> : null}
+```
 
 ### UI — два правила
 

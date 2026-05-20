@@ -42,14 +42,22 @@ export default async function CounterpartyDetailPage({
     { data: canUploadAttachments },
     { data: canDeleteAttachments },
     { data: canHardDelete },
+    { data: activeAccountId },
   ] = await Promise.all([
     supabase.rpc("has_permission", { permission_code: "finance.view_counterparties" }),
     supabase.rpc("has_permission", { permission_code: "finance.manage_counterparties" }),
     supabase.rpc("has_permission", { permission_code: "finance.upload_attachments" }),
     supabase.rpc("has_permission", { permission_code: "finance.delete_attachments" }),
     supabase.rpc("has_permission", { permission_code: "finance.delete_counterparty" }),
+    supabase.rpc("get_active_account_id"),
   ]);
   if (!canView) redirect("/dashboard");
+
+  // canArchive — owner-check для гейта DangerZone (archive/restore/delete
+  // actions требуют owner на сервере независимо от canManage).
+  const { data: isOwner } = activeAccountId
+    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+    : { data: false };
 
   const { row, error } = await getCounterparty(id);
   if (error || !row) redirect("/finance/counterparties");
@@ -100,6 +108,7 @@ export default async function CounterpartyDetailPage({
         canManage={!!canManage}
         canUploadAttachments={!!canUploadAttachments}
         canDeleteAttachments={!!canDeleteAttachments}
+        canArchive={!!isOwner}
         canHardDelete={!!canHardDelete}
         archiveImpact={archiveImpact}
         dadataEnabled={isDadataConfigured()}

@@ -32,6 +32,9 @@ type Props = {
   canManage: boolean;
   canUploadAttachments: boolean;
   canDeleteAttachments: boolean;
+  /** Owner-check — гейт DangerZone (archive/restore/delete actions
+      требуют owner на сервере независимо от canManage). */
+  canArchive: boolean;
   canHardDelete: boolean;
   archiveImpact: CounterpartyArchiveImpact;
   /** Hide the «Обновить из DaData» button + disable address suggestions. */
@@ -45,6 +48,7 @@ export function CounterpartyDetail({
   canManage,
   canUploadAttachments,
   canDeleteAttachments,
+  canArchive,
   canHardDelete,
   archiveImpact,
   dadataEnabled = true,
@@ -107,7 +111,8 @@ export function CounterpartyDetail({
               Обновить из DaData
             </Button>
           )}
-          {isDeleted ? (
+          {/* Restore action гейтится canArchive (owner-only на сервере). */}
+          {isDeleted && canArchive ? (
             <Button
               type="button"
               variant="outline"
@@ -184,9 +189,11 @@ export function CounterpartyDetail({
         </CardContent>
       </Card>
 
-      {/* Danger zone — только для не-архивных. Архивные имеют кнопку
-          «Восстановить» в шапке + могут быть удалены из /archive. */}
-      {canManage && !isDeleted ? (
+      {/* Danger zone — только владельцу (archive/delete actions гейтятся
+          owner-check на сервере, Codex P2 #373). Для не-архивных.
+          Архивные имеют кнопку «Восстановить» в шапке + могут быть
+          удалены из /archive. */}
+      {canArchive && !isDeleted ? (
         <CounterpartyDangerZone
           counterpartyId={row.id}
           counterpartyName={row.name}

@@ -80,7 +80,8 @@ export type AuditEntitySnapshot =
       id: string;
       name: string;
       inn: string | null;
-      is_active: boolean;
+      /** Миграция 200: is_active заменён на archived_at (null = live). */
+      archived_at: string | null;
     }
   | {
       type: "account";
@@ -478,9 +479,19 @@ export async function listAuditEvents(input?: {
 
   const legalEntityIds = idsByType.get("legal_entity");
   if (legalEntityIds && legalEntityIds.size > 0) {
-    const { data: leRows } = await supabase
+    // archived_at — миграция 200, ещё не в Database-типах
+    const db = supabase as unknown as {
+      from: (table: string) => {
+        select: (cols: string) => {
+          in: (col: string, vals: string[]) => Promise<{
+            data: Array<{ id: string; name: string; inn: string | null; archived_at: string | null }> | null;
+          }>;
+        };
+      };
+    };
+    const { data: leRows } = await db
       .from("legal_entities")
-      .select("id, name, inn, is_active")
+      .select("id, name, inn, archived_at")
       .in("id", Array.from(legalEntityIds));
     for (const le of leRows ?? []) {
       snapshotsByKey.set(`legal_entity:${le.id}`, {
@@ -488,7 +499,7 @@ export async function listAuditEvents(input?: {
         id: le.id,
         name: le.name,
         inn: le.inn,
-        is_active: le.is_active,
+        archived_at: le.archived_at,
       });
     }
   }

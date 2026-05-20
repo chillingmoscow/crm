@@ -94,12 +94,15 @@ export async function listLegalEntities(): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
-  // RLS legal_entities_select (миграция 200) уже фильтрует archived_at IS NULL
-  // для всех кроме owner'а на /archive странице — здесь дополнительный
-  // фильтр не нужен.
+  // Codex P1 #373: полагаться только на RLS нельзя — owner получает и
+  // live, и archived через legal_entities_select_archived_owner
+  // (PERMISSIVE → OR). Архивные просочились бы во все выборы юрлица.
+  // Фильтруем archived_at IS NULL явно; архив-страница использует свой
+  // запрос с снятым фильтром.
   const { data, error } = await supabase
     .from("legal_entities")
     .select("*")
+    .is("archived_at" as never, null)
     .order("created_at", { ascending: true });
   if (error) return { rows: [], error: error.message };
   // archived_at/_by — миграция 200, ещё не в Database-типах

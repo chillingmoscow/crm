@@ -252,7 +252,8 @@ function EntityReference({
 
   if (entity.type === "legal_entity") {
     // Архивированные юрлица — без линка (по аналогии с category).
-    if (!entity.is_active) return null;
+    // Миграция 200: is_active → archived_at (null = live).
+    if (entity.archived_at) return null;
     return (
       <>
         <span className="text-muted-foreground/50">·</span>

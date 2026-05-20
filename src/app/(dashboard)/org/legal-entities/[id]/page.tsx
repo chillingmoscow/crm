@@ -55,6 +55,7 @@ export default async function LegalEntityDetailPage({
     { rows: venues },
     { rows: legalEntities },
     archiveImpact,
+    { data: activeAccountId },
   ] = await Promise.all([
     supabase.rpc("has_permission", {
       permission_code: "org.manage_legal_entities",
@@ -71,7 +72,16 @@ export default async function LegalEntityDetailPage({
     listAccountVenues(),
     listLegalEntities(),
     getLegalEntityArchiveImpact(id),
+    supabase.rpc("get_active_account_id"),
   ]);
+
+  // Codex P2 #373: archive/restore/delete actions требуют owner-check
+  // (assertLegalEntityOwner), а UI рендерил DangerZone по canManage →
+  // не-owner с manage-permission видел кнопки, но получал toast.error
+  // на submit. Гейтим по фактическому owner-check.
+  const { data: isOwner } = activeAccountId
+    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+    : { data: false };
 
   const auditResult = canViewAudit
     ? await listAuditEvents({ entityType: "legal_entity", entityId: id })
@@ -108,6 +118,7 @@ export default async function LegalEntityDetailPage({
               row={row}
               canManage={!!canManage}
               canDelete={!!canDelete}
+              canArchive={!!isOwner}
               archiveImpact={archiveImpact}
               dadataEnabled={isDadataConfigured()}
             />

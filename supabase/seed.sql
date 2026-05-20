@@ -480,21 +480,6 @@ begin
     (v_account, v_doc, 'it-6', v_p_cuc,  'Огурцы свежие',       23.0, 24.0, -1.0,  90.00,  -90.00)
   on conflict (document_id, external_item_id) do nothing;
 
-  -- ИНВ-0004 (ready_for_review) — нужны итоги, чтобы менеджер мог открыть
-  -- вкладку «Итоги» перед approve. results_has_line_amounts=true,
-  -- но processed=false (workflow ещё не завершён).
-  update public.documents
-     set results_has_line_amounts = true,
-         shortfall_sum = 480.00,
-         surplus_sum = 0
-   where id = '55555555-5555-0000-0000-000000000004'::uuid;
-
-  update public.document_items
-     set prime_cost = 890.00,
-         difference_sum = -1335.00
-   where document_id = '55555555-5555-0000-0000-000000000004'::uuid
-     and external_item_id = 'd4-1';
-
   -- Доп. акты для проверки фильтров/сортировки на /documents.
   -- Покрываем разные статусы, разные даты, разное состояние assigned_to.
   insert into public.documents
@@ -548,6 +533,29 @@ begin
     -- ИНВ-0006: позиций нет (sync_error)
     (v_account, '55555555-5555-0000-0000-000000000006'::uuid, 'd6-1', v_p_milk, 'Молоко 3.2%',        0,    56.0, -56.0)
   on conflict (document_id, external_item_id) do nothing;
+
+  -- ИНВ-0004 (ready_for_review): включаем results_has_line_amounts + ставим
+  -- prime_cost/difference_sum на «вершине» расхождения по говядине, чтобы
+  -- менеджер на вкладке «Итоги» увидел реальную недостачу перед approve.
+  -- Делается ПОСЛЕ insert документа и его items — иначе update не находит
+  -- строки.
+  update public.documents
+     set results_has_line_amounts = true,
+         shortfall_sum = 1335.00,
+         surplus_sum = 0
+   where id = '55555555-5555-0000-0000-000000000004'::uuid;
+
+  update public.document_items
+     set prime_cost = 890.00,
+         difference_sum = -1335.00
+   where document_id = '55555555-5555-0000-0000-000000000004'::uuid
+     and external_item_id = 'd4-1';
+
+  update public.document_items
+     set prime_cost = 310.00,
+         difference_sum = 0
+   where document_id = '55555555-5555-0000-0000-000000000004'::uuid
+     and external_item_id = 'd4-2';
 
   -- Связки с поставщиками
   insert into public.ingredient_suppliers

@@ -41,6 +41,7 @@ export type ListDocumentsFilters = {
   status?: DocumentStatus[];
   /** 'any' | 'none' | 'me' | concrete user uuid. */
   assigned?: AssignedFilter;
+  store?: string[];
   date_from?: string;
   date_to?: string;
   q?: string;
@@ -106,6 +107,7 @@ export function buildRpcArgs(opts: NormalizedListOptions): Record<string, unknow
     p_filter_venue: filters.venue ?? null,
     p_filter_status: filters.status && filters.status.length > 0 ? filters.status : null,
     p_filter_assigned: filters.assigned ?? null,
+    p_filter_store: filters.store && filters.store.length > 0 ? filters.store : null,
     p_filter_date_from: filters.date_from ?? null,
     p_filter_date_to: filters.date_to ?? null,
     p_filter_q: filters.q ?? null,

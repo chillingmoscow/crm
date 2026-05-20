@@ -14,7 +14,7 @@ import {
   type ListDocumentsFilters,
 } from "@/lib/inventory/list-documents";
 
-import { DocumentsTable, type VenueOption } from "./_components/documents-table";
+import { DocumentsTable, type StoreOption, type VenueOption } from "./_components/documents-table";
 import type { AssigneeOption } from "./_components/assignee-select";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -37,6 +37,7 @@ type SearchParams = {
   venue?: string;
   status?: string;
   assigned?: string;
+  store?: string;
   date_preset?: string;
   date_from?: string;
   date_to?: string;
@@ -69,6 +70,7 @@ function parseSearchParams(sp: SearchParams) {
   const statusRaw = parseCsv(sp.status).filter((s): s is DocumentStatus => VALID_STATUSES.has(s as DocumentStatus));
   const status = statusRaw.length > 0 ? statusRaw : undefined;
   const assigned = sp.assigned && sp.assigned !== "any" ? sp.assigned : undefined;
+  const storeIds = parseCsv(sp.store);
 
   // Период — пресет-метка (Сегодня / Текущий месяц / …) + ISO даты,
   // паттерн из finance/transactions: date_preset хранится в URL как
@@ -88,7 +90,15 @@ function parseSearchParams(sp: SearchParams) {
   const requestedSize = parseInt(sp.size ?? `${DEFAULT_PAGE_SIZE}`, 10);
   const pageSize = ALLOWED_PAGE_SIZES.has(requestedSize) ? requestedSize : DEFAULT_PAGE_SIZE;
 
-  const filters: ListDocumentsFilters = { venue, status, assigned, date_from, date_to, q };
+  const filters: ListDocumentsFilters = {
+    venue,
+    status,
+    assigned,
+    store: storeIds.length > 0 ? storeIds : undefined,
+    date_from,
+    date_to,
+    q,
+  };
 
   return { filters, sort, page, pageSize, datePreset: date_preset };
 }
@@ -128,10 +138,11 @@ export default async function InventoryDocumentsPage({
     pageSize: parsed.pageSize,
   });
 
-  // venues для фильтра + staff для назначения. Stores больше не загружаем
-  // (фильтр «Склад» не нужен в первой итерации).
-  const [{ data: venuesForFilter }, staff] = await Promise.all([
+  // venues + stores для фильтров, staff для назначения. Все через
+  // RLS-клиент → пользователь видит только то, что ему разрешено.
+  const [{ data: venuesForFilter }, { data: storesForFilter }, staff] = await Promise.all([
     asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name").order("name"),
+    asLooseDb(supabase).from<StoreOption[]>("stores").select("id, title").eq("account_id", accountId).order("title"),
     canManage ? loadStaff(accountId as string) : Promise.resolve<AssigneeOption[]>([]),
   ]);
 
@@ -144,6 +155,7 @@ export default async function InventoryDocumentsPage({
       pageSizeFromUrl={parsed.pageSize}
       datePresetFromUrl={parsed.datePreset}
       venues={(venuesForFilter ?? []) as VenueOption[]}
+      stores={(storesForFilter ?? []) as StoreOption[]}
       staff={staff}
       accountId={accountId as string}
       canManage={Boolean(canManage)}

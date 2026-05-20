@@ -15,6 +15,7 @@
 --   p_filter_venue     — venue_id (uuid в виде text) | 'unassigned' | NULL/'all' (без фильтра)
 --   p_filter_status    — text[] статусов | NULL
 --   p_filter_assigned  — 'me' | 'none' | 'any' | user_id (uuid в виде text) | NULL
+--   p_filter_store     — text[] store_id (uuid в виде text) | NULL
 --   p_filter_date_from / p_filter_date_to — даты (включительно)
 --   p_filter_q         — поисковая строка (>=2 символов после trim)
 --   p_sort             — 'date_desc' (default) | 'date_asc' |
@@ -26,9 +27,12 @@
 -- строки или 0, если строк нет.
 -- ============================================================
 
--- Если ранее в этой же миграции существовал вариант с p_filter_store
--- (промежуточная итерация PR1) — почистим за собой, чтобы не оставлять
--- осиротевший overload. На fresh-апплае оба DROP'a — no-op.
+-- Подчищаем любые предыдущие сигнатуры (промежуточные итерации PR1
+-- держали 9-параметровый вариант без store, потом возвращали 10-й).
+-- На fresh-апплае оба DROP'a — no-op.
+drop function if exists public.list_inventory_documents(
+  text, text[], text, date, date, text, text, int, int
+);
 drop function if exists public.list_inventory_documents(
   text, text[], text, text[], date, date, text, text, int, int
 );
@@ -37,6 +41,7 @@ create or replace function public.list_inventory_documents(
   p_filter_venue text default null,
   p_filter_status text[] default null,
   p_filter_assigned text default null,
+  p_filter_store text[] default null,
   p_filter_date_from date default null,
   p_filter_date_to date default null,
   p_filter_q text default null,
@@ -155,6 +160,12 @@ begin
         or (v_assigned_kind = 'none' and d.assigned_to is null)
         or (v_assigned_kind = 'specific' and d.assigned_to is not distinct from v_assigned_uuid)
       )
+      -- store filter (передан text[] — кастим в uuid[])
+      and (
+        p_filter_store is null
+        or array_length(p_filter_store, 1) is null
+        or d.store_id = any(p_filter_store::uuid[])
+      )
       -- date range (inclusive)
       and (p_filter_date_from is null or d.invoice_date >= p_filter_date_from)
       and (p_filter_date_to   is null or d.invoice_date <= p_filter_date_to)
@@ -222,9 +233,9 @@ end;
 $$;
 
 revoke all on function public.list_inventory_documents(
-  text, text[], text, date, date, text, text, int, int
+  text, text[], text, text[], date, date, text, text, int, int
 ) from public;
 
 grant execute on function public.list_inventory_documents(
-  text, text[], text, date, date, text, text, int, int
+  text, text[], text, text[], date, date, text, text, int, int
 ) to authenticated;

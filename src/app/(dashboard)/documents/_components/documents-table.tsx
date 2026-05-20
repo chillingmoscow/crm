@@ -83,6 +83,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 // ─── Props ───────────────────────────────────────────────────────────────────
 
 export type VenueOption = { id: string; name: string };
+export type StoreOption = { id: string; title: string };
 
 type Props = {
   initial: ListDocumentsResult;
@@ -92,6 +93,7 @@ type Props = {
   pageSizeFromUrl: number;
   datePresetFromUrl: string | null;
   venues: VenueOption[];
+  stores: StoreOption[];
   staff: AssigneeOption[];
   accountId: string;
   canManage: boolean;
@@ -135,6 +137,7 @@ export function DocumentsTable({
   pageSizeFromUrl,
   datePresetFromUrl,
   venues,
+  stores,
   staff,
   accountId,
   canManage,
@@ -220,6 +223,13 @@ export function DocumentsTable({
   const onAssignedChange = (next: string) =>
     updateUrl({ assigned: next === "any" ? null : next }, { resetPage: true });
 
+  const onStoreToggle = (storeId: string) => {
+    const current = new Set(filtersFromUrl.store ?? []);
+    if (current.has(storeId)) current.delete(storeId);
+    else current.add(storeId);
+    updateUrl({ store: Array.from(current) }, { resetPage: true });
+  };
+
   const onDateRangeChange = (next: DateRangeValue, presetLabel: string | null) => {
     updateUrl(
       {
@@ -243,6 +253,7 @@ export function DocumentsTable({
     (filtersFromUrl.venue && filtersFromUrl.venue !== "all") ||
     (filtersFromUrl.status && filtersFromUrl.status.length > 0) ||
     (filtersFromUrl.assigned && filtersFromUrl.assigned !== "any") ||
+    (filtersFromUrl.store && filtersFromUrl.store.length > 0) ||
     Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to) ||
     Boolean(filtersFromUrl.q) ||
     sortFromUrl !== DEFAULT_SORT;
@@ -394,6 +405,19 @@ export function DocumentsTable({
           <StatusPicker value={filtersFromUrl.status ?? []} onToggle={onStatusToggle} />
         </TableControlPin>
 
+        <TableControlPin
+          active={(filtersFromUrl.store?.length ?? 0) > 0}
+          label={storePinLabel(filtersFromUrl.store, stores)}
+          onClear={
+            (filtersFromUrl.store?.length ?? 0) > 0
+              ? () => updateUrl({ store: null }, { resetPage: true })
+              : undefined
+          }
+          clearLabel="Сбросить склад"
+        >
+          <StorePicker value={filtersFromUrl.store ?? []} stores={stores} onToggle={onStoreToggle} />
+        </TableControlPin>
+
         <DateRangeFilter
           value={dateRange}
           presetLabel={datePresetFromUrl}
@@ -511,6 +535,12 @@ function assigneePinLabel(assigned: string | undefined, staff: AssigneeOption[])
   return staff.find((s) => s.id === assigned)?.name ?? "Исполнитель";
 }
 
+function storePinLabel(store: string[] | undefined, stores: StoreOption[]): string {
+  if (!store || store.length === 0) return "Склад";
+  if (store.length === 1) return stores.find((s) => s.id === store[0])?.title ?? "Склад";
+  return `Склад: ${store.length}`;
+}
+
 // ─── Pickers ─────────────────────────────────────────────────────────────────
 
 function VenuePicker({
@@ -565,6 +595,38 @@ function StatusPicker({
           <span>{STATUS_LABEL[status]}</span>
         </label>
       ))}
+    </div>
+  );
+}
+
+function StorePicker({
+  value,
+  stores,
+  onToggle,
+}: {
+  value: string[];
+  stores: StoreOption[];
+  onToggle: (id: string) => void;
+}) {
+  const selected = new Set(value);
+  return (
+    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
+      {stores.length === 0 ? (
+        <div className="px-3 py-2 text-sm text-muted-foreground">Складов нет</div>
+      ) : (
+        stores.map((store) => (
+          <label
+            key={store.id}
+            className="flex items-center gap-2 rounded-sm px-3 py-2 text-sm hover:bg-accent cursor-pointer"
+          >
+            <Checkbox
+              checked={selected.has(store.id)}
+              onCheckedChange={() => onToggle(store.id)}
+            />
+            <span className="truncate">{store.title}</span>
+          </label>
+        ))
+      )}
     </div>
   );
 }

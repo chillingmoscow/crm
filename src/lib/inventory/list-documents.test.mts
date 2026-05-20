@@ -37,6 +37,7 @@ test("buildRpcArgs: empty filters → all params null", () => {
   assert.equal(args.p_filter_venue, null);
   assert.equal(args.p_filter_status, null);
   assert.equal(args.p_filter_assigned, null);
+  assert.equal(args.p_filter_store, null);
   assert.equal(args.p_filter_date_from, null);
   assert.equal(args.p_filter_date_to, null);
   assert.equal(args.p_filter_q, null);
@@ -45,18 +46,25 @@ test("buildRpcArgs: empty filters → all params null", () => {
   assert.equal(args.p_page_size, 25);
 });
 
-test("buildRpcArgs: пустой массив status → null", () => {
-  const args = buildRpcArgs(normalizeListOptions({ filters: { status: [] } }));
+test("buildRpcArgs: пустой массив (status/store) → null", () => {
+  const args = buildRpcArgs(
+    normalizeListOptions({ filters: { status: [], store: [] } }),
+  );
   assert.equal(args.p_filter_status, null);
+  assert.equal(args.p_filter_store, null);
 });
 
-test("buildRpcArgs: непустой status пробрасывается", () => {
+test("buildRpcArgs: непустые массивы пробрасываются", () => {
   const args = buildRpcArgs(
     normalizeListOptions({
-      filters: { status: ["assigned", "in_progress"] },
+      filters: {
+        status: ["assigned", "in_progress"],
+        store: ["store-uuid-1", "store-uuid-2"],
+      },
     }),
   );
   assert.deepEqual(args.p_filter_status, ["assigned", "in_progress"]);
+  assert.deepEqual(args.p_filter_store, ["store-uuid-1", "store-uuid-2"]);
 });
 
 test("buildRpcArgs: assigned sentinel 'me' пробрасывается, раскрытие на сервере", () => {

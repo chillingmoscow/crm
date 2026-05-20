@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   getLegalEntity,
+  getLegalEntityArchiveImpact,
   listAccountVenues,
   listLegalEntities,
 } from "@/lib/org/legal-entities";
@@ -53,6 +54,7 @@ export default async function LegalEntityDetailPage({
     { data: canViewAudit },
     { rows: venues },
     { rows: legalEntities },
+    archiveImpact,
   ] = await Promise.all([
     supabase.rpc("has_permission", {
       permission_code: "org.manage_legal_entities",
@@ -68,6 +70,7 @@ export default async function LegalEntityDetailPage({
     }),
     listAccountVenues(),
     listLegalEntities(),
+    getLegalEntityArchiveImpact(id),
   ]);
 
   const auditResult = canViewAudit
@@ -105,6 +108,7 @@ export default async function LegalEntityDetailPage({
               row={row}
               canManage={!!canManage}
               canDelete={!!canDelete}
+              archiveImpact={archiveImpact}
               dadataEnabled={isDadataConfigured()}
             />
             <div className="mt-6">

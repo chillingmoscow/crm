@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Archive, Plus } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { Button } from "@/components/ui/button";
 
@@ -31,6 +32,26 @@ export default async function LegalEntitiesPage() {
 
   const { rows } = await listLegalEntities();
 
+  // Архив видит только владелец (RLS legal_entities_select_archived_owner,
+  // миграция 200). Считаем количество архивных, чтобы показать ссылку
+  // в шапке только когда это имеет смысл.
+  const { data: activeAccountId } = await supabase.rpc("get_active_account_id");
+  const { data: isOwner } = activeAccountId
+    ? await supabase.rpc("is_account_owner", { p_account_id: activeAccountId })
+    : { data: false };
+  let archivedCount = 0;
+  if (isOwner) {
+    // archived_at — миграция 200, ещё не в Database-типах → asLooseDb
+    const db = asLooseDb(supabase);
+    const allRows = (await db
+      .from<Array<{ archived_at: string | null }>>("legal_entities")
+      .select("archived_at")
+      .eq("account_id", activeAccountId as string)) as unknown as {
+      data: { archived_at: string | null }[] | null;
+    };
+    archivedCount = (allRows.data ?? []).filter((r) => r.archived_at !== null).length;
+  }
+
   return (
     <div className="p-6 md:p-8 w-full max-w-5xl">
       <div className="flex items-center justify-between mb-6">
@@ -41,12 +62,22 @@ export default async function LegalEntitiesPage() {
             несколько заведений
           </p>
         </div>
-        <Button asChild>
-          <Link href="/org/legal-entities/new">
-            <Plus className="mr-2 h-4 w-4" />
-            Создать юрлицо
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {isOwner && archivedCount > 0 ? (
+            <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+              <Link href="/org/legal-entities/archive">
+                <Archive className="mr-1.5 h-4 w-4" />
+                Архив ({archivedCount})
+              </Link>
+            </Button>
+          ) : null}
+          <Button asChild>
+            <Link href="/org/legal-entities/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Создать юрлицо
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {rows.length === 0 ? (

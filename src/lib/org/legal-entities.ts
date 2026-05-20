@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { findPartyByInn } from "@/lib/dadata/party";
 import { revalidatePath } from "next/cache";
 import type { LegalForm, TaxSystem } from "@/types/database";
@@ -42,7 +43,8 @@ export interface LegalEntityRow {
   default_corr_account: string | null;
 
   dadata_synced_at: string | null;
-  is_active: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
   created_at: string;
   updated_at: string | null;
 }
@@ -92,13 +94,16 @@ export async function listLegalEntities(): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
+  // RLS legal_entities_select (миграция 200) уже фильтрует archived_at IS NULL
+  // для всех кроме owner'а на /archive странице — здесь дополнительный
+  // фильтр не нужен.
   const { data, error } = await supabase
     .from("legal_entities")
     .select("*")
-    .eq("is_active", true)
     .order("created_at", { ascending: true });
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as LegalEntityRow[], error: null };
+  // archived_at/_by — миграция 200, ещё не в Database-типах
+  return { rows: (data ?? []) as unknown as LegalEntityRow[], error: null };
 }
 
 /**
@@ -211,36 +216,216 @@ export async function updateLegalEntity(
   return { error: null };
 }
 
+// ────────────────────────────────────────────────────────────────────────
+//  Archive / Restore / Hard-delete — docs/CONVENTIONS.md §2
+//
+//  Юрлица — **archive-only по дизайну**: hard-delete блокируется FK с
+//  ON DELETE RESTRICT (bank_accounts, transactions, venues
+//  default_legal_entity_id — миграции 036/040/053). UI скрывает кнопку
+//  «Удалить навсегда» с tooltip-объяснением.
+//
+//  Action deleteLegalEntity сохранён для технической полноты — он
+//  отработает, если все RESTRICT-ссылки сняты вручную (например,
+//  миграция данных). RESTRICT-precheck возвращает дружелюбную ошибку
+//  и список блокеров, чтобы пользователь понял что нужно сделать.
+// ────────────────────────────────────────────────────────────────────────
+
+export type LegalEntityArchiveImpact = {
+  bankAccounts: number;
+  transactions: number;
+  attachments: number;
+  /** Заведения, использующие это юрлицо как default. */
+  venuesAsDefault: number;
+};
+
+async function assertLegalEntityOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  legalEntityId: string,
+  userId: string,
+): Promise<{ ok: true; account_id: string; name: string } | { ok: false; error: string }> {
+  const db = asLooseDb(supabase);
+  const { data: row } = await db
+    .from<{ id: string; name: string; account_id: string }>("legal_entities")
+    .select("id, name, account_id")
+    .eq("id", legalEntityId)
+    .maybeSingle();
+  if (!row) return { ok: false, error: "Юрлицо не найдено" };
+
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("owner_id")
+    .eq("id", row.account_id)
+    .maybeSingle();
+  if (!account || account.owner_id !== userId) {
+    return { ok: false, error: "Действие доступно только владельцу аккаунта" };
+  }
+  return { ok: true, account_id: row.account_id, name: row.name };
+}
+
+export async function getLegalEntityArchiveImpact(
+  id: string
+): Promise<LegalEntityArchiveImpact> {
+  const supabase = await createClient();
+  const headOpts = { count: "exact" as const, head: true };
+
+  const [bankAccounts, transactions, attachments, venuesAsDefault] = await Promise.all([
+    supabase.from("bank_accounts").select("id", headOpts).eq("legal_entity_id", id),
+    supabase.from("transactions").select("id", headOpts).eq("legal_entity_id", id),
+    supabase.from("legal_entity_attachments").select("id", headOpts).eq("legal_entity_id", id),
+    supabase.from("venues").select("id", headOpts).eq("default_legal_entity_id", id),
+  ]);
+
+  return {
+    bankAccounts: bankAccounts.count ?? 0,
+    transactions: transactions.count ?? 0,
+    attachments: attachments.count ?? 0,
+    venuesAsDefault: venuesAsDefault.count ?? 0,
+  };
+}
+
 /**
- * Soft-deactivate a legal entity by toggling is_active = false. Hard
- * delete is gated on org.delete_legal_entity (owner only). Hard delete
- * also fails if any venue still has it as default_legal_entity_id —
- * that's enforced by the ON DELETE RESTRICT FK from migration 036.
+ * Архивирует юрлицо. Соответствует docs/CONVENTIONS.md §2.
+ * Раньше эта семантика была `deactivateLegalEntity` (is_active=false);
+ * миграция 200 переименовала колонку и расширила контракт.
+ */
+export async function archiveLegalEntity(
+  id: string,
+  opts: { confirmName: string }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertLegalEntityOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  // archived_at — миграция 200, ещё не в Database-типах → asLooseDb
+  const db = asLooseDb(supabase);
+  const { data: row } = await db
+    .from<{ id: string; name: string; archived_at: string | null }>("legal_entities")
+    .select("id, name, archived_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return { error: "Юрлицо не найдено" };
+  if (row.archived_at) return { error: null }; // идемпотентно
+
+  if (opts.confirmName.trim() !== row.name.trim()) {
+    return { error: "Введите название точно как у юрлица" };
+  }
+
+  const { error } = await db
+    .from("legal_entities")
+    .update({
+      archived_at: new Date().toISOString(),
+      archived_by: user.id,
+      updated_at: new Date().toISOString(),
+      updated_by: user.id,
+    })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/org/legal-entities");
+  revalidatePath("/org/legal-entities/archive");
+  revalidatePath(`/org/legal-entities/${id}`);
+  return { error: null };
+}
+
+/**
+ * Backwards-compat alias на archiveLegalEntity. Использует имя юрлица
+ * для confirmName (т.к. старый контракт его не требовал).
+ * @deprecated Используй archiveLegalEntity.
  */
 export async function deactivateLegalEntity(
   id: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
-  const { error } = await supabase
+  const { data: row } = await supabase
     .from("legal_entities")
-    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return { error: "Юрлицо не найдено" };
+  return archiveLegalEntity(id, { confirmName: row.name });
+}
+
+export async function restoreLegalEntity(
+  id: string
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertLegalEntityOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  const db = asLooseDb(supabase);
+  const { error } = await db
+    .from("legal_entities")
+    .update({
+      archived_at: null,
+      archived_by: null,
+      updated_at: new Date().toISOString(),
+      updated_by: user.id,
+    })
     .eq("id", id);
   if (error) return { error: error.message };
+
   revalidatePath("/org/legal-entities");
+  revalidatePath("/org/legal-entities/archive");
+  revalidatePath(`/org/legal-entities/${id}`);
   return { error: null };
 }
 
 /**
- * Hard delete a legal entity. Only owner has this in the default
- * matrix; RLS will reject for everyone else.
+ * Hard delete. Технически возможен, но **в текущей схеме всегда упадёт**
+ * на RESTRICT FK если есть привязки. UI скрывает кнопку. Action оставлен
+ * для технической полноты (например, после ручной миграции данных).
+ *
+ * Permission `org.delete_legal_entity` уже существует с миграции 034
+ * (owner-only). RLS legal_entities_delete его проверяет.
  */
 export async function deleteLegalEntity(
-  id: string
+  id: string,
+  opts: { confirmName: string }
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertLegalEntityOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у юрлица" };
+  }
+
+  // RESTRICT-precheck: считаем блокеры и возвращаем дружелюбную ошибку
+  const impact = await getLegalEntityArchiveImpact(id);
+  const blockers = [
+    { label: "Банк-счетов", count: impact.bankAccounts },
+    { label: "Транзакций", count: impact.transactions },
+    { label: "Заведений (по умолчанию)", count: impact.venuesAsDefault },
+  ].filter((b) => b.count > 0);
+  if (blockers.length > 0) {
+    return {
+      error:
+        "Нельзя удалить — есть блокирующие связи: " +
+        blockers.map((b) => `${b.label}: ${b.count}`).join("; ") +
+        ". Уберите эти ссылки или используйте «Архивировать».",
+    };
+  }
+
   const { error } = await supabase.from("legal_entities").delete().eq("id", id);
   if (error) return { error: error.message };
+
   revalidatePath("/org/legal-entities");
+  revalidatePath("/org/legal-entities/archive");
   return { error: null };
 }
 

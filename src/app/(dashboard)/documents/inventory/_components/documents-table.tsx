@@ -903,7 +903,11 @@ export function DocumentsTable({
                       <td
                         key={cell.id}
                         className={cn(
-                          "px-3 py-3 align-top text-sm",
+                          // align-middle: контент в строках centered по вертикали.
+                          // align-top было ошибкой round-2 — в строках с разной
+                          // высотой (например, "поиск показал матчи-чипы") верх
+                          // визуально оторван от соседних cells.
+                          "px-3 py-3 align-middle text-sm",
                           cell.column.id === "actions" ? "w-14 max-w-14 text-right" : null,
                         )}
                         style={{ width: cell.column.id === "actions" ? 56 : cell.column.getSize() }}

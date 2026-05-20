@@ -89,6 +89,20 @@ const SORT_DIRECTION_BY_VALUE: Record<SortMode, "asc" | "desc" | undefined> = Ob
 
 const DEFAULT_SORT_MODE: SortMode = "order";
 
+// Фильтр «Заполненность» — какие строки показывать в форме акта.
+// «all»     — все позиции (дефолт),
+// «filled»  — только те, где actual_amount уже введён,
+// «empty»   — только те, где значение пустое (это рабочая выборка
+//             для линейного сотрудника, чтобы видеть «что осталось
+//             посчитать»).
+type FillState = "all" | "filled" | "empty";
+const DEFAULT_FILL_STATE: FillState = "all";
+const FILL_STATE_LABEL: Record<FillState, string> = {
+  all:    "Все позиции",
+  filled: "Только заполненные",
+  empty:  "Только пустые",
+};
+
 function openDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
@@ -169,6 +183,7 @@ export function InventoryDocumentEditor({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [fillState, setFillState] = useState<FillState>(DEFAULT_FILL_STATE);
   const [sortMode, setSortMode] = useState<SortMode>(DEFAULT_SORT_MODE);
   // По дефолту pin-row скрыт, кнопка «Фильтры» нейтральна. Поведение —
   // как у /documents/inventory (см. feedback_table_standardization_checklist).
@@ -227,6 +242,14 @@ export function InventoryDocumentEditor({
       if (selectedGroupIds && (!item.groupId || !selectedGroupIds.has(item.groupId))) {
         return false;
       }
+      // Fill-state фильтр — на live values, не snapshot: пользователь
+      // ожидает, что после ввода значения строка пропадает из «только
+      // пустые» (а не сохраняется до blur, как snapshot-сортировка).
+      if (fillState !== "all") {
+        const isFilled = (values[item.id] ?? "").trim() !== "";
+        if (fillState === "filled" && !isFilled) return false;
+        if (fillState === "empty"  &&  isFilled) return false;
+      }
       if (!search) return true;
       return [
         item.productName,
@@ -260,7 +283,7 @@ export function InventoryDocumentEditor({
       }
       return (itemOrderById.get(left.id) ?? 0) - (itemOrderById.get(right.id) ?? 0);
     });
-  }, [itemOrderById, items, searchQuery, selectedGroupIds, sortMode, sortValuesSnapshot]);
+  }, [fillState, itemOrderById, items, searchQuery, selectedGroupIds, sortMode, sortValuesSnapshot, values]);
 
   // При переключении sortMode на «пусто-фильтр» — обновить snapshot, чтобы
   // первая сортировка отражала текущие values.
@@ -370,7 +393,8 @@ export function InventoryDocumentEditor({
 
   // ── Controls state-derivatives ────────────────────────────
   const hasGroupFilter = Boolean(selectedGroupId);
-  const hasActiveFilters = hasGroupFilter;
+  const hasFillFilter = fillState !== DEFAULT_FILL_STATE;
+  const hasActiveFilters = hasGroupFilter || hasFillFilter;
   const hasSortActive = sortMode !== DEFAULT_SORT_MODE;
   const hasSearch = searchQuery.trim().length > 0;
   const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
@@ -387,6 +411,7 @@ export function InventoryDocumentEditor({
     setSearchQuery("");
     setSearchOpen(false);
     setSelectedGroupId("");
+    setFillState(DEFAULT_FILL_STATE);
     setSortMode(DEFAULT_SORT_MODE);
   }, []);
 
@@ -435,12 +460,11 @@ export function InventoryDocumentEditor({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
-      {/* Шапка с back-кнопкой, табами, номером, статусом и
-          контекстом склада/позиций — в shared layout (см.
-          inventory/[id]/layout.tsx). Здесь только status draft'а и
-          индикатор offline. */}
-      <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-xs text-muted-foreground">
-        <div className="flex items-center gap-2">
+      {/* Шапка с back-кнопкой, табами, номером, статусом и контекстом
+          склада/позиций — в shared layout (см. inventory/[id]/layout.tsx).
+          Здесь: слева — статус draft'а / offline, справа — контролы. */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {!online ? (
             <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
               <WifiOff className="mr-1 h-3 w-3" />
@@ -449,13 +473,9 @@ export function InventoryDocumentEditor({
           ) : null}
           {savedAt ? <span>Черновик {new Date(savedAt).toLocaleTimeString("ru-RU")}</span> : null}
         </div>
-      </div>
 
-      {/* Контролы — search / filters-toggle / sort-popover. Паттерн
-          1-в-1 с /documents/inventory (TableControls + TableControlPin).
-          См. docs/design-system.md §«List-страница» и memory
-          feedback_table_standardization_checklist. */}
-      <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+        {/* Контролы — search / filters-toggle / sort-popover.
+            Паттерн 1-в-1 с /documents/inventory. */}
         <TableControls
           search={{
             value: searchQuery,
@@ -500,18 +520,29 @@ export function InventoryDocumentEditor({
           {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
 
           {filtersVisible ? (
-            <TableControlPin
-              active={hasGroupFilter}
-              label={hasGroupFilter && selectedGroupPath ? `Группа: ${selectedGroupPath}` : "Группа"}
-              onClear={hasGroupFilter ? () => setSelectedGroupId("") : undefined}
-              clearLabel="Сбросить группу"
-            >
-              <GroupPicker
-                value={selectedGroupId}
-                groups={groups}
-                onChange={setSelectedGroupId}
-              />
-            </TableControlPin>
+            <>
+              <TableControlPin
+                active={hasFillFilter}
+                label={hasFillFilter ? `Заполненность: ${FILL_STATE_LABEL[fillState]}` : "Заполненность"}
+                onClear={hasFillFilter ? () => setFillState(DEFAULT_FILL_STATE) : undefined}
+                clearLabel="Сбросить заполненность"
+              >
+                <FillStatePicker value={fillState} onChange={setFillState} />
+              </TableControlPin>
+
+              <TableControlPin
+                active={hasGroupFilter}
+                label={hasGroupFilter && selectedGroupPath ? `Группа: ${selectedGroupPath}` : "Группа"}
+                onClear={hasGroupFilter ? () => setSelectedGroupId("") : undefined}
+                clearLabel="Сбросить группу"
+              >
+                <GroupPicker
+                  value={selectedGroupId}
+                  groups={groups}
+                  onChange={setSelectedGroupId}
+                />
+              </TableControlPin>
+            </>
           ) : null}
 
           {filtersVisible && showSearchPin ? <PinDivider /> : null}
@@ -626,6 +657,12 @@ function PinDivider() {
   return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
 }
 
+/**
+ * Контент popover'а сортировки (одиночный sort). Эталон вёрстки —
+ * SortFieldPanel в documents-table.tsx (список полей через
+ * `space-y-1` + кнопки `rounded-sm px-3 py-2`). Без min-w/p-обёрток —
+ * padding даёт сам PopoverContent.
+ */
 function SortFieldPanel({
   sortMode,
   onChange,
@@ -634,16 +671,13 @@ function SortFieldPanel({
   onChange: (mode: SortMode) => void;
 }) {
   return (
-    <div className="min-w-[220px] space-y-0.5 p-1">
+    <div className="space-y-1">
       {SORT_OPTIONS.map((option) => (
         <button
           key={option.value}
           type="button"
           onClick={() => onChange(option.value)}
-          className={cn(
-            "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-            sortMode === option.value ? "font-medium text-foreground" : "text-muted-foreground",
-          )}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
         >
           <span className="truncate">{option.label}</span>
           {sortMode === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
@@ -653,6 +687,11 @@ function SortFieldPanel({
   );
 }
 
+/**
+ * Контент popover'а Группа-фильтра. Эталон — VenuePicker/StorePicker
+ * в documents-table.tsx (max-h + overflow-y, кнопки rounded-sm
+ * px-3 py-2). Иерархия групп — paddingLeft по depth.
+ */
 function GroupPicker({
   value,
   groups,
@@ -670,14 +709,11 @@ function GroupPicker({
     );
   }
   return (
-    <div className="max-h-72 space-y-0.5 overflow-y-auto p-1">
+    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
       <button
         type="button"
         onClick={() => onChange("")}
-        className={cn(
-          "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-          value === "" ? "font-medium text-foreground" : "text-muted-foreground",
-        )}
+        className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
       >
         <span className="truncate">Все группы акта</span>
         {value === "" ? <Check className="h-4 w-4 shrink-0" /> : null}
@@ -687,14 +723,44 @@ function GroupPicker({
           key={group.id}
           type="button"
           onClick={() => onChange(group.id)}
-          className={cn(
-            "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-            value === group.id ? "font-medium text-foreground" : "text-muted-foreground",
-          )}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
           style={{ paddingLeft: 12 + Math.min(group.depth, 8) * 12 }}
         >
           <span className="truncate">{group.path}</span>
           {value === group.id ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Контент popover'а Заполненность-фильтра. Three-state: все / только
+ * заполненные / только пустые.
+ */
+function FillStatePicker({
+  value,
+  onChange,
+}: {
+  value: FillState;
+  onChange: (next: FillState) => void;
+}) {
+  const options: { value: FillState; label: string }[] = [
+    { value: "all",    label: "Все позиции" },
+    { value: "filled", label: "Только заполненные" },
+    { value: "empty",  label: "Только пустые" },
+  ];
+  return (
+    <div className="space-y-0.5 p-1">
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+        >
+          <span className="truncate">{option.label}</span>
+          {value === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
         </button>
       ))}
     </div>

@@ -377,6 +377,12 @@ when always-relevant.
     «исчезает».
 - **Mobile cards** (если есть отдельный layout для <md) — те же
   `rounded-lg border bg-card`.
+- **Vertical alignment ячеек таблицы:** `align-middle` (контент в строках
+  центрирован по вертикали). `align-top` не использовать — в строках с
+  разной высотой (поиск-чипы под названием, многострочный комментарий)
+  верхне-выровненные cells визуально «отрываются» от соседей. Прецедент:
+  /documents/inventory ошибочно получил `align-top` в PR #396 round-2,
+  заметили и исправили в PR #398 round-2.
 - **Alignment actions внутри page-header:** `md:items-end justify-between`
   — actions (search/filters/sort/columns/CTA) прижимаются к нижнему краю
   строки заголовка, в линию с подзаголовком. **НЕ `items-start`** —

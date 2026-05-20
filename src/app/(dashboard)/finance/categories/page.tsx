@@ -20,16 +20,21 @@ export default async function FinanceCategoriesPage() {
   ]);
   if (!canView) redirect("/dashboard");
 
+  // Подгружаем все строки (включая архивные если canManage), чтобы
+  // посчитать archivedCount; live-список фильтрует в клиенте.
   const [{ rows: categories }, { rows: groups }] = await Promise.all([
-    listFinanceCategories({ include_inactive: !!canManage }),
+    listFinanceCategories({ include_archived: !!canManage }),
     listFinanceCategoryGroups(),
   ]);
+
+  const archivedCount = categories.filter((c) => c.archived_at).length;
 
   return (
     <CategoriesClient
       categories={categories}
       groups={groups}
       canManage={!!canManage}
+      archivedCount={archivedCount}
     />
   );
 }

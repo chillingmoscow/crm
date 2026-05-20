@@ -60,7 +60,8 @@ export type AuditEntitySnapshot =
       id: string;
       name: string;
       category_type: string; // income/expense
-      is_active: boolean;
+      /** Миграция 202: is_active заменён на archived_at (null = live). */
+      archived_at: string | null;
     }
   | {
       type: "counterparty";
@@ -428,9 +429,19 @@ export async function listAuditEvents(input?: {
 
   const categoryIds = idsByType.get("finance_category");
   if (categoryIds && categoryIds.size > 0) {
-    const { data: catRows } = await supabase
+    // archived_at — миграция 202, ещё не в Database-типах
+    const db = supabase as unknown as {
+      from: (table: string) => {
+        select: (cols: string) => {
+          in: (col: string, vals: string[]) => Promise<{
+            data: Array<{ id: string; name: string; type: string; archived_at: string | null }> | null;
+          }>;
+        };
+      };
+    };
+    const { data: catRows } = await db
       .from("finance_categories")
-      .select("id, name, type, is_active")
+      .select("id, name, type, archived_at")
       .in("id", Array.from(categoryIds));
     for (const c of catRows ?? []) {
       snapshotsByKey.set(`finance_category:${c.id}`, {
@@ -438,7 +449,7 @@ export async function listAuditEvents(input?: {
         id: c.id,
         name: c.name,
         category_type: c.type,
-        is_active: c.is_active,
+        archived_at: c.archived_at,
       });
     }
   }

@@ -136,11 +136,14 @@ type Props = {
   aiSuggestionsEnabled: boolean;
 };
 
-type ResultColumnKey = "fact" | "difference" | "management" | "status" | "comment";
+type ResultColumnKey = "calculated" | "fact" | "difference" | "management" | "status" | "comment";
 type ResultStatusFilter = "all" | "included" | "excluded" | "resort";
 type ResultSortMode = "name_asc" | "name_desc" | "group_asc" | "group_desc" | "empty_first" | "empty_last" | "sum_desc";
 
 const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; width: string }> = [
+  // Порядок: Расчёт (книжный остаток) → Факт → Разница — естественная
+  // последовательность для проверки инвентаризации.
+  { key: "calculated", label: "Расчёт", width: "120px" },
   { key: "fact", label: "Факт", width: "120px" },
   { key: "difference", label: "Разница", width: "120px" },
   { key: "management", label: "Упр. сумма", width: "130px" },
@@ -765,6 +768,13 @@ export function InventoryResultsTable({
                   </div>
                 </div>
                 {visibleColumnDefs.map((column) => {
+                  if (column.key === "calculated") {
+                    return (
+                      <div key={column.key} className="text-muted-foreground">
+                        {formatQuantity(item.calculated_amount, item.measure_unit_name, amountRoundingScale)}
+                      </div>
+                    );
+                  }
                   if (column.key === "fact") {
                     return (
                       <div key={column.key}>

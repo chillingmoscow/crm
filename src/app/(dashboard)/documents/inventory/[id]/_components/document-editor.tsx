@@ -1,14 +1,23 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, CheckCircle2, Filter, Loader2, Search, SlidersHorizontal, WifiOff, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  CheckCircle2,
+  Loader2,
+  Search as SearchIcon,
+  WifiOff,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { TableControls, TableControlPin } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import { submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/actions";
 
@@ -54,15 +63,31 @@ type DraftPayload = {
 
 const DB_NAME = "sheerly-inventory-drafts";
 const STORE_NAME = "drafts";
-const SORT_OPTIONS = [
-  { value: "order", label: "Порядок QR" },
-  { value: "name_asc", label: "Название А → Я" },
-  { value: "name_desc", label: "Название Я → А" },
-  { value: "empty_first", label: "Пустые сверху" },
-  { value: "empty_last", label: "Пустые снизу" },
-  { value: "group_asc", label: "Группа А → Я" },
-  { value: "group_desc", label: "Группа Я → А" },
-] as const;
+type SortMode =
+  | "order"
+  | "name_asc" | "name_desc"
+  | "empty_first" | "empty_last"
+  | "group_asc" | "group_desc";
+
+const SORT_OPTIONS: { value: SortMode; label: string; direction?: "asc" | "desc" }[] = [
+  { value: "order",       label: "Порядок QR" },
+  { value: "name_asc",    label: "Название А → Я",  direction: "asc"  },
+  { value: "name_desc",   label: "Название Я → А",  direction: "desc" },
+  { value: "empty_first", label: "Пустые сверху",   direction: "asc"  },
+  { value: "empty_last",  label: "Пустые снизу",    direction: "desc" },
+  { value: "group_asc",   label: "Группа А → Я",    direction: "asc"  },
+  { value: "group_desc",  label: "Группа Я → А",    direction: "desc" },
+];
+
+const SORT_LABEL_BY_VALUE: Record<SortMode, string> = Object.fromEntries(
+  SORT_OPTIONS.map((option) => [option.value, option.label]),
+) as Record<SortMode, string>;
+
+const SORT_DIRECTION_BY_VALUE: Record<SortMode, "asc" | "desc" | undefined> = Object.fromEntries(
+  SORT_OPTIONS.map((option) => [option.value, option.direction]),
+) as Record<SortMode, "asc" | "desc" | undefined>;
+
+const DEFAULT_SORT_MODE: SortMode = "order";
 
 function openDraftDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -144,7 +169,10 @@ export function InventoryDocumentEditor({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [sortMode, setSortMode] = useState("order");
+  const [sortMode, setSortMode] = useState<SortMode>(DEFAULT_SORT_MODE);
+  // По дефолту pin-row скрыт, кнопка «Фильтры» нейтральна. Поведение —
+  // как у /documents/inventory (см. feedback_table_standardization_checklist).
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   // Snapshot значений «на момент сортировки» — обновляется только при
@@ -340,6 +368,30 @@ export function InventoryDocumentEditor({
     return () => window.removeEventListener("beforeunload", handler);
   }, [items, values]);
 
+  // ── Controls state-derivatives ────────────────────────────
+  const hasGroupFilter = Boolean(selectedGroupId);
+  const hasActiveFilters = hasGroupFilter;
+  const hasSortActive = sortMode !== DEFAULT_SORT_MODE;
+  const hasSearch = searchQuery.trim().length > 0;
+  const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
+  // search-пин показываем только когда уже видны другие pin-row контролы —
+  // 1-в-1 эталон documents-table.tsx.
+  const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
+
+  const selectedGroupPath = useMemo(
+    () => groups.find((group) => group.id === selectedGroupId)?.path ?? null,
+    [groups, selectedGroupId],
+  );
+
+  const onClearAll = useCallback(() => {
+    setSearchQuery("");
+    setSearchOpen(false);
+    setSelectedGroupId("");
+    setSortMode(DEFAULT_SORT_MODE);
+  }, []);
+
+  const sortDirection = SORT_DIRECTION_BY_VALUE[sortMode];
+
   const submit = () => {
     if (!online) {
       toast.error("Нет соединения. Черновик сохранен на устройстве.");
@@ -399,104 +451,110 @@ export function InventoryDocumentEditor({
         </div>
       </div>
 
+      {/* Контролы — search / filters-toggle / sort-popover. Паттерн
+          1-в-1 с /documents/inventory (TableControls + TableControlPin).
+          См. docs/design-system.md §«List-страница» и memory
+          feedback_table_standardization_checklist. */}
       <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
-        {searchOpen ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2 md:max-w-xl">
-            <Input
-              autoFocus
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Поиск по названию, артикулу, штрих-коду"
-              className="min-w-0"
-            />
-            <Button type="button" size="icon" variant="outline" aria-label="Скрыть поиск" onClick={() => {
-              setSearchQuery("");
-              setSearchOpen(false);
-            }}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        ) : (
-          <Button type="button" size="icon" variant="outline" aria-label="Поиск" onClick={() => setSearchOpen(true)}>
-            <Search className="h-4 w-4" />
-          </Button>
-        )}
+        <TableControls
+          search={{
+            value: searchQuery,
+            onChange: setSearchQuery,
+            open: searchOpen,
+            onOpenChange: setSearchOpen,
+            placeholder: "Поиск",
+          }}
+          filters={{
+            active: hasActiveFilters,
+            label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
+            onClick: () => setFiltersVisible((v) => !v),
+          }}
+          sort={{
+            active: hasSortActive,
+            content: <SortFieldPanel sortMode={sortMode} onChange={setSortMode} />,
+          }}
+        />
+      </div>
 
-        <Popover>
-          <PopoverTrigger asChild>
+      {/* Pin-row — порядок 1-в-1 с эталоном documents-table.tsx:
+          Сортировка → divider → Фильтры (Группа) → divider → Поиск → «Очистить все». */}
+      {(filtersVisible || hasSortActive || hasSearch) ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {hasSortActive ? (
+            <TableControlPin
+              active
+              icon={
+                sortDirection === "asc"  ? <ArrowUp   className="h-3.5 w-3.5" /> :
+                sortDirection === "desc" ? <ArrowDown className="h-3.5 w-3.5" /> :
+                                           <ArrowUpDown className="h-3.5 w-3.5" />
+              }
+              label={SORT_LABEL_BY_VALUE[sortMode]}
+              onClear={() => setSortMode(DEFAULT_SORT_MODE)}
+              clearLabel="Сбросить сортировку"
+              contentClassName="w-auto p-3"
+            >
+              <SortFieldPanel sortMode={sortMode} onChange={setSortMode} />
+            </TableControlPin>
+          ) : null}
+
+          {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
+
+          {filtersVisible ? (
+            <TableControlPin
+              active={hasGroupFilter}
+              label={hasGroupFilter && selectedGroupPath ? `Группа: ${selectedGroupPath}` : "Группа"}
+              onClear={hasGroupFilter ? () => setSelectedGroupId("") : undefined}
+              clearLabel="Сбросить группу"
+            >
+              <GroupPicker
+                value={selectedGroupId}
+                groups={groups}
+                onChange={setSelectedGroupId}
+              />
+            </TableControlPin>
+          ) : null}
+
+          {filtersVisible && showSearchPin ? <PinDivider /> : null}
+
+          {showSearchPin ? (
+            <TableControlPin
+              active
+              icon={<SearchIcon className="h-3.5 w-3.5" />}
+              label={`Поиск: ${searchQuery.trim()}`}
+              onClear={() => { setSearchQuery(""); setSearchOpen(false); }}
+              clearLabel="Очистить поиск"
+            >
+              <div className="space-y-2 p-2">
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Поиск"
+                  className="h-8"
+                />
+                <p className="text-xs text-muted-foreground">
+                  По названию, артикулу, штрих-коду и группе.
+                </p>
+              </div>
+            </TableControlPin>
+          ) : null}
+
+          {hasAnyActive ? (
             <Button
               type="button"
-              size="icon"
-              variant={selectedGroupId ? "default" : "outline"}
-              aria-label="Фильтры"
+              variant="ghost"
+              size="sm"
+              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onClearAll}
             >
-              <Filter className="h-4 w-4" />
+              Очистить все
             </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Фильтры
-            </div>
-            <label className="text-sm font-medium" htmlFor="document-group-filter">
-              Группа ингредиентов
-            </label>
-            <select
-              id="document-group-filter"
-              value={selectedGroupId}
-              onChange={(event) => setSelectedGroupId(event.target.value)}
-              className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <option value="">Все группы акта</option>
-              {groups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {"\u00A0".repeat(Math.min(group.depth, 8) * 2)}
-                  {group.path}
-                </option>
-              ))}
-            </select>
-            {selectedGroupId ? (
-              <Button
-                type="button"
-                className="mt-3 w-full"
-                variant="outline"
-                onClick={() => setSelectedGroupId("")}
-              >
-                Сбросить фильтр
-              </Button>
-            ) : null}
-          </PopoverContent>
-        </Popover>
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button type="button" size="icon" variant={sortMode === "order" ? "outline" : "default"} aria-label="Сортировка">
-              <SlidersHorizontal className="h-4 w-4" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80">
-            <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Сортировка
-            </div>
-            <div className="space-y-1">
-              {SORT_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
-                  onClick={() => setSortMode(option.value)}
-                >
-                  <span>{option.label}</span>
-                  {sortMode === option.value ? <Check className="h-4 w-4" /> : null}
-                </button>
-              ))}
-            </div>
-          </PopoverContent>
-        </Popover>
-      </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="space-y-2">
         {visibleItems.length === 0 ? (
-          <div className="rounded-lg border bg-background px-4 py-10 text-center text-sm text-muted-foreground">
+          <div className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
             По текущему поиску и группе позиций нет.
           </div>
         ) : visibleItems.map((item) => {
@@ -558,6 +616,87 @@ export function InventoryDocumentEditor({
           <span className="ml-2">Отправить в Quick Resto</span>
         </Button>
       </div>
+    </div>
+  );
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function PinDivider() {
+  return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
+}
+
+function SortFieldPanel({
+  sortMode,
+  onChange,
+}: {
+  sortMode: SortMode;
+  onChange: (mode: SortMode) => void;
+}) {
+  return (
+    <div className="min-w-[220px] space-y-0.5 p-1">
+      {SORT_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => onChange(option.value)}
+          className={cn(
+            "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+            sortMode === option.value ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+        >
+          <span className="truncate">{option.label}</span>
+          {sortMode === option.value ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function GroupPicker({
+  value,
+  groups,
+  onChange,
+}: {
+  value: string;
+  groups: EditorGroup[];
+  onChange: (groupId: string) => void;
+}) {
+  if (groups.length === 0) {
+    return (
+      <div className="px-3 py-2 text-sm text-muted-foreground">
+        В акте нет групп ингредиентов.
+      </div>
+    );
+  }
+  return (
+    <div className="max-h-72 space-y-0.5 overflow-y-auto p-1">
+      <button
+        type="button"
+        onClick={() => onChange("")}
+        className={cn(
+          "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+          value === "" ? "font-medium text-foreground" : "text-muted-foreground",
+        )}
+      >
+        <span className="truncate">Все группы акта</span>
+        {value === "" ? <Check className="h-4 w-4 shrink-0" /> : null}
+      </button>
+      {groups.map((group) => (
+        <button
+          key={group.id}
+          type="button"
+          onClick={() => onChange(group.id)}
+          className={cn(
+            "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+            value === group.id ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+          style={{ paddingLeft: 12 + Math.min(group.depth, 8) * 12 }}
+        >
+          <span className="truncate">{group.path}</span>
+          {value === group.id ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
     </div>
   );
 }

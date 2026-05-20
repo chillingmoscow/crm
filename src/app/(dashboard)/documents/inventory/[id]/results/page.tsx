@@ -1,13 +1,11 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { AlertTriangle, ArrowLeft } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
-import { Button } from "@/components/ui/button";
 import { RefreshResultsButton } from "./_components/refresh-results-button";
 import {
   InventoryResultsTable,
@@ -30,11 +28,6 @@ type InventoryDocumentResultRow = {
   store_id: string | null;
   external_store_id: string | null;
   results_finalized_at: string | null;
-};
-
-type InventoryStoreTitleRow = {
-  id: string;
-  title: string;
 };
 
 type ProductGroupLookupRow = {
@@ -294,16 +287,7 @@ export default async function InventoryDocumentResultsPage({
     .maybeSingle();
 
   if (!document) notFound();
-  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents");
-
-  const { data: store } = document.store_id
-    ? await admin
-        .from<InventoryStoreTitleRow>("stores")
-        .select("id, title")
-        .eq("id", document.store_id)
-        .eq("account_id", accountId)
-        .maybeSingle()
-    : { data: null };
+  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents/inventory");
 
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
@@ -475,21 +459,11 @@ export default async function InventoryDocumentResultsPage({
 
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <Button asChild variant="ghost" size="sm">
-          <Link href={`/documents/inventory/${document.id}`}>
-            <ArrowLeft className="h-4 w-4" />
-            <span className="ml-2">К акту</span>
-          </Link>
-        </Button>
+      {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout
+          (см. inventory/[id]/layout.tsx). Здесь только кнопка
+          обновления данных Quick Resto. */}
+      <div className="mb-5 flex items-center justify-end">
         <RefreshResultsButton documentId={document.id} />
-      </div>
-
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Итоги акта № {document.document_number}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Склад: {store?.title ?? (document.external_store_id ? `QR #${document.external_store_id}` : "не указан")}
-        </p>
       </div>
 
       {!document.results_has_line_amounts ? (

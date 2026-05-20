@@ -197,6 +197,9 @@ import { Button } from "@/components/ui/button";
 | `<Tabs>` `<TabsList>` `<TabsTrigger>` `<TabsContent>` | `src/components/ui/tabs.tsx` | Underlined tab strip с active border-bottom 2px foreground |
 | `<EditDrawer>` | `src/components/ui/edit-drawer.tsx` | 520px правый drawer, header/body/footer слоты |
 | `<EmptyState>` | `src/components/ui/empty-state.tsx` | Bg-muted блок с круглой иконкой + title + subtitle + CTA |
+| `<TableControlPin>` | `src/components/shared/table/table-control-pin.tsx` | **Единственный** валидный «пин» под list-таблицами (фильтр/сортировка/поиск). Pill 32px, `rounded-full`. Active = `bg-brand/10 text-brand` + закрывающий ×. Inactive = `bg-muted/60 text-muted-foreground` + chevron. **Не копируй стили вручную — переиспользуй компонент**, иначе расходится визуал между разделами. |
+| `<TablePageHeader>` / `<TableControls>` / `<TablePagination>` | `src/components/shared/table/*.tsx` | Слоты для list-страницы. Кнопка фильтров `active`-подсветка должна включаться **только когда выбран хотя бы один фильтр** (открытое состояние pin-row — отдельный visual-bit, не подсветка кнопки). |
+| `<InventoryStatusBadge>` | `src/components/shared/inventory-status-badge.tsx` | Шаблон цветовой палитры status-бейджа с dark-вариантами (см. ниже §Dark-bdarz badges). Если для другого модуля нужен похожий бейдж — копируй структуру файла, а не выдумывай палитру с нуля. |
 
 И базовые shadcn-примитивы: `Button`, `Input`, `Label`, `Textarea`, `Select`,
 `Switch`, `Checkbox`, `Card`, `Sheet`, `Dialog`, `Popover`, `Tooltip`, `Badge`,
@@ -338,6 +341,128 @@ when always-relevant.
 
 ---
 
+## List-страница (таблица) — каноничный набор
+
+Один эталон под все list-страницы (Сотрудники, Должности, Акты инвентаризации,
+Транзакции, Knowledge index и т.п.). Расходиться нельзя — иначе пользователь
+ощущает «разный продукт».
+
+```
+[ outer wrapper:  p-6 md:p-8  ]
+  ├─ <TablePageHeader title=... actions={<TableControls .../>} />
+  │     └─ h1 text-3xl/bold + subtitle muted + actions cluster справа
+  ├─ Pin-row (Active filters) — гитчатся **только** через <TableControlPin>
+  └─ Table body (desktop) или mobile cards
+[ <TablePagination /> внизу ]
+```
+
+**Дефолты (правило для list-страниц):**
+
+- **Outer padding** — `p-6 md:p-8`. Никакого `px-4 py-4 md:px-8 md:py-6` —
+  страницы должны выровняться от топ-бара одинаково. Прецедент: акты
+  инвентаризации поначалу имели `py-4` сверху и расходились по высоте с
+  /people/staff. Исправлено в PR2 round-2.
+- **Вертикальный gap внутри страницы** — `space-y-6` (24px) на outer
+  wrapper. Накрывает расстояние между шапкой → pin-row → таблицей →
+  пагинацией. `space-y-4` (16px) визуально слипает controls с
+  таблицей — был на /documents/inventory до round-3, пользователь
+  поправил.
+- **Карточка таблицы** — обязательно: `rounded-lg border bg-card
+  overflow-hidden`. Внутри `<thead>` (или div-аналог) — `bg-muted/60`,
+  не `/40`. См. §«Скругления» — `8 base` совпадает с .pen Table reusable
+  и образует пару 6/8 с кнопками.
+  - `bg-card` важен в dark: в нашей теме card light-er чем background,
+    таблица читается как elevated блок, а не сливается со страницей.
+    `bg-background` в dark = почти то же что фон страницы → таблица
+    «исчезает».
+- **Mobile cards** (если есть отдельный layout для <md) — те же
+  `rounded-lg border bg-card`.
+- **Alignment actions внутри page-header:** `md:items-end justify-between`
+  — actions (search/filters/sort/columns/CTA) прижимаются к нижнему краю
+  строки заголовка, в линию с подзаголовком. **НЕ `items-start`** —
+  это оставляет лишний воздух между bottom-edge кнопок и верхней
+  границей таблицы. Прецедент: на /documents/inventory с `md:items-start`
+  визуальный отступ был ~48px (24px пустой колонки справа под actions +
+  24px space-y-6), пользователь поправил в round-5. `TablePageHeader`
+  уже исправлен — все consumers получают правильное выравнивание из коробки.
+- **Filter-кнопка**: `active` подсвечивается **только когда выбран хотя бы
+  один фильтр** (есть значение в pin-чипе). Открытое состояние pin-row —
+  отдельный bit (toggle), визуально кнопку не меняет.
+- **Pin-row скрыта по умолчанию**. Раскрывается явным кликом по «Показать
+  фильтры». Видна сразу, если фильтр уже выбран через URL / persist /
+  сохранённый view.
+- **Sort по умолчанию** — _нет_ default-сортировки в коде (пустой массив).
+  Цикл клика по колонке: пусто → asc → desc → пусто. Серверный fallback
+  отдаёт стабильный порядок (например, `invoice_date desc`), но это не
+  визуальный sort-active state.
+- **Чекбоксы / Bulk** — выключены, пока в списке не появился пользовательский
+  сценарий «массовая операция». Не вставлять «впрок».
+
+См. эталон `dev/table-lab` → FinanceDemo + production-пример
+`/documents/inventory`.
+
+---
+
+## Detail-страница со табами — каноничный набор (акт / сотрудник / роль)
+
+Один паттерн «крупный заголовок + центрированные табы» — используется для
+любой entity detail page с ≥2 вкладками.
+
+```
+[ topbar slot: <PageBreadcrumb> «‹ К списку» ]   ← через PageHeaderActions
+[ outer wrapper:  px-6 md:px-8 pt-4 pb-8 flex-col gap-6 ]
+  ├─ <h1 text-[28px] font-bold tracking-tight leading-tight>...</h1>
+  ├─ Под заголовком — `flex items-center gap-3 flex-wrap`:
+  │     ├─ <span text-sm text-muted-foreground>контекст-метаданные</span>
+  │     └─ <StatusBadge /> (если у сущности есть статус)
+  └─ <Tabs><TabsList className="justify-center">...</TabsList></Tabs>
+[ children — каждая вкладка рендерит свой контент со своим `py-4 md:py-6` ]
+```
+
+**Что важно:**
+
+- **Бейджи рядом с muted-text**, не в одной строке с h1. Эталон —
+  `/people/staff/[userId]` (рендер бейджа «Активен» / «Уволен» рядом с
+  ролью+подразделением). Прецедент: на /documents/inventory/[id] раньше
+  badge стоял справа от h1 — выглядело инородно, переделали в PR2 round-2.
+- **Никаких счётчиков в контекстной строке**, если они не критичны для
+  принятия решения (типа «2 позиции»). Если важно — выводить отдельной
+  строкой / секцией внутри таба, а не в шапке.
+- **Tabs всегда `justify-center`**. Опасные/destructive табы (например,
+  «Опасная зона») получают `data-[state=active]:text-destructive` +
+  `data-[state=active]:border-destructive`.
+
+---
+
+## Dark-варианты статусных бейджей и пинов
+
+Правило: light/dark — **в одном файле компонента**, не разводить через
+условные хуки `useTheme`. Tailwind делает это через `dark:` префикс.
+
+**Палитра status-бейджа** (см. `<InventoryStatusBadge>` как эталон):
+
+| Тон   | Light                          | Dark                                |
+|-------|--------------------------------|-------------------------------------|
+| serene/neutral | `bg-slate-100 text-slate-700 border-slate-200` | `dark:bg-slate-500/15 dark:text-slate-300 dark:border-slate-500/30` |
+| info          | `bg-blue-50 text-blue-700 border-blue-200`      | `dark:bg-blue-500/15 dark:text-blue-300 dark:border-blue-500/30` |
+| warning       | `bg-amber-50 text-amber-700 border-amber-200`   | `dark:bg-amber-500/15 dark:text-amber-300 dark:border-amber-500/30` |
+| accent/violet | `bg-violet-50 text-violet-700 border-violet-200`| `dark:bg-violet-500/15 dark:text-violet-300 dark:border-violet-500/30` |
+| success       | `bg-emerald-50 text-emerald-700 border-emerald-200` | `dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30` |
+| destructive   | `bg-rose-50 text-rose-700 border-rose-200`      | `dark:bg-rose-500/15 dark:text-rose-300 dark:border-rose-500/30` |
+
+**Соответствие фон/текст в dark**: `bg-{color}-500/15` + `text-{color}-300/400`
++ `border-{color}-500/30`. Это считанный из `.pen` `t6BIlw` шаблон, не
+угадывать.
+
+**Подсветка строки формы** (например, заполненная позиция инвентаризации):
+`border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10`.
+
+**Tinted active-state у пинов** (внутри `<TableControlPin>`):
+`bg-brand/10 text-brand` (light=dark одинаково — brand-цвет уже работает в
+обоих режимах).
+
+---
+
 ## Form States (`Q4FzoZ` → `CxLzo` / Section/Form States)
 
 Состояния полей ввода — Input, Textarea, Select:
@@ -392,20 +517,36 @@ when always-relevant.
 
 ## Скругления (`Q4FzoZ` → `xA95j`)
 
-7 значений. Самое частое — `8 base` (кнопки/input/select).
+7 значений. **Самое частое — `8 base` (`rounded-lg`)**: кнопки, input, select,
+карточки списков, table-card. Цель — чтобы control'ы и контейнеры читались
+как одна семья без резких визуальных «уровней».
 
 | Значение | Tailwind | Когда |
 |---|---|---|
 | **0 · sharp** | `rounded-none` | Очень редко: разделители-баннеры на всю ширину |
-| **6 · sm** | `rounded-md` (`--radius - 2`) | Dropdown-айтемы, tag-чипы, segmented-buttons |
-| **8 · base** | `rounded-lg` (`--radius`) | Кнопки, input, select, dropdown — самое частое |
+| **6 · sm** | `rounded-md` (`--radius - 2`) | Кнопки shadcn по умолчанию (исторический дефолт), dropdown-айтемы, tag-чипы, segmented-buttons. Пара 6/8 (button/table) гармонична. |
+| **8 · base** | `rounded-lg` (`--radius`) | **Table-card, mobile-cards списков, card-плашки внутри страниц, input, select, Sheet/Drawer-крыша.** Самое частое значение. |
 | **10 · md** | `rounded-[10px]` | Поповеры, dropdown-меню, секции внутри карточек |
 | **12 · lg** | `rounded-xl` | Модалки, диалоги, banner-карточки |
-| **14 · xl** | `rounded-[14px]` | Главные карточки страниц, table-card, section-card |
+| **14 · xl** | `rounded-[14px]` | Главные карточки страниц entity-detail (`.pen` Card layer), section-card в форме сотрудника |
 | **9999 · pill** | `rounded-full` | Бейджи, фильтр-чипы, аватары, switch-дорожки, dot-индикаторы |
 
 `--radius` в `globals.css` = `0.5rem` (8px) — соответствует `8 base`. Из него
-производятся `rounded-md` и `rounded-sm`.
+производятся `rounded-md` (6px) и `rounded-sm` (4px).
+
+### Table-card конкретно
+
+Карточка таблицы на list-странице — `rounded-lg` (8px, `base`). Так указано в
+actual `.pen` Table-компоненте (`E:bG7YL` `cornerRadius:8`). Документация
+шкалы внутри `.pen` ставит table-card в `14 xl`, но фактические reusable
+Table и Card там оба 8 — это и есть источник истины. Buttons по умолчанию
+shadcn — 6 (`rounded-md`). Пара 6/8 визуально читается как **одна семья**,
+тогда как 6/12 даёт несогласованную иерархию.
+
+**Прецедент:** на /people/staff таблица была `rounded-xl` (12px), на
+/documents/inventory — `rounded-lg` (8px), кнопки — `rounded-md` (6px).
+Получалось 6 / 8 / 12 — три разных уровня. После round-4 PR #396 правило
+зафиксировано: все table-card → 8.
 
 ---
 

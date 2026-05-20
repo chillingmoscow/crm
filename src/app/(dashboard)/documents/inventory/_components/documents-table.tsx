@@ -14,7 +14,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  CheckCircle2,
   ClipboardCheck,
   FileX2,
   Inbox,
@@ -39,7 +38,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -54,6 +52,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
+import { InventoryStatusBadge, INVENTORY_STATUS_LABEL } from "@/components/shared/inventory-status-badge";
 import {
   TableColumnManager,
   TableControlPin,
@@ -83,25 +82,10 @@ import {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const STATUS_LABEL: Record<DocumentStatus, string> = {
-  synced: "Новый",
-  assigned: "Назначен",
-  in_progress: "В работе",
-  ready_for_review: "Готов к проверке",
-  processed: "Проведен",
-  results_blocked: "Итоги требуют проверки",
-  sync_error: "Ошибка синхронизации",
-};
-
-const STATUS_BADGE_CLASS: Record<DocumentStatus, string> = {
-  synced:           "bg-slate-100 text-slate-700 border-slate-200",
-  assigned:         "bg-blue-50 text-blue-700 border-blue-200",
-  in_progress:      "bg-amber-50 text-amber-700 border-amber-200",
-  ready_for_review: "bg-violet-50 text-violet-700 border-violet-200",
-  processed:        "bg-emerald-50 text-emerald-700 border-emerald-200",
-  results_blocked:  "bg-rose-50 text-rose-700 border-rose-200",
-  sync_error:       "bg-rose-50 text-rose-700 border-rose-200",
-};
+// STATUS_LABEL переиспользуется из shared-компонента InventoryStatusBadge
+// (там и dark-варианты палитры). Pin'ы и mobile-карточки рендерят бейдж
+// напрямую через <InventoryStatusBadge>.
+const STATUS_LABEL = INVENTORY_STATUS_LABEL as Record<DocumentStatus, string>;
 
 type SortField = "date" | "number" | "status";
 
@@ -166,13 +150,23 @@ type Props = {
   accountId: string;
   canManage: boolean;
   canSync: boolean;
+  canViewResults: boolean;
   amountRoundingScale: AmountRoundingScale;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getDocHref(doc: Pick<DocumentListRow, "id" | "processed" | "results_has_line_amounts" | "status">) {
-  if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
+// canViewResults обязателен: пользователи с inventory.fill_assigned_documents,
+// но без inventory.view_results, не могут открыть /results — их редиректнёт
+// прочь. Поэтому для них всегда возвращаем форму, даже у проведённых актов.
+// Codex review #396 P1.
+function getDocHref(
+  doc: Pick<DocumentListRow, "id" | "processed" | "results_has_line_amounts" | "status">,
+  canViewResults: boolean,
+) {
+  const isResultsState =
+    doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked";
+  if (isResultsState && canViewResults) {
     return `/documents/inventory/${doc.id}/results`;
   }
   return `/documents/inventory/${doc.id}`;
@@ -209,6 +203,7 @@ export function DocumentsTable({
   accountId,
   canManage,
   canSync,
+  canViewResults,
   amountRoundingScale,
 }: Props) {
   const router = useRouter();
@@ -217,7 +212,9 @@ export function DocumentsTable({
 
   const [search, setSearch] = useState(filtersFromUrl.q ?? "");
   const [searchOpen, setSearchOpen] = useState(Boolean(filtersFromUrl.q));
-  const [filtersVisible, setFiltersVisible] = useState(true);
+  // По умолчанию пины-фильтры скрыты: кнопка «Показать фильтры» —
+  // нейтральная (не подсвечена). Раскрытие — явное действие.
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [isSyncing, startSyncTransition] = useTransition();
 
   // ── URL sync ───────────────────────────────────────────────
@@ -304,7 +301,7 @@ export function DocumentsTable({
         cell: (row: DocumentListRow) => (
           <div className="min-w-0">
             <Link
-              href={getDocHref(row)}
+              href={getDocHref(row, canViewResults)}
               className="text-sm font-medium hover:underline"
               data-row-interactive
               onClick={(e) => e.stopPropagation()}
@@ -337,20 +334,7 @@ export function DocumentsTable({
         id: "status",
         label: "Статус",
         size: 170,
-        cell: (row: DocumentListRow) => {
-          const statusKey = row.status as DocumentStatus;
-          return (
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-xs font-normal",
-                STATUS_BADGE_CLASS[statusKey] ?? "bg-slate-50 text-slate-700 border-slate-200",
-              )}
-            >
-              {STATUS_LABEL[statusKey] ?? row.status}
-            </Badge>
-          );
-        },
+        cell: (row: DocumentListRow) => <InventoryStatusBadge status={row.status} />,
       },
       {
         id: "store_title",
@@ -408,10 +392,12 @@ export function DocumentsTable({
         label: "",
         size: 56,
         canHide: false,
-        cell: (row: DocumentListRow) => <DesktopRowMenu doc={row} canManage={canManage} />,
+        cell: (row: DocumentListRow) => (
+          <DesktopRowMenu doc={row} canManage={canManage} canViewResults={canViewResults} />
+        ),
       },
     ],
-    [amountRoundingScale, canManage, searchActive, staff],
+    [amountRoundingScale, canManage, canViewResults, searchActive, staff],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -613,7 +599,7 @@ export function DocumentsTable({
   const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
 
   return (
-    <div className="w-full space-y-4 px-4 py-4 md:px-8 md:py-6">
+    <div className="w-full space-y-6 p-6 md:p-8">
       <TablePageHeader
         title="Акты инвентаризации"
         subtitle="Заполнение, итоги и пересорт по строкам Quick Resto"
@@ -627,7 +613,11 @@ export function DocumentsTable({
               placeholder: "Поиск",
             }}
             filters={{
-              active: filtersVisible || hasActiveFilters,
+              // active подсвечивает кнопку только когда выбран хотя бы один
+              // фильтр. «Открыт ли pin-row» — отдельное состояние:
+              // переключается тем же кликом, но визуально кнопка остаётся
+              // нейтральной до тех пор, пока пользователь не выберет значение.
+              active: hasActiveFilters,
               label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
               onClick: () => setFiltersVisible((v) => !v),
             }}
@@ -805,8 +795,14 @@ export function DocumentsTable({
         </div>
       ) : null}
 
-      {/* Desktop table — TanStack для column-state, resize-handles */}
-      <div className="hidden overflow-hidden rounded-lg border bg-background md:block">
+      {/* Desktop table — TanStack для column-state, resize-handles.
+          Каркас: rounded-lg (8px, "base" из .pen Q4FzoZ → xA95j) + bg-card +
+          header bg-muted/60. Закругление совпадает с реальным Table-компонентом
+          в .pen (`E:bG7YL` cornerRadius:8) и с нашим --radius:0.5rem; такая же
+          пара 8/6 (table/button) читается как одна семья — без визуальных
+          уровней rounded-md/rounded-xl. bg-card важен в dark: card light-er
+          чем background, таблица читается как elevated блок, а не сливается. */}
+      <div className="hidden overflow-hidden rounded-lg border bg-card md:block">
         <div className="overflow-x-auto">
           <table
             // Браузерные расширения вроде TableConvert / Copy-As-Markdown
@@ -827,7 +823,7 @@ export function DocumentsTable({
                 />
               ))}
             </colgroup>
-            <thead className="group/header bg-muted/40 text-xs font-medium tracking-wide text-muted-foreground">
+            <thead className="group/header bg-muted/60 text-xs font-medium tracking-wide text-muted-foreground">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id} className="h-11">
                   {headerGroup.headers.map((header) => {
@@ -899,7 +895,7 @@ export function DocumentsTable({
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest("[data-row-interactive]")) return;
-                      router.push(getDocHref(row.original));
+                      router.push(getDocHref(row.original, canViewResults));
                     }}
                     className="cursor-pointer border-b last:border-b-0 hover:bg-muted/30"
                   >
@@ -939,6 +935,7 @@ export function DocumentsTable({
               doc={doc}
               staff={staff}
               canManage={canManage}
+              canViewResults={canViewResults}
               amountRoundingScale={amountRoundingScale}
               searchActive={searchActive}
             />
@@ -963,19 +960,31 @@ function PinDivider() {
   return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
 }
 
-function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: boolean }) {
+function DesktopRowMenu({
+  doc,
+  canManage,
+  canViewResults,
+}: {
+  doc: DocumentListRow;
+  canManage: boolean;
+  canViewResults: boolean;
+}) {
   const router = useRouter();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
 
   const actions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/inventory/${doc.id}/results`) });
-      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    } else {
-      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    }
+    // После объединения экранов акта табами «Заполнение/Итоги» в shared
+    // layout — переключение через UI акта, поэтому в row-menu один
+    // пункт «Открыть» по умолчанию-табу из getDocHref. getDocHref сам
+    // учитывает canViewResults, чтобы fill-only пользователей не уносило
+    // на /results, куда у них нет доступа (Codex P1 #396).
+    items.push({
+      label: "Открыть",
+      icon: <ClipboardCheck className="h-4 w-4" />,
+      onSelect: () => router.push(getDocHref(doc, canViewResults)),
+    });
     if (canManage) {
       items.push({
         label: "Удалить",
@@ -986,7 +995,7 @@ function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: b
       });
     }
     return items;
-  }, [doc, router, canManage]);
+  }, [doc, router, canManage, canViewResults]);
 
   const runDelete = () => {
     startDelete(async () => {
@@ -1439,12 +1448,14 @@ function MobileCard({
   doc,
   staff,
   canManage,
+  canViewResults,
   amountRoundingScale,
   searchActive,
 }: {
   doc: DocumentListRow;
   staff: AssigneeOption[];
   canManage: boolean;
+  canViewResults: boolean;
   amountRoundingScale: AmountRoundingScale;
   searchActive: boolean;
 }) {
@@ -1452,8 +1463,7 @@ function MobileCard({
   const [assignSheetOpen, setAssignSheetOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
-  const href = getDocHref(doc);
-  const statusKey = doc.status as DocumentStatus;
+  const href = getDocHref(doc, canViewResults);
   const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
 
   const runDelete = () => {
@@ -1475,12 +1485,11 @@ function MobileCard({
 
   const rowActions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/inventory/${doc.id}/results`) });
-      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    } else {
-      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
-    }
+    items.push({
+      label: "Открыть",
+      icon: <ClipboardCheck className="h-4 w-4" />,
+      onSelect: () => router.push(getDocHref(doc, canViewResults)),
+    });
     if (canManage) {
       const lockReason = getAssignLockReason(doc.status);
       if (!lockReason) {
@@ -1500,11 +1509,11 @@ function MobileCard({
       });
     }
     return items;
-  }, [doc, router, canManage]);
+  }, [doc, router, canManage, canViewResults]);
 
   return (
     <div
-      className="relative rounded-lg border bg-background p-3"
+      className="relative rounded-lg border bg-card p-3"
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest("[data-row-interactive]")) return;
@@ -1517,15 +1526,7 @@ function MobileCard({
             <Link href={href} className="text-sm font-medium hover:underline" data-row-interactive>
               № {doc.document_number}
             </Link>
-            <Badge
-              variant="outline"
-              className={cn(
-                "text-[10px] font-normal",
-                STATUS_BADGE_CLASS[statusKey] ?? "bg-slate-50 text-slate-700 border-slate-200",
-              )}
-            >
-              {STATUS_LABEL[statusKey] ?? doc.status}
-            </Badge>
+            <InventoryStatusBadge status={doc.status} className="text-[10px]" />
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
             {formatDate(doc.invoice_date)}

@@ -29,6 +29,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -56,7 +66,7 @@ import {
   type ManagedTableColumn,
   type TableStateColumn,
 } from "@/components/shared/table";
-import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
+import { deleteInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
@@ -350,7 +360,7 @@ export function DocumentsTable({
               −{formatMoney(Math.abs(row.shortfall_sum ?? 0), "RUB", amountRoundingScale)} / +{formatMoney(Math.abs(row.surplus_sum ?? 0), "RUB", amountRoundingScale)}
             </span>
           ) : (
-            <span className="text-sm text-amber-700">Нет построчных итогов</span>
+            <span className="text-sm text-muted-foreground">—</span>
           ),
       },
       {
@@ -373,7 +383,7 @@ export function DocumentsTable({
         label: "",
         size: 56,
         canHide: false,
-        cell: (row: DocumentListRow) => <DesktopRowMenu doc={row} />,
+        cell: (row: DocumentListRow) => <DesktopRowMenu doc={row} canManage={canManage} />,
       },
     ],
     [amountRoundingScale, canManage, searchActive, staff],
@@ -420,12 +430,15 @@ export function DocumentsTable({
     getCoreRowModel: getCoreRowModel(),
   });
 
+  // Из выпадашки «Столбцы» исключаем служебную колонку actions —
+  // её нельзя ни скрыть, ни переупорядочить, в UI она шум.
   const managedColumns: ManagedTableColumn[] = tableState.columnOrder
+    .filter((id) => id !== "actions")
     .map((id) => table.getAllLeafColumns().find((col) => col.id === id))
     .filter((col): col is NonNullable<typeof col> => Boolean(col))
     .map((col) => ({
       id: col.id,
-      label: String(col.columnDef.header ?? col.id) || "Действия",
+      label: String(col.columnDef.header ?? col.id),
       visible: col.getIsVisible(),
       canHide: col.getCanHide(),
       width: col.getSize(),
@@ -517,10 +530,12 @@ export function DocumentsTable({
     });
   };
 
-  // ── Header click → multi-sort cycle (1-в-1 с эталоном) ────
-  // - Колонка не в сортировке → APPEND ascending.
-  // - Колонка в сортировке, asc → FLIP в desc.
-  // - Колонка в сортировке, desc → REMOVE из набора.
+  // ── Header click → multi-sort cycle ──────────────────────
+  // - Колонка не в сортировке → APPEND с asc.
+  // - Колонка в сортировке → FLIP направления (asc ↔ desc).
+  // Полное удаление сортировки — только через крестик в пин-эдиторе
+  // или кнопку «Удалить сортировку». Так шапка дефолтной колонки
+  // (Date desc) корректно переключается в asc и обратно.
   const cycleSort = (field: SortField) => {
     const index = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
     if (index < 0) {
@@ -528,13 +543,10 @@ export function DocumentsTable({
       return;
     }
     const currentMode = sortFromUrl[index];
-    if (sortToDirection(currentMode) === "asc") {
-      const next = sortFromUrl.slice();
-      next[index] = combineSort(field, "desc");
-      setSortKeys(next);
-      return;
-    }
-    setSortKeys(sortFromUrl.filter((_, i) => i !== index));
+    const nextDir = sortToDirection(currentMode) === "asc" ? "desc" : "asc";
+    const next = sortFromUrl.slice();
+    next[index] = combineSort(field, nextDir);
+    setSortKeys(next);
   };
 
   const headerIndicator = (columnId: string) => {
@@ -575,7 +587,7 @@ export function DocumentsTable({
     <div className="w-full space-y-4 px-4 py-4 md:px-8 md:py-6">
       <TablePageHeader
         title="Акты инвентаризации"
-        subtitle="Заполнение, итоги и пересорт по строкам Quick Resto."
+        subtitle="Заполнение, итоги и пересорт по строкам Quick Resto"
         actions={
           <TableControls
             search={{
@@ -660,20 +672,26 @@ export function DocumentsTable({
 
           {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
 
-          {/* 2. Фильтры */}
+          {/* 2. Фильтры — порядок: Период, Статус, Исполнитель, Склад, Заведение */}
           {filtersVisible ? (
             <>
+              <DateRangeFilter
+                value={dateRange}
+                presetLabel={datePresetFromUrl}
+                onChange={onDateRangeChange}
+              />
+
               <TableControlPin
-                active={Boolean(filtersFromUrl.venue) && filtersFromUrl.venue !== "all"}
-                label={venuePinLabel(filtersFromUrl.venue, venues)}
+                active={(filtersFromUrl.status?.length ?? 0) > 0}
+                label={statusPinLabel(filtersFromUrl.status)}
                 onClear={
-                  filtersFromUrl.venue && filtersFromUrl.venue !== "all"
-                    ? () => onVenueChange("all")
+                  (filtersFromUrl.status?.length ?? 0) > 0
+                    ? () => updateUrl({ status: null }, { resetPage: true })
                     : undefined
                 }
-                clearLabel="Сбросить заведение"
+                clearLabel="Сбросить статус"
               >
-                <VenuePicker value={filtersFromUrl.venue ?? "all"} venues={venues} onChange={onVenueChange} />
+                <StatusPicker value={filtersFromUrl.status ?? []} onToggle={onStatusToggle} />
               </TableControlPin>
 
               {canManage ? (
@@ -692,19 +710,6 @@ export function DocumentsTable({
               ) : null}
 
               <TableControlPin
-                active={(filtersFromUrl.status?.length ?? 0) > 0}
-                label={statusPinLabel(filtersFromUrl.status)}
-                onClear={
-                  (filtersFromUrl.status?.length ?? 0) > 0
-                    ? () => onStatusToggle(filtersFromUrl.status![0])
-                    : undefined
-                }
-                clearLabel="Сбросить статус"
-              >
-                <StatusPicker value={filtersFromUrl.status ?? []} onToggle={onStatusToggle} />
-              </TableControlPin>
-
-              <TableControlPin
                 active={(filtersFromUrl.store?.length ?? 0) > 0}
                 label={storePinLabel(filtersFromUrl.store, stores)}
                 onClear={
@@ -717,11 +722,18 @@ export function DocumentsTable({
                 <StorePicker value={filtersFromUrl.store ?? []} stores={stores} onToggle={onStoreToggle} />
               </TableControlPin>
 
-              <DateRangeFilter
-                value={dateRange}
-                presetLabel={datePresetFromUrl}
-                onChange={onDateRangeChange}
-              />
+              <TableControlPin
+                active={Boolean(filtersFromUrl.venue) && filtersFromUrl.venue !== "all"}
+                label={venuePinLabel(filtersFromUrl.venue, venues)}
+                onClear={
+                  filtersFromUrl.venue && filtersFromUrl.venue !== "all"
+                    ? () => onVenueChange("all")
+                    : undefined
+                }
+                clearLabel="Сбросить заведение"
+              >
+                <VenuePicker value={filtersFromUrl.venue ?? "all"} venues={venues} onChange={onVenueChange} />
+              </TableControlPin>
             </>
           ) : null}
 
@@ -922,21 +934,76 @@ function PinDivider() {
   return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
 }
 
-function DesktopRowMenu({ doc }: { doc: DocumentListRow }) {
+function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: boolean }) {
   const router = useRouter();
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [isDeleting, startDelete] = useTransition();
+
   const actions = useMemo(() => {
-    const items: { label: string; icon: React.ReactNode; onSelect: () => void }[] = [];
+    const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
     if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
       items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/${doc.id}/results`) });
       items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
     } else {
-      items.push({ label: "Открыть акт",          icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+    }
+    if (canManage) {
+      items.push({
+        label: "Удалить",
+        icon: <Trash2 className="h-4 w-4" />,
+        destructive: true,
+        separatorBefore: true,
+        onSelect: () => setConfirmDeleteOpen(true),
+      });
     }
     return items;
-  }, [doc, router]);
+  }, [doc, router, canManage]);
+
+  const runDelete = () => {
+    startDelete(async () => {
+      try {
+        const result = await deleteInventoryDocument({ documentId: doc.id });
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success(`Акт № ${doc.document_number} удалён`);
+        setConfirmDeleteOpen(false);
+        router.refresh();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Не удалось удалить акт");
+      }
+    });
+  };
+
   return (
     <div data-row-interactive onClick={(e) => e.stopPropagation()}>
       <TableRowMenu actions={actions} />
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить акт № {doc.document_number}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Это удалит акт и все его позиции. Если акт пришёл из Quick Resto,
+              он может вернуться при следующей синхронизации.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                runDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1180,7 +1247,7 @@ function SortPinEditor({
           const field = sortToField(mode);
           const direction = sortToDirection(mode);
           return (
-            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_132px_32px] items-center gap-2">
+            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_72px_32px] items-center gap-2">
               <Select value={field} onValueChange={(value) => replaceField(index, value as SortField)}>
                 <SelectTrigger className="h-9">
                   <SelectValue />
@@ -1203,12 +1270,27 @@ function SortPinEditor({
                 value={direction}
                 onValueChange={(value) => updateAt(index, combineSort(field, value as "asc" | "desc"))}
               >
-                <SelectTrigger className="h-9">
-                  <SelectValue />
+                <SelectTrigger
+                  className="h-9 w-[72px] justify-center gap-1 px-2"
+                  aria-label={direction === "asc" ? "По возрастанию" : "По убыванию"}
+                >
+                  {direction === "asc" ? (
+                    <ArrowUp className="h-4 w-4" />
+                  ) : (
+                    <ArrowDown className="h-4 w-4" />
+                  )}
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="asc">По возрастанию</SelectItem>
-                  <SelectItem value="desc">По убыванию</SelectItem>
+                  <SelectItem value="asc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowUp className="h-3.5 w-3.5" /> По возрастанию
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="desc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowDown className="h-3.5 w-3.5" /> По убыванию
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
 
@@ -1292,7 +1374,7 @@ function EmptyTableBody({
         <EmptyState
           icon={FileX2}
           title="Ничего не найдено"
-          description="Измените фильтры, расширьте период или очистите запрос."
+          description="Измените фильтры, расширьте период или очистите запрос"
           action={
             <Button variant="outline" onClick={onClearAll}>
               <X />
@@ -1339,17 +1421,36 @@ function MobileCard({
 }) {
   const router = useRouter();
   const [assignSheetOpen, setAssignSheetOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [isDeleting, startDelete] = useTransition();
   const href = getDocHref(doc);
   const statusKey = doc.status as DocumentStatus;
   const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
 
+  const runDelete = () => {
+    startDelete(async () => {
+      try {
+        const result = await deleteInventoryDocument({ documentId: doc.id });
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success(`Акт № ${doc.document_number} удалён`);
+        setConfirmDeleteOpen(false);
+        router.refresh();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Не удалось удалить акт");
+      }
+    });
+  };
+
   const rowActions = useMemo(() => {
-    const items: { label: string; icon: React.ReactNode; onSelect: () => void; separatorBefore?: boolean }[] = [];
+    const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
     if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
       items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/${doc.id}/results`) });
       items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
     } else {
-      items.push({ label: "Открыть акт",          icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
     }
     if (canManage) {
       items.push({
@@ -1357,6 +1458,12 @@ function MobileCard({
         icon: <UserPlus className="h-4 w-4" />,
         onSelect: () => setAssignSheetOpen(true),
         separatorBefore: true,
+      });
+      items.push({
+        label: "Удалить",
+        icon: <Trash2 className="h-4 w-4" />,
+        destructive: true,
+        onSelect: () => setConfirmDeleteOpen(true),
       });
     }
     return items;
@@ -1408,7 +1515,7 @@ function MobileCard({
             <span className="text-muted-foreground">
               {doc.results_has_line_amounts
                 ? `−${formatMoney(Math.abs(doc.shortfall_sum ?? 0), "RUB", amountRoundingScale)} / +${formatMoney(Math.abs(doc.surplus_sum ?? 0), "RUB", amountRoundingScale)}`
-                : "Нет построчных итогов"}
+                : "—"}
             </span>
             <span className="text-muted-foreground">
               {assigneeName ? <>Назначен: {assigneeName}</> : "Не назначен"}
@@ -1440,6 +1547,32 @@ function MobileCard({
           <AssigneeSelect documentId={doc.id} assignedTo={doc.assigned_to} staff={staff} />
         </div>
       ) : null}
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить акт № {doc.document_number}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Это удалит акт и все его позиции. Если акт пришёл из Quick Resto,
+              он может вернуться при следующей синхронизации.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                runDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

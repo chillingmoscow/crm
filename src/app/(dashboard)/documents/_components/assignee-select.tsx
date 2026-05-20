@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -9,8 +10,8 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { assignInventoryDocument } from "@/app/(dashboard)/inventory/actions";
 
 const UNASSIGNED_VALUE = "__unassigned__";
@@ -21,10 +22,10 @@ export type AssigneeOption = {
 };
 
 /**
- * Inline-селектор «Назначен на» в строке акта (desktop).
- * Шейдкн Select для визуальной консистентности (старый код использовал
- * нативный <select>, который выбивается из дизайн-системы — особенно
- * на macOS Safari).
+ * Inline-выбор исполнителя в строке акта.
+ * Назначен → бейдж с инициалами + ФИО (выглядит как «человек», не как кнопка
+ * с выпадашкой). Клик раскрывает Select для переназначения.
+ * Не назначен → ghost-кнопка «Назначить» с иконкой UserPlus.
  */
 export function AssigneeSelect({
   documentId,
@@ -39,6 +40,7 @@ export function AssigneeSelect({
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
+  const assigned = assignedTo ? staff.find((p) => p.id === assignedTo) ?? null : null;
 
   const onChange = async (value: string) => {
     const next = value === UNASSIGNED_VALUE ? null : value;
@@ -65,17 +67,60 @@ export function AssigneeSelect({
       onValueChange={onChange}
       disabled={disabled || pending}
     >
-      <SelectTrigger className="h-9 w-full">
-        <SelectValue placeholder="Не назначен" />
+      <SelectTrigger
+        className={cn(
+          "h-8 w-full max-w-full justify-start gap-2 truncate rounded-full px-1 [&>svg:last-child]:opacity-40",
+          assigned
+            ? "border-transparent bg-muted/60 hover:bg-muted text-foreground"
+            : "border-dashed text-muted-foreground hover:text-foreground",
+        )}
+      >
+        {assigned ? (
+          <>
+            <AssigneeAvatar name={assigned.name} />
+            <span className="truncate text-sm">{assigned.name}</span>
+          </>
+        ) : (
+          <>
+            <UserPlus className="h-3.5 w-3.5 ml-1.5" />
+            <span className="text-sm">Назначить</span>
+          </>
+        )}
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={UNASSIGNED_VALUE}>Не назначен</SelectItem>
+        <SelectItem value={UNASSIGNED_VALUE}>
+          <span className="inline-flex items-center gap-2 text-muted-foreground">
+            <UserPlus className="h-3.5 w-3.5" />
+            Не назначен
+          </span>
+        </SelectItem>
         {staff.map((member) => (
           <SelectItem key={member.id} value={member.id}>
-            {member.name}
+            <span className="inline-flex items-center gap-2">
+              <AssigneeAvatar name={member.name} />
+              {member.name}
+            </span>
           </SelectItem>
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+function AssigneeAvatar({ name }: { name: string }) {
+  const initials =
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "?";
+  return (
+    <div
+      aria-hidden="true"
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[10px] font-medium text-brand"
+    >
+      {initials}
+    </div>
   );
 }

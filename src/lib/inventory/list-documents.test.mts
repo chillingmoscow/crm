@@ -13,7 +13,9 @@ import {
 test("normalizeListOptions: defaults", () => {
   const n = normalizeListOptions();
   assert.deepEqual(n.sort, DEFAULT_SORT);
-  assert.deepEqual(n.sort, ["date_desc"]);
+  // DEFAULT_SORT теперь пустой — сервер сам падает на date_desc через
+  // fallback в RPC при null/empty p_sort.
+  assert.deepEqual(n.sort, []);
   assert.equal(n.page, 1);
   assert.equal(n.pageSize, DEFAULT_PAGE_SIZE);
   assert.deepEqual(n.filters, {});
@@ -22,6 +24,7 @@ test("normalizeListOptions: defaults", () => {
 test("normalizeListOptions: пустой sort массив → DEFAULT_SORT", () => {
   const n = normalizeListOptions({ sort: [] });
   assert.deepEqual(n.sort, DEFAULT_SORT);
+  assert.deepEqual(n.sort, []);
 });
 
 test("normalizeListOptions: multi-sort пробрасывается как есть", () => {
@@ -51,7 +54,7 @@ test("buildRpcArgs: empty filters → all params null", () => {
   assert.equal(args.p_filter_date_from, null);
   assert.equal(args.p_filter_date_to, null);
   assert.equal(args.p_filter_q, null);
-  assert.deepEqual(args.p_sort, ["date_desc"]);
+  assert.deepEqual(args.p_sort, []);
   assert.equal(args.p_page, 1);
   assert.equal(args.p_page_size, 25);
 });
@@ -104,8 +107,8 @@ test("buildRpcArgs: даты пробрасываются как ISO-строк�
   assert.equal(args.p_filter_date_to, "2026-05-31");
 });
 
-test("buildRpcArgs: sort пробрасывается, default = ['date_desc']", () => {
-  assert.deepEqual(buildRpcArgs(normalizeListOptions()).p_sort, ["date_desc"]);
+test("buildRpcArgs: sort пробрасывается, default = []", () => {
+  assert.deepEqual(buildRpcArgs(normalizeListOptions()).p_sort, []);
   assert.deepEqual(
     buildRpcArgs(normalizeListOptions({ sort: ["number_desc"] })).p_sort,
     ["number_desc"],

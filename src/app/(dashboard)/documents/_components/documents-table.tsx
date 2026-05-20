@@ -135,11 +135,6 @@ function combineSort(field: SortField, direction: "asc" | "desc"): DocumentSortM
   return direction === "asc" ? "number_asc" : "number_desc";
 }
 
-function modeSummary(mode: DocumentSortMode): string {
-  const field = sortToField(mode);
-  const arrow = sortToDirection(mode) === "asc" ? "↑" : "↓";
-  return `${SORT_FIELD_LABEL[field]} ${arrow}`;
-}
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -546,12 +541,13 @@ export function DocumentsTable({
     });
   };
 
-  // ── Header click → multi-sort cycle ──────────────────────
-  // - Колонка не в сортировке → APPEND с asc.
-  // - Колонка в сортировке → FLIP направления (asc ↔ desc).
-  // Полное удаление сортировки — только через крестик в пин-эдиторе
-  // или кнопку «Удалить сортировку». Так шапка дефолтной колонки
-  // (Date desc) корректно переключается в asc и обратно.
+  // ── Header click → multi-sort cycle (table-lab pattern) ──
+  // Колонка не в сортировке → APPEND asc.
+  // Колонка в сортировке (asc) → FLIP desc.
+  // Колонка в сортировке (desc) → REMOVE.
+  // Так у каждой колонки 3 состояния: пусто → ↑ → ↓ → пусто.
+  // Для Date (дефолт сервера = date_desc) пустое состояние = «дефолт»:
+  // URL чист, шапка без индикатора, сервер сам сортирует по дате desc.
   const cycleSort = (field: SortField) => {
     const index = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
     if (index < 0) {
@@ -559,10 +555,13 @@ export function DocumentsTable({
       return;
     }
     const currentMode = sortFromUrl[index];
-    const nextDir = sortToDirection(currentMode) === "asc" ? "desc" : "asc";
-    const next = sortFromUrl.slice();
-    next[index] = combineSort(field, nextDir);
-    setSortKeys(next);
+    if (sortToDirection(currentMode) === "asc") {
+      const next = sortFromUrl.slice();
+      next[index] = combineSort(field, "desc");
+      setSortKeys(next);
+      return;
+    }
+    setSortKeys(sortFromUrl.filter((_, i) => i !== index));
   };
 
   const headerIndicator = (columnId: string) => {
@@ -677,7 +676,7 @@ export function DocumentsTable({
               }
               label={
                 sortFromUrl.length === 1
-                  ? modeSummary(sortFromUrl[0])
+                  ? SORT_FIELD_LABEL[sortToField(sortFromUrl[0])]
                   : `${sortFromUrl.length} сортировки`
               }
               contentClassName="w-auto p-3"

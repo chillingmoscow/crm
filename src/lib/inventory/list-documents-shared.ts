@@ -21,11 +21,19 @@ export const DOCUMENT_SORT_MODES = [
   "status_asc",
 ] as const satisfies readonly DocumentSortMode[];
 
-/** Дефолтная сортировка — единственный ключ date_desc. */
-export const DEFAULT_SORT: DocumentSortMode[] = ["date_desc"];
+/**
+ * Дефолтная сортировка — пустой массив. RPC `list_inventory_documents`
+ * (миграция 207) интерпретирует пустой / NULL `p_sort` как date_desc.
+ * Держим в client/URL это как «нет явной сортировки», тогда:
+ *   - в шапке нет стрелок (header indicator показывается только когда
+ *     колонка в массиве),
+ *   - клик по сортируемой колонке делает APPEND asc → FLIP desc →
+ *     REMOVE (стандартный 3-state cycle, как в table-lab).
+ */
+export const DEFAULT_SORT: DocumentSortMode[] = [];
 
 export function isDefaultSort(sort: DocumentSortMode[]): boolean {
-  return sort.length === 1 && sort[0] === DEFAULT_SORT[0];
+  return sort.length === 0;
 }
 
 export const DOCUMENT_STATUSES = [

@@ -767,7 +767,17 @@ export function DocumentsTable({
       {/* Desktop table — TanStack для column-state, resize-handles */}
       <div className="hidden overflow-hidden rounded-lg border bg-background md:block">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-full table-fixed" style={{ minWidth: table.getTotalSize() }}>
+          <table
+            // Браузерные расширения вроде TableConvert / Copy-As-Markdown
+            // дописывают на <table> атрибуты `data-tableconvert-*` между
+            // SSR-HTML и hydration. React видит их как mismatch, бэйлит
+            // гидрацию всего поддерева, перерендерит с нуля → каскад
+            // разных useId() в шапке/сайдбаре/селектах. suppress даёт
+            // React принять «лишние» атрибуты и продолжить hydrate.
+            suppressHydrationWarning
+            className="w-full min-w-full table-fixed"
+            style={{ minWidth: table.getTotalSize() }}
+          >
             <colgroup>
               {table.getVisibleLeafColumns().map((column) => (
                 <col

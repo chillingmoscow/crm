@@ -21,6 +21,23 @@ export type InventoryResortAllocation = {
   offsetAmount: number;
   residualShortfallSum: number;
   residualSurplusSum: number;
+  /**
+   * Управленческая корректировка себестоимости.
+   * Когда пересорт покрывает дорогое товаром с другой (более низкой)
+   * себестоимостью — разница цены остаётся реальным убытком компании,
+   * который алгоритм по-объёмному покрытию полностью теряет.
+   *
+   * Формула: max(0, shortageCostPerUnit - surplusCostPerUnit) × offsetAmount,
+   * где *CostPerUnit — взвешенная средняя себестоимость по всем
+   * shortage/surplus item'ам пересорта.
+   *
+   * Признаётся **только убыток (>= 0)** — управленческий консерватизм
+   * (если излишек дороже недостачи, считаем что мы не можем достоверно
+   * признать «прибыль», поэтому корректировку обнуляем).
+   *
+   * См. docs/handbook/inventory/resort.md.
+   */
+  costAdjustmentSum: number;
   items: InventoryResortAllocationItem[];
 };
 
@@ -32,6 +49,14 @@ export type InventoryManagementTotalsInput = {
     excluded?: boolean | null;
   }>;
   resortItems?: InventoryResortAllocationItem[];
+  /**
+   * Корректировки себестоимости по активным пересортам акта.
+   * Каждый элемент — сумма >= 0 (только убыток, см. calculateResortAllocation).
+   * Все они плюсуются к managementShortfallSum: пересорт уравнял объёмы,
+   * но компания всё равно потеряла на разнице цен — это реальная
+   * недостача в управленческом учёте.
+   */
+  resortCostAdjustments?: number[];
 };
 
 export type InventoryManagementTotals = {
@@ -111,6 +136,24 @@ export function calculateResortAllocation(
   const shortageScale = offsetAmount / shortageTotal;
   const surplusScale = offsetAmount / surplusTotal;
 
+  // Управленческая корректировка себестоимости.
+  // Взвешенная средняя цена по shortage / surplus items (для multi-pair
+  // случаев где несколько недостач и излишков покрываются взаимно).
+  const shortageSumTotal = source
+    .filter((item) => item.amount < 0)
+    .reduce((total, item) => total + Math.abs(item.sum), 0);
+  const surplusSumTotal = source
+    .filter((item) => item.amount > 0)
+    .reduce((total, item) => total + item.sum, 0);
+  const shortageCostPerUnit = shortageTotal > EPSILON ? shortageSumTotal / shortageTotal : 0;
+  const surplusCostPerUnit = surplusTotal > EPSILON ? surplusSumTotal / surplusTotal : 0;
+  // Признаём только убыток (>=0): если недостача дороже излишка —
+  // реальная потеря (списали дорогое, нашли дешёвое). Если излишек
+  // оказался дороже недостачи — управленческий консерватизм не позволяет
+  // признать «прибыль», корректировка = 0.
+  const rawCostAdjustment = (shortageCostPerUnit - surplusCostPerUnit) * offsetAmount;
+  const costAdjustmentSum = roundMoney(Math.max(0, rawCostAdjustment));
+
   const items = source.map((item): InventoryResortAllocationItem => {
     const role = item.amount < 0 ? "shortage" : "surplus";
     const offset = Math.abs(item.amount) * (role === "shortage" ? shortageScale : surplusScale);
@@ -136,6 +179,7 @@ export function calculateResortAllocation(
     residualSurplusSum: roundMoney(
       items.filter((item) => item.remainingDifferenceSum > 0).reduce((total, item) => total + item.remainingDifferenceSum, 0),
     ),
+    costAdjustmentSum,
     items,
   };
 }
@@ -161,6 +205,15 @@ export function calculateManagementTotals(input: InventoryManagementTotalsInput)
       totals,
       resortItem ? resortItem.remainingDifferenceSum : qrSum,
     );
+  }
+
+  // Корректировки себестоимости пересортов → плюсуются к
+  // managementShortfallSum (плюс по модулю, как недостача — это убыток
+  // с отрицательным знаком в формате shortfall: -сумма_убытка).
+  // См. docs/handbook/inventory/resort.md.
+  for (const adjustment of input.resortCostAdjustments ?? []) {
+    if (!Number.isFinite(adjustment) || adjustment <= 0) continue;
+    totals.managementShortfallSum = roundMoney(totals.managementShortfallSum - adjustment);
   }
 
   return totals;

@@ -88,6 +88,9 @@ export type InventoryResultResortRow = {
   offset_amount: number | null;
   residual_shortfall_sum: number | null;
   residual_surplus_sum: number | null;
+  /** Корректировка себестоимости (миграция 205). Управленческий
+      убыток на разнице цен покрытия пересорта. >= 0. */
+  cost_adjustment_sum: number | null;
   suggestion_source: string | null;
   created_at: string;
   void_reason: string | null;
@@ -316,8 +319,13 @@ export function InventoryResultsTable({
           remainingDifferenceSum: item.remainingDifferenceSum,
           role: item.role,
         })),
+        // Корректировки себестоимости активных пересортов: плюсуются
+        // к managementShortfallSum (см. docs/handbook/inventory/resort.md).
+        resortCostAdjustments: activeResorts
+          .map((resort) => Number(resort.cost_adjustment_sum ?? 0))
+          .filter((value) => Number.isFinite(value) && value > 0),
       }),
-    [activeResortItemByItemId, items],
+    [activeResortItemByItemId, activeResorts, items],
   );
   const mismatchCount = useMemo(() => items.filter(hasDifference).length, [items]);
   const groupOptions = useMemo(() => {
@@ -926,6 +934,15 @@ export function InventoryResultsTable({
                   <div className="mt-1 text-xs text-muted-foreground">
                     Остаток: недостача {formatMoney(Math.abs(resort.residual_shortfall_sum ?? 0), "RUB", amountRoundingScale)}, излишек {formatMoney(Math.abs(resort.residual_surplus_sum ?? 0), "RUB", amountRoundingScale)}
                   </div>
+                  {Number(resort.cost_adjustment_sum ?? 0) > 0 ? (
+                    // Корректировка себестоимости (миграция 205): когда
+                    // пересорт покрыл дорогое товаром по более низкой
+                    // себестоимости — разница идёт в управленческую
+                    // недостачу. См. docs/handbook/inventory/resort.md.
+                    <div className="mt-1 text-xs text-rose-700">
+                      Корректировка себестоимости: −{formatMoney(Number(resort.cost_adjustment_sum), "RUB", amountRoundingScale)}
+                    </div>
+                  ) : null}
                 </div>
                 {canAdjust ? (
                   <Button

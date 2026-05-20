@@ -1952,6 +1952,10 @@ export async function createInventoryResultResort(input: {
         residual_surplus_sum: allocation.residualSurplusSum,
         source_shortfall_sum: sourceShortfallSum,
         source_surplus_sum: sourceSurplusSum,
+        // Корректировка себестоимости (миграция 205): если недостача
+        // дороже излишка — управленческий убыток на разнице цен. См.
+        // docs/handbook/inventory/resort.md.
+        cost_adjustment_sum: allocation.costAdjustmentSum,
         suggestion_source: input.suggestionSource ?? "manual",
         suggestion_confidence: typeof input.suggestionConfidence === "number" ? input.suggestionConfidence : null,
         created_by: ctx.user.id,

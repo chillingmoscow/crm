@@ -33,7 +33,6 @@ export function DocumentActHeader({
   documentNumber,
   status,
   storeTitle,
-  itemsCount,
   canFill,
   canViewResults,
   canManage,
@@ -43,7 +42,6 @@ export function DocumentActHeader({
   documentNumber: string;
   status: string;
   storeTitle: string | null;
-  itemsCount: number;
   canFill: boolean;
   canViewResults: boolean;
   canManage: boolean;
@@ -79,18 +77,16 @@ export function DocumentActHeader({
         </Link>
       </PageBreadcrumb>
 
-      <div className="px-6 md:px-8 pt-4 pb-2 w-full flex flex-col gap-6">
+      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
         <div className="flex flex-col gap-2 min-w-0">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-[28px] font-bold tracking-tight leading-tight truncate">
-              Акт № {documentNumber}
-            </h1>
+          <h1 className="text-[28px] font-bold tracking-tight leading-tight truncate">
+            Акт № {documentNumber}
+          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-muted-foreground">
+              {storeTitle ?? "Склад не указан"}
+            </span>
             <InventoryStatusBadge status={status} />
-          </div>
-          <div className="text-sm text-muted-foreground">
-            {storeTitle ?? "Склад не указан"}
-            {" · "}
-            {pluralizeItems(itemsCount)}
           </div>
         </div>
 
@@ -130,13 +126,4 @@ export function DocumentActHeader({
       </div>
     </>
   );
-}
-
-function pluralizeItems(n: number): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod100 >= 11 && mod100 <= 14) return `${n} позиций`;
-  if (mod10 === 1) return `${n} позиция`;
-  if (mod10 >= 2 && mod10 <= 4) return `${n} позиции`;
-  return `${n} позиций`;
 }

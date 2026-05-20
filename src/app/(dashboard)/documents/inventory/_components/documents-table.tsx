@@ -150,13 +150,23 @@ type Props = {
   accountId: string;
   canManage: boolean;
   canSync: boolean;
+  canViewResults: boolean;
   amountRoundingScale: AmountRoundingScale;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getDocHref(doc: Pick<DocumentListRow, "id" | "processed" | "results_has_line_amounts" | "status">) {
-  if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
+// canViewResults обязателен: пользователи с inventory.fill_assigned_documents,
+// но без inventory.view_results, не могут открыть /results — их редиректнёт
+// прочь. Поэтому для них всегда возвращаем форму, даже у проведённых актов.
+// Codex review #396 P1.
+function getDocHref(
+  doc: Pick<DocumentListRow, "id" | "processed" | "results_has_line_amounts" | "status">,
+  canViewResults: boolean,
+) {
+  const isResultsState =
+    doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked";
+  if (isResultsState && canViewResults) {
     return `/documents/inventory/${doc.id}/results`;
   }
   return `/documents/inventory/${doc.id}`;
@@ -193,6 +203,7 @@ export function DocumentsTable({
   accountId,
   canManage,
   canSync,
+  canViewResults,
   amountRoundingScale,
 }: Props) {
   const router = useRouter();
@@ -201,7 +212,9 @@ export function DocumentsTable({
 
   const [search, setSearch] = useState(filtersFromUrl.q ?? "");
   const [searchOpen, setSearchOpen] = useState(Boolean(filtersFromUrl.q));
-  const [filtersVisible, setFiltersVisible] = useState(true);
+  // По умолчанию пины-фильтры скрыты: кнопка «Показать фильтры» —
+  // нейтральная (не подсвечена). Раскрытие — явное действие.
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [isSyncing, startSyncTransition] = useTransition();
 
   // ── URL sync ───────────────────────────────────────────────
@@ -288,7 +301,7 @@ export function DocumentsTable({
         cell: (row: DocumentListRow) => (
           <div className="min-w-0">
             <Link
-              href={getDocHref(row)}
+              href={getDocHref(row, canViewResults)}
               className="text-sm font-medium hover:underline"
               data-row-interactive
               onClick={(e) => e.stopPropagation()}
@@ -379,10 +392,12 @@ export function DocumentsTable({
         label: "",
         size: 56,
         canHide: false,
-        cell: (row: DocumentListRow) => <DesktopRowMenu doc={row} canManage={canManage} />,
+        cell: (row: DocumentListRow) => (
+          <DesktopRowMenu doc={row} canManage={canManage} canViewResults={canViewResults} />
+        ),
       },
     ],
-    [amountRoundingScale, canManage, searchActive, staff],
+    [amountRoundingScale, canManage, canViewResults, searchActive, staff],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -584,7 +599,7 @@ export function DocumentsTable({
   const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
 
   return (
-    <div className="w-full space-y-4 px-4 py-4 md:px-8 md:py-6">
+    <div className="w-full space-y-4 p-6 md:p-8">
       <TablePageHeader
         title="Акты инвентаризации"
         subtitle="Заполнение, итоги и пересорт по строкам Quick Resto"
@@ -598,7 +613,11 @@ export function DocumentsTable({
               placeholder: "Поиск",
             }}
             filters={{
-              active: filtersVisible || hasActiveFilters,
+              // active подсвечивает кнопку только когда выбран хотя бы один
+              // фильтр. «Открыт ли pin-row» — отдельное состояние:
+              // переключается тем же кликом, но визуально кнопка остаётся
+              // нейтральной до тех пор, пока пользователь не выберет значение.
+              active: hasActiveFilters,
               label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
               onClick: () => setFiltersVisible((v) => !v),
             }}
@@ -870,7 +889,7 @@ export function DocumentsTable({
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest("[data-row-interactive]")) return;
-                      router.push(getDocHref(row.original));
+                      router.push(getDocHref(row.original, canViewResults));
                     }}
                     className="cursor-pointer border-b last:border-b-0 hover:bg-muted/30"
                   >
@@ -910,6 +929,7 @@ export function DocumentsTable({
               doc={doc}
               staff={staff}
               canManage={canManage}
+              canViewResults={canViewResults}
               amountRoundingScale={amountRoundingScale}
               searchActive={searchActive}
             />
@@ -934,7 +954,15 @@ function PinDivider() {
   return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
 }
 
-function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: boolean }) {
+function DesktopRowMenu({
+  doc,
+  canManage,
+  canViewResults,
+}: {
+  doc: DocumentListRow;
+  canManage: boolean;
+  canViewResults: boolean;
+}) {
   const router = useRouter();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
@@ -943,11 +971,13 @@ function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: b
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
     // После объединения экранов акта табами «Заполнение/Итоги» в shared
     // layout — переключение через UI акта, поэтому в row-menu один
-    // пункт «Открыть» по умолчанию-табу из getDocHref.
+    // пункт «Открыть» по умолчанию-табу из getDocHref. getDocHref сам
+    // учитывает canViewResults, чтобы fill-only пользователей не уносило
+    // на /results, куда у них нет доступа (Codex P1 #396).
     items.push({
       label: "Открыть",
       icon: <ClipboardCheck className="h-4 w-4" />,
-      onSelect: () => router.push(getDocHref(doc)),
+      onSelect: () => router.push(getDocHref(doc, canViewResults)),
     });
     if (canManage) {
       items.push({
@@ -959,7 +989,7 @@ function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: b
       });
     }
     return items;
-  }, [doc, router, canManage]);
+  }, [doc, router, canManage, canViewResults]);
 
   const runDelete = () => {
     startDelete(async () => {
@@ -1412,12 +1442,14 @@ function MobileCard({
   doc,
   staff,
   canManage,
+  canViewResults,
   amountRoundingScale,
   searchActive,
 }: {
   doc: DocumentListRow;
   staff: AssigneeOption[];
   canManage: boolean;
+  canViewResults: boolean;
   amountRoundingScale: AmountRoundingScale;
   searchActive: boolean;
 }) {
@@ -1425,7 +1457,7 @@ function MobileCard({
   const [assignSheetOpen, setAssignSheetOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
-  const href = getDocHref(doc);
+  const href = getDocHref(doc, canViewResults);
   const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
 
   const runDelete = () => {
@@ -1450,7 +1482,7 @@ function MobileCard({
     items.push({
       label: "Открыть",
       icon: <ClipboardCheck className="h-4 w-4" />,
-      onSelect: () => router.push(getDocHref(doc)),
+      onSelect: () => router.push(getDocHref(doc, canViewResults)),
     });
     if (canManage) {
       const lockReason = getAssignLockReason(doc.status);
@@ -1471,7 +1503,7 @@ function MobileCard({
       });
     }
     return items;
-  }, [doc, router, canManage]);
+  }, [doc, router, canManage, canViewResults]);
 
   return (
     <div

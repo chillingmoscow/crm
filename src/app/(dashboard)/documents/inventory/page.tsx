@@ -115,16 +115,25 @@ export default async function InventoryDocumentsPage({
   const sp = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: canView }, { data: canManage }, { data: canFill }, { data: canSync }, { data: accountId }, { data: { user } }, amountRoundingScale] =
-    await Promise.all([
-      supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-      supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-      supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-      supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
-      supabase.rpc("get_active_account_id"),
-      supabase.auth.getUser(),
-      getActiveAccountAmountRoundingScale(),
-    ]);
+  const [
+    { data: canView },
+    { data: canManage },
+    { data: canFill },
+    { data: canSync },
+    { data: canViewResults },
+    { data: accountId },
+    { data: { user } },
+    amountRoundingScale,
+  ] = await Promise.all([
+    supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
+    supabase.rpc("get_active_account_id"),
+    supabase.auth.getUser(),
+    getActiveAccountAmountRoundingScale(),
+  ]);
 
   if (!accountId || !user) redirect("/login");
   if (!canView && !canFill) redirect("/dashboard");
@@ -162,6 +171,7 @@ export default async function InventoryDocumentsPage({
       accountId={accountId as string}
       canManage={Boolean(canManage)}
       canSync={Boolean(canSync)}
+      canViewResults={Boolean(canViewResults)}
       amountRoundingScale={amountRoundingScale}
     />
   );

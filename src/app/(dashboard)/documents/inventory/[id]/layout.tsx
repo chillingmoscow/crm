@@ -39,15 +39,6 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   return data ?? null;
 });
 
-export const getCachedInventoryDocumentItemsCount = cache(async (documentId: string) => {
-  const admin = asLooseDb(createAdminClient());
-  const { count } = await admin
-    .from("document_items")
-    .select("id", { count: "exact", head: true })
-    .eq("document_id", documentId);
-  return count ?? 0;
-});
-
 export const getCachedStoreTitle = cache(async (storeId: string) => {
   const admin = asLooseDb(createAdminClient());
   const { data } = await admin
@@ -105,10 +96,7 @@ export default async function InventoryDocumentLayout({
   const canSeeAct = canView || canViewResults || (canFill && isAssignedToMe);
   if (!canSeeAct) redirect("/documents/inventory");
 
-  const [itemsCount, storeTitle] = await Promise.all([
-    getCachedInventoryDocumentItemsCount(document.id),
-    document.store_id ? getCachedStoreTitle(document.store_id) : Promise.resolve(null),
-  ]);
+  const storeTitle = document.store_id ? await getCachedStoreTitle(document.store_id) : null;
 
   const showFillingTab = Boolean(canView) || (Boolean(canFill) && isAssignedToMe);
   const showResultsTab = Boolean(canViewResults);
@@ -129,7 +117,6 @@ export default async function InventoryDocumentLayout({
         documentNumber={document.document_number}
         status={document.status}
         storeTitle={storeTitle}
-        itemsCount={itemsCount}
         canFill={showFillingTab}
         canViewResults={showResultsTab}
         canManage={Boolean(canManage)}

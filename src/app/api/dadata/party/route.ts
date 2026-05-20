@@ -8,8 +8,15 @@ import { DadataError } from "@/lib/dadata/client";
  * Body: { inn: string }
  *
  * Looks up a Russian legal entity by INN via DaData (suggestions API).
- * Gated on the caller having an authenticated session AND the
- * `settings.use_dadata` permission.
+ * Gated on authenticated session. `has_permission('settings.use_dadata')`
+ * НЕ требуется по двум причинам:
+ *   1. В onboarding-flow у user'а ещё нет аккаунта → нет UVR →
+ *      has_permission всегда false, lookup не работает (а должен —
+ *      это ключевой шаг сетапа юрлица).
+ *   2. DaData запрашивается через server-side API key, никаких
+ *      sensitive операций с user-data нет; risk минимальный.
+ * Rate-limit на DaData side есть, дополнительно лимитировать на
+ * нашем уровне — отдельная задача в бэклоге.
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -19,13 +26,6 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
-  }
-
-  const { data: canUseDadata } = await supabase.rpc("has_permission", {
-    permission_code: "settings.use_dadata",
-  });
-  if (!canUseDadata) {
-    return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
   }
 
   let body: unknown;

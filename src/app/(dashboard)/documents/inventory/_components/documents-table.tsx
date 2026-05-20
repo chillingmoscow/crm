@@ -796,11 +796,13 @@ export function DocumentsTable({
       ) : null}
 
       {/* Desktop table — TanStack для column-state, resize-handles.
-          Каркас (rounded-xl + bg-card + header bg-muted/60) совпадает с
-          /people/staff — это «стандартный кейс таблицы» из docs/design-system.md
-          §«List-страница». bg-card важен в dark: card light-er чем background,
-          таблица читается как elevated, а не сливается со страницей. */}
-      <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+          Каркас: rounded-lg (8px, "base" из .pen Q4FzoZ → xA95j) + bg-card +
+          header bg-muted/60. Закругление совпадает с реальным Table-компонентом
+          в .pen (`E:bG7YL` cornerRadius:8) и с нашим --radius:0.5rem; такая же
+          пара 8/6 (table/button) читается как одна семья — без визуальных
+          уровней rounded-md/rounded-xl. bg-card важен в dark: card light-er
+          чем background, таблица читается как elevated блок, а не сливается. */}
+      <div className="hidden overflow-hidden rounded-lg border bg-card md:block">
         <div className="overflow-x-auto">
           <table
             // Браузерные расширения вроде TableConvert / Copy-As-Markdown
@@ -1511,7 +1513,7 @@ function MobileCard({
 
   return (
     <div
-      className="relative rounded-xl border bg-card p-3"
+      className="relative rounded-lg border bg-card p-3"
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest("[data-row-interactive]")) return;

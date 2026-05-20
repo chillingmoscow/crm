@@ -367,17 +367,16 @@ when always-relevant.
   пагинацией. `space-y-4` (16px) визуально слипает controls с
   таблицей — был на /documents/inventory до round-3, пользователь
   поправил.
-- **Карточка таблицы** — обязательно: `rounded-xl border bg-card
+- **Карточка таблицы** — обязательно: `rounded-lg border bg-card
   overflow-hidden`. Внутри `<thead>` (или div-аналог) — `bg-muted/60`,
-  не `/40`. Эталон: `/people/staff`.
+  не `/40`. См. §«Скругления» — `8 base` совпадает с .pen Table reusable
+  и образует пару 6/8 с кнопками.
   - `bg-card` важен в dark: в нашей теме card light-er чем background,
     таблица читается как elevated блок, а не сливается со страницей.
     `bg-background` в dark = почти то же что фон страницы → таблица
     «исчезает».
-  - `rounded-xl` (12px) — staff/roles используют его, не `rounded-lg`.
 - **Mobile cards** (если есть отдельный layout для <md) — те же
-  `rounded-xl border bg-card`, чтобы в dark не было контраста между
-  desktop и mobile.
+  `rounded-lg border bg-card`.
 - **Filter-кнопка**: `active` подсвечивается **только когда выбран хотя бы
   один фильтр** (есть значение в pin-чипе). Открытое состояние pin-row —
   отдельный bit (toggle), визуально кнопку не меняет.
@@ -510,20 +509,36 @@ when always-relevant.
 
 ## Скругления (`Q4FzoZ` → `xA95j`)
 
-7 значений. Самое частое — `8 base` (кнопки/input/select).
+7 значений. **Самое частое — `8 base` (`rounded-lg`)**: кнопки, input, select,
+карточки списков, table-card. Цель — чтобы control'ы и контейнеры читались
+как одна семья без резких визуальных «уровней».
 
 | Значение | Tailwind | Когда |
 |---|---|---|
 | **0 · sharp** | `rounded-none` | Очень редко: разделители-баннеры на всю ширину |
-| **6 · sm** | `rounded-md` (`--radius - 2`) | Dropdown-айтемы, tag-чипы, segmented-buttons |
-| **8 · base** | `rounded-lg` (`--radius`) | Кнопки, input, select, dropdown — самое частое |
+| **6 · sm** | `rounded-md` (`--radius - 2`) | Кнопки shadcn по умолчанию (исторический дефолт), dropdown-айтемы, tag-чипы, segmented-buttons. Пара 6/8 (button/table) гармонична. |
+| **8 · base** | `rounded-lg` (`--radius`) | **Table-card, mobile-cards списков, card-плашки внутри страниц, input, select, Sheet/Drawer-крыша.** Самое частое значение. |
 | **10 · md** | `rounded-[10px]` | Поповеры, dropdown-меню, секции внутри карточек |
 | **12 · lg** | `rounded-xl` | Модалки, диалоги, banner-карточки |
-| **14 · xl** | `rounded-[14px]` | Главные карточки страниц, table-card, section-card |
+| **14 · xl** | `rounded-[14px]` | Главные карточки страниц entity-detail (`.pen` Card layer), section-card в форме сотрудника |
 | **9999 · pill** | `rounded-full` | Бейджи, фильтр-чипы, аватары, switch-дорожки, dot-индикаторы |
 
 `--radius` в `globals.css` = `0.5rem` (8px) — соответствует `8 base`. Из него
-производятся `rounded-md` и `rounded-sm`.
+производятся `rounded-md` (6px) и `rounded-sm` (4px).
+
+### Table-card конкретно
+
+Карточка таблицы на list-странице — `rounded-lg` (8px, `base`). Так указано в
+actual `.pen` Table-компоненте (`E:bG7YL` `cornerRadius:8`). Документация
+шкалы внутри `.pen` ставит table-card в `14 xl`, но фактические reusable
+Table и Card там оба 8 — это и есть источник истины. Buttons по умолчанию
+shadcn — 6 (`rounded-md`). Пара 6/8 визуально читается как **одна семья**,
+тогда как 6/12 даёт несогласованную иерархию.
+
+**Прецедент:** на /people/staff таблица была `rounded-xl` (12px), на
+/documents/inventory — `rounded-lg` (8px), кнопки — `rounded-md` (6px).
+Получалось 6 / 8 / 12 — три разных уровня. После round-4 PR #396 правило
+зафиксировано: все table-card → 8.
 
 ---
 

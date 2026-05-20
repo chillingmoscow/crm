@@ -123,8 +123,17 @@ export function InventoryDocumentEditor({
   items: EditorItem[];
 }) {
   const router = useRouter();
+  // Initial value поля: приоритет submittedAmount (наш CRM писал через
+  // submit-flow), fallback на actualAmount (синкнулось из QR — если
+  // пользователь заполнял акт напрямую в QR-backoffice). Без fallback
+  // форма выглядела пустой, хотя данные из QR в БД есть.
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(items.map((item) => [item.id, toInputValue(item.submittedAmount)]))
+    Object.fromEntries(
+      items.map((item) => [
+        item.id,
+        toInputValue(item.submittedAmount ?? item.actualAmount),
+      ])
+    )
   );
   const [loaded, setLoaded] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -142,7 +151,12 @@ export function InventoryDocumentEditor({
   // Теперь строка остаётся на месте пока user печатает; перестановка
   // случается после выхода из поля.
   const [sortValuesSnapshot, setSortValuesSnapshot] = useState<Record<string, string>>(() =>
-    Object.fromEntries(items.map((item) => [item.id, toInputValue(item.submittedAmount)]))
+    Object.fromEntries(
+      items.map((item) => [
+        item.id,
+        toInputValue(item.submittedAmount ?? item.actualAmount),
+      ])
+    )
   );
 
   const itemOrderById = useMemo(
@@ -283,7 +297,9 @@ export function InventoryDocumentEditor({
   }, [document, draftKey, items, loaded, values]);
 
   useEffect(() => {
-    const hasChanges = items.some((item) => values[item.id] !== toInputValue(item.submittedAmount));
+    const hasChanges = items.some(
+      (item) => values[item.id] !== toInputValue(item.submittedAmount ?? item.actualAmount),
+    );
     const handler = (event: BeforeUnloadEvent) => {
       if (!hasChanges) return;
       event.preventDefault();
@@ -471,10 +487,11 @@ export function InventoryDocumentEditor({
             key={item.id}
             className={cn(
               "grid grid-cols-[64px_1fr_112px] items-center gap-3 rounded-lg border p-2 transition-colors",
-              // Визуальное различие: заполненные строки светло-зелёные,
-              // пустые — нейтральные. При скролле сразу видно прогресс.
+              // Визуальное различие: заполненные строки светло-голубые
+              // (под общую тему системы), пустые — нейтральные.
+              // При скролле сразу видно прогресс.
               isFilled
-                ? "border-emerald-200 bg-emerald-50/40"
+                ? "border-blue-200 bg-blue-50/40"
                 : "border-border bg-background",
             )}
           >

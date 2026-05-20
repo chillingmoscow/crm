@@ -2,21 +2,27 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { LegalEntityForm } from "../../_components/legal-entity-form";
 import {
-  deleteLegalEntity,
+  restoreLegalEntity,
   syncLegalEntityFromDadata,
   type LegalEntityRow,
+  type LegalEntityArchiveImpact,
 } from "@/lib/org/legal-entities";
+import { LegalEntityDangerZone } from "./legal-entity-danger-zone";
 
 type Props = {
   row: LegalEntityRow;
   canManage: boolean;
   canDelete: boolean;
+  /** True только для владельца аккаунта — гейт для archive/restore/delete
+      (server actions требуют ownership independently of canManage). */
+  canArchive: boolean;
+  archiveImpact: LegalEntityArchiveImpact;
   /** Hide the «Обновить из DaData» button when DaData isn't configured. */
   dadataEnabled?: boolean;
 };
@@ -25,11 +31,14 @@ export function LegalEntityDetailClient({
   row,
   canManage,
   canDelete,
+  canArchive,
+  archiveImpact,
   dadataEnabled = true,
 }: Props) {
   const router = useRouter();
   const [syncing, setSyncing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const isArchived = !!row.archived_at;
 
   const onSync = async () => {
     if (!row.inn) {
@@ -47,23 +56,16 @@ export function LegalEntityDetailClient({
     router.refresh();
   };
 
-  const onDelete = async () => {
-    if (
-      !window.confirm(
-        "Удалить юрлицо безвозвратно?\n\nЕсли к нему привязаны заведения — удаление будет отклонено: сначала переключите эти заведения на другое юрлицо."
-      )
-    ) {
-      return;
-    }
-    setDeleting(true);
-    const { error } = await deleteLegalEntity(row.id);
-    setDeleting(false);
+  const onRestore = async () => {
+    setRestoring(true);
+    const { error } = await restoreLegalEntity(row.id);
+    setRestoring(false);
     if (error) {
       toast.error(error);
       return;
     }
-    toast.success("Юрлицо удалено");
-    router.push("/org/legal-entities");
+    toast.success("Юрлицо восстановлено");
+    router.refresh();
   };
 
   return (
@@ -88,22 +90,29 @@ export function LegalEntityDetailClient({
             Обновить из DaData
           </Button>
         )}
-        {canDelete && (
+        {isArchived && canArchive && (
           <Button
             type="button"
-            variant="destructive"
-            onClick={onDelete}
-            disabled={deleting}
+            variant="outline"
+            onClick={onRestore}
+            disabled={restoring}
           >
-            {deleting ? (
+            {restoring ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Trash2 className="mr-2 h-4 w-4" />
+              <RotateCcw className="mr-2 h-4 w-4" />
             )}
-            Удалить
+            Восстановить
           </Button>
         )}
       </div>
+
+      {isArchived && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Юрлицо в архиве. Восстановите, чтобы редактировать и использовать
+          в новых счетах / транзакциях / заведениях.
+        </div>
+      )}
 
       {row.dadata_synced_at && (
         <p className="text-xs text-muted-foreground">
@@ -144,6 +153,18 @@ export function LegalEntityDetailClient({
           default_corr_account:   row.default_corr_account,
         }}
       />
+
+      {/* Danger zone — только владельцу аккаунта (archive/delete
+          actions гейтятся owner-check на сервере, см. Codex P2 #373).
+          Для не-архивных. Архивные имеют кнопку «Восстановить» в шапке. */}
+      {canArchive && !isArchived ? (
+        <LegalEntityDangerZone
+          legalEntityId={row.id}
+          legalEntityName={row.name}
+          impact={archiveImpact}
+          canHardDelete={canDelete}
+        />
+      ) : null}
     </div>
   );
 }

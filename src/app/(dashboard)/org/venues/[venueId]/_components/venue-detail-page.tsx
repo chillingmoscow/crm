@@ -88,6 +88,7 @@ export function VenueDetailPage({
   importedFromQuickResto,
   legalEntities,
   canViewAudit,
+  canArchive,
   canHardDelete,
   archiveImpact,
   initialAuditEvents,
@@ -97,6 +98,9 @@ export function VenueDetailPage({
   importedFromQuickResto: boolean;
   legalEntities: LegalEntityOption[];
   canViewAudit: boolean;
+  /** Owner-check — archive/restore/delete actions гейтятся им на сервере
+      (assertVenueOwner). */
+  canArchive: boolean;
   canHardDelete: boolean;
   archiveImpact: VenueArchiveImpact;
   initialAuditEvents: AuditEvent[];
@@ -365,12 +369,14 @@ export function VenueDetailPage({
             />
           </div>
 
-          <VenueDangerZone
-            venueId={venue.id}
-            venueName={venue.name}
-            impact={archiveImpact}
-            canHardDelete={canHardDelete}
-          />
+          {canArchive ? (
+            <VenueDangerZone
+              venueId={venue.id}
+              venueName={venue.name}
+              impact={archiveImpact}
+              canHardDelete={canHardDelete}
+            />
+          ) : null}
         </form>
         </div>
       )}

@@ -975,9 +975,9 @@ async function resolveResultItemGroup(input: {
 }
 
 function revalidateInventoryResultPages(documentId: string) {
-  revalidatePath("/documents");
-  revalidatePath(`/documents/${documentId}`);
-  revalidatePath(`/documents/${documentId}/results`);
+  revalidatePath("/documents/inventory");
+  revalidatePath(`/documents/inventory/${documentId}`);
+  revalidatePath(`/documents/inventory/${documentId}/results`);
 }
 
 export async function syncQuickRestoInventory(input?: {
@@ -1362,13 +1362,13 @@ export async function syncQuickRestoInventory(input?: {
     await saveSnapshot({ accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
   }
 
-  revalidatePath("/documents");
+  revalidatePath("/documents/inventory");
   if (scope === "full") {
     revalidatePath("/catalog/ingredients");
     revalidatePath("/catalog/ingredients");
     revalidatePath("/org/stores");
   }
-  revalidatePath("/documents");
+  revalidatePath("/documents/inventory");
   return { summary, error: null };
   } catch (error) {
     return {
@@ -1444,7 +1444,7 @@ export async function assignInventoryDocument(input: {
           category: "inventory",
           title: `Вам назначен акт инвентаризации № ${before.document_number}`,
           body: "Откройте акт, проверьте позиции и заполните фактические остатки.",
-          link: `/documents/${input.documentId}`,
+          link: `/documents/inventory/${input.documentId}`,
           actor_user_id: ctx.user?.id ?? null,
           entity_type: "inventory_document",
           entity_id: input.documentId,
@@ -1458,8 +1458,8 @@ export async function assignInventoryDocument(input: {
       }
     }
 
-    revalidatePath("/documents");
-    revalidatePath(`/documents/${input.documentId}`);
+    revalidatePath("/documents/inventory");
+    revalidatePath(`/documents/inventory/${input.documentId}`);
     return { error: null };
   } catch (e) {
     // Любая необработанная ошибка → пользователь видит понятный текст
@@ -1499,7 +1499,7 @@ export async function deleteInventoryDocument(input: {
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId);
     if (error) return { error: error.message };
-    revalidatePath("/documents");
+    revalidatePath("/documents/inventory");
     return { error: null };
   } catch (e) {
     console.error("[deleteInventoryDocument] unhandled error:", e);
@@ -1588,9 +1588,9 @@ export async function refreshInventoryDocumentResults(input: {
       status: qrDocument.processed ? "processed" : undefined,
     });
 
-    revalidatePath("/documents");
-    revalidatePath(`/documents/${document.id}`);
-    revalidatePath(`/documents/${document.id}/results`);
+    revalidatePath("/documents/inventory");
+    revalidatePath(`/documents/inventory/${document.id}`);
+    revalidatePath(`/documents/inventory/${document.id}/results`);
 
     return {
       processed: Boolean(qrDocument.processed),
@@ -2510,9 +2510,9 @@ export async function submitInventoryDocumentDraft(input: {
         .eq("id", document.id)
         .eq("account_id", ctx.accountId);
 
-      revalidatePath("/documents");
-      revalidatePath(`/documents/${document.id}`);
-      revalidatePath(`/documents/${document.id}/results`);
+      revalidatePath("/documents/inventory");
+      revalidatePath(`/documents/inventory/${document.id}`);
+      revalidatePath(`/documents/inventory/${document.id}/results`);
       return {
         resultsHasLineAmounts: false,
         refreshDocument: true,
@@ -2641,9 +2641,9 @@ export async function submitInventoryDocumentDraft(input: {
 
     if (updateLocalError) return { resultsHasLineAmounts: false, error: updateLocalError.message };
 
-    revalidatePath("/documents");
-    revalidatePath(`/documents/${document.id}`);
-    revalidatePath(`/documents/${document.id}/results`);
+    revalidatePath("/documents/inventory");
+    revalidatePath(`/documents/inventory/${document.id}`);
+    revalidatePath(`/documents/inventory/${document.id}/results`);
     return { resultsHasLineAmounts: syncResult.resultsFound, error: null };
   } catch (error) {
     return {

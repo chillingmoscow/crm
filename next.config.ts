@@ -80,11 +80,11 @@ const nextConfig: NextConfig = {
       { source: "/inventory/products/:path*",   destination: "/catalog/ingredients/:path*", permanent: true },
       { source: "/inventory/categories",        destination: "/catalog/ingredients",        permanent: true },
       { source: "/inventory/categories/:path*", destination: "/catalog/ingredients",        permanent: true },
-      { source: "/inventory/documents",         destination: "/documents",                  permanent: true },
-      { source: "/inventory/documents/:path*",  destination: "/documents/:path*",           permanent: true },
+      { source: "/inventory/documents",         destination: "/documents/inventory",        permanent: true },
+      { source: "/inventory/documents/:path*",  destination: "/documents/inventory/:path*", permanent: true },
       { source: "/inventory/stores",            destination: "/org/stores",                 permanent: true },
       { source: "/inventory/stores/:path*",     destination: "/org/stores/:path*",          permanent: true },
-      { source: "/inventory",                   destination: "/documents",                  permanent: true },
+      { source: "/inventory",                   destination: "/documents/inventory",        permanent: true },
     ];
   },
 };

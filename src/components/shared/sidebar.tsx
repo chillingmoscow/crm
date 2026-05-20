@@ -157,7 +157,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       {
         title: "Акты инвентаризации",
-        href: "/documents",
+        href: "/documents/inventory",
         icon: ClipboardList,
         permissions: ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"],
         roles: ["owner", "admin", "manager", "hostess", "waiter"],

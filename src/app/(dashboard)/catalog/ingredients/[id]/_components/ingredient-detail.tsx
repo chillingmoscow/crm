@@ -359,7 +359,7 @@ export function IngredientDetail({
                         <tr key={item.documentId} className="border-t">
                           <td className="px-3 py-2">
                             <Link
-                              href={`/documents/${item.documentId}`}
+                              href={`/documents/inventory/${item.documentId}`}
                               className="text-foreground underline-offset-2 hover:underline"
                             >
                               {item.documentNumber}

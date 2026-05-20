@@ -38,6 +38,6 @@ export async function updateGeneralSettings(formData: FormData) {
   revalidatePath("/finance/transactions");
   revalidatePath("/finance/accounts");
   revalidatePath("/catalog/ingredients");
-  revalidatePath("/documents");
-  revalidatePath("/documents/[id]/results", "page");
+  revalidatePath("/documents/inventory");
+  revalidatePath("/documents/inventory/[id]/results", "page");
 }

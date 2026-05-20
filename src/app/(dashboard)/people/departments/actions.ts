@@ -196,7 +196,94 @@ export async function updateDepartment(
   return { error: null };
 }
 
-export async function deleteDepartment(
+// ────────────────────────────────────────────────────────────────────────
+//  Archive / Restore / Hard-delete — docs/CONVENTIONS.md §2
+//  departments — venue-scoped, dependents roles.department_id SET NULL.
+// ────────────────────────────────────────────────────────────────────────
+
+export type DepartmentArchiveImpact = {
+  /** Роли с этим отделом (SET NULL — отдел отвяжется при hard-delete). */
+  roles: number;
+};
+
+async function assertDepartmentOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  departmentId: string,
+  userId: string,
+): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  // departments venue_id → venues.account_id → accounts.owner_id
+  const { data: dep } = await supabase
+    .from("departments")
+    .select("id, name, venue_id")
+    .eq("id", departmentId)
+    .maybeSingle();
+  if (!dep) return { ok: false, error: "Отдел не найден" };
+
+  const { data: venue } = await supabase
+    .from("venues")
+    .select("account_id")
+    .eq("id", dep.venue_id)
+    .maybeSingle();
+  if (!venue) return { ok: false, error: "Заведение не найдено" };
+
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("owner_id")
+    .eq("id", venue.account_id)
+    .maybeSingle();
+  if (!account || account.owner_id !== userId) {
+    return { ok: false, error: "Действие доступно только владельцу аккаунта" };
+  }
+  return { ok: true, name: dep.name };
+}
+
+export async function getDepartmentArchiveImpact(
+  id: string,
+): Promise<DepartmentArchiveImpact> {
+  const supabase = await createClient();
+  const { count } = await supabase
+    .from("roles")
+    .select("id", { count: "exact", head: true })
+    .eq("department_id", id);
+  return { roles: count ?? 0 };
+}
+
+export async function archiveDepartment(
+  id: string,
+  opts: { confirmName: string },
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertDepartmentOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у отдела" };
+  }
+
+  // archived_at — миграция 203, ещё не в Database-типах
+  const db = supabase as unknown as {
+    from: (t: string) => {
+      update: (v: unknown) => { eq: (col: string, val: string) => Promise<{ error: { message: string } | null }> };
+    };
+  };
+  const { error } = await db
+    .from("departments")
+    .update({ archived_at: new Date().toISOString(), archived_by: user.id })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/people/departments");
+  revalidatePath("/people/departments/archive");
+  revalidatePath("/people/roles");
+  return { error: null };
+}
+
+export async function restoreDepartment(
   id: string,
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
@@ -205,11 +292,48 @@ export async function deleteDepartment(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
+  const ownerCheck = await assertDepartmentOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  const db = supabase as unknown as {
+    from: (t: string) => {
+      update: (v: unknown) => { eq: (col: string, val: string) => Promise<{ error: { message: string } | null }> };
+    };
+  };
+  const { error } = await db
+    .from("departments")
+    .update({ archived_at: null, archived_by: null })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/people/departments");
+  revalidatePath("/people/departments/archive");
+  return { error: null };
+}
+
+export async function deleteDepartment(
+  id: string,
+  opts?: { confirmName?: string },
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertDepartmentOwner(supabase, id, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  if (opts?.confirmName !== undefined && opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у отдела" };
+  }
+
   // `on delete set null` на roles.department_id обнулит привязки автоматически.
   const { error } = await supabase.from("departments").delete().eq("id", id);
   if (error) return { error: error.message };
 
   revalidatePath("/people/departments");
+  revalidatePath("/people/departments/archive");
   revalidatePath("/people/roles");
   return { error: null };
 }

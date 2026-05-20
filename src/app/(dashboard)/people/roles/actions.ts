@@ -125,8 +125,72 @@ export async function updateRole(
   return { error: null };
 }
 
-export async function deleteRole(
-  roleId: string
+// ────────────────────────────────────────────────────────────────────────
+//  Archive / Restore / Hard-delete — docs/CONVENTIONS.md §2
+//  roles — venue-scoped (system venue_id IS NULL — НЕ архивируемы).
+// ────────────────────────────────────────────────────────────────────────
+
+export type RoleArchiveImpact = {
+  /** Сотрудники с этой ролью (CASCADE — членства удалятся при hard-delete). */
+  members: number;
+  /** Приглашения на эту роль (CASCADE). */
+  invitations: number;
+};
+
+async function assertRoleOwner(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  roleId: string,
+  userId: string,
+): Promise<{ ok: true; name: string; venue_id: string; code: string } | { ok: false; error: string }> {
+  const { data: role } = await supabase
+    .from("roles")
+    .select("id, name, venue_id, code")
+    .eq("id", roleId)
+    .maybeSingle();
+  if (!role) return { ok: false, error: "Роль не найдена" };
+  if (role.venue_id === null) {
+    return { ok: false, error: "Системную должность нельзя архивировать или удалить" };
+  }
+  if (role.code === "owner") {
+    return { ok: false, error: "Должность Владелец нельзя удалить" };
+  }
+
+  const { data: venue } = await supabase
+    .from("venues")
+    .select("account_id")
+    .eq("id", role.venue_id)
+    .maybeSingle();
+  if (!venue) return { ok: false, error: "Заведение не найдено" };
+
+  const { data: account } = await supabase
+    .from("accounts")
+    .select("owner_id")
+    .eq("id", venue.account_id)
+    .maybeSingle();
+  if (!account || account.owner_id !== userId) {
+    return { ok: false, error: "Действие доступно только владельцу аккаунта" };
+  }
+  return { ok: true, name: role.name, venue_id: role.venue_id, code: role.code };
+}
+
+export async function getRoleArchiveImpact(
+  roleId: string,
+): Promise<RoleArchiveImpact> {
+  const supabase = await createClient();
+  const headOpts = { count: "exact" as const, head: true };
+  const [members, invitations] = await Promise.all([
+    supabase.from("user_venue_roles").select("user_id", headOpts).eq("role_id", roleId),
+    supabase.from("invitations").select("id", headOpts).eq("role_id", roleId),
+  ]);
+  return {
+    members: members.count ?? 0,
+    invitations: invitations.count ?? 0,
+  };
+}
+
+export async function archiveRole(
+  roleId: string,
+  opts: { confirmName: string },
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const {
@@ -134,21 +198,76 @@ export async function deleteRole(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован" };
 
-  // Stage D: венью-scoped роли. System owner всё ещё venue_id IS NULL.
-  const { data: role } = await supabase
-    .from("roles")
-    .select("venue_id, code")
-    .eq("id", roleId)
-    .maybeSingle();
+  const ownerCheck = await assertRoleOwner(supabase, roleId, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
 
-  if (!role) return { error: "Роль не найдена" };
-  if (role.code === "owner")
-    return { error: "Должность Владелец нельзя удалить" };
-  if (role.venue_id === null) {
-    return { error: "Системную должность удалить нельзя" };
+  if (opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у роли" };
   }
 
-  // RLS отбьёт удаление если venue не принадлежит активному аккаунту.
+  const db = supabase as unknown as {
+    from: (t: string) => {
+      update: (v: unknown) => { eq: (col: string, val: string) => Promise<{ error: { message: string } | null }> };
+    };
+  };
+  const { error } = await db
+    .from("roles")
+    .update({ archived_at: new Date().toISOString(), archived_by: user.id })
+    .eq("id", roleId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/people/roles");
+  revalidatePath("/people/roles/archive");
+  return { error: null };
+}
+
+export async function restoreRole(
+  roleId: string,
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertRoleOwner(supabase, roleId, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  const db = supabase as unknown as {
+    from: (t: string) => {
+      update: (v: unknown) => { eq: (col: string, val: string) => Promise<{ error: { message: string } | null }> };
+    };
+  };
+  const { error } = await db
+    .from("roles")
+    .update({ archived_at: null, archived_by: null })
+    .eq("id", roleId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/people/roles");
+  revalidatePath("/people/roles/archive");
+  return { error: null };
+}
+
+export async function deleteRole(
+  roleId: string,
+  opts?: { confirmName?: string }
+): Promise<{ error: string | null }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Не авторизован" };
+
+  const ownerCheck = await assertRoleOwner(supabase, roleId, user.id);
+  if (!ownerCheck.ok) return { error: ownerCheck.error };
+
+  if (opts?.confirmName !== undefined && opts.confirmName.trim() !== ownerCheck.name.trim()) {
+    return { error: "Введите название точно как у роли" };
+  }
+
+  // RLS roles_delete_manage отбьёт если venue не в активном аккаунте.
+  // CASCADE: user_venue_roles + invitations + role_permissions (миграция 197).
   const { error } = await supabase.from("roles").delete().eq("id", roleId);
   if (error) return { error: error.message };
 

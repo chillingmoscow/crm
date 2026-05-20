@@ -173,9 +173,9 @@ type Props = {
 
 function getDocHref(doc: Pick<DocumentListRow, "id" | "processed" | "results_has_line_amounts" | "status">) {
   if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-    return `/documents/${doc.id}/results`;
+    return `/documents/inventory/${doc.id}/results`;
   }
-  return `/documents/${doc.id}`;
+  return `/documents/inventory/${doc.id}`;
 }
 
 function formatDate(iso: string | null): string {
@@ -971,10 +971,10 @@ function DesktopRowMenu({ doc, canManage }: { doc: DocumentListRow; canManage: b
   const actions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
     if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/${doc.id}/results`) });
-      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/inventory/${doc.id}/results`) });
+      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
     } else {
-      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
     }
     if (canManage) {
       items.push({
@@ -1476,10 +1476,10 @@ function MobileCard({
   const rowActions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
     if (doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked") {
-      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/${doc.id}/results`) });
-      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+      items.push({ label: "Перейти к итогам",     icon: <CheckCircle2 className="h-4 w-4" />,   onSelect: () => router.push(`/documents/inventory/${doc.id}/results`) });
+      items.push({ label: "Перейти к заполнению", icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
     } else {
-      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/${doc.id}`) });
+      items.push({ label: "Открыть",              icon: <ClipboardCheck className="h-4 w-4" />, onSelect: () => router.push(`/documents/inventory/${doc.id}`) });
     }
     if (canManage) {
       const lockReason = getAssignLockReason(doc.status);

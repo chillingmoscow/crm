@@ -392,7 +392,7 @@ export function InventoryDocumentEditor({
           </Link>
         </Button>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Link className="underline underline-offset-2" href={`/documents/${document.id}/results`}>
+          <Link className="underline underline-offset-2" href={`/documents/inventory/${document.id}/results`}>
             Итоги
           </Link>
           {!online ? (

@@ -90,8 +90,8 @@
 ## Действия в строке
 
 - **Клик по строке** — открывает акт. По состоянию:
-  - Незаполненный → **Заполнение** (`/documents/{id}`).
-  - Проведённый или с готовыми итогами → **Итоги** (`/documents/{id}/results`).
+  - Незаполненный → **Заполнение** (`/documents/inventory/{id}`).
+  - Проведённый или с готовыми итогами → **Итоги** (`/documents/inventory/{id}/results`).
 - **№ акта (синяя ссылка)** — тот же переход, но явный (для тех, кто привык к
   ссылкам).
 - **Колонка «Назначен»** — селектор: меняем исполнителя прямо в строке.
@@ -142,9 +142,9 @@
 
 ## Где в коде
 
-- [`src/app/(dashboard)/documents/page.tsx`](../../src/app/(dashboard)/documents/page.tsx) — серверная страница
-- [`src/app/(dashboard)/documents/_components/documents-table.tsx`](../../src/app/(dashboard)/documents/_components/documents-table.tsx) — таблица
-- [`src/app/(dashboard)/documents/_components/assignee-select.tsx`](../../src/app/(dashboard)/documents/_components/assignee-select.tsx) — селектор исполнителя
+- [`src/app/(dashboard)/documents/inventory/page.tsx`](../../src/app/(dashboard)/documents/inventory/page.tsx) — серверная страница
+- [`src/app/(dashboard)/documents/inventory/_components/documents-table.tsx`](../../src/app/(dashboard)/documents/inventory/_components/documents-table.tsx) — таблица
+- [`src/app/(dashboard)/documents/inventory/_components/assignee-select.tsx`](../../src/app/(dashboard)/documents/inventory/_components/assignee-select.tsx) — селектор исполнителя
 - [`src/lib/inventory/list-documents.ts`](../../src/lib/inventory/list-documents.ts) — серверный data-layer
 - `supabase/migrations/207_list_inventory_documents_rpc.sql` — RPC inbox-сортировки и поиска
 - `supabase/migrations/208_documents_realtime.sql` — realtime-подписка

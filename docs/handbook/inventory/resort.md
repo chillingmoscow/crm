@@ -82,6 +82,6 @@ costAdjustmentSum   = max(0, (shortageCostPerUnit - surplusCostPerUnit) × offse
   → `calculateResortAllocation`, `calculateManagementTotals`
 - Server actions: [`src/app/(dashboard)/inventory/actions.ts`](../../../src/app/(dashboard)/inventory/actions.ts)
   → `createInventoryResultResort`, `voidInventoryResultResort`
-- UI: [`src/app/(dashboard)/documents/[id]/results/_components/results-table.tsx`](../../../src/app/(dashboard)/documents/%5Bid%5D/results/_components/results-table.tsx)
+- UI: [`src/app/(dashboard)/documents/inventory/[id]/results/_components/results-table.tsx`](../../../src/app/(dashboard)/documents/inventory/%5Bid%5D/results/_components/results-table.tsx)
 - Тесты: [`src/lib/inventory/results.test.mjs`](../../../src/lib/inventory/results.test.mjs)
 - Миграция: `supabase/migrations/205_resort_cost_adjustment.sql`

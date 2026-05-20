@@ -19,6 +19,10 @@ type EditorDocument = {
   storeTitle: string | null;
   status: string;
   baseLastUpdateDate: string | null;
+  /** ISO timestamp последней QR-синхронизации акта. Используется в
+      hydration: draft до sync — игнорируем (старый, sync свежее);
+      draft после sync — restore (легитимные правки user'а). */
+  syncedAt: string | null;
 };
 
 type EditorItem = {
@@ -263,20 +267,27 @@ export function InventoryDocumentEditor({
       const draft = await readDraft(draftKey);
       if (!alive) return;
       if (draft?.values) {
-        // Игнорируем «пустой» черновик (все значения пусты): это
-        // default-state от старой сессии когда у нас не было QR-данных
-        // (actualAmount=null) и initial state был полностью пустой;
-        // autosave записал его в localStorage. После QR-sync БД получила
-        // actual_amount, prefill в editor работает (submittedAmount ??
-        // actualAmount), но пустой черновик из localStorage перезатирал
-        // prefill на «», поля визуально пустели через ~250ms после
-        // открытия страницы.
-        // Если в черновике есть хотя бы одно non-empty значение —
-        // это реальные правки пользователя, восстанавливаем как раньше.
-        const hasAnyValue = Object.values(draft.values).some(
-          (v) => typeof v === "string" && v.trim() !== "",
-        );
-        if (hasAnyValue) {
+        // Игнорируем draft если он СТАРШЕ последнего QR-sync:
+        //  - Сценарий-1 (закрывает первоначальный bug #390): старая сессия
+        //    открыла акт когда actual_amount=NULL, autosave записал
+        //    пустой draft. Потом QR-sync заполнил actual_amount. Сейчас
+        //    page rendering показывает prefill из QR, но stale draft
+        //    перезатирает его на пустоту. Условие draft.savedAt <
+        //    document.syncedAt отсеивает этот случай.
+        //  - Сценарий-2 (Codex P2 #390): легитимная очистка полей user'ом
+        //    после sync — draft.savedAt > document.syncedAt → restore
+        //    работает, включая полностью-пустой draft (user намеренно
+        //    очистил всё).
+        // Если syncedAt отсутствует (старые акты до миграции 194 / тестовые
+        // случаи) — fallback на restore (легитимный draft user'а
+        // приоритетнее пустого начального state).
+        const draftSavedMs = Date.parse(draft.savedAt);
+        const syncedMs = document.syncedAt ? Date.parse(document.syncedAt) : NaN;
+        const draftIsStale =
+          Number.isFinite(draftSavedMs) &&
+          Number.isFinite(syncedMs) &&
+          draftSavedMs < syncedMs;
+        if (!draftIsStale) {
           // Обновляем values + snapshot одной транзакцией: иначе если user
           // включил «пустые сверху/снизу» ДО завершения hydration,
           // sortValuesSnapshot оставался pre-draft → неправильный порядок
@@ -294,6 +305,12 @@ export function InventoryDocumentEditor({
     return () => {
       alive = false;
     };
+    // document.syncedAt используется в hydration (выше) для сравнения
+    // с draft.savedAt. Linter просит включить в deps; используем eslint-
+    // disable вместо реальной зависимости — мы хотим run **только** при
+    // смене документа (draftKey зависит от document.id), повторный run
+    // при изменении syncedAt не нужен.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftKey]);
 
   useEffect(() => {

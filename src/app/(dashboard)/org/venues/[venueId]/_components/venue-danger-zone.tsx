@@ -40,7 +40,7 @@ export function VenueDangerZone({
   const archiveImpact = [
     { label: "Документов", count: impact.documents },
     { label: "Транзакций", count: impact.transactions },
-    { label: "Сотрудников (членств)", count: impact.staff },
+    { label: "Привязок сотрудников", count: impact.staff },
     { label: "Отделов", count: impact.departments },
     { label: "Ролей", count: impact.roles },
     { label: "Приглашений", count: impact.invitations },
@@ -53,7 +53,7 @@ export function VenueDangerZone({
   const deleteImpact: DeleteImpact[] = [
     { label: "Отделов",         count: impact.departments, tone: "cascade" },
     { label: "Ролей",           count: impact.roles,       tone: "cascade" },
-    { label: "Членств",         count: impact.staff,       tone: "cascade" },
+    { label: "Привязок сотрудников", count: impact.staff,  tone: "cascade" },
     { label: "Приглашений",     count: impact.invitations, tone: "cascade" },
     { label: "Залов",           count: impact.halls,       tone: "cascade" },
     { label: "Документов",      count: impact.documents,   tone: "unbind" },
@@ -153,10 +153,10 @@ export function VenueDangerZone({
               Удалить навсегда
             </h3>
             <p className="text-sm text-muted-foreground">
-              Полное удаление. Отделы, роли, членства, приглашения и залы
-              будут уничтожены безвозвратно. Документы, транзакции и склады
-              отвяжутся (продолжат существовать как «без заведения»).
-              Восстановить нельзя.
+              Полное удаление. Отделы, роли, привязки сотрудников,
+              приглашения и залы будут уничтожены безвозвратно. Документы,
+              транзакции и склады отвяжутся (продолжат существовать как
+              «без заведения»). Восстановить нельзя.
             </p>
             {!canHardDelete ? (
               <p className="text-xs text-muted-foreground">

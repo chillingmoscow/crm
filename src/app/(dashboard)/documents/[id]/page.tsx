@@ -14,6 +14,7 @@ type InventoryDocumentDetailRow = {
   status: string;
   processed: boolean;
   base_last_update_date: string | null;
+  synced_at: string | null;
 };
 
 type InventoryDocumentItemRow = {
@@ -143,7 +144,7 @@ export default async function InventoryDocumentPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentDetailRow>("documents")
-    .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date")
+    .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date, synced_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -224,6 +225,8 @@ export default async function InventoryDocumentPage({
         storeTitle: store?.title ?? null,
         status: document.status,
         baseLastUpdateDate: document.base_last_update_date ?? null,
+        // syncedAt — для editor hydration: draft до этой даты = stale.
+        syncedAt: document.synced_at ?? null,
       }}
       groups={groupsUsedByDocument(orderedGroups, groupById, productById, items).map(({ group, depth, path }) => ({
         id: group.id,

@@ -246,14 +246,28 @@ export function DocumentsTable({
     [pathname, router, searchParams],
   );
 
-  // Debounced search → URL
+  // Debounced search → URL.
+  //
+  // Внутри таймаута читаем URL не из closure (через updateUrl ⇄
+  // searchParams), а из window.location.search. Иначе при гонке —
+  // пользователь печатает поиск + параллельно кликает пин фильтра —
+  // pending-таймаут писал бы старый снимок URL и затирал недавнее
+  // изменение фильтра. См. Codex P1 #394.
+  // Включить updateUrl в deps нельзя: каждое изменение searchParams
+  // тогда сбросит debounce-таймер и поиск будет «дёргаться» при
+  // любой параллельной активности в URL.
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (search === (filtersFromUrl.q ?? "")) return;
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       const trimmed = search.trim();
-      updateUrl({ q: trimmed.length >= 2 ? trimmed : null }, { resetPage: true });
+      const params = new URLSearchParams(window.location.search);
+      if (trimmed.length >= 2) params.set("q", trimmed);
+      else params.delete("q");
+      params.delete("page");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname);
     }, SEARCH_DEBOUNCE_MS);
     return () => {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);

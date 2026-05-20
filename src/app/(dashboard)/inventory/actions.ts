@@ -1499,6 +1499,7 @@ export async function deleteInventoryDocument(input: {
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId);
     if (error) return { error: error.message };
+    revalidatePath("/documents");
     return { error: null };
   } catch (e) {
     console.error("[deleteInventoryDocument] unhandled error:", e);

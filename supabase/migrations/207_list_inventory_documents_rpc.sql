@@ -99,6 +99,11 @@ declare
   v_venue_unassigned boolean := p_filter_venue = 'unassigned';
   v_venue_uuid uuid := null;
 
+  -- Невалидные UUID'ы в p_filter_store ловим в exception (Codex P2 #394);
+  -- иначе прямой cast text[]::uuid[] в WHERE падает с invalid_text_representation
+  -- и пользователь видит пустую таблицу или 500 вместо отфильтрованных строк.
+  v_store_uuids uuid[] := null;
+
   -- До 3 ключей сортировки; «лишние» NULL → CASE-branches no-op'нутся.
   v_sort_keys text[] := case
     when p_sort is null or array_length(p_sort, 1) is null
@@ -134,6 +139,19 @@ begin
       v_venue_uuid := p_filter_venue::uuid;
     exception when invalid_text_representation then
       v_venue_uuid := null;
+    end;
+  end if;
+
+  -- Store: text[] → uuid[]. Если хотя бы один элемент — мусор, fail-soft
+  -- (игнорируем весь фильтр). На текущих объёмах фильтр всё равно
+  -- multi-select из существующих в БД stores, malformed-кейс — это
+  -- только ручной /documents?store=foo от пользователя.
+  if p_filter_store is not null
+     and array_length(p_filter_store, 1) is not null then
+    begin
+      v_store_uuids := p_filter_store::uuid[];
+    exception when invalid_text_representation then
+      v_store_uuids := null;
     end;
   end if;
 
@@ -177,11 +195,12 @@ begin
         or (v_assigned_kind = 'none' and d.assigned_to is null)
         or (v_assigned_kind = 'specific' and d.assigned_to is not distinct from v_assigned_uuid)
       )
-      -- store filter (передан text[] — кастим в uuid[])
+      -- store filter (использует pre-cast'енный uuid[] из declare-блока,
+      -- malformed-инпут уже отсеян в exception handler)
       and (
-        p_filter_store is null
-        or array_length(p_filter_store, 1) is null
-        or d.store_id = any(p_filter_store::uuid[])
+        v_store_uuids is null
+        or array_length(v_store_uuids, 1) is null
+        or d.store_id = any(v_store_uuids)
       )
       -- date range (inclusive)
       and (p_filter_date_from is null or d.invoice_date >= p_filter_date_from)

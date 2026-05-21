@@ -471,7 +471,7 @@ export function DocumentsTable({
           <div className="min-w-0">
             <Link
               href={getDocHref(row, canViewResults)}
-              className="text-sm font-medium hover:underline"
+              className="block truncate text-sm font-medium hover:underline"
               data-row-interactive
               onClick={(e) => e.stopPropagation()}
             >
@@ -502,8 +502,10 @@ export function DocumentsTable({
       {
         id: "status",
         label: "Статус",
-        size: 170,
-        cell: (row: DocumentListRow) => <InventoryStatusBadge status={row.status} />,
+        size: 150,
+        cell: (row: DocumentListRow) => (
+          <InventoryStatusBadge status={row.status} className="max-w-full whitespace-nowrap" />
+        ),
       },
       {
         id: "store_title",
@@ -628,9 +630,10 @@ export function DocumentsTable({
               )
             : column.label,
         size: column.size,
-        minSize: column.id === "select" ? 44 : 72,
+        // min ≈ ширина заголовка: ресайз не сжимает колонку уже её названия.
+        minSize: column.id === "select" ? 44 : column.id === "actions" ? 56 : 96,
         enableHiding: column.canHide !== false,
-        enableResizing: column.id !== "select",
+        enableResizing: column.id !== "select" && column.id !== "actions",
         cell: ({ row }) => column.cell(row.original),
       })),
     [columnsConfig, allSelected, someSelected, selectableRows],
@@ -1034,10 +1037,11 @@ export function DocumentsTable({
           пара 8/6 (table/button) читается как одна семья — без визуальных
           уровней rounded-md/rounded-xl. bg-card важен в dark: card light-er
           чем background, таблица читается как elevated блок, а не сливается. */}
-      <div className="hidden overflow-hidden rounded-lg border bg-card md:block">
-        {/* Вертикальный скролл-контейнер таблицы → sticky-thead держится
-            вверху при прокрутке длинного списка (см. design-system). */}
-        <div className="max-h-[calc(100dvh-15rem)] overflow-auto">
+      {/* Без overflow на обёртках (иначе sticky-thead «ловится» контейнером).
+          Таблица вписана в ширину (table-fixed + colgroup в %), горизонтального
+          скролла нет, ресайз перетягивает ширину у соседей, шапка липнет к
+          верху страницы при оконном скролле. См. design-system → sticky header. */}
+      <div className="hidden rounded-lg border bg-card md:block">
           <table
             // Браузерные расширения вроде TableConvert / Copy-As-Markdown
             // дописывают на <table> атрибуты `data-tableconvert-*` между
@@ -1046,14 +1050,15 @@ export function DocumentsTable({
             // разных useId() в шапке/сайдбаре/селектах. suppress даёт
             // React принять «лишние» атрибуты и продолжить hydrate.
             suppressHydrationWarning
-            className="w-full min-w-full table-fixed"
-            style={{ minWidth: table.getTotalSize() }}
+            className="w-full table-fixed"
           >
             <colgroup>
               {table.getVisibleLeafColumns().map((column) => (
                 <col
                   key={column.id}
-                  style={{ width: column.id === "actions" ? 56 : column.getSize() }}
+                  // Проценты от ширины таблицы (нормализация) → колонки всегда
+                  // вписаны без горизонтального скролла; ресайз меняет доли.
+                  style={{ width: `${(column.getSize() / table.getTotalSize()) * 100}%` }}
                 />
               ))}
             </colgroup>
@@ -1068,9 +1073,8 @@ export function DocumentsTable({
                         key={header.id}
                         className={cn(
                           "relative border-b px-3 py-3",
-                          isActions ? "w-14 max-w-14 text-right" : "text-left",
+                          isActions ? "text-right" : "text-left",
                         )}
-                        style={{ width: isActions ? 56 : header.getSize() }}
                       >
                         {isActions ? null : isSortable ? (
                           <button
@@ -1141,14 +1145,11 @@ export function DocumentsTable({
                       <td
                         key={cell.id}
                         className={cn(
-                          // align-middle: контент в строках centered по вертикали.
-                          // align-top было ошибкой round-2 — в строках с разной
-                          // высотой (например, "поиск показал матчи-чипы") верх
-                          // визуально оторван от соседних cells.
-                          "px-3 py-3 align-middle text-sm",
-                          cell.column.id === "actions" ? "w-14 max-w-14 text-right" : null,
+                          // overflow-hidden: контент не вылезает на соседнюю
+                          // колонку при сужении (троеточие у внутренних truncate).
+                          "overflow-hidden px-3 py-3 align-middle text-sm",
+                          cell.column.id === "actions" ? "text-right" : null,
                         )}
-                        style={{ width: cell.column.id === "actions" ? 56 : cell.column.getSize() }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
@@ -1158,7 +1159,6 @@ export function DocumentsTable({
               )}
             </tbody>
           </table>
-        </div>
       </div>
 
       {/* Mobile cards (без TanStack — отдельный layout) */}

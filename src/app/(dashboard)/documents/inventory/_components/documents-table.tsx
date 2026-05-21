@@ -377,15 +377,34 @@ export function DocumentsTable({
   }, [focusedIndex]);
 
   // ── Bulk-выделение ─────────────────────────────────────────
-  // Выделять можно только акты, которым можно менять назначение
-  // (не «Проведён» / «Ошибка синхронизации» — как getAssignLockReason).
-  const selectableRows = useMemo(
-    () => initial.rows.filter((row) => getAssignLockReason(row.status) === null),
-    [initial.rows],
-  );
+  // Выделять можно ЛЮБУЮ строку страницы — это нужно для подсчёта суммы
+  // итогов по выделению (включая проведённые акты). Массовые ДЕЙСТВИЯ
+  // (назначить/удалить) применяются только к подходящим актам — см.
+  // eligibleSelectedIds.
+  const selectableRows = initial.rows;
   const allSelected =
     selectableRows.length > 0 && selectableRows.every((row) => selectedIds.has(row.id));
   const someSelected = selectedIds.size > 0;
+
+  // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
+  const selectedNet = useMemo(() => {
+    let net = 0;
+    for (const row of initial.rows) {
+      if (!selectedIds.has(row.id) || !row.results_has_line_amounts) continue;
+      net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
+    }
+    return net;
+  }, [initial.rows, selectedIds]);
+
+  // Выделенные акты, к которым применимы массовые действия (не «Проведён» /
+  // «Ошибка синхронизации»).
+  const eligibleSelectedIds = useMemo(
+    () =>
+      initial.rows
+        .filter((row) => selectedIds.has(row.id) && getAssignLockReason(row.status) === null)
+        .map((row) => row.id),
+    [initial.rows, selectedIds],
+  );
 
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -402,7 +421,7 @@ export function DocumentsTable({
   }, [initial.rows]);
 
   const applyBulkAssign = (role: "assignee" | "reviewer", userId: string | null) => {
-    const ids = Array.from(selectedIds);
+    const ids = eligibleSelectedIds;
     if (ids.length === 0) return;
     startBulk(async () => {
       const res = await bulkAssignInventoryDocuments({ documentIds: ids, role, userId });
@@ -419,7 +438,7 @@ export function DocumentsTable({
   };
 
   const applyBulkDelete = () => {
-    const ids = Array.from(selectedIds);
+    const ids = eligibleSelectedIds;
     if (ids.length === 0) return;
     startBulk(async () => {
       const res = await bulkDeleteInventoryDocuments({ documentIds: ids });
@@ -447,13 +466,11 @@ export function DocumentsTable({
               size: 44,
               canHide: false,
               cell: (row: DocumentListRow) => {
-                const locked = getAssignLockReason(row.status) !== null;
                 return (
                   <span data-row-interactive onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selectedIds.has(row.id)}
-                      disabled={locked}
                       onChange={() =>
                         setSelectedIds((prev) => {
                           const next = new Set(prev);
@@ -1246,18 +1263,33 @@ export function DocumentsTable({
           selectedCount={selectedIds.size}
           onClear={clearSelection}
           floating
+          summary={
+            <span
+              className={cn(
+                "whitespace-nowrap text-sm font-medium tabular-nums",
+                selectedNet > 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : selectedNet < 0
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-muted-foreground",
+              )}
+            >
+              Итог: {selectedNet > 0 ? "+" : selectedNet < 0 ? "−" : ""}
+              {formatMoney(Math.abs(selectedNet), "RUB", amountRoundingScale)}
+            </span>
+          }
           actions={
             <>
               <BulkAssignMenu
                 label="Назначить исполнителя"
                 staff={staff}
-                disabled={bulkPending}
+                disabled={bulkPending || eligibleSelectedIds.length === 0}
                 onPick={(userId) => applyBulkAssign("assignee", userId)}
               />
               <BulkAssignMenu
                 label="Назначить проверяющего"
                 staff={staff}
-                disabled={bulkPending}
+                disabled={bulkPending || eligibleSelectedIds.length === 0}
                 onPick={(userId) => applyBulkAssign("reviewer", userId)}
               />
               <Button
@@ -1265,7 +1297,7 @@ export function DocumentsTable({
                 variant="ghost"
                 size="sm"
                 className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                disabled={bulkPending}
+                disabled={bulkPending || eligibleSelectedIds.length === 0}
                 onClick={() => setBulkDeleteOpen(true)}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -1279,10 +1311,11 @@ export function DocumentsTable({
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акты ({selectedIds.size})?</AlertDialogTitle>
+            <AlertDialogTitle>Удалить акты ({eligibleSelectedIds.length})?</AlertDialogTitle>
             <AlertDialogDescription>
-              Это удалит выбранные акты и все их позиции. Акты из Quick Resto могут
-              вернуться при следующей синхронизации.
+              Это удалит подходящие акты и все их позиции. Проведённые акты не
+              удаляются. Акты из Quick Resto могут вернуться при следующей
+              синхронизации.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

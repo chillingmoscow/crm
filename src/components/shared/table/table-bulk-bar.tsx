@@ -8,16 +8,21 @@ type TableBulkBarProps = {
   selectedCount: number;
   onClear: () => void;
   actions?: ReactNode;
+  /** Доп. сводка рядом со счётчиком (например, сумма по выделенным строкам). */
+  summary?: ReactNode;
   colSpan?: number;
   floating?: boolean;
 };
 
-export function TableBulkBar({ selectedCount, onClear, actions, colSpan, floating }: TableBulkBarProps) {
+export function TableBulkBar({ selectedCount, onClear, actions, summary, colSpan, floating }: TableBulkBarProps) {
   if (selectedCount <= 0) return null;
 
   const content = (
     <>
-      <div className="min-w-0 text-sm font-medium text-brand">Выбрано {selectedCount}</div>
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="whitespace-nowrap text-sm font-medium text-brand">Выбрано {selectedCount}</span>
+        {summary}
+      </div>
       <div className="ml-auto flex min-w-0 items-center gap-2 overflow-x-auto">
         {actions}
         <Button type="button" variant="ghost" size="sm" onClick={onClear} className="h-8 text-xs">

@@ -128,7 +128,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 // processed → акт закрыт, исторические данные.
 // sync_error → нужно чинить sync, до этого назначать бессмысленно.
 function getAssignLockReason(status: string): string | null {
-  if (status === "processed") return "Акт проведён — ответственного больше менять нельзя";
+  if (status === "processed") return "Акт проведён — исполнителя больше менять нельзя";
   if (status === "sync_error") return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
   return null;
 }
@@ -218,6 +218,8 @@ export function DocumentsTable({
   // нейтральная (не подсвечена). Раскрытие — явное действие.
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [isSyncing, startSyncTransition] = useTransition();
+  // Клавиатурная навигация (J/K/Enter/// /F). Справка («?») — в топ-баре.
+  const [focusedIndex, setFocusedIndex] = useState(-1);
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -289,6 +291,63 @@ export function DocumentsTable({
       void supabase.removeChannel(channel);
     };
   }, [accountId, router]);
+
+  // ── Keyboard shortcuts (Linear-style) ──────────────────────
+  // J/K — навигация по строкам, Enter — открыть, / — поиск, F — фильтры,
+  // ? — справка. Игнорируем, когда фокус в поле ввода (чтобы не перехватывать
+  // печать). Зависит от текущего набора строк (initial.rows).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const el = document.activeElement as HTMLElement | null;
+      // Не перехватываем клавиши, когда фокус на интерактивном контроле:
+      // нативные поля ввода, contenteditable, А ТАКЖЕ Radix-триггеры/меню/
+      // диалоги (Select исполнителя, row-menu «⋯» — это <button>/role-узлы,
+      // не нативные select). Иначе Enter «открыл бы акт» вместо активации
+      // сфокусированного контрола (Codex P1 #406).
+      const interactive =
+        !!el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable ||
+          !!el.closest(
+            'button, a[href], [role="menu"], [role="menuitem"], [role="listbox"], [role="option"], [role="combobox"], [role="dialog"]',
+          ));
+      if (interactive || e.metaKey || e.ctrlKey || e.altKey) return;
+      const rows = initial.rows;
+      const lastIndex = rows.length - 1;
+      if (e.key === "/") {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        setFocusedIndex((i) => (i < 0 ? 0 : Math.min(lastIndex, i + 1)));
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setFocusedIndex((i) => (i < 0 ? 0 : Math.max(0, i - 1)));
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setFiltersVisible((v) => !v);
+      } else if (e.key === "Enter") {
+        if (focusedIndex >= 0 && focusedIndex <= lastIndex) {
+          e.preventDefault();
+          router.push(getDocHref(rows[focusedIndex], canViewResults));
+        }
+      } else if (e.key === "Escape") {
+        setFocusedIndex(-1);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [initial.rows, focusedIndex, canViewResults, router]);
+
+  // Подскролл к выделенной строке.
+  useEffect(() => {
+    if (focusedIndex < 0) return;
+    document
+      .querySelector(`[data-doc-row-index="${focusedIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [focusedIndex]);
 
   // ── Columns (TanStack для visibility/order/sizing) ─────────
   const searchActive = Boolean(filtersFromUrl.q);
@@ -369,7 +428,7 @@ export function DocumentsTable({
       },
       {
         id: "assigned_to",
-        label: "Ответственный",
+        label: "Исполнитель",
         size: 200,
         cell: (row: DocumentListRow) => {
           const lockReason = getAssignLockReason(row.status);
@@ -937,12 +996,16 @@ export function DocumentsTable({
                 table.getRowModel().rows.map((row) => (
                   <tr
                     key={row.id}
+                    data-doc-row-index={row.index}
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest("[data-row-interactive]")) return;
                       router.push(getDocHref(row.original, canViewResults));
                     }}
-                    className="cursor-pointer border-b last:border-b-0 hover:bg-muted/30"
+                    className={cn(
+                      "cursor-pointer border-b last:border-b-0 hover:bg-muted/30",
+                      row.index === focusedIndex ? "bg-muted/50 ring-1 ring-inset ring-brand/40" : null,
+                    )}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td
@@ -1110,10 +1173,10 @@ function statusPinLabel(status: DocumentStatus[] | undefined): string {
 }
 
 function assigneePinLabel(assigned: string | undefined, staff: AssigneeOption[]): string {
-  if (!assigned || assigned === "any") return "Ответственный";
+  if (!assigned || assigned === "any") return "Исполнитель";
   if (assigned === "me") return "На меня";
   if (assigned === "none") return "Без назначения";
-  return staff.find((s) => s.id === assigned)?.name ?? "Ответственный";
+  return staff.find((s) => s.id === assigned)?.name ?? "Исполнитель";
 }
 
 function reviewerPinLabel(reviewer: string | undefined, staff: AssigneeOption[]): string {
@@ -1229,7 +1292,7 @@ function AssignedPicker({
   onChange: (v: string) => void;
 }) {
   const options = [
-    { value: "any",  label: "Любой ответственный" },
+    { value: "any",  label: "Любой исполнитель" },
     { value: "me",   label: "На меня" },
     { value: "none", label: "Без назначения" },
     ...staff.map((s) => ({ value: s.id, label: s.name })),
@@ -1586,7 +1649,7 @@ function MobileCard({
       const lockReason = getAssignLockReason(doc.status);
       if (!lockReason) {
         items.push({
-          label: "Изменить ответственного",
+          label: "Изменить исполнителя",
           icon: <UserPlus className="h-4 w-4" />,
           onSelect: () => setAssignSheetOpen(true),
           separatorBefore: true,
@@ -1649,7 +1712,7 @@ function MobileCard({
                 : "—"}
             </span>
             <span className="text-muted-foreground">
-              {assigneeName ? <>Назначен: {assigneeName}</> : "Не назначен"}
+              {assigneeName ? <>Исполнитель: {assigneeName}</> : "Исполнитель не назначен"}
             </span>
             {reviewerName ? (
               <span className="text-muted-foreground">Проверяющий: {reviewerName}</span>

@@ -522,7 +522,7 @@ export function InventoryDocumentEditor({
   const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
+    <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
       {/* Баннер режима «пересчёт»: акт вернули, исполнитель видит подсказку
           какие именно строки требуют повторного счёта. */}
       {isRecountPending ? (

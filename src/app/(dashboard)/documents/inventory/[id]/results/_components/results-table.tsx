@@ -94,6 +94,7 @@ import {
   type TableStateColumn,
 } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
+import { IngredientOverviewSheet } from "./ingredient-overview-sheet";
 import { RefreshResultsButton } from "./refresh-results-button";
 
 export type InventoryDocumentResultItem = {
@@ -179,6 +180,9 @@ type Props = {
   canAdjust: boolean;
   canFinalize: boolean;
   canRecount: boolean;
+  /** inventory.view_products — нужно, чтобы открыть карточку ингредиента
+      из «Итогов» (та же граница, что у каталога). */
+  canViewProducts: boolean;
   aiSuggestionsEnabled: boolean;
   documentStatus: string;
 };
@@ -299,6 +303,7 @@ export function InventoryResultsTable({
   canAdjust,
   canFinalize,
   canRecount,
+  canViewProducts,
   aiSuggestionsEnabled,
   documentStatus,
 }: Props) {
@@ -316,6 +321,8 @@ export function InventoryResultsTable({
     Object.fromEntries(items.map((item) => [item.id, item.result_comment ?? ""])),
   );
   const [commentItem, setCommentItem] = useState<InventoryDocumentResultItem | null>(null);
+  // Боковая панель «Обзор ингредиента» — открывается кликом по названию позиции.
+  const [overviewIngredient, setOverviewIngredient] = useState<{ id: string; name: string } | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
   const [deleteRuleItem, setDeleteRuleItem] = useState<InventoryDocumentResultItem | null>(null);
   const [deleteRuleReason, setDeleteRuleReason] = useState("");
@@ -789,7 +796,22 @@ export function InventoryResultsTable({
         canHide: false,
         cell: (item: InventoryDocumentResultItem) => (
           <div className="min-w-0">
-            <div className="truncate font-medium">{item.product_name}</div>
+            {canViewProducts && item.ingredient_id ? (
+              <button
+                type="button"
+                data-row-interactive
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOverviewIngredient({ id: item.ingredient_id as string, name: item.product_name });
+                }}
+                className="block max-w-full truncate text-left font-medium hover:text-brand hover:underline"
+                title="Открыть карточку ингредиента"
+              >
+                {item.product_name}
+              </button>
+            ) : (
+              <div className="truncate font-medium">{item.product_name}</div>
+            )}
             <div className="mt-1 truncate text-xs text-muted-foreground">
               {item.article ?? "Без артикула"} · {item.measure_unit_name ?? "ед."}
               {item.group_name ? ` · ${item.group_name}` : ""}
@@ -806,7 +828,7 @@ export function InventoryResultsTable({
       })),
       { id: "actions", label: "", size: 56, canHide: false, cell: renderActionsCell },
     ],
-    [renderActionsCell, renderResultCell, renderSelectCell],
+    [canViewProducts, renderActionsCell, renderResultCell, renderSelectCell],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -1367,6 +1389,13 @@ export function InventoryResultsTable({
         </div>
       </div>
       </div>
+
+      <IngredientOverviewSheet
+        ingredientId={overviewIngredient?.id ?? null}
+        fallbackName={overviewIngredient?.name ?? ""}
+        amountRoundingScale={amountRoundingScale}
+        onClose={() => setOverviewIngredient(null)}
+      />
 
       <Dialog open={Boolean(commentItem)} onOpenChange={(open) => !open && setCommentItem(null)}>
         <DialogContent>

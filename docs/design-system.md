@@ -339,6 +339,21 @@ const isActive = canEdit && dirty && nameValue.trim().length > 0;
 («Опубликовать» / «Архивировать») — его можно поставить в шапку, but only
 when always-relevant.
 
+#### Ширина контента — единый стандарт
+
+**`mx-auto w-full max-w-[720px]`** — каноничная ширина тела для всех
+entity-detail / form-страниц. Используется страницами роли
+([`role-detail-page.tsx`](src/app/(dashboard)/people/roles/[roleId]/_components/role-detail-page.tsx)),
+сотрудника ([`staff-detail-page.tsx`](src/app/(dashboard)/people/staff/[userId]/_components/staff-detail-page.tsx))
+и формой заполнения акта инвентаризации
+([`document-editor.tsx`](src/app/(dashboard)/documents/inventory/[id]/_components/document-editor.tsx)).
+Новые формы/детальные тела — тем же `max-w-[720px]`, не выдумывать `max-w-5xl`
+и прочее.
+
+**Исключение — широкие таблицы данных.** Список и «Итоги» акта — это data-grid
+во всю ширину контейнера (`p-6 md:p-8`, без `max-w`), а не detail-форма. То
+есть: **форма ввода → 720; таблица-сетка → full-width**.
+
 ---
 
 ## List-страница (таблица) — каноничный набор

@@ -254,6 +254,7 @@ export default async function InventoryDocumentResultsPage({
     { data: canFinalizeResults },
     { data: canRecountDocuments },
     { data: canUseAiSuggestions },
+    { data: canViewProducts },
     {
       data: { user },
     },
@@ -267,6 +268,7 @@ export default async function InventoryDocumentResultsPage({
     supabase.rpc("has_permission", { permission_code: "inventory.finalize_results" }),
     supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.use_ai_suggestions" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.view_products" }),
     supabase.auth.getUser(),
     getActiveAccountAmountRoundingScale(),
   ]);
@@ -475,6 +477,7 @@ export default async function InventoryDocumentResultsPage({
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}
           canRecount={Boolean(canRecountDocuments)}
+          canViewProducts={Boolean(canViewProducts)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
           documentStatus={document.status}
         />

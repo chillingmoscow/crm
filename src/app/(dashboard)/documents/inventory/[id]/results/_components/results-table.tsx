@@ -180,6 +180,9 @@ type Props = {
   canAdjust: boolean;
   canFinalize: boolean;
   canRecount: boolean;
+  /** inventory.view_products — нужно, чтобы открыть карточку ингредиента
+      из «Итогов» (та же граница, что у каталога). */
+  canViewProducts: boolean;
   aiSuggestionsEnabled: boolean;
   documentStatus: string;
 };
@@ -300,6 +303,7 @@ export function InventoryResultsTable({
   canAdjust,
   canFinalize,
   canRecount,
+  canViewProducts,
   aiSuggestionsEnabled,
   documentStatus,
 }: Props) {
@@ -792,7 +796,7 @@ export function InventoryResultsTable({
         canHide: false,
         cell: (item: InventoryDocumentResultItem) => (
           <div className="min-w-0">
-            {item.ingredient_id ? (
+            {canViewProducts && item.ingredient_id ? (
               <button
                 type="button"
                 data-row-interactive
@@ -824,7 +828,7 @@ export function InventoryResultsTable({
       })),
       { id: "actions", label: "", size: 56, canHide: false, cell: renderActionsCell },
     ],
-    [renderActionsCell, renderResultCell, renderSelectCell],
+    [canViewProducts, renderActionsCell, renderResultCell, renderSelectCell],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(

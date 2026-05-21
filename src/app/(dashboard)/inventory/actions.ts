@@ -2973,13 +2973,17 @@ async function assertOwnedIngredient(admin: LooseDb, accountId: string, ingredie
 /**
  * Обзор ингредиента для боковой панели из «Итогов» акта: клик по названию
  * позиции открывает Sheet с основными данными карточки (без загрузки
- * полной страницы). Переиспользует getIngredientDetail. Доступно тем, кто
- * видит итоги акта.
+ * полной страницы). Переиспользует getIngredientDetail.
+ *
+ * Гейт — `inventory.view_products`: та же граница, что у каталога
+ * (страница карточки ингредиента проверяет именно это право). Иначе
+ * пользователь с view_results, но без view_products, получил бы метаданные
+ * каталога (артикул, штрих-код, себестоимость, остаток) в обход (Codex P1 #404).
  */
 export async function getInventoryIngredientOverview(input: {
   ingredientId: string;
 }): Promise<{ data: IngredientDetail | null; error: string | null }> {
-  const ctx = await getActiveContext("inventory.view_results");
+  const ctx = await getActiveContext("inventory.view_products");
   if (ctx.error || !ctx.accountId) return { data: null, error: ctx.error };
   try {
     const data = await getIngredientDetail(ctx.accountId, input.ingredientId);

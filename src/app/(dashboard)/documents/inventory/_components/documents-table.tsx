@@ -77,6 +77,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   bulkAssignInventoryDocuments,
+  bulkDeleteInventoryDocuments,
   deleteInventoryDocument,
   syncQuickRestoInventory,
 } from "@/app/(dashboard)/inventory/actions";
@@ -233,9 +234,10 @@ export function DocumentsTable({
   const [isSyncing, startSyncTransition] = useTransition();
   // Клавиатурная навигация (J/K/Enter/// /F). Справка («?») — в топ-баре.
   const [focusedIndex, setFocusedIndex] = useState(-1);
-  // Bulk-выделение (только для менеджера): передать исполнителя/проверяющего.
+  // Bulk-выделение (только для менеджера): назначить исполнителя/проверяющего.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkPending, startBulk] = useTransition();
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -402,6 +404,22 @@ export function DocumentsTable({
       toast.success(
         `Обновлено: ${res.updated}` + (res.skipped > 0 ? `, пропущено: ${res.skipped}` : ""),
       );
+      clearSelection();
+      router.refresh();
+    });
+  };
+
+  const applyBulkDelete = () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    startBulk(async () => {
+      const res = await bulkDeleteInventoryDocuments({ documentIds: ids });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`Удалено актов: ${res.deleted}`);
+      setBulkDeleteOpen(false);
       clearSelection();
       router.refresh();
     });
@@ -1192,10 +1210,47 @@ export function DocumentsTable({
                 disabled={bulkPending}
                 onPick={(userId) => applyBulkAssign("reviewer", userId)}
               />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                disabled={bulkPending}
+                onClick={() => setBulkDeleteOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Удалить
+              </Button>
             </>
           }
         />
       ) : null}
+
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить акты ({selectedIds.size})?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Это удалит выбранные акты и все их позиции. Акты из Quick Resto могут
+              вернуться при следующей синхронизации.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkPending}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={bulkPending}
+              onClick={(e) => {
+                e.preventDefault();
+                applyBulkDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

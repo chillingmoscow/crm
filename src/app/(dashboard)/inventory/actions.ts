@@ -1815,6 +1815,42 @@ export async function deleteInventoryDocument(input: {
   }
 }
 
+/**
+ * Массовое удаление актов (из плавающего bulk-бара). Право
+ * inventory.manage_documents. Каскад по FK. Тот же caveat про QR, что и у
+ * одиночного delete: QR-акты могут вернуться при следующей синхронизации.
+ */
+export async function bulkDeleteInventoryDocuments(input: {
+  documentIds: string[];
+}): Promise<{ deleted: number; error: string | null }> {
+  try {
+    const ctx = await getActiveContext("inventory.manage_documents");
+    if (ctx.error || !ctx.accountId) {
+      return { deleted: 0, error: ctx.error ?? "Не удалось определить контекст" };
+    }
+    const ids = Array.from(new Set(input.documentIds)).filter(Boolean);
+    if (ids.length === 0) return { deleted: 0, error: "Не выбрано ни одного акта" };
+
+    const admin = asLooseDb(createAdminClient());
+    const { error } = await admin
+      .from("documents")
+      .delete()
+      .eq("account_id", ctx.accountId)
+      .in("id", ids);
+    if (error) return { deleted: 0, error: error.message };
+
+    revalidatePath("/documents/inventory");
+    return { deleted: ids.length, error: null };
+  } catch (e) {
+    console.error("[bulkDeleteInventoryDocuments] unhandled error:", e);
+    return {
+      deleted: 0,
+      error:
+        e instanceof Error && e.message ? e.message : "Не удалось удалить акты. Подробности в логах.",
+    };
+  }
+}
+
 export async function refreshInventoryDocumentResults(input: {
   documentId: string;
 }): Promise<{

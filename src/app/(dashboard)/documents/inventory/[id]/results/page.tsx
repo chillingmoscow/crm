@@ -259,6 +259,7 @@ export default async function InventoryDocumentResultsPage({
     { data: canCommentResults },
     { data: canAdjustResults },
     { data: canFinalizeResults },
+    { data: canRecountDocuments },
     { data: canUseAiSuggestions },
     {
       data: { user },
@@ -271,6 +272,7 @@ export default async function InventoryDocumentResultsPage({
     supabase.rpc("has_permission", { permission_code: "inventory.comment_results" }),
     supabase.rpc("has_permission", { permission_code: "inventory.adjust_results" }),
     supabase.rpc("has_permission", { permission_code: "inventory.finalize_results" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.use_ai_suggestions" }),
     supabase.auth.getUser(),
     getActiveAccountAmountRoundingScale(),
@@ -291,7 +293,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note")
     .eq("document_id", document.id)
     .order("product_name");
 
@@ -490,7 +492,9 @@ export default async function InventoryDocumentResultsPage({
           canComment={Boolean(canCommentResults)}
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}
+          canRecount={Boolean(canRecountDocuments)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
+          documentStatus={document.status}
         />
       )}
     </div>

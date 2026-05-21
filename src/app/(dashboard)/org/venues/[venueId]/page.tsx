@@ -17,6 +17,8 @@ type VenueDetail = {
   working_hours: WorkingHours | null;
   comment: string | null;
   default_legal_entity_id: string | null;
+  inventory_recount_threshold_sum: number | null;
+  inventory_recount_threshold_percent: number | null;
 };
 
 export default async function VenueDetailServerPage({
@@ -50,7 +52,7 @@ export default async function VenueDetailServerPage({
   const { data: venue } = await supabase
     .from("venues")
     .select(
-      "id, name, type, address, phone, currency, timezone, working_hours, comment, default_legal_entity_id"
+      "id, name, type, address, phone, currency, timezone, working_hours, comment, default_legal_entity_id, inventory_recount_threshold_sum, inventory_recount_threshold_percent"
     )
     .eq("id", venueId)
     .eq("account_id", account.id)

@@ -2310,6 +2310,146 @@ export async function reopenInventoryResults(input: {
   }
 }
 
+/**
+ * Менеджер помечает (или снимает пометку) на строке акта как «требует
+ * пересчёта». Ручной toggle; recount_marked_by фиксирует «человек тронул»,
+ * чтобы триггер `inventory_apply_recount_threshold` (миграция 209) не
+ * перезатёр ручное решение авто-логикой.
+ *
+ * Permission: `inventory.recount_documents`.
+ */
+export async function setRecountFlag(input: {
+  documentId: string;
+  itemId: string;
+  needsRecount: boolean;
+  note?: string | null;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.recount_documents");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const document = await getResultDocumentForAction({
+      admin,
+      accountId: ctx.accountId,
+      documentId: input.documentId,
+    });
+
+    const { error } = await admin
+      .from("document_items")
+      .update({
+        needs_recount: input.needsRecount,
+        recount_auto_flagged: false, // переход в ручной режим
+        recount_marked_by: ctx.user.id,
+        recount_marked_at: new Date().toISOString(),
+        recount_note: input.note?.trim() || null,
+      })
+      .eq("id", input.itemId)
+      .eq("document_id", document.id)
+      .eq("account_id", ctx.accountId);
+    if (error) throw new Error(error.message);
+
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      documentItemId: input.itemId,
+      eventType: input.needsRecount ? "recount_marked" : "recount_unmarked",
+      message: input.needsRecount ? "Отметил строку на пересчёт" : "Снял пометку пересчёта",
+      payload: { itemId: input.itemId, note: input.note?.trim() || null },
+    });
+
+    revalidateInventoryResultPages(document.id);
+    return { error: null };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось изменить пометку пересчёта") };
+  }
+}
+
+/**
+ * Менеджер возвращает акт исполнителю на пересчёт. Меняет статус акта на
+ * `recount_pending`, увеличивает `recount_count`, ставит `last_returned_at`
+ * (используется в editor-hydration для invalidation IndexedDB-черновика).
+ *
+ * Преконды:
+ *  - У акта есть ≥1 позиция с `needs_recount = true`.
+ *  - Статус акта — `ready_for_review` или `results_blocked`. После
+ *    `processed` возврат бессмысленен (QR-side уже закрыт).
+ *  - permission `inventory.recount_documents`.
+ */
+export async function returnDocumentForRecount(input: {
+  documentId: string;
+  note?: string | null;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.recount_documents");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const { data: document } = await admin
+      .from<{
+        id: string;
+        status: string;
+        recount_count: number | null;
+      }>("documents")
+      .select("id, status, recount_count")
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+    if (!document?.id) return { error: "Акт не найден" };
+    if (document.status !== "ready_for_review" && document.status !== "results_blocked") {
+      return {
+        error:
+          "Вернуть на пересчёт можно только акт со статусом «Готов к проверке» или «Итоги требуют проверки».",
+      };
+    }
+
+    const { data: flaggedItems } = await admin
+      .from<Array<{ id: string }>>("document_items")
+      .select("id")
+      .eq("document_id", document.id)
+      .eq("account_id", ctx.accountId)
+      .eq("needs_recount", true);
+    const flaggedIds = (flaggedItems ?? []).map((row) => row.id);
+    if (flaggedIds.length === 0) {
+      return { error: "Отметьте хотя бы одну строку на пересчёт перед отправкой." };
+    }
+
+    const { error: updateError } = await admin
+      .from("documents")
+      .update({
+        status: "recount_pending",
+        recount_count: (document.recount_count ?? 0) + 1,
+        last_returned_at: new Date().toISOString(),
+      })
+      .eq("id", document.id)
+      .eq("account_id", ctx.accountId);
+    if (updateError) throw new Error(updateError.message);
+
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: "returned_for_recount",
+      message: "Отправил акт на пересчёт",
+      payload: {
+        flaggedItemIds: flaggedIds,
+        recountCount: (document.recount_count ?? 0) + 1,
+        note: input.note?.trim() || null,
+      },
+    });
+
+    revalidateInventoryResultPages(document.id);
+    return { error: null };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось отправить акт на пересчёт") };
+  }
+}
+
 export async function updateInventoryStoreVenue(input: {
   storeId: string;
   venueId: string | null;
@@ -2607,6 +2747,30 @@ export async function submitInventoryDocumentDraft(input: {
     const productByExternalId = new Map(
       ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [String(row.external_id), row])
     );
+
+    // Recount cleanup: сбрасываем recount-флаги (и авто-, и ручные) на
+    // строках, по которым исполнитель только что отправил новое значение.
+    // Триггер `inventory_apply_recount_threshold` на следующем upsert
+    // в syncDocumentItems заново проверит порог — если новое расхождение
+    // тоже > threshold, флаг встанет автоматически. Делаем точечный UPDATE
+    // без обновления columns-of-interest для триггера, чтобы не было
+    // двойного срабатывания.
+    const submittedItemIds = input.items.map((item) => item.itemId);
+    if (submittedItemIds.length > 0) {
+      await admin
+        .from("document_items")
+        .update({
+          needs_recount: false,
+          recount_auto_flagged: false,
+          recount_marked_by: null,
+          recount_marked_at: null,
+          recount_note: null,
+        })
+        .eq("document_id", document.id)
+        .eq("account_id", ctx.accountId)
+        .in("id", submittedItemIds);
+    }
+
     const syncResult = await syncDocumentItems({
       admin,
       accountId: ctx.accountId,

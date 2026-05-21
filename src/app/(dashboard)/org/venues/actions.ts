@@ -16,6 +16,10 @@ type VenueData = {
   workingHours: WorkingHours;
   comment?: string | null;
   defaultLegalEntityId?: string | null;
+  /** Порог по сумме расхождения (₽) для авто-маркера пересчёта. */
+  inventoryRecountThresholdSum?: number;
+  /** Порог по проценту расхождения (%) для авто-маркера пересчёта. */
+  inventoryRecountThresholdPercent?: number;
 };
 
 export async function createVenue(
@@ -117,6 +121,15 @@ export async function updateVenue(
       // column unchanged; null clears it.
       ...(data.defaultLegalEntityId !== undefined
         ? { default_legal_entity_id: data.defaultLegalEntityId }
+        : {}),
+      // Inventory recount thresholds (миграция 209). Per-venue настройка
+      // авто-маркера: пропускаем undefined, чтобы не затирать предыдущие
+      // значения когда форма не редактировала эти поля.
+      ...(data.inventoryRecountThresholdSum !== undefined
+        ? { inventory_recount_threshold_sum: data.inventoryRecountThresholdSum }
+        : {}),
+      ...(data.inventoryRecountThresholdPercent !== undefined
+        ? { inventory_recount_threshold_percent: data.inventoryRecountThresholdPercent }
         : {}),
     })
     .eq("id", id);

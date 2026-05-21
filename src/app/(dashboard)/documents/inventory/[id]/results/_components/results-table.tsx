@@ -24,7 +24,9 @@ import {
   dismissInventoryResortSuggestion,
   finalizeInventoryResults,
   reopenInventoryResults,
+  returnDocumentForRecount,
   setInventoryResultItemExcluded,
+  setRecountFlag,
   updateInventoryResultComment,
   voidInventoryResultResort,
 } from "@/app/(dashboard)/inventory/actions";
@@ -57,6 +59,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTableToolbar } from "@/components/shared/data-table-toolbar";
+import { cn } from "@/lib/utils";
 
 export type InventoryDocumentResultItem = {
   id: string;
@@ -78,6 +81,9 @@ export type InventoryDocumentResultItem = {
   group_name: string | null;
   exclusion_rule_id: string | null;
   exclusion_rule_reason: string | null;
+  needs_recount: boolean | null;
+  recount_auto_flagged: boolean | null;
+  recount_note: string | null;
 };
 
 export type InventoryResultResortRow = {
@@ -136,10 +142,12 @@ type Props = {
   canComment: boolean;
   canAdjust: boolean;
   canFinalize: boolean;
+  canRecount: boolean;
   aiSuggestionsEnabled: boolean;
+  documentStatus: string;
 };
 
-type ResultColumnKey = "calculated" | "fact" | "difference" | "management" | "status" | "comment";
+type ResultColumnKey = "calculated" | "fact" | "difference" | "management" | "status" | "recount" | "comment";
 type ResultStatusFilter = "all" | "included" | "excluded" | "resort";
 type ResultSortMode = "name_asc" | "name_desc" | "group_asc" | "group_desc" | "empty_first" | "empty_last" | "sum_desc";
 
@@ -151,6 +159,7 @@ const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; width: string
   { key: "difference", label: "Разница", width: "120px" },
   { key: "management", label: "Упр. сумма", width: "130px" },
   { key: "status", label: "Статус", width: "140px" },
+  { key: "recount", label: "Пересчёт", width: "100px" },
   { key: "comment", label: "Комментарий", width: "minmax(180px,.7fr)" },
 ];
 
@@ -263,7 +272,9 @@ export function InventoryResultsTable({
   canComment,
   canAdjust,
   canFinalize,
+  canRecount,
   aiSuggestionsEnabled,
+  documentStatus,
 }: Props) {
   const [showDifferences, setShowDifferences] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -328,6 +339,14 @@ export function InventoryResultsTable({
     [activeResortItemByItemId, activeResorts, items],
   );
   const mismatchCount = useMemo(() => items.filter(hasDifference).length, [items]);
+  const flaggedCount = useMemo(
+    () => items.filter((item) => item.needs_recount).length,
+    [items],
+  );
+  // «Отправить на пересчёт» доступно из ready_for_review / results_blocked.
+  // Из recount_pending уже отправили; processed закрыт в QR.
+  const canSendToRecount =
+    canRecount && (documentStatus === "ready_for_review" || documentStatus === "results_blocked");
   const groupOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of items) {
@@ -641,42 +660,65 @@ export function InventoryResultsTable({
           ),
         }}
         actions={
-          canAdjust ? (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                disabled={isFinalized || isPending || selectedItems.length < 2}
-                onClick={() => createResort(Array.from(selectedIds))}
-              >
-                Пересорт
-              </Button>
+          <>
+            {canAdjust ? (
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={isFinalized || isPending || selectedItems.length < 2}
+                  onClick={() => createResort(Array.from(selectedIds))}
+                >
+                  Пересорт
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isFinalized || isPending || selectedItems.length === 0}
+                  onClick={() =>
+                    runAction(
+                      async () => {
+                        for (const itemId of selectedIds) {
+                          const result = await setInventoryResultItemExcluded({
+                            documentId,
+                            itemId,
+                            excluded: true,
+                          });
+                          if (result.error) return result;
+                        }
+                        return { error: null };
+                      },
+                      "Строки исключены из итогов",
+                    )
+                  }
+                >
+                  Не учитывать
+                </Button>
+              </>
+            ) : null}
+            {canSendToRecount ? (
               <Button
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={isFinalized || isPending || selectedItems.length === 0}
+                disabled={isFinalized || isPending || flaggedCount === 0}
                 onClick={() =>
                   runAction(
-                    async () => {
-                      for (const itemId of selectedIds) {
-                        const result = await setInventoryResultItemExcluded({
-                          documentId,
-                          itemId,
-                          excluded: true,
-                        });
-                        if (result.error) return result;
-                      }
-                      return { error: null };
-                    },
-                    "Строки исключены из итогов",
+                    () => returnDocumentForRecount({ documentId }),
+                    `Акт отправлен на пересчёт (${flaggedCount} ${flaggedCount === 1 ? "строка" : "строк"})`,
                   )
                 }
+                title={
+                  flaggedCount === 0
+                    ? "Отметьте хотя бы одну строку флажком пересчёта."
+                    : `На пересчёт уйдут ${flaggedCount} строк.`
+                }
               >
-                Не учитывать
+                Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
               </Button>
-            </>
-          ) : null
+            ) : null}
+          </>
         }
         summary={
           <>
@@ -822,6 +864,55 @@ export function InventoryResultsTable({
                             <div className="text-[11px] text-muted-foreground">Авто</div>
                           ) : null}
                         </div>
+                      </div>
+                    );
+                  }
+                  if (column.key === "recount") {
+                    const flagged = Boolean(item.needs_recount);
+                    const auto = Boolean(item.recount_auto_flagged);
+                    return (
+                      <div key={column.key} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={flagged}
+                          disabled={!canRecount || isFinalized || isPending}
+                          onClick={() =>
+                            runAction(
+                              () =>
+                                setRecountFlag({
+                                  documentId,
+                                  itemId: item.id,
+                                  needsRecount: !flagged,
+                                }),
+                              flagged ? "Пометка пересчёта снята" : "Строка отмечена на пересчёт",
+                            )
+                          }
+                          className={cn(
+                            "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
+                            flagged
+                              ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
+                              : "border-border bg-muted/40 hover:bg-muted",
+                            !canRecount || isFinalized ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                          )}
+                          title={
+                            flagged
+                              ? auto
+                                ? "Автоматически отмечено по threshold заведения. Кликните, чтобы снять."
+                                : "Ручная пометка. Кликните, чтобы снять."
+                              : "Кликните, чтобы отметить строку на пересчёт."
+                          }
+                        >
+                          <span
+                            className={cn(
+                              "h-4 w-4 rounded-full bg-background shadow transition-transform",
+                              flagged ? "translate-x-5" : "translate-x-1",
+                            )}
+                          />
+                        </button>
+                        {flagged && auto ? (
+                          <span className="text-[11px] text-muted-foreground">Авто</span>
+                        ) : null}
                       </div>
                     );
                   }

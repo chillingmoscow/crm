@@ -13,6 +13,7 @@ export const INVENTORY_STATUS_LABEL: Record<string, string> = {
   assigned: "Назначен",
   in_progress: "В работе",
   ready_for_review: "Готов к проверке",
+  recount_pending: "На пересчёте",
   processed: "Проведен",
   results_blocked: "Итоги требуют проверки",
   sync_error: "Ошибка синхронизации",
@@ -39,6 +40,12 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
     "bg-violet-50 dark:bg-violet-500/15 " +
     "text-violet-700 dark:text-violet-300 " +
     "border-violet-200 dark:border-violet-500/30",
+  // recount_pending — rose-токен, как destructive, но мягче: акт «отозван
+  // менеджером» — состояние требует внимания, не ошибка.
+  recount_pending:
+    "bg-rose-50 dark:bg-rose-500/15 " +
+    "text-rose-700 dark:text-rose-300 " +
+    "border-rose-200 dark:border-rose-500/30",
   processed:
     "bg-emerald-50 dark:bg-emerald-500/15 " +
     "text-emerald-700 dark:text-emerald-400 " +

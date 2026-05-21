@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -40,6 +41,11 @@ type EditorDocument = {
       hydration: draft до sync — игнорируем (старый, sync свежее);
       draft после sync — restore (легитимные правки user'а). */
   syncedAt: string | null;
+  /** ISO timestamp последнего возврата акта на пересчёт. Используется в
+      hydration аналогично syncedAt: draft, сохранённый ДО возврата, не
+      должен перезатирать значения, которые менеджер уже видел. */
+  lastReturnedAt: string | null;
+  recountCount: number;
 };
 
 type EditorItem = {
@@ -53,6 +59,8 @@ type EditorItem = {
   imageUrl: string | null;
   groupId: string | null;
   groupPath: string | null;
+  needsRecount: boolean;
+  recountNote: string | null;
 };
 
 type EditorGroup = {
@@ -356,10 +364,16 @@ export function InventoryDocumentEditor({
         // приоритетнее пустого начального state).
         const draftSavedMs = Date.parse(draft.savedAt);
         const syncedMs = document.syncedAt ? Date.parse(document.syncedAt) : NaN;
+        // last_returned_at работает по той же логике, что и syncedAt: draft,
+        // сохранённый ДО возврата на пересчёт, не должен перезатирать
+        // значения, которые сервер вернул после `returnDocumentForRecount`.
+        const returnedMs = document.lastReturnedAt
+          ? Date.parse(document.lastReturnedAt)
+          : NaN;
         const draftIsStale =
           Number.isFinite(draftSavedMs) &&
-          Number.isFinite(syncedMs) &&
-          draftSavedMs < syncedMs;
+          ((Number.isFinite(syncedMs) && draftSavedMs < syncedMs) ||
+            (Number.isFinite(returnedMs) && draftSavedMs < returnedMs));
         if (!draftIsStale) {
           // Обновляем values + snapshot одной транзакцией: иначе если user
           // включил «пустые сверху/снизу» ДО завершения hydration,
@@ -479,8 +493,29 @@ export function InventoryDocumentEditor({
     });
   };
 
+  const isRecountPending = document.status === "recount_pending";
+  const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
+      {/* Баннер режима «пересчёт»: акт вернули, исполнитель видит подсказку
+          какие именно строки требуют повторного счёта. */}
+      {isRecountPending ? (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-rose-300 bg-rose-500/5 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700 dark:text-rose-300" />
+          <div className="min-w-0 text-sm">
+            <div className="font-medium text-rose-700 dark:text-rose-200">
+              Акт вернули на пересчёт
+            </div>
+            <p className="mt-0.5 text-rose-700/90 dark:text-rose-300/90">
+              {flaggedItemsCount > 0
+                ? `Перепроверьте отмеченные позиции (${flaggedItemsCount} ${flaggedItemsCount === 1 ? "строка" : "строк"}) и завершите акт.`
+                : "Перепроверьте позиции и завершите акт."}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {/* Шапка с back-кнопкой, табами, номером, статусом и контекстом
           склада/позиций — в shared layout (см. inventory/[id]/layout.tsx).
           Здесь: слева — статус draft'а / offline, справа — контролы. */}
@@ -617,16 +652,22 @@ export function InventoryDocumentEditor({
           </div>
         ) : visibleItems.map((item) => {
           const isFilled = (values[item.id] ?? "").trim() !== "";
+          // Подсветка для строк, которые менеджер пометил на пересчёт. В
+          // recount_pending-режиме это «куда смотреть в первую очередь».
+          // Сохраняем приоритет над «заполненной» подсветкой — если
+          // строка одновременно заполнена и помечена, видим именно «нужен
+          // повторный пересчёт».
+          const needsRecount = item.needsRecount;
           return (
           <div
             key={item.id}
             className={cn(
               "grid grid-cols-[64px_1fr_112px] items-center gap-3 rounded-lg border p-2 transition-colors",
-              // Заполненные строки — brand-tint (виден и в light, и в dark);
-              // пустые — neutral.
-              isFilled
-                ? "border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10"
-                : "border-border bg-background",
+              needsRecount
+                ? "border-rose-300 bg-rose-500/5 dark:border-rose-500/40 dark:bg-rose-500/10"
+                : isFilled
+                  ? "border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10"
+                  : "border-border bg-background",
             )}
           >
             <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
@@ -637,13 +678,26 @@ export function InventoryDocumentEditor({
               )}
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{item.productName}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="truncate text-sm font-medium">{item.productName}</div>
+                {needsRecount ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                    <AlertTriangle className="h-3 w-3" />
+                    Пересчёт
+                  </span>
+                ) : null}
+              </div>
               <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                 {item.article ? <span>Арт. {item.article}</span> : null}
                 {item.barcode ? <span>{item.barcode}</span> : null}
                 {item.measureUnitName ? <span>{item.measureUnitName}</span> : null}
                 {item.groupPath ? <span>{item.groupPath}</span> : null}
               </div>
+              {needsRecount && item.recountNote ? (
+                <div className="mt-1 text-[11px] italic text-rose-700 dark:text-rose-300">
+                  «{item.recountNote}»
+                </div>
+              ) : null}
             </div>
             <Input
               inputMode="decimal"
@@ -670,11 +724,12 @@ export function InventoryDocumentEditor({
 
       {/* Submit-кнопка — паттерн detail-страницы из spec §«Entity detail page»:
           форма-действие живёт в футере формы, правым выравниванием, default
-          Button (не full-width, не sticky). Эталон — /people/staff/[userId]. */}
+          Button (не full-width, не sticky). Эталон — /people/staff/[userId].
+          На recount_pending — text меняется на «Завершить пересчёт». */}
       <div className="mt-6 flex justify-end pt-1">
         <Button type="button" disabled={isPending || !loaded} onClick={submit}>
           {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          Завершить
+          {isRecountPending ? "Завершить пересчёт" : "Завершить"}
         </Button>
       </div>
     </div>

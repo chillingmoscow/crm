@@ -1,6 +1,6 @@
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 
-/** Контент справки по разделу «Акты инвентаризации» (для HelpButton). */
+/** Контент справки по разделу «Акты инвентаризации» (для кнопки «?» в топ-баре). */
 export function InventoryActsHelp({ showShortcuts = true }: { showShortcuts?: boolean }) {
   return (
     <>
@@ -12,18 +12,11 @@ export function InventoryActsHelp({ showShortcuts = true }: { showShortcuts?: bo
           <Li>
             <b>Проверяющий</b> — проверяет итоги, возвращает на пересчёт, финализирует.
           </Li>
-          <Li>
-            <b>Менеджер</b> — назначает исполнителя и проверяющего.
-          </Li>
         </ul>
-        <p className="mt-2 text-muted-foreground">
-          Исполнитель и проверяющий — разные люди: тот, кто считал, не подводит
-          итоги сам (защита от подгонки).
-        </p>
       </Section>
 
       <Section title="Статусы акта">
-        <ul className="space-y-2">
+        <ul className="space-y-2.5">
           <StatusLi status="synced" text="загружен из Quick Resto, исполнитель не назначен." />
           <StatusLi status="assigned" text="назначен исполнителю, заполнение ещё не начато." />
           <StatusLi status="in_progress" text="исполнитель начал заполнять (есть черновик)." />
@@ -81,8 +74,8 @@ function Li({ children }: { children: React.ReactNode }) {
 
 function StatusLi({ status, text }: { status: string; text: string }) {
   return (
-    <li className="flex flex-wrap items-center gap-2">
-      <InventoryStatusBadge status={status} />
+    <li className="flex items-start gap-2">
+      <InventoryStatusBadge status={status} className="mt-0.5 shrink-0" />
       <span className="text-muted-foreground">{text}</span>
     </li>
   );

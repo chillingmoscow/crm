@@ -2,13 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
-import { HelpButton } from "@/components/shared/help-button";
-import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -52,28 +49,6 @@ export function DocumentActHeader({
 }) {
   const pathname = usePathname() ?? "";
   const router = useRouter();
-  const [helpOpen, setHelpOpen] = useState(false);
-
-  // «?» открывает справку (если фокус не в поле ввода формы).
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== "?") return;
-      const el = document.activeElement as HTMLElement | null;
-      if (
-        el &&
-        (el.tagName === "INPUT" ||
-          el.tagName === "TEXTAREA" ||
-          el.tagName === "SELECT" ||
-          el.isContentEditable)
-      ) {
-        return;
-      }
-      e.preventDefault();
-      setHelpOpen(true);
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   const activeTab: Tab = pathname.endsWith("/results")
     ? "results"
@@ -103,26 +78,16 @@ export function DocumentActHeader({
       </PageBreadcrumb>
 
       <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-2 min-w-0">
-            <h1 className="text-[28px] font-bold tracking-tight leading-tight truncate">
-              Акт № {documentNumber}
-            </h1>
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-muted-foreground">
-                {storeTitle ?? "Склад не указан"}
-              </span>
-              <InventoryStatusBadge status={status} />
-            </div>
+        <div className="flex flex-col gap-2 min-w-0">
+          <h1 className="text-[28px] font-bold tracking-tight leading-tight truncate">
+            Акт № {documentNumber}
+          </h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-muted-foreground">
+              {storeTitle ?? "Склад не указан"}
+            </span>
+            <InventoryStatusBadge status={status} />
           </div>
-          <HelpButton
-            open={helpOpen}
-            onOpenChange={setHelpOpen}
-            title="Акт инвентаризации"
-            description="Роли, статусы и уведомления"
-          >
-            <InventoryActsHelp showShortcuts={false} />
-          </HelpButton>
         </div>
 
         <Tabs

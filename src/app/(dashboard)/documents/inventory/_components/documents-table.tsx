@@ -69,10 +69,8 @@ import {
 import { deleteInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
-import { HelpButton } from "@/components/shared/help-button";
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
 import { ReviewerSelect } from "./reviewer-select";
-import { InventoryActsHelp } from "./inventory-acts-help";
 import {
   DEFAULT_SORT,
   DOCUMENT_STATUSES,
@@ -130,7 +128,7 @@ const SEARCH_DEBOUNCE_MS = 250;
 // processed → акт закрыт, исторические данные.
 // sync_error → нужно чинить sync, до этого назначать бессмысленно.
 function getAssignLockReason(status: string): string | null {
-  if (status === "processed") return "Акт проведён — ответственного больше менять нельзя";
+  if (status === "processed") return "Акт проведён — исполнителя больше менять нельзя";
   if (status === "sync_error") return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
   return null;
 }
@@ -220,8 +218,7 @@ export function DocumentsTable({
   // нейтральная (не подсвечена). Раскрытие — явное действие.
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [isSyncing, startSyncTransition] = useTransition();
-  // Справка (?) и клавиатурная навигация (J/K/Enter/// /F).
-  const [helpOpen, setHelpOpen] = useState(false);
+  // Клавиатурная навигация (J/K/Enter/// /F). Справка («?») — в топ-баре.
   const [focusedIndex, setFocusedIndex] = useState(-1);
 
   // ── URL sync ───────────────────────────────────────────────
@@ -308,13 +305,6 @@ export function DocumentsTable({
           el.tagName === "TEXTAREA" ||
           el.tagName === "SELECT" ||
           el.isContentEditable);
-      // «?» — справка (Shift+/). Не перехватываем при печати.
-      if (e.key === "?") {
-        if (typing) return;
-        e.preventDefault();
-        setHelpOpen(true);
-        return;
-      }
       if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
       const rows = initial.rows;
       const lastIndex = rows.length - 1;
@@ -430,7 +420,7 @@ export function DocumentsTable({
       },
       {
         id: "assigned_to",
-        label: "Ответственный",
+        label: "Исполнитель",
         size: 200,
         cell: (row: DocumentListRow) => {
           const lockReason = getAssignLockReason(row.status);
@@ -728,30 +718,20 @@ export function DocumentsTable({
               ),
             }}
             primaryActions={
-              <div className="flex items-center gap-2">
-                <HelpButton
-                  open={helpOpen}
-                  onOpenChange={setHelpOpen}
-                  title="Акты инвентаризации"
-                  description="Роли, статусы, уведомления и горячие клавиши"
-                >
-                  <InventoryActsHelp />
-                </HelpButton>
-                {canSync ? (
-                  <TableSplitButton
-                    label="Синхронизировать QR"
-                    icon={isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                    primaryTooltip="Только акты"
-                    menuTooltip="Выбрать объём синхронизации"
-                    disabled={isSyncing}
-                    onPrimaryClick={() => runSync("documents")}
-                    options={[
-                      { label: "Только акты",                onSelect: () => runSync("documents") },
-                      { label: "Акты, ингредиенты и склады", onSelect: () => runSync("full") },
-                    ]}
-                  />
-                ) : null}
-              </div>
+              canSync ? (
+                <TableSplitButton
+                  label="Синхронизировать QR"
+                  icon={isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  primaryTooltip="Только акты"
+                  menuTooltip="Выбрать объём синхронизации"
+                  disabled={isSyncing}
+                  onPrimaryClick={() => runSync("documents")}
+                  options={[
+                    { label: "Только акты",                onSelect: () => runSync("documents") },
+                    { label: "Акты, ингредиенты и склады", onSelect: () => runSync("full") },
+                  ]}
+                />
+              ) : null
             }
             summary={
               <>
@@ -1185,10 +1165,10 @@ function statusPinLabel(status: DocumentStatus[] | undefined): string {
 }
 
 function assigneePinLabel(assigned: string | undefined, staff: AssigneeOption[]): string {
-  if (!assigned || assigned === "any") return "Ответственный";
+  if (!assigned || assigned === "any") return "Исполнитель";
   if (assigned === "me") return "На меня";
   if (assigned === "none") return "Без назначения";
-  return staff.find((s) => s.id === assigned)?.name ?? "Ответственный";
+  return staff.find((s) => s.id === assigned)?.name ?? "Исполнитель";
 }
 
 function reviewerPinLabel(reviewer: string | undefined, staff: AssigneeOption[]): string {
@@ -1304,7 +1284,7 @@ function AssignedPicker({
   onChange: (v: string) => void;
 }) {
   const options = [
-    { value: "any",  label: "Любой ответственный" },
+    { value: "any",  label: "Любой исполнитель" },
     { value: "me",   label: "На меня" },
     { value: "none", label: "Без назначения" },
     ...staff.map((s) => ({ value: s.id, label: s.name })),
@@ -1661,7 +1641,7 @@ function MobileCard({
       const lockReason = getAssignLockReason(doc.status);
       if (!lockReason) {
         items.push({
-          label: "Изменить ответственного",
+          label: "Изменить исполнителя",
           icon: <UserPlus className="h-4 w-4" />,
           onSelect: () => setAssignSheetOpen(true),
           separatorBefore: true,
@@ -1724,7 +1704,7 @@ function MobileCard({
                 : "—"}
             </span>
             <span className="text-muted-foreground">
-              {assigneeName ? <>Назначен: {assigneeName}</> : "Не назначен"}
+              {assigneeName ? <>Исполнитель: {assigneeName}</> : "Исполнитель не назначен"}
             </span>
             {reviewerName ? (
               <span className="text-muted-foreground">Проверяющий: {reviewerName}</span>

@@ -75,10 +75,10 @@ export function AssigneeSelect({
         toast.error(result.error);
         return;
       }
-      toast.success("Ответственный обновлён");
+      toast.success("Исполнитель обновлён");
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Не удалось обновить ответственного");
+      toast.error(err instanceof Error ? err.message : "Не удалось обновить исполнителя");
     } finally {
       setPending(false);
     }

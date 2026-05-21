@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { NotificationBell } from "@/components/shared/notification-bell";
+import { InventoryHelpTopbarButton } from "@/app/(dashboard)/documents/inventory/_components/inventory-help-topbar-button";
 import {
   PageHeaderActionsSlot,
   PageHeaderBreadcrumbSlot,
@@ -26,6 +27,7 @@ export function DashboardTopbar() {
       <PageHeaderBreadcrumbSlot />
       <div className="flex-1" />
       <PageHeaderActionsSlot />
+      <InventoryHelpTopbarButton />
       <NotificationBell />
     </header>
   );

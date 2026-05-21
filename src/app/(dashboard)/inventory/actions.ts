@@ -2329,10 +2329,14 @@ export async function setRecountFlag(input: {
 
   const admin = asLooseDb(createAdminClient());
   try {
+    // requireOpen: финализированные итоги нельзя менять (Codex P2 #399 —
+    // server-side инвариант должен совпадать с UI, иначе обход через
+    // прямой вызов server action).
     const document = await getResultDocumentForAction({
       admin,
       accountId: ctx.accountId,
       documentId: input.documentId,
+      requireOpen: true,
     });
 
     const { error } = await admin

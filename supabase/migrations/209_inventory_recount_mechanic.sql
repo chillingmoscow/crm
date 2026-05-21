@@ -85,6 +85,35 @@ where r.code in ('custom_manager', 'custom_admin')
 on conflict (role_id, permission_id)
 do update set granted = excluded.granted;
 
+-- 5b. Расширяем CHECK на inventory_result_events.event_type — иначе
+-- запись recount-событий в журнал упадёт по констрейнту (был задан в
+-- миграции 178). Добавляем три новых типа.
+alter table public.inventory_result_events
+  drop constraint if exists inventory_result_events_event_type_check;
+
+alter table public.inventory_result_events
+  add constraint inventory_result_events_event_type_check
+  check (
+    event_type in (
+      'comment_updated',
+      'exclude_enabled',
+      'exclude_disabled',
+      'persistent_exclusion_enabled',
+      'persistent_exclusion_disabled',
+      'resort_created',
+      'resort_voided',
+      'results_finalized',
+      'results_reopened',
+      'results_refreshed',
+      'suggestion_applied',
+      'suggestion_dismissed',
+      -- recount mechanic (PR3):
+      'recount_marked',
+      'recount_unmarked',
+      'returned_for_recount'
+    )
+  );
+
 -- 6. Триггер автомаркера. Срабатывает на INSERT/UPDATE document_items
 -- при изменении difference_sum/difference_amount/calculated_amount.
 -- Логика:

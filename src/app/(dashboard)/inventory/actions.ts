@@ -11,6 +11,10 @@ import {
   type InventoryResortAllocationItem,
 } from "@/lib/inventory/results";
 import {
+  isInventoryFormLocked,
+  isInventoryResultLocked,
+} from "@/lib/inventory/act-status";
+import {
   listIngredientTreeItems,
   listInventoryItemsBackOffice,
   listInventoryDocuments,
@@ -82,19 +86,9 @@ type InventoryResultDocumentRow = {
   results_reopened_at: string | null;
 };
 
-/**
- * Акт залочен (read-only), если итоги финализированы ИЛИ акт проведён в QR
- * (status='processed') и не был явно разблокирован (results_reopened_at).
- * Разблокировка — reopenInventoryResults, пишется в журнал.
- */
-function isInventoryResultLocked(doc: {
-  status: string;
-  results_finalized_at: string | null;
-  results_reopened_at: string | null;
-}): boolean {
-  if (doc.results_finalized_at) return true;
-  return doc.status === "processed" && doc.results_reopened_at == null;
-}
+// Замки статусной машины (isInventoryResultLocked / *AdjustLocked /
+// isInventoryFormLocked) вынесены в @/lib/inventory/act-status — единый
+// источник правды для server actions, формы и таблицы итогов.
 
 type InventoryResultItemRow = {
   id: string;
@@ -872,12 +866,22 @@ async function getResultDocumentForAction(input: {
     .maybeSingle();
 
   if (!document?.id) throw new Error("Акт не найден");
-  if (input.requireOpen && isInventoryResultLocked(document)) {
-    throw new Error(
-      document.results_finalized_at
-        ? "Итоги акта уже финализированы. Переоткройте итоги перед изменениями."
-        : "Акт проведён в Quick Resto и заблокирован. Разблокируйте его перед изменениями.",
-    );
+  if (input.requireOpen) {
+    // recount_pending — акт у исполнителя на пересчёте: ревьюер ждёт и не
+    // может менять итоги (анти-подгонка). Проверяем до lock'а, чтобы дать
+    // точное сообщение.
+    if (document.status === "recount_pending") {
+      throw new Error(
+        "Акт отправлен исполнителю на пересчёт. Дождитесь завершения пересчёта, прежде чем менять итоги.",
+      );
+    }
+    if (isInventoryResultLocked(document)) {
+      throw new Error(
+        document.results_finalized_at
+          ? "Итоги акта уже финализированы. Переоткройте итоги перед изменениями."
+          : "Акт проведён в Quick Resto и заблокирован. Разблокируйте его перед изменениями.",
+      );
+    }
   }
   return document;
 }
@@ -2254,6 +2258,14 @@ export async function finalizeInventoryResults(input: {
       documentId: input.documentId,
     });
     if (document.results_finalized_at) return { error: null };
+    // Акт на пересчёте закрыть нельзя — сначала исполнитель должен завершить
+    // пересчёт (статус вернётся в ready_for_review).
+    if (document.status === "recount_pending") {
+      return {
+        error:
+          "Акт отправлен на пересчёт. Дождитесь, пока исполнитель завершит пересчёт, прежде чем финализировать итоги.",
+      };
+    }
 
     const { error } = await admin
       .from("documents")
@@ -2622,6 +2634,61 @@ export async function uploadInventoryProductGroupImage(formData: FormData): Prom
   return { error: null };
 }
 
+/**
+ * Помечает, что исполнитель начал заполнять акт: переводит
+ * assigned/synced → in_progress на первом сохранённом черновике
+ * (черновик живёт в IndexedDB на клиенте, серверного сигнала нет — этот
+ * мост его создаёт). Идемпотентно и best-effort: вызывается из autosave
+ * формы, дальше по статусной машине ничего не двигает.
+ */
+export async function markInventoryDraftStarted(input: {
+  documentId: string;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext();
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  // Permission-гейт зеркалит submitInventoryDocumentDraft: двигать статус
+  // может тот, кто реально заполняет акт — менеджер или назначенный
+  // исполнитель с правом «Заполнять назначенные акты». Иначе любой
+  // авторизованный пользователь мог бы дёрнуть action напрямую.
+  const [{ data: canManage }, { data: canFill }] = await Promise.all([
+    ctx.supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+    ctx.supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
+  ]);
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const { data: document } = await admin
+      .from<{ id: string; status: string; assigned_to: string | null }>("documents")
+      .select("id, status, assigned_to")
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+    // best-effort: молча выходим, если акта нет / переводить нечего /
+    // дёргает не назначенный исполнитель / нет права заполнять.
+    if (!document?.id) return { error: null };
+    if (document.assigned_to !== ctx.user.id) return { error: null };
+    const allowed = Boolean(canManage) || Boolean(canFill);
+    if (!allowed) return { error: null };
+    if (document.status !== "assigned" && document.status !== "synced") return { error: null };
+
+    const { error } = await admin
+      .from("documents")
+      .update({ status: "in_progress" })
+      .eq("id", document.id)
+      .eq("account_id", ctx.accountId)
+      // guard от гонки: апдейтим, только пока статус ещё «не начат».
+      .in("status", ["assigned", "synced"]);
+    if (error) throw new Error(error.message);
+
+    revalidatePath("/documents/inventory");
+    revalidatePath(`/documents/inventory/${document.id}`);
+    return { error: null };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось обновить статус акта") };
+  }
+}
+
 export async function submitInventoryDocumentDraft(input: {
   documentId: string;
   baseLastUpdateDate: string | null;
@@ -2645,9 +2712,13 @@ export async function submitInventoryDocumentDraft(input: {
       external_id: string;
       assigned_to: string | null;
       processed: boolean;
+      status: string;
+      results_finalized_at: string | null;
       base_last_update_date: string | null;
     }>("documents")
-    .select("id, account_id, external_id, assigned_to, processed, base_last_update_date")
+    .select(
+      "id, account_id, external_id, assigned_to, processed, status, results_finalized_at, base_last_update_date",
+    )
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -2656,6 +2727,15 @@ export async function submitInventoryDocumentDraft(input: {
   const allowed = Boolean(canManage) || (Boolean(canFill) && document.assigned_to === ctx.user.id);
   if (!allowed) return { resultsHasLineAmounts: false, error: "Недостаточно прав" };
   if (document.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };
+  // Заполнение закрыто, когда акт уже ушёл на проверку / финализирован /
+  // не синкнулся (статусная машина). recount_pending — НЕ заблокирован
+  // (легитимный перерасчёт исполнителем).
+  if (isInventoryFormLocked(document.status, Boolean(document.results_finalized_at))) {
+    return {
+      resultsHasLineAmounts: false,
+      error: "Акт уже отправлен на проверку — заполнение закрыто.",
+    };
+  }
 
   const connection = await getConnection(ctx.accountId);
   if (!connection) return { resultsHasLineAmounts: false, error: "Активное подключение Quick Resto не найдено" };

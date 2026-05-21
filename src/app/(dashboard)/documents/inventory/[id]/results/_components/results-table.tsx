@@ -373,6 +373,12 @@ export function InventoryResultsTable({
   // Из recount_pending уже отправили; processed закрыт в QR.
   const canSendToRecount =
     canRecount && (documentStatus === "ready_for_review" || documentStatus === "results_blocked");
+  // Акт на пересчёте у исполнителя: ревьюер ждёт, итоги заморожены
+  // (анти-подгонка). Все инструменты редактирования итогов гейтятся на
+  // adjustLocked = настоящий замок ИЛИ recount_pending. Кнопки
+  // финализации/разблокировки в футере используют именно isLocked.
+  const isRecountPending = documentStatus === "recount_pending";
+  const adjustLocked = isLocked || isRecountPending;
   const groupOptions = useMemo(() => {
     const map = new Map<string, string>();
     for (const item of items) {
@@ -613,7 +619,7 @@ export function InventoryResultsTable({
               type="button"
               role="switch"
               aria-checked={flagged}
-              disabled={!canRecount || isLocked || isPending}
+              disabled={!canRecount || adjustLocked || isPending}
               onClick={() =>
                 runAction(
                   () => setRecountFlag({ documentId, itemId: item.id, needsRecount: !flagged }),
@@ -625,7 +631,7 @@ export function InventoryResultsTable({
                 flagged
                   ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
                   : "border-border bg-muted/40 hover:bg-muted",
-                !canRecount || isLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                !canRecount || adjustLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
               )}
               title={
                 flagged
@@ -662,14 +668,14 @@ export function InventoryResultsTable({
         </div>
       );
     },
-    [activeResortItemByItemId, amountRoundingScale, canRecount, isLocked, isPending, documentId, runAction],
+    [activeResortItemByItemId, amountRoundingScale, canRecount, adjustLocked, isPending, documentId, runAction],
   );
 
   const renderSelectCell = useCallback(
     (item: InventoryDocumentResultItem) => {
       const resortItem = activeResortItemByItemId.get(item.id);
       const isExcluded = item.excluded_from_totals === true;
-      const isSelectable = !isLocked && !isExcluded && !resortItem;
+      const isSelectable = !adjustLocked && !isExcluded && !resortItem;
       return (
         <span data-row-interactive>
           <input
@@ -683,7 +689,7 @@ export function InventoryResultsTable({
         </span>
       );
     },
-    [activeResortItemByItemId, isLocked, selectedIds],
+    [activeResortItemByItemId, adjustLocked, selectedIds],
   );
 
   const renderActionsCell = useCallback(
@@ -694,7 +700,7 @@ export function InventoryResultsTable({
         <div className="flex justify-end" data-row-interactive>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" size="icon" variant="ghost" disabled={isLocked || isPending}>
+              <Button type="button" size="icon" variant="ghost" disabled={adjustLocked || isPending}>
                 <MoreHorizontal className="h-4 w-4" />
                 <span className="sr-only">Действия</span>
               </Button>
@@ -770,7 +776,7 @@ export function InventoryResultsTable({
         </div>
       );
     },
-    [activeResortItemByItemId, canAdjust, canComment, comments, documentId, isLocked, isPending, runAction],
+    [activeResortItemByItemId, canAdjust, canComment, comments, documentId, adjustLocked, isPending, runAction],
   );
 
   const columnsConfig = useMemo(
@@ -866,6 +872,25 @@ export function InventoryResultsTable({
 
   return (
     <div className="space-y-4">
+      {/* Баннер «акт на пересчёте»: ревьюер вернул акт исполнителю и ждёт.
+          Итоги read-only (анти-подгонка) — нельзя пересортировать, исключать
+          или финализировать, пока пересчёт не завершён. */}
+      {isRecountPending ? (
+        <div className="flex items-start gap-3 rounded-lg border border-rose-300 bg-rose-500/5 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
+          <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-rose-700 dark:text-rose-300" />
+          <div className="min-w-0 text-sm">
+            <div className="font-medium text-rose-700 dark:text-rose-200">
+              Акт на пересчёте у исполнителя
+            </div>
+            <p className="mt-0.5 text-rose-700/90 dark:text-rose-300/90">
+              Итоги заморожены, пока исполнитель не завершит пересчёт. Когда
+              он завершит, акт вернётся в «Готов к проверке» и итоги снова
+              можно будет корректировать.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 xl:grid-cols-2">
         <div className="rounded-lg border bg-card p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
@@ -1096,14 +1121,14 @@ export function InventoryResultsTable({
                 </div>
                 {canAdjust ? (
                   <div className="flex gap-2">
-                    <Button type="button" size="sm" variant="outline" disabled={isLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
+                    <Button type="button" size="sm" variant="outline" disabled={adjustLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
                       Скрыть
                     </Button>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={isLocked || isPending}
+                      disabled={adjustLocked || isPending}
                       onClick={() => createResort(suggestion.itemIds, suggestion.reason, suggestion.source, suggestion.confidence)}
                     >
                       Применить
@@ -1231,7 +1256,7 @@ export function InventoryResultsTable({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={isLocked || isPending}
+                    disabled={adjustLocked || isPending}
                     onClick={() => {
                       setVoidingResort(resort);
                       setVoidReason("");
@@ -1263,7 +1288,7 @@ export function InventoryResultsTable({
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={isLocked || isPending || flaggedCount === 0}
+                      disabled={adjustLocked || isPending || flaggedCount === 0}
                       onClick={() =>
                         runAction(
                           () => returnDocumentForRecount({ documentId }),
@@ -1309,6 +1334,11 @@ export function InventoryResultsTable({
                 <Undo2 className="mr-2 h-4 w-4" />
                 {isFinalized ? "Редактировать итоги" : "Разблокировать акт"}
               </Button>
+            ) : isRecountPending ? (
+              // Акт на пересчёте — финализировать нельзя (см. баннер выше).
+              <span className="text-xs text-muted-foreground">
+                Финализация недоступна — акт на пересчёте.
+              </span>
             ) : (
               <TooltipProvider>
                 <Tooltip>
@@ -1445,7 +1475,7 @@ export function InventoryResultsTable({
                     type="button"
                     size="sm"
                     className="h-8 text-xs"
-                    disabled={isLocked || isPending || selectedItems.length < 2}
+                    disabled={adjustLocked || isPending || selectedItems.length < 2}
                     onClick={() => createResort(Array.from(selectedIds))}
                   >
                     Пересорт
@@ -1455,7 +1485,7 @@ export function InventoryResultsTable({
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs"
-                    disabled={isLocked || isPending || selectedItems.length === 0}
+                    disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
                       runAction(
                         async () => {
@@ -1480,7 +1510,7 @@ export function InventoryResultsTable({
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs"
-                    disabled={isLocked || isPending || selectedItems.length === 0}
+                    disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
                       runAction(
                         async () => {
@@ -1505,7 +1535,7 @@ export function InventoryResultsTable({
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs"
-                    disabled={isLocked || isPending || selectedItems.length === 0}
+                    disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
                       runAction(
                         async () => {
@@ -1526,7 +1556,7 @@ export function InventoryResultsTable({
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs"
-                    disabled={isLocked || isPending || selectedItems.length === 0}
+                    disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
                       runAction(
                         async () => {

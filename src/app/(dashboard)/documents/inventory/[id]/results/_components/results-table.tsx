@@ -238,16 +238,19 @@ function combineResultSort(field: ResultSortField, direction: "asc" | "desc"): R
   return direction === "asc" ? "sum_asc" : "sum_desc";
 }
 
-const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; width: string }> = [
+// size — числовой default-размер для TanStack columnSizing (px). Не строки:
+// раньше был `width: "minmax(180px,.7fr)"` → parseInt давал NaN → 120px и
+// «Комментарий» схлопывался (Codex P2 #401).
+const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; size: number }> = [
   // Порядок: Расчёт (книжный остаток) → Факт → Разница — естественная
   // последовательность для проверки инвентаризации.
-  { key: "calculated", label: "Расчёт", width: "120px" },
-  { key: "fact", label: "Факт", width: "120px" },
-  { key: "difference", label: "Разница", width: "120px" },
-  { key: "management", label: "Упр. сумма", width: "130px" },
-  { key: "status", label: "Статус", width: "140px" },
-  { key: "recount", label: "Пересчёт", width: "100px" },
-  { key: "comment", label: "Комментарий", width: "minmax(180px,.7fr)" },
+  { key: "calculated", label: "Расчёт", size: 120 },
+  { key: "fact", label: "Факт", size: 120 },
+  { key: "difference", label: "Разница", size: 120 },
+  { key: "management", label: "Упр. сумма", size: 130 },
+  { key: "status", label: "Статус", size: 140 },
+  { key: "recount", label: "Пересчёт", size: 100 },
+  { key: "comment", label: "Комментарий", size: 240 },
 ];
 
 const RESULTS_TABLE_ID = "documents.inventory.results";
@@ -791,7 +794,7 @@ export function InventoryResultsTable({
       ...RESULT_COLUMNS.map((column) => ({
         id: column.key,
         label: column.label,
-        size: parseInt(column.width, 10) || 120,
+        size: column.size,
         canHide: true,
         cell: (item: InventoryDocumentResultItem) => renderResultCell(column.key, item),
       })),

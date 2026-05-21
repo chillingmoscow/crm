@@ -516,7 +516,12 @@ begin
     ('55555555-5555-0000-0000-000000000006'::uuid,
      v_account, 'qr-doc-6', 'ИНВ-0006',
      now() - interval '7 days', v_store, 'sync_error', null,
-     null)
+     null),
+    -- Длинный акт (20 позиций) с итогами — для проверки sticky-шапки/скролла.
+    ('55555555-5555-0000-0000-000000000007'::uuid,
+     v_account, 'qr-doc-7', 'ИНВ-0007',
+     now() - interval '10 hours', v_store, 'ready_for_review', v_owner,
+     'Длинный акт (20 позиций) — демо прокрутки итогов')
   on conflict (id) do nothing;
 
   -- Позиции для новых актов — нужны для (а) поиска по ингредиентам,
@@ -567,6 +572,30 @@ begin
          difference_sum = 0
    where document_id = '55555555-5555-0000-0000-000000000004'::uuid
      and external_item_id = 'd4-2';
+
+  -- ИНВ-0007: 20 позиций с итогами (для проверки sticky-шапки и прокрутки).
+  -- Значения варьируем: часть с недостачей, часть с излишком, часть в ноль.
+  insert into public.document_items
+    (account_id, document_id, external_item_id, ingredient_id, product_name,
+     actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum)
+  select
+    v_account,
+    '55555555-5555-0000-0000-000000000007'::uuid,
+    'd7-' || g,
+    null,
+    'Ингредиент ' || lpad(g::text, 2, '0'),
+    (10 + g) + round((((g % 5) - 2) * 1.5)::numeric, 2),               -- факт
+    (10 + g),                                                          -- учётка
+    round((((g % 5) - 2) * 1.5)::numeric, 2),                          -- расхождение, ед.
+    (100 + g * 10),                                                    -- себестоимость
+    round((((g % 5) - 2) * 1.5 * (100 + g * 10))::numeric, 2)          -- расхождение, ₽
+  from generate_series(1, 20) as g
+  on conflict (document_id, external_item_id) do nothing;
+
+  update public.documents
+     set results_has_line_amounts = true,
+         reviewer_id = 'bbbbbbbb-0000-0000-0000-000000000002'
+   where id = '55555555-5555-0000-0000-000000000007'::uuid;
 
   -- Связки с поставщиками
   insert into public.ingredient_suppliers

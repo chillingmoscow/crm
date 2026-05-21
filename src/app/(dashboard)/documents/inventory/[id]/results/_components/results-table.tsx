@@ -842,7 +842,8 @@ export function InventoryResultsTable({
         id: column.id,
         header: column.label,
         size: column.size,
-        minSize: 64,
+        // min ≈ ширина заголовка; служебные (select/actions) уже.
+        minSize: column.id === "select" ? 44 : column.id === "actions" ? 56 : 90,
         enableHiding: column.canHide,
         cell: ({ row }) => column.cell(row.original),
       })),
@@ -1171,18 +1172,26 @@ export function InventoryResultsTable({
           </div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border bg-card">
-          <div className="overflow-x-auto">
-            <table
-              className="w-full min-w-full table-fixed"
-              style={{ minWidth: table.getTotalSize() }}
-            >
+        // Без overflow на обёртках (иначе sticky-thead «ловится» контейнером).
+        // Колонки вписаны в ширину (table-fixed + colgroup в %), без
+        // горизонтального скролла; ресайз перетягивает ширину у соседей;
+        // шапка липнет к верху страницы. См. design-system → sticky header.
+        <div className="rounded-lg border bg-card">
+            {/*
+              suppressHydrationWarning: расширения браузера (TableConvert и пр.)
+              дописывают на <table> атрибуты `data-tableconvert-*` между SSR и
+              hydration → React ругается на mismatch. Атрибуты безвредны.
+            */}
+            <table suppressHydrationWarning className="w-full table-fixed">
               <colgroup>
                 {table.getVisibleLeafColumns().map((column) => (
-                  <col key={column.id} style={{ width: column.getSize() }} />
+                  <col
+                    key={column.id}
+                    style={{ width: `${(column.getSize() / table.getTotalSize()) * 100}%` }}
+                  />
                 ))}
               </colgroup>
-              <thead className="group/header bg-muted/60 text-xs font-medium tracking-wide text-muted-foreground">
+              <thead className="group/header sticky top-0 z-20 bg-muted [&_th]:bg-muted text-xs font-medium tracking-wide text-muted-foreground">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id} className="h-11">
                     {headerGroup.headers.map((header) => {
@@ -1192,7 +1201,6 @@ export function InventoryResultsTable({
                         <th
                           key={header.id}
                           className={cn("relative border-b px-3 py-3 text-left")}
-                          style={{ width: header.getSize() }}
                         >
                           {isControl ? null : isSortable ? (
                             <button
@@ -1238,8 +1246,7 @@ export function InventoryResultsTable({
                     {row.getVisibleCells().map((cell) => (
                       <td
                         key={cell.id}
-                        className="px-3 py-3 align-middle text-sm"
-                        style={{ width: cell.column.getSize() }}
+                        className="overflow-hidden px-3 py-3 align-middle text-sm"
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
@@ -1248,7 +1255,6 @@ export function InventoryResultsTable({
                 ))}
               </tbody>
             </table>
-          </div>
         </div>
       )}
 

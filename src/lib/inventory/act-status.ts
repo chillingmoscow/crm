@@ -95,6 +95,23 @@ export function getAssigneeLockReason(status: string): string | null {
 }
 
 /**
+ * Какой статус выставить акту при (пере)назначении исполнителя.
+ * - Снятие исполнителя (assignedTo == null) → "synced" (акт без ответственного).
+ * - Назначение на акте «На пересчёте» → СОХРАНЯЕМ "recount_pending": смена
+ *   исполнителя во время пересчёта не должна сбрасывать рамку пересчёта
+ *   (баннер, подсветка строк, кнопка «Завершить пересчёт»). Новый исполнитель
+ *   продолжает именно пересчёт.
+ * - Любое другое назначение → "assigned" (обычный старт заполнения).
+ *
+ * Вызывать только когда менять исполнителя разрешено (getAssigneeLockReason
+ * вернул null) — статусы вроде ready_for_review сюда не доходят.
+ */
+export function nextStatusAfterAssign(currentStatus: string, assignedTo: string | null): string {
+  if (!assignedTo) return "synced";
+  return currentStatus === "recount_pending" ? "recount_pending" : "assigned";
+}
+
+/**
  * Можно ли менять ПРОВЕРЯЮЩЕГО акта. Проверяющего назначают/меняют вплоть до
  * проведения акта: его можно задать заранее и переназначить во время проверки
  * итогов. Заблокировано только когда акт проведён / sync_error.

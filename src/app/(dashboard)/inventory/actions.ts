@@ -15,6 +15,7 @@ import {
   getReviewerLockReason,
   isInventoryFormLocked,
   isInventoryResultLocked,
+  nextStatusAfterAssign,
 } from "@/lib/inventory/act-status";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
 import {
@@ -1598,7 +1599,9 @@ export async function assignInventoryDocument(input: {
       .from("documents")
       .update({
         assigned_to: input.assignedTo,
-        status: input.assignedTo ? "assigned" : "synced",
+        // Сохраняем recount_pending при смене исполнителя на пересчёте, иначе
+        // assigned (или synced при снятии) — см. nextStatusAfterAssign.
+        status: nextStatusAfterAssign(before.status, input.assignedTo),
       })
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId);
@@ -1726,16 +1729,32 @@ export async function bulkAssignInventoryDocuments(input: {
     if (eligible.length === 0) return { updated: 0, skipped, error: null };
 
     const eligibleIds = eligible.map((d) => d.id);
-    const patch =
-      input.role === "assignee"
-        ? { assigned_to: input.userId, status: input.userId ? "assigned" : "synced" }
-        : { reviewer_id: input.userId };
-    const { error } = await admin
-      .from("documents")
-      .update(patch)
-      .eq("account_id", ctx.accountId)
-      .in("id", eligibleIds);
-    if (error) throw new Error(error.message);
+    if (input.role === "reviewer") {
+      const { error } = await admin
+        .from("documents")
+        .update({ reviewer_id: input.userId })
+        .eq("account_id", ctx.accountId)
+        .in("id", eligibleIds);
+      if (error) throw new Error(error.message);
+    } else {
+      // Исполнитель: статус зависит от текущего (на пересчёте — сохраняем
+      // recount_pending). Группируем по целевому статусу и обновляем пачками.
+      const byStatus = new Map<string, string[]>();
+      for (const d of eligible) {
+        const next = nextStatusAfterAssign(d.status, input.userId);
+        const arr = byStatus.get(next) ?? [];
+        arr.push(d.id);
+        byStatus.set(next, arr);
+      }
+      for (const [next, idsForStatus] of byStatus) {
+        const { error } = await admin
+          .from("documents")
+          .update({ assigned_to: input.userId, status: next })
+          .eq("account_id", ctx.accountId)
+          .in("id", idsForStatus);
+        if (error) throw new Error(error.message);
+      }
+    }
 
     const name = await loadProfileFullName(admin, input.userId);
     const eventType = input.role === "assignee" ? "assignee_changed" : "reviewer_changed";

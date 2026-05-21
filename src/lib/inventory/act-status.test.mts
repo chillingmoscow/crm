@@ -8,6 +8,7 @@ import {
   isInventoryFormLocked,
   isInventoryResultAdjustLocked,
   isInventoryResultLocked,
+  nextStatusAfterAssign,
   type InventoryActStatus,
 } from "./act-status.ts";
 
@@ -140,5 +141,21 @@ test("исполнитель строже проверяющего: на про�
   for (const s of ["ready_for_review", "results_blocked"] as const) {
     assert.equal(getAssigneeLockReason(s) !== null, true);
     assert.equal(getReviewerLockReason(s) !== null, false);
+  }
+});
+
+test("nextStatusAfterAssign: снятие исполнителя → synced", () => {
+  for (const s of ["synced", "assigned", "in_progress", "recount_pending"] as const) {
+    assert.equal(nextStatusAfterAssign(s, null), "synced");
+  }
+});
+
+test("nextStatusAfterAssign: смена на пересчёте сохраняет recount_pending", () => {
+  assert.equal(nextStatusAfterAssign("recount_pending", "user-1"), "recount_pending");
+});
+
+test("nextStatusAfterAssign: обычное назначение → assigned", () => {
+  for (const s of ["synced", "assigned", "in_progress"] as const) {
+    assert.equal(nextStatusAfterAssign(s, "user-1"), "assigned");
   }
 });

@@ -52,7 +52,10 @@ export function TableBulkBar({ selectedCount, onClear, actions, summary, colSpan
       className={cn(
         "relative flex min-h-11 items-center gap-3 border bg-brand/10 px-4 py-2",
         floating
-          ? "fixed inset-x-4 bottom-4 z-50 mx-auto max-w-3xl rounded-lg border-border bg-background/95 shadow-md backdrop-blur"
+          // Ширина фиксированная (w-[calc(100%-2rem)] до max-w-3xl, центр через
+          // translate): бар не «прыгает» в размере, когда кнопки действий
+          // появляются/исчезают в зависимости от выборки.
+          ? "fixed bottom-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-3xl -translate-x-1/2 rounded-lg border-border bg-background/95 shadow-md backdrop-blur"
           : "border-x-0 border-t-0",
       )}
     >

@@ -14,6 +14,7 @@ import {
   isInventoryFormLocked,
   isInventoryResultLocked,
 } from "@/lib/inventory/act-status";
+import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
 import {
   listIngredientTreeItems,
   listInventoryItemsBackOffice,
@@ -2967,6 +2968,25 @@ async function assertOwnedIngredient(admin: LooseDb, accountId: string, ingredie
     .eq("account_id", accountId)
     .maybeSingle();
   return Boolean(data?.id);
+}
+
+/**
+ * Обзор ингредиента для боковой панели из «Итогов» акта: клик по названию
+ * позиции открывает Sheet с основными данными карточки (без загрузки
+ * полной страницы). Переиспользует getIngredientDetail. Доступно тем, кто
+ * видит итоги акта.
+ */
+export async function getInventoryIngredientOverview(input: {
+  ingredientId: string;
+}): Promise<{ data: IngredientDetail | null; error: string | null }> {
+  const ctx = await getActiveContext("inventory.view_results");
+  if (ctx.error || !ctx.accountId) return { data: null, error: ctx.error };
+  try {
+    const data = await getIngredientDetail(ctx.accountId, input.ingredientId);
+    return { data: data ?? null, error: null };
+  } catch (error) {
+    return { data: null, error: actionErrorMessage(error, "Не удалось загрузить ингредиент") };
+  }
 }
 
 export async function updateIngredientDescription(input: {

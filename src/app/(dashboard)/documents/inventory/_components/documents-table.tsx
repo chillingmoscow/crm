@@ -69,8 +69,10 @@ import {
 import { deleteInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
+import { HelpButton } from "@/components/shared/help-button";
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
 import { ReviewerSelect } from "./reviewer-select";
+import { InventoryActsHelp } from "./inventory-acts-help";
 import {
   DEFAULT_SORT,
   DOCUMENT_STATUSES,
@@ -218,6 +220,9 @@ export function DocumentsTable({
   // нейтральная (не подсвечена). Раскрытие — явное действие.
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [isSyncing, startSyncTransition] = useTransition();
+  // Справка (?) и клавиатурная навигация (J/K/Enter/// /F).
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState(-1);
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -289,6 +294,62 @@ export function DocumentsTable({
       void supabase.removeChannel(channel);
     };
   }, [accountId, router]);
+
+  // ── Keyboard shortcuts (Linear-style) ──────────────────────
+  // J/K — навигация по строкам, Enter — открыть, / — поиск, F — фильтры,
+  // ? — справка. Игнорируем, когда фокус в поле ввода (чтобы не перехватывать
+  // печать). Зависит от текущего набора строк (initial.rows).
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const el = document.activeElement as HTMLElement | null;
+      const typing =
+        !!el &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable);
+      // «?» — справка (Shift+/). Не перехватываем при печати.
+      if (e.key === "?") {
+        if (typing) return;
+        e.preventDefault();
+        setHelpOpen(true);
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      const rows = initial.rows;
+      const lastIndex = rows.length - 1;
+      if (e.key === "/") {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (e.key === "j" || e.key === "J") {
+        e.preventDefault();
+        setFocusedIndex((i) => (i < 0 ? 0 : Math.min(lastIndex, i + 1)));
+      } else if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setFocusedIndex((i) => (i < 0 ? 0 : Math.max(0, i - 1)));
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setFiltersVisible((v) => !v);
+      } else if (e.key === "Enter") {
+        if (focusedIndex >= 0 && focusedIndex <= lastIndex) {
+          e.preventDefault();
+          router.push(getDocHref(rows[focusedIndex], canViewResults));
+        }
+      } else if (e.key === "Escape") {
+        setFocusedIndex(-1);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [initial.rows, focusedIndex, canViewResults, router]);
+
+  // Подскролл к выделенной строке.
+  useEffect(() => {
+    if (focusedIndex < 0) return;
+    document
+      .querySelector(`[data-doc-row-index="${focusedIndex}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [focusedIndex]);
 
   // ── Columns (TanStack для visibility/order/sizing) ─────────
   const searchActive = Boolean(filtersFromUrl.q);
@@ -667,20 +728,30 @@ export function DocumentsTable({
               ),
             }}
             primaryActions={
-              canSync ? (
-                <TableSplitButton
-                  label="Синхронизировать QR"
-                  icon={isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  primaryTooltip="Только акты"
-                  menuTooltip="Выбрать объём синхронизации"
-                  disabled={isSyncing}
-                  onPrimaryClick={() => runSync("documents")}
-                  options={[
-                    { label: "Только акты",                onSelect: () => runSync("documents") },
-                    { label: "Акты, ингредиенты и склады", onSelect: () => runSync("full") },
-                  ]}
-                />
-              ) : null
+              <div className="flex items-center gap-2">
+                <HelpButton
+                  open={helpOpen}
+                  onOpenChange={setHelpOpen}
+                  title="Акты инвентаризации"
+                  description="Роли, статусы, уведомления и горячие клавиши"
+                >
+                  <InventoryActsHelp />
+                </HelpButton>
+                {canSync ? (
+                  <TableSplitButton
+                    label="Синхронизировать QR"
+                    icon={isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                    primaryTooltip="Только акты"
+                    menuTooltip="Выбрать объём синхронизации"
+                    disabled={isSyncing}
+                    onPrimaryClick={() => runSync("documents")}
+                    options={[
+                      { label: "Только акты",                onSelect: () => runSync("documents") },
+                      { label: "Акты, ингредиенты и склады", onSelect: () => runSync("full") },
+                    ]}
+                  />
+                ) : null}
+              </div>
             }
             summary={
               <>
@@ -937,12 +1008,16 @@ export function DocumentsTable({
                 table.getRowModel().rows.map((row) => (
                   <tr
                     key={row.id}
+                    data-doc-row-index={row.index}
                     onClick={(e) => {
                       const target = e.target as HTMLElement;
                       if (target.closest("[data-row-interactive]")) return;
                       router.push(getDocHref(row.original, canViewResults));
                     }}
-                    className="cursor-pointer border-b last:border-b-0 hover:bg-muted/30"
+                    className={cn(
+                      "cursor-pointer border-b last:border-b-0 hover:bg-muted/30",
+                      row.index === focusedIndex ? "bg-muted/50 ring-1 ring-inset ring-brand/40" : null,
+                    )}
                   >
                     {row.getVisibleCells().map((cell) => (
                       <td

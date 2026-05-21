@@ -1177,7 +1177,12 @@ export function InventoryResultsTable({
         // горизонтального скролла; ресайз перетягивает ширину у соседей;
         // шапка липнет к верху страницы. См. design-system → sticky header.
         <div className="rounded-lg border bg-card">
-            <table className="w-full table-fixed">
+            {/*
+              suppressHydrationWarning: расширения браузера (TableConvert и пр.)
+              дописывают на <table> атрибуты `data-tableconvert-*` между SSR и
+              hydration → React ругается на mismatch. Атрибуты безвредны.
+            */}
+            <table suppressHydrationWarning className="w-full table-fixed">
               <colgroup>
                 {table.getVisibleLeafColumns().map((column) => (
                   <col

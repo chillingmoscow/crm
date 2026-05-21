@@ -1,6 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
+import {
+  type ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
+import { arrayMove } from "@dnd-kit/sortable";
 import {
   ArrowDown,
   ArrowUp,
@@ -77,7 +84,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { TableBulkBar, TableControls, TableControlPin } from "@/components/shared/table";
+import {
+  TableBulkBar,
+  TableColumnManager,
+  TableControls,
+  TableControlPin,
+  useTableState,
+  type ManagedTableColumn,
+  type TableStateColumn,
+} from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import { RefreshResultsButton } from "./refresh-results-button";
 
@@ -223,19 +238,30 @@ function combineResultSort(field: ResultSortField, direction: "asc" | "desc"): R
   return direction === "asc" ? "sum_asc" : "sum_desc";
 }
 
-const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; width: string }> = [
+// size — числовой default-размер для TanStack columnSizing (px). Не строки:
+// раньше был `width: "minmax(180px,.7fr)"` → parseInt давал NaN → 120px и
+// «Комментарий» схлопывался (Codex P2 #401).
+const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; size: number }> = [
   // Порядок: Расчёт (книжный остаток) → Факт → Разница — естественная
   // последовательность для проверки инвентаризации.
-  { key: "calculated", label: "Расчёт", width: "120px" },
-  { key: "fact", label: "Факт", width: "120px" },
-  { key: "difference", label: "Разница", width: "120px" },
-  { key: "management", label: "Упр. сумма", width: "130px" },
-  { key: "status", label: "Статус", width: "140px" },
-  { key: "recount", label: "Пересчёт", width: "100px" },
-  { key: "comment", label: "Комментарий", width: "minmax(180px,.7fr)" },
+  { key: "calculated", label: "Расчёт", size: 120 },
+  { key: "fact", label: "Факт", size: 120 },
+  { key: "difference", label: "Разница", size: 120 },
+  { key: "management", label: "Упр. сумма", size: 130 },
+  { key: "status", label: "Статус", size: 140 },
+  { key: "recount", label: "Пересчёт", size: 100 },
+  { key: "comment", label: "Комментарий", size: 240 },
 ];
 
-const DEFAULT_RESULT_COLUMNS = new Set<ResultColumnKey>(RESULT_COLUMNS.map((column) => column.key));
+const RESULTS_TABLE_ID = "documents.inventory.results";
+
+// Какие колонки кликабельны для сортировки по шапке (как в documents-table).
+// Группа сортируется только через pin (отдельной колонки нет).
+const COLUMN_TO_RESULT_FIELD: Record<string, ResultSortField> = {
+  name:       "name",
+  fact:       "empty",
+  management: "sum",
+};
 
 function hasDifference(item: InventoryDocumentResultItem) {
   const amount = Number(item.difference_amount ?? 0);
@@ -285,9 +311,6 @@ export function InventoryResultsTable({
   const [sorts, setSorts] = useState<ResultSortMode[]>([]);
   // pin-row скрыт по умолчанию, кнопка «Фильтры» нейтральна (как в актах).
   const [filtersVisible, setFiltersVisible] = useState(false);
-  const [visibleColumns, setVisibleColumns] = useState<Set<ResultColumnKey>>(
-    () => new Set(DEFAULT_RESULT_COLUMNS),
-  );
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [comments, setComments] = useState<Record<string, string>>(() =>
     Object.fromEntries(items.map((item) => [item.id, item.result_comment ?? ""])),
@@ -359,14 +382,6 @@ export function InventoryResultsTable({
       .map(([id, name]) => ({ id, name }))
       .sort((left, right) => left.name.localeCompare(right.name, "ru"));
   }, [items]);
-  const visibleColumnDefs = useMemo(
-    () => RESULT_COLUMNS.filter((column) => visibleColumns.has(column.key)),
-    [visibleColumns],
-  );
-  const tableGridTemplate = useMemo(
-    () => ["40px", "minmax(260px,1.4fr)", ...visibleColumnDefs.map((column) => column.width), "48px"].join(" "),
-    [visibleColumnDefs],
-  );
   const visibleItems = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase("ru");
     const searched = items.filter((item) => {
@@ -445,22 +460,25 @@ export function InventoryResultsTable({
     [items, selectedIds],
   );
 
-  const runAction = (
-    action: () => Promise<{ error: string | null }>,
-    success: string,
-    onSuccess?: () => void,
-  ) => {
-    startTransition(async () => {
-      const result = await action();
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success(success);
-      setSelectedIds(new Set());
-      onSuccess?.();
-    });
-  };
+  const runAction = useCallback(
+    (
+      action: () => Promise<{ error: string | null }>,
+      success: string,
+      onSuccess?: () => void,
+    ) => {
+      startTransition(async () => {
+        const result = await action();
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        toast.success(success);
+        setSelectedIds(new Set());
+        onSuccess?.();
+      });
+    },
+    [startTransition],
+  );
 
   const toggleSelected = (itemId: string) => {
     setSelectedIds((current) => {
@@ -471,13 +489,33 @@ export function InventoryResultsTable({
     });
   };
 
-  const toggleColumn = (column: ResultColumnKey, checked: boolean) => {
-    setVisibleColumns((current) => {
-      const next = new Set(current);
-      if (checked) next.add(column);
-      else next.delete(column);
-      return next;
-    });
+  const cycleSort = (field: ResultSortField) => {
+    const index = sorts.findIndex((mode) => resultSortToField(mode) === field);
+    if (index < 0) {
+      setSorts([...sorts, combineResultSort(field, "asc")]);
+      return;
+    }
+    if (resultSortToDirection(sorts[index]) === "asc") {
+      const next = sorts.slice();
+      next[index] = combineResultSort(field, "desc");
+      setSorts(next);
+      return;
+    }
+    setSorts(sorts.filter((_, i) => i !== index));
+  };
+
+  const headerIndicator = (columnId: string) => {
+    const field = COLUMN_TO_RESULT_FIELD[columnId];
+    if (!field) return null;
+    const idx = sorts.findIndex((mode) => resultSortToField(mode) === field);
+    if (idx < 0) return null;
+    const dir = resultSortToDirection(sorts[idx]);
+    return (
+      <span className="inline-flex items-center gap-0.5">
+        {dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+        {sorts.length > 1 ? <span className="text-[10px] tabular-nums">{idx + 1}</span> : null}
+      </span>
+    );
   };
 
   const createResort = (itemIds: string[], reason?: string, source: "manual" | "history" | "ai" = "manual", confidence?: number) => {
@@ -508,6 +546,315 @@ export function InventoryResultsTable({
       "Подсказка скрыта",
     );
   };
+
+  // ── TanStack column-state (resize / visibility / order) 1-в-1 с
+  //    documents-table. Сорт — наш (через `sorts`), не TanStack. ──────────
+  const renderResultCell = useCallback(
+    (key: ResultColumnKey, item: InventoryDocumentResultItem) => {
+      const resortItem = activeResortItemByItemId.get(item.id);
+      const managementSum = item.excluded_from_totals
+        ? 0
+        : resortItem
+          ? resortItem.remainingDifferenceSum
+          : item.difference_sum;
+      const isExcluded = item.excluded_from_totals === true;
+
+      if (key === "calculated") {
+        return (
+          <span className="text-muted-foreground">
+            {formatQuantity(item.calculated_amount, item.measure_unit_name, amountRoundingScale)}
+          </span>
+        );
+      }
+      if (key === "fact") {
+        return <span>{formatQuantity(item.actual_amount, item.measure_unit_name, amountRoundingScale)}</span>;
+      }
+      if (key === "difference") {
+        return (
+          <span className={differenceClass(item.difference_amount)}>
+            {formatQuantity(item.difference_amount, item.measure_unit_name, amountRoundingScale)}
+          </span>
+        );
+      }
+      if (key === "management") {
+        return (
+          <span className={differenceClass(managementSum)}>
+            {formatSignedMoney(managementSum, "RUB", amountRoundingScale)}
+          </span>
+        );
+      }
+      if (key === "status") {
+        return (
+          <div className="flex items-center gap-2">
+            {resortItem ? (
+              <Repeat2 className="h-4 w-4 text-blue-600" />
+            ) : isExcluded ? (
+              <XCircle className="h-4 w-4 text-red-600" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 text-green-700 dark:text-green-400" />
+            )}
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium">
+                {isExcluded ? "Не учитывать" : resortItem ? "Пересорт" : "Учитывать"}
+              </div>
+              {item.exclusion_rule_id ? (
+                <div className="text-[11px] text-muted-foreground">Авто</div>
+              ) : null}
+            </div>
+          </div>
+        );
+      }
+      if (key === "recount") {
+        const flagged = Boolean(item.needs_recount);
+        const auto = Boolean(item.recount_auto_flagged);
+        return (
+          <div className="flex items-center gap-2" data-row-interactive>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={flagged}
+              disabled={!canRecount || isLocked || isPending}
+              onClick={() =>
+                runAction(
+                  () => setRecountFlag({ documentId, itemId: item.id, needsRecount: !flagged }),
+                  flagged ? "Пометка пересчёта снята" : "Строка отмечена на пересчёт",
+                )
+              }
+              className={cn(
+                "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
+                flagged
+                  ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
+                  : "border-border bg-muted/40 hover:bg-muted",
+                !canRecount || isLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+              )}
+              title={
+                flagged
+                  ? auto
+                    ? "Автоматически отмечено по threshold заведения. Кликните, чтобы снять."
+                    : "Ручная пометка. Кликните, чтобы снять."
+                  : "Кликните, чтобы отметить строку на пересчёт."
+              }
+            >
+              <span
+                className={cn(
+                  "h-4 w-4 rounded-full bg-background shadow transition-transform",
+                  flagged ? "translate-x-5" : "translate-x-1",
+                )}
+              />
+            </button>
+            {flagged && auto ? <span className="text-[11px] text-muted-foreground">Авто</span> : null}
+          </div>
+        );
+      }
+      // comment
+      return (
+        <div className="min-w-0 text-sm text-muted-foreground">
+          {item.result_comment ? (
+            <div className="flex min-w-0 items-center gap-1">
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{item.result_comment}</span>
+            </div>
+          ) : item.exclude_reason ? (
+            <span className="truncate">Причина: {item.exclude_reason}</span>
+          ) : (
+            <span>—</span>
+          )}
+        </div>
+      );
+    },
+    [activeResortItemByItemId, amountRoundingScale, canRecount, isLocked, isPending, documentId, runAction],
+  );
+
+  const renderSelectCell = useCallback(
+    (item: InventoryDocumentResultItem) => {
+      const resortItem = activeResortItemByItemId.get(item.id);
+      const isExcluded = item.excluded_from_totals === true;
+      const isSelectable = !isLocked && !isExcluded && !resortItem;
+      return (
+        <span data-row-interactive>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(item.id)}
+            disabled={!isSelectable}
+            onChange={() => toggleSelected(item.id)}
+            className="h-4 w-4 rounded border-input"
+            aria-label={`Выбрать ${item.product_name}`}
+          />
+        </span>
+      );
+    },
+    [activeResortItemByItemId, isLocked, selectedIds],
+  );
+
+  const renderActionsCell = useCallback(
+    (item: InventoryDocumentResultItem) => {
+      const resortItem = activeResortItemByItemId.get(item.id);
+      const isExcluded = item.excluded_from_totals === true;
+      return (
+        <div className="flex justify-end" data-row-interactive>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" size="icon" variant="ghost" disabled={isLocked || isPending}>
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Действия</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {canComment ? (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setCommentItem(item);
+                    setCommentDraft(comments[item.id] ?? item.result_comment ?? "");
+                  }}
+                >
+                  <MessageSquarePlus className="mr-2 h-4 w-4 text-blue-600" />
+                  Комментировать
+                </DropdownMenuItem>
+              ) : null}
+              {canAdjust ? (
+                <>
+                  {isExcluded ? (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        runAction(
+                          () => setInventoryResultItemExcluded({ documentId, itemId: item.id, excluded: false }),
+                          "Строка возвращена в итоги",
+                        )
+                      }
+                    >
+                      <CheckCircle2 className="mr-2 h-4 w-4 text-green-700 dark:text-green-400" />
+                      Учитывать в этом акте
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      disabled={Boolean(resortItem)}
+                      onClick={() =>
+                        runAction(
+                          () => setInventoryResultItemExcluded({ documentId, itemId: item.id, excluded: true }),
+                          "Строка исключена из итогов",
+                        )
+                      }
+                    >
+                      <Ban className="mr-2 h-4 w-4 text-red-600" />
+                      Не учитывать в этом акте
+                    </DropdownMenuItem>
+                  )}
+                  {!item.exclusion_rule_id ? (
+                    <DropdownMenuItem
+                      disabled={Boolean(resortItem)}
+                      onClick={() =>
+                        runAction(
+                          () => createInventoryResultExclusionRule({ documentId, itemId: item.id }),
+                          "Позиция добавлена в автоисключения",
+                        )
+                      }
+                    >
+                      <Ban className="mr-2 h-4 w-4 text-orange-600" />
+                      Исключать всегда
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setDeleteRuleItem(item);
+                        setDeleteRuleReason("");
+                      }}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4 text-red-600" />
+                      Удалить автоисключение
+                    </DropdownMenuItem>
+                  )}
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      );
+    },
+    [activeResortItemByItemId, canAdjust, canComment, comments, documentId, isLocked, isPending, runAction],
+  );
+
+  const columnsConfig = useMemo(
+    () => [
+      { id: "select", label: "", size: 44, canHide: false, cell: renderSelectCell },
+      {
+        id: "name",
+        label: "Позиция",
+        size: 280,
+        canHide: false,
+        cell: (item: InventoryDocumentResultItem) => (
+          <div className="min-w-0">
+            <div className="truncate font-medium">{item.product_name}</div>
+            <div className="mt-1 truncate text-xs text-muted-foreground">
+              {item.article ?? "Без артикула"} · {item.measure_unit_name ?? "ед."}
+              {item.group_name ? ` · ${item.group_name}` : ""}
+            </div>
+          </div>
+        ),
+      },
+      ...RESULT_COLUMNS.map((column) => ({
+        id: column.key,
+        label: column.label,
+        size: column.size,
+        canHide: true,
+        cell: (item: InventoryDocumentResultItem) => renderResultCell(column.key, item),
+      })),
+      { id: "actions", label: "", size: 56, canHide: false, cell: renderActionsCell },
+    ],
+    [renderActionsCell, renderResultCell, renderSelectCell],
+  );
+
+  const stateColumns: TableStateColumn[] = useMemo(
+    () => columnsConfig.map((c) => ({ id: c.id, defaultVisible: true, defaultSize: c.size })),
+    [columnsConfig],
+  );
+  const tableState = useTableState({ tableId: RESULTS_TABLE_ID, columns: stateColumns });
+  const tableColumns = useMemo<ColumnDef<InventoryDocumentResultItem>[]>(
+    () =>
+      columnsConfig.map((column) => ({
+        id: column.id,
+        header: column.label,
+        size: column.size,
+        minSize: 64,
+        enableHiding: column.canHide,
+        cell: ({ row }) => column.cell(row.original),
+      })),
+    [columnsConfig],
+  );
+  const table = useReactTable({
+    data: visibleItems,
+    columns: tableColumns,
+    state: {
+      columnVisibility: tableState.columnVisibility,
+      columnOrder: tableState.columnOrder,
+      columnSizing: tableState.columnSizing,
+    },
+    getRowId: (row) => row.id,
+    columnResizeMode: "onChange",
+    onColumnVisibilityChange: tableState.setColumnVisibility,
+    onColumnOrderChange: tableState.setColumnOrder,
+    onColumnSizingChange: tableState.setColumnSizing,
+    getCoreRowModel: getCoreRowModel(),
+  });
+  const managedColumns: ManagedTableColumn[] = tableState.columnOrder
+    .filter((id) => id !== "select" && id !== "actions")
+    .map((id) => table.getAllLeafColumns().find((col) => col.id === id))
+    .filter((col): col is NonNullable<typeof col> => Boolean(col))
+    .map((col) => ({
+      id: col.id,
+      label: String(col.columnDef.header ?? col.id),
+      visible: col.getIsVisible(),
+      canHide: col.getCanHide(),
+      width: col.getSize(),
+    }));
+  const moveColumn = (activeId: string, overId: string) => {
+    tableState.setColumnOrder((current) => {
+      const oldIndex = current.indexOf(activeId);
+      const newIndex = current.indexOf(overId);
+      if (oldIndex < 0 || newIndex < 0) return current;
+      return arrayMove(current, oldIndex, newIndex);
+    });
+  };
+  const sortableHeaderIds = new Set(Object.keys(COLUMN_TO_RESULT_FIELD));
 
   if (items.length === 0) {
     return (
@@ -588,24 +935,16 @@ export function InventoryResultsTable({
             content: <ResultSortFieldPanel sorts={sorts} onChange={setSorts} />,
           }}
           columns={{
-            active: visibleColumns.size !== RESULT_COLUMNS.length,
+            active: managedColumns.some((column) => !column.visible),
             content: (
-              <div className="space-y-3">
-                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  Столбцы таблицы
-                </p>
-                {RESULT_COLUMNS.map((column) => (
-                  <label key={column.key} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.has(column.key)}
-                      onChange={(event) => toggleColumn(column.key, event.target.checked)}
-                      className="h-4 w-4 rounded border-input accent-primary"
-                    />
-                    {column.label}
-                  </label>
-                ))}
-              </div>
+              <TableColumnManager
+                columns={managedColumns}
+                onVisibilityChange={(columnId, visible) =>
+                  tableState.setColumnVisibility((current) => ({ ...current, [columnId]: visible }))
+                }
+                onMoveColumn={moveColumn}
+                onReset={tableState.resetColumns}
+              />
             ),
           }}
           secondaryActions={<RefreshResultsButton documentId={documentId} />}
@@ -786,243 +1125,83 @@ export function InventoryResultsTable({
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-card">
-          <div
-            className="grid items-center border-b bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground"
-            style={{ gridTemplateColumns: tableGridTemplate }}
-          >
-            <div />
-            <div>Позиция</div>
-            {visibleColumnDefs.map((column) => (
-              <div key={column.key}>{column.label}</div>
-            ))}
-            <div />
-          </div>
-          {visibleItems.map((item) => {
-            const resortItem = activeResortItemByItemId.get(item.id);
-            const managementSum = item.excluded_from_totals
-              ? 0
-              : resortItem
-                ? resortItem.remainingDifferenceSum
-                : item.difference_sum;
-            const isExcluded = item.excluded_from_totals === true;
-            const isSelectable = !isLocked && !isExcluded && !resortItem;
-            return (
-              <div
-                key={item.id}
-                className="grid items-center gap-2 border-b px-3 py-3 text-sm last:border-b-0"
-                style={{ gridTemplateColumns: tableGridTemplate }}
-              >
-                <div>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(item.id)}
-                    disabled={!isSelectable}
-                    onChange={() => toggleSelected(item.id)}
-                    className="h-4 w-4 rounded border-input"
-                    aria-label={`Выбрать ${item.product_name}`}
-                  />
-                </div>
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{item.product_name}</div>
-                  <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {item.article ?? "Без артикула"} · {item.measure_unit_name ?? "ед."}
-                    {item.group_name ? ` · ${item.group_name}` : ""}
-                  </div>
-                </div>
-                {visibleColumnDefs.map((column) => {
-                  if (column.key === "calculated") {
-                    return (
-                      <div key={column.key} className="text-muted-foreground">
-                        {formatQuantity(item.calculated_amount, item.measure_unit_name, amountRoundingScale)}
-                      </div>
-                    );
-                  }
-                  if (column.key === "fact") {
-                    return (
-                      <div key={column.key}>
-                        {formatQuantity(item.actual_amount, item.measure_unit_name, amountRoundingScale)}
-                      </div>
-                    );
-                  }
-                  if (column.key === "difference") {
-                    return (
-                      <div key={column.key} className={differenceClass(item.difference_amount)}>
-                        {formatQuantity(item.difference_amount, item.measure_unit_name, amountRoundingScale)}
-                      </div>
-                    );
-                  }
-                  if (column.key === "management") {
-                    return (
-                      <div key={column.key} className={differenceClass(managementSum)}>
-                        {formatSignedMoney(managementSum, "RUB", amountRoundingScale)}
-                      </div>
-                    );
-                  }
-                  if (column.key === "status") {
-                    return (
-                      <div key={column.key} className="flex items-center gap-2">
-                        {resortItem ? (
-                          <Repeat2 className="h-4 w-4 text-blue-600" />
-                        ) : isExcluded ? (
-                          <XCircle className="h-4 w-4 text-red-600" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 text-green-700" />
-                        )}
-                        <div className="min-w-0">
-                          <div className="truncate text-xs font-medium">
-                            {isExcluded ? "Не учитывать" : resortItem ? "Пересорт" : "Учитывать"}
-                          </div>
-                          {item.exclusion_rule_id ? (
-                            <div className="text-[11px] text-muted-foreground">Авто</div>
+          <div className="overflow-x-auto">
+            <table
+              className="w-full min-w-full table-fixed"
+              style={{ minWidth: table.getTotalSize() }}
+            >
+              <colgroup>
+                {table.getVisibleLeafColumns().map((column) => (
+                  <col key={column.id} style={{ width: column.getSize() }} />
+                ))}
+              </colgroup>
+              <thead className="group/header bg-muted/60 text-xs font-medium tracking-wide text-muted-foreground">
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id} className="h-11">
+                    {headerGroup.headers.map((header) => {
+                      const isControl = header.column.id === "select" || header.column.id === "actions";
+                      const isSortable = sortableHeaderIds.has(header.column.id);
+                      return (
+                        <th
+                          key={header.id}
+                          className={cn("relative border-b px-3 py-3 text-left")}
+                          style={{ width: header.getSize() }}
+                        >
+                          {isControl ? null : isSortable ? (
+                            <button
+                              type="button"
+                              className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
+                              onClick={() => cycleSort(COLUMN_TO_RESULT_FIELD[header.column.id])}
+                            >
+                              <span className="truncate">
+                                {flexRender(header.column.columnDef.header, header.getContext())}
+                              </span>
+                              {headerIndicator(header.column.id)}
+                            </button>
+                          ) : (
+                            <span className="truncate">
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </span>
+                          )}
+                          {header.column.getCanResize() && !isControl ? (
+                            <div
+                              onMouseDown={header.getResizeHandler()}
+                              onTouchStart={header.getResizeHandler()}
+                              className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
+                            >
+                              <span
+                                className={cn(
+                                  "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
+                                  "group-hover/header:opacity-80",
+                                  "hover:w-1 hover:bg-brand hover:opacity-100",
+                                  header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
+                                )}
+                              />
+                            </div>
                           ) : null}
-                        </div>
-                      </div>
-                    );
-                  }
-                  if (column.key === "recount") {
-                    const flagged = Boolean(item.needs_recount);
-                    const auto = Boolean(item.recount_auto_flagged);
-                    return (
-                      <div key={column.key} className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={flagged}
-                          disabled={!canRecount || isLocked || isPending}
-                          onClick={() =>
-                            runAction(
-                              () =>
-                                setRecountFlag({
-                                  documentId,
-                                  itemId: item.id,
-                                  needsRecount: !flagged,
-                                }),
-                              flagged ? "Пометка пересчёта снята" : "Строка отмечена на пересчёт",
-                            )
-                          }
-                          className={cn(
-                            "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
-                            flagged
-                              ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
-                              : "border-border bg-muted/40 hover:bg-muted",
-                            !canRecount || isLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-                          )}
-                          title={
-                            flagged
-                              ? auto
-                                ? "Автоматически отмечено по threshold заведения. Кликните, чтобы снять."
-                                : "Ручная пометка. Кликните, чтобы снять."
-                              : "Кликните, чтобы отметить строку на пересчёт."
-                          }
-                        >
-                          <span
-                            className={cn(
-                              "h-4 w-4 rounded-full bg-background shadow transition-transform",
-                              flagged ? "translate-x-5" : "translate-x-1",
-                            )}
-                          />
-                        </button>
-                        {flagged && auto ? (
-                          <span className="text-[11px] text-muted-foreground">Авто</span>
-                        ) : null}
-                      </div>
-                    );
-                  }
-                  return (
-                    <div key={column.key} className="min-w-0 text-sm text-muted-foreground">
-                      {item.result_comment ? (
-                        <div className="flex min-w-0 items-center gap-1">
-                          <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                          <span className="truncate">{item.result_comment}</span>
-                        </div>
-                      ) : item.exclude_reason ? (
-                        <span className="truncate">Причина: {item.exclude_reason}</span>
-                      ) : (
-                        <span>—</span>
-                      )}
-                    </div>
-                  );
-                })}
-                <div className="flex justify-end">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button type="button" size="icon" variant="ghost" disabled={isLocked || isPending}>
-                        <MoreHorizontal className="h-4 w-4" />
-                        <span className="sr-only">Действия</span>
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      {canComment ? (
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setCommentItem(item);
-                            setCommentDraft(comments[item.id] ?? item.result_comment ?? "");
-                          }}
-                        >
-                          <MessageSquarePlus className="mr-2 h-4 w-4 text-blue-600" />
-                          Комментировать
-                        </DropdownMenuItem>
-                      ) : null}
-                      {canAdjust ? (
-                        <>
-                          {isExcluded ? (
-                            <DropdownMenuItem
-                              onClick={() =>
-                                runAction(
-                                  () => setInventoryResultItemExcluded({ documentId, itemId: item.id, excluded: false }),
-                                  "Строка возвращена в итоги",
-                                )
-                              }
-                            >
-                              <CheckCircle2 className="mr-2 h-4 w-4 text-green-700" />
-                              Учитывать в этом акте
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem
-                              disabled={Boolean(resortItem)}
-                              onClick={() =>
-                                runAction(
-                                  () => setInventoryResultItemExcluded({ documentId, itemId: item.id, excluded: true }),
-                                  "Строка исключена из итогов",
-                                )
-                              }
-                            >
-                              <Ban className="mr-2 h-4 w-4 text-red-600" />
-                              Не учитывать в этом акте
-                            </DropdownMenuItem>
-                          )}
-                          {!item.exclusion_rule_id ? (
-                            <DropdownMenuItem
-                              disabled={Boolean(resortItem)}
-                              onClick={() =>
-                                runAction(
-                                  () => createInventoryResultExclusionRule({ documentId, itemId: item.id }),
-                                  "Позиция добавлена в автоисключения",
-                                )
-                              }
-                            >
-                              <Ban className="mr-2 h-4 w-4 text-orange-600" />
-                              Исключать всегда
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setDeleteRuleItem(item);
-                                setDeleteRuleReason("");
-                              }}
-                            >
-                              <Trash2 className="mr-2 h-4 w-4 text-red-600" />
-                              Удалить автоисключение
-                            </DropdownMenuItem>
-                          )}
-                        </>
-                      ) : null}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            );
-          })}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </thead>
+              <tbody>
+                {table.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className="px-3 py-3 align-middle text-sm"
+                        style={{ width: cell.column.getSize() }}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

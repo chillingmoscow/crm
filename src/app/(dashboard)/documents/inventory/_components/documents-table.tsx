@@ -55,6 +55,7 @@ import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import { InventoryStatusBadge, INVENTORY_STATUS_LABEL } from "@/components/shared/inventory-status-badge";
 import {
+  TableBulkBar,
   TableColumnManager,
   TableControlPin,
   TableControls,
@@ -66,7 +67,19 @@ import {
   type ManagedTableColumn,
   type TableStateColumn,
 } from "@/components/shared/table";
-import { deleteInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboard)/inventory/actions";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  bulkAssignInventoryDocuments,
+  deleteInventoryDocument,
+  syncQuickRestoInventory,
+} from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
@@ -220,6 +233,9 @@ export function DocumentsTable({
   const [isSyncing, startSyncTransition] = useTransition();
   // Клавиатурная навигация (J/K/Enter/// /F). Справка («?») — в топ-баре.
   const [focusedIndex, setFocusedIndex] = useState(-1);
+  // Bulk-выделение (только для менеджера): передать исполнителя/проверяющего.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkPending, startBulk] = useTransition();
 
   // ── URL sync ───────────────────────────────────────────────
   const updateUrl = useCallback(
@@ -349,11 +365,85 @@ export function DocumentsTable({
       ?.scrollIntoView({ block: "nearest" });
   }, [focusedIndex]);
 
+  // ── Bulk-выделение ─────────────────────────────────────────
+  // Выделять можно только акты, которым можно менять назначение
+  // (не «Проведён» / «Ошибка синхронизации» — как getAssignLockReason).
+  const selectableRows = useMemo(
+    () => initial.rows.filter((row) => getAssignLockReason(row.status) === null),
+    [initial.rows],
+  );
+  const allSelected =
+    selectableRows.length > 0 && selectableRows.every((row) => selectedIds.has(row.id));
+  const someSelected = selectedIds.size > 0;
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  // Чистим выделение от исчезнувших строк (после realtime/refresh).
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const present = new Set(initial.rows.map((row) => row.id));
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => (present.has(id) ? next.add(id) : (changed = true)));
+      return changed ? next : prev;
+    });
+  }, [initial.rows]);
+
+  const applyBulkAssign = (role: "assignee" | "reviewer", userId: string | null) => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    startBulk(async () => {
+      const res = await bulkAssignInventoryDocuments({ documentIds: ids, role, userId });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(
+        `Обновлено: ${res.updated}` + (res.skipped > 0 ? `, пропущено: ${res.skipped}` : ""),
+      );
+      clearSelection();
+      router.refresh();
+    });
+  };
+
   // ── Columns (TanStack для visibility/order/sizing) ─────────
   const searchActive = Boolean(filtersFromUrl.q);
 
   const columnsConfig = useMemo(
     () => [
+      ...(canManage
+        ? [
+            {
+              id: "select",
+              label: "",
+              size: 44,
+              canHide: false,
+              cell: (row: DocumentListRow) => {
+                const locked = getAssignLockReason(row.status) !== null;
+                return (
+                  <span data-row-interactive onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(row.id)}
+                      disabled={locked}
+                      onChange={() =>
+                        setSelectedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(row.id)) next.delete(row.id);
+                          else next.add(row.id);
+                          return next;
+                        })
+                      }
+                      className="h-4 w-4 rounded border-input align-middle"
+                      aria-label={`Выбрать акт ${row.document_number}`}
+                    />
+                  </span>
+                );
+              },
+            },
+          ]
+        : []),
       {
         id: "document_number",
         label: "Номер",
@@ -480,7 +570,7 @@ export function DocumentsTable({
         ),
       },
     ],
-    [amountRoundingScale, canManage, canViewResults, searchActive, staff],
+    [amountRoundingScale, canManage, canViewResults, searchActive, staff, selectedIds],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -499,13 +589,33 @@ export function DocumentsTable({
     () =>
       columnsConfig.map((column) => ({
         id: column.id,
-        header: column.label,
+        header:
+          column.id === "select"
+            ? () => (
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allSelected && someSelected;
+                  }}
+                  disabled={selectableRows.length === 0}
+                  onChange={() =>
+                    setSelectedIds(
+                      allSelected ? new Set() : new Set(selectableRows.map((row) => row.id)),
+                    )
+                  }
+                  className="h-4 w-4 rounded border-input align-middle"
+                  aria-label="Выбрать все"
+                />
+              )
+            : column.label,
         size: column.size,
-        minSize: 72,
+        minSize: column.id === "select" ? 44 : 72,
         enableHiding: column.canHide !== false,
+        enableResizing: column.id !== "select",
         cell: ({ row }) => column.cell(row.original),
       })),
-    [columnsConfig],
+    [columnsConfig, allSelected, someSelected, selectableRows],
   );
 
   const table = useReactTable({
@@ -527,7 +637,7 @@ export function DocumentsTable({
   // Из выпадашки «Столбцы» исключаем служебную колонку actions —
   // её нельзя ни скрыть, ни переупорядочить, в UI она шум.
   const managedColumns: ManagedTableColumn[] = tableState.columnOrder
-    .filter((id) => id !== "actions")
+    .filter((id) => id !== "actions" && id !== "select")
     .map((id) => table.getAllLeafColumns().find((col) => col.id === id))
     .filter((col): col is NonNullable<typeof col> => Boolean(col))
     .map((col) => ({
@@ -1062,7 +1172,65 @@ export function DocumentsTable({
         onPageChange={(idx) => updateUrl({ page: String(idx + 1) }, { mode: "push" })}
         onPageSizeChange={(size) => updateUrl({ size: String(size), page: null })}
       />
+
+      {canManage && someSelected ? (
+        <TableBulkBar
+          selectedCount={selectedIds.size}
+          onClear={clearSelection}
+          floating
+          actions={
+            <>
+              <BulkAssignMenu
+                label="Передать исполнителя"
+                staff={staff}
+                disabled={bulkPending}
+                onPick={(userId) => applyBulkAssign("assignee", userId)}
+              />
+              <BulkAssignMenu
+                label="Передать проверяющего"
+                staff={staff}
+                disabled={bulkPending}
+                onPick={(userId) => applyBulkAssign("reviewer", userId)}
+              />
+            </>
+          }
+        />
+      ) : null}
     </div>
+  );
+}
+
+function BulkAssignMenu({
+  label,
+  staff,
+  disabled,
+  onPick,
+}: {
+  label: string;
+  staff: AssigneeOption[];
+  disabled?: boolean;
+  onPick: (userId: string | null) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={disabled}>
+          {label}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-y-auto">
+        <DropdownMenuLabel>{label}</DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => onPick(null)} className="text-muted-foreground">
+          Снять
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {staff.map((member) => (
+          <DropdownMenuItem key={member.id} onClick={() => onPick(member.id)}>
+            {member.name}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

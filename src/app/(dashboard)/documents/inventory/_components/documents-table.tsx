@@ -420,9 +420,16 @@ export function DocumentsTable({
   }, [initial.rows]);
 
   const applyBulkAssign = (role: "assignee" | "reviewer", userId: string | null) => {
-    // Кнопка видна только когда все выделенные подходят, так что берём всё
-    // выделение; сервер всё равно защищён инвариантом и вернёт skipped.
-    const ids = Array.from(selectedIds);
+    // Шлём только валидированные ID: строки, которые есть в текущем наборе
+    // (initial.rows) И подходят для роли. Так stale-ID (выделенные, но уже
+    // исчезнувшие до прунинга в useEffect) не попадут в мутацию.
+    const ids = selectedRowsList
+      .filter(
+        (row) =>
+          (role === "assignee" ? getAssigneeLockReason(row.status) : getReviewerLockReason(row.status)) ===
+          null,
+      )
+      .map((row) => row.id);
     if (ids.length === 0) return;
     startBulk(async () => {
       const res = await bulkAssignInventoryDocuments({ documentIds: ids, role, userId });
@@ -439,7 +446,10 @@ export function DocumentsTable({
   };
 
   const applyBulkDelete = () => {
-    const ids = Array.from(selectedIds);
+    // Только валидированные удаляемые строки (см. applyBulkAssign).
+    const ids = selectedRowsList
+      .filter((row) => getReviewerLockReason(row.status) === null)
+      .map((row) => row.id);
     if (ids.length === 0) return;
     startBulk(async () => {
       const res = await bulkDeleteInventoryDocuments({ documentIds: ids });
@@ -1325,7 +1335,7 @@ export function DocumentsTable({
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акты ({selectedIds.size})?</AlertDialogTitle>
+            <AlertDialogTitle>Удалить акты ({selectedRowsList.length})?</AlertDialogTitle>
             <AlertDialogDescription>
               Это удалит выбранные акты и все их позиции. Акты из Quick Resto могут
               вернуться при следующей синхронизации.

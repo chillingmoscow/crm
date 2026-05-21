@@ -72,6 +72,17 @@ export default async function StaffMemberPage({
   if (!myProfile?.active_venue_id) redirect("/onboarding");
   const venueId = myProfile.active_venue_id;
 
+  // Гейт доступа к чужой карточке сотрудника. Данные ниже читаются через
+  // service-role (admin, в обход RLS), поэтому страницу обязательно закрываем
+  // правом people.view_staff — иначе её можно открыть по прямому URL. Свою
+  // карточку (userId === user.id) смотреть можно всегда: это свои же данные.
+  if (userId !== user.id) {
+    const { data: canViewStaff } = await supabase.rpc("has_permission", {
+      permission_code: "people.view_staff",
+    });
+    if (!canViewStaff) redirect("/dashboard");
+  }
+
   // Current user's role → canEdit
   const { data: uvr } = await supabase
     .from("user_venue_roles")

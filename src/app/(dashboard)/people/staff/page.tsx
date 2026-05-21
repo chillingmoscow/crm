@@ -27,6 +27,14 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   if (!profile?.active_venue_id) redirect("/onboarding");
   const venueId = profile.active_venue_id;
 
+  // Гейт доступа к разделу «Сотрудники». Данные ниже тянутся через
+  // service-role (getStaff и т.п., в обход RLS), поэтому страницу обязательно
+  // закрываем правом people.view_staff — иначе её можно открыть по прямому URL.
+  const { data: canViewStaff } = await supabase.rpc("has_permission", {
+    permission_code: "people.view_staff",
+  });
+  if (!canViewStaff) redirect("/dashboard");
+
   // Stage D: roles + departments теперь venue-scoped, фильтруем строго
   // по active venue. Owner — единственная system role (venue_id IS NULL),
   // в дроп фильтра по должностям на этой странице её не показываем —

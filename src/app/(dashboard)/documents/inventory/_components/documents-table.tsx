@@ -502,10 +502,8 @@ export function DocumentsTable({
       {
         id: "status",
         label: "Статус",
-        size: 150,
-        cell: (row: DocumentListRow) => (
-          <InventoryStatusBadge status={row.status} className="max-w-full whitespace-nowrap" />
-        ),
+        size: 170,
+        cell: (row: DocumentListRow) => <InventoryStatusBadge status={row.status} />,
       },
       {
         id: "store_title",
@@ -639,7 +637,9 @@ export function DocumentsTable({
               ? 56
               : column.id === "assigned_to" || column.id === "reviewer_id"
                 ? 116
-                : 96,
+                : column.id === "status"
+                  ? 120
+                  : 96,
         enableHiding: column.canHide !== false,
         enableResizing: column.id !== "select" && column.id !== "actions",
         cell: ({ row }) => column.cell(row.original),

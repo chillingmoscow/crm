@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import {
   Dialog,
@@ -9,7 +10,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { HOTKEY_GROUPS } from "@/lib/hotkeys";
+import { hotkeyGroupsForPath } from "@/lib/hotkeys";
 
 // ─── kbd-чип ──────────────────────────────────────────────────────
 // Стиль скопирован с хинта в меню профиля (sidebar.tsx) — единый вид
@@ -39,6 +40,8 @@ function HotkeysDialog({
   onOpenChange: (next: boolean) => void;
 }) {
   const [isMac, setIsMac] = useState(false);
+  const pathname = usePathname();
+  const groups = hotkeyGroupsForPath(pathname);
   // navigator доступен только в браузере — детектим после маунта,
   // чтобы избежать SSR-mismatch (приём из kb-search-dialog).
   useEffect(() => {
@@ -57,7 +60,7 @@ function HotkeysDialog({
         </DialogHeader>
 
         <div className="mt-2 flex flex-col gap-6">
-          {HOTKEY_GROUPS.map((group) => (
+          {groups.map((group) => (
             <section key={group.title}>
               <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 {group.title}

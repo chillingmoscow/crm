@@ -27,6 +27,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { TableControls, TableControlPin } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import {
@@ -525,6 +531,9 @@ export function InventoryDocumentEditor({
   const filledCount = items.filter((item) => (values[item.id] ?? "").trim() !== "").length;
   const totalCount = items.length;
   const progressPct = totalCount > 0 ? Math.round((filledCount / totalCount) * 100) : 0;
+  // Завершать акт можно, только когда заполнены ВСЕ строки (0 — тоже значение).
+  const unfilledCount = totalCount - filledCount;
+  const hasUnfilled = totalCount > 0 && unfilledCount > 0;
 
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
@@ -798,10 +807,27 @@ export function InventoryDocumentEditor({
             Заполнение закрыто — акт на проверке.
           </p>
         ) : (
-          <Button type="button" disabled={isPending || !loaded} onClick={submit}>
-            {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-            {isRecountPending ? "Завершить пересчёт" : "Завершить"}
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    type="button"
+                    disabled={isPending || !loaded || hasUnfilled}
+                    onClick={submit}
+                  >
+                    {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {isRecountPending ? "Завершить пересчёт" : "Завершить"}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {hasUnfilled ? (
+                <TooltipContent>
+                  Заполните все строки: осталось {unfilledCount}
+                </TooltipContent>
+              ) : null}
+            </Tooltip>
+          </TooltipProvider>
         )}
       </div>
     </div>

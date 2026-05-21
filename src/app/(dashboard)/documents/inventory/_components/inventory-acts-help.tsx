@@ -1,7 +1,7 @@
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 
 /** Контент справки по разделу «Акты инвентаризации» (для кнопки «?» в топ-баре). */
-export function InventoryActsHelp({ showShortcuts = true }: { showShortcuts?: boolean }) {
+export function InventoryActsHelp() {
   return (
     <>
       <Section title="Роли">
@@ -37,17 +37,9 @@ export function InventoryActsHelp({ showShortcuts = true }: { showShortcuts?: bo
         </ul>
       </Section>
 
-      {showShortcuts ? (
-        <Section title="Горячие клавиши (список)">
-          <ul className="space-y-1.5">
-            <Kbd keys="J / K" text="перейти к следующей / предыдущей строке" />
-            <Kbd keys="Enter" text="открыть выделенный акт" />
-            <Kbd keys="/" text="поиск" />
-            <Kbd keys="F" text="показать / скрыть фильтры" />
-            <Kbd keys="?" text="эта справка" />
-          </ul>
-        </Section>
-      ) : null}
+      <p className="text-xs text-muted-foreground">
+        Горячие клавиши — по клавише <kbd className="rounded border bg-muted px-1 font-mono text-[11px]">?</kbd>.
+      </p>
     </>
   );
 }
@@ -76,15 +68,6 @@ function StatusLi({ status, text }: { status: string; text: string }) {
   return (
     <li className="flex items-start gap-2">
       <InventoryStatusBadge status={status} className="mt-0.5 shrink-0" />
-      <span className="text-muted-foreground">{text}</span>
-    </li>
-  );
-}
-
-function Kbd({ keys, text }: { keys: string; text: string }) {
-  return (
-    <li className="flex items-center gap-2">
-      <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-xs">{keys}</kbd>
       <span className="text-muted-foreground">{text}</span>
     </li>
   );

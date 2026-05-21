@@ -74,3 +74,35 @@ export const FORM_LOCKED_STATUSES: readonly string[] = [
 export function isInventoryFormLocked(status: string, finalized: boolean): boolean {
   return finalized || FORM_LOCKED_STATUSES.includes(status);
 }
+
+/**
+ * Можно ли менять ИСПОЛНИТЕЛЯ акта. Зеркалит фазу заполнения: исполнитель —
+ * тот, кто заполняет/пересчитывает, поэтому менять его можно ровно тогда,
+ * когда форма редактируема (synced / assigned / in_progress / recount_pending).
+ * Как только акт ушёл на проверку (ready_for_review / results_blocked) или
+ * проведён / sync_error — менять нельзя: счёт уже сделан конкретным человеком,
+ * подмена ломает атрибуцию. Чтобы передать другому — «Отправить на пересчёт»
+ * (акт → recount_pending, исполнитель снова доступен).
+ * Возвращает причину блокировки (для tooltip) или null, если менять можно.
+ */
+export function getAssigneeLockReason(status: string): string | null {
+  if (status === "processed") return "Акт проведён — исполнителя менять нельзя";
+  if (status === "sync_error")
+    return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
+  if (status === "ready_for_review" || status === "results_blocked")
+    return "Акт на проверке — исполнителя менять нельзя. Чтобы передать другому, отправьте акт на пересчёт";
+  return null;
+}
+
+/**
+ * Можно ли менять ПРОВЕРЯЮЩЕГО акта. Проверяющего назначают/меняют вплоть до
+ * проведения акта: его можно задать заранее и переназначить во время проверки
+ * итогов. Заблокировано только когда акт проведён / sync_error.
+ * Возвращает причину блокировки (для tooltip) или null.
+ */
+export function getReviewerLockReason(status: string): string | null {
+  if (status === "processed") return "Акт проведён — проверяющего менять нельзя";
+  if (status === "sync_error")
+    return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
+  return null;
+}

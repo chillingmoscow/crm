@@ -54,6 +54,7 @@ import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import { InventoryStatusBadge, INVENTORY_STATUS_LABEL } from "@/components/shared/inventory-status-badge";
+import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
 import {
   TableBulkBar,
   TableColumnManager,
@@ -142,15 +143,6 @@ function combineSort(field: SortField, direction: "asc" | "desc"): DocumentSortM
 
 
 const SEARCH_DEBOUNCE_MS = 250;
-
-// Статусы, в которых менять ответственного нельзя.
-// processed → акт закрыт, исторические данные.
-// sync_error → нужно чинить sync, до этого назначать бессмысленно.
-function getAssignLockReason(status: string): string | null {
-  if (status === "processed") return "Акт проведён — исполнителя больше менять нельзя";
-  if (status === "sync_error") return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
-  return null;
-}
 const TABLE_ID = "documents.list";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -379,36 +371,39 @@ export function DocumentsTable({
   // ── Bulk-выделение ─────────────────────────────────────────
   // Выделять можно ЛЮБУЮ строку страницы — это нужно для подсчёта суммы
   // итогов по выделению (включая проведённые акты). Массовые ДЕЙСТВИЯ
-  // (назначить/удалить) применяются только к подходящим актам — см.
-  // eligibleSelectedIds.
+  // показываются по-кнопочно, только когда ВСЕ выделенные акты подходят
+  // для конкретного действия (см. canBulk* ниже) — без частичного применения.
   const selectableRows = initial.rows;
   const allSelected =
     selectableRows.length > 0 && selectableRows.every((row) => selectedIds.has(row.id));
   const someSelected = selectedIds.size > 0;
 
-  // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
-  const selectedNet = useMemo(() => {
-    let net = 0;
-    for (const row of initial.rows) {
-      if (!selectedIds.has(row.id) || !row.results_has_line_amounts) continue;
-      net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
-    }
-    return net;
-  }, [initial.rows, selectedIds]);
-
-  // Выделенные акты, к которым применимы массовые действия (не «Проведён» /
-  // «Ошибка синхронизации»).
-  const eligibleSelectedIds = useMemo(
-    () =>
-      initial.rows
-        .filter((row) => selectedIds.has(row.id) && getAssignLockReason(row.status) === null)
-        .map((row) => row.id),
+  const selectedRowsList = useMemo(
+    () => initial.rows.filter((row) => selectedIds.has(row.id)),
     [initial.rows, selectedIds],
   );
 
-  // В выборке есть проведённый / sync_error акт → массовые действия скрываем,
-  // чтобы не было частичного применения (выделил 2, удалился 1 — путаница).
-  const hasLockedSelected = eligibleSelectedIds.length < selectedIds.size;
+  // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
+  const selectedNet = useMemo(() => {
+    let net = 0;
+    for (const row of selectedRowsList) {
+      if (!row.results_has_line_amounts) continue;
+      net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
+    }
+    return net;
+  }, [selectedRowsList]);
+
+  // Кнопка показывается, только если ДЕЙСТВИЕ применимо ко ВСЕМ выделенным
+  // актам (иначе скрыта — никакого частичного применения):
+  //  - «Исполнитель» — строже: лочится уже на проверке/пересчёте отдан;
+  //  - «Проверяющий» / «Удалить» — лишь на проведённых / sync_error.
+  const canBulkAssignee =
+    selectedRowsList.length > 0 &&
+    selectedRowsList.every((row) => getAssigneeLockReason(row.status) === null);
+  const canBulkReviewer =
+    selectedRowsList.length > 0 &&
+    selectedRowsList.every((row) => getReviewerLockReason(row.status) === null);
+  const canBulkDelete = canBulkReviewer;
 
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -425,7 +420,9 @@ export function DocumentsTable({
   }, [initial.rows]);
 
   const applyBulkAssign = (role: "assignee" | "reviewer", userId: string | null) => {
-    const ids = eligibleSelectedIds;
+    // Кнопка видна только когда все выделенные подходят, так что берём всё
+    // выделение; сервер всё равно защищён инвариантом и вернёт skipped.
+    const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
     startBulk(async () => {
       const res = await bulkAssignInventoryDocuments({ documentIds: ids, role, userId });
@@ -442,7 +439,7 @@ export function DocumentsTable({
   };
 
   const applyBulkDelete = () => {
-    const ids = eligibleSelectedIds;
+    const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
     startBulk(async () => {
       const res = await bulkDeleteInventoryDocuments({ documentIds: ids });
@@ -585,7 +582,7 @@ export function DocumentsTable({
         label: "Исполнитель",
         size: 200,
         cell: (row: DocumentListRow) => {
-          const lockReason = getAssignLockReason(row.status);
+          const lockReason = getAssigneeLockReason(row.status);
           if (canManage) {
             return (
               <div data-row-interactive onClick={(e) => e.stopPropagation()}>
@@ -614,7 +611,7 @@ export function DocumentsTable({
         label: "Проверяющий",
         size: 200,
         cell: (row: DocumentListRow) => {
-          const lockReason = getAssignLockReason(row.status);
+          const lockReason = getReviewerLockReason(row.status);
           if (canManage) {
             return (
               <div data-row-interactive onClick={(e) => e.stopPropagation()}>
@@ -1283,37 +1280,44 @@ export function DocumentsTable({
             </span>
           }
           actions={
-            // Действия только когда ВСЕ выделенные акты подходят (не проведённые).
-            // Иначе кнопок нет — остаётся только сумма и счётчик.
-            hasLockedSelected ? undefined : (
+            // Каждая кнопка показывается, только когда действие применимо ко
+            // ВСЕМ выделенным актам (без частичного применения). «Исполнитель»
+            // строже: исчезает уже когда выделен акт на проверке/проведённый.
+            canBulkAssignee || canBulkReviewer || canBulkDelete ? (
               <>
-                <BulkAssignMenu
-                  label="Исполнитель"
-                  icon={<UserPlus className="mr-2 h-4 w-4" />}
-                  staff={staff}
-                  disabled={bulkPending}
-                  onPick={(userId) => applyBulkAssign("assignee", userId)}
-                />
-                <BulkAssignMenu
-                  label="Проверяющий"
-                  icon={<ShieldCheck className="mr-2 h-4 w-4" />}
-                  staff={staff}
-                  disabled={bulkPending}
-                  onPick={(userId) => applyBulkAssign("reviewer", userId)}
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  disabled={bulkPending}
-                  onClick={() => setBulkDeleteOpen(true)}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Удалить
-                </Button>
+                {canBulkAssignee ? (
+                  <BulkAssignMenu
+                    label="Исполнитель"
+                    icon={<UserPlus className="mr-2 h-4 w-4" />}
+                    staff={staff}
+                    disabled={bulkPending}
+                    onPick={(userId) => applyBulkAssign("assignee", userId)}
+                  />
+                ) : null}
+                {canBulkReviewer ? (
+                  <BulkAssignMenu
+                    label="Проверяющий"
+                    icon={<ShieldCheck className="mr-2 h-4 w-4" />}
+                    staff={staff}
+                    disabled={bulkPending}
+                    onPick={(userId) => applyBulkAssign("reviewer", userId)}
+                  />
+                ) : null}
+                {canBulkDelete ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    disabled={bulkPending}
+                    onClick={() => setBulkDeleteOpen(true)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Удалить
+                  </Button>
+                ) : null}
               </>
-            )
+            ) : undefined
           }
         />
       ) : null}
@@ -1321,7 +1325,7 @@ export function DocumentsTable({
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акты ({eligibleSelectedIds.length})?</AlertDialogTitle>
+            <AlertDialogTitle>Удалить акты ({selectedIds.size})?</AlertDialogTitle>
             <AlertDialogDescription>
               Это удалит выбранные акты и все их позиции. Акты из Quick Resto могут
               вернуться при следующей синхронизации.
@@ -1995,25 +1999,29 @@ function MobileCard({
       onSelect: () => router.push(getDocHref(doc, canViewResults)),
     });
     if (canManage) {
-      const lockReason = getAssignLockReason(doc.status);
-      if (!lockReason) {
+      const canEditAssignee = getAssigneeLockReason(doc.status) === null;
+      const canEditReviewer = getReviewerLockReason(doc.status) === null;
+      if (canEditAssignee) {
         items.push({
           label: "Изменить исполнителя",
           icon: <UserPlus className="h-4 w-4" />,
           onSelect: () => setAssignSheetOpen(true),
           separatorBefore: true,
         });
+      }
+      if (canEditReviewer) {
         items.push({
           label: "Изменить проверяющего",
           icon: <ShieldCheck className="h-4 w-4" />,
           onSelect: () => setReviewerSheetOpen(true),
+          separatorBefore: !canEditAssignee,
         });
       }
       items.push({
         label: "Удалить",
         icon: <Trash2 className="h-4 w-4" />,
         destructive: true,
-        separatorBefore: lockReason !== null,
+        separatorBefore: !canEditAssignee && !canEditReviewer,
         onSelect: () => setConfirmDeleteOpen(true),
       });
     }
@@ -2094,7 +2102,7 @@ function MobileCard({
             documentId={doc.id}
             assignedTo={doc.assigned_to}
             staff={staff}
-            lockReason={getAssignLockReason(doc.status)}
+            lockReason={getAssigneeLockReason(doc.status)}
             linkToPerson={canViewStaff}
           />
         </div>
@@ -2121,7 +2129,7 @@ function MobileCard({
             documentId={doc.id}
             reviewerId={doc.reviewer_id}
             staff={staff}
-            lockReason={getAssignLockReason(doc.status)}
+            lockReason={getReviewerLockReason(doc.status)}
             linkToPerson={canViewStaff}
           />
         </div>

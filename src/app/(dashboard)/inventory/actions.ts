@@ -11,6 +11,8 @@ import {
   type InventoryResortAllocationItem,
 } from "@/lib/inventory/results";
 import {
+  getAssigneeLockReason,
+  getReviewerLockReason,
   isInventoryFormLocked,
   isInventoryResultLocked,
 } from "@/lib/inventory/act-status";
@@ -1479,8 +1481,9 @@ export async function assignInventoryReviewer(input: {
         reviewer_id: string | null;
         document_number: string;
         venue_id: string | null;
+        status: string;
       }>("documents")
-      .select("reviewer_id, document_number, venue_id")
+      .select("reviewer_id, document_number, venue_id, status")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -1489,6 +1492,10 @@ export async function assignInventoryReviewer(input: {
       return { error: beforeError.message };
     }
     if (!before) return { error: "Акт не найден" };
+
+    // Инвариант: проверяющего нельзя менять у проведённого / sync_error акта.
+    const reviewerLock = getReviewerLockReason(before.status);
+    if (reviewerLock) return { error: reviewerLock };
 
     const { error } = await admin
       .from("documents")
@@ -1570,8 +1577,9 @@ export async function assignInventoryDocument(input: {
         assigned_to: string | null;
         document_number: string;
         venue_id: string | null;
+        status: string;
       }>("documents")
-      .select("assigned_to, document_number, venue_id")
+      .select("assigned_to, document_number, venue_id, status")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -1580,6 +1588,11 @@ export async function assignInventoryDocument(input: {
       return { error: beforeError.message };
     }
     if (!before) return { error: "Акт не найден" };
+
+    // Инвариант: исполнителя нельзя менять после ухода акта на проверку /
+    // проведения. Передать другому — через «Отправить на пересчёт».
+    const assigneeLock = getAssigneeLockReason(before.status);
+    if (assigneeLock) return { error: assigneeLock };
 
     const { error } = await admin
       .from("documents")
@@ -1695,17 +1708,20 @@ export async function bulkAssignInventoryDocuments(input: {
     // Codex P1 #407: read-ошибку нельзя глотать — иначе ложный успех.
     if (readError) throw new Error(readError.message);
     const docs = docsRaw ?? [];
-    // Пропускаем проведённые / sync_error (как getAssignLockReason на клиенте)
-    // и no-op'ы, где значение уже стоит — чтобы не плодить лог/уведомления
-    // на пустом месте (Codex P2 #407: как single-action, только на изменение).
-    const eligible = docs.filter(
-      (d) =>
-        d.status !== "processed" &&
-        d.status !== "sync_error" &&
-        (input.role === "assignee"
-          ? d.assigned_to !== input.userId
-          : d.reviewer_id !== input.userId),
-    );
+    // Пропускаем залоченные по статусу для соответствующей роли (исполнитель
+    // строже: лок уже на ready_for_review/results_blocked; проверяющий — лишь
+    // на processed/sync_error) и no-op'ы, где значение уже стоит — чтобы не
+    // плодить лог/уведомления на пустом месте (как single-action).
+    const eligible = docs.filter((d) => {
+      const lock =
+        input.role === "assignee"
+          ? getAssigneeLockReason(d.status)
+          : getReviewerLockReason(d.status);
+      if (lock !== null) return false;
+      return input.role === "assignee"
+        ? d.assigned_to !== input.userId
+        : d.reviewer_id !== input.userId;
+    });
     const skipped = ids.length - eligible.length;
     if (eligible.length === 0) return { updated: 0, skipped, error: null };
 

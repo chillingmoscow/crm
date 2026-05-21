@@ -299,13 +299,21 @@ export function DocumentsTable({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const el = document.activeElement as HTMLElement | null;
-      const typing =
+      // Не перехватываем клавиши, когда фокус на интерактивном контроле:
+      // нативные поля ввода, contenteditable, А ТАКЖЕ Radix-триггеры/меню/
+      // диалоги (Select исполнителя, row-menu «⋯» — это <button>/role-узлы,
+      // не нативные select). Иначе Enter «открыл бы акт» вместо активации
+      // сфокусированного контрола (Codex P1 #406).
+      const interactive =
         !!el &&
         (el.tagName === "INPUT" ||
           el.tagName === "TEXTAREA" ||
           el.tagName === "SELECT" ||
-          el.isContentEditable);
-      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+          el.isContentEditable ||
+          !!el.closest(
+            'button, a[href], [role="menu"], [role="menuitem"], [role="listbox"], [role="option"], [role="combobox"], [role="dialog"]',
+          ));
+      if (interactive || e.metaKey || e.ctrlKey || e.altKey) return;
       const rows = initial.rows;
       const lastIndex = rows.length - 1;
       if (e.key === "/") {

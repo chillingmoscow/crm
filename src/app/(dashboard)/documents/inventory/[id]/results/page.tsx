@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
-import { RefreshResultsButton } from "./_components/refresh-results-button";
 import {
   InventoryResultsTable,
   type InventoryDocumentResultItem,
@@ -441,14 +440,10 @@ export default async function InventoryDocumentResultsPage({
     .slice(0, 5);
 
   return (
-    <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout
-          (см. inventory/[id]/layout.tsx). Здесь только кнопка
-          обновления данных Quick Resto. */}
-      <div className="mb-5 flex items-center justify-end">
-        <RefreshResultsButton documentId={document.id} />
-      </div>
-
+    <div className="w-full space-y-6 p-6 md:p-8">
+      {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout.
+          «Обновить итоги из QR» переехала в тулбар таблицы итогов
+          (results-table → TableControls.secondaryActions). */}
       {!document.results_has_line_amounts ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="mb-2 flex items-center gap-2 font-medium">

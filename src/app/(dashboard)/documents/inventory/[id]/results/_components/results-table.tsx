@@ -2,14 +2,20 @@
 
 import { useMemo, useState, useTransition } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Ban,
+  Check,
   CheckCircle2,
   Lock,
   MessageSquare,
   MessageSquarePlus,
   MoreHorizontal,
+  Plus,
   Repeat2,
   RotateCcw,
+  Search as SearchIcon,
   Trash2,
   Undo2,
   WandSparkles,
@@ -42,6 +48,7 @@ import {
 } from "@/lib/format/amount";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogContent,
@@ -57,9 +64,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
-import { DataTableToolbar } from "@/components/shared/data-table-toolbar";
-import { TableBulkBar } from "@/components/shared/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { TableBulkBar, TableControls, TableControlPin } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
+import { RefreshResultsButton } from "./refresh-results-button";
 
 export type InventoryDocumentResultItem = {
   id: string;
@@ -148,7 +168,51 @@ type Props = {
 
 type ResultColumnKey = "calculated" | "fact" | "difference" | "management" | "status" | "recount" | "comment";
 type ResultStatusFilter = "all" | "included" | "excluded" | "resort";
-type ResultSortMode = "name_asc" | "name_desc" | "group_asc" | "group_desc" | "empty_first" | "empty_last" | "sum_desc";
+
+// Multi-sort 1-в-1 с эталоном documents-table.tsx / form-editor: поле +
+// направление в combined-значении, sorts — массив (порядок = приоритет).
+type ResultSortField = "name" | "group" | "empty" | "sum";
+type ResultSortMode =
+  | "name_asc"  | "name_desc"
+  | "group_asc" | "group_desc"
+  | "empty_first" | "empty_last"
+  | "sum_asc" | "sum_desc";
+
+const RESULT_SORT_FIELDS: ResultSortField[] = ["name", "group", "empty", "sum"];
+
+const RESULT_SORT_FIELD_LABEL: Record<ResultSortField, string> = {
+  name:  "Название",
+  group: "Группа",
+  empty: "Заполненность",
+  sum:   "Сумма расхождения",
+};
+
+const RESULT_STATUS_LABEL: Record<ResultStatusFilter, string> = {
+  all:      "Все",
+  included: "Учитывать",
+  excluded: "Не учитывать",
+  resort:   "Пересорт",
+};
+
+function resultSortToField(mode: ResultSortMode): ResultSortField {
+  if (mode === "name_asc"  || mode === "name_desc")  return "name";
+  if (mode === "group_asc" || mode === "group_desc") return "group";
+  if (mode === "empty_first" || mode === "empty_last") return "empty";
+  return "sum";
+}
+
+function resultSortToDirection(mode: ResultSortMode): "asc" | "desc" {
+  if (mode === "empty_first") return "asc";
+  if (mode === "empty_last")  return "desc";
+  return mode.endsWith("_asc") ? "asc" : "desc";
+}
+
+function combineResultSort(field: ResultSortField, direction: "asc" | "desc"): ResultSortMode {
+  if (field === "name")  return direction === "asc" ? "name_asc"  : "name_desc";
+  if (field === "group") return direction === "asc" ? "group_asc" : "group_desc";
+  if (field === "empty") return direction === "asc" ? "empty_first" : "empty_last";
+  return direction === "asc" ? "sum_asc" : "sum_desc";
+}
 
 const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; width: string }> = [
   // Порядок: Расчёт (книжный остаток) → Факт → Разница — естественная
@@ -207,7 +271,9 @@ export function InventoryResultsTable({
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<ResultStatusFilter>("all");
-  const [sortMode, setSortMode] = useState<ResultSortMode>("name_asc");
+  const [sorts, setSorts] = useState<ResultSortMode[]>([]);
+  // pin-row скрыт по умолчанию, кнопка «Фильтры» нейтральна (как в актах).
+  const [filtersVisible, setFiltersVisible] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<ResultColumnKey>>(
     () => new Set(DEFAULT_RESULT_COLUMNS),
   );
@@ -312,21 +378,24 @@ export function InventoryResultsTable({
     });
 
     return [...searched].sort((left, right) => {
-      if (sortMode === "name_desc") return right.product_name.localeCompare(left.product_name, "ru");
-      if (sortMode === "group_asc") return (left.group_name ?? "").localeCompare(right.group_name ?? "", "ru");
-      if (sortMode === "group_desc") return (right.group_name ?? "").localeCompare(left.group_name ?? "", "ru");
-      if (sortMode === "empty_first") {
-        const leftEmpty = left.actual_amount === null;
-        const rightEmpty = right.actual_amount === null;
-        if (leftEmpty !== rightEmpty) return leftEmpty ? -1 : 1;
-      }
-      if (sortMode === "empty_last") {
-        const leftEmpty = left.actual_amount === null;
-        const rightEmpty = right.actual_amount === null;
-        if (leftEmpty !== rightEmpty) return leftEmpty ? 1 : -1;
-      }
-      if (sortMode === "sum_desc") {
-        return Math.abs(Number(right.difference_sum ?? 0)) - Math.abs(Number(left.difference_sum ?? 0));
+      // Применяем сорты по приоритету. Tiebreaker — название (стабильный).
+      for (const mode of sorts) {
+        const field = resultSortToField(mode);
+        const dir = resultSortToDirection(mode);
+        let cmp = 0;
+        if (field === "name") {
+          cmp = left.product_name.localeCompare(right.product_name, "ru");
+        } else if (field === "group") {
+          cmp = (left.group_name ?? "").localeCompare(right.group_name ?? "", "ru");
+        } else if (field === "empty") {
+          const leftEmpty = left.actual_amount === null;
+          const rightEmpty = right.actual_amount === null;
+          if (leftEmpty !== rightEmpty) cmp = leftEmpty ? -1 : 1;
+        } else {
+          // sum: по модулю расхождения.
+          cmp = Math.abs(Number(left.difference_sum ?? 0)) - Math.abs(Number(right.difference_sum ?? 0));
+        }
+        if (cmp !== 0) return dir === "asc" ? cmp : -cmp;
       }
       return left.product_name.localeCompare(right.product_name, "ru");
     });
@@ -336,15 +405,25 @@ export function InventoryResultsTable({
     items,
     searchQuery,
     showDifferences,
-    sortMode,
+    sorts,
     statusFilter,
   ]);
-  const isTableFiltered =
-    showDifferences ||
-    searchQuery.trim().length > 0 ||
-    groupFilter !== "all" ||
-    statusFilter !== "all" ||
-    sortMode !== "name_asc";
+  const hasActiveFilters =
+    showDifferences || groupFilter !== "all" || statusFilter !== "all";
+  const hasSortActive = sorts.length > 0;
+  const hasSearch = searchQuery.trim().length > 0;
+  const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
+  const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
+  const currentGroupName =
+    groupFilter === "all" ? null : groupOptions.find((g) => g.id === groupFilter)?.name ?? null;
+  const onClearAll = () => {
+    setShowDifferences(false);
+    setSearchQuery("");
+    setSearchOpen(false);
+    setGroupFilter("all");
+    setStatusFilter("all");
+    setSorts([]);
+  };
   const selectedItems = useMemo(
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds],
@@ -470,149 +549,168 @@ export function InventoryResultsTable({
       </div>
 
       {/* Журнал событий («Журнал решений») переехал в layout-табу «Журнал»
-          (../history) — здесь была дублирующая внутренняя вкладка. */}
+          (../history) — здесь была дублирующая внутренняя вкладка.
+          Тулбар — 1-в-1 с /documents/inventory: TableControls (иконки
+          справа, без рамки) + pin-row. */}
       <div className="space-y-4">
-      <DataTableToolbar
-        search={{
-          value: searchQuery,
-          onChange: setSearchQuery,
-          open: searchOpen,
-          onOpenChange: setSearchOpen,
-          placeholder: "Поиск по позиции, артикулу, группе",
-        }}
-        filters={{
-          active: isTableFiltered,
-          content: (
-            <div className="space-y-4">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Фильтры
-              </p>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={showDifferences}
-                  onChange={(event) => setShowDifferences(event.target.checked)}
-                  className="h-4 w-4 rounded border-input accent-primary"
-                />
-                Показывать только расхождения
-              </label>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium">Группа</label>
-                <select
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <TableControls
+          search={{
+            value: searchQuery,
+            onChange: setSearchQuery,
+            open: searchOpen,
+            onOpenChange: setSearchOpen,
+            placeholder: "Поиск по позиции, артикулу, группе",
+          }}
+          filters={{
+            active: hasActiveFilters,
+            label: filtersVisible ? "Скрыть фильтры" : "Показать фильтры",
+            onClick: () => setFiltersVisible((v) => !v),
+          }}
+          sort={{
+            active: hasSortActive,
+            content: <ResultSortFieldPanel sorts={sorts} onChange={setSorts} />,
+          }}
+          columns={{
+            active: visibleColumns.size !== RESULT_COLUMNS.length,
+            content: (
+              <div className="space-y-3">
+                <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  Столбцы таблицы
+                </p>
+                {RESULT_COLUMNS.map((column) => (
+                  <label key={column.key} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumns.has(column.key)}
+                      onChange={(event) => toggleColumn(column.key, event.target.checked)}
+                      className="h-4 w-4 rounded border-input accent-primary"
+                    />
+                    {column.label}
+                  </label>
+                ))}
+              </div>
+            ),
+          }}
+          secondaryActions={<RefreshResultsButton documentId={documentId} />}
+          summary={
+            <>
+              Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}; выбрано {selectedItems.length}.
+            </>
+          }
+        />
+      </div>
+
+      {/* Pin-row — порядок 1-в-1 с documents-table: Сортировка → divider →
+          Расхождения · Группа · Статус → divider → Поиск → «Очистить все». */}
+      {(filtersVisible || hasSortActive || hasSearch) ? (
+        <div className="flex flex-wrap items-center gap-2">
+          {hasSortActive ? (
+            <TableControlPin
+              active
+              icon={
+                sorts.length === 1
+                  ? resultSortToDirection(sorts[0]) === "asc"
+                    ? <ArrowUp className="h-3.5 w-3.5" />
+                    : <ArrowDown className="h-3.5 w-3.5" />
+                  : <ArrowUpDown className="h-3.5 w-3.5" />
+              }
+              label={
+                sorts.length === 1
+                  ? RESULT_SORT_FIELD_LABEL[resultSortToField(sorts[0])]
+                  : `${sorts.length} сортировки`
+              }
+              onClear={() => setSorts([])}
+              clearLabel="Сбросить сортировку"
+              contentClassName="w-auto p-3"
+            >
+              <ResultSortPinEditor sorts={sorts} onChange={setSorts} />
+            </TableControlPin>
+          ) : null}
+
+          {hasSortActive && (filtersVisible || showSearchPin) ? <ResultPinDivider /> : null}
+
+          {filtersVisible ? (
+            <>
+              <TableControlPin
+                active={showDifferences}
+                label={showDifferences ? "Только расхождения" : "Расхождения"}
+                onClear={showDifferences ? () => setShowDifferences(false) : undefined}
+                clearLabel="Показать все строки"
+              >
+                <div className="p-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowDifferences((v) => !v)}
+                    className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+                  >
+                    <span>Только расхождения</span>
+                    {showDifferences ? <Check className="h-4 w-4 shrink-0" /> : null}
+                  </button>
+                </div>
+              </TableControlPin>
+
+              <TableControlPin
+                active={groupFilter !== "all"}
+                label={currentGroupName ? `Группа: ${currentGroupName}` : "Группа"}
+                onClear={groupFilter !== "all" ? () => setGroupFilter("all") : undefined}
+                clearLabel="Сбросить группу"
+              >
+                <ResultGroupPicker
                   value={groupFilter}
-                  onChange={(event) => setGroupFilter(event.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                >
-                  <option value="all">Все группы</option>
-                  {groupOptions.map((group) => (
-                    <option key={group.id} value={group.id}>
-                      {group.name}
-                    </option>
-                  ))}
-                </select>
+                  options={groupOptions}
+                  onChange={setGroupFilter}
+                />
+              </TableControlPin>
+
+              <TableControlPin
+                active={statusFilter !== "all"}
+                label={statusFilter !== "all" ? `Статус: ${RESULT_STATUS_LABEL[statusFilter]}` : "Статус"}
+                onClear={statusFilter !== "all" ? () => setStatusFilter("all") : undefined}
+                clearLabel="Сбросить статус"
+              >
+                <ResultStatusPicker value={statusFilter} onChange={setStatusFilter} />
+              </TableControlPin>
+            </>
+          ) : null}
+
+          {filtersVisible && showSearchPin ? <ResultPinDivider /> : null}
+
+          {showSearchPin ? (
+            <TableControlPin
+              active
+              icon={<SearchIcon className="h-3.5 w-3.5" />}
+              label={`Поиск: ${searchQuery.trim()}`}
+              onClear={() => { setSearchQuery(""); setSearchOpen(false); }}
+              clearLabel="Очистить поиск"
+            >
+              <div className="space-y-2 p-2">
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Поиск"
+                  className="h-8"
+                />
+                <p className="text-xs text-muted-foreground">
+                  По названию, артикулу, группе, комментарию.
+                </p>
               </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium">Статус</label>
-                <select
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as ResultStatusFilter)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                >
-                  <option value="all">Все</option>
-                  <option value="included">Учитывать</option>
-                  <option value="excluded">Не учитывать</option>
-                  <option value="resort">Пересорт</option>
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium">Сортировка</label>
-                <select
-                  value={sortMode}
-                  onChange={(event) => setSortMode(event.target.value as ResultSortMode)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                >
-                  <option value="name_asc">Название: А-Я</option>
-                  <option value="name_desc">Название: Я-А</option>
-                  <option value="group_asc">Группа: А-Я</option>
-                  <option value="group_desc">Группа: Я-А</option>
-                  <option value="empty_first">Пустые сверху</option>
-                  <option value="empty_last">Пустые снизу</option>
-                  <option value="sum_desc">Сумма расхождения</option>
-                </select>
-              </div>
-              {isTableFiltered ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start px-0"
-                  onClick={() => {
-                    setShowDifferences(false);
-                    setSearchQuery("");
-                    setGroupFilter("all");
-                    setStatusFilter("all");
-                    setSortMode("name_asc");
-                  }}
-                >
-                  Сбросить фильтры
-                </Button>
-              ) : null}
-            </div>
-          ),
-        }}
-        columns={{
-          active: visibleColumns.size !== RESULT_COLUMNS.length,
-          content: (
-            <div className="space-y-3">
-              <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                Столбцы таблицы
-              </p>
-              {RESULT_COLUMNS.map((column) => (
-                <label key={column.key} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={visibleColumns.has(column.key)}
-                    onChange={(event) => toggleColumn(column.key, event.target.checked)}
-                    className="h-4 w-4 rounded border-input accent-primary"
-                  />
-                  {column.label}
-                </label>
-              ))}
-            </div>
-          ),
-        }}
-        actions={
-          // Document-level действие — НЕ зависит от выбора строк, поэтому
-          // остаётся в тулбаре. Row-bulk-действия (Пересорт / Не учитывать /
-          // Исключать / Пересчёт) живут в floating-баре (см. <TableBulkBar>).
-          canSendToRecount ? (
+            </TableControlPin>
+          ) : null}
+
+          {hasAnyActive ? (
             <Button
               type="button"
+              variant="ghost"
               size="sm"
-              variant="outline"
-              disabled={isFinalized || isPending || flaggedCount === 0}
-              onClick={() =>
-                runAction(
-                  () => returnDocumentForRecount({ documentId }),
-                  `Акт отправлен на пересчёт (${flaggedCount} ${flaggedCount === 1 ? "строка" : "строк"})`,
-                )
-              }
-              title={
-                flaggedCount === 0
-                  ? "Отметьте хотя бы одну строку флажком пересчёта."
-                  : `На пересчёт уйдут ${flaggedCount} строк.`
-              }
+              className="h-8 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onClearAll}
             >
-              Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
+              Очистить все
             </Button>
-          ) : null
-        }
-        summary={
-          <>
-            Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}; выбрано {selectedItems.length}.
-          </>
-        }
-      />
+          ) : null}
+        </div>
+      ) : null}
 
       {suggestions.length > 0 ? (
       <div className="rounded-lg border bg-background p-4">
@@ -943,48 +1041,87 @@ export function InventoryResultsTable({
         </div>
       ) : null}
 
-      {canFinalize ? (
-        <div className="flex flex-col gap-3 rounded-lg border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="text-sm font-medium">
-              {isFinalized ? "Итоги подведены" : "Подведение итогов"}
-            </div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              После подведения итогов пересорты, комментарии и исключения будут заблокированы до переоткрытия.
-            </div>
-          </div>
-          {isFinalized ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isPending}
-              onClick={() =>
-                runAction(
-                  () => reopenInventoryResults({ documentId, reason: "Режим редактирования итогов" }),
-                  "Итоги открыты для редактирования",
-                )
-              }
-            >
-              <Undo2 className="mr-2 h-4 w-4" />
-              Редактировать итоги
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              disabled={isPending}
-              onClick={() =>
-                runAction(
-                  () => finalizeInventoryResults({ documentId }),
-                  "Итоги подведены",
-                )
-              }
-            >
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Подвести итоги
-            </Button>
-          )}
+      {/* Низ страницы — без рамки: summary слева, document-level действия
+          справа («Отправить на пересчёт» + «Подвести итоги»/«Редактировать
+          итоги»). Поясняющий текст про блокировку — в тултипе кнопки. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+        <div className="text-xs text-muted-foreground">
+          Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}; выбрано {selectedItems.length}.
         </div>
-      ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {canSendToRecount ? (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isFinalized || isPending || flaggedCount === 0}
+                      onClick={() =>
+                        runAction(
+                          () => returnDocumentForRecount({ documentId }),
+                          `Акт отправлен на пересчёт (${flaggedCount} ${flaggedCount === 1 ? "строка" : "строк"})`,
+                        )
+                      }
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {flaggedCount === 0
+                    ? "Отметьте флажком «Пересчёт» хотя бы одну строку."
+                    : `На пересчёт уйдут ${flaggedCount} отмеченных строк.`}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : null}
+
+          {canFinalize ? (
+            isFinalized ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending}
+                onClick={() =>
+                  runAction(
+                    () => reopenInventoryResults({ documentId, reason: "Режим редактирования итогов" }),
+                    "Итоги открыты для редактирования",
+                  )
+                }
+              >
+                <Undo2 className="mr-2 h-4 w-4" />
+                Редактировать итоги
+              </Button>
+            ) : (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() =>
+                          runAction(() => finalizeInventoryResults({ documentId }), "Итоги подведены")
+                        }
+                      >
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Подвести итоги
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-[280px]">
+                    После подведения итогов пересорты, комментарии и исключения будут
+                    заблокированы до переоткрытия.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )
+          ) : null}
+        </div>
+      </div>
       </div>
 
       <Dialog open={Boolean(commentItem)} onOpenChange={(open) => !open && setCommentItem(null)}>
@@ -1174,6 +1311,243 @@ export function InventoryResultsTable({
           }
         />
       ) : null}
+    </div>
+  );
+}
+
+// ─── Toolbar sub-components (1-в-1 паттерн documents-table) ──────────────────
+
+function ResultPinDivider() {
+  return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
+}
+
+/**
+ * Popover из sort-кнопки в шапке. Список полей; клик на свободном — APPEND
+ * с asc, уже добавленные показывают «Добавлено».
+ */
+function ResultSortFieldPanel({
+  sorts,
+  onChange,
+}: {
+  sorts: ResultSortMode[];
+  onChange: (next: ResultSortMode[]) => void;
+}) {
+  const usedFields = new Set(sorts.map((mode) => resultSortToField(mode)));
+  return (
+    <div className="space-y-3">
+      <p className="px-3 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+        Сортировка
+      </p>
+      <div className="space-y-1">
+        {RESULT_SORT_FIELDS.map((field) => {
+          const used = usedFields.has(field);
+          return (
+            <button
+              key={field}
+              type="button"
+              onClick={() => {
+                if (used) return;
+                onChange([...sorts, combineResultSort(field, "asc")]);
+              }}
+              className={cn(
+                "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+                used ? "bg-accent text-muted-foreground" : null,
+              )}
+            >
+              <span>{RESULT_SORT_FIELD_LABEL[field]}</span>
+              {used ? <span className="text-xs">Добавлено</span> : null}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Контент активного sort-pin: строки field-Select + direction-Select + ×. */
+function ResultSortPinEditor({
+  sorts,
+  onChange,
+}: {
+  sorts: ResultSortMode[];
+  onChange: (next: ResultSortMode[]) => void;
+}) {
+  const [showAdd, setShowAdd] = useState(false);
+  const unusedFields = RESULT_SORT_FIELDS.filter(
+    (field) => !sorts.some((mode) => resultSortToField(mode) === field),
+  );
+
+  const updateAt = (index: number, next: ResultSortMode) => {
+    onChange(sorts.map((mode, i) => (i === index ? next : mode)));
+  };
+  const replaceField = (index: number, field: ResultSortField) => {
+    updateAt(index, combineResultSort(field, resultSortToDirection(sorts[index])));
+  };
+  const removeAt = (index: number) => onChange(sorts.filter((_, i) => i !== index));
+
+  return (
+    <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
+      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Сортировка</p>
+      <div className="space-y-2">
+        {sorts.map((mode, index) => {
+          const field = resultSortToField(mode);
+          const direction = resultSortToDirection(mode);
+          return (
+            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_72px_32px] items-center gap-2">
+              <Select value={field} onValueChange={(value) => replaceField(index, value as ResultSortField)}>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESULT_SORT_FIELDS.map((option) => {
+                    const disabled = sorts.some(
+                      (other, otherIndex) => otherIndex !== index && resultSortToField(other) === option,
+                    );
+                    return (
+                      <SelectItem key={option} value={option} disabled={disabled}>
+                        {RESULT_SORT_FIELD_LABEL[option]}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              <Select
+                value={direction}
+                onValueChange={(value) => updateAt(index, combineResultSort(field, value as "asc" | "desc"))}
+              >
+                <SelectTrigger
+                  className="h-9 w-[72px] justify-center gap-1 px-2"
+                  aria-label={direction === "asc" ? "По возрастанию" : "По убыванию"}
+                >
+                  {direction === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="asc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowUp className="h-3.5 w-3.5" /> По возрастанию
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="desc">
+                    <span className="inline-flex items-center gap-2">
+                      <ArrowDown className="h-3.5 w-3.5" /> По убыванию
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => removeAt(index)}
+                aria-label="Удалить сортировку"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+      {showAdd && unusedFields.length > 0 ? (
+        <div className="rounded-lg border bg-background p-2">
+          {unusedFields.map((field) => (
+            <button
+              key={field}
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onChange([...sorts, combineResultSort(field, "asc")]);
+                setShowAdd(false);
+              }}
+            >
+              <ArrowUp className="h-4 w-4 text-muted-foreground" />
+              {RESULT_SORT_FIELD_LABEL[field]}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="space-y-1 border-t pt-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+          disabled={unusedFields.length === 0}
+          onClick={() => setShowAdd((current) => !current)}
+        >
+          <Plus className="h-4 w-4" />
+          Добавить сортировку
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
+          onClick={() => onChange([])}
+        >
+          <Trash2 className="h-4 w-4" />
+          Удалить сортировку
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ResultGroupPicker({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: Array<{ id: string; name: string }>;
+  onChange: (groupId: string) => void;
+}) {
+  return (
+    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
+      <button
+        type="button"
+        onClick={() => onChange("all")}
+        className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+      >
+        <span className="truncate">Все группы</span>
+        {value === "all" ? <Check className="h-4 w-4 shrink-0" /> : null}
+      </button>
+      {options.map((group) => (
+        <button
+          key={group.id}
+          type="button"
+          onClick={() => onChange(group.id)}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+        >
+          <span className="truncate">{group.name}</span>
+          {value === group.id ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ResultStatusPicker({
+  value,
+  onChange,
+}: {
+  value: ResultStatusFilter;
+  onChange: (next: ResultStatusFilter) => void;
+}) {
+  const options: ResultStatusFilter[] = ["all", "included", "excluded", "resort"];
+  return (
+    <div className="space-y-0.5 p-1">
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+        >
+          <span className="truncate">{RESULT_STATUS_LABEL[option]}</span>
+          {value === option ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
     </div>
   );
 }

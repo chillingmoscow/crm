@@ -1181,13 +1181,13 @@ export function DocumentsTable({
           actions={
             <>
               <BulkAssignMenu
-                label="Передать исполнителя"
+                label="Назначить исполнителя"
                 staff={staff}
                 disabled={bulkPending}
                 onPick={(userId) => applyBulkAssign("assignee", userId)}
               />
               <BulkAssignMenu
-                label="Передать проверяющего"
+                label="Назначить проверяющего"
                 staff={staff}
                 disabled={bulkPending}
                 onPick={(userId) => applyBulkAssign("reviewer", userId)}

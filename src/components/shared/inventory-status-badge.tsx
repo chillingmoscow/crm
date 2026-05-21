@@ -72,16 +72,21 @@ export function InventoryStatusBadge({
   status: string;
   className?: string;
 }) {
+  const label = INVENTORY_STATUS_LABEL[status] ?? status;
   return (
     <Badge
       variant="outline"
+      title={label}
       className={cn(
-        "text-xs font-normal",
+        // max-w-full + overflow-hidden + внутренний truncate: в узком столбце
+        // чип усекается многоточием, сохраняя скруглённую рамку и паддинги,
+        // а не режется жёстко краем ячейки (td overflow-hidden).
+        "max-w-full overflow-hidden text-xs font-normal",
         STATUS_BADGE_CLASS[status] ?? STATUS_FALLBACK_CLASS,
         className,
       )}
     >
-      {INVENTORY_STATUS_LABEL[status] ?? status}
+      <span className="min-w-0 truncate">{label}</span>
     </Badge>
   );
 }

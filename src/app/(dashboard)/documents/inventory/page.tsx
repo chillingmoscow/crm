@@ -124,6 +124,7 @@ export default async function InventoryDocumentsPage({
     { data: canFill },
     { data: canSync },
     { data: canViewResults },
+    { data: canViewStaff },
     { data: accountId },
     { data: { user } },
     amountRoundingScale,
@@ -133,6 +134,9 @@ export default async function InventoryDocumentsPage({
     supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
     supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
+    // Доступ к разделу «Сотрудники» → можно делать исполнителя/проверяющего
+    // кликабельной ссылкой на страницу сотрудника.
+    supabase.rpc("has_permission", { permission_code: "people.view_staff" }),
     supabase.rpc("get_active_account_id"),
     supabase.auth.getUser(),
     getActiveAccountAmountRoundingScale(),
@@ -152,12 +156,14 @@ export default async function InventoryDocumentsPage({
     pageSize: parsed.pageSize,
   });
 
-  // venues + stores для фильтров, staff для назначения. Все через
-  // RLS-клиент → пользователь видит только то, что ему разрешено.
+  // venues + stores для фильтров через RLS-клиент. staff — справочник имён
+  // (id → ФИО) нужен ВСЕМ зрителям, не только тем, кто может назначать:
+  // иначе read-only пользователь видит «—» вместо исполнителя/проверяющего,
+  // и переход на страницу сотрудника из завершённого акта недоступен.
   const [{ data: venuesForFilter }, { data: storesForFilter }, staff] = await Promise.all([
     asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name").order("name"),
     asLooseDb(supabase).from<StoreOption[]>("stores").select("id, title").eq("account_id", accountId).order("title"),
-    canManage ? loadStaff(accountId as string) : Promise.resolve<AssigneeOption[]>([]),
+    loadStaff(accountId as string),
   ]);
 
   return (
@@ -175,6 +181,7 @@ export default async function InventoryDocumentsPage({
       canManage={Boolean(canManage)}
       canSync={Boolean(canSync)}
       canViewResults={Boolean(canViewResults)}
+      canViewStaff={Boolean(canViewStaff)}
       amountRoundingScale={amountRoundingScale}
     />
   );

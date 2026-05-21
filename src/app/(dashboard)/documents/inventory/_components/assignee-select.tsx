@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -25,10 +26,10 @@ export type AssigneeOption = {
  * Inline-выбор ответственного в строке акта.
  * - Если можно менять (lockReason=null): назначен → бейдж с инициалами +
  *   ФИО, click раскрывает Select. Не назначен → ghost-кнопка «Назначить».
- * - Если менять нельзя (lockReason передан): рендерим статичный бейдж
- *   без chevron, без интерактивности. Тултип на hover показывает причину.
- *   Используется для статусов `processed` и `sync_error` (см.
- *   documents-table.tsx → getAssignLockReason).
+ * - Если менять нельзя (lockReason передан, статусы `processed` /
+ *   `sync_error` — см. documents-table.tsx → getAssignLockReason): бейдж
+ *   становится ссылкой на страницу сотрудника (`?from=inventory`, чтобы
+ *   хлебная крошка вернула в список актов).
  */
 export function AssigneeSelect({
   documentId,
@@ -36,28 +37,26 @@ export function AssigneeSelect({
   staff,
   disabled,
   lockReason,
+  linkToPerson = false,
 }: {
   documentId: string;
   assignedTo: string | null;
   staff: AssigneeOption[];
   disabled?: boolean;
-  /** Если задано — Select не рендерится, viewport-only бейдж + tooltip. */
+  /** Если задано — Select не рендерится, бейдж (ссылка на профиль при linkToPerson). */
   lockReason?: string | null;
+  /** Делать бейдж в locked-режиме ссылкой на страницу сотрудника. Только
+   *  при доступе к разделу «Сотрудники» (people.view_staff). */
+  linkToPerson?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const assigned = assignedTo ? staff.find((p) => p.id === assignedTo) ?? null : null;
 
-  // ── Locked-state: статичный рендер без Select ────────────
+  // ── Locked-state: бейдж (ссылка на сотрудника, если есть доступ) ────────
   if (lockReason) {
     return assigned ? (
-      <div
-        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground"
-        title={lockReason}
-      >
-        <AssigneeAvatar name={assigned.name} muted />
-        <span className="truncate">{assigned.name}</span>
-      </div>
+      <PersonChip person={assigned} href={linkToPerson ? inventoryPersonHref(assigned.id) : null} />
     ) : (
       <span className="text-sm text-muted-foreground" title={lockReason}>
         —
@@ -127,6 +126,48 @@ export function AssigneeSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+/** Ссылка на страницу сотрудника из акта; ?from=inventory → хлебная крошка
+ *  на странице сотрудника вернёт обратно в «Акты инвентаризации». */
+export function inventoryPersonHref(userId: string): string {
+  return `/people/staff/${userId}?from=inventory`;
+}
+
+/**
+ * Бейдж сотрудника (аватар + ФИО) для read-only ячеек строки акта. Если
+ * передан href — кликабелен (ведёт на страницу сотрудника), иначе статичен.
+ * Используется в AssigneeSelect/ReviewerSelect (locked) и в documents-table
+ * для пользователей без права назначать.
+ */
+export function PersonChip({
+  person,
+  href,
+}: {
+  person: AssigneeOption;
+  href?: string | null;
+}) {
+  const baseClass =
+    "inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground";
+  const inner = (
+    <>
+      <AssigneeAvatar name={person.name} muted />
+      <span className="truncate">{person.name}</span>
+    </>
+  );
+  return href ? (
+    <Link
+      href={href}
+      title={`Открыть профиль · ${person.name}`}
+      className={cn(baseClass, "transition-colors hover:bg-muted hover:text-foreground")}
+    >
+      {inner}
+    </Link>
+  ) : (
+    <span className={baseClass} title={person.name}>
+      {inner}
+    </span>
   );
 }
 

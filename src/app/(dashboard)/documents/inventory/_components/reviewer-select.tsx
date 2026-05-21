@@ -13,7 +13,12 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { assignInventoryReviewer } from "@/app/(dashboard)/inventory/actions";
-import { AssigneeAvatar, type AssigneeOption } from "./assignee-select";
+import {
+  AssigneeAvatar,
+  PersonChip,
+  inventoryPersonHref,
+  type AssigneeOption,
+} from "./assignee-select";
 
 const NO_REVIEWER_VALUE = "__no_reviewer__";
 
@@ -28,27 +33,26 @@ export function ReviewerSelect({
   staff,
   disabled,
   lockReason,
+  linkToPerson = false,
 }: {
   documentId: string;
   reviewerId: string | null;
   staff: AssigneeOption[];
   disabled?: boolean;
-  /** Если задано — Select не рендерится, viewport-only бейдж + tooltip. */
+  /** Если задано — Select не рендерится, бейдж (ссылка на профиль при linkToPerson). */
   lockReason?: string | null;
+  /** Делать бейдж в locked-режиме ссылкой на страницу сотрудника. Только
+   *  при доступе к разделу «Сотрудники» (people.view_staff). */
+  linkToPerson?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const reviewer = reviewerId ? staff.find((p) => p.id === reviewerId) ?? null : null;
 
+  // ── Locked-state: бейдж (ссылка на сотрудника, если есть доступ) ────────
   if (lockReason) {
     return reviewer ? (
-      <div
-        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground"
-        title={lockReason}
-      >
-        <AssigneeAvatar name={reviewer.name} muted />
-        <span className="truncate">{reviewer.name}</span>
-      </div>
+      <PersonChip person={reviewer} href={linkToPerson ? inventoryPersonHref(reviewer.id) : null} />
     ) : (
       <span className="text-sm text-muted-foreground" title={lockReason}>
         —

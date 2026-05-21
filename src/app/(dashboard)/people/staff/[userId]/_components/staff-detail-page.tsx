@@ -126,6 +126,11 @@ interface Props {
   initialAuditHasMore: boolean;
   initialActivityEvents: AuditEvent[];
   initialActivityHasMore: boolean;
+  /** Куда ведёт хлебная крошка «назад». По умолчанию — список сотрудников.
+   *  Может переопределяться контекстом перехода (например, из акта
+   *  инвентаризации через ?from=inventory). */
+  backHref?: string;
+  backLabel?: string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -209,6 +214,8 @@ export function StaffDetailPage({
   initialAuditHasMore,
   initialActivityEvents,
   initialActivityHasMore,
+  backHref = "/people/staff",
+  backLabel = "Сотрудники",
 }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>("main");
@@ -603,11 +610,11 @@ export function StaffDetailPage({
     <div className="flex-1 flex flex-col">
       <PageBreadcrumb>
         <Link
-          href="/people/staff"
+          href={backHref}
           className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
-          Сотрудники
+          {backLabel}
         </Link>
       </PageBreadcrumb>
 

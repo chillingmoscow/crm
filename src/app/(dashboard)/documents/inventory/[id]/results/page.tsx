@@ -458,16 +458,16 @@ export default async function InventoryDocumentResultsPage({
     .slice(0, 5);
 
   return (
-    <div className="w-full px-4 py-4 md:px-8 md:py-6">
+    <div className="w-full space-y-6 p-6 md:p-8">
       {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout
           (см. inventory/[id]/layout.tsx). Здесь только кнопка
           обновления данных Quick Resto. */}
-      <div className="mb-5 flex items-center justify-end">
+      <div className="flex items-center justify-end">
         <RefreshResultsButton documentId={document.id} />
       </div>
 
       {!document.results_has_line_amounts ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
           <div className="mb-2 flex items-center gap-2 font-medium">
             <AlertTriangle className="h-4 w-4" />
             Построчные итоги не подтверждены

@@ -1035,7 +1035,9 @@ export function DocumentsTable({
           уровней rounded-md/rounded-xl. bg-card важен в dark: card light-er
           чем background, таблица читается как elevated блок, а не сливается. */}
       <div className="hidden overflow-hidden rounded-lg border bg-card md:block">
-        <div className="overflow-x-auto">
+        {/* Вертикальный скролл-контейнер таблицы → sticky-thead держится
+            вверху при прокрутке длинного списка (см. design-system). */}
+        <div className="max-h-[calc(100dvh-15rem)] overflow-auto">
           <table
             // Браузерные расширения вроде TableConvert / Copy-As-Markdown
             // дописывают на <table> атрибуты `data-tableconvert-*` между
@@ -1055,7 +1057,7 @@ export function DocumentsTable({
                 />
               ))}
             </colgroup>
-            <thead className="group/header bg-muted/60 text-xs font-medium tracking-wide text-muted-foreground">
+            <thead className="group/header sticky top-0 z-20 bg-muted [&_th]:bg-muted text-xs font-medium tracking-wide text-muted-foreground">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id} className="h-11">
                   {headerGroup.headers.map((header) => {

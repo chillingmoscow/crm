@@ -495,7 +495,7 @@ export function InventoryResultsTable({
 
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border bg-background p-4 text-sm text-muted-foreground">
+      <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">
         Построчных данных по акту нет.
       </div>
     );
@@ -504,7 +504,7 @@ export function InventoryResultsTable({
   return (
     <div className="space-y-4">
       <div className="grid gap-3 xl:grid-cols-2">
-        <div className="rounded-lg border bg-background p-4">
+        <div className="rounded-lg border bg-card p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
@@ -521,7 +521,7 @@ export function InventoryResultsTable({
             </div>
           </div>
         </div>
-        <div className="rounded-lg border bg-background p-4">
+        <div className="rounded-lg border bg-card p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Излишек</div>
             {isFinalized ? (
@@ -713,7 +713,7 @@ export function InventoryResultsTable({
       ) : null}
 
       {suggestions.length > 0 ? (
-      <div className="rounded-lg border bg-background p-4">
+      <div className="rounded-lg border bg-card p-4">
         <div className="mb-3 flex items-center gap-2">
           <WandSparkles className="h-4 w-4 text-blue-600" />
           <div className="text-sm font-medium">Предложения пересорта</div>
@@ -751,16 +751,16 @@ export function InventoryResultsTable({
       ) : null}
 
       {visibleItems.length === 0 ? (
-        <div className="rounded-lg border bg-background p-4 text-sm">
+        <div className="rounded-lg border bg-card p-4 text-sm">
           <div className="flex items-center gap-2 text-green-700">
             <CheckCircle2 className="h-4 w-4" />
             Расхождений по строкам нет.
           </div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border bg-background">
+        <div className="overflow-hidden rounded-lg border bg-card">
           <div
-            className="grid items-center border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground"
+            className="grid items-center border-b bg-muted/60 px-3 py-2 text-xs font-medium text-muted-foreground"
             style={{ gridTemplateColumns: tableGridTemplate }}
           >
             <div />
@@ -1000,7 +1000,7 @@ export function InventoryResultsTable({
       )}
 
       {activeResorts.length > 0 ? (
-        <div className="rounded-lg border bg-background p-4">
+        <div className="rounded-lg border bg-card p-4">
           <div className="mb-3 text-sm font-medium">Активные пересорты</div>
           <div className="grid gap-2">
             {activeResorts.map((resort) => (
@@ -1449,7 +1449,7 @@ function ResultSortPinEditor({
         })}
       </div>
       {showAdd && unusedFields.length > 0 ? (
-        <div className="rounded-lg border bg-background p-2">
+        <div className="rounded-lg border bg-card p-2">
           {unusedFields.map((field) => (
             <button
               key={field}

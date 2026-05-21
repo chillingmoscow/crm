@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -29,7 +29,11 @@ import {
 } from "@/components/ui/select";
 import { TableControls, TableControlPin } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
-import { submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/actions";
+import {
+  markInventoryDraftStarted,
+  submitInventoryDocumentDraft,
+} from "@/app/(dashboard)/inventory/actions";
+import { isInventoryFormLocked } from "@/lib/inventory/act-status";
 
 type EditorDocument = {
   id: string;
@@ -217,6 +221,10 @@ export function InventoryDocumentEditor({
   // как у /documents/inventory (см. feedback_table_standardization_checklist).
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [isPending, startTransition] = useTransition();
+  // Guard: переводим акт в in_progress только один раз за сессию (на первом
+  // непустом черновике). Ref, чтобы не перерендеривать и не зависеть от него
+  // в effect-deps.
+  const draftStartedRef = useRef(false);
 
   // Snapshot значений «на момент сортировки» — обновляется только при
   // blur input'а или смене sortMode. Без этого режим «Пустые сверху/снизу»
@@ -411,6 +419,19 @@ export function InventoryDocumentEditor({
         items,
       });
       setSavedAt(nextSavedAt);
+
+      // Мост assigned/synced → in_progress: первый непустой черновик
+      // означает «исполнитель начал заполнять». Серверного сигнала о
+      // черновике нет (он в IndexedDB), поэтому дёргаем action один раз.
+      // best-effort: статус подтянется realtime'ом списка / при навигации.
+      if (
+        !draftStartedRef.current
+        && (document.status === "assigned" || document.status === "synced")
+        && Object.values(values).some((v) => v.trim() !== "")
+      ) {
+        draftStartedRef.current = true;
+        void markInventoryDraftStarted({ documentId: document.id });
+      }
     }, 250);
     return () => window.clearTimeout(timeout);
   }, [document, draftKey, items, loaded, values]);
@@ -494,6 +515,10 @@ export function InventoryDocumentEditor({
   };
 
   const isRecountPending = document.status === "recount_pending";
+  // Форма только для чтения, когда акт ушёл на проверку / проведён /
+  // финализирован (статусная машина — см. @/lib/inventory/act-status).
+  // recount_pending сюда НЕ попадает: перерасчёт исполнителем легитимен.
+  const formLocked = isInventoryFormLocked(document.status, false);
   const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
 
   return (
@@ -511,6 +536,22 @@ export function InventoryDocumentEditor({
               {flaggedItemsCount > 0
                 ? `Перепроверьте отмеченные позиции (${flaggedItemsCount} ${flaggedItemsCount === 1 ? "строка" : "строк"}) и завершите акт.`
                 : "Перепроверьте позиции и завершите акт."}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Баннер «заполнение закрыто»: акт ушёл на проверку / проведён /
+          финализирован — форма только для чтения. */}
+      {formLocked ? (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border bg-muted/40 px-4 py-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 text-sm">
+            <div className="font-medium">Заполнение закрыто</div>
+            <p className="mt-0.5 text-muted-foreground">
+              Акт уже отправлен на проверку. Изменить факт нельзя — итоги
+              ведёт проверяющий. Если нужно пересчитать позиции, проверяющий
+              вернёт акт на пересчёт.
             </p>
           </div>
         </div>
@@ -703,6 +744,7 @@ export function InventoryDocumentEditor({
             </div>
             <Input
               inputMode="decimal"
+              disabled={formLocked}
               value={values[item.id] ?? ""}
               onChange={(event) => {
                 const next = event.target.value.replace(/[^\d.,-]/g, "");
@@ -729,10 +771,16 @@ export function InventoryDocumentEditor({
           Button (не full-width, не sticky). Эталон — /people/staff/[userId].
           На recount_pending — text меняется на «Завершить пересчёт». */}
       <div className="mt-6 flex justify-end pt-1">
-        <Button type="button" disabled={isPending || !loaded} onClick={submit}>
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-          {isRecountPending ? "Завершить пересчёт" : "Завершить"}
-        </Button>
+        {formLocked ? (
+          <p className="text-sm text-muted-foreground">
+            Заполнение закрыто — акт на проверке.
+          </p>
+        ) : (
+          <Button type="button" disabled={isPending || !loaded} onClick={submit}>
+            {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {isRecountPending ? "Завершить пересчёт" : "Завершить"}
+          </Button>
+        )}
       </div>
     </div>
   );

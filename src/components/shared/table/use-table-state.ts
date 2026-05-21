@@ -20,6 +20,14 @@ type PersistedTableState = {
   columnOrder?: ColumnOrderState;
   columnSizing?: ColumnSizingState;
   pageSize?: number;
+  /**
+   * Сигнатура набора колонок (id'шники конфига). Если она изменилась —
+   * значит колонку добавили/убрали/переименовали, и сохранённый
+   * пользовательский порядок устарел: сбрасываем порядок к конфигу, чтобы
+   * новые колонки встали на свои места (а не «прилипали» в хвост после
+   * actions). Sizing/visibility ключатся по id и переживают смену набора.
+   */
+  columnsSignature?: string;
 };
 
 type UseTableStateInput = {
@@ -35,6 +43,9 @@ export function useTableState({
 }: UseTableStateInput) {
   const storageKey = `sheerly.table.${tableId}`;
   const defaultColumnOrder = useMemo(() => columns.map((column) => column.id), [columns]);
+  // Сигнатура набора колонок — для инвалидации сохранённого порядка при
+  // изменении набора (см. PersistedTableState.columnsSignature).
+  const columnsSignature = useMemo(() => defaultColumnOrder.join("|"), [defaultColumnOrder]);
   const defaultVisibility = useMemo(
     () =>
       Object.fromEntries(
@@ -77,7 +88,15 @@ export function useTableState({
       const raw = window.localStorage.getItem(storageKey);
       const persisted = raw ? (JSON.parse(raw) as PersistedTableState) : {};
       setColumnVisibility({ ...defaultVisibility, ...persisted.columnVisibility });
-      setColumnOrder(normalizeColumnOrder(persisted.columnOrder, defaultColumnOrder));
+      // Если набор колонок изменился (нет сигнатуры или она другая) —
+      // игнорируем сохранённый порядок и берём конфиг: новая колонка встаёт
+      // на своё место, а не в хвост после actions.
+      const orderIsCurrent = persisted.columnsSignature === columnsSignature;
+      setColumnOrder(
+        orderIsCurrent
+          ? normalizeColumnOrder(persisted.columnOrder, defaultColumnOrder)
+          : defaultColumnOrder,
+      );
       setColumnSizing({ ...defaultSizing, ...persisted.columnSizing });
       setPagination((current) => ({
         pageIndex: current.pageIndex,
@@ -91,7 +110,7 @@ export function useTableState({
     } finally {
       setIsHydrated(true);
     }
-  }, [defaultColumnOrder, defaultPageSize, defaultSizing, defaultVisibility, storageKey]);
+  }, [columnsSignature, defaultColumnOrder, defaultPageSize, defaultSizing, defaultVisibility, storageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !isHydrated) return;
@@ -100,9 +119,10 @@ export function useTableState({
       columnOrder,
       columnSizing,
       pageSize: pagination.pageSize,
+      columnsSignature,
     };
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
-  }, [columnOrder, columnSizing, columnVisibility, isHydrated, pagination.pageSize, storageKey]);
+  }, [columnOrder, columnSizing, columnVisibility, columnsSignature, isHydrated, pagination.pageSize, storageKey]);
 
   const resetColumns = () => {
     setColumnVisibility(defaultVisibility);
@@ -138,6 +158,23 @@ function normalizeColumnOrder(
   if (!persisted || persisted.length === 0) return defaults;
   const allowed = new Set(defaults);
   const ordered = persisted.filter((id) => allowed.has(id));
-  const missing = defaults.filter((id) => !ordered.includes(id));
-  return [...ordered, ...missing];
+  const orderedSet = new Set(ordered);
+  const missing = defaults.filter((id) => !orderedSet.has(id));
+  if (missing.length === 0) return ordered;
+  // Вставляем недостающие (новые) колонки на их конфиг-позицию: перед первой
+  // уже присутствующей колонкой, чей индекс в defaults больше — так новая
+  // колонка не «прилипает» в хвост (например после actions).
+  const result = [...ordered];
+  for (const id of missing) {
+    const defIndex = defaults.indexOf(id);
+    let insertAt = result.length;
+    for (let i = 0; i < result.length; i++) {
+      if (defaults.indexOf(result[i]) > defIndex) {
+        insertAt = i;
+        break;
+      }
+    }
+    result.splice(insertAt, 0, id);
+  }
+  return result;
 }

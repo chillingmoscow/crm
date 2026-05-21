@@ -2647,6 +2647,15 @@ export async function markInventoryDraftStarted(input: {
   const ctx = await getActiveContext();
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
+  // Permission-гейт зеркалит submitInventoryDocumentDraft: двигать статус
+  // может тот, кто реально заполняет акт — менеджер или назначенный
+  // исполнитель с правом «Заполнять назначенные акты». Иначе любой
+  // авторизованный пользователь мог бы дёрнуть action напрямую.
+  const [{ data: canManage }, { data: canFill }] = await Promise.all([
+    ctx.supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+    ctx.supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
+  ]);
+
   const admin = asLooseDb(createAdminClient());
   try {
     const { data: document } = await admin
@@ -2656,9 +2665,11 @@ export async function markInventoryDraftStarted(input: {
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     // best-effort: молча выходим, если акта нет / переводить нечего /
-    // дёргает не назначенный исполнитель.
+    // дёргает не назначенный исполнитель / нет права заполнять.
     if (!document?.id) return { error: null };
     if (document.assigned_to !== ctx.user.id) return { error: null };
+    const allowed = Boolean(canManage) || Boolean(canFill);
+    if (!allowed) return { error: null };
     if (document.status !== "assigned" && document.status !== "synced") return { error: null };
 
     const { error } = await admin

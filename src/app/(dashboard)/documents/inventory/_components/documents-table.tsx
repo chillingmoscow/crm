@@ -502,6 +502,9 @@ export function DocumentsTable({
   const onAssignedChange = (next: string) =>
     updateUrl({ assigned: next === "any" ? null : next }, { resetPage: true });
 
+  const onReviewerChange = (next: string) =>
+    updateUrl({ reviewer: next === "any" ? null : next }, { resetPage: true });
+
   const onStoreToggle = (storeId: string) => {
     const current = new Set(filtersFromUrl.store ?? []);
     if (current.has(storeId)) current.delete(storeId);
@@ -537,6 +540,7 @@ export function DocumentsTable({
     (filtersFromUrl.venue && filtersFromUrl.venue !== "all") ||
     (filtersFromUrl.status && filtersFromUrl.status.length > 0) ||
     (filtersFromUrl.assigned && filtersFromUrl.assigned !== "any") ||
+    (filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any") ||
     (filtersFromUrl.store && filtersFromUrl.store.length > 0) ||
     Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
 
@@ -751,6 +755,21 @@ export function DocumentsTable({
                   clearLabel="Сбросить исполнителя"
                 >
                   <AssignedPicker value={filtersFromUrl.assigned ?? "any"} staff={staff} onChange={onAssignedChange} />
+                </TableControlPin>
+              ) : null}
+
+              {canManage ? (
+                <TableControlPin
+                  active={Boolean(filtersFromUrl.reviewer) && filtersFromUrl.reviewer !== "any"}
+                  label={reviewerPinLabel(filtersFromUrl.reviewer, staff)}
+                  onClear={
+                    filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any"
+                      ? () => onReviewerChange("any")
+                      : undefined
+                  }
+                  clearLabel="Сбросить проверяющего"
+                >
+                  <ReviewerPicker value={filtersFromUrl.reviewer ?? "any"} staff={staff} onChange={onReviewerChange} />
                 </TableControlPin>
               ) : null}
 
@@ -1097,6 +1116,13 @@ function assigneePinLabel(assigned: string | undefined, staff: AssigneeOption[])
   return staff.find((s) => s.id === assigned)?.name ?? "Ответственный";
 }
 
+function reviewerPinLabel(reviewer: string | undefined, staff: AssigneeOption[]): string {
+  if (!reviewer || reviewer === "any") return "Проверяющий";
+  if (reviewer === "me") return "Проверяю я";
+  if (reviewer === "none") return "Без проверяющего";
+  return staff.find((s) => s.id === reviewer)?.name ?? "Проверяющий";
+}
+
 function storePinLabel(store: string[] | undefined, stores: StoreOption[]): string {
   if (!store || store.length === 0) return "Склад";
   if (store.length === 1) return stores.find((s) => s.id === store[0])?.title ?? "Склад";
@@ -1206,6 +1232,40 @@ function AssignedPicker({
     { value: "any",  label: "Любой ответственный" },
     { value: "me",   label: "На меня" },
     { value: "none", label: "Без назначения" },
+    ...staff.map((s) => ({ value: s.id, label: s.name })),
+  ];
+  return (
+    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+            opt.value === value ? "bg-accent" : null,
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ReviewerPicker({
+  value,
+  staff,
+  onChange,
+}: {
+  value: string;
+  staff: AssigneeOption[];
+  onChange: (v: string) => void;
+}) {
+  const options = [
+    { value: "any",  label: "Любой проверяющий" },
+    { value: "me",   label: "Проверяю я" },
+    { value: "none", label: "Без проверяющего" },
     ...staff.map((s) => ({ value: s.id, label: s.name })),
   ];
   return (

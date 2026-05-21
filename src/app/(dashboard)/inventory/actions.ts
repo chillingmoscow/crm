@@ -1409,6 +1409,19 @@ export async function syncQuickRestoInventory(input?: {
   }
 }
 
+/** Полное имя профиля (для сообщений журнала). null если нет. */
+async function loadProfileFullName(admin: LooseDb, userId: string | null): Promise<string | null> {
+  if (!userId) return null;
+  const { data } = await admin
+    .from<{ first_name: string | null; last_name: string | null }>("profiles")
+    .select("first_name, last_name")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!data) return null;
+  const name = [data.first_name, data.last_name].filter(Boolean).join(" ").trim();
+  return name || null;
+}
+
 /**
  * Best-effort уведомление по событию акта инвентаризации. Зеркалит паттерн
  * assignInventoryDocument: ошибка не валит основной flow. Не шлёт самому
@@ -1486,7 +1499,24 @@ export async function assignInventoryReviewer(input: {
       return { error: error.message };
     }
 
-    if (input.reviewerId && before.reviewer_id !== input.reviewerId) {
+    const reviewerChanged = before.reviewer_id !== input.reviewerId;
+    if (reviewerChanged && ctx.user) {
+      const reviewerName = await loadProfileFullName(admin, input.reviewerId);
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: input.documentId,
+        eventType: "reviewer_changed",
+        message: input.reviewerId
+          ? `Назначил проверяющего: ${reviewerName ?? "сотрудник"}`
+          : "Снял проверяющего",
+        payload: { reviewerId: input.reviewerId },
+      });
+    }
+
+    if (input.reviewerId && reviewerChanged) {
       await notifyInventoryDocumentEvent({
         admin,
         recipientId: input.reviewerId,
@@ -1591,6 +1621,23 @@ export async function assignInventoryDocument(input: {
         // Уведомление — bonus, не critical. Не валим основной flow.
         console.error("[assignInventoryDocument] notification threw:", e);
       }
+    }
+
+    // Журнал: фиксируем смену исполнителя (назначение и снятие).
+    if (before.assigned_to !== input.assignedTo && ctx.user) {
+      const assigneeName = await loadProfileFullName(admin, input.assignedTo);
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: input.documentId,
+        eventType: "assignee_changed",
+        message: input.assignedTo
+          ? `Назначил исполнителя: ${assigneeName ?? "сотрудник"}`
+          : "Снял исполнителя",
+        payload: { assignedTo: input.assignedTo },
+      });
     }
 
     revalidatePath("/documents/inventory");
@@ -2828,6 +2875,16 @@ export async function markInventoryDraftStarted(input: {
       .in("status", ["assigned", "synced"]);
     if (error) throw new Error(error.message);
 
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: "draft_started",
+      message: "Начал заполнять акт",
+    });
+
     revalidatePath("/documents/inventory");
     revalidatePath(`/documents/inventory/${document.id}`);
     return { error: null };
@@ -3068,6 +3125,24 @@ export async function submitInventoryDocumentDraft(input: {
       .eq("account_id", ctx.accountId);
 
     if (updateLocalError) return { resultsHasLineAmounts: false, error: updateLocalError.message };
+
+    // Журнал: исполнитель завершил акт. Различаем первое заполнение и
+    // завершение пересчёта по пред-статусу.
+    const wasRecount = document.status === "recount_pending";
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: "submitted",
+      message: wasRecount
+        ? "Завершил пересчёт"
+        : syncResult.resultsFound
+          ? "Завершил заполнение акта"
+          : "Завершил акт (итоги требуют проверки)",
+      payload: { resultsFound: syncResult.resultsFound, recount: wasRecount },
+    });
 
     // Уведомляем проверяющего: акт готов к проверке. Одна точка покрывает
     // и первое «Завершить», и «Завершить пересчёт». Если reviewer_id ещё не

@@ -25,6 +25,40 @@ comment on column public.documents.reviewer_id is
 create index if not exists documents_account_reviewer_idx
   on public.documents(account_id, reviewer_id);
 
+-- 1b. Журнал «все действия»: расширяем CHECK на inventory_result_events.
+-- event_type — добавляем lifecycle-события (назначения и смены статуса),
+-- которые раньше нигде не логировались (журнал показывал только операции
+-- с итогами). Полный список = существующие (миграция 209) + новые.
+alter table public.inventory_result_events
+  drop constraint if exists inventory_result_events_event_type_check;
+
+alter table public.inventory_result_events
+  add constraint inventory_result_events_event_type_check
+  check (
+    event_type in (
+      'comment_updated',
+      'exclude_enabled',
+      'exclude_disabled',
+      'persistent_exclusion_enabled',
+      'persistent_exclusion_disabled',
+      'resort_created',
+      'resort_voided',
+      'results_finalized',
+      'results_reopened',
+      'results_refreshed',
+      'suggestion_applied',
+      'suggestion_dismissed',
+      'recount_marked',
+      'recount_unmarked',
+      'returned_for_recount',
+      -- lifecycle (PR-B): назначения и смены статуса
+      'assignee_changed',
+      'reviewer_changed',
+      'draft_started',
+      'submitted'
+    )
+  );
+
 -- 2. RLS: добавляем ветку видимости для проверяющего.
 --    Полное пересоздание политик (не replace по тексту) — поэтому
 --    placeholder-pipeline не нужен; (select auth.uid()) — InitPlan-форма

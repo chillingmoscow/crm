@@ -21,6 +21,7 @@ import {
   Plus,
   RefreshCw,
   Search as SearchIcon,
+  ShieldCheck,
   Trash2,
   UserPlus,
   X,
@@ -69,6 +70,7 @@ import { deleteInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboa
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
+import { ReviewerSelect } from "./reviewer-select";
 import {
   DEFAULT_SORT,
   DOCUMENT_STATUSES,
@@ -388,6 +390,28 @@ export function DocumentsTable({
         },
       },
       {
+        id: "reviewer_id",
+        label: "Проверяющий",
+        size: 200,
+        cell: (row: DocumentListRow) => {
+          const lockReason = getAssignLockReason(row.status);
+          return canManage ? (
+            <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+              <ReviewerSelect
+                documentId={row.id}
+                reviewerId={row.reviewer_id}
+                staff={staff}
+                lockReason={lockReason}
+              />
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {staff.find((m) => m.id === row.reviewer_id)?.name ?? "—"}
+            </span>
+          );
+        },
+      },
+      {
         id: "actions",
         label: "",
         size: 56,
@@ -478,6 +502,9 @@ export function DocumentsTable({
   const onAssignedChange = (next: string) =>
     updateUrl({ assigned: next === "any" ? null : next }, { resetPage: true });
 
+  const onReviewerChange = (next: string) =>
+    updateUrl({ reviewer: next === "any" ? null : next }, { resetPage: true });
+
   const onStoreToggle = (storeId: string) => {
     const current = new Set(filtersFromUrl.store ?? []);
     if (current.has(storeId)) current.delete(storeId);
@@ -513,6 +540,7 @@ export function DocumentsTable({
     (filtersFromUrl.venue && filtersFromUrl.venue !== "all") ||
     (filtersFromUrl.status && filtersFromUrl.status.length > 0) ||
     (filtersFromUrl.assigned && filtersFromUrl.assigned !== "any") ||
+    (filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any") ||
     (filtersFromUrl.store && filtersFromUrl.store.length > 0) ||
     Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
 
@@ -727,6 +755,21 @@ export function DocumentsTable({
                   clearLabel="Сбросить исполнителя"
                 >
                   <AssignedPicker value={filtersFromUrl.assigned ?? "any"} staff={staff} onChange={onAssignedChange} />
+                </TableControlPin>
+              ) : null}
+
+              {canManage ? (
+                <TableControlPin
+                  active={Boolean(filtersFromUrl.reviewer) && filtersFromUrl.reviewer !== "any"}
+                  label={reviewerPinLabel(filtersFromUrl.reviewer, staff)}
+                  onClear={
+                    filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any"
+                      ? () => onReviewerChange("any")
+                      : undefined
+                  }
+                  clearLabel="Сбросить проверяющего"
+                >
+                  <ReviewerPicker value={filtersFromUrl.reviewer ?? "any"} staff={staff} onChange={onReviewerChange} />
                 </TableControlPin>
               ) : null}
 
@@ -1073,6 +1116,13 @@ function assigneePinLabel(assigned: string | undefined, staff: AssigneeOption[])
   return staff.find((s) => s.id === assigned)?.name ?? "Ответственный";
 }
 
+function reviewerPinLabel(reviewer: string | undefined, staff: AssigneeOption[]): string {
+  if (!reviewer || reviewer === "any") return "Проверяющий";
+  if (reviewer === "me") return "Проверяю я";
+  if (reviewer === "none") return "Без проверяющего";
+  return staff.find((s) => s.id === reviewer)?.name ?? "Проверяющий";
+}
+
 function storePinLabel(store: string[] | undefined, stores: StoreOption[]): string {
   if (!store || store.length === 0) return "Склад";
   if (store.length === 1) return stores.find((s) => s.id === store[0])?.title ?? "Склад";
@@ -1182,6 +1232,40 @@ function AssignedPicker({
     { value: "any",  label: "Любой ответственный" },
     { value: "me",   label: "На меня" },
     { value: "none", label: "Без назначения" },
+    ...staff.map((s) => ({ value: s.id, label: s.name })),
+  ];
+  return (
+    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+            opt.value === value ? "bg-accent" : null,
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ReviewerPicker({
+  value,
+  staff,
+  onChange,
+}: {
+  value: string;
+  staff: AssigneeOption[];
+  onChange: (v: string) => void;
+}) {
+  const options = [
+    { value: "any",  label: "Любой проверяющий" },
+    { value: "me",   label: "Проверяю я" },
+    { value: "none", label: "Без проверяющего" },
     ...staff.map((s) => ({ value: s.id, label: s.name })),
   ];
   return (
@@ -1467,10 +1551,12 @@ function MobileCard({
 }) {
   const router = useRouter();
   const [assignSheetOpen, setAssignSheetOpen] = useState(false);
+  const [reviewerSheetOpen, setReviewerSheetOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
   const href = getDocHref(doc, canViewResults);
   const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
+  const reviewerName = staff.find((m) => m.id === doc.reviewer_id)?.name;
 
   const runDelete = () => {
     startDelete(async () => {
@@ -1504,6 +1590,11 @@ function MobileCard({
           icon: <UserPlus className="h-4 w-4" />,
           onSelect: () => setAssignSheetOpen(true),
           separatorBefore: true,
+        });
+        items.push({
+          label: "Изменить проверяющего",
+          icon: <ShieldCheck className="h-4 w-4" />,
+          onSelect: () => setReviewerSheetOpen(true),
         });
       }
       items.push({
@@ -1560,6 +1651,9 @@ function MobileCard({
             <span className="text-muted-foreground">
               {assigneeName ? <>Назначен: {assigneeName}</> : "Не назначен"}
             </span>
+            {reviewerName ? (
+              <span className="text-muted-foreground">Проверяющий: {reviewerName}</span>
+            ) : null}
           </div>
         </div>
         <div data-row-interactive>
@@ -1587,6 +1681,32 @@ function MobileCard({
           <AssigneeSelect
             documentId={doc.id}
             assignedTo={doc.assigned_to}
+            staff={staff}
+            lockReason={getAssignLockReason(doc.status)}
+          />
+        </div>
+      ) : null}
+
+      {reviewerSheetOpen ? (
+        <div
+          data-row-interactive
+          className="absolute inset-x-0 bottom-0 z-10 rounded-b-lg border-t bg-background p-3 shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium">Проверяющий</span>
+            <button
+              type="button"
+              onClick={() => setReviewerSheetOpen(false)}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Закрыть"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <ReviewerSelect
+            documentId={doc.id}
+            reviewerId={doc.reviewer_id}
             staff={staff}
             lockReason={getAssignLockReason(doc.status)}
           />

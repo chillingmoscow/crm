@@ -57,6 +57,8 @@ export type ListDocumentsFilters = {
   status?: DocumentStatus[];
   /** 'any' | 'none' | 'me' | concrete user uuid. */
   assigned?: AssignedFilter;
+  /** 'any' | 'none' | 'me' | concrete user uuid (проверяющий). */
+  reviewer?: AssignedFilter;
   store?: string[];
   date_from?: string;
   date_to?: string;
@@ -70,6 +72,7 @@ export type DocumentListRow = {
   status: string;
   processed: boolean;
   assigned_to: string | null;
+  reviewer_id: string | null;
   shortfall_sum: number | null;
   surplus_sum: number | null;
   results_has_line_amounts: boolean;
@@ -124,6 +127,7 @@ export function buildRpcArgs(opts: NormalizedListOptions): Record<string, unknow
     p_filter_venue: filters.venue ?? null,
     p_filter_status: filters.status && filters.status.length > 0 ? filters.status : null,
     p_filter_assigned: filters.assigned ?? null,
+    p_filter_reviewer: filters.reviewer ?? null,
     p_filter_store: filters.store && filters.store.length > 0 ? filters.store : null,
     p_filter_date_from: filters.date_from ?? null,
     p_filter_date_to: filters.date_to ?? null,
@@ -147,6 +151,7 @@ export function parseRpcResponse(data: unknown): { rows: DocumentListRow[]; tota
     status: row.status,
     processed: row.processed,
     assigned_to: row.assigned_to,
+    reviewer_id: row.reviewer_id,
     shortfall_sum: row.shortfall_sum,
     surplus_sum: row.surplus_sum,
     results_has_line_amounts: row.results_has_line_amounts,

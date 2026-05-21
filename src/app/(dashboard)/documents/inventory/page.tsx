@@ -37,6 +37,7 @@ type SearchParams = {
   venue?: string;
   status?: string;
   assigned?: string;
+  reviewer?: string;
   store?: string;
   date_preset?: string;
   date_from?: string;
@@ -70,6 +71,7 @@ function parseSearchParams(sp: SearchParams) {
   const statusRaw = parseCsv(sp.status).filter((s): s is DocumentStatus => VALID_STATUSES.has(s as DocumentStatus));
   const status = statusRaw.length > 0 ? statusRaw : undefined;
   const assigned = sp.assigned && sp.assigned !== "any" ? sp.assigned : undefined;
+  const reviewer = sp.reviewer && sp.reviewer !== "any" ? sp.reviewer : undefined;
   const storeIds = parseCsv(sp.store);
 
   // Период — пресет-метка (Сегодня / Текущий месяц / …) + ISO даты,
@@ -96,6 +98,7 @@ function parseSearchParams(sp: SearchParams) {
     venue,
     status,
     assigned,
+    reviewer,
     store: storeIds.length > 0 ? storeIds : undefined,
     date_from,
     date_to,

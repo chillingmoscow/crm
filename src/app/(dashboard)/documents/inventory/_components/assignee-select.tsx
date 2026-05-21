@@ -130,7 +130,7 @@ export function AssigneeSelect({
   );
 }
 
-function AssigneeAvatar({ name, muted = false }: { name: string; muted?: boolean }) {
+export function AssigneeAvatar({ name, muted = false }: { name: string; muted?: boolean }) {
   const initials =
     name
       .split(/\s+/)

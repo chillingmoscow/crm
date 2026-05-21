@@ -36,6 +36,11 @@ function eventTypeLabel(eventType: string) {
     recount_marked: "Отметка пересчёта",
     recount_unmarked: "Снятие пересчёта",
     returned_for_recount: "Возврат на пересчёт",
+    // lifecycle (PR-B): назначения и смены статуса
+    assignee_changed: "Исполнитель",
+    reviewer_changed: "Проверяющий",
+    draft_started: "Начато заполнение",
+    submitted: "Акт завершён",
   };
   return labels[eventType] ?? eventType;
 }

@@ -466,6 +466,13 @@ begin
      true, 667.00, 0)
   on conflict (id) do nothing;
 
+  -- Проведённый акт всегда прошёл проверку → у него есть проверяющий.
+  -- (В реальном потоке его проставляет финализация; в сиде ИНВ-0001
+  -- создаётся сразу processed, поэтому задаём явно.)
+  update public.documents
+     set reviewer_id = 'bbbbbbbb-0000-0000-0000-000000000002'
+   where id = v_doc;
+
   -- prime_cost + difference_sum обязательны для отображения «Итогов»:
   -- без них колонка «Сумма расхождения» пустая и AI-пересорт ломается.
   insert into public.document_items
@@ -542,7 +549,10 @@ begin
   update public.documents
      set results_has_line_amounts = true,
          shortfall_sum = 1335.00,
-         surplus_sum = 0
+         surplus_sum = 0,
+         -- Проверяющий (manager@test.com) ≠ исполнитель (owner) — для демо
+         -- маршрутизации уведомлений «готов к проверке» ↔ «вернули на пересчёт».
+         reviewer_id = 'bbbbbbbb-0000-0000-0000-000000000002'
    where id = '55555555-5555-0000-0000-000000000004'::uuid;
 
   update public.document_items

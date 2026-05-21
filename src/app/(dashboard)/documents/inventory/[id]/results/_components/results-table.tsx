@@ -1172,7 +1172,9 @@ export function InventoryResultsTable({
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border bg-card">
-          <div className="overflow-x-auto">
+          {/* Скролл-контейнер таблицы: вертикальная прокрутка длинного списка
+              внутри (max-h), при которой sticky-thead остаётся вверху. */}
+          <div className="max-h-[calc(100dvh-15rem)] overflow-auto">
             <table
               className="w-full min-w-full table-fixed"
               style={{ minWidth: table.getTotalSize() }}
@@ -1182,7 +1184,7 @@ export function InventoryResultsTable({
                   <col key={column.id} style={{ width: column.getSize() }} />
                 ))}
               </colgroup>
-              <thead className="group/header bg-muted/60 text-xs font-medium tracking-wide text-muted-foreground">
+              <thead className="group/header sticky top-0 z-20 bg-muted [&_th]:bg-muted text-xs font-medium tracking-wide text-muted-foreground">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id} className="h-11">
                     {headerGroup.headers.map((header) => {

@@ -84,3 +84,86 @@ export function sortModuleKeys(keys: string[]): string[] {
     return ai - bi;
   });
 }
+
+// ── Уровни доступа к актам инвентаризации ──────────────────────────────────
+//
+// Три модуля прав (документы / интеграция QR / расширенный доступ) в
+// редакторе роли показываются как ОДНА секция «Акты инвентаризации» с
+// выбором уровня — вместо простыни из ~11 галок. Сами коды не меняются:
+// уровень просто проставляет нужный набор. Тонкая настройка — в «Расширенно».
+export const INVENTORY_ACTS_MODULES: string[] = [
+  "inventory_documents",
+  "inventory_integration",
+  "inventory_scope",
+];
+
+/** Модуль-«якорь», в позиции которого рендерится объединённая секция. */
+export const INVENTORY_ACTS_ANCHOR_MODULE = "inventory_documents";
+
+export type InventoryActsTier = {
+  id: "executor" | "editor" | "full";
+  label: string;
+  description: string;
+  /** ПОЛНЫЙ (кумулятивный) набор кодов уровня — applyTier выставляет ровно его. */
+  codes: string[];
+};
+
+const TIER_EXECUTOR = [
+  "inventory.view_results",
+  "inventory.fill_assigned_documents",
+  "inventory.comment_results",
+];
+const TIER_EDITOR = [
+  ...TIER_EXECUTOR,
+  "inventory.view_documents",
+  "inventory.manage_documents",
+  "inventory.adjust_results",
+  "inventory.recount_documents",
+  "inventory.sync_quickresto",
+  "inventory.use_ai_suggestions",
+];
+const TIER_FULL = [
+  ...TIER_EDITOR,
+  "inventory.finalize_results",
+  "inventory.view_all_venues",
+];
+
+export const INVENTORY_ACTS_TIERS: InventoryActsTier[] = [
+  {
+    id: "executor",
+    label: "Исполнитель",
+    description:
+      "Видит итоги акта, заполняет назначенные ему акты, комментирует итоги.",
+    codes: TIER_EXECUTOR,
+  },
+  {
+    id: "editor",
+    label: "Редактор",
+    description:
+      "Всё, что у исполнителя, плюс: видит все акты, назначает исполнителя и проверяющего, делает пересорт и исключения, отправляет на пересчёт, синхронизирует Quick Resto, использует AI-подсказки.",
+    codes: TIER_EDITOR,
+  },
+  {
+    id: "full",
+    label: "Полный доступ",
+    description:
+      "Всё, что у редактора, плюс: финализация и разблокировка проведённого акта, видимость всех заведений.",
+    codes: TIER_FULL,
+  },
+];
+
+/** Определить текущий уровень по набору выданных кодов кластера. */
+export function detectInventoryActsTier(
+  grantedCodes: Set<string>,
+): "none" | "executor" | "editor" | "full" | "custom" {
+  if (grantedCodes.size === 0) return "none";
+  for (const tier of INVENTORY_ACTS_TIERS) {
+    if (
+      tier.codes.length === grantedCodes.size &&
+      tier.codes.every((code) => grantedCodes.has(code))
+    ) {
+      return tier.id;
+    }
+  }
+  return "custom";
+}

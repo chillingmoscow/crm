@@ -276,6 +276,20 @@ export function RoleDetailPage({
       if (absorbedActsModules.includes(p.module)) continue;
       (byModule[p.module] ??= []).push(p);
     }
+    // Кластер актов рендерится единой карточкой по якорю. Если поиск совпал
+    // ТОЛЬКО с поглощёнными правами (integration/scope, напр. «Quick Resto»),
+    // якорь сам в byModule не попадёт — добавляем плейсхолдер, чтобы карточка
+    // всё равно показалась и право можно было найти (Codex P2 #409).
+    const clusterMatchesQuery =
+      !q ||
+      permissions.some(
+        (p) =>
+          INVENTORY_ACTS_MODULES.includes(p.module) &&
+          p.description.toLowerCase().includes(q),
+      );
+    if (clusterMatchesQuery && !byModule[INVENTORY_ACTS_ANCHOR_MODULE]) {
+      byModule[INVENTORY_ACTS_ANCHOR_MODULE] = [];
+    }
     return sortModuleKeys(Object.keys(byModule)).map((key) => ({
       key,
       meta: metaForModule(key),

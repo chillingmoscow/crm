@@ -83,7 +83,12 @@ import {
 } from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
-import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
+import {
+  AssigneeSelect,
+  PersonChip,
+  inventoryPersonHref,
+  type AssigneeOption,
+} from "./assignee-select";
 import { ReviewerSelect } from "./reviewer-select";
 import {
   DEFAULT_SORT,
@@ -540,20 +545,19 @@ export function DocumentsTable({
         size: 200,
         cell: (row: DocumentListRow) => {
           const lockReason = getAssignLockReason(row.status);
-          return canManage ? (
-            <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-              <AssigneeSelect
-                documentId={row.id}
-                assignedTo={row.assigned_to}
-                staff={staff}
-                lockReason={lockReason}
-              />
-            </div>
-          ) : (
-            <span className="text-sm text-muted-foreground">
-              {staff.find((m) => m.id === row.assigned_to)?.name ?? "—"}
-            </span>
-          );
+          if (canManage) {
+            return (
+              <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+                <AssigneeSelect
+                  documentId={row.id}
+                  assignedTo={row.assigned_to}
+                  staff={staff}
+                  lockReason={lockReason}
+                />
+              </div>
+            );
+          }
+          return <ReadonlyPersonCell userId={row.assigned_to} staff={staff} locked={lockReason !== null} />;
         },
       },
       {
@@ -562,20 +566,19 @@ export function DocumentsTable({
         size: 200,
         cell: (row: DocumentListRow) => {
           const lockReason = getAssignLockReason(row.status);
-          return canManage ? (
-            <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-              <ReviewerSelect
-                documentId={row.id}
-                reviewerId={row.reviewer_id}
-                staff={staff}
-                lockReason={lockReason}
-              />
-            </div>
-          ) : (
-            <span className="text-sm text-muted-foreground">
-              {staff.find((m) => m.id === row.reviewer_id)?.name ?? "—"}
-            </span>
-          );
+          if (canManage) {
+            return (
+              <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+                <ReviewerSelect
+                  documentId={row.id}
+                  reviewerId={row.reviewer_id}
+                  staff={staff}
+                  lockReason={lockReason}
+                />
+              </div>
+            );
+          }
+          return <ReadonlyPersonCell userId={row.reviewer_id} staff={staff} locked={lockReason !== null} />;
         },
       },
       {
@@ -1263,6 +1266,33 @@ export function DocumentsTable({
       </AlertDialog>
     </div>
   );
+}
+
+/**
+ * Ячейка исполнителя/проверяющего для пользователя без права назначать.
+ * Показывает бейдж сотрудника; для завершённого (locked) акта — ссылку на
+ * страницу сотрудника (клик не открывает акт). Для незавершённого — статичный
+ * бейдж, клик по строке открывает акт как обычно.
+ */
+function ReadonlyPersonCell({
+  userId,
+  staff,
+  locked,
+}: {
+  userId: string | null;
+  staff: AssigneeOption[];
+  locked: boolean;
+}) {
+  const member = userId ? staff.find((m) => m.id === userId) ?? null : null;
+  if (!member) return <span className="text-sm text-muted-foreground">—</span>;
+  if (locked) {
+    return (
+      <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+        <PersonChip person={member} href={inventoryPersonHref(member.id)} />
+      </div>
+    );
+  }
+  return <PersonChip person={member} />;
 }
 
 function BulkAssignMenu({

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -14,7 +13,12 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { assignInventoryReviewer } from "@/app/(dashboard)/inventory/actions";
-import { AssigneeAvatar, type AssigneeOption } from "./assignee-select";
+import {
+  AssigneeAvatar,
+  PersonChip,
+  inventoryPersonHref,
+  type AssigneeOption,
+} from "./assignee-select";
 
 const NO_REVIEWER_VALUE = "__no_reviewer__";
 
@@ -44,14 +48,7 @@ export function ReviewerSelect({
   // ── Locked-state: ссылка на страницу сотрудника ────────────
   if (lockReason) {
     return reviewer ? (
-      <Link
-        href={`/people/staff/${reviewer.id}?from=inventory`}
-        title={`Открыть профиль · ${reviewer.name}`}
-        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <AssigneeAvatar name={reviewer.name} muted />
-        <span className="truncate">{reviewer.name}</span>
-      </Link>
+      <PersonChip person={reviewer} href={inventoryPersonHref(reviewer.id)} />
     ) : (
       <span className="text-sm text-muted-foreground" title={lockReason}>
         —

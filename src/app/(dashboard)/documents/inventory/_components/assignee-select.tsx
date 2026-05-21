@@ -52,14 +52,7 @@ export function AssigneeSelect({
   // ── Locked-state: ссылка на страницу сотрудника ────────────
   if (lockReason) {
     return assigned ? (
-      <Link
-        href={`/people/staff/${assigned.id}?from=inventory`}
-        title={`Открыть профиль · ${assigned.name}`}
-        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <AssigneeAvatar name={assigned.name} muted />
-        <span className="truncate">{assigned.name}</span>
-      </Link>
+      <PersonChip person={assigned} href={inventoryPersonHref(assigned.id)} />
     ) : (
       <span className="text-sm text-muted-foreground" title={lockReason}>
         —
@@ -129,6 +122,48 @@ export function AssigneeSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+/** Ссылка на страницу сотрудника из акта; ?from=inventory → хлебная крошка
+ *  на странице сотрудника вернёт обратно в «Акты инвентаризации». */
+export function inventoryPersonHref(userId: string): string {
+  return `/people/staff/${userId}?from=inventory`;
+}
+
+/**
+ * Бейдж сотрудника (аватар + ФИО) для read-only ячеек строки акта. Если
+ * передан href — кликабелен (ведёт на страницу сотрудника), иначе статичен.
+ * Используется в AssigneeSelect/ReviewerSelect (locked) и в documents-table
+ * для пользователей без права назначать.
+ */
+export function PersonChip({
+  person,
+  href,
+}: {
+  person: AssigneeOption;
+  href?: string | null;
+}) {
+  const baseClass =
+    "inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground";
+  const inner = (
+    <>
+      <AssigneeAvatar name={person.name} muted />
+      <span className="truncate">{person.name}</span>
+    </>
+  );
+  return href ? (
+    <Link
+      href={href}
+      title={`Открыть профиль · ${person.name}`}
+      className={cn(baseClass, "transition-colors hover:bg-muted hover:text-foreground")}
+    >
+      {inner}
+    </Link>
+  ) : (
+    <span className={baseClass} title={person.name}>
+      {inner}
+    </span>
   );
 }
 

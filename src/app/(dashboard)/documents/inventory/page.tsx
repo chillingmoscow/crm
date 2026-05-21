@@ -152,12 +152,14 @@ export default async function InventoryDocumentsPage({
     pageSize: parsed.pageSize,
   });
 
-  // venues + stores для фильтров, staff для назначения. Все через
-  // RLS-клиент → пользователь видит только то, что ему разрешено.
+  // venues + stores для фильтров через RLS-клиент. staff — справочник имён
+  // (id → ФИО) нужен ВСЕМ зрителям, не только тем, кто может назначать:
+  // иначе read-only пользователь видит «—» вместо исполнителя/проверяющего,
+  // и переход на страницу сотрудника из завершённого акта недоступен.
   const [{ data: venuesForFilter }, { data: storesForFilter }, staff] = await Promise.all([
     asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name").order("name"),
     asLooseDb(supabase).from<StoreOption[]>("stores").select("id, title").eq("account_id", accountId).order("title"),
-    canManage ? loadStaff(accountId as string) : Promise.resolve<AssigneeOption[]>([]),
+    loadStaff(accountId as string),
   ]);
 
   return (

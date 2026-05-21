@@ -15,6 +15,8 @@ type InventoryDocumentDetailRow = {
   processed: boolean;
   base_last_update_date: string | null;
   synced_at: string | null;
+  last_returned_at: string | null;
+  recount_count: number | null;
 };
 
 type InventoryDocumentItemRow = {
@@ -27,6 +29,8 @@ type InventoryDocumentItemRow = {
   actual_amount: number | null;
   submitted_amount: number | null;
   sort_order: number;
+  needs_recount: boolean | null;
+  recount_note: string | null;
 };
 
 type InventoryStoreTitleRow = {
@@ -144,7 +148,7 @@ export default async function InventoryDocumentPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentDetailRow>("documents")
-    .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date, synced_at")
+    .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date, synced_at, last_returned_at, recount_count")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -158,7 +162,7 @@ export default async function InventoryDocumentPage({
       : Promise.resolve({ data: null, error: null }),
     admin
       .from<InventoryDocumentItemRow[]>("document_items")
-      .select("id, ingredient_id, product_name, article, barcode, measure_unit_name, actual_amount, submitted_amount, sort_order")
+      .select("id, ingredient_id, product_name, article, barcode, measure_unit_name, actual_amount, submitted_amount, sort_order, needs_recount, recount_note")
       .eq("document_id", document.id)
       .order("sort_order"),
     admin
@@ -225,8 +229,11 @@ export default async function InventoryDocumentPage({
         storeTitle: store?.title ?? null,
         status: document.status,
         baseLastUpdateDate: document.base_last_update_date ?? null,
-        // syncedAt — для editor hydration: draft до этой даты = stale.
+        // syncedAt + lastReturnedAt — для editor hydration: draft до любого
+        // из этих timestamp'ов = stale (см. document-editor.tsx draft-stale).
         syncedAt: document.synced_at ?? null,
+        lastReturnedAt: document.last_returned_at ?? null,
+        recountCount: document.recount_count ?? 0,
       }}
       groups={groupsUsedByDocument(orderedGroups, groupById, productById, items).map(({ group, depth, path }) => ({
         id: group.id,
@@ -243,6 +250,8 @@ export default async function InventoryDocumentPage({
         measureUnitName: item.measure_unit_name,
         actualAmount: item.actual_amount,
         submittedAmount: item.submitted_amount,
+        needsRecount: Boolean(item.needs_recount),
+        recountNote: item.recount_note ?? null,
         imageUrl: item.ingredient_id ? imageByProductId.get(item.ingredient_id) ?? null : null,
         groupId: item.ingredient_id ? productById.get(item.ingredient_id)?.group_id ?? null : null,
         groupPath: item.ingredient_id

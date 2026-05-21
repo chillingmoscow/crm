@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
-import { RefreshResultsButton } from "./_components/refresh-results-button";
 import {
   InventoryResultsTable,
   type InventoryDocumentResultItem,
@@ -28,6 +27,7 @@ type InventoryDocumentResultRow = {
   store_id: string | null;
   external_store_id: string | null;
   results_finalized_at: string | null;
+  results_reopened_at: string | null;
 };
 
 type ProductGroupLookupRow = {
@@ -49,13 +49,6 @@ type ExclusionRuleRow = {
   ingredient_id: string | null;
   external_product_id: string | null;
   reason: string | null;
-};
-
-type EventActorRow = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  avatar_url: string | null;
 };
 
 type HistoryResortRow = {
@@ -259,6 +252,7 @@ export default async function InventoryDocumentResultsPage({
     { data: canCommentResults },
     { data: canAdjustResults },
     { data: canFinalizeResults },
+    { data: canRecountDocuments },
     { data: canUseAiSuggestions },
     {
       data: { user },
@@ -271,6 +265,7 @@ export default async function InventoryDocumentResultsPage({
     supabase.rpc("has_permission", { permission_code: "inventory.comment_results" }),
     supabase.rpc("has_permission", { permission_code: "inventory.adjust_results" }),
     supabase.rpc("has_permission", { permission_code: "inventory.finalize_results" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.use_ai_suggestions" }),
     supabase.auth.getUser(),
     getActiveAccountAmountRoundingScale(),
@@ -281,7 +276,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -291,7 +286,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note")
     .eq("document_id", document.id)
     .order("product_name");
 
@@ -404,21 +399,9 @@ export default async function InventoryDocumentResultsPage({
       .filter((item) => activeResortIds.has(item.resortId))
       .map((item) => item.documentItemId),
   );
+  // events нужны только для dismissedSuggestionKeys (журнал переехал в
+  // layout-табу «Журнал» — ../history).
   const events = eventsRaw ?? [];
-  const eventActorIds = Array.from(
-    new Set(events.map((event) => event.created_by).filter((actorId): actorId is string => Boolean(actorId))),
-  );
-  const { data: eventActorsRaw } = eventActorIds.length > 0
-    ? await admin
-        .from<EventActorRow[]>("profiles")
-        .select("id, first_name, last_name, avatar_url")
-        .in("id", eventActorIds)
-    : { data: [] };
-  const eventActorById = new Map((eventActorsRaw ?? []).map((actor) => [actor.id, actor]));
-  const eventsWithActors = events.map((event) => ({
-    ...event,
-    actor: event.created_by ? eventActorById.get(event.created_by) ?? null : null,
-  }));
   const aiSuggestionsEnabled = Boolean(accountSettings?.inventory_ai_suggestions_enabled && canUseAiSuggestions);
   const dismissedSuggestionKeys = new Set(
     events
@@ -458,14 +441,10 @@ export default async function InventoryDocumentResultsPage({
     .slice(0, 5);
 
   return (
-    <div className="w-full px-4 py-4 md:px-8 md:py-6">
-      {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout
-          (см. inventory/[id]/layout.tsx). Здесь только кнопка
-          обновления данных Quick Resto. */}
-      <div className="mb-5 flex items-center justify-end">
-        <RefreshResultsButton documentId={document.id} />
-      </div>
-
+    <div className="w-full space-y-6 p-6 md:p-8">
+      {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout.
+          «Обновить итоги из QR» переехала в тулбар таблицы итогов
+          (results-table → TableControls.secondaryActions). */}
       {!document.results_has_line_amounts ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="mb-2 flex items-center gap-2 font-medium">
@@ -483,14 +462,21 @@ export default async function InventoryDocumentResultsPage({
           items={itemsWithRules}
           resorts={resorts}
           resortItems={resortItems}
-          events={eventsWithActors}
           suggestions={suggestions}
           amountRoundingScale={amountRoundingScale}
           isFinalized={Boolean(document.results_finalized_at)}
+          // Залочен: финализирован ИЛИ проведён в QR и не разблокирован.
+          // Processed-акт read-only до явной разблокировки (в журнал).
+          isLocked={
+            Boolean(document.results_finalized_at) ||
+            (document.status === "processed" && document.results_reopened_at == null)
+          }
           canComment={Boolean(canCommentResults)}
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}
+          canRecount={Boolean(canRecountDocuments)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
+          documentStatus={document.status}
         />
       )}
     </div>

@@ -41,6 +41,7 @@ export const DOCUMENT_STATUSES = [
   "assigned",
   "in_progress",
   "ready_for_review",
+  "recount_pending",
   "processed",
   "results_blocked",
   "sync_error",

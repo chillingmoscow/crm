@@ -57,6 +57,13 @@ const schema = z.object({
   timezone:                z.string().min(1),
   comment:                 z.string().optional(),
   default_legal_entity_id: z.string().nullable().optional(),
+  inventory_recount_threshold_sum: z.coerce
+    .number({ invalid_type_error: "Введите число" })
+    .min(0, "Не меньше 0"),
+  inventory_recount_threshold_percent: z.coerce
+    .number({ invalid_type_error: "Введите число" })
+    .min(0, "Не меньше 0")
+    .max(100, "Не больше 100"),
 });
 
 type Form = z.infer<typeof schema>;
@@ -72,6 +79,8 @@ type Venue = {
   working_hours: WorkingHours | null;
   comment: string | null;
   default_legal_entity_id: string | null;
+  inventory_recount_threshold_sum: number | null;
+  inventory_recount_threshold_percent: number | null;
 };
 
 export type LegalEntityOption = {
@@ -127,6 +136,10 @@ export function VenueDetailPage({
       timezone:                venue.timezone,
       comment:                 venue.comment ?? "",
       default_legal_entity_id: venue.default_legal_entity_id,
+      inventory_recount_threshold_sum:
+        venue.inventory_recount_threshold_sum ?? 500,
+      inventory_recount_threshold_percent:
+        venue.inventory_recount_threshold_percent ?? 10,
     },
   });
   const selectedLegalEntityId = watch("default_legal_entity_id") ?? null;
@@ -156,6 +169,8 @@ export function VenueDetailPage({
         workingHours,
         comment: values.comment || null,
         defaultLegalEntityId: values.default_legal_entity_id ?? null,
+        inventoryRecountThresholdSum: values.inventory_recount_threshold_sum,
+        inventoryRecountThresholdPercent: values.inventory_recount_threshold_percent,
       });
       if (result.error) { toast.error(result.error); return; }
       toast.success("Изменения сохранены");
@@ -354,6 +369,59 @@ export function VenueDetailPage({
                   </div>
                 );
               })}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Inventory recount thresholds (миграция 209). Если хотя бы один
+              из двух порогов перекрыт по строке, авто-маркер на «Итогах»
+              отметит её — менеджер сможет отправить акт на пересчёт. */}
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-medium">Инвентаризация</h3>
+              <p className="text-xs text-muted-foreground">
+                Пороги авто-маркера пересчёта по этому заведению. Если
+                расхождение по строке превышает любой из порогов, она
+                автоматически помечается как требующая пересчёта.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="inventory_recount_threshold_sum">
+                  Порог по сумме, ₽
+                </Label>
+                <Input
+                  id="inventory_recount_threshold_sum"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  {...register("inventory_recount_threshold_sum")}
+                />
+                {errors.inventory_recount_threshold_sum ? (
+                  <p className="text-xs text-destructive">
+                    {errors.inventory_recount_threshold_sum.message}
+                  </p>
+                ) : null}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="inventory_recount_threshold_percent">
+                  Порог по проценту, %
+                </Label>
+                <Input
+                  id="inventory_recount_threshold_percent"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  {...register("inventory_recount_threshold_percent")}
+                />
+                {errors.inventory_recount_threshold_percent ? (
+                  <p className="text-xs text-destructive">
+                    {errors.inventory_recount_threshold_percent.message}
+                  </p>
+                ) : null}
+              </div>
             </div>
           </div>
 

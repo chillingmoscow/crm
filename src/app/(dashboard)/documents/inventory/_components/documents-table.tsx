@@ -665,7 +665,9 @@ export function DocumentsTable({
 
       {/* Pins row — порядок: Сортировка → Фильтры → Поиск. Эталон:
           dev/table-lab → ActiveTablePins в FinanceDemo. */}
-      {(filtersVisible || hasSortActive || hasSearch) ? (
+      {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
+          сортировки) — иначе торчит одинокая «Очистить все». */}
+      {(filtersVisible || hasSortActive || hasActiveFilters) ? (
         <div className="flex flex-wrap items-center gap-2">
           {/* 1. Сортировка — один пин на все ключи (как в эталоне) */}
           {hasSortActive ? (

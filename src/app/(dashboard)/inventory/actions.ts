@@ -77,8 +77,24 @@ type InventoryExclusionRuleLookup = {
 type InventoryResultDocumentRow = {
   id: string;
   account_id: string;
+  status: string;
   results_finalized_at: string | null;
+  results_reopened_at: string | null;
 };
+
+/**
+ * Акт залочен (read-only), если итоги финализированы ИЛИ акт проведён в QR
+ * (status='processed') и не был явно разблокирован (results_reopened_at).
+ * Разблокировка — reopenInventoryResults, пишется в журнал.
+ */
+function isInventoryResultLocked(doc: {
+  status: string;
+  results_finalized_at: string | null;
+  results_reopened_at: string | null;
+}): boolean {
+  if (doc.results_finalized_at) return true;
+  return doc.status === "processed" && doc.results_reopened_at == null;
+}
 
 type InventoryResultItemRow = {
   id: string;
@@ -850,14 +866,18 @@ async function getResultDocumentForAction(input: {
 }) {
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
-    .select("id, account_id, results_finalized_at")
+    .select("id, account_id, status, results_finalized_at, results_reopened_at")
     .eq("id", input.documentId)
     .eq("account_id", input.accountId)
     .maybeSingle();
 
   if (!document?.id) throw new Error("Акт не найден");
-  if (input.requireOpen && document.results_finalized_at) {
-    throw new Error("Итоги акта уже финализированы. Переоткройте итоги перед изменениями.");
+  if (input.requireOpen && isInventoryResultLocked(document)) {
+    throw new Error(
+      document.results_finalized_at
+        ? "Итоги акта уже финализированы. Переоткройте итоги перед изменениями."
+        : "Акт проведён в Quick Resto и заблокирован. Разблокируйте его перед изменениями.",
+    );
   }
   return document;
 }
@@ -2278,7 +2298,11 @@ export async function reopenInventoryResults(input: {
       accountId: ctx.accountId,
       documentId: input.documentId,
     });
-    if (!document.results_finalized_at) return { error: null };
+    // Разблокировать можно: финализированные итоги (results_finalized_at)
+    // ИЛИ проведённый акт (status='processed' — он залочен по умолчанию,
+    // см. результат-страницу isLocked). Если ни то, ни другое — no-op.
+    const isProcessed = document.status === "processed";
+    if (!document.results_finalized_at && !isProcessed) return { error: null };
 
     const { error } = await admin
       .from("documents")
@@ -2299,14 +2323,164 @@ export async function reopenInventoryResults(input: {
       userId: ctx.user.id,
       documentId: document.id,
       eventType: "results_reopened",
-      message: "Открыл итоги для редактирования",
-      payload: { documentId: document.id, reason },
+      message: isProcessed
+        ? "Разблокировал проведённый акт для редактирования"
+        : "Открыл итоги для редактирования",
+      payload: { documentId: document.id, reason, processed: isProcessed },
     });
 
     revalidateInventoryResultPages(document.id);
     return { error: null };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось переоткрыть итоги") };
+  }
+}
+
+/**
+ * Менеджер помечает (или снимает пометку) на строке акта как «требует
+ * пересчёта». Ручной toggle; recount_marked_by фиксирует «человек тронул»,
+ * чтобы триггер `inventory_apply_recount_threshold` (миграция 209) не
+ * перезатёр ручное решение авто-логикой.
+ *
+ * Permission: `inventory.recount_documents`.
+ */
+export async function setRecountFlag(input: {
+  documentId: string;
+  itemId: string;
+  needsRecount: boolean;
+  note?: string | null;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.recount_documents");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    // requireOpen: финализированные итоги нельзя менять (Codex P2 #399 —
+    // server-side инвариант должен совпадать с UI, иначе обход через
+    // прямой вызов server action).
+    const document = await getResultDocumentForAction({
+      admin,
+      accountId: ctx.accountId,
+      documentId: input.documentId,
+      requireOpen: true,
+    });
+
+    const { error } = await admin
+      .from("document_items")
+      .update({
+        needs_recount: input.needsRecount,
+        recount_auto_flagged: false, // переход в ручной режим
+        recount_marked_by: ctx.user.id,
+        recount_marked_at: new Date().toISOString(),
+        recount_note: input.note?.trim() || null,
+      })
+      .eq("id", input.itemId)
+      .eq("document_id", document.id)
+      .eq("account_id", ctx.accountId);
+    if (error) throw new Error(error.message);
+
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      documentItemId: input.itemId,
+      eventType: input.needsRecount ? "recount_marked" : "recount_unmarked",
+      message: input.needsRecount ? "Отметил строку на пересчёт" : "Снял пометку пересчёта",
+      payload: { itemId: input.itemId, note: input.note?.trim() || null },
+    });
+
+    revalidateInventoryResultPages(document.id);
+    return { error: null };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось изменить пометку пересчёта") };
+  }
+}
+
+/**
+ * Менеджер возвращает акт исполнителю на пересчёт. Меняет статус акта на
+ * `recount_pending`, увеличивает `recount_count`, ставит `last_returned_at`
+ * (используется в editor-hydration для invalidation IndexedDB-черновика).
+ *
+ * Преконды:
+ *  - У акта есть ≥1 позиция с `needs_recount = true`.
+ *  - Статус акта — `ready_for_review` или `results_blocked`. После
+ *    `processed` возврат бессмысленен (QR-side уже закрыт).
+ *  - permission `inventory.recount_documents`.
+ */
+export async function returnDocumentForRecount(input: {
+  documentId: string;
+  note?: string | null;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext("inventory.recount_documents");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const { data: document } = await admin
+      .from<{
+        id: string;
+        status: string;
+        recount_count: number | null;
+        results_finalized_at: string | null;
+      }>("documents")
+      .select("id, status, recount_count, results_finalized_at")
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+    if (!document?.id) return { error: "Акт не найден" };
+    if (document.results_finalized_at) {
+      return { error: "Итоги уже финализированы. Сначала переоткройте их." };
+    }
+    if (document.status !== "ready_for_review" && document.status !== "results_blocked") {
+      return {
+        error:
+          "Вернуть на пересчёт можно только акт со статусом «Готов к проверке» или «Итоги требуют проверки».",
+      };
+    }
+
+    const { data: flaggedItems } = await admin
+      .from<Array<{ id: string }>>("document_items")
+      .select("id")
+      .eq("document_id", document.id)
+      .eq("account_id", ctx.accountId)
+      .eq("needs_recount", true);
+    const flaggedIds = (flaggedItems ?? []).map((row) => row.id);
+    if (flaggedIds.length === 0) {
+      return { error: "Отметьте хотя бы одну строку на пересчёт перед отправкой." };
+    }
+
+    const { error: updateError } = await admin
+      .from("documents")
+      .update({
+        status: "recount_pending",
+        recount_count: (document.recount_count ?? 0) + 1,
+        last_returned_at: new Date().toISOString(),
+      })
+      .eq("id", document.id)
+      .eq("account_id", ctx.accountId);
+    if (updateError) throw new Error(updateError.message);
+
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: "returned_for_recount",
+      message: "Отправил акт на пересчёт",
+      payload: {
+        flaggedItemIds: flaggedIds,
+        recountCount: (document.recount_count ?? 0) + 1,
+        note: input.note?.trim() || null,
+      },
+    });
+
+    revalidateInventoryResultPages(document.id);
+    return { error: null };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось отправить акт на пересчёт") };
   }
 }
 
@@ -2607,6 +2781,30 @@ export async function submitInventoryDocumentDraft(input: {
     const productByExternalId = new Map(
       ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [String(row.external_id), row])
     );
+
+    // Recount cleanup: сбрасываем recount-флаги (и авто-, и ручные) на
+    // строках, по которым исполнитель только что отправил новое значение.
+    // Триггер `inventory_apply_recount_threshold` на следующем upsert
+    // в syncDocumentItems заново проверит порог — если новое расхождение
+    // тоже > threshold, флаг встанет автоматически. Делаем точечный UPDATE
+    // без обновления columns-of-interest для триггера, чтобы не было
+    // двойного срабатывания.
+    const submittedItemIds = input.items.map((item) => item.itemId);
+    if (submittedItemIds.length > 0) {
+      await admin
+        .from("document_items")
+        .update({
+          needs_recount: false,
+          recount_auto_flagged: false,
+          recount_marked_by: null,
+          recount_marked_at: null,
+          recount_note: null,
+        })
+        .eq("document_id", document.id)
+        .eq("account_id", ctx.accountId)
+        .in("id", submittedItemIds);
+    }
+
     const syncResult = await syncDocumentItems({
       admin,
       accountId: ctx.accountId,

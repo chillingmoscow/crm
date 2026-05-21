@@ -1678,7 +1678,7 @@ export async function bulkAssignInventoryDocuments(input: {
     if (ids.length === 0) return { updated: 0, skipped: 0, error: "Не выбрано ни одного акта" };
 
     const admin = asLooseDb(createAdminClient());
-    const { data: docsRaw } = await admin
+    const { data: docsRaw, error: readError } = await admin
       .from<
         Array<{
           id: string;
@@ -1692,9 +1692,20 @@ export async function bulkAssignInventoryDocuments(input: {
       .select("id, status, assigned_to, reviewer_id, document_number, venue_id")
       .eq("account_id", ctx.accountId)
       .in("id", ids);
+    // Codex P1 #407: read-ошибку нельзя глотать — иначе ложный успех.
+    if (readError) throw new Error(readError.message);
     const docs = docsRaw ?? [];
-    // Пропускаем проведённые / sync_error (как getAssignLockReason на клиенте).
-    const eligible = docs.filter((d) => d.status !== "processed" && d.status !== "sync_error");
+    // Пропускаем проведённые / sync_error (как getAssignLockReason на клиенте)
+    // и no-op'ы, где значение уже стоит — чтобы не плодить лог/уведомления
+    // на пустом месте (Codex P2 #407: как single-action, только на изменение).
+    const eligible = docs.filter(
+      (d) =>
+        d.status !== "processed" &&
+        d.status !== "sync_error" &&
+        (input.role === "assignee"
+          ? d.assigned_to !== input.userId
+          : d.reviewer_id !== input.userId),
+    );
     const skipped = ids.length - eligible.length;
     if (eligible.length === 0) return { updated: 0, skipped, error: null };
 

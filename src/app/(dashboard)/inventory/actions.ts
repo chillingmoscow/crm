@@ -77,8 +77,24 @@ type InventoryExclusionRuleLookup = {
 type InventoryResultDocumentRow = {
   id: string;
   account_id: string;
+  status: string;
   results_finalized_at: string | null;
+  results_reopened_at: string | null;
 };
+
+/**
+ * Акт залочен (read-only), если итоги финализированы ИЛИ акт проведён в QR
+ * (status='processed') и не был явно разблокирован (results_reopened_at).
+ * Разблокировка — reopenInventoryResults, пишется в журнал.
+ */
+function isInventoryResultLocked(doc: {
+  status: string;
+  results_finalized_at: string | null;
+  results_reopened_at: string | null;
+}): boolean {
+  if (doc.results_finalized_at) return true;
+  return doc.status === "processed" && doc.results_reopened_at == null;
+}
 
 type InventoryResultItemRow = {
   id: string;
@@ -850,14 +866,18 @@ async function getResultDocumentForAction(input: {
 }) {
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
-    .select("id, account_id, results_finalized_at")
+    .select("id, account_id, status, results_finalized_at, results_reopened_at")
     .eq("id", input.documentId)
     .eq("account_id", input.accountId)
     .maybeSingle();
 
   if (!document?.id) throw new Error("Акт не найден");
-  if (input.requireOpen && document.results_finalized_at) {
-    throw new Error("Итоги акта уже финализированы. Переоткройте итоги перед изменениями.");
+  if (input.requireOpen && isInventoryResultLocked(document)) {
+    throw new Error(
+      document.results_finalized_at
+        ? "Итоги акта уже финализированы. Переоткройте итоги перед изменениями."
+        : "Акт проведён в Quick Resto и заблокирован. Разблокируйте его перед изменениями.",
+    );
   }
   return document;
 }
@@ -2278,7 +2298,11 @@ export async function reopenInventoryResults(input: {
       accountId: ctx.accountId,
       documentId: input.documentId,
     });
-    if (!document.results_finalized_at) return { error: null };
+    // Разблокировать можно: финализированные итоги (results_finalized_at)
+    // ИЛИ проведённый акт (status='processed' — он залочен по умолчанию,
+    // см. результат-страницу isLocked). Если ни то, ни другое — no-op.
+    const isProcessed = document.status === "processed";
+    if (!document.results_finalized_at && !isProcessed) return { error: null };
 
     const { error } = await admin
       .from("documents")
@@ -2299,8 +2323,10 @@ export async function reopenInventoryResults(input: {
       userId: ctx.user.id,
       documentId: document.id,
       eventType: "results_reopened",
-      message: "Открыл итоги для редактирования",
-      payload: { documentId: document.id, reason },
+      message: isProcessed
+        ? "Разблокировал проведённый акт для редактирования"
+        : "Открыл итоги для редактирования",
+      payload: { documentId: document.id, reason, processed: isProcessed },
     });
 
     revalidateInventoryResultPages(document.id);

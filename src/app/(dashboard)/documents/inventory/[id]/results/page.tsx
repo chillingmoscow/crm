@@ -27,6 +27,7 @@ type InventoryDocumentResultRow = {
   store_id: string | null;
   external_store_id: string | null;
   results_finalized_at: string | null;
+  results_reopened_at: string | null;
 };
 
 type ProductGroupLookupRow = {
@@ -275,7 +276,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -464,6 +465,12 @@ export default async function InventoryDocumentResultsPage({
           suggestions={suggestions}
           amountRoundingScale={amountRoundingScale}
           isFinalized={Boolean(document.results_finalized_at)}
+          // Залочен: финализирован ИЛИ проведён в QR и не разблокирован.
+          // Processed-акт read-only до явной разблокировки (в журнал).
+          isLocked={
+            Boolean(document.results_finalized_at) ||
+            (document.status === "processed" && document.results_reopened_at == null)
+          }
           canComment={Boolean(canCommentResults)}
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}

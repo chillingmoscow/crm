@@ -554,7 +554,9 @@ export function InventoryDocumentEditor({
 
       {/* Pin-row — порядок 1-в-1 с эталоном documents-table.tsx:
           Сортировка → divider → Фильтры (Группа) → divider → Поиск → «Очистить все». */}
-      {(filtersVisible || hasSortActive || hasSearch) ? (
+      {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
+          сортировки) — иначе торчит одинокая «Очистить все». */}
+      {(filtersVisible || hasSortActive || hasActiveFilters) ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {hasSortActive ? (
             <TableControlPin

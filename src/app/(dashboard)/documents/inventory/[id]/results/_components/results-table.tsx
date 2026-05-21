@@ -158,6 +158,8 @@ type Props = {
   suggestions: InventoryResortSuggestion[];
   amountRoundingScale: AmountRoundingScale;
   isFinalized: boolean;
+  /** Read-only: финализирован ИЛИ проведён в QR и не разблокирован. */
+  isLocked: boolean;
   canComment: boolean;
   canAdjust: boolean;
   canFinalize: boolean;
@@ -168,6 +170,13 @@ type Props = {
 
 type ResultColumnKey = "calculated" | "fact" | "difference" | "management" | "status" | "recount" | "comment";
 type ResultStatusFilter = "all" | "included" | "excluded" | "resort";
+type ResultRecountFilter = "all" | "flagged" | "clear";
+
+const RESULT_RECOUNT_LABEL: Record<ResultRecountFilter, string> = {
+  all:     "Все",
+  flagged: "На пересчёт",
+  clear:   "Без пересчёта",
+};
 
 // Multi-sort 1-в-1 с эталоном documents-table.tsx / form-editor: поле +
 // направление в combined-значении, sorts — массив (порядок = приоритет).
@@ -236,8 +245,8 @@ function hasDifference(item: InventoryDocumentResultItem) {
 
 function differenceClass(value: number | null | undefined) {
   const numericValue = Number(value ?? 0);
-  if (numericValue < 0) return "text-red-700";
-  if (numericValue > 0) return "text-green-700";
+  if (numericValue < 0) return "text-red-700 dark:text-red-400";
+  if (numericValue > 0) return "text-green-700 dark:text-green-400";
   return "text-muted-foreground";
 }
 
@@ -259,6 +268,7 @@ export function InventoryResultsTable({
   suggestions,
   amountRoundingScale,
   isFinalized,
+  isLocked,
   canComment,
   canAdjust,
   canFinalize,
@@ -271,6 +281,7 @@ export function InventoryResultsTable({
   const [searchQuery, setSearchQuery] = useState("");
   const [groupFilter, setGroupFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<ResultStatusFilter>("all");
+  const [recountFilter, setRecountFilter] = useState<ResultRecountFilter>("all");
   const [sorts, setSorts] = useState<ResultSortMode[]>([]);
   // pin-row скрыт по умолчанию, кнопка «Фильтры» нейтральна (как в актах).
   const [filtersVisible, setFiltersVisible] = useState(false);
@@ -367,6 +378,9 @@ export function InventoryResultsTable({
       if (statusFilter === "excluded" && !item.excluded_from_totals) return false;
       if (statusFilter === "resort" && !resortItem) return false;
 
+      if (recountFilter === "flagged" && !item.needs_recount) return false;
+      if (recountFilter === "clear" && item.needs_recount) return false;
+
       if (!query) return true;
       return [
         item.product_name,
@@ -403,13 +417,14 @@ export function InventoryResultsTable({
     activeResortItemByItemId,
     groupFilter,
     items,
+    recountFilter,
     searchQuery,
     showDifferences,
     sorts,
     statusFilter,
   ]);
   const hasActiveFilters =
-    showDifferences || groupFilter !== "all" || statusFilter !== "all";
+    showDifferences || groupFilter !== "all" || statusFilter !== "all" || recountFilter !== "all";
   const hasSortActive = sorts.length > 0;
   const hasSearch = searchQuery.trim().length > 0;
   const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
@@ -422,6 +437,7 @@ export function InventoryResultsTable({
     setSearchOpen(false);
     setGroupFilter("all");
     setStatusFilter("all");
+    setRecountFilter("all");
     setSorts([]);
   };
   const selectedItems = useMemo(
@@ -509,13 +525,13 @@ export function InventoryResultsTable({
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <div className="text-xs text-muted-foreground">По QR</div>
-              <div className="mt-1 text-2xl font-semibold text-red-700">
+              <div className="mt-1 text-2xl font-semibold text-red-700 dark:text-red-400">
                 {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">К списанию</div>
-              <div className="mt-1 text-2xl font-semibold text-red-700">
+              <div className="mt-1 text-2xl font-semibold text-red-700 dark:text-red-400">
                 {formatMoney(Math.abs(totals.managementShortfallSum), "RUB", amountRoundingScale)}
               </div>
             </div>
@@ -534,13 +550,13 @@ export function InventoryResultsTable({
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <div className="text-xs text-muted-foreground">По QR</div>
-              <div className="mt-1 text-2xl font-semibold text-green-700">
+              <div className="mt-1 text-2xl font-semibold text-green-700 dark:text-green-400">
                 {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">К учету</div>
-              <div className="mt-1 text-2xl font-semibold text-green-700">
+              <div className="mt-1 text-2xl font-semibold text-green-700 dark:text-green-400">
                 {formatMoney(Math.abs(totals.managementSurplusSum), "RUB", amountRoundingScale)}
               </div>
             </div>
@@ -595,7 +611,7 @@ export function InventoryResultsTable({
           secondaryActions={<RefreshResultsButton documentId={documentId} />}
           summary={
             <>
-              Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}; выбрано {selectedItems.length}.
+              Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}.
             </>
           }
         />
@@ -603,7 +619,9 @@ export function InventoryResultsTable({
 
       {/* Pin-row — порядок 1-в-1 с documents-table: Сортировка → divider →
           Расхождения · Группа · Статус → divider → Поиск → «Очистить все». */}
-      {(filtersVisible || hasSortActive || hasSearch) ? (
+      {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
+          сортировки) — иначе торчит одинокая «Очистить все». */}
+      {(filtersVisible || hasSortActive || hasActiveFilters) ? (
         <div className="flex flex-wrap items-center gap-2">
           {hasSortActive ? (
             <TableControlPin
@@ -671,6 +689,15 @@ export function InventoryResultsTable({
               >
                 <ResultStatusPicker value={statusFilter} onChange={setStatusFilter} />
               </TableControlPin>
+
+              <TableControlPin
+                active={recountFilter !== "all"}
+                label={recountFilter !== "all" ? `Пересчёт: ${RESULT_RECOUNT_LABEL[recountFilter]}` : "Пересчёт"}
+                onClear={recountFilter !== "all" ? () => setRecountFilter("all") : undefined}
+                clearLabel="Сбросить фильтр пересчёта"
+              >
+                <ResultRecountPicker value={recountFilter} onChange={setRecountFilter} />
+              </TableControlPin>
             </>
           ) : null}
 
@@ -730,14 +757,14 @@ export function InventoryResultsTable({
                 </div>
                 {canAdjust ? (
                   <div className="flex gap-2">
-                    <Button type="button" size="sm" variant="outline" disabled={isFinalized || isPending} onClick={() => dismissSuggestion(suggestion)}>
+                    <Button type="button" size="sm" variant="outline" disabled={isLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
                       Скрыть
                     </Button>
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      disabled={isFinalized || isPending}
+                      disabled={isLocked || isPending}
                       onClick={() => createResort(suggestion.itemIds, suggestion.reason, suggestion.source, suggestion.confidence)}
                     >
                       Применить
@@ -752,7 +779,7 @@ export function InventoryResultsTable({
 
       {visibleItems.length === 0 ? (
         <div className="rounded-lg border bg-card p-4 text-sm">
-          <div className="flex items-center gap-2 text-green-700">
+          <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
             <CheckCircle2 className="h-4 w-4" />
             Расхождений по строкам нет.
           </div>
@@ -778,7 +805,7 @@ export function InventoryResultsTable({
                 ? resortItem.remainingDifferenceSum
                 : item.difference_sum;
             const isExcluded = item.excluded_from_totals === true;
-            const isSelectable = !isFinalized && !isExcluded && !resortItem;
+            const isSelectable = !isLocked && !isExcluded && !resortItem;
             return (
               <div
                 key={item.id}
@@ -861,7 +888,7 @@ export function InventoryResultsTable({
                           type="button"
                           role="switch"
                           aria-checked={flagged}
-                          disabled={!canRecount || isFinalized || isPending}
+                          disabled={!canRecount || isLocked || isPending}
                           onClick={() =>
                             runAction(
                               () =>
@@ -878,7 +905,7 @@ export function InventoryResultsTable({
                             flagged
                               ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
                               : "border-border bg-muted/40 hover:bg-muted",
-                            !canRecount || isFinalized ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                            !canRecount || isLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
                           )}
                           title={
                             flagged
@@ -919,7 +946,7 @@ export function InventoryResultsTable({
                 <div className="flex justify-end">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button type="button" size="icon" variant="ghost" disabled={isFinalized || isPending}>
+                      <Button type="button" size="icon" variant="ghost" disabled={isLocked || isPending}>
                         <MoreHorizontal className="h-4 w-4" />
                         <span className="sr-only">Действия</span>
                       </Button>
@@ -1025,7 +1052,7 @@ export function InventoryResultsTable({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={isFinalized || isPending}
+                    disabled={isLocked || isPending}
                     onClick={() => {
                       setVoidingResort(resort);
                       setVoidReason("");
@@ -1046,7 +1073,7 @@ export function InventoryResultsTable({
           итоги»). Поясняющий текст про блокировку — в тултипе кнопки. */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <div className="text-xs text-muted-foreground">
-          Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}; выбрано {selectedItems.length}.
+          Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}.
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canSendToRecount ? (
@@ -1057,7 +1084,7 @@ export function InventoryResultsTable({
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={isFinalized || isPending || flaggedCount === 0}
+                      disabled={isLocked || isPending || flaggedCount === 0}
                       onClick={() =>
                         runAction(
                           () => returnDocumentForRecount({ documentId }),
@@ -1080,20 +1107,28 @@ export function InventoryResultsTable({
           ) : null}
 
           {canFinalize ? (
-            isFinalized ? (
+            isLocked ? (
               <Button
                 type="button"
                 variant="outline"
                 disabled={isPending}
                 onClick={() =>
                   runAction(
-                    () => reopenInventoryResults({ documentId, reason: "Режим редактирования итогов" }),
-                    "Итоги открыты для редактирования",
+                    () =>
+                      reopenInventoryResults({
+                        documentId,
+                        reason: isFinalized
+                          ? "Режим редактирования итогов"
+                          : "Разблокировка проведённого акта",
+                      }),
+                    isFinalized
+                      ? "Итоги открыты для редактирования"
+                      : "Акт разблокирован для редактирования",
                   )
                 }
               >
                 <Undo2 className="mr-2 h-4 w-4" />
-                Редактировать итоги
+                {isFinalized ? "Редактировать итоги" : "Разблокировать акт"}
               </Button>
             ) : (
               <TooltipProvider>
@@ -1231,7 +1266,7 @@ export function InventoryResultsTable({
                     type="button"
                     size="sm"
                     className="h-8 text-xs"
-                    disabled={isFinalized || isPending || selectedItems.length < 2}
+                    disabled={isLocked || isPending || selectedItems.length < 2}
                     onClick={() => createResort(Array.from(selectedIds))}
                   >
                     Пересорт
@@ -1241,7 +1276,7 @@ export function InventoryResultsTable({
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs"
-                    disabled={isFinalized || isPending || selectedItems.length === 0}
+                    disabled={isLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
                       runAction(
                         async () => {
@@ -1266,7 +1301,7 @@ export function InventoryResultsTable({
                     size="sm"
                     variant="outline"
                     className="h-8 text-xs"
-                    disabled={isFinalized || isPending || selectedItems.length === 0}
+                    disabled={isLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
                       runAction(
                         async () => {
@@ -1285,27 +1320,50 @@ export function InventoryResultsTable({
                 </>
               ) : null}
               {canRecount ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs"
-                  disabled={isFinalized || isPending || selectedItems.length === 0}
-                  onClick={() =>
-                    runAction(
-                      async () => {
-                        for (const itemId of selectedIds) {
-                          const result = await setRecountFlag({ documentId, itemId, needsRecount: true });
-                          if (result.error) return result;
-                        }
-                        return { error: null };
-                      },
-                      "Строки отмечены на пересчёт",
-                    )
-                  }
-                >
-                  Пересчёт
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    disabled={isLocked || isPending || selectedItems.length === 0}
+                    onClick={() =>
+                      runAction(
+                        async () => {
+                          for (const itemId of selectedIds) {
+                            const result = await setRecountFlag({ documentId, itemId, needsRecount: true });
+                            if (result.error) return result;
+                          }
+                          return { error: null };
+                        },
+                        "Строки отмечены на пересчёт",
+                      )
+                    }
+                  >
+                    Пересчёт
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    disabled={isLocked || isPending || selectedItems.length === 0}
+                    onClick={() =>
+                      runAction(
+                        async () => {
+                          for (const itemId of selectedIds) {
+                            const result = await setRecountFlag({ documentId, itemId, needsRecount: false });
+                            if (result.error) return result;
+                          }
+                          return { error: null };
+                        },
+                        "Пометки пересчёта сняты",
+                      )
+                    }
+                  >
+                    Снять пересчёт
+                  </Button>
+                </>
               ) : null}
             </>
           }
@@ -1545,6 +1603,31 @@ function ResultStatusPicker({
           className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
         >
           <span className="truncate">{RESULT_STATUS_LABEL[option]}</span>
+          {value === option ? <Check className="h-4 w-4 shrink-0" /> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ResultRecountPicker({
+  value,
+  onChange,
+}: {
+  value: ResultRecountFilter;
+  onChange: (next: ResultRecountFilter) => void;
+}) {
+  const options: ResultRecountFilter[] = ["all", "flagged", "clear"];
+  return (
+    <div className="space-y-0.5 p-1">
+      {options.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
+        >
+          <span className="truncate">{RESULT_RECOUNT_LABEL[option]}</span>
           {value === option ? <Check className="h-4 w-4 shrink-0" /> : null}
         </button>
       ))}

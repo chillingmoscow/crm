@@ -74,13 +74,17 @@ on conflict (code) do update set
   description = excluded.description;
 
 -- Backfill: триггер apply_default_inventory_permissions_to_role срабатывает
--- только на INSERT новой роли. Существующим custom_admin/custom_manager
--- ролям выдадим новое право явно (аналогично паттерну миграции 175 backfill).
+-- только на INSERT новой роли. Существующим ролям выдаём новое право явно.
+--   * 'owner' — каждое inventory-право явно выдаётся владельцу (паттерн
+--     миграции 194 для view_all_venues); сюда же попадают account-клоны
+--     owner-роли (у всех code='owner'), от которых наследуют новые аккаунты.
+--   * 'custom_manager' / 'custom_admin' — preset-роли менеджера/админа
+--     (паттерн миграции 175).
 insert into public.role_permissions (role_id, permission_id, granted)
 select r.id, p.id, true
 from public.roles r
 cross join public.permissions p
-where r.code in ('custom_manager', 'custom_admin')
+where r.code in ('owner', 'custom_manager', 'custom_admin')
   and p.code = 'inventory.recount_documents'
 on conflict (role_id, permission_id)
 do update set granted = excluded.granted;

@@ -51,13 +51,6 @@ type ExclusionRuleRow = {
   reason: string | null;
 };
 
-type EventActorRow = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  avatar_url: string | null;
-};
-
 type HistoryResortRow = {
   id: string;
   document_id: string;
@@ -406,21 +399,9 @@ export default async function InventoryDocumentResultsPage({
       .filter((item) => activeResortIds.has(item.resortId))
       .map((item) => item.documentItemId),
   );
+  // events нужны только для dismissedSuggestionKeys (журнал переехал в
+  // layout-табу «Журнал» — ../history).
   const events = eventsRaw ?? [];
-  const eventActorIds = Array.from(
-    new Set(events.map((event) => event.created_by).filter((actorId): actorId is string => Boolean(actorId))),
-  );
-  const { data: eventActorsRaw } = eventActorIds.length > 0
-    ? await admin
-        .from<EventActorRow[]>("profiles")
-        .select("id, first_name, last_name, avatar_url")
-        .in("id", eventActorIds)
-    : { data: [] };
-  const eventActorById = new Map((eventActorsRaw ?? []).map((actor) => [actor.id, actor]));
-  const eventsWithActors = events.map((event) => ({
-    ...event,
-    actor: event.created_by ? eventActorById.get(event.created_by) ?? null : null,
-  }));
   const aiSuggestionsEnabled = Boolean(accountSettings?.inventory_ai_suggestions_enabled && canUseAiSuggestions);
   const dismissedSuggestionKeys = new Set(
     events
@@ -485,7 +466,6 @@ export default async function InventoryDocumentResultsPage({
           items={itemsWithRules}
           resorts={resorts}
           resortItems={resortItems}
-          events={eventsWithActors}
           suggestions={suggestions}
           amountRoundingScale={amountRoundingScale}
           isFinalized={Boolean(document.results_finalized_at)}

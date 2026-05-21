@@ -56,9 +56,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTableToolbar } from "@/components/shared/data-table-toolbar";
+import { TableBulkBar } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 
 export type InventoryDocumentResultItem = {
@@ -135,7 +135,6 @@ type Props = {
   items: InventoryDocumentResultItem[];
   resorts: InventoryResultResortRow[];
   resortItems: InventoryResultResortItemRow[];
-  events: InventoryResultEventRow[];
   suggestions: InventoryResortSuggestion[];
   amountRoundingScale: AmountRoundingScale;
   isFinalized: boolean;
@@ -188,84 +187,11 @@ function formatQuantity(
   return `${formatted} ${measureUnitName ?? "ед."}`;
 }
 
-function eventTypeLabel(eventType: string) {
-  const labels: Record<string, string> = {
-    comment_updated: "Комментарий",
-    exclude_enabled: "Не учитывать",
-    exclude_disabled: "Вернули в итог",
-    persistent_exclusion_enabled: "Автоисключение",
-    persistent_exclusion_disabled: "Удаление автоисключения",
-    resort_created: "Пересорт",
-    resort_voided: "Отмена пересорта",
-    results_finalized: "Итоги подведены",
-    results_reopened: "Редактирование",
-    results_refreshed: "Обновление",
-    suggestion_applied: "Подсказка принята",
-    suggestion_dismissed: "Подсказка скрыта",
-  };
-  return labels[eventType] ?? eventType;
-}
-
-function payloadReason(payload: unknown) {
-  if (!payload || typeof payload !== "object") return null;
-  const value = (payload as Record<string, unknown>).reason;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function payloadResortText(payload: unknown) {
-  if (!payload || typeof payload !== "object") return null;
-  const items = (payload as Record<string, unknown>).items;
-  if (!Array.isArray(items)) return null;
-
-  const rows = items
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const row = item as Record<string, unknown>;
-      const productName = typeof row.productName === "string" ? row.productName : null;
-      const role = row.role === "surplus" || row.role === "shortage" ? row.role : null;
-      const amount = typeof row.sourceDifferenceAmount === "number" ? row.sourceDifferenceAmount : null;
-      if (!productName || !role || amount === null) return null;
-      return { productName, role, amount };
-    })
-    .filter((item): item is { productName: string; role: "surplus" | "shortage"; amount: number } => Boolean(item));
-
-  const surplus = rows
-    .filter((row) => row.role === "surplus")
-    .map((row) => `${row.productName} (+${formatAmount(row.amount, 2)})`);
-  const shortfall = rows
-    .filter((row) => row.role === "shortage")
-    .map((row) => `${row.productName} (${formatAmount(row.amount, 2)})`);
-
-  if (surplus.length === 0 || shortfall.length === 0) return null;
-  return `${surplus.join(", ")} -> ${shortfall.join(", ")}`;
-}
-
-function payloadComment(payload: unknown) {
-  if (!payload || typeof payload !== "object") return null;
-  const value = (payload as Record<string, unknown>).comment;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function actorName(actor: InventoryResultEventRow["actor"], fallback: string | null) {
-  const name = [actor?.first_name, actor?.last_name].filter(Boolean).join(" ").trim();
-  return name || fallback || "Система";
-}
-
-function actorInitials(actor: InventoryResultEventRow["actor"], fallback: string | null) {
-  const source = actorName(actor, fallback);
-  return source
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "S";
-}
-
 export function InventoryResultsTable({
   documentId,
   items,
   resorts,
   resortItems,
-  events,
   suggestions,
   amountRoundingScale,
   isFinalized,
@@ -543,13 +469,9 @@ export function InventoryResultsTable({
         </div>
       </div>
 
-      <Tabs defaultValue="results" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="results">Итоги</TabsTrigger>
-          <TabsTrigger value="journal">Журнал решений</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="results" className="space-y-4">
+      {/* Журнал событий («Журнал решений») переехал в layout-табу «Журнал»
+          (../history) — здесь была дублирующая внутренняя вкладка. */}
+      <div className="space-y-4">
       <DataTableToolbar
         search={{
           value: searchQuery,
@@ -660,65 +582,30 @@ export function InventoryResultsTable({
           ),
         }}
         actions={
-          <>
-            {canAdjust ? (
-              <>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={isFinalized || isPending || selectedItems.length < 2}
-                  onClick={() => createResort(Array.from(selectedIds))}
-                >
-                  Пересорт
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isFinalized || isPending || selectedItems.length === 0}
-                  onClick={() =>
-                    runAction(
-                      async () => {
-                        for (const itemId of selectedIds) {
-                          const result = await setInventoryResultItemExcluded({
-                            documentId,
-                            itemId,
-                            excluded: true,
-                          });
-                          if (result.error) return result;
-                        }
-                        return { error: null };
-                      },
-                      "Строки исключены из итогов",
-                    )
-                  }
-                >
-                  Не учитывать
-                </Button>
-              </>
-            ) : null}
-            {canSendToRecount ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={isFinalized || isPending || flaggedCount === 0}
-                onClick={() =>
-                  runAction(
-                    () => returnDocumentForRecount({ documentId }),
-                    `Акт отправлен на пересчёт (${flaggedCount} ${flaggedCount === 1 ? "строка" : "строк"})`,
-                  )
-                }
-                title={
-                  flaggedCount === 0
-                    ? "Отметьте хотя бы одну строку флажком пересчёта."
-                    : `На пересчёт уйдут ${flaggedCount} строк.`
-                }
-              >
-                Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
-              </Button>
-            ) : null}
-          </>
+          // Document-level действие — НЕ зависит от выбора строк, поэтому
+          // остаётся в тулбаре. Row-bulk-действия (Пересорт / Не учитывать /
+          // Исключать / Пересчёт) живут в floating-баре (см. <TableBulkBar>).
+          canSendToRecount ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={isFinalized || isPending || flaggedCount === 0}
+              onClick={() =>
+                runAction(
+                  () => returnDocumentForRecount({ documentId }),
+                  `Акт отправлен на пересчёт (${flaggedCount} ${flaggedCount === 1 ? "строка" : "строк"})`,
+                )
+              }
+              title={
+                flaggedCount === 0
+                  ? "Отметьте хотя бы одну строку флажком пересчёта."
+                  : `На пересчёт уйдут ${flaggedCount} строк.`
+              }
+            >
+              Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
+            </Button>
+          ) : null
         }
         summary={
           <>
@@ -1098,54 +985,7 @@ export function InventoryResultsTable({
           )}
         </div>
       ) : null}
-        </TabsContent>
-
-        <TabsContent value="journal">
-      <div className="rounded-lg border bg-background p-4">
-        <div className="mb-3 text-sm font-medium">Журнал решений</div>
-        {events.length === 0 ? (
-          <div className="text-sm text-muted-foreground">Действий по итогам пока нет.</div>
-        ) : (
-          <div className="grid gap-2">
-            {events.map((event) => {
-              const reason = payloadReason(event.payload);
-              const resortText = event.event_type === "resort_created" ? payloadResortText(event.payload) : null;
-              const comment = event.event_type === "comment_updated" ? payloadComment(event.payload) : null;
-              return (
-                <div key={event.id} className="flex gap-3 rounded-md border p-3 text-sm">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-xs font-medium">
-                    {event.actor?.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={event.actor.avatar_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      actorInitials(event.actor, event.created_by)
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{actorName(event.actor, event.created_by)}</span>
-                      <Badge variant="outline">{eventTypeLabel(event.event_type)}</Badge>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(event.created_at).toLocaleString("ru-RU")}
-                      </span>
-                    </div>
-                    <div className="mt-1 text-sm">{event.message}</div>
-                    {resortText ? (
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        Зачет: {resortText}
-                      </div>
-                    ) : null}
-                    {comment ? <div className="mt-1 text-xs text-muted-foreground">Комментарий: {comment}</div> : null}
-                    {reason ? <div className="mt-1 text-xs text-muted-foreground">Причина: {reason}</div> : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
-        </TabsContent>
-      </Tabs>
 
       <Dialog open={Boolean(commentItem)} onOpenChange={(open) => !open && setCommentItem(null)}>
         <DialogContent>
@@ -1237,6 +1077,103 @@ export function InventoryResultsTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Floating bar групповых действий — появляется при выборе строк.
+          Сюда «опущены» все row-bulk операции: Пересорт / Не учитывать /
+          Исключать всегда / Пересчёт. */}
+      {canAdjust || canRecount ? (
+        <TableBulkBar
+          floating
+          selectedCount={selectedItems.length}
+          onClear={() => setSelectedIds(new Set())}
+          actions={
+            <>
+              {canAdjust ? (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 text-xs"
+                    disabled={isFinalized || isPending || selectedItems.length < 2}
+                    onClick={() => createResort(Array.from(selectedIds))}
+                  >
+                    Пересорт
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    disabled={isFinalized || isPending || selectedItems.length === 0}
+                    onClick={() =>
+                      runAction(
+                        async () => {
+                          for (const itemId of selectedIds) {
+                            const result = await setInventoryResultItemExcluded({
+                              documentId,
+                              itemId,
+                              excluded: true,
+                            });
+                            if (result.error) return result;
+                          }
+                          return { error: null };
+                        },
+                        "Строки исключены из итогов",
+                      )
+                    }
+                  >
+                    Не учитывать
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    disabled={isFinalized || isPending || selectedItems.length === 0}
+                    onClick={() =>
+                      runAction(
+                        async () => {
+                          for (const itemId of selectedIds) {
+                            const result = await createInventoryResultExclusionRule({ documentId, itemId });
+                            if (result.error) return result;
+                          }
+                          return { error: null };
+                        },
+                        "Позиции добавлены в автоисключения",
+                      )
+                    }
+                  >
+                    Исключать всегда
+                  </Button>
+                </>
+              ) : null}
+              {canRecount ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 text-xs"
+                  disabled={isFinalized || isPending || selectedItems.length === 0}
+                  onClick={() =>
+                    runAction(
+                      async () => {
+                        for (const itemId of selectedIds) {
+                          const result = await setRecountFlag({ documentId, itemId, needsRecount: true });
+                          if (result.error) return result;
+                        }
+                        return { error: null };
+                      },
+                      "Строки отмечены на пересчёт",
+                    )
+                  }
+                >
+                  Пересчёт
+                </Button>
+              ) : null}
+            </>
+          }
+        />
+      ) : null}
     </div>
   );
 }

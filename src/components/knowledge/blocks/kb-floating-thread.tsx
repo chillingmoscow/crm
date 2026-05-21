@@ -28,6 +28,7 @@ import type {
 } from "@blocknote/core/comments";
 
 import { cn } from "@/lib/utils";
+import { pluralRu } from "@/lib/format/plural";
 import {
   Popover,
   PopoverContent,
@@ -883,10 +884,10 @@ function formatRelative(iso: Date | string): string {
   const hours = Math.floor(min / 60);
   if (hours < 24) return `${hours} ч`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} ${plural(days, "день", "дня", "дней")}`;
+  if (days < 7) return `${days} ${pluralRu(days, "день", "дня", "дней")}`;
   if (days < 30) {
     const w = Math.floor(days / 7);
-    return `${w} ${plural(w, "неделю", "недели", "недель")} назад`;
+    return `${w} ${pluralRu(w, "неделю", "недели", "недель")} назад`;
   }
   const sameYear = date.getFullYear() === new Date().getFullYear();
   const formatter = new Intl.DateTimeFormat("ru", {
@@ -897,10 +898,3 @@ function formatRelative(iso: Date | string): string {
   return formatter.format(date);
 }
 
-function plural(n: number, one: string, few: string, many: string): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
-  return many;
-}

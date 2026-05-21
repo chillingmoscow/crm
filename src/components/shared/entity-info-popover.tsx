@@ -27,6 +27,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { pluralRu } from "@/lib/format/plural";
 
 interface EntityInfoPopoverProps {
   /** Заголовок попапа: «О должности», «О сотруднике» и т.д. */
@@ -68,14 +69,6 @@ function formatDate(iso: string | null, withTime: boolean): string {
   }
 }
 
-function plural(n: number, one: string, few: string, many: string): string {
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return one;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few;
-  return many;
-}
-
 function formatRelativeRu(iso: string | null): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
@@ -83,11 +76,11 @@ function formatRelativeRu(iso: string | null): string {
   const diffSec = Math.max(0, Math.round((now - then) / 1000));
   if (diffSec < 60) return "только что";
   const diffMin = Math.round(diffSec / 60);
-  if (diffMin < 60) return `${diffMin} ${plural(diffMin, "минуту", "минуты", "минут")} назад`;
+  if (diffMin < 60) return `${diffMin} ${pluralRu(diffMin, "минуту", "минуты", "минут")} назад`;
   const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr} ${plural(diffHr, "час", "часа", "часов")} назад`;
+  if (diffHr < 24) return `${diffHr} ${pluralRu(diffHr, "час", "часа", "часов")} назад`;
   const diffDay = Math.round(diffHr / 24);
-  if (diffDay < 7) return `${diffDay} ${plural(diffDay, "день", "дня", "дней")} назад`;
+  if (diffDay < 7) return `${diffDay} ${pluralRu(diffDay, "день", "дня", "дней")} назад`;
   return formatDate(iso, false);
 }
 

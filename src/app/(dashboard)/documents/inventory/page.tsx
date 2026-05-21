@@ -124,6 +124,7 @@ export default async function InventoryDocumentsPage({
     { data: canFill },
     { data: canSync },
     { data: canViewResults },
+    { data: canViewStaff },
     { data: accountId },
     { data: { user } },
     amountRoundingScale,
@@ -133,6 +134,9 @@ export default async function InventoryDocumentsPage({
     supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
     supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
+    // Доступ к разделу «Сотрудники» → можно делать исполнителя/проверяющего
+    // кликабельной ссылкой на страницу сотрудника.
+    supabase.rpc("has_permission", { permission_code: "people.view_staff" }),
     supabase.rpc("get_active_account_id"),
     supabase.auth.getUser(),
     getActiveAccountAmountRoundingScale(),
@@ -177,6 +181,7 @@ export default async function InventoryDocumentsPage({
       canManage={Boolean(canManage)}
       canSync={Boolean(canSync)}
       canViewResults={Boolean(canViewResults)}
+      canViewStaff={Boolean(canViewStaff)}
       amountRoundingScale={amountRoundingScale}
     />
   );

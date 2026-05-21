@@ -172,6 +172,9 @@ type Props = {
   canManage: boolean;
   canSync: boolean;
   canViewResults: boolean;
+  /** Доступ к разделу «Сотрудники» (people.view_staff) → исполнитель/
+   *  проверяющий завершённого акта становятся ссылкой на страницу сотрудника. */
+  canViewStaff: boolean;
   amountRoundingScale: AmountRoundingScale;
 };
 
@@ -225,6 +228,7 @@ export function DocumentsTable({
   canManage,
   canSync,
   canViewResults,
+  canViewStaff,
   amountRoundingScale,
 }: Props) {
   const router = useRouter();
@@ -529,15 +533,31 @@ export function DocumentsTable({
       {
         id: "results",
         label: "Итоги",
-        size: 200,
-        cell: (row: DocumentListRow) =>
-          row.results_has_line_amounts ? (
-            <span className="text-sm">
-              −{formatMoney(Math.abs(row.shortfall_sum ?? 0), "RUB", amountRoundingScale)} / +{formatMoney(Math.abs(row.surplus_sum ?? 0), "RUB", amountRoundingScale)}
+        size: 130,
+        // Одно число — нетто-расхождение (излишки − недостачи). Плюс →
+        // зелёный (излишек), минус → красный (недостача), ноль — нейтрально.
+        cell: (row: DocumentListRow) => {
+          if (!row.results_has_line_amounts) {
+            return <span className="text-sm text-muted-foreground">—</span>;
+          }
+          const net = (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
+          const sign = net > 0 ? "+" : net < 0 ? "−" : "";
+          return (
+            <span
+              className={cn(
+                "text-sm font-medium tabular-nums",
+                net > 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : net < 0
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-muted-foreground",
+              )}
+            >
+              {sign}
+              {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
             </span>
-          ) : (
-            <span className="text-sm text-muted-foreground">—</span>
-          ),
+          );
+        },
       },
       {
         id: "assigned_to",
@@ -553,11 +573,19 @@ export function DocumentsTable({
                   assignedTo={row.assigned_to}
                   staff={staff}
                   lockReason={lockReason}
+                  linkToPerson={canViewStaff}
                 />
               </div>
             );
           }
-          return <ReadonlyPersonCell userId={row.assigned_to} staff={staff} locked={lockReason !== null} />;
+          return (
+            <ReadonlyPersonCell
+              userId={row.assigned_to}
+              staff={staff}
+              locked={lockReason !== null}
+              canViewStaff={canViewStaff}
+            />
+          );
         },
       },
       {
@@ -574,11 +602,19 @@ export function DocumentsTable({
                   reviewerId={row.reviewer_id}
                   staff={staff}
                   lockReason={lockReason}
+                  linkToPerson={canViewStaff}
                 />
               </div>
             );
           }
-          return <ReadonlyPersonCell userId={row.reviewer_id} staff={staff} locked={lockReason !== null} />;
+          return (
+            <ReadonlyPersonCell
+              userId={row.reviewer_id}
+              staff={staff}
+              locked={lockReason !== null}
+              canViewStaff={canViewStaff}
+            />
+          );
         },
       },
       {
@@ -591,7 +627,7 @@ export function DocumentsTable({
         ),
       },
     ],
-    [amountRoundingScale, canManage, canViewResults, searchActive, staff, selectedIds],
+    [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff, selectedIds],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -1189,6 +1225,7 @@ export function DocumentsTable({
               staff={staff}
               canManage={canManage}
               canViewResults={canViewResults}
+              canViewStaff={canViewStaff}
               amountRoundingScale={amountRoundingScale}
               searchActive={searchActive}
             />
@@ -1271,21 +1308,23 @@ export function DocumentsTable({
 /**
  * Ячейка исполнителя/проверяющего для пользователя без права назначать.
  * Показывает бейдж сотрудника; для завершённого (locked) акта — ссылку на
- * страницу сотрудника (клик не открывает акт). Для незавершённого — статичный
- * бейдж, клик по строке открывает акт как обычно.
+ * страницу сотрудника, но только если есть доступ к разделу «Сотрудники»
+ * (canViewStaff). Иначе — статичный бейдж; клик по строке открывает акт.
  */
 function ReadonlyPersonCell({
   userId,
   staff,
   locked,
+  canViewStaff,
 }: {
   userId: string | null;
   staff: AssigneeOption[];
   locked: boolean;
+  canViewStaff: boolean;
 }) {
   const member = userId ? staff.find((m) => m.id === userId) ?? null : null;
   if (!member) return <span className="text-sm text-muted-foreground">—</span>;
-  if (locked) {
+  if (locked && canViewStaff) {
     return (
       <div data-row-interactive onClick={(e) => e.stopPropagation()}>
         <PersonChip person={member} href={inventoryPersonHref(member.id)} />
@@ -1865,6 +1904,7 @@ function MobileCard({
   staff,
   canManage,
   canViewResults,
+  canViewStaff,
   amountRoundingScale,
   searchActive,
 }: {
@@ -1872,6 +1912,7 @@ function MobileCard({
   staff: AssigneeOption[];
   canManage: boolean;
   canViewResults: boolean;
+  canViewStaff: boolean;
   amountRoundingScale: AmountRoundingScale;
   searchActive: boolean;
 }) {
@@ -2009,6 +2050,7 @@ function MobileCard({
             assignedTo={doc.assigned_to}
             staff={staff}
             lockReason={getAssignLockReason(doc.status)}
+            linkToPerson={canViewStaff}
           />
         </div>
       ) : null}
@@ -2035,6 +2077,7 @@ function MobileCard({
             reviewerId={doc.reviewer_id}
             staff={staff}
             lockReason={getAssignLockReason(doc.status)}
+            linkToPerson={canViewStaff}
           />
         </div>
       ) : null}

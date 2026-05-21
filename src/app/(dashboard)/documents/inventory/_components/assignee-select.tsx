@@ -37,22 +37,26 @@ export function AssigneeSelect({
   staff,
   disabled,
   lockReason,
+  linkToPerson = false,
 }: {
   documentId: string;
   assignedTo: string | null;
   staff: AssigneeOption[];
   disabled?: boolean;
-  /** Если задано — Select не рендерится, бейдж-ссылка на профиль. */
+  /** Если задано — Select не рендерится, бейдж (ссылка на профиль при linkToPerson). */
   lockReason?: string | null;
+  /** Делать бейдж в locked-режиме ссылкой на страницу сотрудника. Только
+   *  при доступе к разделу «Сотрудники» (people.view_staff). */
+  linkToPerson?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const assigned = assignedTo ? staff.find((p) => p.id === assignedTo) ?? null : null;
 
-  // ── Locked-state: ссылка на страницу сотрудника ────────────
+  // ── Locked-state: бейдж (ссылка на сотрудника, если есть доступ) ────────
   if (lockReason) {
     return assigned ? (
-      <PersonChip person={assigned} href={inventoryPersonHref(assigned.id)} />
+      <PersonChip person={assigned} href={linkToPerson ? inventoryPersonHref(assigned.id) : null} />
     ) : (
       <span className="text-sm text-muted-foreground" title={lockReason}>
         —

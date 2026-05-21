@@ -520,6 +520,11 @@ export function InventoryDocumentEditor({
   // recount_pending сюда НЕ попадает: перерасчёт исполнителем легитимен.
   const formLocked = isInventoryFormLocked(document.status, false);
   const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
+  // Прогресс заполнения — по live-значениям формы (черновик локальный, на
+  // сервере его нет, поэтому считаем здесь). Показываем, пока акт заполняется.
+  const filledCount = items.filter((item) => (values[item.id] ?? "").trim() !== "").length;
+  const totalCount = items.length;
+  const progressPct = totalCount > 0 ? Math.round((filledCount / totalCount) * 100) : 0;
 
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-1 flex-col px-3 py-3 md:px-6 md:py-5">
@@ -685,6 +690,22 @@ export function InventoryDocumentEditor({
               Очистить все
             </Button>
           ) : null}
+        </div>
+      ) : null}
+
+      {/* Прогресс заполнения — пока акт ещё заполняется (форма не залочена). */}
+      {!formLocked && totalCount > 0 ? (
+        <div className="mb-3">
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Заполнено {filledCount} из {totalCount}</span>
+            <span>{progressPct}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-brand transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
         </div>
       ) : null}
 

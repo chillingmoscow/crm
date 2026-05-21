@@ -4,8 +4,12 @@ import { AlertTriangle } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
+import {
+  buildHistorySuggestions,
+  eventPayload,
+} from "@/lib/inventory/resort-suggestions";
+import { buildAiSuggestions } from "@/lib/inventory/resort-ai-suggestions";
 import {
   InventoryResultsTable,
   type InventoryDocumentResultItem,
@@ -66,176 +70,6 @@ type HistoryResortItemRow = {
   product_name: string;
 };
 
-function resortSuggestionKey(itemIds: string[]) {
-  return Array.from(new Set(itemIds)).sort().join(":");
-}
-
-function clampConfidence(value: unknown, fallback: number) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
-  return Math.max(0.1, Math.min(0.95, value));
-}
-
-function eventPayload(value: unknown) {
-  return value && typeof value === "object" ? value as Record<string, unknown> : {};
-}
-
-function buildHistorySuggestions(input: {
-  currentItems: InventoryDocumentResultItem[];
-  activeResortItemIds: Set<string>;
-  historyResorts: HistoryResortRow[];
-  historyItems: HistoryResortItemRow[];
-}) {
-  const currentByLocalProductId = new Map<string, InventoryDocumentResultItem>();
-  for (const item of input.currentItems) {
-    const productId = item.ingredient_id;
-    const amount = Number(item.difference_amount ?? 0);
-    if (!productId || amount === 0 || item.excluded_from_totals || input.activeResortItemIds.has(item.id)) continue;
-    currentByLocalProductId.set(productId, item);
-  }
-
-  const resortById = new Map(input.historyResorts.map((resort) => [resort.id, resort]));
-  const itemsByResortId = new Map<string, HistoryResortItemRow[]>();
-  for (const item of input.historyItems) {
-    const rows = itemsByResortId.get(item.resort_id) ?? [];
-    rows.push(item);
-    itemsByResortId.set(item.resort_id, rows);
-  }
-
-  const suggestions = new Map<string, InventoryResortSuggestion & { hits: number }>();
-  for (const [resortId, historyItems] of itemsByResortId) {
-    const matched = historyItems
-      .map((historyItem) => historyItem.ingredient_id ? currentByLocalProductId.get(historyItem.ingredient_id) ?? null : null)
-      .filter((item): item is InventoryDocumentResultItem => Boolean(item));
-    const uniqueMatched = Array.from(new Map(matched.map((item) => [item.id, item])).values());
-    if (uniqueMatched.length < 2) continue;
-    const hasShortage = uniqueMatched.some((item) => Number(item.difference_amount ?? 0) < 0);
-    const hasSurplus = uniqueMatched.some((item) => Number(item.difference_amount ?? 0) > 0);
-    if (!hasShortage || !hasSurplus) continue;
-
-    const key = resortSuggestionKey(uniqueMatched.map((item) => item.id));
-    const existing = suggestions.get(key);
-    if (existing) {
-      existing.hits += 1;
-      existing.confidence = Math.min(0.95, existing.confidence + 0.08);
-      continue;
-    }
-    const historyResort = resortById.get(resortId);
-    suggestions.set(key, {
-      key,
-      itemIds: uniqueMatched.map((item) => item.id),
-      title: uniqueMatched.map((item) => item.product_name).join(" + "),
-      reason: historyResort?.reason
-        ? `Похожий пересорт уже делали: ${historyResort.reason}`
-        : "Похожий пересорт уже делали в прошлых актах",
-      confidence: 0.7,
-      source: "history",
-      hits: 1,
-    });
-  }
-
-  return Array.from(suggestions.values())
-    .sort((left, right) => right.confidence - left.confidence)
-    .slice(0, 5)
-    .map(({ key, itemIds, title, reason, confidence, source }) => ({ key, itemIds, title, reason, confidence, source }));
-}
-
-async function buildAiSuggestions(input: {
-  enabled: boolean;
-  currentItems: InventoryDocumentResultItem[];
-  activeResortItemIds: Set<string>;
-}): Promise<InventoryResortSuggestion[]> {
-  if (!input.enabled || !process.env.DEEPSEEK_API_KEY) return [];
-
-  const candidates = input.currentItems
-    .filter((item) => {
-      const amount = Number(item.difference_amount ?? 0);
-      return amount !== 0 && !item.excluded_from_totals && !input.activeResortItemIds.has(item.id);
-    })
-    .map((item) => ({
-      id: item.id,
-      name: item.product_name,
-      groupId: item.group_id,
-      groupName: item.group_name,
-      measureUnitId: item.measure_unit_id,
-      measureUnitName: item.measure_unit_name,
-      differenceAmount: Number(item.difference_amount ?? 0),
-      differenceSum: Number(item.difference_sum ?? 0),
-    }));
-
-  if (candidates.length < 2) return [];
-  if (!candidates.some((item) => item.differenceAmount > 0) || !candidates.some((item) => item.differenceAmount < 0)) {
-    return [];
-  }
-
-  try {
-    const client = getDeepseekClient();
-    const response = await client.chat.completions.create({
-      model: DEEPSEEK_MODELS.chat,
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "Ты помогаешь найти кандидатов пересорта в инвентаризации ресторана. Возвращай только JSON вида {\"suggestions\":[{\"itemIds\":[\"id\"],\"reason\":\"...\",\"confidence\":0.8}]}. Не предлагай позиции из разных групп или с разными единицами измерения. В каждой подсказке должны быть строки с плюсом и минусом.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            rules: {
-              sameGroup: true,
-              sameMeasureUnit: true,
-              requiresSurplusAndShortage: true,
-              maxSuggestions: 5,
-            },
-            items: candidates,
-          }),
-        },
-      ],
-    });
-
-    const content = response.choices[0]?.message?.content ?? "";
-    const parsed = JSON.parse(content) as { suggestions?: Array<{ itemIds?: unknown; reason?: unknown; confidence?: unknown }> };
-    const byId = new Map(candidates.map((item) => [item.id, item]));
-    const suggestions: InventoryResortSuggestion[] = [];
-    const seen = new Set<string>();
-
-    for (const suggestion of parsed.suggestions ?? []) {
-      if (!Array.isArray(suggestion.itemIds)) continue;
-      const itemIds = suggestion.itemIds
-        .filter((itemId): itemId is string => typeof itemId === "string" && byId.has(itemId));
-      const uniqueIds = Array.from(new Set(itemIds));
-      if (uniqueIds.length < 2) continue;
-
-      const rows = uniqueIds.map((itemId) => byId.get(itemId)).filter((item): item is NonNullable<typeof item> => Boolean(item));
-      if (!rows.some((item) => item.differenceAmount > 0) || !rows.some((item) => item.differenceAmount < 0)) continue;
-      if (new Set(rows.map((item) => item.groupId ?? item.groupName ?? "ungrouped")).size !== 1) continue;
-      if (new Set(rows.map((item) => item.measureUnitId ?? item.measureUnitName ?? "unit")).size !== 1) continue;
-
-      const key = resortSuggestionKey(uniqueIds);
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const reason = typeof suggestion.reason === "string" && suggestion.reason.trim()
-        ? suggestion.reason.trim()
-        : "AI нашел похожие названия и противоположные расхождения";
-      suggestions.push({
-        key,
-        itemIds: uniqueIds,
-        title: rows.map((item) => item.name).join(" + "),
-        reason,
-        confidence: clampConfidence(suggestion.confidence, 0.65),
-        source: "ai",
-      });
-    }
-
-    return suggestions.sort((left, right) => right.confidence - left.confidence).slice(0, 5);
-  } catch (error) {
-    console.error("Failed to build inventory AI resort suggestions", error);
-    return [];
-  }
-}
-
 export default async function InventoryDocumentResultsPage({
   params,
 }: {
@@ -289,6 +123,7 @@ export default async function InventoryDocumentResultsPage({
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
     .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note")
+    .eq("account_id", accountId)
     .eq("document_id", document.id)
     .order("product_name");
 
@@ -411,36 +246,50 @@ export default async function InventoryDocumentResultsPage({
       .map((event) => eventPayload(event.payload).key)
       .filter((key): key is string => typeof key === "string" && key.length > 0),
   );
-  const { data: historyResortsRaw } = await admin
-    .from<HistoryResortRow[]>("inventory_result_resorts")
-    .select("id, document_id, reason, created_at")
-    .eq("account_id", accountId)
-    .eq("status", "active")
-    .order("created_at", { ascending: false });
-  const historyResorts = (historyResortsRaw ?? []).filter((resort) => resort.document_id !== document.id).slice(0, 100);
-  const { data: historyItemsRaw } = historyResorts.length > 0
-    ? await admin
-        .from<HistoryResortItemRow[]>("inventory_result_resort_items")
-        .select("resort_id, ingredient_id, document_item_id, role, product_name")
-        .eq("account_id", accountId)
-        .in("resort_id", historyResorts.map((resort) => resort.id))
-    : { data: [] };
-  const historySuggestions = buildHistorySuggestions({
-    currentItems: itemsWithRules,
-    activeResortItemIds,
-    historyResorts,
-    historyItems: historyItemsRaw ?? [],
-  }).filter((suggestion) => !dismissedSuggestionKeys.has(suggestion.key));
-  const aiSuggestions = (await buildAiSuggestions({
-    enabled: aiSuggestionsEnabled,
-    currentItems: itemsWithRules,
-    activeResortItemIds,
-  })).filter((suggestion) => !dismissedSuggestionKeys.has(suggestion.key));
-  const suggestions = Array.from(
-    new Map([...historySuggestions, ...aiSuggestions].map((suggestion) => [suggestion.key, suggestion])).values(),
-  )
-    .sort((left, right) => right.confidence - left.confidence)
-    .slice(0, 5);
+  // Залочен: финализирован ИЛИ проведён в QR и не разблокирован.
+  const isLocked =
+    Boolean(document.results_finalized_at) ||
+    (document.status === "processed" && document.results_reopened_at == null);
+  // Подсказки пересорта имеют смысл только пока итоги можно менять (создать
+  // пересорт). Для залоченного / проведённого / отправленного на пересчёт
+  // акта пропускаем history-запросы И сетевой AI-вызов — это убирает
+  // блокирующий DeepSeek-запрос из рендера read-only страницы итогов.
+  const suggestionsEnabled =
+    Boolean(canAdjustResults) && !isLocked && document.status !== "recount_pending";
+
+  let suggestions: InventoryResortSuggestion[] = [];
+  if (suggestionsEnabled) {
+    const { data: historyResortsRaw } = await admin
+      .from<HistoryResortRow[]>("inventory_result_resorts")
+      .select("id, document_id, reason, created_at")
+      .eq("account_id", accountId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false });
+    const historyResorts = (historyResortsRaw ?? []).filter((resort) => resort.document_id !== document.id).slice(0, 100);
+    const { data: historyItemsRaw } = historyResorts.length > 0
+      ? await admin
+          .from<HistoryResortItemRow[]>("inventory_result_resort_items")
+          .select("resort_id, ingredient_id, document_item_id, role, product_name")
+          .eq("account_id", accountId)
+          .in("resort_id", historyResorts.map((resort) => resort.id))
+      : { data: [] };
+    const historySuggestions = buildHistorySuggestions({
+      currentItems: itemsWithRules,
+      activeResortItemIds,
+      historyResorts,
+      historyItems: historyItemsRaw ?? [],
+    }).filter((suggestion) => !dismissedSuggestionKeys.has(suggestion.key));
+    const aiSuggestions = (await buildAiSuggestions({
+      enabled: aiSuggestionsEnabled,
+      currentItems: itemsWithRules,
+      activeResortItemIds,
+    })).filter((suggestion) => !dismissedSuggestionKeys.has(suggestion.key));
+    suggestions = Array.from(
+      new Map([...historySuggestions, ...aiSuggestions].map((suggestion) => [suggestion.key, suggestion])).values(),
+    )
+      .sort((left, right) => right.confidence - left.confidence)
+      .slice(0, 5);
+  }
 
   return (
     <div className="w-full space-y-6 p-6 md:p-8">
@@ -467,12 +316,8 @@ export default async function InventoryDocumentResultsPage({
           suggestions={suggestions}
           amountRoundingScale={amountRoundingScale}
           isFinalized={Boolean(document.results_finalized_at)}
-          // Залочен: финализирован ИЛИ проведён в QR и не разблокирован.
           // Processed-акт read-only до явной разблокировки (в журнал).
-          isLocked={
-            Boolean(document.results_finalized_at) ||
-            (document.status === "processed" && document.results_reopened_at == null)
-          }
+          isLocked={isLocked}
           canComment={Boolean(canCommentResults)}
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}

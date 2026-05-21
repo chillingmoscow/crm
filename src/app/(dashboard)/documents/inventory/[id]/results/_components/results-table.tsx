@@ -47,6 +47,7 @@ import {
   calculateManagementTotals,
   type InventoryResortAllocationItem,
 } from "@/lib/inventory/results";
+import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 import {
   formatAmount,
   formatMoney,
@@ -157,14 +158,8 @@ export type InventoryResultEventRow = {
   } | null;
 };
 
-export type InventoryResortSuggestion = {
-  key: string;
-  itemIds: string[];
-  title: string;
-  reason: string;
-  confidence: number;
-  source: "history" | "ai";
-};
+// Единый источник типа подсказки — @/lib/inventory/resort-suggestions.
+export type InventoryResortSuggestion = ResortSuggestion;
 
 type Props = {
   documentId: string;

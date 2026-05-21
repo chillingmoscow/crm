@@ -12,9 +12,9 @@ import {
 } from "@/lib/inventory/results";
 import {
   getAssigneeLockReason,
+  getInventoryResultAdjustLockReason,
   getReviewerLockReason,
   isInventoryFormLocked,
-  isInventoryResultLocked,
   nextStatusAfterAssign,
 } from "@/lib/inventory/act-status";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
@@ -643,14 +643,14 @@ async function listBackOfficeInventoryItemsWithSession(input: {
 }
 
 async function upsertExternalLink(input: {
+  admin: LooseDb;
   accountId: string;
   entityType: string;
   externalId: string;
   localTable: string;
   localId: string;
 }) {
-  const admin = asLooseDb(createAdminClient());
-  await admin.from("external_entity_links").upsert(
+  await input.admin.from("external_entity_links").upsert(
     {
       account_id: input.accountId,
       provider: "quickresto",
@@ -664,13 +664,13 @@ async function upsertExternalLink(input: {
 }
 
 async function saveSnapshot(input: {
+  admin: LooseDb;
   accountId: string;
   entityType: string;
   externalId: string;
   payload: unknown;
 }) {
-  const admin = asLooseDb(createAdminClient());
-  await admin.from("integration_external_snapshots").upsert(
+  await input.admin.from("integration_external_snapshots").upsert(
     {
       account_id: input.accountId,
       provider: "quickresto",
@@ -878,21 +878,10 @@ async function getResultDocumentForAction(input: {
 
   if (!document?.id) throw new Error("Акт не найден");
   if (input.requireOpen) {
-    // recount_pending — акт у исполнителя на пересчёте: ревьюер ждёт и не
-    // может менять итоги (анти-подгонка). Проверяем до lock'а, чтобы дать
-    // точное сообщение.
-    if (document.status === "recount_pending") {
-      throw new Error(
-        "Акт отправлен исполнителю на пересчёт. Дождитесь завершения пересчёта, прежде чем менять итоги.",
-      );
-    }
-    if (isInventoryResultLocked(document)) {
-      throw new Error(
-        document.results_finalized_at
-          ? "Итоги акта уже финализированы. Переоткройте итоги перед изменениями."
-          : "Акт проведён в Quick Resto и заблокирован. Разблокируйте его перед изменениями.",
-      );
-    }
+    // Инструменты ревьюера закрыты при пересчёте (анти-подгонка) /
+    // финализации / проведении — единый источник предиката и текста.
+    const lockReason = getInventoryResultAdjustLockReason(document);
+    if (lockReason) throw new Error(lockReason);
   }
   return document;
 }
@@ -1068,26 +1057,14 @@ export async function syncQuickRestoInventory(input?: {
       isQuickRestoClass(item, "SingleProduct")
     );
 
-    const groupExternalIds = groups
-      .map((group) => (typeof group.id === "number" ? String(group.id) : null))
-      .filter((id): id is string => Boolean(id));
     const productExternalIds = products
       .map((product) => (typeof product.id === "number" ? String(product.id) : null))
       .filter((id): id is string => Boolean(id));
-    if (groupExternalIds.length > 0) {
-      await admin
-        .from("ingredients")
-        .delete()
-        .eq("account_id", ctx.accountId)
-        .in("external_id", groupExternalIds);
-    }
-    if (productExternalIds.length > 0) {
-      await admin
-        .from("ingredient_groups")
-        .delete()
-        .eq("account_id", ctx.accountId)
-        .in("external_id", productExternalIds);
-    }
+    // Reconciliation полностью обеспечивают upsert (по onConflict) +
+    // soft-archive пропавших ингредиентов ниже. Прежний pre-delete блок
+    // удалён: он перекрёстно путал таблицы/списки id (ingredients ↔
+    // ingredient_groups) и hard-удалял ингредиенты вопреки soft-archive
+    // политике.
 
     for (const group of groups) {
       if (typeof group.id !== "number") continue;
@@ -1115,13 +1092,14 @@ export async function syncQuickRestoInventory(input?: {
       groupByExternalId.set(String(group.id), data.id);
       summary.groups += 1;
       await upsertExternalLink({
+        admin,
         accountId: ctx.accountId,
         entityType: "ingredient_group",
         externalId: String(group.id),
         localTable: "ingredient_groups",
         localId: data.id,
       });
-      await saveSnapshot({ accountId: ctx.accountId, entityType: "ingredient_group", externalId: String(group.id), payload: group });
+      await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "ingredient_group", externalId: String(group.id), payload: group });
     }
 
     for (const group of groups) {
@@ -1176,13 +1154,14 @@ export async function syncQuickRestoInventory(input?: {
       productByExternalId.set(String(product.id), data);
       summary.products += 1;
       await upsertExternalLink({
+        admin,
         accountId: ctx.accountId,
         entityType: "ingredient",
         externalId: String(product.id),
         localTable: "ingredients",
         localId: data.id,
       });
-      await saveSnapshot({ accountId: ctx.accountId, entityType: "ingredient", externalId: String(product.id), payload: product });
+      await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "ingredient", externalId: String(product.id), payload: product });
     }
 
     // Soft-archive ингредиентов, пропавших из QuickResto. Не удаляем:
@@ -1250,13 +1229,14 @@ export async function syncQuickRestoInventory(input?: {
       storeByExternalId.set(String(store.id), data.id);
       summary.stores += 1;
       await upsertExternalLink({
+        admin,
         accountId: ctx.accountId,
         entityType: "store",
         externalId: String(store.id),
         localTable: "stores",
         localId: data.id,
       });
-      await saveSnapshot({ accountId: ctx.accountId, entityType: "store", externalId: String(store.id), payload: store });
+      await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "store", externalId: String(store.id), payload: store });
     }
   } else {
     const [{ data: productRows }, { data: storeRows }, loadedDocuments] = await Promise.all([
@@ -1388,22 +1368,21 @@ export async function syncQuickRestoInventory(input?: {
 
     summary.documents += 1;
     await upsertExternalLink({
+      admin,
       accountId: ctx.accountId,
       entityType: "inventory_document",
       externalId: String(document.id),
       localTable: "documents",
       localId: data.id,
     });
-    await saveSnapshot({ accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
+    await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
   }
 
   revalidatePath("/documents/inventory");
   if (scope === "full") {
     revalidatePath("/catalog/ingredients");
-    revalidatePath("/catalog/ingredients");
     revalidatePath("/org/stores");
   }
-  revalidatePath("/documents/inventory");
   return { summary, error: null };
   } catch (error) {
     return {
@@ -2423,7 +2402,18 @@ export async function createInventoryResultResort(input: {
       };
     });
     const { error: itemsError } = await admin.from("inventory_result_resort_items").insert(resortRows);
-    if (itemsError) throw new Error(itemsError.message);
+    if (itemsError) {
+      // Компенсация: откатываем шапку пересорта. В supabase-js нет вложенной
+      // транзакции, поэтому при сбое вставки строк иначе остался бы активный
+      // пересорт без строк (битый итог). Полная атомарность через RPC —
+      // см. backlog B7 в плане ревью.
+      await admin
+        .from("inventory_result_resorts")
+        .delete()
+        .eq("id", resort.id)
+        .eq("account_id", ctx.accountId);
+      throw new Error(itemsError.message);
+    }
 
     const shortfallItems = resortRows.filter((row) => row.role === "shortage");
     const surplusItems = resortRows.filter((row) => row.role === "surplus");
@@ -3183,7 +3173,7 @@ export async function submitInventoryDocumentDraft(input: {
     for (const item of input.items) {
       const externalId = externalByLocalId.get(item.itemId);
       if (!externalId) continue;
-      if (item.actualAmount === null || !Number.isFinite(item.actualAmount)) {
+      if (item.actualAmount === null || !Number.isFinite(item.actualAmount) || item.actualAmount < 0) {
         return { resultsHasLineAmounts: false, error: "Проверьте фактические значения: есть некорректное число." };
       }
       nextAmounts.set(externalId, item.actualAmount);

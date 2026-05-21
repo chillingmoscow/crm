@@ -16,6 +16,7 @@ type DocumentBasicsRow = {
   results_has_line_amounts: boolean;
   assigned_to: string | null;
   store_id: string | null;
+  venue_id: string | null;
 };
 
 type StoreTitleRow = { title: string };
@@ -30,7 +31,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, store_id",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, store_id, venue_id",
     )
     .eq("id", id)
     .eq("account_id", accountId)
@@ -77,6 +78,9 @@ export default async function InventoryDocumentLayout({
     { data: canFill },
     { data: canViewResults },
     { data: canManage },
+    { data: canViewAllVenues },
+    { data: canManageStores },
+    { data: activeVenueId },
   ] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
@@ -84,6 +88,9 @@ export default async function InventoryDocumentLayout({
     supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
     supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.view_all_venues" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.manage_stores" }),
+    supabase.rpc("get_active_venue_id"),
   ]);
 
   if (!user) redirect("/login");
@@ -94,7 +101,16 @@ export default async function InventoryDocumentLayout({
 
   const isAssignedToMe = document.assigned_to === user.id;
   const canSeeAct = canView || canViewResults || (canFill && isAssignedToMe);
-  if (!canSeeAct) redirect("/documents/inventory");
+  // Venue-scope: зеркало documents_select (миграция 195). Страницы акта
+  // читают через admin-клиент (RLS не применяется), поэтому venue-ограничение
+  // дублируем здесь — иначе venue-ограниченный юзер открывает любой акт
+  // аккаунта по прямому URL (список через RLS уже скоупится).
+  const venueOk =
+    Boolean(canViewAllVenues) ||
+    (document.venue_id != null && document.venue_id === activeVenueId) ||
+    (document.venue_id == null && Boolean(canManageStores)) ||
+    (isAssignedToMe && Boolean(canFill));
+  if (!canSeeAct || !venueOk) redirect("/documents/inventory");
 
   const storeTitle = document.store_id ? await getCachedStoreTitle(document.store_id) : null;
 

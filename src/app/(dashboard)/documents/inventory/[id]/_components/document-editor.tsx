@@ -188,7 +188,21 @@ function parseAmount(value: string) {
   if (!value.trim()) return null;
   const normalized = value.replace(",", ".");
   const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : null;
+  // Факт — физический остаток, не может быть отрицательным. Невалидное
+  // число (например «1.2.3» → NaN) и минус → null = «не заполнено».
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+// Санитайзер ввода факта: только цифры и один десятичный разделитель,
+// без знака. Не даёт оставить в поле «1.2.3» / «--5» / «5-» — иначе
+// ячейка выглядела бы заполненной, а parseAmount возвращал бы null,
+// и сервер резал бы весь батч generic-ошибкой.
+function sanitizeAmountInput(raw: string) {
+  const cleaned = raw.replace(/[^\d.,]/g, "");
+  const firstSep = cleaned.search(/[.,]/);
+  if (firstSep === -1) return cleaned;
+  return cleaned.slice(0, firstSep + 1) + cleaned.slice(firstSep + 1).replace(/[.,]/g, "");
 }
 
 export function InventoryDocumentEditor({
@@ -491,7 +505,9 @@ export function InventoryDocumentEditor({
           item,
           value: values[item.id] ?? "",
         }))
-        .filter(({ value }) => value.trim() !== "");
+        // «Заполнено» = валидное неотрицательное число. Ячейка с одним
+        // разделителем («.»/«,») считается пустой, не уходит на сервер.
+        .filter(({ value }) => parseAmount(value) !== null);
       if (filledItems.length === 0) {
         toast.error("Заполните хотя бы одну позицию акта");
         return;
@@ -528,7 +544,7 @@ export function InventoryDocumentEditor({
   const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
   // Прогресс заполнения — по live-значениям формы (черновик локальный, на
   // сервере его нет, поэтому считаем здесь). Показываем, пока акт заполняется.
-  const filledCount = items.filter((item) => (values[item.id] ?? "").trim() !== "").length;
+  const filledCount = items.filter((item) => parseAmount(values[item.id] ?? "") !== null).length;
   const totalCount = items.length;
   const progressPct = totalCount > 0 ? Math.round((filledCount / totalCount) * 100) : 0;
   // Завершать акт можно, только когда заполнены ВСЕ строки (0 — тоже значение).
@@ -784,7 +800,7 @@ export function InventoryDocumentEditor({
               disabled={formLocked}
               value={values[item.id] ?? ""}
               onChange={(event) => {
-                const next = event.target.value.replace(/[^\d.,-]/g, "");
+                const next = sanitizeAmountInput(event.target.value);
                 setValues((prev) => ({ ...prev, [item.id]: next }));
               }}
               onBlur={() => {

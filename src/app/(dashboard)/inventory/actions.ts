@@ -2393,12 +2393,16 @@ export async function returnDocumentForRecount(input: {
         id: string;
         status: string;
         recount_count: number | null;
+        results_finalized_at: string | null;
       }>("documents")
-      .select("id, status, recount_count")
+      .select("id, status, recount_count, results_finalized_at")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     if (!document?.id) return { error: "Акт не найден" };
+    if (document.results_finalized_at) {
+      return { error: "Итоги уже финализированы. Сначала переоткройте их." };
+    }
     if (document.status !== "ready_for_review" && document.status !== "results_blocked") {
       return {
         error:

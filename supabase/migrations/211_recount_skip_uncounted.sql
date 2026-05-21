@@ -28,7 +28,14 @@ declare
   v_breached          boolean;
 begin
   -- Несосчитанная строка (факт не введён) — пересчитывать нечего.
+  -- Снимаем устаревший АВТО-флаг (ручные пометки не трогаем), иначе строка,
+  -- помеченная раньше или сброшенная синком в NULL, осталась бы с ложным
+  -- сигналом пересчёта (Codex P2 #405).
   if new.actual_amount is null then
+    if new.recount_auto_flagged = true and new.recount_marked_by is null then
+      new.needs_recount        := false;
+      new.recount_auto_flagged := false;
+    end if;
     return new;
   end if;
 
@@ -68,3 +75,14 @@ end;
 $$;
 
 revoke all on function public.inventory_apply_recount_threshold() from public;
+
+-- Одноразовый backfill: снимаем устаревшие АВТО-флаги с уже существующих
+-- несосчитанных строк (триггер на них не сработает, пока их кто-то не
+-- обновит). Ручные пометки (recount_marked_by) не трогаем. Меняем НЕ
+-- trigger-колонки → автомаркер не перезапускается.
+update public.document_items
+   set needs_recount        = false,
+       recount_auto_flagged = false
+ where actual_amount is null
+   and recount_auto_flagged = true
+   and recount_marked_by is null;

@@ -406,6 +406,10 @@ export function DocumentsTable({
     [initial.rows, selectedIds],
   );
 
+  // В выборке есть проведённый / sync_error акт → массовые действия скрываем,
+  // чтобы не было частичного применения (выделил 2, удалился 1 — путаница).
+  const hasLockedSelected = eligibleSelectedIds.length < selectedIds.size;
+
   const clearSelection = () => setSelectedIds(new Set());
 
   // Чистим выделение от исчезнувших строк (после realtime/refresh).
@@ -1279,31 +1283,37 @@ export function DocumentsTable({
             </span>
           }
           actions={
-            <>
-              <BulkAssignMenu
-                label="Назначить исполнителя"
-                staff={staff}
-                disabled={bulkPending || eligibleSelectedIds.length === 0}
-                onPick={(userId) => applyBulkAssign("assignee", userId)}
-              />
-              <BulkAssignMenu
-                label="Назначить проверяющего"
-                staff={staff}
-                disabled={bulkPending || eligibleSelectedIds.length === 0}
-                onPick={(userId) => applyBulkAssign("reviewer", userId)}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                disabled={bulkPending || eligibleSelectedIds.length === 0}
-                onClick={() => setBulkDeleteOpen(true)}
-              >
-                <Trash2 className="mr-2 h-4 w-4" />
-                Удалить
-              </Button>
-            </>
+            // Действия только когда ВСЕ выделенные акты подходят (не проведённые).
+            // Иначе кнопок нет — остаётся только сумма и счётчик.
+            hasLockedSelected ? undefined : (
+              <>
+                <BulkAssignMenu
+                  label="Исполнитель"
+                  icon={<UserPlus className="mr-2 h-4 w-4" />}
+                  staff={staff}
+                  disabled={bulkPending}
+                  onPick={(userId) => applyBulkAssign("assignee", userId)}
+                />
+                <BulkAssignMenu
+                  label="Проверяющий"
+                  icon={<ShieldCheck className="mr-2 h-4 w-4" />}
+                  staff={staff}
+                  disabled={bulkPending}
+                  onPick={(userId) => applyBulkAssign("reviewer", userId)}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  disabled={bulkPending}
+                  onClick={() => setBulkDeleteOpen(true)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Удалить
+                </Button>
+              </>
+            )
           }
         />
       ) : null}
@@ -1313,9 +1323,8 @@ export function DocumentsTable({
           <AlertDialogHeader>
             <AlertDialogTitle>Удалить акты ({eligibleSelectedIds.length})?</AlertDialogTitle>
             <AlertDialogDescription>
-              Это удалит подходящие акты и все их позиции. Проведённые акты не
-              удаляются. Акты из Quick Resto могут вернуться при следующей
-              синхронизации.
+              Это удалит выбранные акты и все их позиции. Акты из Quick Resto могут
+              вернуться при следующей синхронизации.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1369,11 +1378,13 @@ function ReadonlyPersonCell({
 
 function BulkAssignMenu({
   label,
+  icon,
   staff,
   disabled,
   onPick,
 }: {
   label: string;
+  icon?: React.ReactNode;
   staff: AssigneeOption[];
   disabled?: boolean;
   onPick: (userId: string | null) => void;
@@ -1382,6 +1393,7 @@ function BulkAssignMenu({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={disabled}>
+          {icon}
           {label}
         </Button>
       </DropdownMenuTrigger>

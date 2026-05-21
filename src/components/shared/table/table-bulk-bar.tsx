@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 type TableBulkBarProps = {
@@ -19,17 +18,22 @@ export function TableBulkBar({ selectedCount, onClear, actions, summary, colSpan
 
   const content = (
     <>
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onClear}
+          aria-label="Снять выбор"
+          title="Снять выбор"
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
         <span className="whitespace-nowrap text-sm font-medium text-brand">Выбрано {selectedCount}</span>
         {summary}
       </div>
-      <div className="ml-auto flex min-w-0 items-center gap-2 overflow-x-auto">
-        {actions}
-        <Button type="button" variant="ghost" size="sm" onClick={onClear} className="h-8 text-xs">
-          <X className="mr-2 h-4 w-4" />
-          Снять выбор
-        </Button>
-      </div>
+      {actions ? (
+        <div className="ml-auto flex min-w-0 items-center gap-2 overflow-x-auto">{actions}</div>
+      ) : null}
     </>
   );
 

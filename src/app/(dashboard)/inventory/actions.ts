@@ -1658,6 +1658,126 @@ export async function assignInventoryDocument(input: {
 }
 
 /**
+ * Массовое назначение исполнителя или проверяющего на несколько актов сразу
+ * (из плавающего bulk-бара в списке). Право inventory.manage_documents.
+ * Заблокированные для назначения акты (проведён / ошибка синка) пропускаются.
+ * Журнал пишется по каждому акту; уведомление назначенному — одно суммарное
+ * (не N штук).
+ */
+export async function bulkAssignInventoryDocuments(input: {
+  documentIds: string[];
+  role: "assignee" | "reviewer";
+  userId: string | null;
+}): Promise<{ updated: number; skipped: number; error: string | null }> {
+  try {
+    const ctx = await getActiveContext("inventory.manage_documents");
+    if (ctx.error || !ctx.user || !ctx.accountId) {
+      return { updated: 0, skipped: 0, error: ctx.error ?? "Не удалось определить контекст" };
+    }
+    const ids = Array.from(new Set(input.documentIds)).filter(Boolean);
+    if (ids.length === 0) return { updated: 0, skipped: 0, error: "Не выбрано ни одного акта" };
+
+    const admin = asLooseDb(createAdminClient());
+    const { data: docsRaw, error: readError } = await admin
+      .from<
+        Array<{
+          id: string;
+          status: string;
+          assigned_to: string | null;
+          reviewer_id: string | null;
+          document_number: string;
+          venue_id: string | null;
+        }>
+      >("documents")
+      .select("id, status, assigned_to, reviewer_id, document_number, venue_id")
+      .eq("account_id", ctx.accountId)
+      .in("id", ids);
+    // Codex P1 #407: read-ошибку нельзя глотать — иначе ложный успех.
+    if (readError) throw new Error(readError.message);
+    const docs = docsRaw ?? [];
+    // Пропускаем проведённые / sync_error (как getAssignLockReason на клиенте)
+    // и no-op'ы, где значение уже стоит — чтобы не плодить лог/уведомления
+    // на пустом месте (Codex P2 #407: как single-action, только на изменение).
+    const eligible = docs.filter(
+      (d) =>
+        d.status !== "processed" &&
+        d.status !== "sync_error" &&
+        (input.role === "assignee"
+          ? d.assigned_to !== input.userId
+          : d.reviewer_id !== input.userId),
+    );
+    const skipped = ids.length - eligible.length;
+    if (eligible.length === 0) return { updated: 0, skipped, error: null };
+
+    const eligibleIds = eligible.map((d) => d.id);
+    const patch =
+      input.role === "assignee"
+        ? { assigned_to: input.userId, status: input.userId ? "assigned" : "synced" }
+        : { reviewer_id: input.userId };
+    const { error } = await admin
+      .from("documents")
+      .update(patch)
+      .eq("account_id", ctx.accountId)
+      .in("id", eligibleIds);
+    if (error) throw new Error(error.message);
+
+    const name = await loadProfileFullName(admin, input.userId);
+    const eventType = input.role === "assignee" ? "assignee_changed" : "reviewer_changed";
+    const setMsg =
+      input.role === "assignee"
+        ? `Назначил исполнителя: ${name ?? "сотрудник"}`
+        : `Назначил проверяющего: ${name ?? "сотрудник"}`;
+    const clearMsg = input.role === "assignee" ? "Снял исполнителя" : "Снял проверяющего";
+    for (const d of eligible) {
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: d.id,
+        eventType,
+        message: input.userId ? setMsg : clearMsg,
+        payload: {
+          bulk: true,
+          ...(input.role === "assignee" ? { assignedTo: input.userId } : { reviewerId: input.userId }),
+        },
+      });
+    }
+
+    // Одно суммарное уведомление назначенному (ссылка на список, не на акт).
+    if (input.userId && input.userId !== ctx.user.id) {
+      try {
+        await admin.from("notifications").insert({
+          user_id: input.userId,
+          venue_id: eligible[0]?.venue_id ?? null,
+          type:
+            input.role === "assignee"
+              ? "inventory.document.assigned"
+              : "inventory.document.review_assigned",
+          category: "inventory",
+          title:
+            input.role === "assignee"
+              ? `Вам назначено актов: ${eligible.length}`
+              : `Вы назначены проверяющим по актам: ${eligible.length}`,
+          body: "Откройте раздел «Акты инвентаризации».",
+          link: "/documents/inventory",
+          actor_user_id: ctx.user.id,
+          entity_type: "inventory_document",
+          entity_id: null,
+        });
+      } catch (e) {
+        console.error("[bulkAssignInventoryDocuments] notification threw:", e);
+      }
+    }
+
+    revalidatePath("/documents/inventory");
+    return { updated: eligible.length, skipped, error: null };
+  } catch (e) {
+    return { updated: 0, skipped: 0, error: actionErrorMessage(e, "Не удалось применить массовое действие") };
+  }
+}
+
+/**
  * Удаление акта инвентаризации. Полное delete с каскадом по FK
  * (document_items → on delete cascade из миграции 122). Требуется
  * право inventory.manage_documents.
@@ -1691,6 +1811,42 @@ export async function deleteInventoryDocument(input: {
         e instanceof Error && e.message
           ? e.message
           : "Не удалось удалить акт. Подробности в логах.",
+    };
+  }
+}
+
+/**
+ * Массовое удаление актов (из плавающего bulk-бара). Право
+ * inventory.manage_documents. Каскад по FK. Тот же caveat про QR, что и у
+ * одиночного delete: QR-акты могут вернуться при следующей синхронизации.
+ */
+export async function bulkDeleteInventoryDocuments(input: {
+  documentIds: string[];
+}): Promise<{ deleted: number; error: string | null }> {
+  try {
+    const ctx = await getActiveContext("inventory.manage_documents");
+    if (ctx.error || !ctx.accountId) {
+      return { deleted: 0, error: ctx.error ?? "Не удалось определить контекст" };
+    }
+    const ids = Array.from(new Set(input.documentIds)).filter(Boolean);
+    if (ids.length === 0) return { deleted: 0, error: "Не выбрано ни одного акта" };
+
+    const admin = asLooseDb(createAdminClient());
+    const { error } = await admin
+      .from("documents")
+      .delete()
+      .eq("account_id", ctx.accountId)
+      .in("id", ids);
+    if (error) return { deleted: 0, error: error.message };
+
+    revalidatePath("/documents/inventory");
+    return { deleted: ids.length, error: null };
+  } catch (e) {
+    console.error("[bulkDeleteInventoryDocuments] unhandled error:", e);
+    return {
+      deleted: 0,
+      error:
+        e instanceof Error && e.message ? e.message : "Не удалось удалить акты. Подробности в логах.",
     };
   }
 }

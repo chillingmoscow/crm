@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -25,10 +26,10 @@ export type AssigneeOption = {
  * Inline-выбор ответственного в строке акта.
  * - Если можно менять (lockReason=null): назначен → бейдж с инициалами +
  *   ФИО, click раскрывает Select. Не назначен → ghost-кнопка «Назначить».
- * - Если менять нельзя (lockReason передан): рендерим статичный бейдж
- *   без chevron, без интерактивности. Тултип на hover показывает причину.
- *   Используется для статусов `processed` и `sync_error` (см.
- *   documents-table.tsx → getAssignLockReason).
+ * - Если менять нельзя (lockReason передан, статусы `processed` /
+ *   `sync_error` — см. documents-table.tsx → getAssignLockReason): бейдж
+ *   становится ссылкой на страницу сотрудника (`?from=inventory`, чтобы
+ *   хлебная крошка вернула в список актов).
  */
 export function AssigneeSelect({
   documentId,
@@ -41,23 +42,24 @@ export function AssigneeSelect({
   assignedTo: string | null;
   staff: AssigneeOption[];
   disabled?: boolean;
-  /** Если задано — Select не рендерится, viewport-only бейдж + tooltip. */
+  /** Если задано — Select не рендерится, бейдж-ссылка на профиль. */
   lockReason?: string | null;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const assigned = assignedTo ? staff.find((p) => p.id === assignedTo) ?? null : null;
 
-  // ── Locked-state: статичный рендер без Select ────────────
+  // ── Locked-state: ссылка на страницу сотрудника ────────────
   if (lockReason) {
     return assigned ? (
-      <div
-        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground"
-        title={lockReason}
+      <Link
+        href={`/people/staff/${assigned.id}?from=inventory`}
+        title={`Открыть профиль · ${assigned.name}`}
+        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <AssigneeAvatar name={assigned.name} muted />
         <span className="truncate">{assigned.name}</span>
-      </div>
+      </Link>
     ) : (
       <span className="text-sm text-muted-foreground" title={lockReason}>
         —

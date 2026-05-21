@@ -33,12 +33,22 @@ type TargetVenueRole = {
 
 type VenueRow = { account_id: string | null };
 
+// Контекст перехода → куда ведёт хлебная крошка «назад». Whitelist
+// (а не произвольный URL) — чтобы не открывать дыру open-redirect.
+const BACK_CONTEXTS: Record<string, { href: string; label: string }> = {
+  inventory: { href: "/documents/inventory", label: "Акты инвентаризации" },
+};
+
 export default async function StaffMemberPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ userId: string }>;
+  searchParams: Promise<{ from?: string }>;
 }) {
   const { userId } = await params;
+  const { from } = await searchParams;
+  const back = (from && BACK_CONTEXTS[from]) || null;
 
   const supabase = await createClient();
   type LooseQueryBuilder = {
@@ -207,6 +217,8 @@ export default async function StaffMemberPage({
       initialAuditHasMore={auditResult.hasMore}
       initialActivityEvents={activityResult.events}
       initialActivityHasMore={activityResult.hasMore}
+      backHref={back?.href}
+      backLabel={back?.label}
     />
   );
 }

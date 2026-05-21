@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
@@ -40,15 +41,17 @@ export function ReviewerSelect({
   const [pending, setPending] = useState(false);
   const reviewer = reviewerId ? staff.find((p) => p.id === reviewerId) ?? null : null;
 
+  // ── Locked-state: ссылка на страницу сотрудника ────────────
   if (lockReason) {
     return reviewer ? (
-      <div
-        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground"
-        title={lockReason}
+      <Link
+        href={`/people/staff/${reviewer.id}?from=inventory`}
+        title={`Открыть профиль · ${reviewer.name}`}
+        className="inline-flex h-8 max-w-full items-center gap-2 truncate rounded-full bg-muted/60 px-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <AssigneeAvatar name={reviewer.name} muted />
         <span className="truncate">{reviewer.name}</span>
-      </div>
+      </Link>
     ) : (
       <span className="text-sm text-muted-foreground" title={lockReason}>
         —

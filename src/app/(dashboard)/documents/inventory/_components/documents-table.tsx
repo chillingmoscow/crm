@@ -631,7 +631,15 @@ export function DocumentsTable({
             : column.label,
         size: column.size,
         // min ≈ ширина заголовка: ресайз не сжимает колонку уже её названия.
-        minSize: column.id === "select" ? 44 : column.id === "actions" ? 56 : 96,
+        // «Исполнитель»/«Проверяющий» — длинные заголовки, им нужен больший min.
+        minSize:
+          column.id === "select"
+            ? 44
+            : column.id === "actions"
+              ? 56
+              : column.id === "assigned_to" || column.id === "reviewer_id"
+                ? 116
+                : 96,
         enableHiding: column.canHide !== false,
         enableResizing: column.id !== "select" && column.id !== "actions",
         cell: ({ row }) => column.cell(row.original),

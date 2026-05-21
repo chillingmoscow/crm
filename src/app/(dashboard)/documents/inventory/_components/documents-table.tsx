@@ -21,6 +21,7 @@ import {
   Plus,
   RefreshCw,
   Search as SearchIcon,
+  ShieldCheck,
   Trash2,
   UserPlus,
   X,
@@ -69,6 +70,7 @@ import { deleteInventoryDocument, syncQuickRestoInventory } from "@/app/(dashboa
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 import { AssigneeSelect, type AssigneeOption } from "./assignee-select";
+import { ReviewerSelect } from "./reviewer-select";
 import {
   DEFAULT_SORT,
   DOCUMENT_STATUSES,
@@ -383,6 +385,28 @@ export function DocumentsTable({
           ) : (
             <span className="text-sm text-muted-foreground">
               {staff.find((m) => m.id === row.assigned_to)?.name ?? "—"}
+            </span>
+          );
+        },
+      },
+      {
+        id: "reviewer_id",
+        label: "Проверяющий",
+        size: 200,
+        cell: (row: DocumentListRow) => {
+          const lockReason = getAssignLockReason(row.status);
+          return canManage ? (
+            <div data-row-interactive onClick={(e) => e.stopPropagation()}>
+              <ReviewerSelect
+                documentId={row.id}
+                reviewerId={row.reviewer_id}
+                staff={staff}
+                lockReason={lockReason}
+              />
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {staff.find((m) => m.id === row.reviewer_id)?.name ?? "—"}
             </span>
           );
         },
@@ -1467,10 +1491,12 @@ function MobileCard({
 }) {
   const router = useRouter();
   const [assignSheetOpen, setAssignSheetOpen] = useState(false);
+  const [reviewerSheetOpen, setReviewerSheetOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
   const href = getDocHref(doc, canViewResults);
   const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
+  const reviewerName = staff.find((m) => m.id === doc.reviewer_id)?.name;
 
   const runDelete = () => {
     startDelete(async () => {
@@ -1504,6 +1530,11 @@ function MobileCard({
           icon: <UserPlus className="h-4 w-4" />,
           onSelect: () => setAssignSheetOpen(true),
           separatorBefore: true,
+        });
+        items.push({
+          label: "Изменить проверяющего",
+          icon: <ShieldCheck className="h-4 w-4" />,
+          onSelect: () => setReviewerSheetOpen(true),
         });
       }
       items.push({
@@ -1560,6 +1591,9 @@ function MobileCard({
             <span className="text-muted-foreground">
               {assigneeName ? <>Назначен: {assigneeName}</> : "Не назначен"}
             </span>
+            {reviewerName ? (
+              <span className="text-muted-foreground">Проверяющий: {reviewerName}</span>
+            ) : null}
           </div>
         </div>
         <div data-row-interactive>
@@ -1587,6 +1621,32 @@ function MobileCard({
           <AssigneeSelect
             documentId={doc.id}
             assignedTo={doc.assigned_to}
+            staff={staff}
+            lockReason={getAssignLockReason(doc.status)}
+          />
+        </div>
+      ) : null}
+
+      {reviewerSheetOpen ? (
+        <div
+          data-row-interactive
+          className="absolute inset-x-0 bottom-0 z-10 rounded-b-lg border-t bg-background p-3 shadow-lg"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium">Проверяющий</span>
+            <button
+              type="button"
+              onClick={() => setReviewerSheetOpen(false)}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Закрыть"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <ReviewerSelect
+            documentId={doc.id}
+            reviewerId={doc.reviewer_id}
             staff={staff}
             lockReason={getAssignLockReason(doc.status)}
           />

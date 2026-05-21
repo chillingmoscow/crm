@@ -542,7 +542,10 @@ begin
   update public.documents
      set results_has_line_amounts = true,
          shortfall_sum = 1335.00,
-         surplus_sum = 0
+         surplus_sum = 0,
+         -- Проверяющий (manager@test.com) ≠ исполнитель (owner) — для демо
+         -- маршрутизации уведомлений «готов к проверке» ↔ «вернули на пересчёт».
+         reviewer_id = 'bbbbbbbb-0000-0000-0000-000000000002'
    where id = '55555555-5555-0000-0000-000000000004'::uuid;
 
   update public.document_items

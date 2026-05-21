@@ -84,6 +84,11 @@ type InventoryResultDocumentRow = {
   status: string;
   results_finalized_at: string | null;
   results_reopened_at: string | null;
+  // Для маршрутизации уведомлений и авто-фоллбэка reviewer_id (PR-B).
+  assigned_to: string | null;
+  reviewer_id: string | null;
+  document_number: string;
+  venue_id: string | null;
 };
 
 // Замки статусной машины (isInventoryResultLocked / *AdjustLocked /
@@ -860,7 +865,9 @@ async function getResultDocumentForAction(input: {
 }) {
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
-    .select("id, account_id, status, results_finalized_at, results_reopened_at")
+    .select(
+      "id, account_id, status, results_finalized_at, results_reopened_at, assigned_to, reviewer_id, document_number, venue_id",
+    )
     .eq("id", input.documentId)
     .eq("account_id", input.accountId)
     .maybeSingle();
@@ -1398,6 +1405,110 @@ export async function syncQuickRestoInventory(input?: {
     return {
       summary: null,
       error: actionErrorMessage(error, "Не удалось синхронизировать Quick Resto"),
+    };
+  }
+}
+
+/**
+ * Best-effort уведомление по событию акта инвентаризации. Зеркалит паттерн
+ * assignInventoryDocument: ошибка не валит основной flow. Не шлёт самому
+ * себе и при пустом получателе (например, reviewer_id ещё не задан).
+ */
+async function notifyInventoryDocumentEvent(input: {
+  admin: LooseDb;
+  recipientId: string | null;
+  actorId: string | null;
+  venueId: string | null;
+  documentId: string;
+  type: string;
+  title: string;
+  body: string;
+}): Promise<void> {
+  if (!input.recipientId) return;
+  if (input.recipientId === input.actorId) return;
+  try {
+    const { error } = await input.admin.from("notifications").insert({
+      user_id: input.recipientId,
+      venue_id: input.venueId,
+      type: input.type,
+      category: "inventory",
+      title: input.title,
+      body: input.body,
+      link: `/documents/inventory/${input.documentId}`,
+      actor_user_id: input.actorId,
+      entity_type: "inventory_document",
+      entity_id: input.documentId,
+    });
+    if (error) console.error(`[inventory notify ${input.type}] insert error:`, error);
+  } catch (e) {
+    console.error(`[inventory notify ${input.type}] threw:`, e);
+  }
+}
+
+/**
+ * Назначить (или снять) проверяющего акт. Зеркало assignInventoryDocument:
+ * право inventory.manage_documents, гард на существование акта, best-effort
+ * уведомление назначенному проверяющему.
+ */
+export async function assignInventoryReviewer(input: {
+  documentId: string;
+  reviewerId: string | null;
+}): Promise<{ error: string | null }> {
+  try {
+    const ctx = await getActiveContext("inventory.manage_documents");
+    if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Не удалось определить контекст" };
+
+    const admin = asLooseDb(createAdminClient());
+
+    const { data: before, error: beforeError } = await admin
+      .from<{
+        reviewer_id: string | null;
+        document_number: string;
+        venue_id: string | null;
+      }>("documents")
+      .select("reviewer_id, document_number, venue_id")
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+    if (beforeError) {
+      console.error("[assignInventoryReviewer] before query failed:", beforeError);
+      return { error: beforeError.message };
+    }
+    if (!before) return { error: "Акт не найден" };
+
+    const { error } = await admin
+      .from("documents")
+      .update({ reviewer_id: input.reviewerId })
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId);
+    if (error) {
+      console.error("[assignInventoryReviewer] update failed:", error);
+      return { error: error.message };
+    }
+
+    if (input.reviewerId && before.reviewer_id !== input.reviewerId) {
+      await notifyInventoryDocumentEvent({
+        admin,
+        recipientId: input.reviewerId,
+        actorId: ctx.user?.id ?? null,
+        venueId: before.venue_id ?? null,
+        documentId: input.documentId,
+        type: "inventory.document.review_assigned",
+        title: `Вы назначены проверяющим по акту № ${before.document_number}`,
+        body: "Когда исполнитель завершит акт, проверьте итоги и при необходимости верните на пересчёт.",
+      });
+    }
+
+    revalidatePath("/documents/inventory");
+    revalidatePath(`/documents/inventory/${input.documentId}`);
+    return { error: null };
+  } catch (e) {
+    console.error("[assignInventoryReviewer] unhandled error:", e);
+    return {
+      error:
+        e instanceof Error && e.message
+          ? e.message
+          : "Не удалось назначить проверяющего. Подробности в логах.",
     };
   }
 }
@@ -2272,6 +2383,8 @@ export async function finalizeInventoryResults(input: {
       .update({
         results_finalized_at: new Date().toISOString(),
         results_finalized_by: ctx.user.id,
+        // Авто-фоллбэк: финализирующий становится проверяющим, если поле пусто.
+        ...(document.reviewer_id ? {} : { reviewer_id: ctx.user.id }),
       })
       .eq("id", document.id)
       .eq("account_id", ctx.accountId);
@@ -2286,6 +2399,18 @@ export async function finalizeInventoryResults(input: {
       eventType: "results_finalized",
       message: "Подвел итоги акта",
       payload: { documentId: document.id },
+    });
+
+    // Уведомляем исполнителя, что его акт принят.
+    await notifyInventoryDocumentEvent({
+      admin,
+      recipientId: document.assigned_to,
+      actorId: ctx.user.id,
+      venueId: document.venue_id,
+      documentId: document.id,
+      type: "inventory.document.finalized",
+      title: `Итоги акта № ${document.document_number} приняты`,
+      body: "Проверяющий финализировал итоги инвентаризации.",
     });
 
     revalidateInventoryResultPages(document.id);
@@ -2436,8 +2561,14 @@ export async function returnDocumentForRecount(input: {
         status: string;
         recount_count: number | null;
         results_finalized_at: string | null;
+        assigned_to: string | null;
+        reviewer_id: string | null;
+        document_number: string;
+        venue_id: string | null;
       }>("documents")
-      .select("id, status, recount_count, results_finalized_at")
+      .select(
+        "id, status, recount_count, results_finalized_at, assigned_to, reviewer_id, document_number, venue_id",
+      )
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
@@ -2469,6 +2600,10 @@ export async function returnDocumentForRecount(input: {
         status: "recount_pending",
         recount_count: (document.recount_count ?? 0) + 1,
         last_returned_at: new Date().toISOString(),
+        // Авто-фоллбэк: вернувший на пересчёт становится проверяющим, если
+        // поле пусто (детерминирует адресата будущих уведомлений «готов
+        // к проверке»).
+        ...(document.reviewer_id ? {} : { reviewer_id: ctx.user.id }),
       })
       .eq("id", document.id)
       .eq("account_id", ctx.accountId);
@@ -2487,6 +2622,18 @@ export async function returnDocumentForRecount(input: {
         recountCount: (document.recount_count ?? 0) + 1,
         note: input.note?.trim() || null,
       },
+    });
+
+    // Уведомляем исполнителя: акт вернулся к нему на пересчёт.
+    await notifyInventoryDocumentEvent({
+      admin,
+      recipientId: document.assigned_to,
+      actorId: ctx.user.id,
+      venueId: document.venue_id,
+      documentId: document.id,
+      type: "inventory.document.returned_for_recount",
+      title: `Акт № ${document.document_number} вернули на пересчёт`,
+      body: `Перепроверьте отмеченные позиции (${flaggedIds.length}) и завершите пересчёт.`,
     });
 
     revalidateInventoryResultPages(document.id);
@@ -2711,13 +2858,16 @@ export async function submitInventoryDocumentDraft(input: {
       account_id: string;
       external_id: string;
       assigned_to: string | null;
+      reviewer_id: string | null;
+      document_number: string;
+      venue_id: string | null;
       processed: boolean;
       status: string;
       results_finalized_at: string | null;
       base_last_update_date: string | null;
     }>("documents")
     .select(
-      "id, account_id, external_id, assigned_to, processed, status, results_finalized_at, base_last_update_date",
+      "id, account_id, external_id, assigned_to, reviewer_id, document_number, venue_id, processed, status, results_finalized_at, base_last_update_date",
     )
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
@@ -2918,6 +3068,22 @@ export async function submitInventoryDocumentDraft(input: {
       .eq("account_id", ctx.accountId);
 
     if (updateLocalError) return { resultsHasLineAmounts: false, error: updateLocalError.message };
+
+    // Уведомляем проверяющего: акт готов к проверке. Одна точка покрывает
+    // и первое «Завершить», и «Завершить пересчёт». Если reviewer_id ещё не
+    // назначен — notifyInventoryDocumentEvent тихо пропустит.
+    await notifyInventoryDocumentEvent({
+      admin,
+      recipientId: document.reviewer_id,
+      actorId: ctx.user.id,
+      venueId: document.venue_id,
+      documentId: document.id,
+      type: "inventory.document.ready_for_review",
+      title: `Акт № ${document.document_number} готов к проверке`,
+      body: syncResult.resultsFound
+        ? "Исполнитель завершил акт. Проверьте итоги и при необходимости верните на пересчёт."
+        : "Исполнитель завершил акт, но Quick Resto не вернул построчные итоги — нужна проверка.",
+    });
 
     revalidatePath("/documents/inventory");
     revalidatePath(`/documents/inventory/${document.id}`);

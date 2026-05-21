@@ -4,11 +4,16 @@ import {
   Bell,
   BookOpen,
   Cake,
+  CheckCircle2,
+  ClipboardCheck,
+  ClipboardList,
   Gift,
   HeartPulse,
   Info,
   MessageCircle,
   PartyPopper,
+  RotateCcw,
+  UserCheck,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -26,7 +31,7 @@ import {
 
 export interface NotificationTypeSpec {
   /** Module category — для filter-chips в bell'е. */
-  category: "kb" | "finance" | "schedule" | "staff" | "system";
+  category: "kb" | "finance" | "schedule" | "staff" | "inventory" | "system";
   /** Lucide-иконка для row'а (когда нет actor'а / fallback). */
   icon: LucideIcon;
   /** Tailwind-класс цвета иконки. */
@@ -96,6 +101,38 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     verb: null,
   },
 
+  // Inventory (акты инвентаризации)
+  "inventory.document.assigned": {
+    category: "inventory",
+    icon: ClipboardList,
+    iconColor: "text-blue-500",
+    verb: "назначил(а) вам акт",
+  },
+  "inventory.document.review_assigned": {
+    category: "inventory",
+    icon: UserCheck,
+    iconColor: "text-violet-500",
+    verb: "назначил(а) вас проверяющим по акту",
+  },
+  "inventory.document.ready_for_review": {
+    category: "inventory",
+    icon: ClipboardCheck,
+    iconColor: "text-violet-500",
+    verb: null,
+  },
+  "inventory.document.returned_for_recount": {
+    category: "inventory",
+    icon: RotateCcw,
+    iconColor: "text-rose-500",
+    verb: null,
+  },
+  "inventory.document.finalized": {
+    category: "inventory",
+    icon: CheckCircle2,
+    iconColor: "text-emerald-500",
+    verb: null,
+  },
+
   // Generic / system
   "invite": {
     category: "staff",
@@ -125,6 +162,7 @@ export const KNOWN_CATEGORIES = [
   "finance",
   "schedule",
   "staff",
+  "inventory",
   "system",
 ] as const;
 
@@ -133,6 +171,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   finance: "Финансы",
   schedule: "График",
   staff: "Команда",
+  inventory: "Инвентаризация",
   system: "Прочее",
 };
 

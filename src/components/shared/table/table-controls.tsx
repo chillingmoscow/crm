@@ -80,18 +80,26 @@ export function TableControls({
   }, [search?.open]);
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={cn("flex w-full items-center gap-2 sm:w-auto", className)}>
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
         {search ? (
-          <div className="flex items-center gap-1">
+          <div
+            className={cn(
+              "flex items-center gap-1",
+              // Открытый поиск растягивается на всю строку (mobile), чтобы
+              // кнопки фильтра/сортировки не переносились на вторую строку.
+              // На sm+ — фиксированная ширина, как раньше.
+              search.open && "min-w-0 flex-1 sm:flex-initial",
+            )}
+          >
             {search.open ? (
-              <div className="relative">
+              <div className="relative min-w-0 flex-1 sm:flex-initial">
                 <Input
                   ref={inputRef}
                   value={search.value}
                   onChange={(event) => search.onChange(event.target.value)}
                   placeholder={search.placeholder ?? "Поиск"}
-                  className="h-9 w-[min(320px,70vw)] pr-8 text-sm md:w-72"
+                  className="h-9 w-full pr-8 text-sm sm:w-72"
                 />
                 {search.value ? (
                   <button
@@ -215,7 +223,7 @@ function TooltipIconButton({
   return (
     <Tooltip delayDuration={450}>
       <TooltipTrigger asChild>
-        <span className="inline-flex">
+        <span className="inline-flex shrink-0">
           <Button
             type="button"
             variant="outline"
@@ -263,7 +271,7 @@ function TableControlPopoverButton({
               variant="outline"
               size="icon"
               className={cn(
-                "h-9 w-9 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground",
+                "h-9 w-9 shrink-0 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground",
                 "[&_svg]:h-4 [&_svg]:w-4",
                 active ? "border-brand bg-background text-foreground shadow-[0_0_0_2px_hsl(var(--brand)/0.16)] hover:border-brand hover:bg-background" : null,
               )}

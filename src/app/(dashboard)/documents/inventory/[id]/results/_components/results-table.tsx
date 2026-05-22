@@ -31,6 +31,9 @@ import {
 import { toast } from "sonner";
 
 import {
+  bulkCreateInventoryResultExclusionRules,
+  bulkSetInventoryResultItemsExcluded,
+  bulkSetRecountFlag,
   createInventoryResultExclusionRule,
   createInventoryResultResort,
   deleteInventoryResultExclusionRule,
@@ -501,6 +504,31 @@ export function InventoryResultsTable({
         toast.success(success);
         setSelectedIds(new Set());
         onSuccess?.();
+      });
+    },
+    [startTransition],
+  );
+
+  // Массовое действие: один серверный вызов, честный тост «N применено /
+  // M пропущено» (вместо клиентского цикла, падавшего на первой ошибке).
+  const runBulkAction = useCallback(
+    (
+      action: () => Promise<{ updated: number; skipped?: number; error: string | null }>,
+      doneLabel: string,
+    ) => {
+      startTransition(async () => {
+        const result = await action();
+        if (result.error) {
+          toast.error(result.error);
+          return;
+        }
+        const skipped = result.skipped ?? 0;
+        if (result.updated === 0) {
+          toast.message(skipped > 0 ? `Нет подходящих строк (пропущено: ${skipped})` : "Нечего применять");
+        } else {
+          toast.success(skipped > 0 ? `${doneLabel}: ${result.updated} · пропущено: ${skipped}` : `${doneLabel}: ${result.updated}`);
+        }
+        setSelectedIds(new Set());
       });
     },
     [startTransition],
@@ -1534,19 +1562,14 @@ export function InventoryResultsTable({
                     className="h-8 text-xs"
                     disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
-                      runAction(
-                        async () => {
-                          for (const itemId of selectedIds) {
-                            const result = await setInventoryResultItemExcluded({
-                              documentId,
-                              itemId,
-                              excluded: true,
-                            });
-                            if (result.error) return result;
-                          }
-                          return { error: null };
-                        },
-                        "Строки исключены из итогов",
+                      runBulkAction(
+                        () =>
+                          bulkSetInventoryResultItemsExcluded({
+                            documentId,
+                            itemIds: Array.from(selectedIds),
+                            excluded: true,
+                          }),
+                        "Исключено из итогов",
                       )
                     }
                   >
@@ -1559,15 +1582,13 @@ export function InventoryResultsTable({
                     className="h-8 text-xs"
                     disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
-                      runAction(
-                        async () => {
-                          for (const itemId of selectedIds) {
-                            const result = await createInventoryResultExclusionRule({ documentId, itemId });
-                            if (result.error) return result;
-                          }
-                          return { error: null };
-                        },
-                        "Позиции добавлены в автоисключения",
+                      runBulkAction(
+                        () =>
+                          bulkCreateInventoryResultExclusionRules({
+                            documentId,
+                            itemIds: Array.from(selectedIds),
+                          }),
+                        "Добавлено в автоисключения",
                       )
                     }
                   >
@@ -1584,15 +1605,14 @@ export function InventoryResultsTable({
                     className="h-8 text-xs"
                     disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
-                      runAction(
-                        async () => {
-                          for (const itemId of selectedIds) {
-                            const result = await setRecountFlag({ documentId, itemId, needsRecount: true });
-                            if (result.error) return result;
-                          }
-                          return { error: null };
-                        },
-                        "Строки отмечены на пересчёт",
+                      runBulkAction(
+                        () =>
+                          bulkSetRecountFlag({
+                            documentId,
+                            itemIds: Array.from(selectedIds),
+                            needsRecount: true,
+                          }),
+                        "Отмечено на пересчёт",
                       )
                     }
                   >
@@ -1605,15 +1625,14 @@ export function InventoryResultsTable({
                     className="h-8 text-xs"
                     disabled={adjustLocked || isPending || selectedItems.length === 0}
                     onClick={() =>
-                      runAction(
-                        async () => {
-                          for (const itemId of selectedIds) {
-                            const result = await setRecountFlag({ documentId, itemId, needsRecount: false });
-                            if (result.error) return result;
-                          }
-                          return { error: null };
-                        },
-                        "Пометки пересчёта сняты",
+                      runBulkAction(
+                        () =>
+                          bulkSetRecountFlag({
+                            documentId,
+                            itemIds: Array.from(selectedIds),
+                            needsRecount: false,
+                          }),
+                        "Снято пометок пересчёта",
                       )
                     }
                   >

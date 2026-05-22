@@ -82,6 +82,7 @@ import {
 import {
   formatAmount,
   formatMoney,
+  formatQuantityAmount,
   formatSignedMoney,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
@@ -213,7 +214,9 @@ function formatQuantity(
   measureUnitName: string | null | undefined,
   amountRoundingScale: AmountRoundingScale,
 ) {
-  const formatted = formatAmount(value, amountRoundingScale);
+  // Целые количества показываем без «,0» (штучные позиции), дробные —
+  // до scale знаков (литры/кг). См. formatQuantityAmount.
+  const formatted = formatQuantityAmount(value, amountRoundingScale);
   if (formatted === "—") return formatted;
   return `${formatted} ${measureUnitName ?? "ед."}`;
 }
@@ -907,25 +910,25 @@ export function InventoryResultsTable({
         </div>
       ) : null}
 
-      <div className="grid gap-3 xl:grid-cols-2">
-        <div className="rounded-lg border bg-card p-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-lg border bg-card p-3 sm:p-4">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <div className="text-xs text-muted-foreground">По QR</div>
-              <div className="mt-1 text-2xl font-semibold text-red-700 dark:text-red-400">
+              <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">К списанию</div>
-              <div className="mt-1 text-2xl font-semibold text-red-700 dark:text-red-400">
+              <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementShortfallSum), "RUB", amountRoundingScale)}
               </div>
             </div>
           </div>
         </div>
-        <div className="rounded-lg border bg-card p-4">
+        <div className="rounded-lg border bg-card p-3 sm:p-4">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Излишек</div>
             {isFinalized ? (
@@ -938,13 +941,13 @@ export function InventoryResultsTable({
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
               <div className="text-xs text-muted-foreground">По QR</div>
-              <div className="mt-1 text-2xl font-semibold text-green-700 dark:text-green-400">
+              <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">К учету</div>
-              <div className="mt-1 text-2xl font-semibold text-green-700 dark:text-green-400">
+              <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementSurplusSum), "RUB", amountRoundingScale)}
               </div>
             </div>
@@ -988,7 +991,35 @@ export function InventoryResultsTable({
               />
             ),
           }}
-          secondaryActions={<RefreshResultsButton documentId={documentId} />}
+          secondaryActions={
+            <>
+              {canRequestAi || aiLoading ? (
+                <Tooltip delayDuration={450}>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        disabled={aiLoading || isPending}
+                        onClick={requestAiSuggestions}
+                        aria-label="Подсказки пересорта (ИИ)"
+                        className="h-9 w-9 border-border text-blue-600 hover:border-blue-400 hover:bg-background hover:text-blue-600 dark:text-blue-400 [&_svg]:h-4 [&_svg]:w-4"
+                      >
+                        {aiLoading ? (
+                          <Loader2 className="animate-spin" />
+                        ) : (
+                          <WandSparkles />
+                        )}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent sideOffset={6}>Подсказки пересорта (ИИ)</TooltipContent>
+                </Tooltip>
+              ) : null}
+              <RefreshResultsButton documentId={documentId} />
+            </>
+          }
           summary={
             <>
               Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}.
@@ -1119,29 +1150,15 @@ export function InventoryResultsTable({
         </div>
       ) : null}
 
-      {displayedSuggestions.length > 0 || canRequestAi || aiLoading ? (
+      {/* Карточка с предложениями пересорта. Триггер ИИ-подсказок переехал
+          в тулбар (синяя иконка-палочка). Карточка показывается только
+          когда есть что показать: готовые подсказки или идёт загрузка ИИ. */}
+      {displayedSuggestions.length > 0 || aiLoading ? (
       <div className="rounded-lg border bg-card p-4">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <WandSparkles className="h-4 w-4 text-blue-600" />
           <div className="text-sm font-medium">Предложения пересорта</div>
           {aiSuggestionsEnabled ? <Badge variant="outline">AI</Badge> : <Badge variant="secondary">История</Badge>}
-          {canRequestAi || aiLoading ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="ml-auto h-8 text-xs"
-              disabled={aiLoading || isPending}
-              onClick={requestAiSuggestions}
-            >
-              {aiLoading ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <WandSparkles className="mr-1 h-3.5 w-3.5" />
-              )}
-              Подсказки ИИ
-            </Button>
-          ) : null}
         </div>
         {displayedSuggestions.length > 0 ? (
         <div className="grid gap-2">
@@ -1173,10 +1190,12 @@ export function InventoryResultsTable({
             ))}
         </div>
         ) : (
-          <p className="text-xs text-muted-foreground">
-            {aiRequested
-              ? "ИИ не нашёл подходящих пересортов."
-              : "Нажмите «Подсказки ИИ», чтобы подобрать варианты пересорта."}
+          // Карточка рендерится при aiLoading и пустом списке — показываем
+          // индикатор подбора. (aiRequested+пусто → карточка скрыта, а юзер
+          // получает toast «ИИ не нашёл подходящих пересортов».)
+          <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Подбираем варианты пересорта…
           </p>
         )}
       </div>

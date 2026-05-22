@@ -6,6 +6,11 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { refreshInventoryDocumentResults } from "@/app/(dashboard)/inventory/actions";
 
 export function RefreshResultsButton({ documentId }: { documentId: string }) {
@@ -31,10 +36,26 @@ export function RefreshResultsButton({ documentId }: { documentId: string }) {
     });
   };
 
+  // Иконка-кнопка в одном ряду с контролами таблицы (search/filter/sort).
+  // Стиль 1-в-1 с TableControls.TooltipIconButton.
   return (
-    <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={isPending}>
-      {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-      <span className="ml-2">Обновить итоги из QR</span>
-    </Button>
+    <Tooltip delayDuration={450}>
+      <TooltipTrigger asChild>
+        <span className="inline-flex">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={refresh}
+            disabled={isPending}
+            aria-label="Обновить итоги"
+            className="h-9 w-9 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground [&_svg]:h-4 [&_svg]:w-4"
+          >
+            {isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+          </Button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent sideOffset={6}>Обновить итоги</TooltipContent>
+    </Tooltip>
   );
 }

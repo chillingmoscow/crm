@@ -80,41 +80,44 @@ export function TableControls({
   }, [search?.open]);
 
   return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={cn("flex w-full items-center gap-2 sm:w-auto", className)}>
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
         {search ? (
-          <div className="flex items-center gap-1">
-            {search.open ? (
-              <div className="relative">
-                <Input
-                  ref={inputRef}
-                  value={search.value}
-                  onChange={(event) => search.onChange(event.target.value)}
-                  placeholder={search.placeholder ?? "Поиск"}
-                  className="h-9 w-[min(320px,70vw)] pr-8 text-sm md:w-72"
-                />
-                {search.value ? (
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => search.onChange("")}
-                    aria-label="Очистить поиск"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </div>
+          <TooltipIconButton
+            label={search.open ? "Скрыть поиск" : "Показать поиск"}
+            active={search.open}
+            onClick={() => {
+              if (search.open) search.onChange("");
+              search.onOpenChange(!search.open);
+            }}
+          >
+            <Search className="h-4 w-4" />
+          </TooltipIconButton>
+        ) : null}
+
+        {/* Поле поиска. На мобильном (order-last + w-full) переносится на
+            отдельную строку под кнопками — на узких экранах рядом с
+            иконками для него нет места. На sm+ (order-first + фикс-ширина)
+            стоит слева, как раньше. */}
+        {search?.open ? (
+          <div className="relative order-last w-full sm:order-first sm:w-72">
+            <Input
+              ref={inputRef}
+              value={search.value}
+              onChange={(event) => search.onChange(event.target.value)}
+              placeholder={search.placeholder ?? "Поиск"}
+              className="h-9 w-full pr-8 text-sm"
+            />
+            {search.value ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => search.onChange("")}
+                aria-label="Очистить поиск"
+              >
+                <X className="h-4 w-4" />
+              </button>
             ) : null}
-            <TooltipIconButton
-              label={search.open ? "Скрыть поиск" : "Показать поиск"}
-              active={search.open}
-              onClick={() => {
-                if (search.open) search.onChange("");
-                search.onOpenChange(!search.open);
-              }}
-            >
-              <Search className="h-4 w-4" />
-            </TooltipIconButton>
           </div>
         ) : null}
 

@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 
 import { getCachedInventoryDocumentBasics } from "../layout";
@@ -38,13 +38,19 @@ export default async function InventoryDocumentHistoryPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const supabase = await createClient();
 
-  const [user, accountId] = await Promise.all([
+  const [user, accountId, { data: canViewResults }] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
+    supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
   ]);
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");
+  // Журнал решений = часть итогов. Без права на итоги доступа нет (зеркало
+  // гейта таба в document-act-header.tsx). Layout уже проверил доступ к
+  // акту (canSeeAct + venue), здесь — конкретно право на журнал/итоги.
+  if (!canViewResults) redirect(`/documents/inventory/${id}`);
 
   const document = await getCachedInventoryDocumentBasics(id, accountId as string);
   if (!document) notFound();

@@ -9,7 +9,7 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Bell, CheckCheck } from "lucide-react";
+import { Archive, Bell, CheckCheck, X } from "lucide-react";
 
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
@@ -341,7 +341,14 @@ export function NotificationBell() {
       </IconTooltip>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-[420px] bg-background border rounded-xl shadow-lg flex flex-col overflow-hidden">
+        <div
+          className={cn(
+            // Mobile: оверлей на весь экран поверх контента.
+            "fixed inset-0 z-50 flex flex-col bg-background",
+            // Desktop (sm+): привязанный к колокольчику dropdown, как раньше.
+            "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:h-auto sm:w-[420px] sm:overflow-hidden sm:rounded-xl sm:border sm:shadow-lg",
+          )}
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-1.5">
@@ -352,6 +359,16 @@ export function NotificationBell() {
                 </span>
               )}
             </div>
+            {/* Закрыть — только на мобильном (на desktop закрывается
+                по клику вне dropdown'а). */}
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Закрыть уведомления"
+              className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:hidden"
+            >
+              <X className="size-5" />
+            </button>
           </div>
 
           {/* Scope tabs */}
@@ -408,7 +425,7 @@ export function NotificationBell() {
           <div
             ref={listRef}
             onScroll={onListScroll}
-            className="flex-1 overflow-y-auto max-h-[480px]"
+            className="flex-1 overflow-y-auto sm:max-h-[480px]"
           >
             {!loaded[scope] && (
               <div className="px-4 py-8 text-center text-xs text-muted-foreground">

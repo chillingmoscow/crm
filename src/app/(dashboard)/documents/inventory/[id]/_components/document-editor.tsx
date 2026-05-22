@@ -791,7 +791,7 @@ export function InventoryDocumentEditor({
             )}
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="truncate text-sm font-medium">{item.productName}</div>
+                <div className="min-w-0 break-words text-sm font-medium">{item.productName}</div>
                 {needsRecount ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
                     <AlertTriangle className="h-3 w-3" />

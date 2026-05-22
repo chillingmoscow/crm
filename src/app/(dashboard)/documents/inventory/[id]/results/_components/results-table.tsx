@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useRef, useState, useTransition } from "react";
 import {
   type ColumnDef,
   flexRender,
@@ -248,6 +248,13 @@ export function InventoryResultsTable({
   // pin-row скрыт по умолчанию, кнопка «Фильтры» нейтральна (как в актах).
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // Ref на актуальный selectedIds: renderSelectCell читает его, не завися от
+  // selectedIds в deps. Иначе каждый клик по чекбоксу пересобирал
+  // columnsConfig → stateColumns → useTableState (с эффектами/персистом
+  // колонок) → чекбоксы «залипали». Ref обновляем на каждый рендер, чтобы
+  // ячейки при перерендере (смена selectedIds) читали свежее значение.
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const [commentItem, setCommentItem] = useState<InventoryDocumentResultItem | null>(null);
   // Боковая панель «Обзор ингредиента» — открывается кликом по названию позиции.
   const [overviewIngredient, setOverviewIngredient] = useState<{ id: string; name: string } | null>(null);
@@ -684,7 +691,7 @@ export function InventoryResultsTable({
       return (
         <span data-row-interactive>
           <Checkbox
-            checked={selectedIds.has(item.id)}
+            checked={selectedIdsRef.current.has(item.id)}
             disabled={!isSelectable}
             onCheckedChange={() => toggleSelected(item.id)}
             aria-label={`Выбрать ${item.product_name}`}
@@ -692,7 +699,8 @@ export function InventoryResultsTable({
         </span>
       );
     },
-    [activeResortItemByItemId, adjustLocked, selectedIds],
+    // selectedIds намеренно НЕ в deps — читаем через ref (см. selectedIdsRef).
+    [activeResortItemByItemId, adjustLocked],
   );
 
   const renderActionsCell = useCallback(
@@ -809,8 +817,7 @@ export function InventoryResultsTable({
               <div className="truncate font-medium">{item.product_name}</div>
             )}
             <div className="mt-1 truncate text-xs text-muted-foreground">
-              {item.article ?? "Без артикула"} · {item.measure_unit_name ?? "ед."}
-              {item.group_name ? ` · ${item.group_name}` : ""}
+              {item.group_name ?? "Без группы"}
             </div>
           </div>
         ),
@@ -1022,7 +1029,7 @@ export function InventoryResultsTable({
           }
           summary={
             <>
-              Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}.
+              Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
             </>
           }
         />
@@ -1354,7 +1361,7 @@ export function InventoryResultsTable({
           итоги»). Поясняющий текст про блокировку — в тултипе кнопки. */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
         <div className="text-xs text-muted-foreground">
-          Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}.
+          Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canSendToRecount ? (
@@ -1561,6 +1568,7 @@ export function InventoryResultsTable({
                     disabled={adjustLocked || isPending || selectedItems.length < 2}
                     onClick={() => createResort(Array.from(selectedIds))}
                   >
+                    <Repeat2 className="h-3.5 w-3.5" />
                     Пересорт
                   </Button>
                   <Button
@@ -1581,6 +1589,7 @@ export function InventoryResultsTable({
                       )
                     }
                   >
+                    <Ban className="h-3.5 w-3.5" />
                     Не учитывать
                   </Button>
                   <Button
@@ -1600,6 +1609,7 @@ export function InventoryResultsTable({
                       )
                     }
                   >
+                    <XCircle className="h-3.5 w-3.5" />
                     Исключать всегда
                   </Button>
                 </>
@@ -1624,6 +1634,7 @@ export function InventoryResultsTable({
                       )
                     }
                   >
+                    <RotateCcw className="h-3.5 w-3.5" />
                     Пересчёт
                   </Button>
                   <Button
@@ -1644,6 +1655,7 @@ export function InventoryResultsTable({
                       )
                     }
                   >
+                    <Undo2 className="h-3.5 w-3.5" />
                     Снять пересчёт
                   </Button>
                 </>

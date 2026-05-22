@@ -32,7 +32,11 @@ export function TableBulkBar({ selectedCount, onClear, actions, summary, colSpan
         {summary}
       </div>
       {actions ? (
-        <div className="ml-auto flex min-w-0 items-center gap-2 overflow-x-auto">{actions}</div>
+        // Мобильный: кнопки переносятся (flex-wrap), занимают всю ширину под
+        // счётчиком. Десктоп: прижаты вправо, в одну строку со скроллом.
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap sm:overflow-x-auto">
+          {actions}
+        </div>
       ) : null}
     </>
   );
@@ -50,7 +54,9 @@ export function TableBulkBar({ selectedCount, onClear, actions, summary, colSpan
   return (
     <div
       className={cn(
-        "relative flex min-h-11 items-center gap-3 border bg-brand/10 px-4 py-2",
+        // Мобильный: вертикальная раскладка (счётчик сверху, кнопки снизу) —
+        // иначе «Выбрано N» зажимается под кнопки. Десктоп: одна строка.
+        "relative flex min-h-11 flex-col items-stretch gap-2 border bg-brand/10 px-4 py-2 sm:flex-row sm:items-center sm:gap-3",
         floating
           // Ширина фиксированная (w-[calc(100%-2rem)] до max-w-3xl, центр через
           // translate): бар не «прыгает» в размере, когда кнопки действий

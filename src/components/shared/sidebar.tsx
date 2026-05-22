@@ -312,8 +312,13 @@ function SidebarBody({
   };
   const pathname = usePathname();
   const supabase = createClient();
-  const { state } = useSidebar();
+  const { state, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
+
+  // На мобильном закрываем выезжающее меню при переходе на новую страницу.
+  useEffect(() => {
+    setOpenMobile(false);
+  }, [pathname, setOpenMobile]);
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);

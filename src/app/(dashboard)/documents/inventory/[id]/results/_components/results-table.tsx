@@ -1209,17 +1209,28 @@ export function InventoryResultsTable({
           </div>
         </div>
       ) : (
-        // Без overflow на обёртках (иначе sticky-thead «ловится» контейнером).
-        // Колонки вписаны в ширину (table-fixed + colgroup в %), без
-        // горизонтального скролла; ресайз перетягивает ширину у соседей;
-        // шапка липнет к верху страницы. См. design-system → sticky header.
-        <div className="rounded-lg border bg-card">
+        // На десктопе (md+) overflow видимый: колонки вписаны в ширину
+        // (table-fixed + colgroup в %), шапка липнет к верху страницы.
+        // На мобильном включаем горизонтальный скролл и держим естественную
+        // ширину таблицы (minWidth = сумма размеров колонок) — иначе колонки
+        // схлопываются и контент наезжает друг на друга. Trade-off: на узких
+        // экранах sticky-шапка не липнет (контейнер скролла её «ловит»).
+        <div className="overflow-x-auto rounded-lg border bg-card md:overflow-x-visible">
             {/*
               suppressHydrationWarning: расширения браузера (TableConvert и пр.)
               дописывают на <table> атрибуты `data-tableconvert-*` между SSR и
               hydration → React ругается на mismatch. Атрибуты безвредны.
+
+              md:!min-w-0 снимает inline-minWidth на десктопе (важно: иначе при
+              узком окне < суммы колонок таблица переполняла бы карточку без
+              скролла, т.к. md:overflow-x-visible). На md+ таблица снова просто
+              вписывается в контейнер (table-fixed + %).
             */}
-            <table suppressHydrationWarning className="w-full table-fixed">
+            <table
+              suppressHydrationWarning
+              className="w-full table-fixed md:!min-w-0"
+              style={{ minWidth: `${table.getTotalSize()}px` }}
+            >
               <colgroup>
                 {table.getVisibleLeafColumns().map((column) => (
                   <col

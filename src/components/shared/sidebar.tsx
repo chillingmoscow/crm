@@ -312,8 +312,13 @@ function SidebarBody({
   };
   const pathname = usePathname();
   const supabase = createClient();
-  const { state, setOpenMobile } = useSidebar();
-  const collapsed = state === "collapsed";
+  const { state, setOpenMobile, isMobile } = useSidebar();
+  // collapsed (icon-only) — только на десктопе. На мобильном тот же
+  // SidebarBody рендерится внутри выезжающего Sheet'а: там всегда нужен
+  // развёрнутый вид с подписями, независимо от desktop-состояния (которое
+  // приходит из cookie). Иначе свёрнутый на десктопе сайдбар открывался на
+  // телефоне как набор иконок без подписей.
+  const collapsed = state === "collapsed" && !isMobile;
 
   // На мобильном закрываем выезжающее меню при переходе на новую страницу.
   // ВАЖНО: SidebarBody живёт внутри <Sidebar>, который на мобильном

@@ -32,7 +32,9 @@ export function RefreshResultsButton({ documentId }: { documentId: string }) {
   };
 
   // Кнопка с подписью в одном ряду с контролами таблицы. h-9 — чтобы
-  // высота совпадала с иконками-кнопками TableControls.
+  // высота совпадала с иконками-кнопками TableControls. Без ml-2: интервал
+  // между иконкой и текстом даёт встроенный gap-2 у Button (экономит ширину
+  // на мобильном, где ряд кнопок и так впритык).
   return (
     <Button
       type="button"
@@ -40,14 +42,14 @@ export function RefreshResultsButton({ documentId }: { documentId: string }) {
       size="sm"
       onClick={refresh}
       disabled={isPending}
-      className="h-9"
+      className="h-8 text-xs sm:h-9 sm:text-sm"
     >
       {isPending ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
+        <Loader2 className="h-3.5 w-3.5 animate-spin sm:h-4 sm:w-4" />
       ) : (
-        <RefreshCw className="h-4 w-4" />
+        <RefreshCw className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
       )}
-      <span className="ml-2">Обновить итоги</span>
+      Обновить итоги
     </Button>
   );
 }

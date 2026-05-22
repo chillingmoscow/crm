@@ -81,6 +81,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Дизайн-система — источник истины
 Первая остановка для любой UI-работы — **`sheerly.pen` (node `Q4FzoZ`)** + текстовое зеркало [`docs/design-system.md`](docs/design-system.md). Токены/размеры/отступы/скругления не выдумывать. См. memory `feedback_design_system_first.md`.
 
+### Мобильная версия — грабли и решения
+Перед правкой мобильной вёрстки (тулбары, таблицы, сайдбар, инпуты, overflow) — [`docs/mobile-web.md`](docs/mobile-web.md). Там уже пойманные баги iOS Safari (горизонтальное переполнение, зум при фокусе на input), флекс-трапы (`min-w-0`), поведение shadcn-сайдбара в мобильном `Sheet` и адаптивные конвенции. Легко повторить заново, если не знать про них.
+
 ### Тесты
 `node:test`, `.test.mts`, без отдельного раннера. Примеры — `src/lib/knowledge/collection-*.test.mts`, `src/lib/run-with-concurrency.test.mts`. Запуск одиночного — `node --test --experimental-strip-types <file>`.
 

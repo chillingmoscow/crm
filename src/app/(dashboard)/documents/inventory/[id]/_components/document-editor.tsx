@@ -598,7 +598,7 @@ export function InventoryDocumentEditor({
       {/* Закреплённая «шапка» формы: контролы + активные фильтры + прогресс
           остаются вверху при прокрутке длинного списка позиций. Скролл —
           оконный (форма не в overflow-контейнере), поэтому sticky top-0. */}
-      <div className="sticky top-0 z-20 bg-background pb-2">
+      <div className="sticky top-0 z-20 bg-background pt-3 pb-2">
       {/* Шапка с back-кнопкой, табами, номером, статусом и контекстом
           склада/позиций — в shared layout (см. inventory/[id]/layout.tsx).
           Здесь: слева — статус draft'а / offline, справа — контролы. */}

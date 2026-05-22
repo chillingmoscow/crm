@@ -86,6 +86,7 @@ import {
 import { pluralRu } from "@/lib/format/plural";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -481,6 +482,15 @@ export function InventoryResultsTable({
     );
   };
 
+  // aria-sort для сортируемых заголовков (ascending/descending/none).
+  const headerAriaSort = (columnId: string): "ascending" | "descending" | "none" | undefined => {
+    const field = COLUMN_TO_RESULT_FIELD[columnId];
+    if (!field) return undefined;
+    const idx = sorts.findIndex((mode) => resultSortToField(mode) === field);
+    if (idx < 0) return "none";
+    return resultSortToDirection(sorts[idx]) === "asc" ? "ascending" : "descending";
+  };
+
   const createResort = (itemIds: string[], reason?: string, source: "manual" | "history" | "ai" = "manual", confidence?: number) => {
     runAction(
       () =>
@@ -635,12 +645,10 @@ export function InventoryResultsTable({
       const isSelectable = !adjustLocked && !isExcluded && !resortItem;
       return (
         <span data-row-interactive>
-          <input
-            type="checkbox"
+          <Checkbox
             checked={selectedIds.has(item.id)}
             disabled={!isSelectable}
-            onChange={() => toggleSelected(item.id)}
-            className="h-4 w-4 rounded border-input"
+            onCheckedChange={() => toggleSelected(item.id)}
             aria-label={`Выбрать ${item.product_name}`}
           />
         </span>
@@ -833,7 +841,7 @@ export function InventoryResultsTable({
       return arrayMove(current, oldIndex, newIndex);
     });
   };
-  const sortableHeaderIds = new Set(Object.keys(COLUMN_TO_RESULT_FIELD));
+  const sortableHeaderIds = useMemo(() => new Set(Object.keys(COLUMN_TO_RESULT_FIELD)), []);
 
   if (items.length === 0) {
     return (
@@ -1150,6 +1158,7 @@ export function InventoryResultsTable({
                       return (
                         <th
                           key={header.id}
+                          aria-sort={headerAriaSort(header.column.id)}
                           className={cn("relative border-b px-3 py-3 text-left")}
                         >
                           {isControl ? null : isSortable ? (

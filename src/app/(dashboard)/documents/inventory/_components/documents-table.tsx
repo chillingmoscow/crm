@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
@@ -413,10 +414,9 @@ export function DocumentsTable({
               cell: (row: DocumentListRow) => {
                 return (
                   <span data-row-interactive onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={selectedIds.has(row.id)}
-                      onChange={() =>
+                      onCheckedChange={() =>
                         setSelectedIds((prev) => {
                           const next = new Set(prev);
                           if (next.has(row.id)) next.delete(row.id);
@@ -424,7 +424,7 @@ export function DocumentsTable({
                           return next;
                         })
                       }
-                      className="h-4 w-4 rounded border-input align-middle"
+                      className="align-middle"
                       aria-label={`Выбрать акт ${row.document_number}`}
                     />
                   </span>
@@ -611,19 +611,15 @@ export function DocumentsTable({
         header:
           column.id === "select"
             ? () => (
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = !allSelected && someSelected;
-                  }}
+                <Checkbox
+                  checked={allSelected ? true : someSelected ? "indeterminate" : false}
                   disabled={selectableRows.length === 0}
-                  onChange={() =>
+                  onCheckedChange={() =>
                     setSelectedIds(
                       allSelected ? new Set() : new Set(selectableRows.map((row) => row.id)),
                     )
                   }
-                  className="h-4 w-4 rounded border-input align-middle"
+                  className="align-middle"
                   aria-label="Выбрать все"
                 />
               )
@@ -807,7 +803,17 @@ export function DocumentsTable({
     );
   };
 
-  const sortableHeaderIds = new Set(Object.keys(COLUMN_TO_FIELD));
+  const sortableHeaderIds = useMemo(() => new Set(Object.keys(COLUMN_TO_FIELD)), []);
+
+  // aria-sort для сортируемых заголовков: ascending/descending для активной
+  // колонки, none — для сортируемой, но неотсортированной.
+  const headerAriaSort = (columnId: string): "ascending" | "descending" | "none" | undefined => {
+    const field = COLUMN_TO_FIELD[columnId];
+    if (!field) return undefined;
+    const idx = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
+    if (idx < 0) return "none";
+    return sortToDirection(sortFromUrl[idx]) === "asc" ? "ascending" : "descending";
+  };
 
   const total = initial.total;
   const showingFrom = total === 0 ? 0 : (pageFromUrl - 1) * pageSizeFromUrl + 1;
@@ -1080,6 +1086,7 @@ export function DocumentsTable({
                     return (
                       <th
                         key={header.id}
+                        aria-sort={headerAriaSort(header.column.id)}
                         className={cn(
                           "relative border-b px-3 py-3",
                           isActions ? "text-right" : "text-left",

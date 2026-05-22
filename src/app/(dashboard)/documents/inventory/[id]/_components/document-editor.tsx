@@ -758,7 +758,7 @@ export function InventoryDocumentEditor({
           <div
             key={item.id}
             className={cn(
-              "grid grid-cols-[64px_1fr_112px] items-center gap-3 rounded-lg border p-2 transition-colors",
+              "grid grid-cols-[64px_1fr_152px] items-center gap-3 rounded-lg border p-2 transition-colors",
               needsRecount
                 ? "border-rose-300 bg-rose-500/5 dark:border-rose-500/40 dark:bg-rose-500/10"
                 : isFilled
@@ -783,37 +783,39 @@ export function InventoryDocumentEditor({
                   </span>
                 ) : null}
               </div>
-              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                {item.article ? <span>Арт. {item.article}</span> : null}
-                {item.barcode ? <span>{item.barcode}</span> : null}
-                {item.measureUnitName ? <span>{item.measureUnitName}</span> : null}
-                {item.groupPath ? <span>{item.groupPath}</span> : null}
-              </div>
+              {item.groupPath ? (
+                <div className="mt-1 truncate text-xs text-muted-foreground">{item.groupPath}</div>
+              ) : null}
               {needsRecount && item.recountNote ? (
                 <div className="mt-1 text-[11px] italic text-rose-700 dark:text-rose-300">
                   «{item.recountNote}»
                 </div>
               ) : null}
             </div>
-            <Input
-              inputMode="decimal"
-              disabled={formLocked}
-              value={values[item.id] ?? ""}
-              onChange={(event) => {
-                const next = sanitizeAmountInput(event.target.value);
-                setValues((prev) => ({ ...prev, [item.id]: next }));
-              }}
-              onBlur={() => {
-                // Обновляем snapshot если активен сорт по заполненности —
-                // перестановка строк случается ТОЛЬКО при потере фокуса,
-                // не во время ввода.
-                if (sorts.some((mode) => formSortToField(mode) === "empty")) {
-                  setSortValuesSnapshot({ ...values });
-                }
-              }}
-              aria-label={`Факт: ${item.productName}`}
-              className="text-right"
-            />
+            <div className="flex items-center justify-end gap-1.5">
+              <Input
+                inputMode="decimal"
+                disabled={formLocked}
+                value={values[item.id] ?? ""}
+                onChange={(event) => {
+                  const next = sanitizeAmountInput(event.target.value);
+                  setValues((prev) => ({ ...prev, [item.id]: next }));
+                }}
+                onBlur={() => {
+                  // Обновляем snapshot если активен сорт по заполненности —
+                  // перестановка строк случается ТОЛЬКО при потере фокуса,
+                  // не во время ввода.
+                  if (sorts.some((mode) => formSortToField(mode) === "empty")) {
+                    setSortValuesSnapshot({ ...values });
+                  }
+                }}
+                aria-label={`Факт: ${item.productName}`}
+                className="min-w-0 flex-1 text-right"
+              />
+              {item.measureUnitName ? (
+                <span className="shrink-0 text-xs text-muted-foreground">{item.measureUnitName}</span>
+              ) : null}
+            </div>
           </div>
           );
         })}

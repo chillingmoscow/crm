@@ -2765,6 +2765,277 @@ export async function setRecountFlag(input: {
 }
 
 /**
+ * Массовое исключение/возврат строк в управленческие итоги (из bulk-бара
+ * таблицы итогов). Один round-trip + честный счётчик «N применено / M
+ * пропущено» вместо клиентского цикла, который падал на первой ошибке.
+ * Пропускаются строки, уже находящиеся в нужном состоянии и (при excluded)
+ * участвующие в активном пересорте. Право inventory.adjust_results, общий
+ * lock-гард по статусу акта.
+ */
+export async function bulkSetInventoryResultItemsExcluded(input: {
+  documentId: string;
+  itemIds: string[];
+  excluded: boolean;
+  reason?: string;
+}): Promise<{ updated: number; skipped: number; error: string | null }> {
+  const ctx = await getActiveContext("inventory.adjust_results");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, skipped: 0, error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const document = await getResultDocumentForAction({
+      admin,
+      accountId: ctx.accountId,
+      documentId: input.documentId,
+      requireOpen: true,
+    });
+    const itemIds = Array.from(new Set(input.itemIds)).filter(Boolean);
+    if (itemIds.length === 0) return { updated: 0, skipped: 0, error: "Не выбрано ни одной строки" };
+
+    const { data: itemsRaw } = await admin
+      .from<Array<{ id: string; product_name: string; excluded_from_totals: boolean | null }>>("document_items")
+      .select("id, product_name, excluded_from_totals")
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", document.id)
+      .in("id", itemIds);
+    const items = itemsRaw ?? [];
+
+    let eligible = items;
+    if (input.excluded) {
+      // Строку в активном пересорте нельзя исключить — сначала отменить пересорт.
+      const inResort = await getActiveResortItemIds({
+        admin,
+        accountId: ctx.accountId,
+        documentId: document.id,
+        itemIds,
+      });
+      eligible = eligible.filter((item) => !inResort.has(item.id));
+    }
+    // No-op'ы (уже в нужном состоянии) пропускаем — не плодим события.
+    eligible = eligible.filter((item) => Boolean(item.excluded_from_totals) !== input.excluded);
+    const skipped = itemIds.length - eligible.length;
+    if (eligible.length === 0) return { updated: 0, skipped, error: null };
+
+    const reason = input.excluded ? text(input.reason) : null;
+    const now = new Date().toISOString();
+    const { error } = await admin
+      .from("document_items")
+      .update({
+        excluded_from_totals: input.excluded,
+        exclude_reason: reason,
+        excluded_by: input.excluded ? ctx.user.id : null,
+        excluded_at: input.excluded ? now : null,
+      })
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", document.id)
+      .in("id", eligible.map((item) => item.id));
+    if (error) throw new Error(error.message);
+
+    for (const item of eligible) {
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: document.id,
+        documentItemId: item.id,
+        eventType: input.excluded ? "exclude_enabled" : "exclude_disabled",
+        message: input.excluded
+          ? `Позиция «${item.product_name}» исключена из управленческих итогов`
+          : `Позиция «${item.product_name}» возвращена в управленческие итоги`,
+        payload: { itemId: item.id, productName: item.product_name, reason, bulk: true },
+      });
+    }
+
+    revalidateInventoryResultPages(document.id);
+    return { updated: eligible.length, skipped, error: null };
+  } catch (error) {
+    return { updated: 0, skipped: 0, error: actionErrorMessage(error, "Не удалось изменить учёт строк") };
+  }
+}
+
+/**
+ * Массовая отметка/снятие пометки пересчёта (bulk-бар). Право
+ * inventory.recount_documents. Bulk-UPDATE (атомарно) + событие на строку.
+ */
+export async function bulkSetRecountFlag(input: {
+  documentId: string;
+  itemIds: string[];
+  needsRecount: boolean;
+}): Promise<{ updated: number; error: string | null }> {
+  const ctx = await getActiveContext("inventory.recount_documents");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const document = await getResultDocumentForAction({
+      admin,
+      accountId: ctx.accountId,
+      documentId: input.documentId,
+      requireOpen: true,
+    });
+    const itemIds = Array.from(new Set(input.itemIds)).filter(Boolean);
+    if (itemIds.length === 0) return { updated: 0, error: "Не выбрано ни одной строки" };
+
+    const { data: itemsRaw } = await admin
+      .from<Array<{ id: string; product_name: string }>>("document_items")
+      .select("id, product_name")
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", document.id)
+      .in("id", itemIds);
+    const items = itemsRaw ?? [];
+    if (items.length === 0) return { updated: 0, error: null };
+
+    const { error } = await admin
+      .from("document_items")
+      .update({
+        needs_recount: input.needsRecount,
+        recount_auto_flagged: false, // переход в ручной режим
+        recount_marked_by: ctx.user.id,
+        recount_marked_at: new Date().toISOString(),
+        recount_note: null,
+      })
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", document.id)
+      .in("id", items.map((item) => item.id));
+    if (error) throw new Error(error.message);
+
+    for (const item of items) {
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: document.id,
+        documentItemId: item.id,
+        eventType: input.needsRecount ? "recount_marked" : "recount_unmarked",
+        message: input.needsRecount ? "Отметил строку на пересчёт" : "Снял пометку пересчёта",
+        payload: { itemId: item.id, bulk: true },
+      });
+    }
+
+    revalidateInventoryResultPages(document.id);
+    return { updated: items.length, error: null };
+  } catch (error) {
+    return { updated: 0, error: actionErrorMessage(error, "Не удалось изменить пометки пересчёта") };
+  }
+}
+
+/**
+ * Массовое добавление позиций в автоисключения (bulk-бар «Исключать всегда»).
+ * Серверный цикл (правило создаётся пер-строчно), один round-trip + счётчик.
+ * Пропускаются строки без QR-идентификатора и участвующие в активном пересорте.
+ * Право inventory.adjust_results.
+ */
+export async function bulkCreateInventoryResultExclusionRules(input: {
+  documentId: string;
+  itemIds: string[];
+  reason?: string;
+}): Promise<{ updated: number; skipped: number; error: string | null }> {
+  const ctx = await getActiveContext("inventory.adjust_results");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, skipped: 0, error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const document = await getResultDocumentForAction({
+      admin,
+      accountId: ctx.accountId,
+      documentId: input.documentId,
+      requireOpen: true,
+    });
+    const itemIds = Array.from(new Set(input.itemIds)).filter(Boolean);
+    if (itemIds.length === 0) return { updated: 0, skipped: 0, error: "Не выбрано ни одной строки" };
+
+    const { data: itemsRaw } = await admin
+      .from<
+        Array<{
+          id: string;
+          product_name: string;
+          ingredient_id: string | null;
+          external_product_id: string | null;
+        }>
+      >("document_items")
+      .select("id, product_name, ingredient_id, external_product_id")
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", document.id)
+      .in("id", itemIds);
+    const items = itemsRaw ?? [];
+    const inResort = await getActiveResortItemIds({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      itemIds,
+    });
+
+    const reason = text(input.reason);
+    const now = new Date().toISOString();
+    let updated = 0;
+    for (const item of items) {
+      // Без QR-идентификатора правило создать нельзя; в активном пересорте — нельзя.
+      if ((!item.ingredient_id && !item.external_product_id) || inResort.has(item.id)) continue;
+
+      let ruleQuery = admin
+        .from<InventoryExclusionRuleLookup>("inventory_result_exclusion_rules")
+        .select("id")
+        .eq("account_id", ctx.accountId)
+        .eq("status", "active");
+      ruleQuery = item.ingredient_id
+        ? ruleQuery.eq("ingredient_id", item.ingredient_id)
+        : ruleQuery.eq("external_product_id", item.external_product_id);
+      const { data: existingRule } = await ruleQuery.maybeSingle();
+
+      let ruleId = existingRule?.id ?? null;
+      if (!ruleId) {
+        const { data: rule, error: ruleError } = await admin
+          .from<{ id: string }>("inventory_result_exclusion_rules")
+          .insert({
+            account_id: ctx.accountId,
+            ingredient_id: item.ingredient_id,
+            external_product_id: item.external_product_id,
+            product_name: item.product_name,
+            reason,
+            created_by: ctx.user.id,
+          })
+          .select("id")
+          .single();
+        if (ruleError || !rule?.id) throw new Error(ruleError?.message ?? "Не удалось создать правило автоисключения");
+        ruleId = rule.id;
+      }
+
+      const { error: itemError } = await admin
+        .from("document_items")
+        .update({
+          excluded_from_totals: true,
+          exclude_reason: reason,
+          excluded_by: ctx.user.id,
+          excluded_at: now,
+        })
+        .eq("id", item.id)
+        .eq("account_id", ctx.accountId);
+      if (itemError) throw new Error(itemError.message);
+
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: document.id,
+        documentItemId: item.id,
+        eventType: "persistent_exclusion_enabled",
+        message: `Позиция «${item.product_name}» добавлена в автоисключения`,
+        payload: { itemId: item.id, productName: item.product_name, ruleId, reason, bulk: true },
+      });
+      updated += 1;
+    }
+
+    revalidateInventoryResultPages(document.id);
+    return { updated, skipped: itemIds.length - updated, error: null };
+  } catch (error) {
+    return { updated: 0, skipped: 0, error: actionErrorMessage(error, "Не удалось добавить автоисключения") };
+  }
+}
+
+/**
  * Менеджер возвращает акт исполнителю на пересчёт. Меняет статус акта на
  * `recount_pending`, увеличивает `recount_count`, ставит `last_returned_at`
  * (используется в editor-hydration для invalidation IndexedDB-черновика).

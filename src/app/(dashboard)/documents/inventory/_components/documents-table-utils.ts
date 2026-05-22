@@ -4,6 +4,9 @@
 
 import type { DocumentListRow, DocumentSortMode } from "@/lib/inventory/list-documents-shared";
 
+export type VenueOption = { id: string; name: string };
+export type StoreOption = { id: string; title: string };
+
 export type SortField = "date" | "number" | "status";
 
 export const SORT_FIELD_LABEL: Record<SortField, string> = {

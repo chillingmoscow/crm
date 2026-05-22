@@ -19,7 +19,6 @@ import {
   MessageSquare,
   MessageSquarePlus,
   MoreHorizontal,
-  Plus,
   Repeat2,
   RotateCcw,
   Search as SearchIcon,
@@ -52,6 +51,33 @@ import {
 } from "@/lib/inventory/results";
 import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 import {
+  COLUMN_TO_RESULT_FIELD,
+  RESULT_COLUMNS,
+  RESULT_RECOUNT_LABEL,
+  RESULT_SORT_FIELD_LABEL,
+  RESULT_STATUS_LABEL,
+  RESULTS_TABLE_ID,
+  combineResultSort,
+  differenceClass,
+  hasDifference,
+  isOpenDifference,
+  resultSortToDirection,
+  resultSortToField,
+  type ResultColumnKey,
+  type ResultRecountFilter,
+  type ResultSortField,
+  type ResultSortMode,
+  type ResultStatusFilter,
+} from "./results-table-utils";
+import {
+  ResultGroupPicker,
+  ResultPinDivider,
+  ResultRecountPicker,
+  ResultSortFieldPanel,
+  ResultSortPinEditor,
+  ResultStatusPicker,
+} from "./results-table-controls";
+import {
   formatAmount,
   formatMoney,
   formatSignedMoney,
@@ -76,13 +102,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
@@ -185,116 +204,6 @@ type Props = {
   aiSuggestionsEnabled: boolean;
   documentStatus: string;
 };
-
-type ResultColumnKey = "calculated" | "fact" | "difference" | "management" | "status" | "recount" | "comment";
-type ResultStatusFilter = "all" | "included" | "excluded" | "resort";
-type ResultRecountFilter = "all" | "flagged" | "clear";
-
-const RESULT_RECOUNT_LABEL: Record<ResultRecountFilter, string> = {
-  all:     "Все",
-  flagged: "На пересчёт",
-  clear:   "Без пересчёта",
-};
-
-// Multi-sort 1-в-1 с эталоном documents-table.tsx / form-editor: поле +
-// направление в combined-значении, sorts — массив (порядок = приоритет).
-type ResultSortField = "name" | "group" | "empty" | "sum";
-type ResultSortMode =
-  | "name_asc"  | "name_desc"
-  | "group_asc" | "group_desc"
-  | "empty_first" | "empty_last"
-  | "sum_asc" | "sum_desc";
-
-const RESULT_SORT_FIELDS: ResultSortField[] = ["name", "group", "empty", "sum"];
-
-const RESULT_SORT_FIELD_LABEL: Record<ResultSortField, string> = {
-  name:  "Название",
-  group: "Группа",
-  empty: "Заполненность",
-  sum:   "Сумма расхождения",
-};
-
-const RESULT_STATUS_LABEL: Record<ResultStatusFilter, string> = {
-  all:      "Все",
-  included: "Учитывать",
-  excluded: "Не учитывать",
-  resort:   "Пересорт",
-};
-
-function resultSortToField(mode: ResultSortMode): ResultSortField {
-  if (mode === "name_asc"  || mode === "name_desc")  return "name";
-  if (mode === "group_asc" || mode === "group_desc") return "group";
-  if (mode === "empty_first" || mode === "empty_last") return "empty";
-  return "sum";
-}
-
-function resultSortToDirection(mode: ResultSortMode): "asc" | "desc" {
-  if (mode === "empty_first") return "asc";
-  if (mode === "empty_last")  return "desc";
-  return mode.endsWith("_asc") ? "asc" : "desc";
-}
-
-function combineResultSort(field: ResultSortField, direction: "asc" | "desc"): ResultSortMode {
-  if (field === "name")  return direction === "asc" ? "name_asc"  : "name_desc";
-  if (field === "group") return direction === "asc" ? "group_asc" : "group_desc";
-  if (field === "empty") return direction === "asc" ? "empty_first" : "empty_last";
-  return direction === "asc" ? "sum_asc" : "sum_desc";
-}
-
-// size — числовой default-размер для TanStack columnSizing (px). Не строки:
-// раньше был `width: "minmax(180px,.7fr)"` → parseInt давал NaN → 120px и
-// «Комментарий» схлопывался (Codex P2 #401).
-const RESULT_COLUMNS: Array<{ key: ResultColumnKey; label: string; size: number }> = [
-  // Порядок: Расчёт (книжный остаток) → Факт → Разница — естественная
-  // последовательность для проверки инвентаризации.
-  { key: "calculated", label: "Расчёт", size: 120 },
-  { key: "fact", label: "Факт", size: 120 },
-  { key: "difference", label: "Разница", size: 120 },
-  { key: "management", label: "Упр. сумма", size: 130 },
-  { key: "status", label: "Статус", size: 140 },
-  { key: "recount", label: "Пересчёт", size: 100 },
-  { key: "comment", label: "Комментарий", size: 240 },
-];
-
-const RESULTS_TABLE_ID = "documents.inventory.results";
-
-// Какие колонки кликабельны для сортировки по шапке (как в documents-table).
-// Группа сортируется только через pin (отдельной колонки нет).
-const COLUMN_TO_RESULT_FIELD: Record<string, ResultSortField> = {
-  name:       "name",
-  fact:       "empty",
-  management: "sum",
-};
-
-function hasDifference(item: InventoryDocumentResultItem) {
-  const amount = Number(item.difference_amount ?? 0);
-  const sum = Number(item.difference_sum ?? 0);
-  return amount !== 0 || sum !== 0;
-}
-
-// Открытое (нерешённое) расхождение для счётчика «расхождений N»:
-// исключённые из итогов и полностью покрытые активным пересортом (остаток 0)
-// расхождениями не считаются — зеркало логики управленческих итогов.
-function isOpenDifference(
-  item: InventoryDocumentResultItem,
-  resortItem: InventoryResultResortItemRow | undefined,
-) {
-  if (item.excluded_from_totals) return false;
-  if (resortItem) {
-    return (
-      Number(resortItem.remainingDifferenceAmount ?? 0) !== 0 ||
-      Number(resortItem.remainingDifferenceSum ?? 0) !== 0
-    );
-  }
-  return hasDifference(item);
-}
-
-function differenceClass(value: number | null | undefined) {
-  const numericValue = Number(value ?? 0);
-  if (numericValue < 0) return "text-red-700 dark:text-red-400";
-  if (numericValue > 0) return "text-green-700 dark:text-green-400";
-  return "text-muted-foreground";
-}
 
 function formatQuantity(
   value: number | null | undefined,
@@ -1648,264 +1557,3 @@ export function InventoryResultsTable({
   );
 }
 
-// ─── Toolbar sub-components (1-в-1 паттерн documents-table) ──────────────────
-
-function ResultPinDivider() {
-  return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
-}
-
-/**
- * Popover из sort-кнопки в шапке. Список полей; клик на свободном — APPEND
- * с asc, уже добавленные показывают «Добавлено».
- */
-function ResultSortFieldPanel({
-  sorts,
-  onChange,
-}: {
-  sorts: ResultSortMode[];
-  onChange: (next: ResultSortMode[]) => void;
-}) {
-  const usedFields = new Set(sorts.map((mode) => resultSortToField(mode)));
-  return (
-    <div className="space-y-3">
-      <p className="px-3 pt-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-        Сортировка
-      </p>
-      <div className="space-y-1">
-        {RESULT_SORT_FIELDS.map((field) => {
-          const used = usedFields.has(field);
-          return (
-            <button
-              key={field}
-              type="button"
-              onClick={() => {
-                if (used) return;
-                onChange([...sorts, combineResultSort(field, "asc")]);
-              }}
-              className={cn(
-                "flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
-                used ? "bg-accent text-muted-foreground" : null,
-              )}
-            >
-              <span>{RESULT_SORT_FIELD_LABEL[field]}</span>
-              {used ? <span className="text-xs">Добавлено</span> : null}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/** Контент активного sort-pin: строки field-Select + direction-Select + ×. */
-function ResultSortPinEditor({
-  sorts,
-  onChange,
-}: {
-  sorts: ResultSortMode[];
-  onChange: (next: ResultSortMode[]) => void;
-}) {
-  const [showAdd, setShowAdd] = useState(false);
-  const unusedFields = RESULT_SORT_FIELDS.filter(
-    (field) => !sorts.some((mode) => resultSortToField(mode) === field),
-  );
-
-  const updateAt = (index: number, next: ResultSortMode) => {
-    onChange(sorts.map((mode, i) => (i === index ? next : mode)));
-  };
-  const replaceField = (index: number, field: ResultSortField) => {
-    updateAt(index, combineResultSort(field, resultSortToDirection(sorts[index])));
-  };
-  const removeAt = (index: number) => onChange(sorts.filter((_, i) => i !== index));
-
-  return (
-    <div className="w-[min(420px,calc(100vw-3rem))] space-y-3">
-      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Сортировка</p>
-      <div className="space-y-2">
-        {sorts.map((mode, index) => {
-          const field = resultSortToField(mode);
-          const direction = resultSortToDirection(mode);
-          return (
-            <div key={`${field}-${index}`} className="grid grid-cols-[1fr_72px_32px] items-center gap-2">
-              <Select value={field} onValueChange={(value) => replaceField(index, value as ResultSortField)}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RESULT_SORT_FIELDS.map((option) => {
-                    const disabled = sorts.some(
-                      (other, otherIndex) => otherIndex !== index && resultSortToField(other) === option,
-                    );
-                    return (
-                      <SelectItem key={option} value={option} disabled={disabled}>
-                        {RESULT_SORT_FIELD_LABEL[option]}
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              <Select
-                value={direction}
-                onValueChange={(value) => updateAt(index, combineResultSort(field, value as "asc" | "desc"))}
-              >
-                <SelectTrigger
-                  className="h-9 w-[72px] justify-center gap-1 px-2"
-                  aria-label={direction === "asc" ? "По возрастанию" : "По убыванию"}
-                >
-                  {direction === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="asc">
-                    <span className="inline-flex items-center gap-2">
-                      <ArrowUp className="h-3.5 w-3.5" /> По возрастанию
-                    </span>
-                  </SelectItem>
-                  <SelectItem value="desc">
-                    <span className="inline-flex items-center gap-2">
-                      <ArrowDown className="h-3.5 w-3.5" /> По убыванию
-                    </span>
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => removeAt(index)}
-                aria-label="Удалить сортировку"
-              >
-                <XCircle className="h-4 w-4" />
-              </Button>
-            </div>
-          );
-        })}
-      </div>
-      {showAdd && unusedFields.length > 0 ? (
-        <div className="rounded-lg border bg-card p-2">
-          {unusedFields.map((field) => (
-            <button
-              key={field}
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
-              onClick={() => {
-                onChange([...sorts, combineResultSort(field, "asc")]);
-                setShowAdd(false);
-              }}
-            >
-              <ArrowUp className="h-4 w-4 text-muted-foreground" />
-              {RESULT_SORT_FIELD_LABEL[field]}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <div className="space-y-1 border-t pt-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
-          disabled={unusedFields.length === 0}
-          onClick={() => setShowAdd((current) => !current)}
-        >
-          <Plus className="h-4 w-4" />
-          Добавить сортировку
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="w-full justify-start gap-2 text-muted-foreground hover:text-destructive"
-          onClick={() => onChange([])}
-        >
-          <Trash2 className="h-4 w-4" />
-          Удалить сортировку
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function ResultGroupPicker({
-  value,
-  options,
-  onChange,
-}: {
-  value: string;
-  options: Array<{ id: string; name: string }>;
-  onChange: (groupId: string) => void;
-}) {
-  return (
-    <div className="max-h-64 space-y-0.5 overflow-y-auto p-1">
-      <button
-        type="button"
-        onClick={() => onChange("all")}
-        className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-      >
-        <span className="truncate">Все группы</span>
-        {value === "all" ? <Check className="h-4 w-4 shrink-0" /> : null}
-      </button>
-      {options.map((group) => (
-        <button
-          key={group.id}
-          type="button"
-          onClick={() => onChange(group.id)}
-          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-        >
-          <span className="truncate">{group.name}</span>
-          {value === group.id ? <Check className="h-4 w-4 shrink-0" /> : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ResultStatusPicker({
-  value,
-  onChange,
-}: {
-  value: ResultStatusFilter;
-  onChange: (next: ResultStatusFilter) => void;
-}) {
-  const options: ResultStatusFilter[] = ["all", "included", "excluded", "resort"];
-  return (
-    <div className="space-y-0.5 p-1">
-      {options.map((option) => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-        >
-          <span className="truncate">{RESULT_STATUS_LABEL[option]}</span>
-          {value === option ? <Check className="h-4 w-4 shrink-0" /> : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ResultRecountPicker({
-  value,
-  onChange,
-}: {
-  value: ResultRecountFilter;
-  onChange: (next: ResultRecountFilter) => void;
-}) {
-  const options: ResultRecountFilter[] = ["all", "flagged", "clear"];
-  return (
-    <div className="space-y-0.5 p-1">
-      {options.map((option) => (
-        <button
-          key={option}
-          type="button"
-          onClick={() => onChange(option)}
-          className="flex w-full items-center justify-between rounded-sm px-3 py-2 text-left text-sm hover:bg-accent"
-        >
-          <span className="truncate">{RESULT_RECOUNT_LABEL[option]}</span>
-          {value === option ? <Check className="h-4 w-4 shrink-0" /> : null}
-        </button>
-      ))}
-    </div>
-  );
-}

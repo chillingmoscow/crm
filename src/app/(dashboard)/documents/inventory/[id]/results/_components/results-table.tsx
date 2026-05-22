@@ -1220,10 +1220,15 @@ export function InventoryResultsTable({
               suppressHydrationWarning: расширения браузера (TableConvert и пр.)
               дописывают на <table> атрибуты `data-tableconvert-*` между SSR и
               hydration → React ругается на mismatch. Атрибуты безвредны.
+
+              md:!min-w-0 снимает inline-minWidth на десктопе (важно: иначе при
+              узком окне < суммы колонок таблица переполняла бы карточку без
+              скролла, т.к. md:overflow-x-visible). На md+ таблица снова просто
+              вписывается в контейнер (table-fixed + %).
             */}
             <table
               suppressHydrationWarning
-              className="w-full table-fixed"
+              className="w-full table-fixed md:!min-w-0"
               style={{ minWidth: `${table.getTotalSize()}px` }}
             >
               <colgroup>

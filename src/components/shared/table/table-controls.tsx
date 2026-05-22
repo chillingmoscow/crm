@@ -83,46 +83,41 @@ export function TableControls({
     <div className={cn("flex w-full items-center gap-2 sm:w-auto", className)}>
       <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
         {search ? (
-          <div
-            className={cn(
-              "flex items-center gap-1",
-              // Открытый поиск растягивается на всю строку (mobile), чтобы
-              // кнопки фильтра/сортировки не переносились на вторую строку.
-              // На sm+ — фиксированная ширина, как раньше.
-              search.open && "min-w-0 flex-1 sm:flex-initial",
-            )}
+          <TooltipIconButton
+            label={search.open ? "Скрыть поиск" : "Показать поиск"}
+            active={search.open}
+            onClick={() => {
+              if (search.open) search.onChange("");
+              search.onOpenChange(!search.open);
+            }}
           >
-            {search.open ? (
-              <div className="relative min-w-0 flex-1 sm:flex-initial">
-                <Input
-                  ref={inputRef}
-                  value={search.value}
-                  onChange={(event) => search.onChange(event.target.value)}
-                  placeholder={search.placeholder ?? "Поиск"}
-                  className="h-9 w-full pr-8 text-sm sm:w-72"
-                />
-                {search.value ? (
-                  <button
-                    type="button"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    onClick={() => search.onChange("")}
-                    aria-label="Очистить поиск"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </div>
+            <Search className="h-4 w-4" />
+          </TooltipIconButton>
+        ) : null}
+
+        {/* Поле поиска. На мобильном (order-last + w-full) переносится на
+            отдельную строку под кнопками — на узких экранах рядом с
+            иконками для него нет места. На sm+ (order-first + фикс-ширина)
+            стоит слева, как раньше. */}
+        {search?.open ? (
+          <div className="relative order-last w-full sm:order-first sm:w-72">
+            <Input
+              ref={inputRef}
+              value={search.value}
+              onChange={(event) => search.onChange(event.target.value)}
+              placeholder={search.placeholder ?? "Поиск"}
+              className="h-9 w-full pr-8 text-sm"
+            />
+            {search.value ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => search.onChange("")}
+                aria-label="Очистить поиск"
+              >
+                <X className="h-4 w-4" />
+              </button>
             ) : null}
-            <TooltipIconButton
-              label={search.open ? "Скрыть поиск" : "Показать поиск"}
-              active={search.open}
-              onClick={() => {
-                if (search.open) search.onChange("");
-                search.onOpenChange(!search.open);
-              }}
-            >
-              <Search className="h-4 w-4" />
-            </TooltipIconButton>
           </div>
         ) : null}
 
@@ -223,7 +218,7 @@ function TooltipIconButton({
   return (
     <Tooltip delayDuration={450}>
       <TooltipTrigger asChild>
-        <span className="inline-flex shrink-0">
+        <span className="inline-flex">
           <Button
             type="button"
             variant="outline"
@@ -271,7 +266,7 @@ function TableControlPopoverButton({
               variant="outline"
               size="icon"
               className={cn(
-                "h-9 w-9 shrink-0 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground",
+                "h-9 w-9 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground",
                 "[&_svg]:h-4 [&_svg]:w-4",
                 active ? "border-brand bg-background text-foreground shadow-[0_0_0_2px_hsl(var(--brand)/0.16)] hover:border-brand hover:bg-background" : null,
               )}

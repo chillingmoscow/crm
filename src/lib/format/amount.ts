@@ -26,6 +26,23 @@ export function formatAmount(value: number | null | undefined, scale: AmountRoun
   }).format(value);
 }
 
+/**
+ * Количество для отображения. В отличие от formatAmount не добивает
+ * дробную часть нулями: целые показываются без запятой («93 шт»),
+ * дробные — до scale знаков («13,5 л»). Нужно для штучных позиций,
+ * где «93,0 шт» выглядит лишним.
+ */
+export function formatQuantityAmount(
+  value: number | null | undefined,
+  scale: AmountRoundingScale
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: scale,
+  }).format(value);
+}
+
 export function formatMoney(
   value: number | null | undefined,
   currency = "RUB",

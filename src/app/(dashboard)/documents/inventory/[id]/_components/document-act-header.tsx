@@ -25,7 +25,9 @@ type Tab = "form" | "results" | "history" | "danger";
  *    нет построчных результатов (см. resultsAvailable). Для
  *    ready_for_review мы тоже считаем что итоги есть — менеджер
  *    должен посмотреть их при approve.
- *  - «Журнал» — всегда, если есть доступ к акту (заглушка пока).
+ *  - «Журнал» — только canViewResults (журнал решений по итогам;
+ *    заполнителю без права на итоги он не нужен). Зеркалится серверным
+ *    гейтом в history/page.tsx.
  *  - «Опасная зона» — только canManage. Destructive-стиль.
  */
 export function DocumentActHeader({
@@ -109,7 +111,9 @@ export function DocumentActHeader({
                 </TabsTrigger>
               )
             ) : null}
-            <TabsTrigger value="history">Журнал</TabsTrigger>
+            {canViewResults ? (
+              <TabsTrigger value="history">Журнал</TabsTrigger>
+            ) : null}
             {canManage ? (
               <TabsTrigger
                 value="danger"

@@ -19,6 +19,12 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -233,6 +239,8 @@ export function InventoryDocumentEditor({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("");
+  // Просмотр фото ингредиента в попапе (удобно на мобильном).
+  const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [fillState, setFillState] = useState<FillState>(DEFAULT_FILL_STATE);
   // sorts: пустой массив = «Порядок QR» (исходный). Каждый элемент = combined
   // field+direction. Применяется по приоритету (первый — основной ключ).
@@ -754,11 +762,12 @@ export function InventoryDocumentEditor({
           // ещё до подсчёта) — шум, его не показываем. Приоритет над
           // «заполненной» подсветкой сохраняем.
           const needsRecount = isRecountPending && item.needsRecount;
+          const imageUrl = item.imageUrl;
           return (
           <div
             key={item.id}
             className={cn(
-              "grid grid-cols-[64px_1fr_152px] items-center gap-3 rounded-lg border p-2 transition-colors",
+              "grid grid-cols-[64px_1fr_auto] items-center gap-3 rounded-lg border p-2 transition-colors",
               needsRecount
                 ? "border-rose-300 bg-rose-500/5 dark:border-rose-500/40 dark:bg-rose-500/10"
                 : isFilled
@@ -766,13 +775,20 @@ export function InventoryDocumentEditor({
                   : "border-border bg-background",
             )}
           >
-            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
-              {item.imageUrl ? (
-                <img src={item.imageUrl} alt={item.productName} className="h-full w-full object-cover" />
-              ) : (
+            {imageUrl ? (
+              <button
+                type="button"
+                onClick={() => setPreviewImage({ url: imageUrl, name: item.productName })}
+                className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={`Открыть фото: ${item.productName}`}
+              >
+                <img src={imageUrl} alt={item.productName} className="h-full w-full object-cover" />
+              </button>
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
                 <span className="text-xs text-muted-foreground">нет фото</span>
-              )}
-            </div>
+              </div>
+            )}
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <div className="truncate text-sm font-medium">{item.productName}</div>
@@ -810,11 +826,11 @@ export function InventoryDocumentEditor({
                   }
                 }}
                 aria-label={`Факт: ${item.productName}`}
-                className="min-w-0 flex-1 text-right"
+                className="w-20 text-right"
               />
-              {item.measureUnitName ? (
-                <span className="shrink-0 text-xs text-muted-foreground">{item.measureUnitName}</span>
-              ) : null}
+              {/* Фикс-слот единицы измерения — чтобы поля ввода были на одной
+                  вертикали независимо от длины «шт»/«л»/«кг». */}
+              <span className="w-8 shrink-0 text-xs text-muted-foreground">{item.measureUnitName ?? ""}</span>
             </div>
           </div>
           );
@@ -854,6 +870,21 @@ export function InventoryDocumentEditor({
           </TooltipProvider>
         )}
       </div>
+
+      <Dialog open={previewImage !== null} onOpenChange={(open) => { if (!open) setPreviewImage(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="truncate text-base">{previewImage?.name}</DialogTitle>
+          </DialogHeader>
+          {previewImage ? (
+            <img
+              src={previewImage.url}
+              alt={previewImage.name}
+              className="max-h-[70vh] w-full rounded-md object-contain"
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

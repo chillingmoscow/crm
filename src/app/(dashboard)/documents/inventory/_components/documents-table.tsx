@@ -14,9 +14,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  ClipboardCheck,
-  FileX2,
-  Inbox,
   Loader2,
   Plus,
   RefreshCw,
@@ -24,7 +21,6 @@ import {
   ShieldCheck,
   Trash2,
   UserPlus,
-  X,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -41,7 +37,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -62,32 +57,20 @@ import {
   TableControls,
   TablePageHeader,
   TablePagination,
-  TableRowMenu,
   TableSplitButton,
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
 } from "@/components/shared/table";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   bulkAssignInventoryDocuments,
   bulkDeleteInventoryDocuments,
-  deleteInventoryDocument,
   syncQuickRestoInventory,
 } from "@/app/(dashboard)/inventory/actions";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 import {
   AssigneeSelect,
-  PersonChip,
-  inventoryPersonHref,
   type AssigneeOption,
 } from "./assignee-select";
 import { ReviewerSelect } from "./reviewer-select";
@@ -101,6 +84,25 @@ import {
   type ListDocumentsFilters,
   type ListDocumentsResult,
 } from "@/lib/inventory/list-documents-shared";
+import {
+  COLUMN_TO_FIELD,
+  SORT_FIELDS,
+  SORT_FIELD_LABEL,
+  combineSort,
+  formatDate,
+  getDocHref,
+  sortToDirection,
+  sortToField,
+  toIsoDate,
+  type SortField,
+} from "./documents-table-utils";
+import {
+  BulkAssignMenu,
+  DesktopRowMenu,
+  EmptyTableBody,
+  MobileCard,
+  ReadonlyPersonCell,
+} from "./documents-table-rows";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -108,39 +110,6 @@ import {
 // (там и dark-варианты палитры). Pin'ы и mobile-карточки рендерят бейдж
 // напрямую через <InventoryStatusBadge>.
 const STATUS_LABEL = INVENTORY_STATUS_LABEL as Record<DocumentStatus, string>;
-
-type SortField = "date" | "number" | "status";
-
-const SORT_FIELD_LABEL: Record<SortField, string> = {
-  date:   "Дата",
-  number: "Номер",
-  status: "Статус",
-};
-
-const SORT_FIELDS: SortField[] = ["date", "number", "status"];
-
-// Привязка между UI-полем сортировки и заголовком колонки таблицы.
-const COLUMN_TO_FIELD: Record<string, SortField> = {
-  document_number: "number",
-  invoice_date:    "date",
-  status:          "status",
-};
-function sortToField(mode: DocumentSortMode): SortField {
-  if (mode === "date_desc" || mode === "date_asc") return "date";
-  if (mode === "number_desc" || mode === "number_asc") return "number";
-  return "status";
-}
-
-function sortToDirection(mode: DocumentSortMode): "asc" | "desc" {
-  return mode.endsWith("_asc") ? "asc" : "desc";
-}
-
-function combineSort(field: SortField, direction: "asc" | "desc"): DocumentSortMode {
-  if (field === "status") return direction === "asc" ? "status_asc" : "status_desc";
-  if (field === "date")   return direction === "asc" ? "date_asc" : "date_desc";
-  return direction === "asc" ? "number_asc" : "number_desc";
-}
-
 
 const SEARCH_DEBOUNCE_MS = 250;
 const TABLE_ID = "documents.list";
@@ -169,40 +138,6 @@ type Props = {
   canViewStaff: boolean;
   amountRoundingScale: AmountRoundingScale;
 };
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-// canViewResults обязателен: пользователи с inventory.fill_assigned_documents,
-// но без inventory.view_results, не могут открыть /results — их редиректнёт
-// прочь. Поэтому для них всегда возвращаем форму, даже у проведённых актов.
-// Codex review #396 P1.
-function getDocHref(
-  doc: Pick<DocumentListRow, "id" | "processed" | "results_has_line_amounts" | "status">,
-  canViewResults: boolean,
-) {
-  const isResultsState =
-    doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked";
-  if (isResultsState && canViewResults) {
-    return `/documents/inventory/${doc.id}/results`;
-  }
-  return `/documents/inventory/${doc.id}`;
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleDateString("ru-RU");
-  } catch {
-    return iso;
-  }
-}
-
-function toIsoDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -1361,162 +1296,10 @@ export function DocumentsTable({
   );
 }
 
-/**
- * Ячейка исполнителя/проверяющего для пользователя без права назначать.
- * Показывает бейдж сотрудника; для завершённого (locked) акта — ссылку на
- * страницу сотрудника, но только если есть доступ к разделу «Сотрудники»
- * (canViewStaff). Иначе — статичный бейдж; клик по строке открывает акт.
- */
-function ReadonlyPersonCell({
-  userId,
-  staff,
-  locked,
-  canViewStaff,
-}: {
-  userId: string | null;
-  staff: AssigneeOption[];
-  locked: boolean;
-  canViewStaff: boolean;
-}) {
-  const member = userId ? staff.find((m) => m.id === userId) ?? null : null;
-  if (!member) return <span className="text-sm text-muted-foreground">—</span>;
-  if (locked && canViewStaff) {
-    return (
-      <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-        <PersonChip person={member} href={inventoryPersonHref(member.id)} />
-      </div>
-    );
-  }
-  return <PersonChip person={member} />;
-}
-
-function BulkAssignMenu({
-  label,
-  icon,
-  staff,
-  disabled,
-  onPick,
-}: {
-  label: string;
-  icon?: React.ReactNode;
-  staff: AssigneeOption[];
-  disabled?: boolean;
-  onPick: (userId: string | null) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-8 text-xs" disabled={disabled}>
-          {icon}
-          {label}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="max-h-72 w-56 overflow-y-auto">
-        <DropdownMenuLabel>{label}</DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => onPick(null)} className="text-muted-foreground">
-          Снять
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {staff.map((member) => (
-          <DropdownMenuItem key={member.id} onClick={() => onPick(member.id)}>
-            {member.name}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
 function PinDivider() {
   return <div className="mx-1 h-6 w-px bg-border" aria-hidden="true" />;
-}
-
-function DesktopRowMenu({
-  doc,
-  canManage,
-  canViewResults,
-}: {
-  doc: DocumentListRow;
-  canManage: boolean;
-  canViewResults: boolean;
-}) {
-  const router = useRouter();
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [isDeleting, startDelete] = useTransition();
-
-  const actions = useMemo(() => {
-    const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    // После объединения экранов акта табами «Заполнение/Итоги» в shared
-    // layout — переключение через UI акта, поэтому в row-menu один
-    // пункт «Открыть» по умолчанию-табу из getDocHref. getDocHref сам
-    // учитывает canViewResults, чтобы fill-only пользователей не уносило
-    // на /results, куда у них нет доступа (Codex P1 #396).
-    items.push({
-      label: "Открыть",
-      icon: <ClipboardCheck className="h-4 w-4" />,
-      onSelect: () => router.push(getDocHref(doc, canViewResults)),
-    });
-    if (canManage) {
-      items.push({
-        label: "Удалить",
-        icon: <Trash2 className="h-4 w-4" />,
-        destructive: true,
-        separatorBefore: true,
-        onSelect: () => setConfirmDeleteOpen(true),
-      });
-    }
-    return items;
-  }, [doc, router, canManage, canViewResults]);
-
-  const runDelete = () => {
-    startDelete(async () => {
-      try {
-        const result = await deleteInventoryDocument({ documentId: doc.id });
-        if (result.error) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success(`Акт № ${doc.document_number} удалён`);
-        setConfirmDeleteOpen(false);
-        router.refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Не удалось удалить акт");
-      }
-    });
-  };
-
-  return (
-    <div data-row-interactive onClick={(e) => e.stopPropagation()}>
-      <TableRowMenu actions={actions} />
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акт № {doc.document_number}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Это удалит акт и все его позиции. Если акт пришёл из Quick Resto,
-              он может вернуться при следующей синхронизации.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeleting}
-              onClick={(e) => {
-                e.preventDefault();
-                runDelete();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
-  );
 }
 
 // ─── Pin labels ──────────────────────────────────────────────────────────────
@@ -1903,273 +1686,6 @@ function SortPinEditor({
           Удалить сортировку
         </Button>
       </div>
-    </div>
-  );
-}
-
-// ─── Empty state ─────────────────────────────────────────────────────────────
-
-function EmptyTableBody({
-  canSync,
-  hasActive,
-  onClearAll,
-  onSync,
-}: {
-  canSync: boolean;
-  hasActive: boolean;
-  onClearAll: () => void;
-  onSync: () => void;
-}) {
-  if (hasActive) {
-    return (
-      <div className="p-4">
-        <EmptyState
-          icon={FileX2}
-          title="Ничего не найдено"
-          description="Измените фильтры, расширьте период или очистите запрос"
-          action={
-            <Button variant="outline" onClick={onClearAll}>
-              <X />
-              Очистить фильтры
-            </Button>
-          }
-        />
-      </div>
-    );
-  }
-  return (
-    <div className="p-4">
-      <EmptyState
-        icon={Inbox}
-        title="Актов инвентаризации пока нет"
-        description="Создайте акт в Quick Resto и запустите синхронизацию, чтобы увидеть его здесь."
-        action={
-          canSync ? (
-            <Button variant="outline" onClick={onSync}>
-              <RefreshCw />
-              Синхронизировать QR
-            </Button>
-          ) : null
-        }
-      />
-    </div>
-  );
-}
-
-// ─── Mobile card ─────────────────────────────────────────────────────────────
-
-function MobileCard({
-  doc,
-  staff,
-  canManage,
-  canViewResults,
-  canViewStaff,
-  amountRoundingScale,
-  searchActive,
-}: {
-  doc: DocumentListRow;
-  staff: AssigneeOption[];
-  canManage: boolean;
-  canViewResults: boolean;
-  canViewStaff: boolean;
-  amountRoundingScale: AmountRoundingScale;
-  searchActive: boolean;
-}) {
-  const router = useRouter();
-  const [assignSheetOpen, setAssignSheetOpen] = useState(false);
-  const [reviewerSheetOpen, setReviewerSheetOpen] = useState(false);
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-  const [isDeleting, startDelete] = useTransition();
-  const href = getDocHref(doc, canViewResults);
-  const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
-  const reviewerName = staff.find((m) => m.id === doc.reviewer_id)?.name;
-
-  const runDelete = () => {
-    startDelete(async () => {
-      try {
-        const result = await deleteInventoryDocument({ documentId: doc.id });
-        if (result.error) {
-          toast.error(result.error);
-          return;
-        }
-        toast.success(`Акт № ${doc.document_number} удалён`);
-        setConfirmDeleteOpen(false);
-        router.refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Не удалось удалить акт");
-      }
-    });
-  };
-
-  const rowActions = useMemo(() => {
-    const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
-    items.push({
-      label: "Открыть",
-      icon: <ClipboardCheck className="h-4 w-4" />,
-      onSelect: () => router.push(getDocHref(doc, canViewResults)),
-    });
-    if (canManage) {
-      const canEditAssignee = getAssigneeLockReason(doc.status) === null;
-      const canEditReviewer = getReviewerLockReason(doc.status) === null;
-      if (canEditAssignee) {
-        items.push({
-          label: "Изменить исполнителя",
-          icon: <UserPlus className="h-4 w-4" />,
-          onSelect: () => setAssignSheetOpen(true),
-          separatorBefore: true,
-        });
-      }
-      if (canEditReviewer) {
-        items.push({
-          label: "Изменить проверяющего",
-          icon: <ShieldCheck className="h-4 w-4" />,
-          onSelect: () => setReviewerSheetOpen(true),
-          separatorBefore: !canEditAssignee,
-        });
-      }
-      items.push({
-        label: "Удалить",
-        icon: <Trash2 className="h-4 w-4" />,
-        destructive: true,
-        separatorBefore: !canEditAssignee && !canEditReviewer,
-        onSelect: () => setConfirmDeleteOpen(true),
-      });
-    }
-    return items;
-  }, [doc, router, canManage, canViewResults]);
-
-  return (
-    <div
-      className="relative rounded-lg border bg-card p-3"
-      onClick={(e) => {
-        const target = e.target as HTMLElement;
-        if (target.closest("[data-row-interactive]")) return;
-        router.push(href);
-      }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link href={href} className="text-sm font-medium hover:underline" data-row-interactive>
-              № {doc.document_number}
-            </Link>
-            <InventoryStatusBadge status={doc.status} className="text-[10px]" />
-          </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {formatDate(doc.invoice_date)}
-            {doc.store_title ? <> · {doc.store_title}</> : null}
-          </div>
-          {doc.comment ? (
-            <div className="mt-1 truncate text-xs text-muted-foreground">{doc.comment}</div>
-          ) : null}
-          {searchActive && doc.matched_ingredients && doc.matched_ingredients.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {doc.matched_ingredients.map((name) => (
-                <span key={name} className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] text-amber-800">
-                  <SearchIcon className="h-2.5 w-2.5" />
-                  {name}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-            <span className="text-muted-foreground">
-              {doc.results_has_line_amounts
-                ? `−${formatMoney(Math.abs(doc.shortfall_sum ?? 0), "RUB", amountRoundingScale)} / +${formatMoney(Math.abs(doc.surplus_sum ?? 0), "RUB", amountRoundingScale)}`
-                : "—"}
-            </span>
-            <span className="text-muted-foreground">
-              {assigneeName ? <>Исполнитель: {assigneeName}</> : "Исполнитель не назначен"}
-            </span>
-            {reviewerName ? (
-              <span className="text-muted-foreground">Проверяющий: {reviewerName}</span>
-            ) : null}
-          </div>
-        </div>
-        <div data-row-interactive>
-          <TableRowMenu actions={rowActions} />
-        </div>
-      </div>
-
-      {assignSheetOpen ? (
-        <div
-          data-row-interactive
-          className="absolute inset-x-0 bottom-0 z-10 rounded-b-lg border-t bg-background p-3 shadow-lg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium">Назначить</span>
-            <button
-              type="button"
-              onClick={() => setAssignSheetOpen(false)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Закрыть"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <AssigneeSelect
-            documentId={doc.id}
-            assignedTo={doc.assigned_to}
-            staff={staff}
-            lockReason={getAssigneeLockReason(doc.status)}
-            linkToPerson={canViewStaff}
-          />
-        </div>
-      ) : null}
-
-      {reviewerSheetOpen ? (
-        <div
-          data-row-interactive
-          className="absolute inset-x-0 bottom-0 z-10 rounded-b-lg border-t bg-background p-3 shadow-lg"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium">Проверяющий</span>
-            <button
-              type="button"
-              onClick={() => setReviewerSheetOpen(false)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Закрыть"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <ReviewerSelect
-            documentId={doc.id}
-            reviewerId={doc.reviewer_id}
-            staff={staff}
-            lockReason={getReviewerLockReason(doc.status)}
-            linkToPerson={canViewStaff}
-          />
-        </div>
-      ) : null}
-
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить акт № {doc.document_number}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Это удалит акт и все его позиции. Если акт пришёл из Quick Resto,
-              он может вернуться при следующей синхронизации.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={isDeleting}
-              onClick={(e) => {
-                e.preventDefault();
-                runDelete();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              Удалить
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

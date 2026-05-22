@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -316,8 +316,16 @@ function SidebarBody({
   const collapsed = state === "collapsed";
 
   // На мобильном закрываем выезжающее меню при переходе на новую страницу.
+  // ВАЖНО: SidebarBody живёт внутри <Sidebar>, который на мобильном
+  // рендерится как Sheet и ремаунтится при открытии меню. Поэтому
+  // закрываем только при РЕАЛЬНОЙ смене pathname, а не на каждом mount —
+  // иначе эффект на маунте сразу закрывает только что открытое меню.
+  const prevPathRef = useRef(pathname);
   useEffect(() => {
-    setOpenMobile(false);
+    if (prevPathRef.current !== pathname) {
+      prevPathRef.current = pathname;
+      setOpenMobile(false);
+    }
   }, [pathname, setOpenMobile]);
 
   const [userMenuOpen, setUserMenuOpen] = useState(false);

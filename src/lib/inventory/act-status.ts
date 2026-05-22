@@ -55,6 +55,26 @@ export function isInventoryResultAdjustLocked(doc: InventoryActLockInput): boole
 }
 
 /**
+ * Причина, по которой инструменты ревьюера закрыты (для сообщения экшена),
+ * либо null если итоги можно менять. Возвращает non-null ровно тогда, когда
+ * isInventoryResultAdjustLocked === true — единый источник и предиката, и
+ * текста (раньше дублировалось инлайном в getResultDocumentForAction).
+ * Порядок проверок: пересчёт → финализация → проведение.
+ */
+export function getInventoryResultAdjustLockReason(doc: InventoryActLockInput): string | null {
+  if (doc.status === "recount_pending") {
+    return "Акт отправлен исполнителю на пересчёт. Дождитесь завершения пересчёта, прежде чем менять итоги.";
+  }
+  if (doc.results_finalized_at) {
+    return "Итоги акта уже финализированы. Переоткройте итоги перед изменениями.";
+  }
+  if (doc.status === "processed" && doc.results_reopened_at == null) {
+    return "Акт проведён в Quick Resto и заблокирован. Разблокируйте его перед изменениями.";
+  }
+  return null;
+}
+
+/**
  * Статусы, в которых форма заполнения только для чтения: акт уже ушёл на
  * проверку / проведён / не синкнулся. В этих статусах исполнитель не должен
  * «дозаполнять» факт.

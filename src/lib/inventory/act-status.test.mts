@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   FORM_LOCKED_STATUSES,
   getAssigneeLockReason,
+  getInventoryResultAdjustLockReason,
   getReviewerLockReason,
   isInventoryFormLocked,
   isInventoryResultAdjustLocked,
@@ -85,6 +86,34 @@ test("проведённый акт залочен, разблокированн
 test("recount_pending: итоги закрыты даже без финализации/проведения", () => {
   assert.equal(isInventoryResultLocked({ ...OPEN, status: "recount_pending" }), false);
   assert.equal(isInventoryResultAdjustLocked({ ...OPEN, status: "recount_pending" }), true);
+});
+
+test("adjust lock reason: non-null ровно когда итоги залочены", () => {
+  for (const row of MATRIX) {
+    const open = { ...OPEN, status: row.status };
+    assert.equal(
+      getInventoryResultAdjustLockReason(open) !== null,
+      isInventoryResultAdjustLocked(open),
+    );
+    const finalized = {
+      status: row.status,
+      results_finalized_at: "2026-05-21T00:00:00Z",
+      results_reopened_at: null,
+    };
+    assert.equal(
+      getInventoryResultAdjustLockReason(finalized) !== null,
+      isInventoryResultAdjustLocked(finalized),
+    );
+  }
+});
+
+test("adjust lock reason: разные тексты для пересчёта / финализации / проведения", () => {
+  assert.match(getInventoryResultAdjustLockReason({ ...OPEN, status: "recount_pending" }) ?? "", /пересч/i);
+  assert.match(
+    getInventoryResultAdjustLockReason({ status: "ready_for_review", results_finalized_at: "2026-05-21T00:00:00Z", results_reopened_at: null }) ?? "",
+    /финализ/i,
+  );
+  assert.match(getInventoryResultAdjustLockReason({ ...OPEN, status: "processed" }) ?? "", /проведён/i);
 });
 
 test("FORM_LOCKED_STATUSES не содержит редактируемых статусов", () => {

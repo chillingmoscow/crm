@@ -15,7 +15,9 @@ type DocumentBasicsRow = {
   processed: boolean;
   results_has_line_amounts: boolean;
   assigned_to: string | null;
+  reviewer_id: string | null;
   store_id: string | null;
+  venue_id: string | null;
 };
 
 type StoreTitleRow = { title: string };
@@ -30,7 +32,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, store_id",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id",
     )
     .eq("id", id)
     .eq("account_id", accountId)
@@ -77,6 +79,10 @@ export default async function InventoryDocumentLayout({
     { data: canFill },
     { data: canViewResults },
     { data: canManage },
+    { data: canViewAllVenues },
+    { data: canManageStores },
+    { data: canRecountDocuments },
+    { data: activeVenueId },
   ] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
@@ -84,6 +90,10 @@ export default async function InventoryDocumentLayout({
     supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
     supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.view_all_venues" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.manage_stores" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
+    supabase.rpc("get_active_venue_id"),
   ]);
 
   if (!user) redirect("/login");
@@ -93,8 +103,25 @@ export default async function InventoryDocumentLayout({
   if (!document) notFound();
 
   const isAssignedToMe = document.assigned_to === user.id;
-  const canSeeAct = canView || canViewResults || (canFill && isAssignedToMe);
-  if (!canSeeAct) redirect("/documents/inventory");
+  const isReviewerMe = document.reviewer_id === user.id;
+  const canSeeAct =
+    canView ||
+    canViewResults ||
+    (canFill && isAssignedToMe) ||
+    (Boolean(canRecountDocuments) && isReviewerMe);
+  // Venue-scope: зеркало documents_select (миграции 195 + 210). Страницы акта
+  // читают через admin-клиент (RLS не применяется), поэтому venue-ограничение
+  // дублируем здесь — иначе venue-ограниченный юзер открывает любой акт
+  // аккаунта по прямому URL (список через RLS уже скоупится). Ветка
+  // проверяющего (reviewer_id + recount_documents) добавлена в 210: назначенный
+  // проверяющий видит акт даже в чужом заведении.
+  const venueOk =
+    Boolean(canViewAllVenues) ||
+    (document.venue_id != null && document.venue_id === activeVenueId) ||
+    (document.venue_id == null && Boolean(canManageStores)) ||
+    (isAssignedToMe && Boolean(canFill)) ||
+    (isReviewerMe && Boolean(canRecountDocuments));
+  if (!canSeeAct || !venueOk) redirect("/documents/inventory");
 
   const storeTitle = document.store_id ? await getCachedStoreTitle(document.store_id) : null;
 

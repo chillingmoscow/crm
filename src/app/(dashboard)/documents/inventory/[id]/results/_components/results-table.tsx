@@ -47,12 +47,14 @@ import {
   calculateManagementTotals,
   type InventoryResortAllocationItem,
 } from "@/lib/inventory/results";
+import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 import {
   formatAmount,
   formatMoney,
   formatSignedMoney,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
+import { pluralRu } from "@/lib/format/plural";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,14 +159,8 @@ export type InventoryResultEventRow = {
   } | null;
 };
 
-export type InventoryResortSuggestion = {
-  key: string;
-  itemIds: string[];
-  title: string;
-  reason: string;
-  confidence: number;
-  source: "history" | "ai";
-};
+// Единый источник типа подсказки — @/lib/inventory/resort-suggestions.
+export type InventoryResortSuggestion = ResortSuggestion;
 
 type Props = {
   documentId: string;
@@ -273,6 +269,23 @@ function hasDifference(item: InventoryDocumentResultItem) {
   return amount !== 0 || sum !== 0;
 }
 
+// Открытое (нерешённое) расхождение для счётчика «расхождений N»:
+// исключённые из итогов и полностью покрытые активным пересортом (остаток 0)
+// расхождениями не считаются — зеркало логики управленческих итогов.
+function isOpenDifference(
+  item: InventoryDocumentResultItem,
+  resortItem: InventoryResultResortItemRow | undefined,
+) {
+  if (item.excluded_from_totals) return false;
+  if (resortItem) {
+    return (
+      Number(resortItem.remainingDifferenceAmount ?? 0) !== 0 ||
+      Number(resortItem.remainingDifferenceSum ?? 0) !== 0
+    );
+  }
+  return hasDifference(item);
+}
+
 function differenceClass(value: number | null | undefined) {
   const numericValue = Number(value ?? 0);
   if (numericValue < 0) return "text-red-700 dark:text-red-400";
@@ -317,9 +330,6 @@ export function InventoryResultsTable({
   // pin-row скрыт по умолчанию, кнопка «Фильтры» нейтральна (как в актах).
   const [filtersVisible, setFiltersVisible] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [comments, setComments] = useState<Record<string, string>>(() =>
-    Object.fromEntries(items.map((item) => [item.id, item.result_comment ?? ""])),
-  );
   const [commentItem, setCommentItem] = useState<InventoryDocumentResultItem | null>(null);
   // Боковая панель «Обзор ингредиента» — открывается кликом по названию позиции.
   const [overviewIngredient, setOverviewIngredient] = useState<{ id: string; name: string } | null>(null);
@@ -371,7 +381,10 @@ export function InventoryResultsTable({
       }),
     [activeResortItemByItemId, activeResorts, items],
   );
-  const mismatchCount = useMemo(() => items.filter(hasDifference).length, [items]);
+  const mismatchCount = useMemo(
+    () => items.filter((item) => isOpenDifference(item, activeResortItemByItemId.get(item.id))).length,
+    [items, activeResortItemByItemId],
+  );
   const flaggedCount = useMemo(
     () => items.filter((item) => item.needs_recount).length,
     [items],
@@ -717,7 +730,7 @@ export function InventoryResultsTable({
                 <DropdownMenuItem
                   onClick={() => {
                     setCommentItem(item);
-                    setCommentDraft(comments[item.id] ?? item.result_comment ?? "");
+                    setCommentDraft(item.result_comment ?? "");
                   }}
                 >
                   <MessageSquarePlus className="mr-2 h-4 w-4 text-blue-600" />
@@ -783,7 +796,7 @@ export function InventoryResultsTable({
         </div>
       );
     },
-    [activeResortItemByItemId, canAdjust, canComment, comments, documentId, adjustLocked, isPending, runAction],
+    [activeResortItemByItemId, canAdjust, canComment, documentId, adjustLocked, isPending, runAction],
   );
 
   const columnsConfig = useMemo(
@@ -1320,7 +1333,7 @@ export function InventoryResultsTable({
                       onClick={() =>
                         runAction(
                           () => returnDocumentForRecount({ documentId }),
-                          `Акт отправлен на пересчёт (${flaggedCount} ${flaggedCount === 1 ? "строка" : "строк"})`,
+                          `Акт отправлен на пересчёт (${flaggedCount} ${pluralRu(flaggedCount, "строка", "строки", "строк")})`,
                         )
                       }
                     >
@@ -1332,7 +1345,7 @@ export function InventoryResultsTable({
                 <TooltipContent>
                   {flaggedCount === 0
                     ? "Отметьте флажком «Пересчёт» хотя бы одну строку."
-                    : `На пересчёт уйдут ${flaggedCount} отмеченных строк.`}
+                    : `На пересчёт ${pluralRu(flaggedCount, "уйдёт", "уйдут", "уйдут")} ${flaggedCount} ${pluralRu(flaggedCount, "отмеченная строка", "отмеченные строки", "отмеченных строк")}.`}
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
@@ -1424,7 +1437,6 @@ export function InventoryResultsTable({
                   () => updateInventoryResultComment({ documentId, itemId, comment: commentDraft }),
                   "Комментарий сохранен",
                   () => {
-                    setComments((current) => ({ ...current, [itemId]: commentDraft }));
                     setCommentItem(null);
                   },
                 );

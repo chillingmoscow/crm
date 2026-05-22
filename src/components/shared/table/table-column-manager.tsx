@@ -20,11 +20,6 @@ import { GripVertical, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 export type ManagedTableColumn = {
   id: string;
@@ -66,21 +61,20 @@ export function TableColumnManager({
         <div className="min-w-0 flex-1 whitespace-nowrap text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           Столбцы таблицы
         </div>
-        <Tooltip delayDuration={450}>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={onReset}
-              aria-label="Сбросить настройки колонок"
-            >
-              <RotateCcw className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="left">Сбросить</TooltipContent>
-        </Tooltip>
+        {/* Подпись вместо иконки + Tooltip: Radix Popover автофокусит первый
+            фокусируемый элемент, а Tooltip раскрывается по фокусу — из-за
+            этого на тач-устройствах подсказка «Сбросить» всплывала при
+            каждом открытии поповера. Текстовая кнопка убирает этот эффект. */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
+          onClick={onReset}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          Сбросить
+        </Button>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

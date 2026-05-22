@@ -80,8 +80,19 @@ export function TableControls({
   }, [search?.open]);
 
   return (
-    <div className={cn("flex w-full items-center gap-2 sm:w-auto", className)}>
-      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+    // По умолчанию тулбар — content-width и прижат вправо родителем
+    // (justify-between/justify-end), чтобы кнопки стояли справа и делили
+    // строку с левым контентом (напр. «Черновик …» в форме). Только когда
+    // открыт поиск, на мобильном тулбар становится w-full, чтобы поле
+    // поиска уместилось отдельной строкой ниже; иконки при этом держим
+    // справа через justify-end. На sm+ — всегда content-width.
+    <div className={cn("flex items-center gap-2", search?.open && "w-full sm:w-auto", className)}>
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-end gap-2",
+          search?.open && "w-full sm:w-auto",
+        )}
+      >
         {search ? (
           <TooltipIconButton
             label={search.open ? "Скрыть поиск" : "Показать поиск"}

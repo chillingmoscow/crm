@@ -206,19 +206,23 @@ export default async function InventoryDocumentPage({
       }
     }
 
-    await Promise.all(
-      productRows.map(async (product) => {
-        const path = product.primary_image_file_id ? filePathById.get(product.primary_image_file_id) : null;
-        if (!path) {
-          imageByProductId.set(product.id, null);
-          return;
-        }
-        const { data: signed } = await admin.storage
-          .from("account-attachments")
-          .createSignedUrl(path, 60 * 60);
-        imageByProductId.set(product.id, signed?.signedUrl ?? null);
-      })
-    );
+    // Батч-подпись всех фото одним запросом к storage (вместо N round-trip'ов
+    // createSignedUrl в Promise.all — заметно ускоряет загрузку формы акта).
+    const allPaths = Array.from(new Set(Array.from(filePathById.values())));
+    const signedByPath = new Map<string, string>();
+    if (allPaths.length > 0) {
+      // Реальный клиент: у loose-обёртки нет типа createSignedUrls.
+      const { data: signedList } = await createAdminClient().storage
+        .from("account-attachments")
+        .createSignedUrls(allPaths, 60 * 60);
+      for (const entry of signedList ?? []) {
+        if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
+      }
+    }
+    for (const product of productRows) {
+      const path = product.primary_image_file_id ? filePathById.get(product.primary_image_file_id) : null;
+      imageByProductId.set(product.id, path ? signedByPath.get(path) ?? null : null);
+    }
   }
 
   return (

@@ -53,14 +53,24 @@ async function createSignedImageUrls(accountId: string, fileIds: string[]) {
     .eq("account_id", accountId)
     .in("id", uniqueIds);
 
-  await Promise.all(
-    (files ?? []).map(async (file) => {
-      const { data: signed } = await admin.storage
-        .from("account-attachments")
-        .createSignedUrl(file.storage_path, 60 * 60);
-      if (signed?.signedUrl) imageUrlByFileId.set(file.id, signed.signedUrl);
-    }),
-  );
+  const fileRows = files ?? [];
+  if (fileRows.length === 0) return imageUrlByFileId;
+
+  // Батч-подпись: один запрос к storage на все пути вместо N round-trip'ов
+  // (createSignedUrl в Promise.all раньше тормозил каталог и refresh после
+  // загрузки фото — особенно на списке из многих ингредиентов). Реальный
+  // клиент: у loose-обёртки нет типа createSignedUrls.
+  const { data: signedList } = await createAdminClient().storage
+    .from("account-attachments")
+    .createSignedUrls(fileRows.map((file) => file.storage_path), 60 * 60);
+  const signedByPath = new Map<string, string>();
+  for (const entry of signedList ?? []) {
+    if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
+  }
+  for (const file of fileRows) {
+    const url = signedByPath.get(file.storage_path);
+    if (url) imageUrlByFileId.set(file.id, url);
+  }
 
   return imageUrlByFileId;
 }

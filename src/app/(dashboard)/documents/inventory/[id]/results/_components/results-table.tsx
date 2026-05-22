@@ -15,6 +15,7 @@ import {
   Ban,
   Check,
   CheckCircle2,
+  Loader2,
   Lock,
   MessageSquare,
   MessageSquarePlus,
@@ -38,6 +39,7 @@ import {
   deleteInventoryResultExclusionRule,
   dismissInventoryResortSuggestion,
   finalizeInventoryResults,
+  getAiResortSuggestions,
   reopenInventoryResults,
   returnDocumentForRecount,
   setInventoryResultItemExcluded,
@@ -252,6 +254,10 @@ export function InventoryResultsTable({
   const [voidingResort, setVoidingResort] = useState<InventoryResultResortRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [isPending, startTransition] = useTransition();
+  // ИИ-подсказки грузятся по кнопке (не блокируют открытие акта).
+  const [aiSuggestions, setAiSuggestions] = useState<InventoryResortSuggestion[]>([]);
+  const [aiRequested, setAiRequested] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const activeResorts = useMemo(
     () => resorts.filter((resort) => resort.status === "active"),
@@ -517,7 +523,36 @@ export function InventoryResultsTable({
           reason: suggestion.reason,
         }),
       "Подсказка скрыта",
+      () => setAiSuggestions((prev) => prev.filter((s) => s.key !== suggestion.key)),
     );
+  };
+
+  // История (props) + ИИ (по кнопке), дедуп по ключу.
+  const displayedSuggestions = useMemo(() => {
+    const byKey = new Map<string, InventoryResortSuggestion>();
+    for (const s of suggestions) byKey.set(s.key, s);
+    for (const s of aiSuggestions) if (!byKey.has(s.key)) byKey.set(s.key, s);
+    return Array.from(byKey.values())
+      .sort((left, right) => right.confidence - left.confidence)
+      .slice(0, 8);
+  }, [suggestions, aiSuggestions]);
+
+  const canRequestAi = aiSuggestionsEnabled && canAdjust && !adjustLocked && !aiRequested;
+
+  const requestAiSuggestions = async () => {
+    setAiLoading(true);
+    try {
+      const result = await getAiResortSuggestions({ documentId });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setAiSuggestions(result.suggestions);
+      setAiRequested(true);
+      if (result.suggestions.length === 0) toast.message("ИИ не нашёл подходящих пересортов");
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   // ── TanStack column-state (resize / visibility / order) 1-в-1 с
@@ -1084,15 +1119,33 @@ export function InventoryResultsTable({
         </div>
       ) : null}
 
-      {suggestions.length > 0 ? (
+      {displayedSuggestions.length > 0 || canRequestAi || aiLoading ? (
       <div className="rounded-lg border bg-card p-4">
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <WandSparkles className="h-4 w-4 text-blue-600" />
           <div className="text-sm font-medium">Предложения пересорта</div>
-          {aiSuggestionsEnabled ? <Badge variant="outline">AI включен</Badge> : <Badge variant="secondary">История</Badge>}
+          {aiSuggestionsEnabled ? <Badge variant="outline">AI</Badge> : <Badge variant="secondary">История</Badge>}
+          {canRequestAi || aiLoading ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="ml-auto h-8 text-xs"
+              disabled={aiLoading || isPending}
+              onClick={requestAiSuggestions}
+            >
+              {aiLoading ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <WandSparkles className="mr-1 h-3.5 w-3.5" />
+              )}
+              Подсказки ИИ
+            </Button>
+          ) : null}
         </div>
+        {displayedSuggestions.length > 0 ? (
         <div className="grid gap-2">
-            {suggestions.map((suggestion) => (
+            {displayedSuggestions.map((suggestion) => (
               <div key={suggestion.key} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-medium">{suggestion.title}</div>
@@ -1119,6 +1172,13 @@ export function InventoryResultsTable({
               </div>
             ))}
         </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {aiRequested
+              ? "ИИ не нашёл подходящих пересортов."
+              : "Нажмите «Подсказки ИИ», чтобы подобрать варианты пересорта."}
+          </p>
+        )}
       </div>
       ) : null}
 

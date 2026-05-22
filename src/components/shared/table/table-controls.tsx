@@ -89,7 +89,9 @@ export function TableControls({
     <div className={cn("flex items-center gap-2", search?.open && "w-full sm:w-auto", className)}>
       <div
         className={cn(
-          "flex flex-wrap items-center justify-end gap-2",
+          // gap-1.5 на мобильном — чтобы ряд кнопок (вкл. «Обновить итоги»)
+          // влезал в одну строку на узких экранах; на sm+ — обычный gap-2.
+          "flex flex-wrap items-center justify-end gap-1.5 sm:gap-2",
           search?.open && "w-full sm:w-auto",
         )}
       >

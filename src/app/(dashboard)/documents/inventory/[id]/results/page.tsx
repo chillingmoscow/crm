@@ -287,7 +287,7 @@ export default async function InventoryDocumentResultsPage({
   }
 
   return (
-    <div className="w-full space-y-6 p-6 md:p-8">
+    <div className="w-full space-y-6 px-4 py-6 md:p-8">
       {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout.
           «Обновить итоги из QR» переехала в тулбар таблицы итогов
           (results-table → TableControls.secondaryActions). */}

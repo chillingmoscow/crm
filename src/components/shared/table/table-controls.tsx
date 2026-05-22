@@ -237,8 +237,11 @@ function TooltipIconButton({
             variant="outline"
             size="icon"
             className={cn(
-              "h-9 w-9 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground",
-              "[&_svg]:h-4 [&_svg]:w-4",
+              // На мобильном кнопки/иконки мельче (h-8 + svg 3.5), на sm+ —
+              // обычный размер (h-9 + svg 4). Узкие экраны: ряд контролов
+              // (вкл. «Обновить итоги») влезает в одну строку.
+              "h-8 w-8 border-border text-muted-foreground hover:border-brand/40 hover:bg-background hover:text-foreground sm:h-9 sm:w-9",
+              "[&_svg]:h-3.5 [&_svg]:w-3.5 sm:[&_svg]:h-4 sm:[&_svg]:w-4",
               active ? "border-brand bg-background text-foreground shadow-[0_0_0_2px_hsl(var(--brand)/0.16)] hover:border-brand hover:bg-background" : null,
             )}
             disabled={disabled}

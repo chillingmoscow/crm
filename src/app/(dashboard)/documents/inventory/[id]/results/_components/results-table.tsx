@@ -1004,7 +1004,7 @@ export function InventoryResultsTable({
                         disabled={aiLoading || isPending}
                         onClick={requestAiSuggestions}
                         aria-label="Подсказки пересорта (ИИ)"
-                        className="h-9 w-9 border-border text-blue-600 hover:border-blue-400 hover:bg-background hover:text-blue-600 dark:text-blue-400 [&_svg]:h-4 [&_svg]:w-4"
+                        className="h-8 w-8 border-border text-blue-600 hover:border-blue-400 hover:bg-background hover:text-blue-600 dark:text-blue-400 [&_svg]:h-3.5 [&_svg]:w-3.5 sm:h-9 sm:w-9 sm:[&_svg]:h-4 sm:[&_svg]:w-4"
                       >
                         {aiLoading ? (
                           <Loader2 className="animate-spin" />

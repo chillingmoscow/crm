@@ -157,14 +157,22 @@ export default async function DashboardLayout({
         staffAttentionCount={staffAttentionCount}
         kbSidebarHidden={kbSidebarHidden}
       />
-      <SidebarInset>
+      {/* min-w-0: SidebarInset и вложенный <main> — флекс-элементы с
+          дефолтным min-width:auto. Без этого широкий потомок (напр. таблица
+          итогов с горизонтальным скроллом) распирает контент шире вьюпорта →
+          справа появляется «белая полоса» (страница скроллится по
+          горизонтали). overflow-x-clip — страховка от любого случайного
+          горизонтального переполнения; clip (в отличие от hidden/auto) не
+          создаёт scroll-контейнер, поэтому sticky-шапки таблиц продолжают
+          липнуть к верху страницы. */}
+      <SidebarInset className="min-w-0">
         <KbSearchProvider aiAskEnabled={aiAskEnabled}>
           <PageHeaderActionsProvider>
             {/* Top bar: [trigger | breadcrumb] … [actions | bell].
                 На /knowledge скрывается — KB рендерит собственный topbar
                 (см. components/shared/dashboard-topbar.tsx). */}
             <DashboardTopbar />
-            <main className="flex-1 flex flex-col">{children}</main>
+            <main className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</main>
           </PageHeaderActionsProvider>
         </KbSearchProvider>
         <HotkeysDialogProvider />

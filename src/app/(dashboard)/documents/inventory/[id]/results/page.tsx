@@ -9,7 +9,6 @@ import {
   buildHistorySuggestions,
   eventPayload,
 } from "@/lib/inventory/resort-suggestions";
-import { buildAiSuggestions } from "@/lib/inventory/resort-ai-suggestions";
 import {
   InventoryResultsTable,
   type InventoryDocumentResultItem,
@@ -279,14 +278,10 @@ export default async function InventoryDocumentResultsPage({
       historyResorts,
       historyItems: historyItemsRaw ?? [],
     }).filter((suggestion) => !dismissedSuggestionKeys.has(suggestion.key));
-    const aiSuggestions = (await buildAiSuggestions({
-      enabled: aiSuggestionsEnabled,
-      currentItems: itemsWithRules,
-      activeResortItemIds,
-    })).filter((suggestion) => !dismissedSuggestionKeys.has(suggestion.key));
-    suggestions = Array.from(
-      new Map([...historySuggestions, ...aiSuggestions].map((suggestion) => [suggestion.key, suggestion])).values(),
-    )
+    // ИИ-подсказки больше не считаем на рендере (блокировали открытие акта) —
+    // они грузятся по кнопке на «Итогах» (getAiResortSuggestions). Здесь только
+    // дешёвые history-подсказки из прошлых пересортов.
+    suggestions = historySuggestions
       .sort((left, right) => right.confidence - left.confidence)
       .slice(0, 5);
   }

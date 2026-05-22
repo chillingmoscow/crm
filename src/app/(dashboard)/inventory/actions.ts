@@ -71,6 +71,8 @@ import {
   type InventoryStoreLookup,
   type InventorySyncSummary,
 } from "./actions-shared";
+import { buildAiSuggestions, type AiSuggestionSourceItem } from "@/lib/inventory/resort-ai-suggestions";
+import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 
 
 export async function syncQuickRestoInventory(input?: {
@@ -1650,6 +1652,123 @@ export async function dismissInventoryResortSuggestion(input: {
     return { error: null };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось скрыть подсказку") };
+  }
+}
+
+/**
+ * AI-подсказки пересорта «по запросу» (кнопка на «Итогах»). Раньше DeepSeek
+ * вызывался синхронно при рендере и тормозил открытие акта — теперь только по
+ * клику. История-подсказки остаются на серверном рендере (дёшево).
+ * Гейт: adjust_results + lock-гард + право use_ai_suggestions + флаг аккаунта.
+ */
+export async function getAiResortSuggestions(input: {
+  documentId: string;
+}): Promise<{ suggestions: ResortSuggestion[]; error: string | null }> {
+  const ctx = await getActiveContext("inventory.adjust_results");
+  if (ctx.error || !ctx.user || !ctx.accountId) return { suggestions: [], error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    await getResultDocumentForAction({
+      admin,
+      accountId: ctx.accountId,
+      documentId: input.documentId,
+      requireOpen: true,
+    });
+
+    const { data: canUseAi } = await ctx.supabase.rpc("has_permission", {
+      permission_code: "inventory.use_ai_suggestions",
+    });
+    const { data: account } = await admin
+      .from<{ inventory_ai_suggestions_enabled: boolean | null }>("accounts")
+      .select("inventory_ai_suggestions_enabled")
+      .eq("id", ctx.accountId)
+      .maybeSingle();
+    if (!canUseAi || !account?.inventory_ai_suggestions_enabled) {
+      return { suggestions: [], error: null };
+    }
+
+    const { data: itemsRaw } = await admin
+      .from<
+        Array<{
+          id: string;
+          ingredient_id: string | null;
+          product_name: string;
+          measure_unit_id: number | null;
+          measure_unit_name: string | null;
+          difference_amount: number | null;
+          difference_sum: number | null;
+          excluded_from_totals: boolean | null;
+        }>
+      >("document_items")
+      .select(
+        "id, ingredient_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals",
+      )
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", input.documentId);
+    const items = itemsRaw ?? [];
+
+    const ingredientIds = items.map((item) => item.ingredient_id).filter((id): id is string => Boolean(id));
+    const { data: products } = ingredientIds.length > 0
+      ? await admin
+          .from<Array<{ id: string; group_id: string | null }>>("ingredients")
+          .select("id, group_id")
+          .eq("account_id", ctx.accountId)
+          .in("id", ingredientIds)
+      : { data: [] };
+    const groupByProductId = new Map((products ?? []).map((product) => [product.id, product.group_id]));
+    const groupIds = Array.from(
+      new Set((products ?? []).map((product) => product.group_id).filter((id): id is string => Boolean(id))),
+    );
+    const { data: groups } = groupIds.length > 0
+      ? await admin
+          .from<Array<{ id: string; name: string }>>("ingredient_groups")
+          .select("id, name")
+          .eq("account_id", ctx.accountId)
+          .in("id", groupIds)
+      : { data: [] };
+    const groupNameById = new Map((groups ?? []).map((group) => [group.id, group.name]));
+
+    const currentItems: AiSuggestionSourceItem[] = items.map((item) => {
+      const groupId = item.ingredient_id ? groupByProductId.get(item.ingredient_id) ?? null : null;
+      return {
+        id: item.id,
+        product_name: item.product_name,
+        group_id: groupId,
+        group_name: groupId ? groupNameById.get(groupId) ?? null : null,
+        measure_unit_id: item.measure_unit_id,
+        measure_unit_name: item.measure_unit_name,
+        difference_amount: item.difference_amount,
+        difference_sum: item.difference_sum,
+        excluded_from_totals: item.excluded_from_totals,
+      };
+    });
+
+    const activeResortItemIds = await getActiveResortItemIds({
+      admin,
+      accountId: ctx.accountId,
+      documentId: input.documentId,
+    });
+
+    const { data: events } = await admin
+      .from<Array<{ payload: Record<string, unknown> | null }>>("inventory_result_events")
+      .select("payload")
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", input.documentId)
+      .eq("event_type", "suggestion_dismissed");
+    const dismissed = new Set(
+      (events ?? [])
+        .map((event) => (event.payload && typeof event.payload === "object" ? event.payload.key : null))
+        .filter((key): key is string => typeof key === "string" && key.length > 0),
+    );
+
+    const suggestions = (
+      await buildAiSuggestions({ enabled: true, currentItems, activeResortItemIds })
+    ).filter((suggestion) => !dismissed.has(suggestion.key));
+
+    return { suggestions, error: null };
+  } catch (error) {
+    return { suggestions: [], error: actionErrorMessage(error, "Не удалось получить подсказки ИИ") };
   }
 }
 

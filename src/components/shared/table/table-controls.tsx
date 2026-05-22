@@ -119,7 +119,9 @@ export function TableControls({
               value={search.value}
               onChange={(event) => search.onChange(event.target.value)}
               placeholder={search.placeholder ?? "Поиск"}
-              className="h-9 w-full pr-8 text-sm"
+              // text-base (16px) на мобильном — iOS Safari НЕ зумит экран при
+              // фокусе на input с font-size ≥ 16px. На sm+ — обычный text-sm.
+              className="h-9 w-full pr-8 text-base sm:text-sm"
             />
             {search.value ? (
               <button

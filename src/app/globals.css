@@ -180,6 +180,17 @@
   * {
     @apply border-border;
   }
+  /* Никакого горизонтального скролла на уровне страницы. На мобильном
+     широкая таблица (итоги акта со скроллом) распирала layout viewport →
+     iOS показывал «чёрную полосу» справа при отдалении и масштабировал
+     страницу. overflow-x:hidden на html+body клампит ширину к экрану;
+     широкие блоки скроллятся внутри своих overflow-x-auto контейнеров.
+     hidden (не clip) — надёжно на iOS Safari и не ломает sticky-шапки
+     (липнут к вьюпорту, т.к. вертикальный скролл остаётся страничным). */
+  html,
+  body {
+    overflow-x: hidden;
+  }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";

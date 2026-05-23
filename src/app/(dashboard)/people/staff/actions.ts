@@ -56,6 +56,9 @@ export type StaffMember = {
   medical_book_date: string | null;
   joined_at:         string;
   imported_from_quickresto?: boolean;
+  /** Есть ли неотозванное приглашение на email сотрудника (выставляется на
+   *  странице списка). Признак «приглашён, но не активировал». */
+  has_pending_invite?: boolean;
 };
 
 // Тир 1+2 — персональный профиль (user-owned). Видно во всех заведениях.
@@ -547,20 +550,24 @@ export async function setImportedStaffEmailAndInvite(data: {
 
   const admin = createAdminClient();
 
-  // Шаг 1: меняем email в auth.users, сбрасываем подтверждение и ставим
-  // флаг needs_password_setup. У placeholder-сотрудника ещё нет своего
-  // пароля — он задаст его на /invite/accept (acceptInvitation увидит флаг
-  // и установит пароль через admin, а не потребует «текущий»).
+  // Шаг 1: ставим флаг needs_password_setup (своего пароля у сотрудника ещё
+  // нет — задаст его на /invite/accept) и при необходимости меняем email.
+  // Если email тот же (повторная отправка) — НЕ дёргаем смену email, чтобы не
+  // запускать в GoTrue email-change flow на тот же адрес; обновляем только
+  // metadata. Иначе — меняем email и сбрасываем подтверждение.
   const { data: targetForMeta } = await admin.auth.admin.getUserById(data.userId);
+  const currentEmail = (targetForMeta?.user?.email ?? "").toLowerCase();
+  const emailUnchanged = currentEmail === nextEmail;
   const mergedMeta = {
     ...((targetForMeta?.user?.user_metadata as Record<string, unknown> | undefined) ?? {}),
     needs_password_setup: true,
   };
-  const { error: updateAuthError } = await admin.auth.admin.updateUserById(data.userId, {
-    email: nextEmail,
-    email_confirm: false,
-    user_metadata: mergedMeta,
-  });
+  const { error: updateAuthError } = await admin.auth.admin.updateUserById(
+    data.userId,
+    emailUnchanged
+      ? { user_metadata: mergedMeta }
+      : { email: nextEmail, email_confirm: false, user_metadata: mergedMeta },
+  );
   if (updateAuthError) {
     return { error: updateAuthError.message, invitation: null };
   }

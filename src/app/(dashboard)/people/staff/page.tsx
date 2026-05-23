@@ -83,9 +83,19 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   }
 
   const importedIds = new Set(importedLinks.map((row) => row.local_id));
+  // Email'ы с неотозванным приглашением — надёжный признак «приглашён, но ещё
+  // не активировал» для сотрудника, который уже в списке staff (импортированный
+  // с выданным email). Бейдж «Ожидает» и переотправку ведём по этому признаку,
+  // а не по email_confirmed (он у такого сотрудника может остаться true).
+  const pendingInviteEmails = new Set(
+    invitations.map((inv) => inv.email.toLowerCase()),
+  );
   const enrichedStaff = staff.map((member) => ({
     ...member,
     imported_from_quickresto: importedIds.has(member.user_id),
+    has_pending_invite: member.email
+      ? pendingInviteEmails.has(member.email.toLowerCase())
+      : false,
   }));
 
   // Не показываем pending-приглашение как отдельную карточку, если этот email

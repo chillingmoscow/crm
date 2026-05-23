@@ -606,14 +606,13 @@ export async function setImportedStaffEmailAndInvite(data: {
   // inviteStaff. Генерим токен в invitations и шлём /invite/accept?token=.
   // (SMTP уже проверили выше, до мутации auth.users.)
 
-  // Один pending-invite на email+venue.
-  await supabase
-    .from("invitations")
-    .delete()
-    .eq("venue_id", data.venueId)
-    .ilike("email", nextEmail)
-    .eq("status", "pending");
-
+  // Один pending-invite на email+venue. ВАЖНО — порядок безопасный:
+  // сначала вставляем новый инвайт и шлём письмо, и только ПОСЛЕ успешной
+  // отправки удаляем прочие pending-инвайты этого email+venue. Раньше старый
+  // удалялся ДО вставки нового — при сбое (вставка/SMTP) сотрудник оставался
+  // вообще без приглашения: старый токен уже удалён, новый откатан. Теперь
+  // при сбое удаляется только новая строка, а прежний (рабочий) инвайт цел —
+  // повторная отправка остаётся возможной (Codex P1 на #441).
   const token = randomUUID();
   const { data: insertedInvitation, error: invError } = await supabase
     .from("invitations")
@@ -645,12 +644,26 @@ export async function setImportedStaffEmailAndInvite(data: {
       existingUser: false,
     });
   } catch (emailError) {
+    // Откатываем только что созданную строку; прежние pending-инвайты не
+    // трогали — прежняя ссылка-приглашение продолжает работать.
     await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
     return {
       error: emailError instanceof Error ? emailError.message : "Не удалось отправить письмо",
       invitation: null,
     };
   }
+
+  // Письмо ушло — теперь чистим прежние pending-инвайты того же email+venue
+  // (кроме только что созданного), чтобы остался ровно один актуальный. Это
+  // best-effort: даже если delete не пройдёт, у сотрудника будет валидный
+  // (свежедоставленный) токен — не критично.
+  await supabase
+    .from("invitations")
+    .delete()
+    .eq("venue_id", data.venueId)
+    .ilike("email", nextEmail)
+    .eq("status", "pending")
+    .neq("id", insertedInvitation.id);
 
   revalidatePath("/people/staff");
   // Возвращаем invitation = null, т.к. строки в `invitations` мы не создавали —

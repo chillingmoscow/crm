@@ -1891,16 +1891,12 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       contentEditable={false}
       style={blockStyle}
       onMouseDownCapture={(event) => {
-        // ProseMirror вешает НАТИВНЫЙ mousedown-listener на корень редактора
-        // и игнорирует React-stopPropagation (он останавливает только
-        // синтетическое всплытие). Поэтому тап по chrome блока (тулбар,
-        // вкладки видов, шапки колонок) всё равно фокусировал contenteditable
-        // редактора под islandом → на iOS вылезала клавиатура, а сам тап
-        // уходил в выделение текста вместо открытия меню. preventDefault в
-        // capture-фазе глушит дефолт ДО дочерних хендлеров — ProseMirror видит
-        // defaultPrevented и не лезет в фокус/селекцию. Поля ввода (поиск,
-        // переименование) и ячейки таблицы исключаем — им фокус/редактирование
-        // нужны (ввод в ячейке управляется собственными pointer-хендлерами).
+        // DESKTOP: глушим дефолт mousedown на chrome блока, чтобы ProseMirror
+        // (нативный listener, React-stopPropagation его не берёт) не ставил
+        // каретку/выделение под island'ом. На iOS этого НЕдостаточно —
+        // contenteditable фокусируется на `touchend`, ДО mousedown, поэтому
+        // клавиатуру глушим отдельно в onClickCapture (ниже). Поля ввода и
+        // ячейки исключаем — им фокус/редактирование нужны.
         const target = event.target as HTMLElement | null;
         if (
           target?.closest(
@@ -1910,6 +1906,32 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
           return;
         }
         event.preventDefault();
+      }}
+      onClickCapture={(event) => {
+        // iOS: тап по chrome блока (тулбар/вкладки/шапки колонок) фокусирует
+        // contenteditable-редактор под island'ом на `touchend` → вылезает
+        // клавиатура. preventDefault на mousedown тут не успевает (фокус уже
+        // случился). Поэтому на click (уже ПОСЛЕ фокуса) снимаем фокус с
+        // редактора — клавиатура прячется. Не трогаем поля ввода и ячейки
+        // (им фокус нужен) и блюрим ТОЛЬКО если активен сам редактор, чтобы
+        // не мешать поповерам/инпутам. preventDefault не зовём — тап/клик и
+        // открытие поповеров работают как обычно.
+        const target = event.target as HTMLElement | null;
+        if (
+          target?.closest(
+            "input, textarea, select, [contenteditable='true'], [role='cell']",
+          )
+        ) {
+          return;
+        }
+        const active = document.activeElement as HTMLElement | null;
+        if (
+          active &&
+          (active.classList.contains("ProseMirror") ||
+            active.closest?.(".ProseMirror, .bn-editor"))
+        ) {
+          active.blur();
+        }
       }}
     >
       <div className="kb-collection-header">

@@ -839,6 +839,12 @@ function ProfileMenu({
           <LifeBuoy className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Помощь и поддержка</span>
         </button>
+        {/* Горячие клавиши: прячем на тач-устройствах (нет физической
+            клавиатуры → пункт и его шорткат «Shift ?» бессмысленны). Гейт по
+            input-mode (`(hover: none), (pointer: coarse)`), а НЕ по ширине:
+            тач-планшет шире 768px — всё ещё тач, а узкое desktop-окно с
+            клавиатурой — нет (Codex P2 #442). Утилита `.hide-on-coarse-pointer`
+            в globals.css: display:flex по умолчанию, display:none на coarse. */}
         <button
           type="button"
           onClick={() => {
@@ -846,7 +852,7 @@ function ProfileMenu({
             // TODO: open hotkeys modal — placeholder for now
             window.dispatchEvent(new CustomEvent("hotkeys:open"));
           }}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
+          className="hide-on-coarse-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
         >
           <Keyboard className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Горячие клавиши</span>

@@ -359,6 +359,25 @@ className={cn(
   пункт как **дефолтный** `Components.SuggestionMenu.Item` — дефолтное меню
   BlockNote на мобильном работает. Пример —
   [`kb-slash-menu.tsx`](../src/app/(dashboard)/knowledge/_components/kb-slash-menu.tsx).
+- **iOS не синтезирует `click` по тапу на `<div>` без `cursor: pointer`**:
+  React вешает `onClick` делегацией на корень (не inline `onclick`), и iOS
+  Safari для таких неинтерактивных элементов синтезирует `click` только при
+  наличии pointer-курсора (либо нативно-кликабельного тега). BN-shadcn рендерит
+  пункт slash-меню как `<div class="cursor-default">` → тап «не реагировал»
+  даже после перехода на дефолтный Item (выше). Фикс — `cursor: pointer` на
+  `.bn-suggestion-menu .bn-suggestion-menu-item` (globals.css). Тот же приём
+  применим к любому tap-таргету-`<div>` с делегированным `onClick`.
+- **Шорткат-подсказки в меню — прятать на touch**: BN рендерит keyboard-badge
+  (`div[data-position="right"]` с `<Badge>`) в пунктах slash-меню; на мобильном
+  клавиатуры нет — это шум. Прячем под `@media (hover: none), (pointer: coarse)`.
+  Аналогично — пункт «Горячие клавиши» в меню профиля сайдбара (`hidden md:flex`).
+- **Floating formatting-toolbar (BlockNote) не влезает на узком экране**: кнопок
+  больше ширины viewport'а → flex-row сжимал их внахлёст и тулбар вылезал за
+  край. Решение как в Word — одна строка с горизонтальным скроллом:
+  `max-width: calc(100vw - 16px)` + `flex-wrap: nowrap` + `overflow-x: auto` на
+  `.bn-formatting-toolbar`, `flex-shrink: 0` на прямых детях (`> *`), под
+  `@media (max-width: 768px)`. Поповеры (стиль/палитра) идут Radix-порталом в
+  body — overflow тулбара их не режет. Пример — globals.css §«Formatting toolbar».
 
 ---
 

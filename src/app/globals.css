@@ -847,6 +847,15 @@ input:-webkit-autofill {
   border-radius: 6px !important;
   font-size: 13px !important;
   font-weight: 500 !important;
+  /* iOS Safari НЕ синтезирует `click` по тапу на неинтерактивном
+   * <div> без `cursor: pointer` (React вешает onClick через делегацию
+   * на корень, а не inline onclick — для таких элементов iOS требует
+   * pointer-курсор либо нативно-кликабельный тег). BN-shadcn рендерит
+   * пункт меню как <div class="cursor-default"> → на мобильном тап по
+   * пункту slash-меню не срабатывал (PR #436 переключил на дефолтный
+   * Item, но `cursor-default` остался — поэтому баг сохранялся).
+   * Перебиваем на pointer: это и чинит тап на iOS, и корректнее по UX. */
+  cursor: pointer !important;
 }
 .bn-suggestion-menu .bn-suggestion-menu-item > div[data-position="left"] {
   width: 22px !important;
@@ -888,6 +897,33 @@ input:-webkit-autofill {
   > .flex-1
   > div:nth-child(2) {
   display: none !important;
+}
+
+/* Шорткат-подсказка (badge «⌘⇧6» и т.п.) — BN-shadcn рендерит её как
+ * `div[data-position="right"]` с <Badge> внутри. На тач-устройствах
+ * физической клавиатуры нет → шорткат бессмысленен и только шумит.
+ * Прячем его в slash-меню на coarse-pointer (mobile/tablet); на desktop
+ * подсказка остаётся как обучающий аффорданс. */
+@media (hover: none), (pointer: coarse) {
+  .bn-suggestion-menu.kb-slash-menu
+    .bn-suggestion-menu-item
+    > div[data-position="right"] {
+    display: none !important;
+  }
+}
+
+/* Утилита: скрыть элемент на тач-устройствах (coarse pointer / нет hover).
+ * Гейт по input-mode, а НЕ по ширине экрана — тач-планшет шире 768px тоже
+ * тач, а узкое desktop-окно с физической клавиатурой — нет. Используется для
+ * клавиатуро-зависимого UI (пункт «Горячие клавиши» в меню профиля). По
+ * умолчанию элемент — flex (как был `md:flex`); на coarse скрываем. */
+.hide-on-coarse-pointer {
+  display: flex;
+}
+@media (hover: none), (pointer: coarse) {
+  .hide-on-coarse-pointer {
+    display: none !important;
+  }
 }
 
 /* Hover-hold tooltip — popover справа от пункта slash-меню, появляется
@@ -1081,6 +1117,35 @@ input:-webkit-autofill {
   padding: 0 8px;
   font-size: 13px;
   font-weight: 500;
+}
+
+/* ── Мобильный formatting-toolbar: горизонтальный скролл (Word-style) ──
+ * На узком экране кнопок (стиль блока + B/I/U/S/код + цвета +
+ * выравнивание + отступы + ссылка + комментарий + AI) больше, чем
+ * влезает в строку: дефолтный flex-row сжимал их внахлёст («одно
+ * находит на другое») и тулбар вылезал за viewport. Решение как в Word —
+ * одна строка с горизонтальным скроллом: кнопки не сжимаются
+ * (flex-shrink:0), контейнер ограничен шириной экрана и прокручивается.
+ * Поповеры (выбор стиля, палитра) рендерятся Radix-порталом в body, так
+ * что overflow тулбара их не обрезает. */
+@media (max-width: 768px) {
+  .bn-sheerly .bn-toolbar.bn-formatting-toolbar,
+  .bn-formatting-toolbar {
+    max-width: calc(100vw - 16px) !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Firefox */
+  }
+  .bn-sheerly .bn-toolbar.bn-formatting-toolbar::-webkit-scrollbar,
+  .bn-formatting-toolbar::-webkit-scrollbar {
+    display: none; /* WebKit/Blink: убираем полосу прокрутки */
+  }
+  .bn-sheerly .bn-toolbar.bn-formatting-toolbar > *,
+  .bn-formatting-toolbar > * {
+    flex-shrink: 0 !important;
+  }
 }
 
 /* ── Block menu / Drag-handle menu (frame 07 · W8wDJ) ──────────────

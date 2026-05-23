@@ -89,19 +89,35 @@ export default async function KnowledgeLayout({
           </Suspense>
         </KbSidebarShell>
         <main className="flex-1 min-w-0 flex flex-col">
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 px-6 bg-background/95 backdrop-blur">
+          {/* Шапка. Mobile: верхняя строка — переключатель сайдбара +
+              «Страницы» + действия + колокольчик; breadcrumb и «Сохранено»
+              уезжают во вторую строку (ниже). Desktop: всё в одной строке как
+              было (breadcrumb + «Сохранено»), «Страницы» нет — есть боковое
+              дерево. Слоты breadcrumb/actions — context-консьюмеры, безопасно
+              рендерятся в двух местах (видно одно по брейкпоинту). */}
+          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 px-4 md:px-6 bg-background/95 backdrop-blur">
             <SidebarTrigger className="md:hidden" />
-            <PageHeaderBreadcrumbSlot />
-            <div className="flex-1" />
-            <KbSaveStatusBadge />
+            {/* Mobile: «Страницы» в шапке */}
+            <div className="md:hidden">
+              <Suspense fallback={null}>
+                <KbMobileTreeLoader {...treePermissions} />
+              </Suspense>
+            </div>
+            {/* Desktop: breadcrumb + «Сохранено» в шапке */}
+            <div className="hidden flex-1 items-center gap-2 md:flex">
+              <PageHeaderBreadcrumbSlot />
+              <div className="flex-1" />
+              <KbSaveStatusBadge />
+            </div>
+            <div className="flex-1 md:hidden" />
             <PageHeaderActionsSlot />
             <NotificationBell />
           </header>
-          {/* Mobile-only sticky bar with tree-drawer trigger. */}
-          <div className="md:hidden sticky top-14 z-20 border-b bg-background/95 px-4 py-2 backdrop-blur">
-            <Suspense fallback={null}>
-              <KbMobileTreeLoader {...treePermissions} />
-            </Suspense>
+          {/* Mobile-only вторая строка: breadcrumb + «Сохранено». */}
+          <div className="md:hidden sticky top-14 z-20 flex items-center gap-2 border-b bg-background/95 px-4 py-2 backdrop-blur">
+            <PageHeaderBreadcrumbSlot />
+            <div className="flex-1" />
+            <KbSaveStatusBadge />
           </div>
           {children}
         </main>

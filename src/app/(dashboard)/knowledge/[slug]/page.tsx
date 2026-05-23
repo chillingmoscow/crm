@@ -348,7 +348,7 @@ export default async function KbPageView({ params }: PageProps) {
 
       {/* Page body — full-width container; editor itself is centred
           to ~720px for Notion-like reading width. */}
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
+      <div className="pl-10 pr-4 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
           {/*
             Key by (id, updated_at). Normal auto-save doesn't bump
@@ -484,7 +484,7 @@ async function DeletedKbPageView({ row }: { row: KbPageRow }) {
         canManage={canManage}
       />
 
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
+      <div className="pl-10 pr-4 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px] flex flex-col gap-6">
           <KbPageEditor
             key={`${row.id}-deleted`}
@@ -517,7 +517,7 @@ function DeletedPageAccessDenied() {
         <KbBackLink href="/knowledge" label="База знаний" />
       </PageBreadcrumb>
 
-      <div className="px-6 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
+      <div className="pl-10 pr-4 md:px-8 pt-6 pb-8 w-full flex flex-col gap-3">
         <div className="mx-auto w-full max-w-[760px]">
           <div
             className="flex items-start gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4

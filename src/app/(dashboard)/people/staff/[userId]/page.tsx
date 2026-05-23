@@ -212,6 +212,17 @@ export default async function StaffMemberPage({
 
   const isFired = targetUvr.status === "fired";
 
+  // needs_password_setup ставит setImportedStaffEmailAndInvite при выдаче
+  // приглашения и снимает acceptInvitation при успешной активации (см.
+  // invite/accept/actions.ts). Это надёжный признак «приглашён, но ещё не
+  // активировал» даже если строка-инвайт в `invitations` потерялась
+  // (например, прежний инвайт уничтожался старым багом переотправки до #441),
+  // — в отличие от has_pending_invite (зависит от строки) и email_confirmed
+  // (у импортированного остаётся true после admin-смены email).
+  const needsPasswordSetup =
+    (targetAuthUser.user_metadata as { needs_password_setup?: boolean } | null)
+      ?.needs_password_setup === true;
+
   return (
     <StaffDetailPage
       profile={profileRow}
@@ -236,6 +247,7 @@ export default async function StaffMemberPage({
       userCreatedAt={targetAuthUser.created_at ?? null}
       emailConfirmed={Boolean(targetAuthUser.email_confirmed_at)}
       hasPendingInvite={Boolean(pendingInviteRow)}
+      needsPasswordSetup={needsPasswordSetup}
       canViewAudit={Boolean(canViewAudit)}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}

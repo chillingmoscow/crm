@@ -59,6 +59,10 @@ export type StaffMember = {
   /** Есть ли неотозванное приглашение на email сотрудника (выставляется на
    *  странице списка). Признак «приглашён, но не активировал». */
   has_pending_invite?: boolean;
+  /** user_metadata.needs_password_setup — приглашён, но пароль не задан.
+   *  Надёжнее has_pending_invite: переживает потерю строки-инвайта
+   *  (приходит из get_venue_staff, миграция 213). */
+  needs_password_setup?: boolean;
 };
 
 // Тир 1+2 — персональный профиль (user-owned). Видно во всех заведениях.

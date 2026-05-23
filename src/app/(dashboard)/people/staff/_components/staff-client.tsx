@@ -633,11 +633,16 @@ export function StaffClient({
         );
       case "name": {
         const isPlaceholder = member.email.toLowerCase().endsWith("@import.local");
-        // has_pending_invite надёжнее email_confirmed: у импортированного
-        // сотрудника после смены email подтверждение может остаться true, хотя
-        // активацию (создание пароля) он не прошёл. См. page.tsx.
+        // has_pending_invite / needs_password_setup надёжнее email_confirmed:
+        // у импортированного сотрудника после смены email подтверждение может
+        // остаться true, хотя активацию (создание пароля) он не прошёл.
+        // needs_password_setup переживает потерю строки-инвайта (см. page.tsx
+        // и миграцию 213). См. карточку [userId] — там та же логика.
         const isPendingInvite =
-          !isPlaceholder && (Boolean(member.has_pending_invite) || !member.email_confirmed);
+          !isPlaceholder &&
+          (Boolean(member.has_pending_invite) ||
+            Boolean(member.needs_password_setup) ||
+            !member.email_confirmed);
         const medbook = medbookStatus(member.medical_book_date);
         const bday = birthdayStatus(member.birth_date);
         return (

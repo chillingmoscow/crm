@@ -122,6 +122,10 @@ interface Props {
    *  «приглашён, но не активировал» для импортированного сотрудника, у
    *  которого email_confirmed может остаться true после смены email. */
   hasPendingInvite: boolean;
+  /** user_metadata.needs_password_setup === true. Ещё один надёжный признак
+   *  «приглашён, но не активировал»: флаг ставится при выдаче приглашения и
+   *  снимается при успешной активации. Переживает потерю строки-инвайта. */
+  needsPasswordSetup: boolean;
   /** Видит ли текущий юзер табы «Журнал» / «Активность». Проверка
    *  `org.view_audit` выполняется на сервере; здесь — флаг для
    *  conditional render'а. */
@@ -214,6 +218,7 @@ export function StaffDetailPage({
   userCreatedAt,
   emailConfirmed,
   hasPendingInvite,
+  needsPasswordSetup,
   canViewAudit,
   initialAuditEvents,
   initialAuditHasMore,
@@ -259,12 +264,17 @@ export function StaffDetailPage({
   //   registered  — юзер подтвердил email хотя бы раз. С этого момента
   //                 он сам управляет своим профилем.
   const isPlaceholderUser = email.toLowerCase().endsWith("@import.local");
-  // pending — есть неотозванное приглашение ИЛИ email ещё не подтверждён.
-  // hasPendingInvite надёжнее emailConfirmed: у импортированного сотрудника
+  // pending — есть неотозванное приглашение, ЛИБО стоит флаг
+  // needs_password_setup, ЛИБО email ещё не подтверждён. hasPendingInvite и
+  // needsPasswordSetup надёжнее emailConfirmed: у импортированного сотрудника
   // после смены email подтверждение может остаться true, а активацию он не
-  // прошёл (см. setImportedStaffEmailAndInvite + acceptInvitation).
-  const isPendingInvite   = !isPlaceholderUser && (hasPendingInvite || !emailConfirmed);
-  const isRegisteredUser  = !isPlaceholderUser && emailConfirmed && !hasPendingInvite;
+  // прошёл. needs_password_setup переживает потерю строки-инвайта (прежний
+  // инвайт мог уничтожиться старым багом переотправки до #441), поэтому
+  // ловит случай «приглашён, ссылка не сработала, инвайта в таблице уже нет».
+  const isPendingInvite   =
+    !isPlaceholderUser && (hasPendingInvite || needsPasswordSetup || !emailConfirmed);
+  const isRegisteredUser  =
+    !isPlaceholderUser && emailConfirmed && !hasPendingInvite && !needsPasswordSetup;
 
   const displayName =
     [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||

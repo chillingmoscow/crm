@@ -49,12 +49,15 @@ export function TableSplitButton({
   className,
 }: TableSplitButtonProps) {
   return (
-    <div className={cn("inline-flex h-9 overflow-hidden rounded-md shadow-sm", className)}>
+    // Адаптив: на мобильном кнопка ниже/компактнее (h-8, px-2.5, text-xs),
+    // чтобы вставать в один ряд с иконками-контролами таблицы; на sm+ —
+    // обычный размер (h-9, text-sm).
+    <div className={cn("inline-flex h-8 overflow-hidden rounded-md shadow-sm sm:h-9", className)}>
       <Tooltip delayDuration={450}>
         <TooltipTrigger asChild>
           <Button
             type="button"
-            className="h-9 rounded-none rounded-l-md border-r border-brand-foreground/20 px-3"
+            className="h-8 rounded-none rounded-l-md border-r border-brand-foreground/20 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
             disabled={disabled}
             onClick={onPrimaryClick}
           >
@@ -73,7 +76,7 @@ export function TableSplitButton({
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                className="h-9 w-9 rounded-none rounded-r-md px-0"
+                className="h-8 w-8 rounded-none rounded-r-md px-0 sm:h-9 sm:w-9"
                 disabled={disabled}
                 aria-label={menuTooltip}
               >

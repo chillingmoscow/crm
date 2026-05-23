@@ -81,8 +81,11 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
+  const { state, isMobile } = useSidebar();
+  // collapsed (→ поповер открывается сбоку, side="right") — только на
+  // десктопе. На мобильном сайдбар — выезжающий Sheet; side="right" уводил
+  // поповер за правый край экрана. !isMobile → на телефоне side="bottom".
+  const collapsed = state === "collapsed" && !isMobile;
 
   const activeVenue = venues.find((v) => v.venue_id === activeVenueId) ?? null;
 
@@ -130,7 +133,7 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
             align="start"
             side={collapsed ? "right" : "bottom"}
             sideOffset={8}
-            className="w-72 p-1.5 rounded-[10px]"
+            className="w-[min(18rem,calc(100vw-1.5rem))] rounded-[10px] p-1.5"
           >
             <div className="px-2 py-1.5">
               <span className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">

@@ -88,10 +88,21 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
     imported_from_quickresto: importedIds.has(member.user_id),
   }));
 
+  // Не показываем pending-приглашение как отдельную карточку, если этот email
+  // уже активный сотрудник venue. Так бывает при выдаче email импортированному
+  // сотруднику (setImportedStaffEmailAndInvite): токен-приглашение нужен только
+  // для установки пароля, а сам человек уже в списке staff (Codex P2 на #437).
+  const activeStaffEmails = new Set(
+    staff.map((m) => m.email?.toLowerCase()).filter((e): e is string => Boolean(e)),
+  );
+  const visibleInvitations = invitations.filter(
+    (inv) => !activeStaffEmails.has(inv.email.toLowerCase()),
+  );
+
   return (
     <StaffClient
       staff={enrichedStaff}
-      invitations={invitations}
+      invitations={visibleInvitations}
       firedStaff={firedStaff}
       roles={roles ?? []}
       departments={departments ?? []}

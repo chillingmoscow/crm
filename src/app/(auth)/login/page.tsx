@@ -431,13 +431,15 @@ export default function LoginPage() {
               </div>
             </form>
 
-            {/* Register link */}
-            <p className="text-center text-sm text-gray-500 mt-6">
+            {/* Register link — ВРЕМЕННО СКРЫТ: самостоятельная регистрация
+                отключена (пользователи заводятся только по приглашению).
+                Чтобы вернуть — раскомментировать блок ниже. */}
+            {/* <p className="text-center text-sm text-gray-500 mt-6">
               Нет аккаунта?{" "}
               <Link href="/register" className="text-blue-600 hover:underline font-medium">
                 Зарегистрироваться
               </Link>
-            </p>
+            </p> */}
           </div>
         </div>
       </div>

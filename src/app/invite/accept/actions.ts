@@ -77,6 +77,22 @@ export async function acceptInvitation(
     // invite-формы. Если юзер забыл — пусть восстановит через
     // /forgot-password, потом снова откроет ссылку приглашения.
     userId = existing.id;
+    // Исключение: placeholder-сотрудник, которому задали реальный email
+    // через setImportedStaffEmailAndInvite (флаг needs_password_setup) —
+    // своего пароля у него ещё нет. Ставим введённый пароль через admin и
+    // снимаем флаг. Безопасно: флаг проставил авторизованный инвайтер на
+    // юзера без пароля; после первого использования он сбрасывается.
+    const { data: existingAuthUser } = await admin.auth.admin.getUserById(userId);
+    const meta =
+      (existingAuthUser?.user?.user_metadata as Record<string, unknown> | undefined) ?? {};
+    if (meta.needs_password_setup === true) {
+      const { error: setPwError } = await admin.auth.admin.updateUserById(userId, {
+        password,
+        email_confirm: true,
+        user_metadata: { ...meta, needs_password_setup: false },
+      });
+      if (setPwError) return { error: setPwError.message };
+    }
   } else {
     // Создаём через admin API. email_confirm: true — чтобы GoTrue не
     // отправлял подтверждающее письмо через свой SMTP (у нас он не

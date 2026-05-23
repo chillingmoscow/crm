@@ -134,7 +134,21 @@ export default async function InviteAcceptPage({ searchParams }: PageProps) {
       .maybeSingle(),
   ]);
 
-  const existingUser = !!existingLookup.data;
+  // Если у существующей auth-строки выставлен флаг needs_password_setup
+  // (placeholder-сотрудник, которому только что задали реальный email через
+  // setImportedStaffEmailAndInvite) — показываем форму СОЗДАНИЯ пароля, а не
+  // ввода существующего: своего пароля у него ещё нет.
+  let needsPasswordSetup = false;
+  if (existingLookup.data) {
+    const { data: existingAuthUser } = await admin.auth.admin.getUserById(
+      existingLookup.data,
+    );
+    needsPasswordSetup = Boolean(
+      (existingAuthUser?.user?.user_metadata as { needs_password_setup?: boolean } | undefined)
+        ?.needs_password_setup,
+    );
+  }
+  const existingUser = !!existingLookup.data && !needsPasswordSetup;
   const venueName = (venueRow.data as { name?: string } | null)?.name ?? "—";
   const accountName =
     ((venueRow.data as { accounts?: { name?: string } | null } | null)

@@ -101,7 +101,7 @@ function FloatingField({
           type={type}
           autoComplete={autoComplete}
           placeholder={focused ? (placeholder ?? "") : ""}
-          className={`absolute inset-0 w-full h-full bg-transparent pl-10 ${rightSlot ? "pr-10" : "pr-4"} text-sm text-gray-900 outline-none rounded-xl`}
+          className={`absolute inset-0 w-full h-full bg-transparent pl-10 ${rightSlot ? "pr-10" : "pr-4"} text-base sm:text-sm text-gray-900 outline-none rounded-xl`}
           onFocus={() => setFocused(true)}
           onBlur={(e) => {
             setFocused(false);

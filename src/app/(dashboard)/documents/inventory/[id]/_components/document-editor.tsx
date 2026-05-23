@@ -242,6 +242,22 @@ export function InventoryDocumentEditor({
   // Просмотр фото ингредиента в попапе (удобно на мобильном).
   const [previewImage, setPreviewImage] = useState<{ url: string; name: string } | null>(null);
   const [fillState, setFillState] = useState<FillState>(DEFAULT_FILL_STATE);
+  // «Только на пересчёт»: фильтр показывает лишь позиции с needsRecount. По
+  // умолчанию включён, когда акт вернули на пересчёт и есть отмеченные строки —
+  // исполнитель сразу видит, что перепроверять (остальные в этом режиме
+  // редактировать нельзя, см. disabled у поля ввода ниже).
+  const [recountOnly, setRecountOnly] = useState(
+    () => document.status === "recount_pending" && items.some((it) => it.needsRecount),
+  );
+  // После submit'а вызывается router.refresh(): props обновляются без
+  // ремаунта. Если пересчёт сбросил все needsRecount-флаги — выключаем фильтр,
+  // иначе список остался бы отфильтрован по устаревшему условию и выглядел бы
+  // пустым, пока юзер не нажмёт «Очистить все» (Codex P2).
+  useEffect(() => {
+    if (recountOnly && !items.some((it) => it.needsRecount)) {
+      setRecountOnly(false);
+    }
+  }, [items, recountOnly]);
   // sorts: пустой массив = «Порядок QR» (исходный). Каждый элемент = combined
   // field+direction. Применяется по приоритету (первый — основной ключ).
   const [sorts, setSorts] = useState<FormSortMode[]>([]);
@@ -306,6 +322,8 @@ export function InventoryDocumentEditor({
       if (selectedGroupIds && (!item.groupId || !selectedGroupIds.has(item.groupId))) {
         return false;
       }
+      // «Только на пересчёт» — лишь отмеченные строки.
+      if (recountOnly && !item.needsRecount) return false;
       // Fill-state фильтр — на live values, не snapshot: пользователь
       // ожидает, что после ввода значения строка пропадает из «только
       // пустые» (а не сохраняется до blur, как snapshot-сортировка).
@@ -348,7 +366,7 @@ export function InventoryDocumentEditor({
       }
       return (itemOrderById.get(left.id) ?? 0) - (itemOrderById.get(right.id) ?? 0);
     });
-  }, [fillState, itemOrderById, items, searchQuery, selectedGroupIds, sorts, sortValuesSnapshot, values]);
+  }, [fillState, itemOrderById, items, recountOnly, searchQuery, selectedGroupIds, sorts, sortValuesSnapshot, values]);
 
   // При добавлении сорта по заполненности — обновить snapshot, чтобы первая
   // сортировка отражала текущие values. На updateField/direction в уже
@@ -480,7 +498,8 @@ export function InventoryDocumentEditor({
   // ── Controls state-derivatives ────────────────────────────
   const hasGroupFilter = Boolean(selectedGroupId);
   const hasFillFilter = fillState !== DEFAULT_FILL_STATE;
-  const hasActiveFilters = hasGroupFilter || hasFillFilter;
+  const hasRecountFilter = recountOnly;
+  const hasActiveFilters = hasGroupFilter || hasFillFilter || hasRecountFilter;
   const hasSortActive = sorts.length > 0;
   const hasSearch = searchQuery.trim().length > 0;
   const hasAnyActive = hasActiveFilters || hasSortActive || hasSearch;
@@ -498,6 +517,7 @@ export function InventoryDocumentEditor({
     setSearchOpen(false);
     setSelectedGroupId("");
     setFillState(DEFAULT_FILL_STATE);
+    setRecountOnly(false);
     setSorts([]);
   }, []);
 
@@ -639,8 +659,30 @@ export function InventoryDocumentEditor({
           Сортировка → divider → Фильтры (Группа) → divider → Поиск → «Очистить все». */}
       {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
           сортировки) — иначе торчит одинокая «Очистить все». */}
-      {(filtersVisible || hasSortActive || hasActiveFilters) ? (
+      {(filtersVisible || hasSortActive || hasActiveFilters || flaggedItemsCount > 0) ? (
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          {/* Тоггл «Только на пересчёт» — доступен, когда есть отмеченные
+              строки (в первую очередь на пересчёте). Простой on/off-пин, без
+              поповера. */}
+          {flaggedItemsCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setRecountOnly((v) => !v)}
+              aria-pressed={recountOnly}
+              className={cn(
+                "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm transition-colors",
+                recountOnly
+                  ? "border-rose-300 bg-rose-500/10 text-rose-700 hover:bg-rose-500/15 dark:border-rose-500/40 dark:text-rose-300"
+                  : "border-transparent bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground",
+              )}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Только на пересчёт
+            </button>
+          ) : null}
+
+          {flaggedItemsCount > 0 && (hasSortActive || filtersVisible || showSearchPin) ? <PinDivider /> : null}
+
           {hasSortActive ? (
             <TableControlPin
               active
@@ -811,7 +853,9 @@ export function InventoryDocumentEditor({
             <div className="flex items-center justify-end gap-1.5">
               <Input
                 inputMode="decimal"
-                disabled={formLocked}
+                // На пересчёте редактируем только отмеченные строки; остальные
+                // read-only (исполнитель не трогает то, что не просили считать).
+                disabled={formLocked || (isRecountPending && !item.needsRecount)}
                 value={values[item.id] ?? ""}
                 onChange={(event) => {
                   const next = sanitizeAmountInput(event.target.value);

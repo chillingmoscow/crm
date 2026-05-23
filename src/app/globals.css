@@ -912,6 +912,20 @@ input:-webkit-autofill {
   }
 }
 
+/* Утилита: скрыть элемент на тач-устройствах (coarse pointer / нет hover).
+ * Гейт по input-mode, а НЕ по ширине экрана — тач-планшет шире 768px тоже
+ * тач, а узкое desktop-окно с физической клавиатурой — нет. Используется для
+ * клавиатуро-зависимого UI (пункт «Горячие клавиши» в меню профиля). По
+ * умолчанию элемент — flex (как был `md:flex`); на coarse скрываем. */
+.hide-on-coarse-pointer {
+  display: flex;
+}
+@media (hover: none), (pointer: coarse) {
+  .hide-on-coarse-pointer {
+    display: none !important;
+  }
+}
+
 /* Hover-hold tooltip — popover справа от пункта slash-меню, появляется
  * через ~1.2 сек удержания курсора. Рендерится в document.body
  * (createPortal), поэтому селектор глобальный. */

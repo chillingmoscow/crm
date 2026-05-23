@@ -1002,13 +1002,57 @@ const SPECS: Record<string, AuditEventSpec> = {
   },
 };
 
+// ── inventory.* ───────────────────────────────────────────────────
+// Audit-коды событий акта инвентаризации = `inventory.<eventType>` (см.
+// writeInventoryResultEvent в inventory/actions-shared.ts). Раньше их не было
+// в SPECS → в общем журнале /org/audit показывался сырой код. Метки
+// согласованы с журналом акта (inventory-result-journal.tsx). Сущность
+// inventory_document в AuditEntitySnapshot не резолвится, поэтому фраза без
+// ссылки — просто человекочитаемое действие.
+const INVENTORY_EVENT_SPECS: Array<[string, string, LucideIcon, string]> = [
+  ["draft_started", "начал(а) заполнение акта инвентаризации", FileEdit, "text-sky-600 bg-sky-50"],
+  ["submitted", "завершил(а) акт инвентаризации", CircleArrowUp, "text-emerald-600 bg-emerald-50"],
+  ["assignee_changed", "сменил(а) исполнителя акта инвентаризации", UserPlus, "text-blue-600 bg-blue-50"],
+  ["reviewer_changed", "сменил(а) проверяющего акта инвентаризации", IdCard, "text-blue-600 bg-blue-50"],
+  ["recount_marked", "отметил(а) позицию акта на пересчёт", RotateCcw, "text-amber-600 bg-amber-50"],
+  ["recount_unmarked", "снял(а) отметку пересчёта в акте", RotateCcw, "text-muted-foreground bg-muted"],
+  ["returned_for_recount", "вернул(а) акт инвентаризации на пересчёт", RotateCcw, "text-amber-600 bg-amber-50"],
+  ["resort_created", "создал(а) пересорт в акте инвентаризации", ArrowLeftRight, "text-violet-600 bg-violet-50"],
+  ["resort_voided", "отменил(а) пересорт в акте инвентаризации", RotateCcw, "text-muted-foreground bg-muted"],
+  ["suggestion_applied", "применил(а) подсказку пересорта", ArrowLeftRight, "text-violet-600 bg-violet-50"],
+  ["suggestion_dismissed", "скрыл(а) подсказку пересорта", Activity, "text-muted-foreground bg-muted"],
+  ["results_finalized", "подвёл(а) итоги акта инвентаризации", Lock, "text-emerald-600 bg-emerald-50"],
+  ["results_reopened", "переоткрыл(а) итоги акта инвентаризации", LockOpen, "text-amber-600 bg-amber-50"],
+  ["results_refreshed", "обновил(а) итоги акта инвентаризации", RotateCcw, "text-sky-600 bg-sky-50"],
+  ["comment_updated", "оставил(а) комментарий к позиции акта", Pencil, "text-sky-600 bg-sky-50"],
+  ["exclude_enabled", "исключил(а) позицию из итогов акта", Archive, "text-amber-600 bg-amber-50"],
+  ["exclude_disabled", "вернул(а) позицию в итог акта", RotateCcw, "text-muted-foreground bg-muted"],
+  ["persistent_exclusion_enabled", "добавил(а) автоисключение позиции", ShieldX, "text-amber-600 bg-amber-50"],
+  ["persistent_exclusion_disabled", "убрал(а) автоисключение позиции", ShieldPlus, "text-muted-foreground bg-muted"],
+  ["description_updated", "изменил(а) описание ингредиента", Pencil, "text-sky-600 bg-sky-50"],
+  ["supplier_added", "добавил(а) поставщика ингредиента", FilePlus2, "text-emerald-600 bg-emerald-50"],
+  ["supplier_updated", "изменил(а) поставщика ингредиента", Pencil, "text-sky-600 bg-sky-50"],
+  ["supplier_removed", "удалил(а) поставщика ингредиента", Trash2, "text-destructive bg-destructive/10"],
+];
+
+const INVENTORY_SPECS: Record<string, AuditEventSpec> = Object.fromEntries(
+  INVENTORY_EVENT_SPECS.map(([type, phrase, icon, iconClass]) => [
+    `inventory.${type}`,
+    {
+      icon,
+      iconClass,
+      buildHeadline: () => <>{phrase}</>,
+    } satisfies AuditEventSpec,
+  ]),
+);
+
 export function describeAuditEvent(event: AuditEvent): {
   icon: LucideIcon;
   iconClass: string;
   headline: ReactNode;
   details: ReactNode | null;
 } {
-  const spec = SPECS[event.action_code];
+  const spec = SPECS[event.action_code] ?? INVENTORY_SPECS[event.action_code];
   if (!spec) {
     return {
       icon: Activity,

@@ -249,6 +249,15 @@ export function InventoryDocumentEditor({
   const [recountOnly, setRecountOnly] = useState(
     () => document.status === "recount_pending" && items.some((it) => it.needsRecount),
   );
+  // После submit'а вызывается router.refresh(): props обновляются без
+  // ремаунта. Если пересчёт сбросил все needsRecount-флаги — выключаем фильтр,
+  // иначе список остался бы отфильтрован по устаревшему условию и выглядел бы
+  // пустым, пока юзер не нажмёт «Очистить все» (Codex P2).
+  useEffect(() => {
+    if (recountOnly && !items.some((it) => it.needsRecount)) {
+      setRecountOnly(false);
+    }
+  }, [items, recountOnly]);
   // sorts: пустой массив = «Порядок QR» (исходный). Каждый элемент = combined
   // field+direction. Применяется по приоритету (первый — основной ключ).
   const [sorts, setSorts] = useState<FormSortMode[]>([]);

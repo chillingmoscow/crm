@@ -378,6 +378,18 @@ className={cn(
   `.bn-formatting-toolbar`, `flex-shrink: 0` на прямых детях (`> *`), под
   `@media (max-width: 768px)`. Поповеры (стиль/палитра) идут Radix-порталом в
   body — overflow тулбара их не режет. Пример — globals.css §«Formatting toolbar».
+- **Hover-preview ссылок на touch ломает навигацию (двойной тап + «залипание»)**:
+  [`kb-link-preview.tsx`](../src/app/(dashboard)/knowledge/_components/kb-link-preview.tsx)
+  слушает `mouseover` на document и показывает превью KB-ссылки. На iOS первый
+  тап по ссылке эмулирует `mouseover` (превью), а навигация — лишь на ВТОРОЙ
+  тап; вдобавок `mouseout` на touch не приходит → превью «залипает» поверх
+  страницы. Фикс — на coarse-pointer не вешать listener вовсе (ранний `return`
+  в эффекте по `matchMedia("(hover: none), (pointer: coarse)")`). Узлы дерева и
+  ссылки открываются с первого тапа. Общий принцип: **любой hover-only UI
+  (превью, тултипы по `mouseover`) гасить на тач.**
+- **Зум при фокусе на полях логина**: см. §2. На странице входа кастомный
+  `<input>` имел `text-sm` (14px) → iOS зумил. Фикс — `text-base sm:text-sm`
+  ([`login/page.tsx`](../src/app/(auth)/login/page.tsx)).
 
 ---
 

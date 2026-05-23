@@ -65,6 +65,20 @@ export function KbLinkPreview() {
   const currentKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // На тач-устройствах hover-preview не нужен и вреден: iOS эмулирует
+    // `mouseover` на ПЕРВЫЙ тап по ссылке (показывает превью), а навигация
+    // происходит лишь на ВТОРОЙ тап; вдобавок превью «залипает», т.к.
+    // `mouseout` на touch не приходит. Поэтому на coarse-pointer не вешаем
+    // listener вовсе — ссылки/узлы дерева открываются с первого тапа, превью
+    // не мешает.
+    if (
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(hover: none), (pointer: coarse)").matches
+    ) {
+      return;
+    }
+
     const onOver = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (!target) return;

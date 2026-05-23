@@ -28,11 +28,15 @@ export type TableRowMenuAction = {
 
 type TableRowMenuProps = {
   actions: TableRowMenuAction[];
+  /** Прокидывается из карточки, чтобы подавить «click-through» навигацию:
+      на тач-устройствах закрытие меню оставляет «призрачный» click, который
+      попадает на кликабельную карточку под меню. */
+  onOpenChange?: (open: boolean) => void;
 };
 
-export function TableRowMenu({ actions }: TableRowMenuProps) {
+export function TableRowMenu({ actions, onOpenChange }: TableRowMenuProps) {
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <Tooltip delayDuration={450}>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>

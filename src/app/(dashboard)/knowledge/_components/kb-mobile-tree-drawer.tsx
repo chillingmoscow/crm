@@ -74,7 +74,11 @@ export function KbMobileTreeDrawer({
       </SheetTrigger>
       <SheetContent
         side="left"
-        className="w-[88vw] max-w-sm bg-sidebar p-0"
+        className="flex w-[88vw] max-w-sm flex-col bg-sidebar p-0"
+        // Не автофокусим первый элемент (кнопку «Поиск») — иначе на тач её
+        // Tooltip раскрывается по фокусу и подсказка «Поиск (⌘K)» висит при
+        // каждом открытии дровера.
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <SheetHeader className="border-b px-4 py-3">
           <SheetTitle className="text-sm">База знаний</SheetTitle>
@@ -82,7 +86,11 @@ export function KbMobileTreeDrawer({
             Дерево страниц базы знаний
           </SheetDescription>
         </SheetHeader>
-        <div className="overflow-y-auto h-[calc(100vh-3.25rem)]">
+        {/* flex-1 + min-h-0 вместо h-[calc(100vh-…)]: 100vh на мобильном
+            Safari переоценивает высоту (учитывает адресную строку), из-за чего
+            нижняя секция «Инструменты менеджера» уходила за низ экрана и была
+            недоступна. Теперь контейнер ровно заполняет Sheet и скроллится. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <KbTreeNav
             nodes={nodes}
             favorites={favorites}

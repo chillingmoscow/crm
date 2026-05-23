@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   KB_COLLECTION_VIEW_LABELS,
   type KbCollectionView,
@@ -66,6 +67,9 @@ export function CollectionViewMenu({
   >("root");
   const [nameDraft, setNameDraft] = useState(viewName);
   const [descriptionDraft, setDescriptionDraft] = useState(description);
+  // На мобильном не автофокусим поле переименования — иначе при открытии
+  // панели сразу всплывает клавиатура. На desktop фокус удобен.
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     setNameDraft(viewName);
@@ -103,7 +107,7 @@ export function CollectionViewMenu({
             value={nameDraft}
             className="h-9 min-w-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
             aria-label="Название вида"
-            autoFocus
+            autoFocus={!isMobile}
             onChange={(event) => setNameDraft(event.currentTarget.value)}
             onBlur={() => onRename(nameDraft)}
             onKeyDown={(event) => {

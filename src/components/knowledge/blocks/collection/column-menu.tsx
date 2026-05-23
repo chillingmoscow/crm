@@ -18,6 +18,7 @@ import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import {
   KB_COLLECTION_CREATABLE_FIELD_TYPES,
@@ -643,6 +644,10 @@ function CollectionColumnInsertPanel({
   onCreate: () => void;
 }) {
   const ActiveIcon = FIELD_ICONS[type];
+  // На мобильном не автофокусим поле имени — иначе при открытии панели
+  // вставки колонки сразу всплывает экранная клавиатура. На desktop фокус
+  // удобен (можно сразу печатать).
+  const isMobile = useIsMobile();
 
   return (
     <div className="kb-collection-column-insert-panel">
@@ -666,7 +671,7 @@ function CollectionColumnInsertPanel({
         <ActiveIcon className="size-4" />
         <Input
           value={name}
-          autoFocus
+          autoFocus={!isMobile}
           onChange={(event) => onNameChange(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {

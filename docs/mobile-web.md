@@ -362,6 +362,39 @@ className={cn(
 
 ---
 
+## 14. Коллекция БЗ (collection-блок) на мобильном
+
+Файлы: [`kb-collection-block.tsx`](../src/components/knowledge/blocks/kb-collection-block.tsx),
+[`collection/`](../src/components/knowledge/blocks/collection/).
+
+- **`React stopPropagation` НЕ останавливает нативные listener'ы ProseMirror.**
+  Collection-блок — это custom BlockNote-блок внутри `contenteditable`-редактора.
+  ProseMirror вешает **нативный** `mousedown`-listener на корень редактора;
+  React-`stopPropagation` (события навешаны делегацией на корень React) его не
+  гасит. Поэтому тап по chrome блока (тулбар, вкладки видов, шапки колонок) всё
+  равно фокусировал редактор под islandом → на iOS **вылезала клавиатура**, а
+  тап уходил в выделение текста вместо открытия меню. `contentEditable={false}`
+  на блоке не помогает — фокус уходит на редактор-предок. **Фикс:**
+  `onMouseDownCapture` на корне блока с `event.preventDefault()` (capture-фаза,
+  ДО дочерних хендлеров → ProseMirror видит `defaultPrevented`). Исключаем
+  `input, textarea, select, [contenteditable='true'], [role='cell']` — полям и
+  ячейкам фокус/редактирование нужны.
+- **`autoFocus` в поповер-инпутах = клавиатура на мобильном.** Поля
+  переименования колонки/вида (`column-menu.tsx`, `view-menu.tsx`) автофокусились
+  при открытии меню → iOS поднимал клавиатуру. Поповеры рендерятся Radix-порталом
+  в body (вне блока), так что capture-preventDefault их не ловит. **Фикс:**
+  `autoFocus={!useIsMobile()}` — фокус только на desktop.
+- **`user-select: none` на chrome `contentEditable={false}`-блока.** Текст
+  заголовка/вкладок/тулбара/шапок колонок — selectable по умолчанию (false
+  запрещает только редактирование, не выделение). iOS выделял пол-страницы по
+  тапу. Глушим `user-select` на chrome, оставляем `text` на `input/textarea`.
+- **Ячейки таблицы: `overflow: hidden`.** На узких колонках (мобильный) теги
+  мультиселекта/длинный текст шире трека грид-колонки и без клипа **наезжали на
+  соседний столбец**. Грид сам контент не обрезает — добавили `overflow: hidden`
+  на `.kb-collection-table-cell`.
+
+---
+
 ## Карта файлов
 
 | Область | Файл |

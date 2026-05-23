@@ -338,6 +338,13 @@ className={cn(
   отдельным строкам (№/дата/статус → комментарий → склад+итог → исполнитель →
   проверяющий). Денежный итог — одно нетто-число со знаком и цветом, как в
   десктоп-таблице (не «−X / +Y»).
+- **Кастомные slash/suggestion-меню (BlockNote) на touch**: десктоп-only
+  hover-обвязка (per-item wrapper с `onMouseEnter/Leave` + таймер +
+  портал-тултип) ломает тап по пункту (меню не срабатывает, повторные тапы →
+  подвисание/перезагрузка). На touch (`matchMedia("(hover: none)")`) рендери
+  пункт как **дефолтный** `Components.SuggestionMenu.Item` — дефолтное меню
+  BlockNote на мобильном работает. Пример —
+  [`kb-slash-menu.tsx`](../src/app/(dashboard)/knowledge/_components/kb-slash-menu.tsx).
 
 ---
 

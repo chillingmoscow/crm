@@ -58,6 +58,13 @@ export function PageHeaderBreadcrumbSlot() {
   return <>{ctx?.breadcrumb ?? null}</>;
 }
 
+/** Текущий breadcrumb-node из контекста (или null). Нужен, чтобы условно
+ *  не рендерить контейнеры, когда breadcrumb не задан (напр. мобильная
+ *  вторая строка шапки БЗ не должна висеть пустой полосой). */
+export function usePageHeaderBreadcrumb() {
+  return useContext(PageHeaderContext)?.breadcrumb ?? null;
+}
+
 /** Page-side: пушит actions в правый слот */
 export function PageHeaderActions({ children }: { children: ReactNode }) {
   const ctx = useContext(PageHeaderContext);

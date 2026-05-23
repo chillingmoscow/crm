@@ -12,6 +12,7 @@ import {
 import { KbLinkPreview } from "@/app/(dashboard)/knowledge/_components/kb-link-preview";
 import { KbHotkeyListener } from "@/app/(dashboard)/knowledge/_components/kb-hotkey-listener";
 import { KbSaveStatusBadge } from "@/app/(dashboard)/knowledge/_components/kb-save-status";
+import { KbMobileSubHeader } from "@/app/(dashboard)/knowledge/_components/kb-mobile-sub-header";
 import { NotificationBell } from "@/components/shared/notification-bell";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -113,12 +114,10 @@ export default async function KnowledgeLayout({
             <PageHeaderActionsSlot />
             <NotificationBell />
           </header>
-          {/* Mobile-only вторая строка: breadcrumb + «Сохранено». */}
-          <div className="md:hidden sticky top-14 z-20 flex items-center gap-2 border-b bg-background/95 px-4 py-2 backdrop-blur">
-            <PageHeaderBreadcrumbSlot />
-            <div className="flex-1" />
-            <KbSaveStatusBadge />
-          </div>
+          {/* Mobile-only вторая строка: breadcrumb + «Сохранено». Рендерится
+              только когда breadcrumb задан (страницы-редакторы) — на корне БЗ /
+              дашборде (hideBreadcrumb) пустой полосы нет (Codex P2 на #438). */}
+          <KbMobileSubHeader />
           {children}
         </main>
       </div>

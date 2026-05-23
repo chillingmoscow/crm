@@ -839,6 +839,9 @@ function ProfileMenu({
           <LifeBuoy className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Помощь и поддержка</span>
         </button>
+        {/* Горячие клавиши: только на desktop — на мобильном нет
+            физической клавиатуры, пункт (и его шорткат «Shift ?»)
+            бессмысленны. hidden md:flex прячет его ниже md (768px). */}
         <button
           type="button"
           onClick={() => {
@@ -846,7 +849,7 @@ function ProfileMenu({
             // TODO: open hotkeys modal — placeholder for now
             window.dispatchEvent(new CustomEvent("hotkeys:open"));
           }}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
+          className="hidden md:flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium hover:bg-accent transition-colors w-full text-left"
         >
           <Keyboard className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="flex-1">Горячие клавиши</span>

@@ -2141,6 +2141,25 @@ button.kb-gallery-menu-item {
 .bn-sheerly .kb-collection-block:focus-visible {
   outline: none;
 }
+/* Chrome коллекции (заголовок/вкладки видов/тулбар/шапки колонок) — не
+ * выделять текст по тапу. Блок contentEditable=false, его текст не
+ * редактируется; на iOS тап по шапке выделял пол-страницы вместо открытия
+ * меню. Поля ввода (поиск, переименование) и значения ячеек остаются
+ * выделяемыми (их не трогаем). Дополняет capture-preventDefault в
+ * kb-collection-block.tsx. */
+.bn-sheerly .kb-collection-header,
+.bn-sheerly .kb-collection-view-tabs,
+.bn-sheerly .kb-collection-actions,
+.bn-sheerly .kb-collection-table-head-cell {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.bn-sheerly .kb-collection-block input,
+.bn-sheerly .kb-collection-block textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
 .bn-sheerly .kb-collection-header {
   display: flex;
   flex-direction: column;
@@ -3077,6 +3096,11 @@ button.kb-gallery-menu-item {
   display: flex;
   align-items: center;
   cursor: default;
+  /* Контент ячейки (теги мультиселекта, длинный текст) не должен вылезать
+   * за границу колонки в соседнюю — на узких колонках (мобильный) теги
+   * шире трека и без клипа наезжали на следующий столбец. Клипаем по
+   * границе ячейки. */
+  overflow: hidden;
 }
 .bn-sheerly .kb-collection-table-cell[data-field-type="checkbox"] {
   justify-content: center;

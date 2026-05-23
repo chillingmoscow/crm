@@ -1890,6 +1890,27 @@ function KbCollectionBlock({ block, editor }: CollectionRenderProps) {
       data-settings-open={settingsOpen || undefined}
       contentEditable={false}
       style={blockStyle}
+      onMouseDownCapture={(event) => {
+        // ProseMirror вешает НАТИВНЫЙ mousedown-listener на корень редактора
+        // и игнорирует React-stopPropagation (он останавливает только
+        // синтетическое всплытие). Поэтому тап по chrome блока (тулбар,
+        // вкладки видов, шапки колонок) всё равно фокусировал contenteditable
+        // редактора под islandом → на iOS вылезала клавиатура, а сам тап
+        // уходил в выделение текста вместо открытия меню. preventDefault в
+        // capture-фазе глушит дефолт ДО дочерних хендлеров — ProseMirror видит
+        // defaultPrevented и не лезет в фокус/селекцию. Поля ввода (поиск,
+        // переименование) и ячейки таблицы исключаем — им фокус/редактирование
+        // нужны (ввод в ячейке управляется собственными pointer-хендлерами).
+        const target = event.target as HTMLElement | null;
+        if (
+          target?.closest(
+            "input, textarea, select, [contenteditable='true'], [role='cell']",
+          )
+        ) {
+          return;
+        }
+        event.preventDefault();
+      }}
     >
       <div className="kb-collection-header">
         {activeLayoutSettings.showDataSourceTitle && (

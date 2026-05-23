@@ -643,6 +643,21 @@ function CollectionColumnInsertPanel({
   onCreate: () => void;
 }) {
   const ActiveIcon = FIELD_ICONS[type];
+  // На тач-устройствах не автофокусим поле имени — иначе при открытии панели
+  // вставки колонки сразу всплывает экранная клавиатура. На desktop фокус
+  // удобен (можно сразу печатать). ВАЖНО: значение нужно знать СИНХРОННО на
+  // первом рендере — `autoFocus` применяется только при mount'е. Хук
+  // useIsMobile() инициализируется как false и обновляется лишь в effect'е,
+  // т.е. на первом рендере дал бы autoFocus=true и клавиатуру всё равно (Codex
+  // P1 #443). Поэтому читаем pointer-режим из matchMedia в lazy-инициализаторе
+  // useState — он отрабатывает синхронно на mount'е. Заодно гейт по input-mode
+  // корректнее ширины экрана (тач-планшет > 768px тоже тач).
+  const [coarsePointer] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(hover: none), (pointer: coarse)").matches,
+  );
 
   return (
     <div className="kb-collection-column-insert-panel">
@@ -666,7 +681,7 @@ function CollectionColumnInsertPanel({
         <ActiveIcon className="size-4" />
         <Input
           value={name}
-          autoFocus
+          autoFocus={!coarsePointer}
           onChange={(event) => onNameChange(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {

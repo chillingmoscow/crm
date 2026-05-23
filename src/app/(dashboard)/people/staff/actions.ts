@@ -538,6 +538,13 @@ export async function setImportedStaffEmailAndInvite(data: {
     return { error: "Недостаточно прав для отправки приглашения", invitation: null };
   }
 
+  // SMTP проверяем ДО мутации auth.users: иначе при ненастроенном SMTP мы бы
+  // сменили email/сбросили подтверждение и вышли с ошибкой — сотрудник остался
+  // бы с изменённым неподтверждённым email и без ссылки-приглашения (Codex P1).
+  if (!hasCustomMailerConfig()) {
+    return { error: "SMTP mailer не настроен", invitation: null };
+  }
+
   const admin = createAdminClient();
 
   // Шаг 1: меняем email в auth.users, сбрасываем подтверждение и ставим
@@ -590,9 +597,7 @@ export async function setImportedStaffEmailAndInvite(data: {
   // email-link. GoTrue-ссылка ведёт на свой SITE_URL (Supabase-домен с
   // basic-auth) и не попадает в наше приложение — см. подробный коммент в
   // inviteStaff. Генерим токен в invitations и шлём /invite/accept?token=.
-  if (!hasCustomMailerConfig()) {
-    return { error: "SMTP mailer не настроен", invitation: null };
-  }
+  // (SMTP уже проверили выше, до мутации auth.users.)
 
   // Один pending-invite на email+venue.
   await supabase

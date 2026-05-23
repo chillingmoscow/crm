@@ -40,6 +40,20 @@ export function KbSlashMenu(
   const Components = useComponentsContext()!;
   const { items, selectedIndex, onItemClick } = props;
 
+  // На тач-устройствах (нет hover) рендерим пункты как дефолтный BN-Item —
+  // без кастомного hover-hold wrapper'а. Hover-подсказка на touch бессмысленна,
+  // а лишняя обёртка с onMouseEnter/Leave + таймером + портал-тултипом ломала
+  // тап по пункту: меню не срабатывало, при повторных тапах страница подвисала
+  // и перезагружалась. Дефолтный SuggestionMenu BlockNote на мобильном
+  // работает — на touch к нему и сводимся. На desktop — прежний hover-hold.
+  const [coarsePointer, setCoarsePointer] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    setCoarsePointer(
+      window.matchMedia("(hover: none), (pointer: coarse)").matches,
+    );
+  }, []);
+
   const renderedItems = useMemo<ReactNode[]>(() => {
     let currentGroup: string | undefined;
     const out: ReactNode[] = [];
@@ -57,18 +71,29 @@ export function KbSlashMenu(
         );
       }
       out.push(
-        <KbSlashItem
-          key={`${item.title}-${i}`}
-          item={item}
-          isSelected={i === selectedIndex}
-          id={`bn-suggestion-menu-item-${i}`}
-          onClick={() => onItemClick?.(item)}
-          ItemComponent={Components.SuggestionMenu.Item}
-        />,
+        coarsePointer ? (
+          <Components.SuggestionMenu.Item
+            key={`${item.title}-${i}`}
+            className="bn-suggestion-menu-item"
+            item={item}
+            id={`bn-suggestion-menu-item-${i}`}
+            isSelected={i === selectedIndex}
+            onClick={() => onItemClick?.(item)}
+          />
+        ) : (
+          <KbSlashItem
+            key={`${item.title}-${i}`}
+            item={item}
+            isSelected={i === selectedIndex}
+            id={`bn-suggestion-menu-item-${i}`}
+            onClick={() => onItemClick?.(item)}
+            ItemComponent={Components.SuggestionMenu.Item}
+          />
+        ),
       );
     }
     return out;
-  }, [Components, items, onItemClick, selectedIndex]);
+  }, [Components, items, onItemClick, selectedIndex, coarsePointer]);
 
   return (
     <Components.SuggestionMenu.Root

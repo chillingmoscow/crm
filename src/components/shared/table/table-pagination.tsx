@@ -33,13 +33,11 @@ export function TablePagination({
   if (total <= 0) return null;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const from = pageIndex * pageSize + 1;
-  const to = Math.min(total, (pageIndex + 1) * pageSize);
 
   return (
-    <div className="flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        Строк на странице:{" "}
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm text-muted-foreground">
+      <div className="flex items-center">
+        Строк:
         <Select
           value={String(pageSize)}
           onValueChange={(value) => {
@@ -58,10 +56,9 @@ export function TablePagination({
             ))}
           </SelectContent>
         </Select>
-        <span className="ml-2 tabular-nums">
-          {from}-{to} из {total}
-          {hiddenCount > 0 ? <span className="ml-1 text-muted-foreground/80">· скрыто: {hiddenCount}</span> : null}
-        </span>
+        {hiddenCount > 0 ? (
+          <span className="ml-2 tabular-nums text-muted-foreground/80">скрыто: {hiddenCount}</span>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-1">

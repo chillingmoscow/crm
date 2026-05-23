@@ -832,7 +832,7 @@ export function DocumentsTable({
   const showSearchPin = hasSearch && (filtersVisible || hasSortActive || hasActiveFilters);
 
   return (
-    <div className="w-full space-y-6 p-6 md:p-8">
+    <div className="w-full space-y-6 px-4 py-6 md:p-8">
       <TablePageHeader
         title="Акты инвентаризации"
         subtitle="Заполнение, итоги и пересорт по строкам Quick Resto"
@@ -874,7 +874,7 @@ export function DocumentsTable({
             primaryActions={
               canSync ? (
                 <TableSplitButton
-                  label="Синхронизировать QR"
+                  label="Синхронизировать"
                   icon={isSyncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   primaryTooltip="Только акты"
                   menuTooltip="Выбрать объём синхронизации"

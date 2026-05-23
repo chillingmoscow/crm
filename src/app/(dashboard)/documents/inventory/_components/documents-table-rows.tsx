@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import {
   ClipboardCheck,
   FileX2,
@@ -41,6 +41,7 @@ import { TableRowMenu } from "@/components/shared/table";
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
+import { cn } from "@/lib/utils";
 import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/actions";
 import type { DocumentListRow } from "@/lib/inventory/list-documents-shared";
 
@@ -274,6 +275,10 @@ export function MobileCard({
   const [reviewerSheetOpen, setReviewerSheetOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  // Подавляем «click-through» навигацию после закрытия меню действий: на тач-
+  // устройствах тап по пункту меню закрывает его, и «призрачный» click падает
+  // на кликабельную карточку → она уводила в акт вместо открытия панели.
+  const lastMenuCloseRef = useRef(0);
   const href = getDocHref(doc, canViewResults);
   const assigneeName = staff.find((m) => m.id === doc.assigned_to)?.name;
   const reviewerName = staff.find((m) => m.id === doc.reviewer_id)?.name;
@@ -338,24 +343,27 @@ export function MobileCard({
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest("[data-row-interactive]")) return;
+        // Подавляем навигацию-«призрак» сразу после закрытия меню (тач).
+        if (Date.now() - lastMenuCloseRef.current < 500) return;
         router.push(href);
       }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Строка 1: № + дата + статус */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <Link href={href} className="text-sm font-medium hover:underline" data-row-interactive>
               № {doc.document_number}
             </Link>
+            <span className="text-xs text-muted-foreground">{formatDate(doc.invoice_date)}</span>
             <InventoryStatusBadge status={doc.status} className="text-[10px]" />
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {formatDate(doc.invoice_date)}
-            {doc.store_title ? <> · {doc.store_title}</> : null}
-          </div>
+
+          {/* Строка 2: комментарий (если есть) */}
           {doc.comment ? (
             <div className="mt-1 truncate text-xs text-muted-foreground">{doc.comment}</div>
           ) : null}
+
           {searchActive && doc.matched_ingredients && doc.matched_ingredients.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1">
               {doc.matched_ingredients.map((name) => (
@@ -366,22 +374,53 @@ export function MobileCard({
               ))}
             </div>
           ) : null}
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
-            <span className="text-muted-foreground">
-              {doc.results_has_line_amounts
-                ? `−${formatMoney(Math.abs(doc.shortfall_sum ?? 0), "RUB", amountRoundingScale)} / +${formatMoney(Math.abs(doc.surplus_sum ?? 0), "RUB", amountRoundingScale)}`
-                : "—"}
-            </span>
-            <span className="text-muted-foreground">
-              {assigneeName ? <>Исполнитель: {assigneeName}</> : "Исполнитель не назначен"}
-            </span>
-            {reviewerName ? (
-              <span className="text-muted-foreground">Проверяющий: {reviewerName}</span>
+
+          {/* Строка 3: склад + результат (нетто, как на десктопе) */}
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            {doc.store_title ? (
+              <span className="text-muted-foreground">{doc.store_title}</span>
             ) : null}
+            {(() => {
+              if (!doc.results_has_line_amounts) {
+                return <span className="text-muted-foreground">—</span>;
+              }
+              const net = (doc.surplus_sum ?? 0) - (doc.shortfall_sum ?? 0);
+              const sign = net > 0 ? "+" : net < 0 ? "−" : "";
+              return (
+                <span
+                  className={cn(
+                    "font-medium tabular-nums",
+                    net > 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : net < 0
+                        ? "text-rose-600 dark:text-rose-400"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  {sign}
+                  {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
+                </span>
+              );
+            })()}
           </div>
+
+          {/* Строка 4: исполнитель */}
+          <div className="mt-1 text-xs text-muted-foreground">
+            {assigneeName ? <>Исполнитель: {assigneeName}</> : "Исполнитель не назначен"}
+          </div>
+
+          {/* Строка 5: проверяющий (если назначен) */}
+          {reviewerName ? (
+            <div className="mt-0.5 text-xs text-muted-foreground">Проверяющий: {reviewerName}</div>
+          ) : null}
         </div>
         <div data-row-interactive>
-          <TableRowMenu actions={rowActions} />
+          <TableRowMenu
+            actions={rowActions}
+            onOpenChange={(open) => {
+              if (!open) lastMenuCloseRef.current = Date.now();
+            }}
+          />
         </div>
       </div>
 

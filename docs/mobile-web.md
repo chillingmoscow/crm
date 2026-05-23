@@ -321,6 +321,23 @@ className={cn(
 - **Страница никогда не скроллится по горизонтали** — широкий контент в
   своём `overflow-x-auto`; гарантия — `overflow-x: hidden` на html/body.
 - **iOS reliability**: `overflow-x: hidden` ✅, single-axis `overflow: clip` ❌.
+- **Кликабельная карточка + портал-меню**: на тач закрытие меню (Radix
+  DropdownMenu) оставляет «призрачный» `click`, который падает на карточку
+  под меню → лишняя навигация. Подавляй навигацию ~500мс после закрытия меню
+  (через `onOpenChange` + `ref` с таймстампом). Пример — `MobileCard` в
+  [`documents-table-rows.tsx`](../src/app/(dashboard)/documents/inventory/_components/documents-table-rows.tsx).
+- **`100vh` на мобильном Safari переоценивает высоту** (учитывает адресную
+  строку). Для full-height скролл-контейнеров (Sheet/дроверы) используй
+  `flex flex-col` + `flex-1 min-h-0 overflow-y-auto`, а не `h-[calc(100vh-…)]`
+  — иначе нижняя часть уходит за экран. Пример —
+  [`kb-mobile-tree-drawer.tsx`](../src/app/(dashboard)/knowledge/_components/kb-mobile-tree-drawer.tsx).
+- **Мобильный `Sheet`/дровер**: `onOpenAutoFocus={(e) => e.preventDefault()}`,
+  чтобы автофокус первого элемента не раскрывал его `Tooltip` (та же причина,
+  что у поповера столбцов, §5).
+- **Карточка-строка в списке** (мобильный аналог таблицы): данные — по
+  отдельным строкам (№/дата/статус → комментарий → склад+итог → исполнитель →
+  проверяющий). Денежный итог — одно нетто-число со знаком и цветом, как в
+  десктоп-таблице (не «−X / +Y»).
 
 ---
 

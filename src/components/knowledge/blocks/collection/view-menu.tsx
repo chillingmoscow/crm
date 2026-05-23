@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import { useIsMobile } from "@/hooks/use-mobile";
 import {
   KB_COLLECTION_VIEW_LABELS,
   type KbCollectionView,
@@ -67,9 +66,17 @@ export function CollectionViewMenu({
   >("root");
   const [nameDraft, setNameDraft] = useState(viewName);
   const [descriptionDraft, setDescriptionDraft] = useState(description);
-  // На мобильном не автофокусим поле переименования — иначе при открытии
-  // панели сразу всплывает клавиатура. На desktop фокус удобен.
-  const isMobile = useIsMobile();
+  // Не автофокусим поле переименования на тач-устройствах (иначе всплывает
+  // клавиатура). Значение читаем СИНХРОННО на mount'е через lazy-инициализатор
+  // useState (matchMedia), т.к. autoFocus применяется только при mount'е, а
+  // useIsMobile() на первом рендере вернул бы false → autoFocus=true и
+  // клавиатуру всё равно (Codex P1 #443). Гейт по input-mode корректнее ширины.
+  const [coarsePointer] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(hover: none), (pointer: coarse)").matches,
+  );
 
   useEffect(() => {
     setNameDraft(viewName);
@@ -107,7 +114,7 @@ export function CollectionViewMenu({
             value={nameDraft}
             className="h-9 min-w-0 border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
             aria-label="Название вида"
-            autoFocus={!isMobile}
+            autoFocus={!coarsePointer}
             onChange={(event) => setNameDraft(event.currentTarget.value)}
             onBlur={() => onRename(nameDraft)}
             onKeyDown={(event) => {

@@ -56,6 +56,9 @@ export type StaffMember = {
   medical_book_date: string | null;
   joined_at:         string;
   imported_from_quickresto?: boolean;
+  /** Есть ли неотозванное приглашение на email сотрудника (выставляется на
+   *  странице списка). Признак «приглашён, но не активировал». */
+  has_pending_invite?: boolean;
 };
 
 // Тир 1+2 — персональный профиль (user-owned). Видно во всех заведениях.
@@ -547,20 +550,24 @@ export async function setImportedStaffEmailAndInvite(data: {
 
   const admin = createAdminClient();
 
-  // Шаг 1: меняем email в auth.users, сбрасываем подтверждение и ставим
-  // флаг needs_password_setup. У placeholder-сотрудника ещё нет своего
-  // пароля — он задаст его на /invite/accept (acceptInvitation увидит флаг
-  // и установит пароль через admin, а не потребует «текущий»).
+  // Шаг 1: ставим флаг needs_password_setup (своего пароля у сотрудника ещё
+  // нет — задаст его на /invite/accept) и при необходимости меняем email.
+  // Если email тот же (повторная отправка) — НЕ дёргаем смену email, чтобы не
+  // запускать в GoTrue email-change flow на тот же адрес; обновляем только
+  // metadata. Иначе — меняем email и сбрасываем подтверждение.
   const { data: targetForMeta } = await admin.auth.admin.getUserById(data.userId);
+  const currentEmail = (targetForMeta?.user?.email ?? "").toLowerCase();
+  const emailUnchanged = currentEmail === nextEmail;
   const mergedMeta = {
     ...((targetForMeta?.user?.user_metadata as Record<string, unknown> | undefined) ?? {}),
     needs_password_setup: true,
   };
-  const { error: updateAuthError } = await admin.auth.admin.updateUserById(data.userId, {
-    email: nextEmail,
-    email_confirm: false,
-    user_metadata: mergedMeta,
-  });
+  const { error: updateAuthError } = await admin.auth.admin.updateUserById(
+    data.userId,
+    emailUnchanged
+      ? { user_metadata: mergedMeta }
+      : { email: nextEmail, email_confirm: false, user_metadata: mergedMeta },
+  );
   if (updateAuthError) {
     return { error: updateAuthError.message, invitation: null };
   }
@@ -599,14 +606,13 @@ export async function setImportedStaffEmailAndInvite(data: {
   // inviteStaff. Генерим токен в invitations и шлём /invite/accept?token=.
   // (SMTP уже проверили выше, до мутации auth.users.)
 
-  // Один pending-invite на email+venue.
-  await supabase
-    .from("invitations")
-    .delete()
-    .eq("venue_id", data.venueId)
-    .ilike("email", nextEmail)
-    .eq("status", "pending");
-
+  // Один pending-invite на email+venue. ВАЖНО — порядок безопасный:
+  // сначала вставляем новый инвайт и шлём письмо, и только ПОСЛЕ успешной
+  // отправки удаляем прочие pending-инвайты этого email+venue. Раньше старый
+  // удалялся ДО вставки нового — при сбое (вставка/SMTP) сотрудник оставался
+  // вообще без приглашения: старый токен уже удалён, новый откатан. Теперь
+  // при сбое удаляется только новая строка, а прежний (рабочий) инвайт цел —
+  // повторная отправка остаётся возможной (Codex P1 на #441).
   const token = randomUUID();
   const { data: insertedInvitation, error: invError } = await supabase
     .from("invitations")
@@ -638,12 +644,26 @@ export async function setImportedStaffEmailAndInvite(data: {
       existingUser: false,
     });
   } catch (emailError) {
+    // Откатываем только что созданную строку; прежние pending-инвайты не
+    // трогали — прежняя ссылка-приглашение продолжает работать.
     await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
     return {
       error: emailError instanceof Error ? emailError.message : "Не удалось отправить письмо",
       invitation: null,
     };
   }
+
+  // Письмо ушло — теперь чистим прежние pending-инвайты того же email+venue
+  // (кроме только что созданного), чтобы остался ровно один актуальный. Это
+  // best-effort: даже если delete не пройдёт, у сотрудника будет валидный
+  // (свежедоставленный) токен — не критично.
+  await supabase
+    .from("invitations")
+    .delete()
+    .eq("venue_id", data.venueId)
+    .ilike("email", nextEmail)
+    .eq("status", "pending")
+    .neq("id", insertedInvitation.id);
 
   revalidatePath("/people/staff");
   // Возвращаем invitation = null, т.к. строки в `invitations` мы не создавали —

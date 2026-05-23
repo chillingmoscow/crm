@@ -121,6 +121,7 @@ export default async function StaffMemberPage({
     { data: accountDetailsRow },
     { data: importedLink },
     { data: roles },
+    { data: pendingInviteRow },
   ] = await Promise.all([
     admin
       .from("profiles")
@@ -164,6 +165,18 @@ export default async function StaffMemberPage({
     // владельцу аккаунта), поэтому system-роль (venue_id IS NULL)
     // не включаем.
     supabase.from("roles").select("id, name, code").eq("venue_id", venueId).order("name"),
+    // Есть ли неотозванное приглашение на email этого юзера в текущем venue.
+    // Надёжный признак «приглашён, но ещё не активировал» — в отличие от
+    // email_confirmed, который у импортированного сотрудника после смены email
+    // может остаться true (admin email_confirm:false не снимает подтверждение).
+    admin
+      .from("invitations")
+      .select("id")
+      .eq("venue_id", venueId)
+      .ilike("email", targetAuthUser.email ?? "__no_email__")
+      .eq("status", "pending")
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (!profileRow) redirect("/people/staff");
@@ -222,6 +235,7 @@ export default async function StaffMemberPage({
       joinedAt={targetUvr.created_at}
       userCreatedAt={targetAuthUser.created_at ?? null}
       emailConfirmed={Boolean(targetAuthUser.email_confirmed_at)}
+      hasPendingInvite={Boolean(pendingInviteRow)}
       canViewAudit={Boolean(canViewAudit)}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}

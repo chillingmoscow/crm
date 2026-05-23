@@ -118,6 +118,10 @@ interface Props {
    *  отправлено, но юзер ещё не подтвердил email. Админ может перепослать
    *  на другой адрес, если ошибся. */
   emailConfirmed: boolean;
+  /** Есть ли неотозванное приглашение на email этого юзера. Надёжный признак
+   *  «приглашён, но не активировал» для импортированного сотрудника, у
+   *  которого email_confirmed может остаться true после смены email. */
+  hasPendingInvite: boolean;
   /** Видит ли текущий юзер табы «Журнал» / «Активность». Проверка
    *  `org.view_audit` выполняется на сервере; здесь — флаг для
    *  conditional render'а. */
@@ -209,6 +213,7 @@ export function StaffDetailPage({
   joinedAt,
   userCreatedAt,
   emailConfirmed,
+  hasPendingInvite,
   canViewAudit,
   initialAuditEvents,
   initialAuditHasMore,
@@ -254,8 +259,12 @@ export function StaffDetailPage({
   //   registered  — юзер подтвердил email хотя бы раз. С этого момента
   //                 он сам управляет своим профилем.
   const isPlaceholderUser = email.toLowerCase().endsWith("@import.local");
-  const isPendingInvite   = !isPlaceholderUser && !emailConfirmed;
-  const isRegisteredUser  = !isPlaceholderUser && emailConfirmed;
+  // pending — есть неотозванное приглашение ИЛИ email ещё не подтверждён.
+  // hasPendingInvite надёжнее emailConfirmed: у импортированного сотрудника
+  // после смены email подтверждение может остаться true, а активацию он не
+  // прошёл (см. setImportedStaffEmailAndInvite + acceptInvitation).
+  const isPendingInvite   = !isPlaceholderUser && (hasPendingInvite || !emailConfirmed);
+  const isRegisteredUser  = !isPlaceholderUser && emailConfirmed && !hasPendingInvite;
 
   const displayName =
     [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
@@ -961,25 +970,22 @@ export function StaffDetailPage({
                           type="button"
                           size="sm"
                           onClick={handleInviteImported}
-                          disabled={
-                            isInvitePending ||
-                            !contactEmail.trim() ||
-                            // в pending состоянии разрешаем переотправку только если email
-                            // действительно отличается от уже существующего (чтобы случайно
-                            // не дёргать второй раз тот же invite).
-                            (isPendingInvite && contactEmail.trim().toLowerCase() === email.toLowerCase())
-                          }
+                          disabled={isInvitePending || !contactEmail.trim()}
                           className="shrink-0"
                         >
                           {isInvitePending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
-                          {isPlaceholderUser ? "Пригласить" : "Изменить и переслать"}
+                          {isPlaceholderUser
+                            ? "Пригласить"
+                            : contactEmail.trim().toLowerCase() === email.toLowerCase()
+                              ? "Отправить повторно"
+                              : "Изменить и переслать"}
                         </Button>
                       )}
                     </div>
                     {canManageImportedInvite && (
                       <p className="text-xs text-muted-foreground">
                         {isPendingInvite
-                          ? "Приглашение уже отправлено на текущий email, но сотрудник его пока не подтвердил. Если ошиблись — впишите правильный и переотправьте."
+                          ? "Приглашение отправлено, но сотрудник его пока не подтвердил. Можно отправить повторно (та же почта) или вписать другой email и переслать."
                           : "Введите email и отправьте приглашение, когда понадобится дать сотруднику доступ к системе."}
                       </p>
                     )}

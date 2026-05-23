@@ -540,10 +540,19 @@ export async function setImportedStaffEmailAndInvite(data: {
 
   const admin = createAdminClient();
 
-  // Шаг 1: меняем email в auth.users, сбрасываем email_confirmed_at.
+  // Шаг 1: меняем email в auth.users, сбрасываем подтверждение и ставим
+  // флаг needs_password_setup. У placeholder-сотрудника ещё нет своего
+  // пароля — он задаст его на /invite/accept (acceptInvitation увидит флаг
+  // и установит пароль через admin, а не потребует «текущий»).
+  const { data: targetForMeta } = await admin.auth.admin.getUserById(data.userId);
+  const mergedMeta = {
+    ...((targetForMeta?.user?.user_metadata as Record<string, unknown> | undefined) ?? {}),
+    needs_password_setup: true,
+  };
   const { error: updateAuthError } = await admin.auth.admin.updateUserById(data.userId, {
     email: nextEmail,
     email_confirm: false,
+    user_metadata: mergedMeta,
   });
   if (updateAuthError) {
     return { error: updateAuthError.message, invitation: null };
@@ -577,65 +586,58 @@ export async function setImportedStaffEmailAndInvite(data: {
     .filter(Boolean).join(" ") || null;
   const roleName = roleRow?.name ?? null;
 
-  const linkPayload = {
-    venue_id: data.venueId,
-    role_id: data.roleId,
-    venue_name: venueRow.name,
-    role_name: roleName,
-  };
-  const redirectTo = `${siteUrl}/dashboard`;
+  // Шаг 3: кастомный invite-flow (как в inviteStaff), НЕ через GoTrue
+  // email-link. GoTrue-ссылка ведёт на свой SITE_URL (Supabase-домен с
+  // basic-auth) и не попадает в наше приложение — см. подробный коммент в
+  // inviteStaff. Генерим токен в invitations и шлём /invite/accept?token=.
+  if (!hasCustomMailerConfig()) {
+    return { error: "SMTP mailer не настроен", invitation: null };
+  }
 
-  // Шаг 3: отправка письма.
-  //   • с кастомным SMTP — генерируем link через generateLink, кладём его
-  //     в наш брендированный шаблон и отправляем сами;
-  //   • без SMTP (локально / без env) — Supabase встроенным mailer'ом
-  //     через signInWithOtp(shouldCreateUser=false). generateLink тут не
-  //     годится — он только создаёт payload, доставкой не занимается.
-  if (hasCustomMailerConfig()) {
-    const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
-      type: "magiclink",
+  // Один pending-invite на email+venue.
+  await supabase
+    .from("invitations")
+    .delete()
+    .eq("venue_id", data.venueId)
+    .ilike("email", nextEmail)
+    .eq("status", "pending");
+
+  const token = randomUUID();
+  const { data: insertedInvitation, error: invError } = await supabase
+    .from("invitations")
+    .insert({
+      venue_id: data.venueId,
       email: nextEmail,
-      options: {
-        data: linkPayload,
-        redirectTo,
-      },
+      role_id: data.roleId,
+      invited_by: user.id,
+      status: "pending",
+      token,
+    })
+    .select("id")
+    .single();
+  if (invError || !insertedInvitation?.id) {
+    return { error: invError?.message ?? "Не удалось создать приглашение", invitation: null };
+  }
+
+  const actionLink = `${siteUrl}/invite/accept?token=${token}`;
+  try {
+    await sendInvitationEmail({
+      to: nextEmail,
+      actionLink,
+      venueName: venueRow.name,
+      accountName,
+      inviterName,
+      roleName,
+      // false → письмо и форма просят СОЗДАТЬ пароль (у placeholder-юзера
+      // его ещё нет), хотя auth-строка уже существует.
+      existingUser: false,
     });
-    if (linkError || !linkData?.properties?.action_link) {
-      return {
-        error: linkError?.message ?? "Не удалось сгенерировать ссылку для входа",
-        invitation: null,
-      };
-    }
-    try {
-      await sendInvitationEmail({
-        to: nextEmail,
-        actionLink: linkData.properties.action_link,
-        venueName: venueRow.name,
-        accountName,
-        inviterName,
-        roleName,
-        existingUser: true,
-      });
-    } catch (emailError) {
-      return {
-        error: emailError instanceof Error
-          ? emailError.message
-          : "Не удалось отправить письмо",
-        invitation: null,
-      };
-    }
-  } else {
-    const { error: otpError } = await admin.auth.signInWithOtp({
-      email: nextEmail,
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: redirectTo,
-        data: linkPayload,
-      },
-    });
-    if (otpError) {
-      return { error: otpError.message, invitation: null };
-    }
+  } catch (emailError) {
+    await supabase.from("invitations").delete().eq("id", insertedInvitation.id);
+    return {
+      error: emailError instanceof Error ? emailError.message : "Не удалось отправить письмо",
+      invitation: null,
+    };
   }
 
   revalidatePath("/people/staff");

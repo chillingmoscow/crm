@@ -1154,14 +1154,13 @@ input:-webkit-autofill {
 }
 
 /* ── Мобильный тулбар форматирования (KbMobileToolbar) ──────────────
- * Бар над клавиатурой (заменяет плавающий BN-тулбар на touch).
- * `top` выставляется инлайн в КООРДИНАТАХ ДОКУМЕНТА (scrollY + низ visual
- * viewport − высота бара). Именно `position: absolute`, а НЕ fixed: на iOS
- * во время открытой soft-клавиатуры fixed ломается (элемент скроллится
- * вместе со страницей и уезжает в центр экрана при прокрутке вниз). absolute
- * + пересчёт top на каждый window/visualViewport scroll держит бар на месте.
- * absolute также служит containing-block'ом для absolute-поповера выбора
- * типа блока (он открывается ВВЕРХ над баром). Портал в body. */
+ * Плавающий бар НАД выделением (заменяет плавающий BN-тулбар на touch).
+ * `top` выставляется инлайн в КООРДИНАТАХ ДОКУМЕНТА (scrollY + верх выделения
+ * − высота бара − зазор). Именно `position: absolute`, а НЕ fixed: на iOS во
+ * время открытой soft-клавиатуры fixed ломается (уезжает при скролле), а бар,
+ * привязанный к выделению, скроллится вместе с текстом естественно — без
+ * scroll-листенера, без дёрганья. absolute также служит containing-block'ом
+ * для absolute-поповера ссылки. Портал в body. */
 .kb-mobile-toolbar {
   position: absolute;
   left: 0;
@@ -1171,10 +1170,10 @@ input:-webkit-autofill {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  padding-bottom: calc(6px + env(safe-area-inset-bottom));
   background-color: hsl(var(--popover));
   border-top: 1px solid hsl(var(--border));
-  box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08);
+  border-bottom: 1px solid hsl(var(--border));
+  box-shadow: 0 2px 16px rgb(0 0 0 / 0.12);
 }
 .kb-mobile-toolbar-blocktype {
   display: inline-flex;

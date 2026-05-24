@@ -222,15 +222,13 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     return () => cancelAnimationFrame(id);
   }, [activeSheet]);
 
-  // Полноэкранные листы (тип блока / цвет) — как в Notion на весь экран. Убираем
-  // клавиатуру при их открытии: иначе OS-слой клавиатуры перекрыл бы низ листа.
-  // Выделение ProseMirror переживает blur, поэтому apply по сохранённому
-  // selection работает; на закрытии листа applyX/Отмена возвращают editor.focus().
-  useEffect(() => {
-    if (activeSheet === "block" || activeSheet === "color") {
-      (document.activeElement as HTMLElement | null)?.blur?.();
-    }
-  }, [activeSheet]);
+  // ВАЖНО: НЕ блюрим редактор при открытии листа. Раньше блюрили, чтобы убрать
+  // клавиатуру (Notion-style full-page). Но цикл blur → editor.focus() (при
+  // закрытии) ломал позиционирование fixed-бара на iOS: после refocus iOS
+  // считает fixed относительно visual-viewport, и наш bottom=keyboardHeight
+  // удваивался → бар улетал в середину экрана. Теперь клавиатура остаётся, а
+  // лист рендерим в области НАД клавиатурой (bottom = keyboardHeight, см. JSX) —
+  // позиция бара больше не ломается.
 
   // Лочим скролл страницы под полноэкранным листом — иначе на iOS скролл
   // «протекает» на основную страницу (overscroll-behavior помогает не всегда),
@@ -334,7 +332,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       ) : null}
 
       {activeSheet === "block" ? (
-        <div className="kb-mobile-fullsheet" role="dialog" aria-label="Превратить в">
+        <div
+          className="kb-mobile-fullsheet"
+          role="dialog"
+          aria-label="Превратить в"
+          style={{ bottom }}
+        >
           <div className="kb-mobile-fullsheet-header">
             <span className="kb-mobile-fullsheet-title">Превратить в</span>
             <button
@@ -370,7 +373,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       ) : null}
 
       {activeSheet === "color" ? (
-        <div className="kb-mobile-fullsheet" role="dialog" aria-label="Цвет блока">
+        <div
+          className="kb-mobile-fullsheet"
+          role="dialog"
+          aria-label="Цвет блока"
+          style={{ bottom }}
+        >
           <div className="kb-mobile-fullsheet-header">
             <span className="kb-mobile-fullsheet-title">Цвет блока</span>
             <button

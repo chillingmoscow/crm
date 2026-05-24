@@ -29,6 +29,7 @@ import type {
 } from "@/app/(dashboard)/notifications/actions";
 import { createClient } from "@/lib/supabase/client";
 import { KbNotificationRow } from "@/components/shared/notification-row";
+import { PushToggle } from "@/components/shared/push-toggle";
 import {
   TIME_BUCKET_LABELS,
   TIME_BUCKET_ORDER,
@@ -370,6 +371,9 @@ export function NotificationBell() {
               <X className="size-5" />
             </button>
           </div>
+
+          {/* Push-toggle (только если браузер поддерживает) */}
+          <PushToggle />
 
           {/* Scope tabs */}
           <div className="flex gap-1 px-4 pb-2">

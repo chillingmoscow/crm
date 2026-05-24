@@ -94,10 +94,11 @@ export async function getNotifications(
 
 export async function markNotificationRead(id: string): Promise<void> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("notifications")
     .update({ read: true })
     .eq("id", id);
+  if (error) console.error("[notifications] markNotificationRead failed:", error.message);
 }
 
 export async function markAllNotificationsRead(): Promise<void> {
@@ -106,30 +107,33 @@ export async function markAllNotificationsRead(): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
-  await supabase
+  const { error } = await supabase
     .from("notifications")
     .update({ read: true })
     .eq("user_id", user.id)
     .eq("read", false);
+  if (error) console.error("[notifications] markAllNotificationsRead failed:", error.message);
 }
 
 /** Архивирует одиночное уведомление. RLS пускает UPDATE только на
  *  свои rows (user_id = auth.uid()). */
 export async function archiveNotification(id: string): Promise<void> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("notifications")
     .update({ archived_at: new Date().toISOString() })
     .eq("id", id);
+  if (error) console.error("[notifications] archiveNotification failed:", error.message);
 }
 
 /** Восстанавливает из архива (юзер может ошибочно архивировать). */
 export async function unarchiveNotification(id: string): Promise<void> {
   const supabase = await createClient();
-  await supabase
+  const { error } = await supabase
     .from("notifications")
     .update({ archived_at: null })
     .eq("id", id);
+  if (error) console.error("[notifications] unarchiveNotification failed:", error.message);
 }
 
 /** Bulk-архивация всех прочитанных active rows юзера. Используется
@@ -140,12 +144,13 @@ export async function archiveAllRead(): Promise<void> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return;
-  await supabase
+  const { error } = await supabase
     .from("notifications")
     .update({ archived_at: new Date().toISOString() })
     .eq("user_id", user.id)
     .eq("read", true)
     .is("archived_at", null);
+  if (error) console.error("[notifications] archiveAllRead failed:", error.message);
 }
 
 export interface NotificationActor {
@@ -170,7 +175,10 @@ export async function getNotificationActors(
   const { data, error } = await supabase.rpc("kb_resolve_users_by_ids", {
     p_user_ids: userIds,
   });
-  if (error) return [];
+  if (error) {
+    console.error("[notifications] getNotificationActors RPC failed:", error.message);
+    return [];
+  }
   return (data ?? []).map((m) => {
     const parts = [m.first_name, m.last_name].filter(Boolean) as string[];
     return {

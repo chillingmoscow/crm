@@ -235,6 +235,18 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     }
   }, [activeSheet]);
 
+  // Лочим скролл страницы под полноэкранным листом — иначе на iOS скролл
+  // «протекает» на основную страницу (overscroll-behavior помогает не всегда),
+  // и юзер теряет нужную строку списка. Восстанавливаем при закрытии.
+  useEffect(() => {
+    if (activeSheet !== "block" && activeSheet !== "color") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [activeSheet]);
+
   // Бар держим смонтированным, пока открыт любой поповер. Особенно важно для
   // link-инпута: тап в поле уводит фокус из редактора → editor.isFocused()
   // становится false → visible=false; без условия `activeSheet !== null` бар

@@ -1284,6 +1284,9 @@ input:-webkit-autofill {
   flex-direction: column;
   background-color: hsl(var(--background));
   animation: kb-mobile-fullsheet-in 160ms ease-out;
+  /* Скролл не должен «протекать» на страницу под листом. */
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   /* Safe-area сверху — на контейнере, а НЕ как padding-top шапки: иначе
    * absolute-«Отмена» (top:50%) центрировалась бы по padded-боксу и уезжала
    * выше центрированного заголовка на notched-iPhone (Codex P2 #451). Здесь
@@ -1321,6 +1324,9 @@ input:-webkit-autofill {
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* contain — чтобы скролл списка не уходил на страницу под листом, когда
+   * содержимое помещается целиком (Notion-style лист на весь экран). */
+  overscroll-behavior: contain;
   padding: 4px 0 calc(12px + env(safe-area-inset-bottom));
 }
 .kb-mobile-fullsheet-section {

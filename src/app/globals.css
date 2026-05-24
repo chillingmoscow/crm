@@ -1262,11 +1262,24 @@ input:-webkit-autofill {
 }
 
 /* Палитра цвета текста — сетка свотчей в том же поповере над баром. */
+/* Поповер цвета: две группы (текст + фон), каждая — ряд свотчей. */
+.kb-mobile-color-sheet {
+  padding: 8px;
+  gap: 4px;
+}
+.kb-mobile-color-group-label {
+  padding: 6px 4px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
 .kb-mobile-color-grid {
+  display: flex;
   flex-direction: row;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 10px;
 }
 .kb-mobile-color-swatch {
   display: flex;
@@ -1291,6 +1304,21 @@ input:-webkit-autofill {
 }
 .kb-mobile-color-dot[data-default] {
   color: hsl(var(--foreground));
+}
+/* Свотч фона — залитый квадрат (фон-цвет в inline-style), «А» поверх. */
+.kb-mobile-color-dot-bg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--muted));
+}
+.kb-mobile-color-dot-bg[data-default] {
+  background-color: transparent;
+  border: 1px dashed hsl(var(--border));
 }
 
 /* Поповер ссылки — поле ввода URL + кнопка применить, над баром. */

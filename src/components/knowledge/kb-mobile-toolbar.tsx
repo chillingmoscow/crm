@@ -35,8 +35,9 @@ import {
  * Работает через editor-API BlockNote 0.49: useActiveStyles (реактивные марки),
  * editor.toggleStyles, getTextCursorPosition().block + updateBlock (тип блока).
  *
- * Видимость + позиционирование над клавиатурой — через window.visualViewport
- * (показываем, когда редактор в фокусе И клавиатура поднята).
+ * Видимость — по фокусу редактора (бар нужен и без soft-клавиатуры, напр. на
+ * touch-устройстве с внешней клавиатурой). Позицию над клавиатурой считаем
+ * через window.visualViewport (bottom = высота клавиатуры; 0 если опущена).
  *
  * Stage 1a — block-type + B/I/U/S/код. Ссылка / цвет / комментарий / AI на
  * мобильном баре — fast-follow после проверки архитектуры на устройстве.
@@ -79,13 +80,27 @@ function matchBlockType(
   block: { type?: string; props?: Record<string, unknown> } | undefined,
 ): BlockTypeOption {
   if (!block) return BLOCK_TYPES[0];
-  const candidates = BLOCK_TYPES.filter((o) => o.type === block.type);
-  if (candidates.length === 0) return BLOCK_TYPES[0];
-  // heading различаем по level
-  const byLevel = candidates.find(
-    (o) => o.level === undefined || o.level === block.props?.level,
-  );
-  return byLevel ?? candidates[0];
+  if (block.type === "heading") {
+    const level = block.props?.level as number | undefined;
+    const exact = BLOCK_TYPES.find(
+      (o) => o.type === "heading" && o.level === level,
+    );
+    if (exact) return exact;
+    // H4–H6 (нет в списке доступных типов): показываем РЕАЛЬНЫЙ уровень, но с
+    // уникальным key, которого нет среди BLOCK_TYPES — чтобы ни один пункт
+    // листа не помечался активным и блок не выглядел как «Заголовок 1»
+    // (иначе юзер случайно понизит H4→H1). Codex P2 на #447.
+    return {
+      key: `heading-${level ?? "x"}`,
+      label: `Заголовок ${level ?? ""}`.trim(),
+      icon: Heading3,
+      type: "heading",
+      props: { level: level ?? 3 },
+      level,
+    };
+  }
+  // Не-heading типы в BLOCK_TYPES уникальны по type (level не задан).
+  return BLOCK_TYPES.find((o) => o.type === block.type) ?? BLOCK_TYPES[0];
 }
 
 export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
@@ -112,8 +127,11 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     syncBlock();
   }, [syncBlock]);
 
-  // Видимость + позиция над клавиатурой через visualViewport. Показываем,
-  // когда редактор в фокусе И клавиатура поднята (visualViewport ужался).
+  // Видимость = редактор в фокусе. Позицию над клавиатурой считаем через
+  // visualViewport, но НЕ гейтим видимость поднятием клавиатуры: на touch с
+  // внешней клавиатурой (iPad/Android) soft-клавиатуры нет, и при гейте по
+  // keyboard>100 бар не показывался → пользователь оставался вообще без
+  // тулбара форматирования (плавающий BN-тулбар на touch выключен). Codex P1.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const vv = window.visualViewport;
@@ -139,7 +157,8 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         window.innerHeight - vv.height - vv.offsetTop,
       );
       setBottom(keyboard);
-      setVisible(focused && keyboard > 100);
+      // keyboard влияет только на позицию (bottom); видимость — по фокусу.
+      setVisible(focused);
     };
 
     update();

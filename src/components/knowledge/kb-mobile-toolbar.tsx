@@ -26,22 +26,28 @@ import {
 } from "lucide-react";
 
 /**
- * Мобильный тулбар форматирования (фикс. бар снизу, над клавиатурой).
+ * Мобильный тулбар форматирования (плавающий бар НАД выделением).
  *
  * Зачем: на iOS WebKit плавающий FormattingToolbar BlockNote ведёт себя плохо —
  * не помещается на узком экране, ловит клавиатуру, а Radix BlockTypeSelect внутри
- * не открывается по тапу. Это десктоп-паттерн «выдели → всплыло поверх текста».
- * Здесь — паттерн Notion/Word: всегда-видимый бар над клавиатурой, не над текстом
- * (нет наезда), а выбор типа блока / цвет / ссылка — через touch-поповер снизу
+ * не открывается по тапу. Поэтому свой бар: марки/тип/цвет/ссылка работают через
+ * editor-API, а выбор типа блока / цвет — через полноэкранные touch-листы
  * (не Radix Select/Popover, которые на iOS капризят).
  *
  * Работает через editor-API BlockNote 0.49: useActiveStyles (реактивные марки +
  * textColor), editor.toggleStyles/addStyles, getTextCursorPosition().block +
  * updateBlock (тип блока), createLink/getSelectedLinkUrl (ссылка).
  *
+ * Позиционирование: бар ставим НАД прямоугольником выделения, в КООРДИНАТАХ
+ * ДОКУМЕНТА (top = scrollY + selRect.top − высота бара − зазор), position:absolute.
+ * Почему так, а не «фикс. бар над клавиатурой»: на iOS position:fixed во время
+ * открытой клавиатуры ломается (элемент уезжает при скролле), а пересчёт fixed на
+ * каждый scroll даёт дёрганье + раздувает скролл. Бар, привязанный к позиции
+ * выделения, скроллится вместе с текстом естественно — без scroll-листенера,
+ * без дёрганья. Пересчёт только на смену выделения / фокус / resize вьюпорта.
+ *
  * Видимость — по фокусу редактора (бар нужен и без soft-клавиатуры, напр. на
- * touch-устройстве с внешней клавиатурой). Позицию над клавиатурой считаем
- * через window.visualViewport (bottom = высота клавиатуры; 0 если опущена).
+ * touch-устройстве с внешней клавиатурой).
  *
  * Состав: тип блока + B/I/U/S/код + цвет текста/фона + ссылка. Комментарий / AI
  * на баре — следующий fast-follow (завязаны на comments-extension / AI-команды).
@@ -129,6 +135,25 @@ function matchBlockType(
   return BLOCK_TYPES.find((o) => o.type === block.type) ?? BLOCK_TYPES[0];
 }
 
+/**
+ * Прямоугольник текущего выделения (в координатах VIEWPORT). Для схлопнутой
+ * каретки getBoundingClientRect даёт нулевой rect — тогда берём первый из
+ * getClientRects(). Возвращает null, если выделения/каретки в DOM нет.
+ */
+function getSelectionRect(): DOMRect | null {
+  if (typeof window === "undefined") return null;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  let rect = range.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) {
+    const rects = range.getClientRects();
+    if (rects.length > 0) rect = rects[0];
+  }
+  if (rect.width === 0 && rect.height === 0) return null;
+  return rect;
+}
+
 export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   const activeStyles = useActiveStyles(editor) as ActiveStyles;
   const activeTextColor = activeStyles.textColor ?? "default";
@@ -140,9 +165,9 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   const linkInputRef = useRef<HTMLInputElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  // Y-смещение бара в КООРДИНАТАХ ДОКУМЕНТА (бар — position:absolute). На iOS
-  // position:fixed во время открытой клавиатуры ломается (элемент скроллится
-  // вместе со страницей), поэтому используем absolute + компенсируем scrollY.
+  // Y-смещение бара в КООРДИНАТАХ ДОКУМЕНТА (бар — position:absolute, стоит НАД
+  // выделением). Привязка к позиции выделения, а не к низу вьюпорта: бар
+  // скроллится вместе с текстом, без дёрганья и без раздувания скролла.
   const [barTop, setBarTop] = useState(0);
   // ВРЕМЕННАЯ диагностика позиции бара над клавиатурой. Видно только при
   // `?kbdebug` в URL (обычным юзерам — нет). Нужна, чтобы снять реальные числа
@@ -162,15 +187,11 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     }
   }, [editor]);
 
-  useEditorSelectionChange(syncBlock, editor);
-  useEffect(() => {
-    syncBlock();
-  }, [syncBlock]);
-
-  // Пересчёт видимости (по фокусу редактора) + позиции (над клавиатурой через
-  // visualViewport). Видимость НЕ гейтим поднятием клавиатуры: на touch с
-  // внешней клавиатурой soft-клавиатуры нет, иначе бар не показывался бы (P1 #447).
+  // Пересчёт видимости (по фокусу редактора) + позиции (НАД выделением).
+  // Видимость НЕ гейтим поднятием клавиатуры: на touch с внешней клавиатурой
+  // soft-клавиатуры нет, иначе бар не показывался бы (P1 #447).
   const recompute = useCallback(() => {
+    if (typeof window === "undefined") return;
     let focused = false;
     try {
       focused = editor.isFocused();
@@ -178,49 +199,60 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       focused = false;
     }
     setVisible(focused);
-    if (typeof window === "undefined") return;
-    const vv = window.visualViewport;
-    const barH = barRef.current?.offsetHeight ?? 56;
+    // Позицию двигаем только когда редактор в фокусе (есть живое выделение).
+    // Если фокус ушёл в наш link-инпут / открыт лист — оставляем последнюю.
+    if (!focused) return;
+    const rect = getSelectionRect();
+    if (!rect) return;
+    const barH = barRef.current?.offsetHeight ?? 48;
+    const gap = 8;
     const scrollY = window.scrollY || window.pageYOffset || 0;
-    if (!vv) {
-      // Без visualViewport: низ бара = низ окна (в координатах документа).
-      setBarTop(Math.max(0, scrollY + window.innerHeight - barH));
-      return;
-    }
-    // Низ бара = низ visual viewport (= верх клавиатуры), в координатах
-    // ДОКУМЕНТА: scrollY (прокрутка) + offsetTop (пан visual viewport) + height.
-    // На iOS innerHeight уже == vv.height (клавиатура исключена), а fixed во
-    // время клавиатуры ломается, поэтому позиционируем absolute от документа.
-    setBarTop(Math.max(0, scrollY + vv.offsetTop + vv.height - barH));
+    // Верх бара = верх выделения − высота бара − зазор, в координатах документа.
+    setBarTop(Math.max(0, scrollY + rect.top - barH - gap));
   }, [editor]);
 
+  // Пересчёт на смену выделения (основной триггер позиции бара) + sync типа блока.
+  const onSelectionChange = useCallback(() => {
+    syncBlock();
+    recompute();
+  }, [syncBlock, recompute]);
+  useEditorSelectionChange(onSelectionChange, editor);
+  useEffect(() => {
+    onSelectionChange();
+  }, [onSelectionChange]);
+
+  // Скролл-листенер НЕ навешиваем: бар привязан к позиции выделения (absolute в
+  // координатах документа) и скроллится вместе с текстом сам. Слушаем только
+  // resize visualViewport (клавиатура открылась/закрылась → раскладка сместилась)
+  // и фокус. Это и убирает дёрганье + бесконечный скролл прошлого подхода.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const vv = window.visualViewport;
     recompute();
     vv?.addEventListener("resize", recompute);
-    vv?.addEventListener("scroll", recompute);
-    // window scroll — бар position:absolute, при скролле документа его top
-    // (в координатах документа) надо пересчитывать, иначе он «уедет».
-    window.addEventListener("scroll", recompute, { passive: true });
     const onFocusIn = () => recompute();
     const onFocusOut = () => window.setTimeout(recompute, 0);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
       vv?.removeEventListener("resize", recompute);
-      vv?.removeEventListener("scroll", recompute);
-      window.removeEventListener("scroll", recompute);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };
   }, [recompute]);
 
+  // Бар монтируется при visible=true с barTop=0; сразу после монтирования
+  // измеряем реальную высоту и ставим над выделением (иначе первый показ — у 0).
+  useEffect(() => {
+    if (!visible) return;
+    const id = requestAnimationFrame(recompute);
+    return () => cancelAnimationFrame(id);
+  }, [visible, recompute]);
+
   // Закрыть лист/поповер → вернуть фокус редактору → ПЕРЕСЧИТАТЬ позицию
-  // несколько раз с задержками. После закрытия полноэкранного листа клавиатура
-  // переанимируется, и одиночный resize мог прийти с промежуточной высотой —
-  // бар улетал в середину экрана (скрин 3). Отложенные пересчёты ловят момент,
-  // когда клавиатура встала на место.
+  // несколько раз с задержками. После закрытия полноэкранного листа фокус и
+  // выделение восстанавливаются не мгновенно; отложенные пересчёты ловят момент,
+  // когда selection снова доступен, и ставят бар над ним.
   const closeSheetAndFocus = useCallback(() => {
     setActiveSheet(null);
     editor.focus();
@@ -262,12 +294,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     };
   }, [activeSheet]);
 
-  // ВРЕМЕННО: живой вывод чисел viewport'а (только при ?kbdebug).
+  // ВРЕМЕННО: живой вывод чисел позиции (только при ?kbdebug).
   useEffect(() => {
     if (!debug || typeof window === "undefined") return;
     const vv = window.visualViewport;
     const tick = () => {
-      const k = vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
+      const rect = getSelectionRect();
       let foc = "?";
       try {
         foc = editor.isFocused() ? "1" : "0";
@@ -275,10 +307,9 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         foc = "?";
       }
       setDbg(
-        `iH=${window.innerHeight} vvH=${vv ? Math.round(vv.height) : "-"} ` +
-          `vvT=${vv ? Math.round(vv.offsetTop) : "-"} ` +
-          `docH=${document.documentElement.clientHeight} ` +
-          `sY=${Math.round(window.scrollY)} btm=${Math.round(k)} foc=${foc}`,
+        `selTop=${rect ? Math.round(rect.top) : "-"} ` +
+          `sY=${Math.round(window.scrollY)} ` +
+          `vvH=${vv ? Math.round(vv.height) : "-"} foc=${foc}`,
       );
     };
     tick();

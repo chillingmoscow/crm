@@ -1154,12 +1154,16 @@ input:-webkit-autofill {
 }
 
 /* ── Мобильный тулбар форматирования (KbMobileToolbar) ──────────────
- * Фикс. бар над клавиатурой (заменяет плавающий BN-тулбар на touch).
- * `bottom` выставляется инлайн = высота клавиатуры (visualViewport).
- * `position: fixed` → служит containing-block'ом для absolute-поповера
- * выбора типа блока (он открывается ВВЕРХ над баром). Портал в body. */
+ * Бар над клавиатурой (заменяет плавающий BN-тулбар на touch).
+ * `top` выставляется инлайн в КООРДИНАТАХ ДОКУМЕНТА (scrollY + низ visual
+ * viewport − высота бара). Именно `position: absolute`, а НЕ fixed: на iOS
+ * во время открытой soft-клавиатуры fixed ломается (элемент скроллится
+ * вместе со страницей и уезжает в центр экрана при прокрутке вниз). absolute
+ * + пересчёт top на каждый window/visualViewport scroll держит бар на месте.
+ * absolute также служит containing-block'ом для absolute-поповера выбора
+ * типа блока (он открывается ВВЕРХ над баром). Портал в body. */
 .kb-mobile-toolbar {
-  position: fixed;
+  position: absolute;
   left: 0;
   right: 0;
   z-index: 50;

@@ -138,8 +138,13 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   const [activeSheet, setActiveSheet] = useState<SheetKind | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
   const linkInputRef = useRef<HTMLInputElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  const [bottom, setBottom] = useState(0);
+  // Y-смещение бара от верха экрана: низ бара прижимаем к низу visual viewport
+  // (= верх клавиатуры). Через transform: translateY, чтобы следовать за
+  // visual viewport при скролле страницы (раньше bottom от layout-viewport не
+  // учитывал scroll-пан → бар «уезжал»).
+  const [barTop, setBarTop] = useState(0);
   // ВРЕМЕННАЯ диагностика позиции бара над клавиатурой. Видно только при
   // `?kbdebug` в URL (обычным юзерам — нет). Нужна, чтобы снять реальные числа
   // viewport'а с iOS-устройства и точно починить расчёт. Удалить после фикса.
@@ -173,32 +178,36 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     } catch {
       focused = false;
     }
+    setVisible(focused);
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const barH = barRef.current?.offsetHeight ?? 56;
     if (!vv) {
-      setBottom(0);
-      setVisible(focused);
+      const ih = typeof window !== "undefined" ? window.innerHeight : 0;
+      setBarTop(Math.max(0, ih - barH));
       return;
     }
-    // Высота клавиатуры = разница layout- и visual-viewport'а снизу.
-    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    setBottom(keyboard);
-    setVisible(focused);
+    // Низ бара = низ visual viewport (= верх клавиатуры). offsetTop меняется
+    // при скролле страницы → бар следует за visual viewport и не «уезжает».
+    setBarTop(Math.max(0, vv.offsetTop + vv.height - barH));
   }, [editor]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const vv = window.visualViewport;
     recompute();
-    // Только resize (показ/скрытие клавиатуры) пересчитывает позицию. НЕ
-    // слушаем vv "scroll": на вертикальном скролле он менял vv.offsetTop →
-    // бар «уезжал» вниз; position:fixed и так держит бар над клавиатурой.
+    // resize — показ/скрытие клавиатуры; scroll — пан visual viewport при
+    // скролле страницы (без него бар «уезжал» при скролле к низу). Позиция
+    // считается от visual viewport, поэтому scroll её корректно ведёт, а не
+    // ломает (в отличие от прежнего bottom-от-layout).
     vv?.addEventListener("resize", recompute);
+    vv?.addEventListener("scroll", recompute);
     const onFocusIn = () => recompute();
     const onFocusOut = () => window.setTimeout(recompute, 0);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
       vv?.removeEventListener("resize", recompute);
+      vv?.removeEventListener("scroll", recompute);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };
@@ -262,11 +271,15 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       } catch {
         foc = "?";
       }
+      const barY = barRef.current
+        ? Math.round(barRef.current.getBoundingClientRect().top)
+        : -1;
       setDbg(
         `iH=${window.innerHeight} vvH=${vv ? Math.round(vv.height) : "-"} ` +
           `vvT=${vv ? Math.round(vv.offsetTop) : "-"} ` +
           `docH=${document.documentElement.clientHeight} ` +
-          `sY=${Math.round(window.scrollY)} btm=${Math.round(k)} foc=${foc}`,
+          `sY=${Math.round(window.scrollY)} kb=${Math.round(k)} ` +
+          `barY=${barY} foc=${foc}`,
       );
     };
     tick();
@@ -369,8 +382,9 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       ) : null}
       {visible || activeSheet !== null ? (
         <div
+          ref={barRef}
           className="kb-mobile-toolbar"
-          style={{ bottom }}
+          style={{ transform: `translateY(${barTop}px)` }}
           role="toolbar"
           aria-label="Форматирование"
       // preventDefault на mousedown сохраняет выделение/фокус редактора при

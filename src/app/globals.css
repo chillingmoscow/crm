@@ -1155,14 +1155,17 @@ input:-webkit-autofill {
 
 /* ── Мобильный тулбар форматирования (KbMobileToolbar) ──────────────
  * Фикс. бар над клавиатурой (заменяет плавающий BN-тулбар на touch).
- * `bottom` выставляется инлайн = высота клавиатуры (visualViewport).
- * `position: fixed` → служит containing-block'ом для absolute-поповера
- * выбора типа блока (он открывается ВВЕРХ над баром). Портал в body. */
+ * Позиция — через inline `transform: translateY(Y)` от `top: 0`, где Y
+ * прижимает низ бара к низу visual viewport (= верх клавиатуры) и следует
+ * за visual viewport при скролле. `position: fixed` → containing-block для
+ * absolute-поповера ссылки (он открывается ВВЕРХ над баром). Портал в body. */
 .kb-mobile-toolbar {
   position: fixed;
+  top: 0;
   left: 0;
   right: 0;
   z-index: 50;
+  will-change: transform;
   display: flex;
   align-items: center;
   gap: 8px;

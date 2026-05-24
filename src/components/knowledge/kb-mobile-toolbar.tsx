@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useActiveStyles, useEditorSelectionChange } from "@blocknote/react";
 import type { BlockNoteEditor } from "@blocknote/core";
 import {
+  Baseline,
   Bold,
   Check,
   ChevronUp,
@@ -13,6 +14,7 @@ import {
   Heading2,
   Heading3,
   Italic,
+  Link2,
   List,
   ListChecks,
   ListOrdered,
@@ -30,23 +32,27 @@ import {
  * не помещается на узком экране, ловит клавиатуру, а Radix BlockTypeSelect внутри
  * не открывается по тапу. Это десктоп-паттерн «выдели → всплыло поверх текста».
  * Здесь — паттерн Notion/Word: всегда-видимый бар над клавиатурой, не над текстом
- * (нет наезда), а выбор типа блока — через touch-bottom-sheet, не Radix Select.
+ * (нет наезда), а выбор типа блока / цвет / ссылка — через touch-поповер снизу
+ * (не Radix Select/Popover, которые на iOS капризят).
  *
- * Работает через editor-API BlockNote 0.49: useActiveStyles (реактивные марки),
- * editor.toggleStyles, getTextCursorPosition().block + updateBlock (тип блока).
+ * Работает через editor-API BlockNote 0.49: useActiveStyles (реактивные марки +
+ * textColor), editor.toggleStyles/addStyles, getTextCursorPosition().block +
+ * updateBlock (тип блока), createLink/getSelectedLinkUrl (ссылка).
  *
  * Видимость — по фокусу редактора (бар нужен и без soft-клавиатуры, напр. на
  * touch-устройстве с внешней клавиатурой). Позицию над клавиатурой считаем
  * через window.visualViewport (bottom = высота клавиатуры; 0 если опущена).
  *
- * Stage 1a — block-type + B/I/U/S/код. Ссылка / цвет / комментарий / AI на
- * мобильном баре — fast-follow после проверки архитектуры на устройстве.
+ * Состав: тип блока + B/I/U/S/код + цвет текста + ссылка. Комментарий / AI на
+ * баре — следующий fast-follow (завязаны на comments-extension / AI-команды).
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyEditor = BlockNoteEditor<any, any, any>;
 
 type MarkKey = "bold" | "italic" | "underline" | "strike" | "code";
+
+type ActiveStyles = Partial<Record<MarkKey, boolean>> & { textColor?: string };
 
 const MARKS: { key: MarkKey; icon: LucideIcon; label: string }[] = [
   { key: "bold", icon: Bold, label: "Жирный" },
@@ -76,6 +82,23 @@ const BLOCK_TYPES: BlockTypeOption[] = [
   { key: "quote", label: "Цитата", icon: Quote, type: "quote" },
 ];
 
+// Цвета текста BlockNote (ключи — как в BN; реальный цвет в редакторе задаёт
+// сам BN через data-text-color, тут hex — только превью свотча в пикере).
+const TEXT_COLORS: { key: string; label: string; css: string | null }[] = [
+  { key: "default", label: "Авто", css: null },
+  { key: "gray", label: "Серый", css: "#9b9a97" },
+  { key: "brown", label: "Коричневый", css: "#64473a" },
+  { key: "red", label: "Красный", css: "#e03e3e" },
+  { key: "orange", label: "Оранжевый", css: "#d9730d" },
+  { key: "yellow", label: "Жёлтый", css: "#dfab01" },
+  { key: "green", label: "Зелёный", css: "#4d8a6a" },
+  { key: "blue", label: "Синий", css: "#0b6e99" },
+  { key: "purple", label: "Фиолетовый", css: "#6940a5" },
+  { key: "pink", label: "Розовый", css: "#ad1a72" },
+];
+
+type SheetKind = "block" | "color" | "link";
+
 function matchBlockType(
   block: { type?: string; props?: Record<string, unknown> } | undefined,
 ): BlockTypeOption {
@@ -104,10 +127,12 @@ function matchBlockType(
 }
 
 export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
-  const activeStyles = useActiveStyles(editor) as Partial<Record<MarkKey, boolean>>;
+  const activeStyles = useActiveStyles(editor) as ActiveStyles;
+  const activeColor = activeStyles.textColor ?? "default";
 
   const [current, setCurrent] = useState<BlockTypeOption>(BLOCK_TYPES[0]);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [activeSheet, setActiveSheet] = useState<SheetKind | null>(null);
+  const [linkUrl, setLinkUrl] = useState("");
   const [visible, setVisible] = useState(false);
   const [bottom, setBottom] = useState(0);
 
@@ -165,6 +190,11 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     vv?.addEventListener("resize", update);
     vv?.addEventListener("scroll", update);
     // focusin/out по документу: фокус ушёл в редактор / из него → пересчёт.
+    // Фокус в наш собственный link-input (внутри бара) не должен прятать бар —
+    // update() читает editor.isFocused(), а ProseMirror держит selection при
+    // blur, поэтому focused остаётся true достаточно для рендера; на всякий
+    // случай при focusout пересчитываем через setTimeout (фокус мог уйти
+    // обратно в редактор/в инпут бара).
     const onFocusIn = () => update();
     const onFocusOut = () => window.setTimeout(update, 0);
     document.addEventListener("focusin", onFocusIn);
@@ -196,9 +226,42 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     } catch {
       /* no cursor — ничего не делаем */
     }
-    setSheetOpen(false);
+    setActiveSheet(null);
     editor.focus();
     syncBlock();
+  };
+
+  const applyColor = (key: string) => {
+    // BN: addStyles({ textColor }); "default" сбрасывает цвет.
+    editor.addStyles({ textColor: key } as Parameters<typeof editor.addStyles>[0]);
+    setActiveSheet(null);
+    editor.focus();
+  };
+
+  const openLink = () => {
+    let prefill = "";
+    try {
+      prefill = (editor.getSelectedLinkUrl?.() as string | undefined) ?? "";
+    } catch {
+      /* нет ссылки в выделении */
+    }
+    setLinkUrl(prefill);
+    setActiveSheet("link");
+  };
+
+  const applyLink = () => {
+    const url = linkUrl.trim();
+    if (url) {
+      try {
+        // createLink применяется к текущему выделению редактора (ProseMirror
+        // держит selection при blur в наш инпут).
+        editor.createLink(url);
+      } catch {
+        /* нет валидного выделения — игнор */
+      }
+    }
+    setActiveSheet(null);
+    editor.focus();
   };
 
   const CurrentIcon = current.icon;
@@ -212,20 +275,26 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       // preventDefault на mousedown сохраняет выделение/фокус редактора при
       // тапе по кнопкам бара (стандартный приём для редакторских тулбаров).
       // Только mousedown — preventDefault на pointerdown/touchstart на iOS
-      // может отменить сам click.
-      onMouseDown={(event) => event.preventDefault()}
+      // может отменить сам click. ИСКЛЮЧЕНИЕ — поля ввода (link-input): им
+      // фокус нужен, иначе в них нельзя печатать.
+      onMouseDown={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("input, textarea")) return;
+        event.preventDefault();
+      }}
     >
-      {/* Поповер выбора типа блока — открывается ВВЕРХ над баром (бар уже над
-          клавиатурой; bottom-sheet был бы скрыт клавиатурой). overlay ловит
-          тап вне поповера для закрытия. */}
-      {sheetOpen ? (
+      {/* Поповеры открываются ВВЕРХ над баром (бар уже над клавиатурой;
+          bottom-sheet был бы скрыт клавиатурой). overlay ловит тап вне
+          поповера для закрытия. */}
+      {activeSheet ? (
         <div
           className="kb-mobile-sheet-overlay"
-          onClick={() => setSheetOpen(false)}
+          onClick={() => setActiveSheet(null)}
           aria-hidden
         />
       ) : null}
-      {sheetOpen ? (
+
+      {activeSheet === "block" ? (
         <div className="kb-mobile-sheet" role="menu">
           {BLOCK_TYPES.map((option) => {
             const Icon = option.icon;
@@ -249,13 +318,72 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         </div>
       ) : null}
 
+      {activeSheet === "color" ? (
+        <div className="kb-mobile-sheet kb-mobile-color-grid" role="menu">
+          {TEXT_COLORS.map((color) => {
+            const active = color.key === activeColor;
+            return (
+              <button
+                key={color.key}
+                type="button"
+                role="menuitemradio"
+                aria-checked={active}
+                className="kb-mobile-color-swatch"
+                data-active={active ? true : undefined}
+                aria-label={color.label}
+                title={color.label}
+                onClick={() => applyColor(color.key)}
+              >
+                <span
+                  className="kb-mobile-color-dot"
+                  style={color.css ? { color: color.css } : undefined}
+                  data-default={color.css ? undefined : true}
+                >
+                  А
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {activeSheet === "link" ? (
+        <div className="kb-mobile-sheet kb-mobile-link-sheet" role="menu">
+          <input
+            type="url"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            className="kb-mobile-link-input"
+            placeholder="Вставьте ссылку…"
+            value={linkUrl}
+            onChange={(event) => setLinkUrl(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                applyLink();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="kb-mobile-link-apply"
+            onClick={applyLink}
+            disabled={!linkUrl.trim()}
+          >
+            <Check className="size-4" />
+          </button>
+        </div>
+      ) : null}
+
       <button
         type="button"
         className="kb-mobile-toolbar-blocktype"
-        data-open={sheetOpen ? true : undefined}
-        onClick={() => setSheetOpen((v) => !v)}
+        data-open={activeSheet === "block" ? true : undefined}
+        onClick={() => setActiveSheet((v) => (v === "block" ? null : "block"))}
         aria-label="Тип блока"
-        aria-expanded={sheetOpen}
+        aria-expanded={activeSheet === "block"}
       >
         <CurrentIcon className="size-4" />
         <span className="kb-mobile-toolbar-blocktype-label">{current.label}</span>
@@ -279,6 +407,28 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
             </button>
           );
         })}
+
+        <button
+          type="button"
+          className="kb-mobile-toolbar-btn"
+          data-active={activeColor !== "default" || activeSheet === "color" ? true : undefined}
+          aria-label="Цвет текста"
+          aria-expanded={activeSheet === "color"}
+          onClick={() => setActiveSheet((v) => (v === "color" ? null : "color"))}
+        >
+          <Baseline className="size-[18px]" />
+        </button>
+
+        <button
+          type="button"
+          className="kb-mobile-toolbar-btn"
+          data-active={activeSheet === "link" ? true : undefined}
+          aria-label="Ссылка"
+          aria-expanded={activeSheet === "link"}
+          onClick={openLink}
+        >
+          <Link2 className="size-[18px]" />
+        </button>
       </div>
     </div>,
     document.body,

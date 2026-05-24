@@ -1261,6 +1261,76 @@ input:-webkit-autofill {
   background-color: hsl(var(--accent));
 }
 
+/* Палитра цвета текста — сетка свотчей в том же поповере над баром. */
+.kb-mobile-color-grid {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px;
+}
+.kb-mobile-color-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--background));
+}
+.kb-mobile-color-swatch[data-active] {
+  outline: 2px solid hsl(var(--brand));
+  outline-offset: 1px;
+}
+.kb-mobile-color-dot {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  /* color наследуется из inline-style свотча (превью цвета BN). */
+  color: currentColor;
+}
+.kb-mobile-color-dot[data-default] {
+  color: hsl(var(--foreground));
+}
+
+/* Поповер ссылки — поле ввода URL + кнопка применить, над баром. */
+.kb-mobile-link-sheet {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+.kb-mobile-link-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  /* 16px — иначе iOS зумит при фокусе (см. mobile-web §2). */
+  font-size: 16px;
+  outline: none;
+}
+.kb-mobile-link-input:focus {
+  border-color: hsl(var(--brand));
+}
+.kb-mobile-link-apply {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background-color: hsl(var(--brand));
+  color: hsl(var(--brand-foreground, 0 0% 100%));
+}
+.kb-mobile-link-apply:disabled {
+  opacity: 0.45;
+}
+
 /* ── Block menu / Drag-handle menu (frame 07 · W8wDJ) ──────────────
  * BN's `.bn-menu-dropdown.bn-drag-handle-menu` — shadcn DropdownMenu.
  * Дизайн: 220px ширина, padding 6, gap 1, items padding [8,10] gap 10. */

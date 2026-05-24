@@ -207,7 +207,13 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     };
   }, [editor]);
 
-  if (typeof document === "undefined" || !visible) return null;
+  // Бар держим смонтированным, пока открыт любой поповер. Особенно важно для
+  // link-инпута: тап в поле уводит фокус из редактора → editor.isFocused()
+  // становится false → visible=false; без условия `activeSheet !== null` бар
+  // (и сам инпут) размонтировались бы, и ввод ссылки обрывался (Codex P1 #448).
+  if (typeof document === "undefined" || (!visible && activeSheet === null)) {
+    return null;
+  }
 
   const toggleMark = (key: MarkKey) => {
     editor.toggleStyles({ [key]: true } as Parameters<typeof editor.toggleStyles>[0]);
@@ -289,7 +295,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       {activeSheet ? (
         <div
           className="kb-mobile-sheet-overlay"
-          onClick={() => setActiveSheet(null)}
+          onClick={() => {
+            setActiveSheet(null);
+            // Вернуть фокус редактору, чтобы бар не пропал после закрытия
+            // поповера (visible снова станет true по focusin).
+            editor.focus();
+          }}
           aria-hidden
         />
       ) : null}

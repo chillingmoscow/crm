@@ -157,63 +157,60 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     syncBlock();
   }, [syncBlock]);
 
-  // Видимость = редактор в фокусе. Позицию над клавиатурой считаем через
-  // visualViewport, но НЕ гейтим видимость поднятием клавиатуры: на touch с
-  // внешней клавиатурой (iPad/Android) soft-клавиатуры нет, и при гейте по
-  // keyboard>100 бар не показывался → пользователь оставался вообще без
-  // тулбара форматирования (плавающий BN-тулбар на touch выключен). Codex P1.
+  // Пересчёт видимости (по фокусу редактора) + позиции (над клавиатурой через
+  // visualViewport). Видимость НЕ гейтим поднятием клавиатуры: на touch с
+  // внешней клавиатурой soft-клавиатуры нет, иначе бар не показывался бы (P1 #447).
+  const recompute = useCallback(() => {
+    let focused = false;
+    try {
+      focused = editor.isFocused();
+    } catch {
+      focused = false;
+    }
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv) {
+      setBottom(0);
+      setVisible(focused);
+      return;
+    }
+    // Высота клавиатуры = разница layout- и visual-viewport'а снизу.
+    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    setBottom(keyboard);
+    setVisible(focused);
+  }, [editor]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const vv = window.visualViewport;
-
-    const isEditorFocused = () => {
-      try {
-        return editor.isFocused();
-      } catch {
-        return false;
-      }
-    };
-
-    const update = () => {
-      const focused = isEditorFocused();
-      if (!vv) {
-        setBottom(0);
-        setVisible(focused);
-        return;
-      }
-      // Высота клавиатуры = разница layout- и visual-viewport'а снизу.
-      const keyboard = Math.max(
-        0,
-        window.innerHeight - vv.height - vv.offsetTop,
-      );
-      setBottom(keyboard);
-      // keyboard влияет только на позицию (bottom); видимость — по фокусу.
-      setVisible(focused);
-    };
-
-    update();
+    recompute();
     // Только resize (показ/скрытие клавиатуры) пересчитывает позицию. НЕ
-    // слушаем vv "scroll": при вертикальном скролле страницы он менял
-    // vv.offsetTop → пересчитывал bottom → бар «уезжал» вниз. Бар
-    // position:fixed — при стабильной клавиатуре он и так остаётся над ней
-    // без пересчёта на скролле.
-    vv?.addEventListener("resize", update);
-    // focusin/out по документу: фокус ушёл в редактор / из него → пересчёт.
-    // Фокус в наш собственный link-input (внутри бара) не должен прятать бар —
-    // update() читает editor.isFocused(), а ProseMirror держит selection при
-    // blur, поэтому focused остаётся true достаточно для рендера; на всякий
-    // случай при focusout пересчитываем через setTimeout (фокус мог уйти
-    // обратно в редактор/в инпут бара).
-    const onFocusIn = () => update();
-    const onFocusOut = () => window.setTimeout(update, 0);
+    // слушаем vv "scroll": на вертикальном скролле он менял vv.offsetTop →
+    // бар «уезжал» вниз; position:fixed и так держит бар над клавиатурой.
+    vv?.addEventListener("resize", recompute);
+    const onFocusIn = () => recompute();
+    const onFocusOut = () => window.setTimeout(recompute, 0);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
-      vv?.removeEventListener("resize", update);
+      vv?.removeEventListener("resize", recompute);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };
-  }, [editor]);
+  }, [recompute]);
+
+  // Закрыть лист/поповер → вернуть фокус редактору → ПЕРЕСЧИТАТЬ позицию
+  // несколько раз с задержками. После закрытия полноэкранного листа клавиатура
+  // переанимируется, и одиночный resize мог прийти с промежуточной высотой —
+  // бар улетал в середину экрана (скрин 3). Отложенные пересчёты ловят момент,
+  // когда клавиатура встала на место.
+  const closeSheetAndFocus = useCallback(() => {
+    setActiveSheet(null);
+    editor.focus();
+    recompute();
+    window.setTimeout(recompute, 150);
+    window.setTimeout(recompute, 350);
+    window.setTimeout(recompute, 600);
+  }, [editor, recompute]);
 
   // Автофокус в поле URL при открытии link-поповера: курсор сразу там, второй
   // тап не нужен. Клавиатура уже поднята (юзер редактировал текст), поэтому
@@ -233,6 +230,18 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     if (activeSheet === "block" || activeSheet === "color") {
       (document.activeElement as HTMLElement | null)?.blur?.();
     }
+  }, [activeSheet]);
+
+  // Лочим скролл страницы под полноэкранным листом — иначе на iOS скролл
+  // «протекает» на основную страницу (overscroll-behavior помогает не всегда),
+  // и юзер теряет нужную строку списка. Восстанавливаем при закрытии.
+  useEffect(() => {
+    if (activeSheet !== "block" && activeSheet !== "color") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, [activeSheet]);
 
   // Бар держим смонтированным, пока открыт любой поповер. Особенно важно для
@@ -260,16 +269,14 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     } catch {
       /* no cursor — ничего не делаем */
     }
-    setActiveSheet(null);
-    editor.focus();
+    closeSheetAndFocus();
     syncBlock();
   };
 
   const applyColor = (which: "textColor" | "backgroundColor", key: string) => {
     // BN: addStyles({ textColor | backgroundColor }); "default" сбрасывает.
     editor.addStyles({ [which]: key } as Parameters<typeof editor.addStyles>[0]);
-    setActiveSheet(null);
-    editor.focus();
+    closeSheetAndFocus();
   };
 
   const openLink = () => {
@@ -294,8 +301,7 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         /* нет валидного выделения — игнор */
       }
     }
-    setActiveSheet(null);
-    editor.focus();
+    closeSheetAndFocus();
   };
 
   const CurrentIcon = current.icon;
@@ -322,12 +328,7 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       {activeSheet === "link" ? (
         <div
           className="kb-mobile-sheet-overlay"
-          onClick={() => {
-            setActiveSheet(null);
-            // Вернуть фокус редактору, чтобы бар не пропал после закрытия
-            // поповера (visible снова станет true по focusin).
-            editor.focus();
-          }}
+          onClick={closeSheetAndFocus}
           aria-hidden
         />
       ) : null}
@@ -339,10 +340,7 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
             <button
               type="button"
               className="kb-mobile-fullsheet-cancel"
-              onClick={() => {
-                setActiveSheet(null);
-                editor.focus();
-              }}
+              onClick={closeSheetAndFocus}
             >
               Отмена
             </button>
@@ -378,10 +376,7 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
             <button
               type="button"
               className="kb-mobile-fullsheet-cancel"
-              onClick={() => {
-                setActiveSheet(null);
-                editor.focus();
-              }}
+              onClick={closeSheetAndFocus}
             >
               Отмена
             </button>

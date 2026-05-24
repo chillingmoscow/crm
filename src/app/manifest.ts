@@ -6,8 +6,9 @@ import type { MetadataRoute } from "next";
  * установимости в desktop Chrome. Next.js отдаёт его как
  * /manifest.webmanifest и сам добавляет <link rel="manifest">.
  *
- * Иконки пока SVG (desktop/Android принимают). Растровые PNG-иконки
- * (192/512/maskable + apple-touch) добавим на стадии iOS.
+ * Иконки: SVG (any) + растровые PNG 192/512 (any) и 512 maskable
+ * (Android adaptive) — PNG генерятся next/og через /api/icons/*.
+ * apple-touch-icon для iOS отдаётся отдельно из app/apple-icon.tsx.
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -20,11 +21,14 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#ffffff",
     lang: "ru",
     icons: [
+      { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+      { src: "/api/icons/192", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/api/icons/512", sizes: "512x512", type: "image/png", purpose: "any" },
       {
-        src: "/icon.svg",
-        sizes: "any",
-        type: "image/svg+xml",
-        purpose: "any",
+        src: "/api/icons/maskable",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
       },
     ],
   };

@@ -1284,6 +1284,11 @@ input:-webkit-autofill {
   flex-direction: column;
   background-color: hsl(var(--background));
   animation: kb-mobile-fullsheet-in 160ms ease-out;
+  /* Safe-area сверху — на контейнере, а НЕ как padding-top шапки: иначе
+   * absolute-«Отмена» (top:50%) центрировалась бы по padded-боксу и уезжала
+   * выше центрированного заголовка на notched-iPhone (Codex P2 #451). Здесь
+   * шапка остаётся ровной 52px-строкой, оба элемента на одной оси. */
+  padding-top: env(safe-area-inset-top);
 }
 @keyframes kb-mobile-fullsheet-in {
   from { opacity: 0; transform: translateY(12px); }
@@ -1297,7 +1302,6 @@ input:-webkit-autofill {
   height: 52px;
   padding: 0 16px;
   border-bottom: 1px solid hsl(var(--border));
-  padding-top: env(safe-area-inset-top);
 }
 .kb-mobile-fullsheet-title {
   font-size: 16px;

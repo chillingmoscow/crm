@@ -138,8 +138,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   const [activeSheet, setActiveSheet] = useState<SheetKind | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
   const linkInputRef = useRef<HTMLInputElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
-  const [bottom, setBottom] = useState(0);
+  // Y-смещение бара в КООРДИНАТАХ ДОКУМЕНТА (бар — position:absolute). На iOS
+  // position:fixed во время открытой клавиатуры ломается (элемент скроллится
+  // вместе со страницей), поэтому используем absolute + компенсируем scrollY.
+  const [barTop, setBarTop] = useState(0);
   // ВРЕМЕННАЯ диагностика позиции бара над клавиатурой. Видно только при
   // `?kbdebug` в URL (обычным юзерам — нет). Нужна, чтобы снять реальные числа
   // viewport'а с iOS-устройства и точно починить расчёт. Удалить после фикса.
@@ -173,32 +177,40 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     } catch {
       focused = false;
     }
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    setVisible(focused);
+    if (typeof window === "undefined") return;
+    const vv = window.visualViewport;
+    const barH = barRef.current?.offsetHeight ?? 56;
+    const scrollY = window.scrollY || window.pageYOffset || 0;
     if (!vv) {
-      setBottom(0);
-      setVisible(focused);
+      // Без visualViewport: низ бара = низ окна (в координатах документа).
+      setBarTop(Math.max(0, scrollY + window.innerHeight - barH));
       return;
     }
-    // Высота клавиатуры = разница layout- и visual-viewport'а снизу.
-    const keyboard = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    setBottom(keyboard);
-    setVisible(focused);
+    // Низ бара = низ visual viewport (= верх клавиатуры), в координатах
+    // ДОКУМЕНТА: scrollY (прокрутка) + offsetTop (пан visual viewport) + height.
+    // На iOS innerHeight уже == vv.height (клавиатура исключена), а fixed во
+    // время клавиатуры ломается, поэтому позиционируем absolute от документа.
+    setBarTop(Math.max(0, scrollY + vv.offsetTop + vv.height - barH));
   }, [editor]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const vv = window.visualViewport;
     recompute();
-    // Только resize (показ/скрытие клавиатуры) пересчитывает позицию. НЕ
-    // слушаем vv "scroll": на вертикальном скролле он менял vv.offsetTop →
-    // бар «уезжал» вниз; position:fixed и так держит бар над клавиатурой.
     vv?.addEventListener("resize", recompute);
+    vv?.addEventListener("scroll", recompute);
+    // window scroll — бар position:absolute, при скролле документа его top
+    // (в координатах документа) надо пересчитывать, иначе он «уедет».
+    window.addEventListener("scroll", recompute, { passive: true });
     const onFocusIn = () => recompute();
     const onFocusOut = () => window.setTimeout(recompute, 0);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut);
     return () => {
       vv?.removeEventListener("resize", recompute);
+      vv?.removeEventListener("scroll", recompute);
+      window.removeEventListener("scroll", recompute);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };
@@ -369,8 +381,9 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       ) : null}
       {visible || activeSheet !== null ? (
         <div
+          ref={barRef}
           className="kb-mobile-toolbar"
-          style={{ bottom }}
+          style={{ top: barTop }}
           role="toolbar"
           aria-label="Форматирование"
       // preventDefault на mousedown сохраняет выделение/фокус редактора при

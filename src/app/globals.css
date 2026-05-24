@@ -1153,6 +1153,114 @@ input:-webkit-autofill {
   }
 }
 
+/* ── Мобильный тулбар форматирования (KbMobileToolbar) ──────────────
+ * Фикс. бар над клавиатурой (заменяет плавающий BN-тулбар на touch).
+ * `bottom` выставляется инлайн = высота клавиатуры (visualViewport).
+ * `position: fixed` → служит containing-block'ом для absolute-поповера
+ * выбора типа блока (он открывается ВВЕРХ над баром). Портал в body. */
+.kb-mobile-toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  padding-bottom: calc(6px + env(safe-area-inset-bottom));
+  background-color: hsl(var(--popover));
+  border-top: 1px solid hsl(var(--border));
+  box-shadow: 0 -4px 16px rgb(0 0 0 / 0.08);
+}
+.kb-mobile-toolbar-blocktype {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 500;
+  max-width: 48%;
+  flex-shrink: 0;
+}
+.kb-mobile-toolbar-blocktype[data-open] {
+  border-color: hsl(var(--brand) / 0.6);
+  color: hsl(var(--brand));
+}
+.kb-mobile-toolbar-blocktype-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kb-mobile-toolbar-marks {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.kb-mobile-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  color: hsl(var(--muted-foreground));
+}
+.kb-mobile-toolbar-btn[data-active] {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+/* Поповер выбора типа блока — над баром (containing block = .kb-mobile-toolbar). */
+.kb-mobile-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background-color: rgb(0 0 0 / 0.2);
+}
+.kb-mobile-sheet {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 8px;
+  right: 8px;
+  z-index: 2;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 14px;
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--popover));
+  box-shadow:
+    0 12px 32px rgb(0 0 0 / 0.18),
+    0 2px 6px rgb(0 0 0 / 0.06);
+  animation: kb-mobile-sheet-in 140ms ease-out;
+}
+@keyframes kb-mobile-sheet-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.kb-mobile-sheet-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 10px;
+  font-size: 15px;
+  color: hsl(var(--foreground));
+  text-align: left;
+}
+.kb-mobile-sheet-item[data-active] {
+  background-color: hsl(var(--accent));
+}
+
 /* ── Block menu / Drag-handle menu (frame 07 · W8wDJ) ──────────────
  * BN's `.bn-menu-dropdown.bn-drag-handle-menu` — shadcn DropdownMenu.
  * Дизайн: 220px ширина, padding 6, gap 1, items padding [8,10] gap 10. */

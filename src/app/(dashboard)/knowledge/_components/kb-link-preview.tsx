@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Lock, AlertTriangle, Clock, User } from "lucide-react";
 
+import { useCoarsePointer } from "@/hooks/use-mobile";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import {
   getKbPagePreview,
@@ -63,21 +64,14 @@ export function KbLinkPreview() {
    *  читает его перед setPreview — игнорируем stale resolve, если
    *  юзер уже ушёл на другой link. См. Codex #63 P2. */
   const currentKeyRef = useRef<string | null>(null);
+  // На тач-устройствах hover-preview не нужен и вреден: iOS эмулирует
+  // `mouseover` на ПЕРВЫЙ тап по ссылке (показывает превью), а навигация
+  // происходит лишь на ВТОРОЙ тап; вдобавок превью «залипает», т.к.
+  // `mouseout` на touch не приходит. На coarse-pointer не вешаем listener.
+  const coarsePointer = useCoarsePointer();
 
   useEffect(() => {
-    // На тач-устройствах hover-preview не нужен и вреден: iOS эмулирует
-    // `mouseover` на ПЕРВЫЙ тап по ссылке (показывает превью), а навигация
-    // происходит лишь на ВТОРОЙ тап; вдобавок превью «залипает», т.к.
-    // `mouseout` на touch не приходит. Поэтому на coarse-pointer не вешаем
-    // listener вовсе — ссылки/узлы дерева открываются с первого тапа, превью
-    // не мешает.
-    if (
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(hover: none), (pointer: coarse)").matches
-    ) {
-      return;
-    }
+    if (coarsePointer) return;
 
     const onOver = (e: MouseEvent) => {
       const target = e.target as Element | null;
@@ -147,7 +141,7 @@ export function KbLinkPreview() {
       document.removeEventListener("mouseout", onOut);
       if (hoverTimer.current) clearTimeout(hoverTimer.current);
     };
-  }, []);
+  }, [coarsePointer]);
 
   // На каждый новый key — обновить preview state из кэша синхронно
   // (если уже в кэше). Async-fetch выше через loadXxxPreview ставит после.

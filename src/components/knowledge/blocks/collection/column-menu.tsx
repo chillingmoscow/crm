@@ -18,6 +18,7 @@ import { KbIconPickerBody } from "@/components/knowledge/kb-icon-picker";
 import { KB_PROPERTY_UI_ICONS } from "@/components/knowledge/property-ui-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useCoarsePointer } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import {
   KB_COLLECTION_CREATABLE_FIELD_TYPES,
@@ -644,20 +645,9 @@ function CollectionColumnInsertPanel({
 }) {
   const ActiveIcon = FIELD_ICONS[type];
   // На тач-устройствах не автофокусим поле имени — иначе при открытии панели
-  // вставки колонки сразу всплывает экранная клавиатура. На desktop фокус
-  // удобен (можно сразу печатать). ВАЖНО: значение нужно знать СИНХРОННО на
-  // первом рендере — `autoFocus` применяется только при mount'е. Хук
-  // useIsMobile() инициализируется как false и обновляется лишь в effect'е,
-  // т.е. на первом рендере дал бы autoFocus=true и клавиатуру всё равно (Codex
-  // P1 #443). Поэтому читаем pointer-режим из matchMedia в lazy-инициализаторе
-  // useState — он отрабатывает синхронно на mount'е. Заодно гейт по input-mode
-  // корректнее ширины экрана (тач-планшет > 768px тоже тач).
-  const [coarsePointer] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(hover: none), (pointer: coarse)").matches,
-  );
+  // вставки колонки сразу всплывает клавиатура. useCoarsePointer корректен
+  // синхронно на mount'е (важно: autoFocus применяется только при mount'е).
+  const coarsePointer = useCoarsePointer();
 
   return (
     <div className="kb-collection-column-insert-panel">

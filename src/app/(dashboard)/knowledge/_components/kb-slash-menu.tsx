@@ -13,6 +13,7 @@ import {
   type SuggestionMenuProps,
   useComponentsContext,
 } from "@blocknote/react";
+import { useCoarsePointer } from "@/hooks/use-mobile";
 
 /**
  * Custom slash-меню для KB. Отличается от дефолтного `SuggestionMenu`
@@ -46,13 +47,7 @@ export function KbSlashMenu(
   // тап по пункту: меню не срабатывало, при повторных тапах страница подвисала
   // и перезагружалась. Дефолтный SuggestionMenu BlockNote на мобильном
   // работает — на touch к нему и сводимся. На desktop — прежний hover-hold.
-  const [coarsePointer, setCoarsePointer] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    setCoarsePointer(
-      window.matchMedia("(hover: none), (pointer: coarse)").matches,
-    );
-  }, []);
+  const coarsePointer = useCoarsePointer();
 
   const renderedItems = useMemo<ReactNode[]>(() => {
     let currentGroup: string | undefined;

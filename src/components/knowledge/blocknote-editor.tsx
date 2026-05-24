@@ -71,6 +71,8 @@ type IconType = ((props: {
   color?: string;
 }) => React.ReactElement) & { displayName?: string };
 import { cn } from "@/lib/utils";
+import { useCoarsePointer } from "@/hooks/use-mobile";
+import { KbMobileToolbar } from "@/components/knowledge/kb-mobile-toolbar";
 import {
   htmlHasBrokenImg,
   stripBrokenImgInHtml,
@@ -568,6 +570,9 @@ export function KbBlockNoteEditor({
   className,
 }: BlockNoteEditorProps) {
   const { resolvedTheme } = useTheme();
+  // Тач-режим (нет hover / грубый указатель). На touch плавающий тулбар
+  // форматирования заменяем на фикс. KbMobileToolbar снизу.
+  const isTouch = useCoarsePointer();
 
   // BlockNote requires `initialContent` to be defined as a non-empty
   // array on construction; an empty/missing one becomes the default
@@ -1048,7 +1053,12 @@ export function KbBlockNoteEditor({
         // всех контролов. Триггер кастомизации — aiSlashEnabled ИЛИ
         // commentsBundle (любой включает кастомный controller).
         // См. Codex #54 P2.
-        formattingToolbar={aiSlashEnabled || commentsBundle ? false : undefined}
+        // На touch плавающий тулбар отключаем ВСЕГДА — вместо него снизу
+        // рендерим KbMobileToolbar (плавающий BN-тулбар на iOS не помещается,
+        // ловит клавиатуру, и Radix-Select внутри не открывается).
+        formattingToolbar={
+          isTouch || aiSlashEnabled || commentsBundle ? false : undefined
+        }
         // Default LinkToolbar отключаем — рендерим свой
         // <LinkToolbarController> (ниже), который для KB-links возвращает
         // null. Без этого флага BlockNote рендерил бы ОБА toolbar'а:
@@ -1168,7 +1178,7 @@ export function KbBlockNoteEditor({
             suggestionMenuComponent={KbSlashMenu}
           />
         )}
-        {(aiSlashEnabled || commentsBundle) && (
+        {!isTouch && (aiSlashEnabled || commentsBundle) && (
           <FormattingToolbarController
             formattingToolbar={() => {
             // Locked-страница + юзер может комментировать:
@@ -1258,6 +1268,11 @@ export function KbBlockNoteEditor({
           </>
         )}
         {renderExtras?.(editor as unknown as BlockNoteEditor)}
+        {/* Мобильный тулбар форматирования — фикс. бар снизу над клавиатурой
+            (вместо плавающего BN-тулбара, который на iOS не работает).
+            Рендерится как child BlockNoteView (есть editor-контекст), сам
+            порталится в body. Только touch + editable. */}
+        {isTouch && editable && <KbMobileToolbar editor={editor} />}
         <KbEmojiPickerOverlay />
       </BlockNoteView>
     </KbCollectionRuntimeProvider>

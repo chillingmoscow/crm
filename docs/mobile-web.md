@@ -391,6 +391,34 @@ className={cn(
   `<input>` имел `text-sm` (14px) → iOS зумил. Фикс — `text-base sm:text-sm`
   ([`login/page.tsx`](../src/app/(auth)/login/page.tsx)).
 
+### «Мобильный режим» редактора — единый touch-слой
+
+Вместо точечных заплаток iOS-багов редактора вводим **один сигнал touch** и на
+нём переключаем interaction-слой с десктопного (floating-UI, hover, drag) на
+touch-нативный.
+
+- **Единый сигнал**: хук `useCoarsePointer()` в
+  [`src/hooks/use-mobile.tsx`](../src/hooks/use-mobile.tsx) — `matchMedia("(hover: none), (pointer: coarse)")`,
+  **синхронно корректен на mount'е** (lazy-`useState`; важно для mount-only
+  пропсов вроде `autoFocus`) + реактивен по `change`. Гейт по **input-mode**, а
+  НЕ по ширине (тач-планшет > 768px тоже тач). Все инлайновые matchMedia
+  (slash-меню, меню колонки/вида, link-preview) сконсолидированы на него.
+- **Нижний тулбар форматирования вместо плавающего** на touch
+  ([`src/components/knowledge/kb-mobile-toolbar.tsx`](../src/components/knowledge/kb-mobile-toolbar.tsx)):
+  плавающий BN-`FormattingToolbar` на iOS не помещается, ловит клавиатуру, и
+  Radix-`BlockTypeSelect` внутри не открывается по тапу. Решение (паттерн
+  Notion/Word) — фикс. бар снизу **над клавиатурой**, не над текстом (нет
+  наезда). Работает через editor-API (`useActiveStyles`, `toggleStyles`,
+  `getTextCursorPosition().block` + `updateBlock`). Выбор типа блока — свой
+  поповер вверх (не Radix Select). Видимость + позиция над клавиатурой —
+  `window.visualViewport` (показываем при `editor.isFocused()` + поднятой
+  клавиатуре; `bottom` = высота клавиатуры). Кнопки `onMouseDown preventDefault`
+  (сохранить выделение); **не** `pointerdown` (на iOS отменил бы click).
+  В [`blocknote-editor.tsx`](../src/components/knowledge/blocknote-editor.tsx):
+  на touch `formattingToolbar={false}` + рендер `KbMobileToolbar`; на desktop —
+  плавающий тулбар как был. *(Stage 1a: block-type + B/I/U/S/код; ссылка / цвет /
+  комментарий / AI на баре — fast-follow.)*
+
 ---
 
 ## 14. Коллекция БЗ (collection-блок) на мобильном

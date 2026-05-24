@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { useCoarsePointer } from "@/hooks/use-mobile";
 import {
   KB_COLLECTION_VIEW_LABELS,
   type KbCollectionView,
@@ -67,16 +68,9 @@ export function CollectionViewMenu({
   const [nameDraft, setNameDraft] = useState(viewName);
   const [descriptionDraft, setDescriptionDraft] = useState(description);
   // Не автофокусим поле переименования на тач-устройствах (иначе всплывает
-  // клавиатура). Значение читаем СИНХРОННО на mount'е через lazy-инициализатор
-  // useState (matchMedia), т.к. autoFocus применяется только при mount'е, а
-  // useIsMobile() на первом рендере вернул бы false → autoFocus=true и
-  // клавиатуру всё равно (Codex P1 #443). Гейт по input-mode корректнее ширины.
-  const [coarsePointer] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(hover: none), (pointer: coarse)").matches,
-  );
+  // клавиатура). useCoarsePointer корректен синхронно на mount'е (autoFocus
+  // применяется только при mount'е).
+  const coarsePointer = useCoarsePointer();
 
   useEffect(() => {
     setNameDraft(viewName);

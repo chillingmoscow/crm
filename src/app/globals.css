@@ -1200,7 +1200,17 @@ input:-webkit-autofill {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: auto;
+  /* Кнопок больше, чем влезает рядом с селектором типа блока → ряд
+   * скроллится горизонтально (root .kb-mobile-toolbar держим overflow:visible,
+   * иначе обрежет поповеры над баром, поэтому скролл — на самом ряду марок). */
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.kb-mobile-toolbar-marks::-webkit-scrollbar {
+  display: none;
 }
 .kb-mobile-toolbar-btn {
   display: inline-flex;
@@ -1208,6 +1218,7 @@ input:-webkit-autofill {
   justify-content: center;
   width: 40px;
   height: 40px;
+  flex-shrink: 0;
   border-radius: 8px;
   color: hsl(var(--muted-foreground));
 }

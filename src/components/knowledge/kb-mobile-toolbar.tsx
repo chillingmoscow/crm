@@ -192,8 +192,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     };
 
     update();
+    // Только resize (показ/скрытие клавиатуры) пересчитывает позицию. НЕ
+    // слушаем vv "scroll": при вертикальном скролле страницы он менял
+    // vv.offsetTop → пересчитывал bottom → бар «уезжал» вниз. Бар
+    // position:fixed — при стабильной клавиатуре он и так остаётся над ней
+    // без пересчёта на скролле.
     vv?.addEventListener("resize", update);
-    vv?.addEventListener("scroll", update);
     // focusin/out по документу: фокус ушёл в редактор / из него → пересчёт.
     // Фокус в наш собственный link-input (внутри бара) не должен прятать бар —
     // update() читает editor.isFocused(), а ProseMirror держит selection при
@@ -206,7 +210,6 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     document.addEventListener("focusout", onFocusOut);
     return () => {
       vv?.removeEventListener("resize", update);
-      vv?.removeEventListener("scroll", update);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut);
     };

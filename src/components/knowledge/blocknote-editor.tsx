@@ -1005,6 +1005,25 @@ export function KbBlockNoteEditor({
     };
   }, [editor, commentsBundle]);
 
+  // Анти-автозаполнение на contenteditable редактора. BlockNote не оборачивает
+  // редактор в <form> (проверено) — панель автозаполнения (пароли/карты/
+  // контакты над клавиатурой, подсказки в Chrome) показывается браузером для
+  // ЛЮБОГО редактируемого поля. Полностью убрать системную iOS-полку из web
+  // нельзя, но проставляем best-effort сигналы на сам ProseMirror-элемент:
+  // autocomplete=off + игнор для менеджеров паролей (1Password/LastPass) +
+  // data-form-type=other. autocapitalize/spellcheck НЕ трогаем — они меняют
+  // поведение набора (авто-заглавная, проверка орфографии), а не автозаполнение.
+  useEffect(() => {
+    const dom = (
+      editor as unknown as { prosemirrorView?: { dom?: HTMLElement } }
+    ).prosemirrorView?.dom;
+    if (!dom) return;
+    dom.setAttribute("autocomplete", "off");
+    dom.setAttribute("data-1p-ignore", "true");
+    dom.setAttribute("data-lpignore", "true");
+    dom.setAttribute("data-form-type", "other");
+  }, [editor]);
+
   // Subscribe to document changes; surface only the document. Full-text
   // projection is intentionally deferred to the debounced save boundary.
   const onChangeRef = useRef(onChange);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useActiveStyles, useEditorSelectionChange } from "@blocknote/react";
 import type { BlockNoteEditor } from "@blocknote/core";
@@ -43,8 +43,8 @@ import {
  * touch-устройстве с внешней клавиатурой). Позицию над клавиатурой считаем
  * через window.visualViewport (bottom = высота клавиатуры; 0 если опущена).
  *
- * Состав: тип блока + B/I/U/S/код + цвет текста + ссылка. Комментарий / AI на
- * баре — следующий fast-follow (завязаны на comments-extension / AI-команды).
+ * Состав: тип блока + B/I/U/S/код + цвет текста/фона + ссылка. Комментарий / AI
+ * на баре — следующий fast-follow (завязаны на comments-extension / AI-команды).
  */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,7 +52,10 @@ type AnyEditor = BlockNoteEditor<any, any, any>;
 
 type MarkKey = "bold" | "italic" | "underline" | "strike" | "code";
 
-type ActiveStyles = Partial<Record<MarkKey, boolean>> & { textColor?: string };
+type ActiveStyles = Partial<Record<MarkKey, boolean>> & {
+  textColor?: string;
+  backgroundColor?: string;
+};
 
 const MARKS: { key: MarkKey; icon: LucideIcon; label: string }[] = [
   { key: "bold", icon: Bold, label: "Жирный" },
@@ -128,11 +131,13 @@ function matchBlockType(
 
 export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   const activeStyles = useActiveStyles(editor) as ActiveStyles;
-  const activeColor = activeStyles.textColor ?? "default";
+  const activeTextColor = activeStyles.textColor ?? "default";
+  const activeBgColor = activeStyles.backgroundColor ?? "default";
 
   const [current, setCurrent] = useState<BlockTypeOption>(BLOCK_TYPES[0]);
   const [activeSheet, setActiveSheet] = useState<SheetKind | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
+  const linkInputRef = useRef<HTMLInputElement>(null);
   const [visible, setVisible] = useState(false);
   const [bottom, setBottom] = useState(0);
 
@@ -207,6 +212,16 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     };
   }, [editor]);
 
+  // Автофокус в поле URL при открытии link-поповера: курсор сразу там, второй
+  // тап не нужен. Клавиатура уже поднята (юзер редактировал текст), поэтому
+  // focus() просто переводит каретку в поле — отдельный gesture для подъёма
+  // клавиатуры не требуется. rAF — чтобы инпут успел смонтироваться.
+  useEffect(() => {
+    if (activeSheet !== "link") return;
+    const id = requestAnimationFrame(() => linkInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [activeSheet]);
+
   // Бар держим смонтированным, пока открыт любой поповер. Особенно важно для
   // link-инпута: тап в поле уводит фокус из редактора → editor.isFocused()
   // становится false → visible=false; без условия `activeSheet !== null` бар
@@ -237,9 +252,9 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     syncBlock();
   };
 
-  const applyColor = (key: string) => {
-    // BN: addStyles({ textColor }); "default" сбрасывает цвет.
-    editor.addStyles({ textColor: key } as Parameters<typeof editor.addStyles>[0]);
+  const applyColor = (which: "textColor" | "backgroundColor", key: string) => {
+    // BN: addStyles({ textColor | backgroundColor }); "default" сбрасывает.
+    editor.addStyles({ [which]: key } as Parameters<typeof editor.addStyles>[0]);
     setActiveSheet(null);
     editor.focus();
   };
@@ -330,39 +345,72 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       ) : null}
 
       {activeSheet === "color" ? (
-        <div className="kb-mobile-sheet kb-mobile-color-grid" role="menu">
-          {TEXT_COLORS.map((color) => {
-            const active = color.key === activeColor;
-            return (
-              <button
-                key={color.key}
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                className="kb-mobile-color-swatch"
-                data-active={active ? true : undefined}
-                aria-label={color.label}
-                title={color.label}
-                onClick={() => applyColor(color.key)}
-              >
-                <span
-                  className="kb-mobile-color-dot"
-                  style={color.css ? { color: color.css } : undefined}
-                  data-default={color.css ? undefined : true}
+        <div className="kb-mobile-sheet kb-mobile-color-sheet" role="menu">
+          <div className="kb-mobile-color-group-label">Цвет текста</div>
+          <div className="kb-mobile-color-grid">
+            {TEXT_COLORS.map((color) => {
+              const active = color.key === activeTextColor;
+              return (
+                <button
+                  key={`t-${color.key}`}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={active}
+                  className="kb-mobile-color-swatch"
+                  data-active={active ? true : undefined}
+                  aria-label={color.label}
+                  title={color.label}
+                  onClick={() => applyColor("textColor", color.key)}
                 >
-                  А
-                </span>
-              </button>
-            );
-          })}
+                  <span
+                    className="kb-mobile-color-dot"
+                    style={color.css ? { color: color.css } : undefined}
+                    data-default={color.css ? undefined : true}
+                  >
+                    А
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="kb-mobile-color-group-label">Фон текста</div>
+          <div className="kb-mobile-color-grid">
+            {TEXT_COLORS.map((color) => {
+              const active = color.key === activeBgColor;
+              return (
+                <button
+                  key={`b-${color.key}`}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={active}
+                  className="kb-mobile-color-swatch"
+                  data-active={active ? true : undefined}
+                  aria-label={`Фон: ${color.label}`}
+                  title={`Фон: ${color.label}`}
+                  onClick={() => applyColor("backgroundColor", color.key)}
+                >
+                  <span
+                    className="kb-mobile-color-dot kb-mobile-color-dot-bg"
+                    style={color.css ? { backgroundColor: color.css } : undefined}
+                    data-default={color.css ? undefined : true}
+                  >
+                    А
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 
       {activeSheet === "link" ? (
         <div className="kb-mobile-sheet kb-mobile-link-sheet" role="menu">
           <input
+            ref={linkInputRef}
             type="url"
             inputMode="url"
+            autoComplete="off"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
@@ -422,8 +470,14 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         <button
           type="button"
           className="kb-mobile-toolbar-btn"
-          data-active={activeColor !== "default" || activeSheet === "color" ? true : undefined}
-          aria-label="Цвет текста"
+          data-active={
+            activeTextColor !== "default" ||
+            activeBgColor !== "default" ||
+            activeSheet === "color"
+              ? true
+              : undefined
+          }
+          aria-label="Цвет текста и фон"
           aria-expanded={activeSheet === "color"}
           onClick={() => setActiveSheet((v) => (v === "color" ? null : "color"))}
         >

@@ -15,6 +15,13 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "CRM Platform",
   description: "Корпоративная платформа управления заведениями",
+  // iOS PWA: даёт standalone-режим и корректный заголовок на экране
+  // «Домой». Без этого Web Push на iPhone не работает (нужна установка).
+  appleWebApp: {
+    capable: true,
+    title: "Sheerly",
+    statusBarStyle: "default",
+  },
 };
 
 export default function RootLayout({

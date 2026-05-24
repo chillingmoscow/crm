@@ -44,6 +44,8 @@ export interface UsePushSubscription {
   busy: boolean;
   /** PWA установлено (display-mode standalone) — важно для iOS. */
   standalone: boolean;
+  /** iOS/iPadOS — там push работает ТОЛЬКО из установленного PWA. */
+  isIOS: boolean;
   enable: () => Promise<void>;
   disable: () => Promise<void>;
 }
@@ -62,12 +64,30 @@ export function usePushSubscription(): UsePushSubscription {
   const [subscribed, setSubscribed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [standalone, setStandalone] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
 
   const configured = Boolean(VAPID_PUBLIC_KEY);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Платформа и режим установки считаются ВСЕГДА, не завися от
+    // push-поддержки: на iOS Safari (вкладке) Push API отсутствует, но
+    // нам нужно показать подсказку «установи PWA».
+    const ua = navigator.userAgent;
+    const iOS =
+      /iPad|iPhone|iPod/.test(ua) ||
+      // iPadOS 13+ маскируется под Mac — ловим по touch.
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    setIsIOS(iOS);
+    setStandalone(
+      window.matchMedia?.("(display-mode: standalone)").matches ||
+        // iOS Safari standalone флаг.
+        (window.navigator as unknown as { standalone?: boolean }).standalone ===
+          true,
+    );
+
     const isSupported =
-      typeof window !== "undefined" &&
       "serviceWorker" in navigator &&
       "PushManager" in window &&
       "Notification" in window;
@@ -75,12 +95,6 @@ export function usePushSubscription(): UsePushSubscription {
     if (!isSupported) return;
 
     setPermission(Notification.permission);
-    setStandalone(
-      window.matchMedia?.("(display-mode: standalone)").matches ||
-        // iOS Safari standalone флаг.
-        (window.navigator as unknown as { standalone?: boolean }).standalone ===
-          true,
-    );
 
     // Уже подписаны? (SW мог остаться с прошлой сессии.)
     navigator.serviceWorker.ready
@@ -148,6 +162,7 @@ export function usePushSubscription(): UsePushSubscription {
     subscribed,
     busy,
     standalone,
+    isIOS,
     enable,
     disable,
   };

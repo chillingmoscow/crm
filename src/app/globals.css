@@ -1272,62 +1272,102 @@ input:-webkit-autofill {
   background-color: hsl(var(--accent));
 }
 
-/* Палитра цвета текста — сетка свотчей в том же поповере над баром. */
-/* Поповер цвета: две группы (текст + фон), каждая — ряд свотчей. */
-.kb-mobile-color-sheet {
-  padding: 8px;
-  gap: 4px;
-}
-.kb-mobile-color-group-label {
-  padding: 6px 4px 2px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: hsl(var(--muted-foreground));
-}
-.kb-mobile-color-grid {
+
+/* ── Полноэкранный лист (тип блока / цвет), Notion-style ──────────────
+ * Перекрывает весь экран (и системное меню выделения iOS, и клавиатуру —
+ * её гасим при открытии). Шапка с заголовком + «Отмена», скролл-список. */
+.kb-mobile-fullsheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  background-color: hsl(var(--background));
+  animation: kb-mobile-fullsheet-in 160ms ease-out;
+  /* Safe-area сверху — на контейнере, а НЕ как padding-top шапки: иначе
+   * absolute-«Отмена» (top:50%) центрировалась бы по padded-боксу и уезжала
+   * выше центрированного заголовка на notched-iPhone (Codex P2 #451). Здесь
+   * шапка остаётся ровной 52px-строкой, оба элемента на одной оси. */
+  padding-top: env(safe-area-inset-top);
 }
-.kb-mobile-color-swatch {
+@keyframes kb-mobile-fullsheet-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.kb-mobile-fullsheet-header {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  border: 1px solid hsl(var(--border));
-  background-color: hsl(var(--background));
+  position: relative;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid hsl(var(--border));
 }
-.kb-mobile-color-swatch[data-active] {
-  outline: 2px solid hsl(var(--brand));
-  outline-offset: 1px;
-}
-.kb-mobile-color-dot {
-  font-size: 17px;
-  font-weight: 700;
-  line-height: 1;
-  /* color наследуется из inline-style свотча (превью цвета BN). */
-  color: currentColor;
-}
-.kb-mobile-color-dot[data-default] {
+.kb-mobile-fullsheet-title {
+  font-size: 16px;
+  font-weight: 600;
   color: hsl(var(--foreground));
 }
-/* Свотч фона — залитый квадрат (фон-цвет в inline-style), «А» поверх. */
-.kb-mobile-color-dot-bg {
+.kb-mobile-fullsheet-cancel {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  color: hsl(var(--brand));
+}
+.kb-mobile-fullsheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px 0 calc(12px + env(safe-area-inset-bottom));
+}
+.kb-mobile-fullsheet-section {
+  padding: 14px 16px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: hsl(var(--muted-foreground));
+}
+.kb-mobile-fullsheet-item {
   display: flex;
   align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 16px;
+  font-size: 16px;
+  color: hsl(var(--foreground));
+  text-align: left;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+.kb-mobile-fullsheet-item:active {
+  background-color: hsl(var(--accent));
+}
+/* Чип цвета в строке листа: квадрат с буквой «А». Текст — буква в цвете;
+ * фон — залитый квадрат. */
+.kb-mobile-color-chip {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  border: 1px solid hsl(var(--border));
+  font-size: 16px;
+  font-weight: 700;
+  color: currentColor;
+}
+.kb-mobile-color-chip[data-default] {
+  color: hsl(var(--foreground));
+}
+.kb-mobile-color-chip-bg {
   color: hsl(var(--foreground));
   background-color: hsl(var(--muted));
 }
-.kb-mobile-color-dot-bg[data-default] {
+.kb-mobile-color-chip-bg[data-default] {
   background-color: transparent;
   border: 1px dashed hsl(var(--border));
 }

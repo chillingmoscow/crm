@@ -225,6 +225,16 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     return () => cancelAnimationFrame(id);
   }, [activeSheet]);
 
+  // Полноэкранные листы (тип блока / цвет) — как в Notion на весь экран. Убираем
+  // клавиатуру при их открытии: иначе OS-слой клавиатуры перекрыл бы низ листа.
+  // Выделение ProseMirror переживает blur, поэтому apply по сохранённому
+  // selection работает; на закрытии листа applyX/Отмена возвращают editor.focus().
+  useEffect(() => {
+    if (activeSheet === "block" || activeSheet === "color") {
+      (document.activeElement as HTMLElement | null)?.blur?.();
+    }
+  }, [activeSheet]);
+
   // Бар держим смонтированным, пока открыт любой поповер. Особенно важно для
   // link-инпута: тап в поле уводит фокус из редактора → editor.isFocused()
   // становится false → visible=false; без условия `activeSheet !== null` бар
@@ -307,10 +317,9 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         event.preventDefault();
       }}
     >
-      {/* Поповеры открываются ВВЕРХ над баром (бар уже над клавиатурой;
-          bottom-sheet был бы скрыт клавиатурой). overlay ловит тап вне
-          поповера для закрытия. */}
-      {activeSheet ? (
+      {/* overlay только для link-поповера (он маленький, над баром). Листы
+          типа блока / цвета — полноэкранные, со своей шапкой и «Отмена». */}
+      {activeSheet === "link" ? (
         <div
           className="kb-mobile-sheet-overlay"
           onClick={() => {
@@ -324,33 +333,61 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
       ) : null}
 
       {activeSheet === "block" ? (
-        <div className="kb-mobile-sheet" role="menu">
-          {BLOCK_TYPES.map((option) => {
-            const Icon = option.icon;
-            const active = option.key === current.key;
-            return (
-              <button
-                key={option.key}
-                type="button"
-                role="menuitemradio"
-                aria-checked={active}
-                className="kb-mobile-sheet-item"
-                data-active={active ? true : undefined}
-                onClick={() => applyBlockType(option)}
-              >
-                <Icon className="size-4" />
-                <span className="flex-1 text-left">{option.label}</span>
-                {active ? <Check className="size-4 text-brand" /> : null}
-              </button>
-            );
-          })}
+        <div className="kb-mobile-fullsheet" role="dialog" aria-label="Превратить в">
+          <div className="kb-mobile-fullsheet-header">
+            <span className="kb-mobile-fullsheet-title">Превратить в</span>
+            <button
+              type="button"
+              className="kb-mobile-fullsheet-cancel"
+              onClick={() => {
+                setActiveSheet(null);
+                editor.focus();
+              }}
+            >
+              Отмена
+            </button>
+          </div>
+          <div className="kb-mobile-fullsheet-body" role="menu">
+            {BLOCK_TYPES.map((option) => {
+              const Icon = option.icon;
+              const active = option.key === current.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={active}
+                  className="kb-mobile-fullsheet-item"
+                  data-active={active ? true : undefined}
+                  onClick={() => applyBlockType(option)}
+                >
+                  <Icon className="size-5 shrink-0" />
+                  <span className="flex-1 text-left">{option.label}</span>
+                  {active ? <Check className="size-5 text-brand shrink-0" /> : null}
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : null}
 
       {activeSheet === "color" ? (
-        <div className="kb-mobile-sheet kb-mobile-color-sheet" role="menu">
-          <div className="kb-mobile-color-group-label">Цвет текста</div>
-          <div className="kb-mobile-color-grid">
+        <div className="kb-mobile-fullsheet" role="dialog" aria-label="Цвет блока">
+          <div className="kb-mobile-fullsheet-header">
+            <span className="kb-mobile-fullsheet-title">Цвет блока</span>
+            <button
+              type="button"
+              className="kb-mobile-fullsheet-cancel"
+              onClick={() => {
+                setActiveSheet(null);
+                editor.focus();
+              }}
+            >
+              Отмена
+            </button>
+          </div>
+          <div className="kb-mobile-fullsheet-body" role="menu">
+            <div className="kb-mobile-fullsheet-section">Цвет текста</div>
             {TEXT_COLORS.map((color) => {
               const active = color.key === activeTextColor;
               return (
@@ -359,26 +396,24 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
                   type="button"
                   role="menuitemradio"
                   aria-checked={active}
-                  className="kb-mobile-color-swatch"
+                  className="kb-mobile-fullsheet-item"
                   data-active={active ? true : undefined}
-                  aria-label={color.label}
-                  title={color.label}
                   onClick={() => applyColor("textColor", color.key)}
                 >
                   <span
-                    className="kb-mobile-color-dot"
+                    className="kb-mobile-color-chip"
                     style={color.css ? { color: color.css } : undefined}
                     data-default={color.css ? undefined : true}
                   >
                     А
                   </span>
+                  <span className="flex-1 text-left">{color.label}</span>
+                  {active ? <Check className="size-5 text-brand shrink-0" /> : null}
                 </button>
               );
             })}
-          </div>
 
-          <div className="kb-mobile-color-group-label">Фон текста</div>
-          <div className="kb-mobile-color-grid">
+            <div className="kb-mobile-fullsheet-section">Фон текста</div>
             {TEXT_COLORS.map((color) => {
               const active = color.key === activeBgColor;
               return (
@@ -387,19 +422,19 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
                   type="button"
                   role="menuitemradio"
                   aria-checked={active}
-                  className="kb-mobile-color-swatch"
+                  className="kb-mobile-fullsheet-item"
                   data-active={active ? true : undefined}
-                  aria-label={`Фон: ${color.label}`}
-                  title={`Фон: ${color.label}`}
                   onClick={() => applyColor("backgroundColor", color.key)}
                 >
                   <span
-                    className="kb-mobile-color-dot kb-mobile-color-dot-bg"
+                    className="kb-mobile-color-chip kb-mobile-color-chip-bg"
                     style={color.css ? { backgroundColor: color.css } : undefined}
                     data-default={color.css ? undefined : true}
                   >
                     А
                   </span>
+                  <span className="flex-1 text-left">{color.label}</span>
+                  {active ? <Check className="size-5 text-brand shrink-0" /> : null}
                 </button>
               );
             })}

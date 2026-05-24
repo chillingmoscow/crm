@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
+import { unsubscribePushForSignOut } from "@/lib/push/client";
 
 /**
  * /auth/sign-out — client-side sign-out + редирект на ?next= (default /login).
@@ -38,11 +39,14 @@ function SignOutInner() {
     ranRef.current = true;
     const next = params.get("next") || "/login";
     const supabase = createClient();
+    // Отписываем браузер от push ДО signOut (server action требует
+    // активной сессии). На общем устройстве это не даёт следующему
+    // юзеру получать push прежнего владельца.
     // scope: 'local' — без round-trip'а на GoTrue, просто чистим
     // sb-cookies локально. Этого достаточно для нашего case'а
     // (юзер сменил email и хочет залогиниться заново).
-    supabase.auth
-      .signOut({ scope: "local" })
+    unsubscribePushForSignOut()
+      .then(() => supabase.auth.signOut({ scope: "local" }))
       .finally(() => router.replace(next));
   }, [params, router]);
 

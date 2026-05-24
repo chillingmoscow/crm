@@ -50,6 +50,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { createClient } from "@/lib/supabase/client";
+import { unsubscribePushForSignOut } from "@/lib/push/client";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
 import { SupportReportDialog } from "@/components/shared/support-report-dialog";
@@ -337,6 +338,10 @@ function SidebarBody({
   const [supportOpen, setSupportOpen] = useState(false);
 
   const handleSignOut = async () => {
+    // Отписываем браузер от push ДО signOut (server action требует
+    // сессии). На общем устройстве это не даёт следующему юзеру
+    // получать push прежнего владельца.
+    await unsubscribePushForSignOut();
     const { error } = await supabase.auth.signOut();
     if (error) {
       toast.error("Не удалось выйти");

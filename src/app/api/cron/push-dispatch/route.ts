@@ -77,13 +77,18 @@ async function runPushDispatch(): Promise<NextResponse> {
   const admin = createAdminClient();
   const nowMs = Date.now();
 
-  // ── Шаг 1: кандидаты (oldest-first, ограничены батчем) ───────────
+  // ── Шаг 1: кандидаты (newest-first, ограничены батчем) ───────────
   // PostgREST не умеет LIMIT на UPDATE, поэтому сначала выбираем id.
+  // Newest-first критично: при бэклоге > BATCH_SIZE после простоя cron'а
+  // oldest-first забирал бы только старьё (за окном отправки) и свежие
+  // уведомления голодали бы, пока не сольётся весь старый хвост. Берём
+  // свежие в приоритете; старое (всё равно подавляется окном) дренится
+  // следующими прогонами.
   const { data: candidates, error: selError } = await admin
     .from("notifications")
     .select("id")
     .is("pushed_at", null)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(BATCH_SIZE);
 
   if (selError) {

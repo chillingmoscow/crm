@@ -133,6 +133,7 @@ export function NotificationBell() {
         const data = await getNotifications({
           scope: s,
           before: oldest.created_at,
+          beforeId: oldest.id,
           limit: PAGE_SIZE,
         });
         if (s === "active") setActiveNotifs((prev) => [...prev, ...data]);

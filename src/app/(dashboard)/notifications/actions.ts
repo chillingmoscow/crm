@@ -52,8 +52,14 @@ export type Notification = {
 interface GetNotificationsArgs {
   /** Скоуп: 'active' = archived_at IS NULL (default), 'archived' = NOT NULL. */
   scope?: "active" | "archived";
-  /** Cursor по created_at для load-more (исключает rows >= before). */
+  /** Cursor по created_at для load-more. */
   before?: string;
+  /** Cursor по id — тай-брейкер для строк с одинаковым created_at.
+   *  Bulk-вставки (массовые @-упоминания, ДР коллегам) ставят один
+   *  `now()` на всю пачку, поэтому курсора только по created_at
+   *  недостаточно: при попадании границы страницы внутрь такой пачки
+   *  часть строк навсегда выпадала из подгрузки. */
+  beforeId?: string;
   /** Page size. Default 50. */
   limit?: number;
 }
@@ -61,7 +67,7 @@ interface GetNotificationsArgs {
 export async function getNotifications(
   args: GetNotificationsArgs = {},
 ): Promise<Notification[]> {
-  const { scope = "active", before, limit = 50 } = args;
+  const { scope = "active", before, beforeId, limit = 50 } = args;
   const supabase = await createClient();
   const {
     data: { user },
@@ -74,7 +80,11 @@ export async function getNotifications(
       "id, type, category, title, body, link, read, archived_at, actor_user_id, entity_type, entity_id, payload, created_at",
     )
     .eq("user_id", user.id)
+    // Стабильный композитный порядок: created_at desc, затем id desc как
+    // детерминированный тай-брейкер (uuid-порядок произвольный, но
+    // постоянный — этого достаточно для keyset-пагинации).
     .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
     .limit(limit);
 
   if (scope === "active") {
@@ -83,11 +93,18 @@ export async function getNotifications(
     query = query.not("archived_at", "is", null);
   }
 
-  if (before) {
+  // Композитный keyset-курсор (created_at, id): строки строго «старее»
+  // границы. timestamp в двойных кавычках — содержит спецсимволы (+, :, .).
+  if (before && beforeId) {
+    query = query.or(
+      `created_at.lt."${before}",and(created_at.eq."${before}",id.lt."${beforeId}")`,
+    );
+  } else if (before) {
     query = query.lt("created_at", before);
   }
 
-  const { data } = await query;
+  const { data, error } = await query;
+  if (error) console.error("[notifications] getNotifications failed:", error.message);
   // Cast — DB returns category/payload as non-strict types (default = '{}'::jsonb).
   return (data ?? []) as unknown as Notification[];
 }

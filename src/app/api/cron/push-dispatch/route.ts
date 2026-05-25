@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isPushConfigured } from "@/lib/push/vapid";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
   sendPushToSubscriptions,
   type PushPayload,
@@ -32,6 +33,14 @@ import {
 export const runtime = "nodejs";
 
 const SEND_WINDOW_MS = 6 * 60 * 60 * 1000; // 6 часов
+// Максимум строк за один прогон — чтобы после простоя cron'а не забрать
+// тысячи разом (claim-before-send → таймаут = недоставка хвоста). Cron
+// раз в минуту дренит остаток следующими прогонами (oldest-first).
+const BATCH_SIZE = 500;
+// Параллелизм отправки по уведомлениям (sendPushToSubscriptions внутри
+// сам шлёт всем подпискам пользователя). Воркер не бросает — ошибки
+// глотаются внутри, поэтому runWithConcurrency не прервётся.
+const SEND_CONCURRENCY = 8;
 
 export async function POST(request: Request) {
   const expected = process.env.CRON_SECRET;
@@ -68,10 +77,41 @@ async function runPushDispatch(): Promise<NextResponse> {
   const admin = createAdminClient();
   const nowMs = Date.now();
 
-  // ── Атомарный клейм неразосланных уведомлений ────────────────────
+  // ── Шаг 1: кандидаты (newest-first, ограничены батчем) ───────────
+  // PostgREST не умеет LIMIT на UPDATE, поэтому сначала выбираем id.
+  // Newest-first критично: при бэклоге > BATCH_SIZE после простоя cron'а
+  // oldest-first забирал бы только старьё (за окном отправки) и свежие
+  // уведомления голодали бы, пока не сольётся весь старый хвост. Берём
+  // свежие в приоритете; старое (всё равно подавляется окном) дренится
+  // следующими прогонами.
+  const { data: candidates, error: selError } = await admin
+    .from("notifications")
+    .select("id")
+    .is("pushed_at", null)
+    .order("created_at", { ascending: false })
+    .limit(BATCH_SIZE);
+
+  if (selError) {
+    console.error("[push-dispatch] select candidates failed:", selError.message);
+    return NextResponse.json({ error: selError.message }, { status: 500 });
+  }
+  const candidateIds = (candidates ?? []).map((c) => c.id);
+  if (candidateIds.length === 0) {
+    return NextResponse.json({
+      claimed: 0,
+      delivered: 0,
+      timestamp: new Date(nowMs).toISOString(),
+    });
+  }
+
+  // ── Шаг 2: атомарный клейм именно этих id ────────────────────────
+  // `pushed_at is null` в WHERE + блокировка строк гарантируют, что при
+  // перекрытии прогонов каждую строку заберёт только один (второй
+  // обновит 0 из них и вернёт меньше) — двойного push нет.
   const { data: claimed, error: claimError } = await admin
     .from("notifications")
     .update({ pushed_at: new Date(nowMs).toISOString() })
+    .in("id", candidateIds)
     .is("pushed_at", null)
     .select("id, user_id, title, body, link, created_at");
 
@@ -113,12 +153,12 @@ async function runPushDispatch(): Promise<NextResponse> {
     subsByUser.set(s.user_id, list);
   }
 
-  // ── Рассылка ─────────────────────────────────────────────────────
+  // ── Рассылка (bounded concurrency) ───────────────────────────────
   let sent = 0;
   let pruned = 0;
-  for (const n of toSend) {
+  await runWithConcurrency(toSend, SEND_CONCURRENCY, async (n) => {
     const targets = subsByUser.get(n.user_id);
-    if (!targets || targets.length === 0) continue;
+    if (!targets || targets.length === 0) return;
     const payload: PushPayload = {
       title: n.title,
       body: n.body,
@@ -126,13 +166,17 @@ async function runPushDispatch(): Promise<NextResponse> {
       tag: n.id,
     };
     const res = await sendPushToSubscriptions(admin, targets, payload);
+    // Мутация общих счётчиков безопасна: JS однопоточный, гонок нет.
     sent += res.sent;
     pruned += res.pruned;
-  }
+  });
 
   return NextResponse.json({
     claimed: claimedRows.length,
     eligible: toSend.length,
+    // Заклеймлены, но старше окна → намеренно не доставлены (видимость
+    // для диагностики слишком редкого cron'а).
+    stale: claimedRows.length - toSend.length,
     delivered: sent,
     pruned,
     timestamp: new Date(nowMs).toISOString(),

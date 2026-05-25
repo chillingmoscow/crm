@@ -172,8 +172,8 @@ export default async function DashboardLayout({
             {/* Top bar: [trigger | breadcrumb] … [actions | bell].
                 На /knowledge скрывается — KB рендерит собственный topbar
                 (см. components/shared/dashboard-topbar.tsx). */}
-            <DashboardTopbar />
             <PushPromptBanner />
+            <DashboardTopbar />
             <main className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</main>
           </PageHeaderActionsProvider>
         </KbSearchProvider>

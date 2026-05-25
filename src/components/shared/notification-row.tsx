@@ -1,8 +1,9 @@
 "use client";
 
-import { Archive, ArchiveRestore } from "lucide-react";
+import { Archive, ArchiveRestore, Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { getNotificationTypeSpec } from "@/lib/notifications/registry";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import type {
@@ -14,13 +15,13 @@ import type {
  * Notion-style строка уведомления для bell'а.
  *
  * Структура:
- *   • Avatar/icon (24×24) — actor.avatar если есть, иначе type-иконка.
- *   • Title row: «<actor> <verb> <entity>» + relative time.
- *   • Preview-block (если payload.preview): italic snippet в muted-bg
- *     карточке (line-clamp-3).
- *   • Action buttons (payload.actions[]) или дефолтная «Открыть».
- *   • Hover-archive button справа.
- *   • Unread-indicator dot слева.
+ *   • Avatar/icon (28×28) — actor.avatar если есть, иначе type-иконка.
+ *   • Title row: «<actor> <verb> <entity>».
+ *   • Body-snippet (для system-emit'ов без actor'а) — line-clamp-3.
+ *   • Action buttons (payload.actions[]).
+ *   • Справа: дата + dot непрочитанного; на hover дата сменяется
+ *     кнопками действий («Отметить прочитанным» / «В архив» /
+ *     «Восстановить») — как в Notion.
  */
 
 interface KbNotificationRowProps {
@@ -30,6 +31,8 @@ interface KbNotificationRowProps {
   actor?: NotificationActor | null;
   /** Open notif (mark read + navigate). */
   onOpen: (notif: Notification) => void;
+  /** Пометить прочитанным (только active scope, только для непрочит.). */
+  onMarkRead?: (id: string) => void;
   /** Archive notif (только в active scope'е). */
   onArchive?: (id: string) => void;
   /** Unarchive notif (только в archive scope'е). */
@@ -38,10 +41,14 @@ interface KbNotificationRowProps {
   inArchive?: boolean;
 }
 
+const ROW_ACTION_BTN =
+  "inline-flex items-center justify-center size-7 rounded-md bg-background text-muted-foreground hover:bg-accent hover:text-foreground border border-border/60";
+
 export function KbNotificationRow({
   notification,
   actor,
   onOpen,
+  onMarkRead,
   onArchive,
   onUnarchive,
   inArchive = false,
@@ -54,15 +61,15 @@ export function KbNotificationRow({
   //   • Если есть actor + verb из registry — собираем «<Actor> <verb>».
   //   • Иначе — рендерим notification.title as-is (system-emit'ы без actor'а).
   const useStructuredTitle = actor && spec.verb;
+  const showMarkRead = !inArchive && !notification.read && Boolean(onMarkRead);
+  const hasHoverActions =
+    showMarkRead || (!inArchive && onArchive) || (inArchive && onUnarchive);
 
   return (
     <div
       className={cn(
-        "group relative flex items-start gap-2.5 px-3 py-2.5",
+        "group relative flex items-start gap-2.5 px-4 py-2.5",
         "border-b border-border/40 last:border-b-0",
-        notification.read
-          ? "bg-transparent"
-          : "bg-blue-50/40 dark:bg-blue-950/20",
         "hover:bg-accent/50 transition-colors cursor-pointer",
       )}
       onClick={() => onOpen(notification)}
@@ -81,14 +88,6 @@ export function KbNotificationRow({
         }
       }}
     >
-      {/* Unread-indicator (сине-маркер, абсолютно слева). */}
-      {!notification.read && (
-        <span
-          aria-hidden
-          className="absolute left-1 top-1/2 -translate-y-1/2 size-1.5 rounded-full bg-blue-500"
-        />
-      )}
-
       {/* Avatar / type-icon. */}
       <div className="shrink-0 size-7 rounded-full bg-muted flex items-center justify-center overflow-hidden">
         {actor?.avatar_url ? (
@@ -121,64 +120,92 @@ export function KbNotificationRow({
           )}
         </div>
 
-        {/* Preview-snippet:
-            • Для actor+verb notif'ов (KB @mentions, kb.comment_replied):
-              убран — дублировал entity-chip.
-            • Для system-emit'ов без actor'а (staff.birthday_self /
-              .medical_book_expiring) — нужен: это и есть полезный
-              текст уведомления. notification.body содержит AI-генерацию
-              для birthday или динамический текст про срок медкнижки.
-              Без рендера body — юзер видит только заголовок. */}
+        {/* Body-snippet для system-emit'ов без actor'а (birthday /
+            medical_book_expiring) — это и есть полезный текст. */}
         {!useStructuredTitle && notification.body && (
           <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">
             {notification.body}
           </p>
         )}
 
-        {/* Inline custom-actions (payload.actions[]) — пока не
-            используются KB-эмиттерами; reserved для будущих finance/
-            schedule с Approve/Deny. Default «Открыть» убрана: click
-            на row уже открывает link (Codex feedback). */}
+        {/* Inline custom-actions (payload.actions[]) — reserved для
+            будущих finance/schedule с Approve/Deny. */}
         <NotificationActions
           notification={notification}
           onOpen={() => onOpen(notification)}
         />
-
-        {/* Time row */}
-        <div className="text-[11px] text-muted-foreground tabular-nums">
-          {relativeTime(notification.created_at)}
-        </div>
       </div>
 
-      {/* Hover-archive button (right-aligned). Только в active-scope'е
-          для archive, в archive-scope'е для unarchive. */}
-      {(onArchive || onUnarchive) && (
-        <button
-          type="button"
-          aria-label={inArchive ? "Восстановить" : "В архив"}
-          data-tip={inArchive ? "Восстановить из архива" : "Архивировать"}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (inArchive) {
-              onUnarchive?.(notification.id);
-            } else {
-              onArchive?.(notification.id);
-            }
-          }}
+      {/* Правая колонка: дата + dot непрочитанного. На hover дата
+          сменяется кнопками действий (Notion-паттерн). */}
+      <div className="relative shrink-0 self-start pt-0.5">
+        <div
           className={cn(
-            "absolute top-2 right-2",
-            "inline-flex items-center justify-center size-7 rounded-md",
-            "text-muted-foreground hover:bg-accent hover:text-foreground",
-            "opacity-0 group-hover:opacity-100 transition-opacity",
+            "flex items-center gap-1.5 transition-opacity",
+            hasHoverActions && "group-hover:opacity-0",
           )}
         >
-          {inArchive ? (
-            <ArchiveRestore className="size-3.5" />
-          ) : (
-            <Archive className="size-3.5" />
+          <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+            {relativeTime(notification.created_at)}
+          </span>
+          {!notification.read && (
+            <span
+              aria-hidden
+              className="size-2 shrink-0 rounded-full bg-brand"
+            />
           )}
-        </button>
-      )}
+        </div>
+
+        {hasHoverActions && (
+          <div className="absolute right-0 top-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {showMarkRead && (
+              <IconTooltip label="Отметить прочитанным">
+                <button
+                  type="button"
+                  aria-label="Отметить прочитанным"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMarkRead?.(notification.id);
+                  }}
+                  className={ROW_ACTION_BTN}
+                >
+                  <Check className="size-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {!inArchive && onArchive && (
+              <IconTooltip label="В архив">
+                <button
+                  type="button"
+                  aria-label="В архив"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onArchive(notification.id);
+                  }}
+                  className={ROW_ACTION_BTN}
+                >
+                  <Archive className="size-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+            {inArchive && onUnarchive && (
+              <IconTooltip label="Восстановить">
+                <button
+                  type="button"
+                  aria-label="Восстановить"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUnarchive(notification.id);
+                  }}
+                  className={ROW_ACTION_BTN}
+                >
+                  <ArchiveRestore className="size-3.5" />
+                </button>
+              </IconTooltip>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

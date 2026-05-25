@@ -46,3 +46,6 @@ next-env.d.ts
 # is generated PNG output unrelated to the codebase.
 /sheerly.pen
 /images/
+
+# brainstorm visual companion (superpowers)
+.superpowers/

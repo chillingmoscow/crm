@@ -8,6 +8,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/shared/sidebar";
 import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
+import { PushPromptBanner } from "@/components/shared/push-prompt-banner";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
 import { HotkeysDialogProvider } from "@/components/shared/hotkeys-dialog";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
@@ -172,6 +173,7 @@ export default async function DashboardLayout({
                 На /knowledge скрывается — KB рендерит собственный topbar
                 (см. components/shared/dashboard-topbar.tsx). */}
             <DashboardTopbar />
+            <PushPromptBanner />
             <main className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</main>
           </PageHeaderActionsProvider>
         </KbSearchProvider>

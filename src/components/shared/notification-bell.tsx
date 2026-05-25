@@ -9,9 +9,17 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Bell, CheckCheck, X } from "lucide-react";
+import { Archive, Bell, CheckCheck, ListFilter, X } from "lucide-react";
 
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import {
   archiveAllRead,
@@ -29,7 +37,7 @@ import type {
 } from "@/app/(dashboard)/notifications/actions";
 import { createClient } from "@/lib/supabase/client";
 import { KbNotificationRow } from "@/components/shared/notification-row";
-import { PushToggle } from "@/components/shared/push-toggle";
+import { NotificationSettings } from "@/components/shared/notification-settings";
 import {
   TIME_BUCKET_LABELS,
   TIME_BUCKET_ORDER,
@@ -37,30 +45,32 @@ import {
 } from "@/lib/notifications/group-by-time";
 
 type Scope = "active" | "archived";
-type ReadFilter = "all" | "unread";
+/** Единый фильтр (свёрнутые scope + read-filter), как в Notion. */
+type View = "all" | "unread" | "archived";
 
 const PAGE_SIZE = 50;
 
+const HDR_BTN =
+  "inline-flex items-center justify-center size-8 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors";
+
 /**
- * Notion-style notification bell. Phase 2 plan §2:
- *   • Scope tabs: Active / Archive.
- *   • Filter tabs: Все / Непрочитанные.
- *   • Time-grouping (Today / This week / Last week / Older).
- *   • Read-state divider (unread выше read'ов внутри каждой группы).
- *   • Preview-cards с actor + verb + entity + snippet (см. KbNotificationRow).
- *   • Inline-actions (payload.actions[]) или дефолтная «Открыть».
- *   • Hover-archive / Hover-restore button per row.
- *   • Footer: «Прочитать все» + «Архивировать прочит.».
- *   • Pagination — load-more по scroll'у до низа.
- *   • Realtime — INSERT'ы prepend'ятся в active-scope state.
+ * Notion-style колокольчик уведомлений.
+ *   • Шапка: заголовок + кластер icon-кнопок (прочитать все,
+ *     архивировать прочитанные, фильтр, настройки push) с RU-тултипами.
+ *   • Фильтр сворачивает scope+read в один dropdown: все / непрочитанные
+ *     / архив. Отдельных вкладок и футера нет.
+ *   • Список: time-grouping, строки с dot-непрочитанного справа и
+ *     hover-действиями.
+ *   • Realtime — INSERT'ы prepend'ятся в active-список.
  */
 export function NotificationBell() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [scope, setScope] = useState<Scope>("active");
-  const [readFilter, setReadFilter] = useState<ReadFilter>("all");
+  const [view, setView] = useState<View>("all");
 
-  // Раздельные state per-scope чтобы переключение tab'а не передёргивало
+  const scope: Scope = view === "archived" ? "archived" : "active";
+
+  // Раздельные state per-scope чтобы переключение фильтра не передёргивало
   // fetch и сохранялся scroll.
   const [activeNotifs, setActiveNotifs] = useState<Notification[]>([]);
   const [archiveNotifs, setArchiveNotifs] = useState<Notification[]>([]);
@@ -73,10 +83,7 @@ export function NotificationBell() {
 
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  /** In-flight guard для load-more: scroll-handler срабатывает на
-   *  каждый scroll-event пока юзер у нижнего края → без guard'а
-   *  multiple overlapping fetch'и с одним cursor'ом → дубликаты
-   *  rows в state'е (Codex #91 P1). */
+  /** In-flight guard для load-more (Codex #91 P1). */
   const loadingMoreRef = useRef<{ active: boolean; archived: boolean }>({
     active: false,
     archived: false,
@@ -86,6 +93,7 @@ export function NotificationBell() {
 
   const currentList = scope === "active" ? activeNotifs : archiveNotifs;
   const unreadCount = activeNotifs.filter((n) => !n.read).length;
+  const hasReadActive = activeNotifs.some((n) => n.read);
 
   // ── Fetch helpers ────────────────────────────────────────────────
   const ensureActorsForList = useCallback(
@@ -121,9 +129,6 @@ export function NotificationBell() {
 
   const loadMore = useCallback(
     async (s: Scope) => {
-      // In-flight guard (Codex #91 P1): один scroll-event может
-      // стрельнуть несколько раз пока fetch pending'ует. Без этого
-      // флага получаем дубль pages в state'е.
       if (loadingMoreRef.current[s]) return;
       const list = s === "active" ? activeNotifs : archiveNotifs;
       if (list.length === 0) return;
@@ -158,8 +163,6 @@ export function NotificationBell() {
       } = await supabase.auth.getUser();
       if (cancelled || !user) return;
 
-      // Active scope — горячий путь, fetch'им сразу. Archive — лениво
-      // при первом switch'е tab'а.
       await loadInitial("active");
 
       channel = supabase
@@ -192,7 +195,6 @@ export function NotificationBell() {
             setActiveNotifs((prev) =>
               prev.some((n) => n.id === row.id) ? prev : [row, ...prev],
             );
-            // Lazy-fetch actor для нового row'а.
             if (row.actor_user_id) {
               void ensureActorsForList([row]);
             }
@@ -208,7 +210,7 @@ export function NotificationBell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
 
-  // Lazy-load archive scope при первом switch'е.
+  // Lazy-load archive scope при первом переключении фильтра на «Архив».
   useEffect(() => {
     if (scope === "archived" && !loaded.archived) {
       void loadInitial("archived");
@@ -219,7 +221,11 @@ export function NotificationBell() {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      const target = e.target as HTMLElement;
+      // Игнорируем клики внутри Radix-порталов (dropdown «Фильтр»,
+      // popover настроек, tooltip) — они рендерятся вне ref'а.
+      if (target.closest("[data-radix-popper-content-wrapper]")) return;
+      if (ref.current && !ref.current.contains(target)) {
         setOpen(false);
       }
     };
@@ -256,12 +262,16 @@ export function NotificationBell() {
     }
   };
 
+  const handleMarkReadOne = (id: string) => {
+    setActiveNotifs((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
+    );
+    startTransition(async () => {
+      await markNotificationRead(id);
+    });
+  };
+
   const handleArchiveOne = (id: string) => {
-    // Move row из active state'а в archive state — оптимистично + без
-    // refetch'а. Codex #91 P2 fix: refetch'ить limit:1 из archived'а
-    // некорректно — sorted by created_at, в первой странице обычно
-    // самые свежие архивы, наша только что архивированная (но
-    // старая по дате) могла туда не попасть → silent disappearance.
     let moved: Notification | null = null;
     setActiveNotifs((prev) => {
       const found = prev.find((n) => n.id === id);
@@ -271,7 +281,6 @@ export function NotificationBell() {
       return prev.filter((n) => n.id !== id);
     });
     if (moved && loaded.archived) {
-      // Insert в archive state'е по created_at-desc позиции.
       setArchiveNotifs((prev) => {
         const next = [...prev, moved!].sort((a, b) =>
           a.created_at < b.created_at ? 1 : -1,
@@ -288,7 +297,6 @@ export function NotificationBell() {
     setArchiveNotifs((prev) => prev.filter((n) => n.id !== id));
     startTransition(async () => {
       await unarchiveNotification(id);
-      // Реrequery active чтобы row вернулся.
       await loadInitial("active");
     });
   };
@@ -301,9 +309,7 @@ export function NotificationBell() {
   };
 
   const handleArchiveAllRead = () => {
-    const readIds = new Set(
-      activeNotifs.filter((n) => n.read).map((n) => n.id),
-    );
+    const readIds = new Set(activeNotifs.filter((n) => n.read).map((n) => n.id));
     setActiveNotifs((prev) => prev.filter((n) => !readIds.has(n.id)));
     startTransition(async () => {
       await archiveAllRead();
@@ -312,17 +318,16 @@ export function NotificationBell() {
   };
 
   // ── Render ──────────────────────────────────────────────────────
-  // Apply read-filter (только в active scope; archive показывает всё
-  // что архивировано, deshabilitar filter там).
   const filteredList =
-    scope === "active" && readFilter === "unread"
-      ? currentList.filter((n) => !n.read)
-      : currentList;
-
-  // В active scope: разделяем на unread + read половины внутри каждой
-  // time-bucket'ы для read-state divider'а. В archive — оба типа в
-  // одном потоке (они уже архивированы).
+    view === "unread" ? currentList.filter((n) => !n.read) : currentList;
   const groups = groupByTimeBucket(filteredList);
+
+  const emptyText =
+    view === "archived"
+      ? "Архив пуст"
+      : view === "unread"
+        ? "Нет непрочитанных"
+        : "Нет уведомлений";
 
   return (
     <div className="relative" ref={ref}>
@@ -346,85 +351,86 @@ export function NotificationBell() {
         <div
           className={cn(
             // Mobile: оверлей на весь экран поверх контента.
-            "fixed inset-0 z-50 flex flex-col bg-background",
-            // Desktop (sm+): привязанный к колокольчику dropdown, как раньше.
-            "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:h-auto sm:w-[420px] sm:overflow-hidden sm:rounded-xl sm:border sm:shadow-lg",
+            "fixed inset-0 z-50 flex flex-col bg-popover",
+            // Desktop (sm+): привязанный к колокольчику dropdown.
+            "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:h-auto sm:w-[400px] sm:overflow-hidden sm:rounded-[10px] sm:border sm:shadow-md",
           )}
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3">
-            <div className="flex items-center gap-1.5">
+          {/* Header: title + icon-actions */}
+          <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/60">
+            <div className="flex items-center gap-1.5 min-w-0">
               <span className="font-semibold text-sm">Уведомления</span>
-              {unreadCount > 0 && scope === "active" && (
-                <span className="text-xs bg-destructive text-destructive-foreground rounded-full px-1.5 py-0.5 leading-none">
+              {unreadCount > 0 && (
+                <span className="text-[11px] font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
                   {unreadCount}
                 </span>
               )}
             </div>
-            {/* Закрыть — только на мобильном (на desktop закрывается
-                по клику вне dropdown'а). */}
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Закрыть уведомления"
-              className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:hidden"
-            >
-              <X className="size-5" />
-            </button>
-          </div>
 
-          {/* Push-toggle (только если браузер поддерживает) */}
-          <PushToggle />
-
-          {/* Scope tabs */}
-          <div className="flex gap-1 px-4 pb-2">
-            <button
-              type="button"
-              onClick={() => setScope("active")}
-              className={cn(
-                "text-xs px-3 py-1 rounded-full transition-colors",
-                scope === "active"
-                  ? "bg-foreground text-background"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80",
+            <div className="flex items-center gap-0.5 shrink-0">
+              {scope === "active" && unreadCount > 0 && (
+                <IconTooltip label="Прочитать все">
+                  <button
+                    type="button"
+                    aria-label="Прочитать все"
+                    onClick={handleMarkAllRead}
+                    className={HDR_BTN}
+                  >
+                    <CheckCheck className="size-[18px]" />
+                  </button>
+                </IconTooltip>
               )}
-            >
-              Входящие
-            </button>
-            <button
-              type="button"
-              onClick={() => setScope("archived")}
-              className={cn(
-                "text-xs px-3 py-1 rounded-full transition-colors inline-flex items-center gap-1",
-                scope === "archived"
-                  ? "bg-foreground text-background"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80",
+              {scope === "active" && hasReadActive && (
+                <IconTooltip label="Архивировать прочитанные">
+                  <button
+                    type="button"
+                    aria-label="Архивировать прочитанные"
+                    onClick={handleArchiveAllRead}
+                    className={HDR_BTN}
+                  >
+                    <Archive className="size-[18px]" />
+                  </button>
+                </IconTooltip>
               )}
-            >
-              <Archive className="size-3" />
-              Архив
-            </button>
-          </div>
 
-          {/* Read filter (только в active) */}
-          {scope === "active" && (
-            <div className="flex gap-1 px-4 pb-3 border-b border-border/40">
-              {(["all", "unread"] as ReadFilter[]).map((f) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setReadFilter(f)}
-                  className={cn(
-                    "text-[11px] px-2.5 py-0.5 rounded-md transition-colors",
-                    readFilter === f
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50",
-                  )}
-                >
-                  {f === "all" ? "Все" : "Непрочитанные"}
-                </button>
-              ))}
+              <DropdownMenu>
+                <IconTooltip label="Фильтр">
+                  <DropdownMenuTrigger className={HDR_BTN} aria-label="Фильтр">
+                    <ListFilter className="size-[18px]" />
+                  </DropdownMenuTrigger>
+                </IconTooltip>
+                <DropdownMenuContent align="end" sideOffset={6}>
+                  <DropdownMenuLabel>Показывать</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    value={view}
+                    onValueChange={(v) => setView(v as View)}
+                  >
+                    <DropdownMenuRadioItem value="all">
+                      Непрочитанные и прочитанные
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="unread">
+                      Только непрочитанные
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="archived">
+                      Архив
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <NotificationSettings />
+
+              {/* Закрыть — только на мобильном. */}
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Закрыть уведомления"
+                className={cn(HDR_BTN, "sm:hidden")}
+              >
+                <X className="size-5" />
+              </button>
             </div>
-          )}
+          </div>
 
           {/* List */}
           <div
@@ -440,11 +446,7 @@ export function NotificationBell() {
             {loaded[scope] && filteredList.length === 0 && (
               <div className="px-4 py-12 text-center">
                 <Bell className="size-8 mx-auto text-muted-foreground/40 mb-2" />
-                <p className="text-xs text-muted-foreground">
-                  {scope === "active"
-                    ? "Нет уведомлений"
-                    : "Архив пуст"}
-                </p>
+                <p className="text-xs text-muted-foreground">{emptyText}</p>
               </div>
             )}
             {loaded[scope] &&
@@ -459,44 +461,25 @@ export function NotificationBell() {
                     rows={bucketRows}
                     actorsMap={actorsMap}
                     onOpen={handleOpen}
+                    onMarkRead={
+                      scope === "active" ? handleMarkReadOne : undefined
+                    }
                     onArchive={scope === "active" ? handleArchiveOne : undefined}
-                    onUnarchive={scope === "archived" ? handleUnarchiveOne : undefined}
+                    onUnarchive={
+                      scope === "archived" ? handleUnarchiveOne : undefined
+                    }
                     inArchive={scope === "archived"}
                   />
                 );
               })}
-            {loaded[scope] && hasMore[scope] && filteredList.length >= PAGE_SIZE && (
-              <div className="px-4 py-2 text-center text-[11px] text-muted-foreground">
-                Прокрутите вниз чтобы загрузить ещё
-              </div>
-            )}
+            {loaded[scope] &&
+              hasMore[scope] &&
+              filteredList.length >= PAGE_SIZE && (
+                <div className="px-4 py-2 text-center text-[11px] text-muted-foreground">
+                  Прокрутите вниз чтобы загрузить ещё
+                </div>
+              )}
           </div>
-
-          {/* Footer actions */}
-          {scope === "active" && filteredList.length > 0 && (
-            <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-border/40 bg-muted/20">
-              {unreadCount > 0 && (
-                <button
-                  type="button"
-                  onClick={handleMarkAllRead}
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <CheckCheck className="w-3.5 h-3.5" />
-                  Прочитать все
-                </button>
-              )}
-              {activeNotifs.some((n) => n.read) && (
-                <button
-                  type="button"
-                  onClick={handleArchiveAllRead}
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                  Архивировать прочитанные
-                </button>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -508,6 +491,7 @@ function BucketSection({
   rows,
   actorsMap,
   onOpen,
+  onMarkRead,
   onArchive,
   onUnarchive,
   inArchive,
@@ -516,43 +500,23 @@ function BucketSection({
   rows: Notification[];
   actorsMap: Map<string, NotificationActor>;
   onOpen: (notif: Notification) => void;
+  onMarkRead?: (id: string) => void;
   onArchive?: (id: string) => void;
   onUnarchive?: (id: string) => void;
   inArchive: boolean;
 }) {
-  // В active-scope: разделяем unread + read внутри bucket'а — Notion
-  // показывает unread первыми, разделитель, потом read. В archive
-  // всё в одном потоке (read-state теряет смысл там).
-  const unread = inArchive ? [] : rows.filter((r) => !r.read);
-  const read = inArchive ? rows : rows.filter((r) => r.read);
-
   return (
     <div>
-      <div className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/20 sticky top-0 z-[1]">
+      <div className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 sticky top-0 z-[1]">
         {label}
       </div>
-      {unread.map((n) => (
+      {rows.map((n) => (
         <KbNotificationRow
           key={n.id}
           notification={n}
           actor={n.actor_user_id ? actorsMap.get(n.actor_user_id) ?? null : null}
           onOpen={onOpen}
-          onArchive={onArchive}
-          onUnarchive={onUnarchive}
-          inArchive={inArchive}
-        />
-      ))}
-      {!inArchive && unread.length > 0 && read.length > 0 && (
-        <div className="px-4 py-1 text-[10px] text-muted-foreground/70 border-t border-b border-border/30 bg-muted/10">
-          Прочитанные
-        </div>
-      )}
-      {read.map((n) => (
-        <KbNotificationRow
-          key={n.id}
-          notification={n}
-          actor={n.actor_user_id ? actorsMap.get(n.actor_user_id) ?? null : null}
-          onOpen={onOpen}
+          onMarkRead={onMarkRead}
           onArchive={onArchive}
           onUnarchive={onUnarchive}
           inArchive={inArchive}

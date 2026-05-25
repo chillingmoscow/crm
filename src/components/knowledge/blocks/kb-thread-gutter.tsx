@@ -11,6 +11,7 @@ import {
 import { CommentsExtension } from "@blocknote/core/comments";
 
 import { cn } from "@/lib/utils";
+import { useCoarsePointer } from "@/hooks/use-mobile";
 
 /**
  * Gutter-индикатор для блоков с комментариями: пиктограмма-облачко
@@ -44,6 +45,7 @@ export function KbThreadGutterIndicators() {
     selectThread: (id: string) => void;
   };
   const threads = useThreads();
+  const isTouch = useCoarsePointer();
   const [items, setItems] = useState<IndicatorPos[]>([]);
   const hasActiveThreads = useMemo(
     () =>
@@ -220,14 +222,28 @@ export function KbThreadGutterIndicators() {
               : `${it.count} обсуждений в этом блоке`
           }
           onClick={() => ext.selectThread(it.firstThreadId)}
-          style={{
-            position: "fixed",
-            top: `${it.top}px`,
-            left: `${it.left}px`,
-            transform: "translateY(-50%)",
-          }}
+          style={
+            isTouch
+              ? {
+                  // На мобильном блок занимает почти всю ширину, поэтому
+                  // `left: block.right + 8` уезжает за правый край экрана и
+                  // индикатор не виден. Прижимаем к правому краю viewport'а.
+                  position: "fixed",
+                  top: `${it.top}px`,
+                  right: 6,
+                  transform: "translateY(-50%)",
+                }
+              : {
+                  position: "fixed",
+                  top: `${it.top}px`,
+                  left: `${it.left}px`,
+                  transform: "translateY(-50%)",
+                }
+          }
           className={cn(
-            "inline-flex items-center gap-1 px-1.5 h-6 rounded-md",
+            "inline-flex items-center gap-1 rounded-md",
+            // На touch компактнее, чтобы не съедать место над текстом.
+            isTouch ? "px-1 h-5" : "px-1.5 h-6",
             "bg-amber-50 hover:bg-amber-100",
             "dark:bg-amber-900/30 dark:hover:bg-amber-900/50",
             "text-amber-700 dark:text-amber-400",
@@ -235,7 +251,10 @@ export function KbThreadGutterIndicators() {
             "shadow-sm border border-amber-200/60 dark:border-amber-700/40",
           )}
         >
-          <MessageSquare className="size-3.5" strokeWidth={2.25} />
+          <MessageSquare
+            className={isTouch ? "size-3" : "size-3.5"}
+            strokeWidth={2.25}
+          />
           {it.count > 1 && (
             <span className="text-[11px] font-semibold leading-none tabular-nums">
               {it.count}

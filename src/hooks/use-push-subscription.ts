@@ -31,6 +31,26 @@ function extractKeys(sub: PushSubscription): SubKeys | null {
   return { p256dh, auth };
 }
 
+/**
+ * Ждёт активации SW на КОНКРЕТНОЙ регистрации, не зависая. В отличие от
+ * `navigator.serviceWorker.ready` (который в некоторых браузерах/состояниях
+ * не резолвится — из-за этого кнопка «Включить» висла на Windows), здесь
+ * опрашиваем live-геттер `reg.active` с таймаутом. На таймауте бросаем —
+ * enable() ловит, разблокирует кнопку и логирует.
+ */
+async function waitForActiveWorker(
+  reg: ServiceWorkerRegistration,
+  timeoutMs = 10000,
+): Promise<void> {
+  const start = Date.now();
+  while (!reg.active) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("service worker did not activate in time");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 export interface UsePushSubscription {
   /** Браузер поддерживает Web Push (SW + PushManager + Notification). */
   supported: boolean;
@@ -115,7 +135,10 @@ export function usePushSubscription(): UsePushSubscription {
       if (perm !== "granted") return;
 
       const reg = await navigator.serviceWorker.register("/sw.js");
-      await navigator.serviceWorker.ready;
+      // НЕ navigator.serviceWorker.ready — он может не зарезолвиться и
+      // подвесить кнопку. Ждём активации именно нашей регистрации с
+      // таймаутом. pushManager.subscribe требует активного воркера.
+      await waitForActiveWorker(reg);
 
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {

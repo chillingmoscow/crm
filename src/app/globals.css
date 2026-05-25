@@ -1279,6 +1279,66 @@ input:-webkit-autofill {
 /* ── Полноэкранный лист (тип блока / цвет), Notion-style ──────────────
  * Перекрывает весь экран (и системное меню выделения iOS, и клавиатуру —
  * её гасим при открытии). Шапка с заголовком + «Отмена», скролл-список. */
+/* ── Полноэкранный лист комментариев (KbMobileCommentSheet) на touch ──
+ * Заменяет плавающий BN-поповер композера/треда. Панель = видимая область
+ * visualViewport (top/height задаются инлайн), поэтому нижний инпут стоит
+ * НАД клавиатурой. */
+.kb-mobile-comment-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background-color: hsl(0 0% 0% / 0.4);
+}
+.kb-mobile-comment-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: hsl(var(--background));
+  box-shadow: 0 -8px 30px rgb(0 0 0 / 0.18);
+  overscroll-behavior: contain;
+}
+.kb-mobile-comment-sheet-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 10px 14px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.kb-mobile-comment-sheet-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.kb-mobile-comment-sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.kb-mobile-comment-sheet-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+}
+.kb-mobile-comment-sheet-close:active {
+  background-color: hsl(var(--accent));
+}
+.kb-mobile-comment-sheet-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .kb-mobile-fullsheet {
   position: fixed;
   inset: 0;

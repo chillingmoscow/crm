@@ -433,6 +433,18 @@ touch-нативный.
   (`KB_AI_COMMAND_SPECS` + `resolveAiSourceText` + `applyAiResultToEditor`):
   один список команд для десктопной `KbAiFormattingButton` и мобильного бара.
   Серверный вызов модели — `runKbAiCommand` в `ai-commands.ts`.
+- **Комментарии (composer + тред) — полноэкранный лист на touch.** Плавающие
+  BN-поповеры (`KbFloatingComposer` / `KbFloatingThread`) на мобильном прятались
+  за тулбаром, тесно показывали @-упоминания и пересекались с системными меню
+  iOS. На touch оба рендерятся через
+  [`KbMobileCommentSheet`](../src/components/knowledge/blocks/kb-mobile-comment-sheet.tsx)
+  — портал в body, панель размером с `visualViewport` (top/height обновляются на
+  resize/scroll), нижний инпут держится над клавиатурой. `className="bn-thread"`
+  на панели сохранён (composer-guard в `blocknote-editor.tsx` мониторит этот
+  селектор). Закрытие: composer — blur + `stopPendingComment`; тред —
+  `selectThread(undefined)`. Индикатор-облачко (`kb-thread-gutter.tsx`) тоже на
+  touch прижат к правому краю и `position:absolute` (не уезжает/не плавает).
+  Desktop — плавающие поповеры как были.
 
 ---
 

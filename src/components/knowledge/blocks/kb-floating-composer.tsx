@@ -10,11 +10,13 @@ import {
 import { CommentsExtension } from "@blocknote/core/comments";
 
 import { cn } from "@/lib/utils";
+import { useCoarsePointer } from "@/hooks/use-mobile";
 import { flushAllPendingSaves } from "@/lib/knowledge/pending-saves";
 import {
   buildCommentBodyFromText,
   useCommentMentionDropdown,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
+import { KbMobileCommentSheet } from "@/components/knowledge/blocks/kb-mobile-comment-sheet";
 
 /**
  * Custom Notion-style floating composer для KB-комментариев. Заменяет
@@ -59,6 +61,7 @@ export function KbFloatingComposer({
     threadStore: { lastCreatedThreadId: string | null };
   };
 
+  const isTouch = useCoarsePointer();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const sendButtonRef = useRef<HTMLButtonElement | null>(null);
   const [text, setText] = useState("");
@@ -190,18 +193,21 @@ export function KbFloatingComposer({
     [ext, editor, handleMentionKeyDown],
   );
 
+  // Закрытие composer'а на touch: сначала blur (иначе composer-guard в
+  // blocknote-editor.tsx заблокирует stopPendingComment, т.к. фокус внутри
+  // .bn-thread), затем stop. editor.focus НЕ зовём — пусть редактор сам
+  // вернёт каретку, без повторного подъёма клавиатуры.
+  const closeComposer = useCallback(() => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    ext.stopPendingComment();
+  }, [ext]);
+
   const trimmed = text.trim();
   const canSubmit = trimmed.length > 0 && !submitting;
   const initials = getInitials(currentUserName);
 
-  return (
-    <div
-      className={cn(
-        "bn-thread",
-        "rounded-xl border border-border bg-card shadow-md",
-        "min-w-[320px] max-w-[420px]",
-      )}
-    >
+  const inner = (
+    <>
       <div className="flex items-start gap-2 p-2.5">
         {/* Avatar slot */}
         {currentUserAvatarUrl ? (
@@ -256,6 +262,26 @@ export function KbFloatingComposer({
         </div>
       </div>
       {dropdown}
+    </>
+  );
+
+  if (isTouch) {
+    return (
+      <KbMobileCommentSheet title="Комментарий" onClose={closeComposer}>
+        {inner}
+      </KbMobileCommentSheet>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "bn-thread",
+        "rounded-xl border border-border bg-card shadow-md",
+        "min-w-[320px] max-w-[420px]",
+      )}
+    >
+      {inner}
     </div>
   );
 }

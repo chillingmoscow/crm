@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useTheme } from "next-themes";
+import { toast } from "sonner";
 import {
   BlockNoteEditor,
   BlockNoteSchema,
@@ -1057,6 +1058,32 @@ export function KbBlockNoteEditor({
     [pageId, canCreatePages],
   );
 
+  // Старт комментария из мобильного бара (KbMobileToolbar). На desktop коммент
+  // идёт через FormattingToolbar's addCommentButton; на touch плавающего тулбара
+  // нет, поэтому дёргаем тот же CommentsExtension.startPendingComment вручную.
+  // Требуем непустое выделение (как и desktop-кнопка), иначе подсказка.
+  const handleMobileComment = useCallback(() => {
+    if (!commentsBundle?.canComment) return;
+    const tiptap = (
+      editor as unknown as {
+        _tiptapEditor?: {
+          state: { selection: { empty: boolean; from: number; to: number } };
+        };
+      }
+    )._tiptapEditor;
+    const sel = tiptap?.state.selection;
+    if (!sel || sel.empty || sel.from === sel.to) {
+      toast.info("Выделите текст для комментария");
+      return;
+    }
+    const ext = (
+      editor as unknown as { getExtension: (cls: unknown) => unknown }
+    ).getExtension(CommentsExtension) as
+      | { startPendingComment?: () => void }
+      | null;
+    ext?.startPendingComment?.();
+  }, [editor, commentsBundle]);
+
   return (
     <KbCollectionRuntimeProvider value={collectionRuntime}>
       <BlockNoteView
@@ -1291,7 +1318,14 @@ export function KbBlockNoteEditor({
             (вместо плавающего BN-тулбара, который на iOS не работает).
             Рендерится как child BlockNoteView (есть editor-контекст), сам
             порталится в body. Только touch + editable. */}
-        {isTouch && editable && <KbMobileToolbar editor={editor} />}
+        {isTouch && editable && (
+          <KbMobileToolbar
+            editor={editor}
+            aiEnabled={aiSlashEnabled}
+            canComment={Boolean(commentsBundle?.canComment)}
+            onComment={handleMobileComment}
+          />
+        )}
         <KbEmojiPickerOverlay />
       </BlockNoteView>
     </KbCollectionRuntimeProvider>

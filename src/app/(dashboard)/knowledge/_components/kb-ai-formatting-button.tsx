@@ -1,16 +1,7 @@
 "use client";
 
 import { useReducer, useState } from "react";
-import {
-  Sparkles,
-  Scissors,
-  RefreshCw,
-  Languages,
-  SpellCheck,
-  ArrowRight,
-  Heading,
-  Loader2,
-} from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useBlockNoteEditor,
@@ -27,6 +18,12 @@ import {
   runKbAiCommand,
   type KbAiCommand,
 } from "@/lib/knowledge/ai-commands";
+import {
+  KB_AI_COMMAND_SPECS as COMMANDS,
+  NON_TEXT_AI_BLOCK_TYPES as NON_TEXT_BLOCK_TYPES,
+  blockToPlainText,
+  type KbAiCommandSpec,
+} from "@/lib/knowledge/ai-command-specs";
 
 /**
  * AI-кнопка в FormattingToolbar BlockNote'а. Все AI-команды собраны
@@ -47,104 +44,10 @@ import {
  *   - aiEnabled (kb.use_ai + accounts.ai_enabled, проверено сервер-сайдом)
  *   - block-type: для media-блоков (image/video/audio/file) AI бессмысленен
  *     — кнопка не рендерится, чтобы не засорять image-toolbar.
+ *
+ * Спецификации команд (метка/иконка/режим вставки) и хелперы — в общем модуле
+ * `ai-command-specs.ts` (тот же источник использует мобильный бар).
  */
-
-type InsertMode = "replace" | "after" | "heading";
-
-interface AiCmdSpec {
-  id: KbAiCommand;
-  label: string;
-  description: string;
-  icon: React.ReactNode;
-  /** Куда положить ответ модели:
-   *    replace — заменить выделение (требует selection)
-   *    after   — вставить параграф после текущего блока
-   *    heading — вставить H2 перед текущим блоком */
-  mode: InsertMode;
-}
-
-const COMMANDS: AiCmdSpec[] = [
-  {
-    id: "continue_writing",
-    label: "Продолжить",
-    description: "Дописать продолжение блока",
-    icon: <ArrowRight className="size-4 text-brand" />,
-    mode: "after",
-  },
-  {
-    id: "generate_heading",
-    label: "Сгенерировать заголовок",
-    description: "H2 над текущим блоком",
-    icon: <Heading className="size-4 text-brand" />,
-    mode: "heading",
-  },
-  {
-    id: "shorten",
-    label: "Сократить",
-    description: "Сжать в 2-3 раза, сохранить смысл",
-    icon: <Scissors className="size-4 text-brand" />,
-    mode: "replace",
-  },
-  {
-    id: "rephrase",
-    label: "Переформулировать",
-    description: "Тот же смысл, другие слова",
-    icon: <RefreshCw className="size-4 text-brand" />,
-    mode: "replace",
-  },
-  {
-    id: "fix_typos",
-    label: "Исправить опечатки",
-    description: "Орфография и пунктуация",
-    icon: <SpellCheck className="size-4 text-brand" />,
-    mode: "replace",
-  },
-  {
-    id: "translate_en",
-    label: "Перевести на английский",
-    description: "RU → EN",
-    icon: <Languages className="size-4 text-brand" />,
-    mode: "replace",
-  },
-  {
-    id: "translate_ru",
-    label: "Перевести на русский",
-    description: "EN → RU",
-    icon: <Languages className="size-4 text-brand" />,
-    mode: "replace",
-  },
-];
-
-/** Типы блоков, для которых AI-команды не имеют смысла. Все они
- *  существуют в дефолтной BlockNote-схеме; `image|video|audio|file`
- *  не содержат текста, а `codeBlock` пользователь правит руками. */
-const NON_TEXT_BLOCK_TYPES = new Set([
-  "image",
-  "video",
-  "audio",
-  "file",
-  "codeBlock",
-  "table",
-  "divider",
-  "pageBreak",
-  "gallery",
-  "collection",
-]);
-
-/** Cheap извлечение plain-text из inline-content одного блока — для
- *  блочных команд, которые работают по тексту блока без явного
- *  выделения. */
-function blockToPlainText(block: unknown): string {
-  const b = block as { content?: unknown };
-  if (!Array.isArray(b.content)) return "";
-  const parts: string[] = [];
-  for (const item of b.content as Array<{ type?: string; text?: string }>) {
-    if (item.type === "text" && typeof item.text === "string") {
-      parts.push(item.text);
-    }
-  }
-  return parts.join("").trim();
-}
 
 export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
   // useBlockNoteEditor — текущий editor instance из BlockNote-React-context.
@@ -167,7 +70,7 @@ export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
   const cursor = editor.getTextCursorPosition();
   if (!cursor || NON_TEXT_BLOCK_TYPES.has(cursor.block.type)) return null;
 
-  const onPick = async (cmd: AiCmdSpec) => {
+  const onPick = async (cmd: KbAiCommandSpec) => {
     const selected = editor.getSelectedText().trim();
     const blockText = blockToPlainText(cursor.block);
 
@@ -271,7 +174,9 @@ export function KbAiFormattingButton({ aiEnabled }: { aiEnabled: boolean }) {
                 className="flex w-full items-start gap-2.5 rounded-md p-2 text-left
                            hover:bg-accent disabled:opacity-50"
               >
-                <span className="mt-0.5 shrink-0">{cmd.icon}</span>
+                <span className="mt-0.5 shrink-0">
+                  <cmd.icon className="size-4 text-brand" />
+                </span>
                 <span className="flex-1 flex flex-col min-w-0">
                   <span className="text-sm font-medium text-foreground">
                     {cmd.label}

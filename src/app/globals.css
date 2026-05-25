@@ -1354,6 +1354,12 @@ input:-webkit-autofill {
 .kb-mobile-fullsheet-item:active {
   background-color: hsl(var(--accent));
 }
+.kb-mobile-fullsheet-item:disabled {
+  opacity: 0.5;
+}
+.kb-mobile-fullsheet-item-danger {
+  color: hsl(var(--destructive));
+}
 /* Чип цвета в строке листа: квадрат с буквой «А». Текст — буква в цвете;
  * фон — залитый квадрат. */
 .kb-mobile-color-chip {

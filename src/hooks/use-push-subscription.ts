@@ -96,9 +96,12 @@ export function usePushSubscription(): UsePushSubscription {
 
     setPermission(Notification.permission);
 
-    // Уже подписаны? (SW мог остаться с прошлой сессии.)
-    navigator.serviceWorker.ready
-      .then((reg) => reg.pushManager.getSubscription())
+    // Уже подписаны? (SW мог остаться с прошлой сессии.) getRegistration()
+    // резолвится сразу (в т.ч. в undefined), в отличие от .ready, который
+    // висит вечно, если SW ни разу не регистрировали.
+    navigator.serviceWorker
+      .getRegistration()
+      .then((reg) => reg?.pushManager.getSubscription())
       .then((sub) => setSubscribed(Boolean(sub)))
       .catch(() => {});
   }, []);
@@ -140,8 +143,10 @@ export function usePushSubscription(): UsePushSubscription {
     if (!supported || busy) return;
     setBusy(true);
     try {
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
+      // getRegistration() (не .ready) — чтобы не зависнуть, если активного
+      // SW нет.
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = await reg?.pushManager.getSubscription();
       if (sub) {
         const endpoint = sub.endpoint;
         await sub.unsubscribe();

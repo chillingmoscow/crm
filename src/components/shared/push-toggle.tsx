@@ -1,7 +1,8 @@
 "use client";
 
-import { BellOff, BellRing, Share } from "lucide-react";
+import { BellRing, Share } from "lucide-react";
 
+import { Switch } from "@/components/ui/switch";
 import { usePushSubscription } from "@/hooks/use-push-subscription";
 
 /**
@@ -10,7 +11,7 @@ import { usePushSubscription } from "@/hooks/use-push-subscription";
  *
  * iOS-особенность: в Safari-вкладке Push API недоступен — он работает
  * только из установленного PWA. Поэтому на iOS вне standalone показываем
- * инструкцию «добавь на экран Домой» вместо кнопки «Включить».
+ * инструкцию «добавь на экран Домой» вместо переключателя.
  */
 export function PushToggle() {
   const {
@@ -31,47 +32,45 @@ export function PushToggle() {
   // установка на экран «Домой».
   if (isIOS && !standalone) {
     return (
-      <div className="flex items-start gap-2 px-4 py-2 text-[11px] text-muted-foreground border-b border-border/40">
-        <Share className="size-3.5 shrink-0 mt-0.5" />
-        <span>
+      <div className="flex items-start gap-2.5 px-4 py-2.5 border-b border-border/40">
+        <Share className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        <p className="text-xs leading-snug text-muted-foreground">
           Чтобы получать уведомления на iPhone, добавьте приложение на экран
-          «Домой»: <span className="text-foreground font-medium">Поделиться → На
-          экран «Домой»</span>, затем откройте его и включите push здесь.
-        </span>
+          «Домой»:{" "}
+          <span className="font-medium text-foreground">
+            Поделиться → На экран «Домой»
+          </span>
+          , затем откройте его и включите push здесь.
+        </p>
       </div>
     );
   }
 
   if (!supported) return null;
 
-  // Разрешение заблокировано в браузере — подписаться нельзя.
-  if (permission === "denied" && !subscribed) {
-    return (
-      <div className="flex items-center gap-2 px-4 py-2 text-[11px] text-muted-foreground border-b border-border/40">
-        <BellOff className="size-3.5 shrink-0" />
-        <span>Push заблокированы в настройках браузера</span>
-      </div>
-    );
-  }
+  const denied = permission === "denied" && !subscribed;
 
   return (
-    <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-border/40">
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <BellRing className="size-3.5 shrink-0" />
-        <span>
-          {subscribed
-            ? "Push-уведомления включены"
-            : "Получать уведомления при закрытом приложении"}
-        </span>
+    <div className="flex items-center gap-2.5 px-4 py-2.5 border-b border-border/40">
+      <BellRing className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium leading-tight text-foreground">
+          Push-уведомления
+        </div>
+        <div className="text-[11px] leading-tight text-muted-foreground">
+          {denied
+            ? "Заблокированы в настройках браузера"
+            : subscribed
+              ? "Приходят при закрытом приложении"
+              : "Получать при закрытом приложении"}
+        </div>
       </div>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => (subscribed ? disable() : enable())}
-        className="text-[11px] font-medium text-foreground hover:underline disabled:opacity-50 shrink-0"
-      >
-        {busy ? "…" : subscribed ? "Отключить" : "Включить"}
-      </button>
+      <Switch
+        checked={subscribed}
+        disabled={busy || denied}
+        onCheckedChange={(v) => (v ? enable() : disable())}
+        aria-label="Push-уведомления"
+      />
     </div>
   );
 }

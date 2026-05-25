@@ -50,13 +50,19 @@ export function PushPromptBanner() {
     setDismissed(true);
   };
 
-  if (!configured || dismissed || subscribed || permission === "denied") {
+  if (!configured || dismissed || subscribed) {
     return null;
   }
 
   const iosNeedsInstall = isIOS && !standalone;
-  // Не-iOS браузер без поддержки push — предлагать нечего.
-  if (!iosNeedsInstall && !supported) return null;
+  // На iOS-вкладке Notification.permission неинформативен (Push API нет) —
+  // показываем install-подсказку, гейтим только dismissed/subscribed.
+  // Для остальных — только настоящий первый заход (permission "default"):
+  // после grant/deny (в т.ч. если потом выключили push в ⚙ — там остаётся
+  // "granted") баннер больше не навязывается; управлять можно из ⚙.
+  if (!iosNeedsInstall && (!supported || permission !== "default")) {
+    return null;
+  }
 
   return (
     <div className="flex items-center gap-3 border-b border-brand/20 bg-brand/5 px-4 md:px-6 py-2">

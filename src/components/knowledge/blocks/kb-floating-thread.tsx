@@ -28,6 +28,7 @@ import type {
 } from "@blocknote/core/comments";
 
 import { cn } from "@/lib/utils";
+import { useCoarsePointer } from "@/hooks/use-mobile";
 import { pluralRu } from "@/lib/format/plural";
 import {
   Popover,
@@ -39,6 +40,7 @@ import {
   extractMentionsFromCommentBody,
   useCommentMentionDropdown,
 } from "@/components/knowledge/blocks/kb-comment-mention-dropdown";
+import { KbMobileCommentSheet } from "@/components/knowledge/blocks/kb-mobile-comment-sheet";
 
 /**
  * Custom Notion-style thread popover с поддержкой:
@@ -94,6 +96,8 @@ interface ThreadStoreLike {
 
 interface CommentsExtensionLike {
   threadStore: ThreadStoreLike;
+  /** Снять выделение треда → FloatingThreadController прячет popover/лист. */
+  selectThread?: (threadId: string | undefined, scrollToThread?: boolean) => void;
 }
 
 interface KbFloatingThreadProps {
@@ -104,6 +108,7 @@ interface KbFloatingThreadProps {
 export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
   const ext = useExtension(CommentsExtension) as unknown as CommentsExtensionLike;
   const store = ext.threadStore;
+  const isTouch = useCoarsePointer();
 
   const userIds = useMemo(() => {
     const set = new Set<string>();
@@ -129,6 +134,72 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
       console.error("[kb-comment] resolve toggle failed", err);
     }
   }, [thread, store]);
+
+  const resolveButton = canResolve ? (
+    <button
+      type="button"
+      onClick={() => void handleResolveToggle()}
+      data-tip={thread.resolved ? "Открыть заново" : "Отметить как решённое"}
+      className={cn(
+        "inline-flex items-center gap-1 px-1.5 h-6 rounded-md text-[11px] font-medium",
+        "transition-colors",
+        thread.resolved
+          ? "text-muted-foreground hover:bg-accent"
+          : "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40",
+      )}
+    >
+      {thread.resolved ? (
+        <>
+          <RotateCcw className="size-3" />
+          Открыть
+        </>
+      ) : (
+        <>
+          <CheckCircle2 className="size-3" />
+          Решить
+        </>
+      )}
+    </button>
+  ) : null;
+
+  const commentsList = (
+    <div
+      className={cn(
+        "flex flex-col divide-y divide-border/50",
+        isTouch
+          ? "flex-1 min-h-0 overflow-y-auto"
+          : "max-h-[400px] overflow-y-auto",
+      )}
+    >
+      {thread.comments.map((comment) => (
+        <CommentRow
+          key={comment.id}
+          comment={comment}
+          user={usersMap.get(comment.userId)}
+          store={store}
+          threadId={thread.id}
+        />
+      ))}
+    </div>
+  );
+
+  const reply = <ReplyInput threadId={thread.id} store={store} />;
+
+  // Touch: вся ветка — на весь экран (лист над клавиатурой), без плавающего
+  // поповера, который прятался за тулбаром и пересекался с системными меню.
+  // Закрытие = снять выделение треда (FloatingThreadController спрячет лист).
+  if (isTouch) {
+    return (
+      <KbMobileCommentSheet
+        title={thread.resolved ? "Решено" : "Обсуждение"}
+        headerExtra={resolveButton}
+        onClose={() => ext.selectThread?.(undefined)}
+      >
+        {commentsList}
+        {reply}
+      </KbMobileCommentSheet>
+    );
+  }
 
   return (
     <div
@@ -159,47 +230,12 @@ export function KbFloatingThread({ thread }: KbFloatingThreadProps) {
           >
             {thread.resolved ? "Решено" : "Обсуждение"}
           </span>
-          {canResolve && (
-            <button
-              type="button"
-              onClick={() => void handleResolveToggle()}
-              data-tip={thread.resolved ? "Открыть заново" : "Отметить как решённое"}
-              className={cn(
-                "inline-flex items-center gap-1 px-1.5 h-6 rounded-md text-[11px] font-medium",
-                "transition-colors",
-                thread.resolved
-                  ? "text-muted-foreground hover:bg-accent"
-                  : "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100/60 dark:hover:bg-emerald-900/40",
-              )}
-            >
-              {thread.resolved ? (
-                <>
-                  <RotateCcw className="size-3" />
-                  Открыть
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="size-3" />
-                  Решить
-                </>
-              )}
-            </button>
-          )}
+          {resolveButton}
         </div>
       )}
 
-      <div className="flex flex-col max-h-[400px] overflow-y-auto divide-y divide-border/50">
-        {thread.comments.map((comment) => (
-          <CommentRow
-            key={comment.id}
-            comment={comment}
-            user={usersMap.get(comment.userId)}
-            store={store}
-            threadId={thread.id}
-          />
-        ))}
-      </div>
-      <ReplyInput threadId={thread.id} store={store} />
+      {commentsList}
+      {reply}
     </div>
   );
 }

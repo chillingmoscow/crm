@@ -4,12 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useActiveStyles, useEditorSelectionChange } from "@blocknote/react";
 import type { BlockNoteEditor } from "@blocknote/core";
+import { toast } from "sonner";
 import {
   Baseline,
   Bold,
   Check,
   ChevronUp,
   Code,
+  Copy,
   Heading1,
   Heading2,
   Heading3,
@@ -18,12 +20,26 @@ import {
   List,
   ListChecks,
   ListOrdered,
+  Loader2,
+  MessageSquarePlus,
+  MoreHorizontal,
+  Plus,
   Quote,
+  Sparkles,
   Strikethrough,
+  Trash2,
   Type,
   Underline,
   type LucideIcon,
 } from "lucide-react";
+
+import { runKbAiCommand, type KbAiCommand } from "@/lib/knowledge/ai-commands";
+import {
+  KB_AI_COMMAND_SPECS,
+  NON_TEXT_AI_BLOCK_TYPES,
+  applyAiResultToEditor,
+  resolveAiSourceText,
+} from "@/lib/knowledge/ai-command-specs";
 
 /**
  * Мобильный тулбар форматирования (плавающий бар НАД выделением).
@@ -106,7 +122,21 @@ const TEXT_COLORS: { key: string; label: string; css: string | null }[] = [
   { key: "pink", label: "Розовый", css: "#ad1a72" },
 ];
 
-type SheetKind = "block" | "color" | "link";
+type SheetKind = "block" | "color" | "link" | "more" | "ai";
+
+/** Типы блоков, на которых комментарий бессмысленен (leaf-media / структурные).
+ *  Зеркало NON_COMMENTABLE_BLOCK_TYPES + table из blocknote-editor.tsx —
+ *  держим локально, чтобы не тянуть зависимость из большого host-файла. */
+const NON_COMMENTABLE_MOBILE_BLOCK_TYPES = new Set([
+  "image",
+  "video",
+  "audio",
+  "file",
+  "divider",
+  "gallery",
+  "collection",
+  "table",
+]);
 
 function matchBlockType(
   block: { type?: string; props?: Record<string, unknown> } | undefined,
@@ -154,14 +184,31 @@ function getSelectionRect(): DOMRect | null {
   return rect;
 }
 
-export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
+export function KbMobileToolbar({
+  editor,
+  aiEnabled = false,
+  canComment = false,
+  onComment,
+}: {
+  editor: AnyEditor;
+  /** kb.use_ai + accounts.ai_enabled (проверено сервер-сайдом в host'е). */
+  aiEnabled?: boolean;
+  /** bundle.canComment — пользователь вправе комментировать на этой странице. */
+  canComment?: boolean;
+  /** Старт нового комментария к выделению (host дёргает startPendingComment). */
+  onComment?: () => void;
+}) {
   const activeStyles = useActiveStyles(editor) as ActiveStyles;
   const activeTextColor = activeStyles.textColor ?? "default";
   const activeBgColor = activeStyles.backgroundColor ?? "default";
 
   const [current, setCurrent] = useState<BlockTypeOption>(BLOCK_TYPES[0]);
+  // Сырой тип текущего блока (для гейтинга AI / комментария на media-блоках —
+  // matchBlockType для них даёт fallback «Текст», поэтому держим отдельно).
+  const [rawBlockType, setRawBlockType] = useState<string>("paragraph");
   const [activeSheet, setActiveSheet] = useState<SheetKind | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
+  const [aiPending, setAiPending] = useState<KbAiCommand | null>(null);
   const linkInputRef = useRef<HTMLInputElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -169,12 +216,6 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   // выделением). Привязка к позиции выделения, а не к низу вьюпорта: бар
   // скроллится вместе с текстом, без дёрганья и без раздувания скролла.
   const [barTop, setBarTop] = useState(0);
-  // ВРЕМЕННАЯ диагностика позиции бара над клавиатурой. Видно только при
-  // `?kbdebug` в URL (обычным юзерам — нет). Нужна, чтобы снять реальные числа
-  // viewport'а с iOS-устройства и точно починить расчёт. Удалить после фикса.
-  const debug =
-    typeof window !== "undefined" && /[?&]kbdebug/.test(window.location.search);
-  const [dbg, setDbg] = useState("");
 
   const syncBlock = useCallback(() => {
     try {
@@ -182,8 +223,10 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         | { type?: string; props?: Record<string, unknown> }
         | undefined;
       setCurrent(matchBlockType(block));
+      setRawBlockType(block?.type ?? "paragraph");
     } catch {
       setCurrent(BLOCK_TYPES[0]);
+      setRawBlockType("paragraph");
     }
   }, [editor]);
 
@@ -277,7 +320,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   // Выделение ProseMirror переживает blur, поэтому apply по сохранённому
   // selection работает; на закрытии листа applyX/Отмена возвращают editor.focus().
   useEffect(() => {
-    if (activeSheet === "block" || activeSheet === "color") {
+    if (
+      activeSheet === "block" ||
+      activeSheet === "color" ||
+      activeSheet === "more" ||
+      activeSheet === "ai"
+    ) {
       (document.activeElement as HTMLElement | null)?.blur?.();
     }
   }, [activeSheet]);
@@ -286,7 +334,7 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   // «протекает» на основную страницу (overscroll-behavior помогает не всегда),
   // и юзер теряет нужную строку списка. Восстанавливаем при закрытии.
   useEffect(() => {
-    if (activeSheet !== "block" && activeSheet !== "color") return;
+    if (activeSheet === null || activeSheet === "link") return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
@@ -294,44 +342,11 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     };
   }, [activeSheet]);
 
-  // ВРЕМЕННО: живой вывод чисел позиции (только при ?kbdebug).
-  useEffect(() => {
-    if (!debug || typeof window === "undefined") return;
-    const vv = window.visualViewport;
-    const tick = () => {
-      const rect = getSelectionRect();
-      let foc = "?";
-      try {
-        foc = editor.isFocused() ? "1" : "0";
-      } catch {
-        foc = "?";
-      }
-      setDbg(
-        `selTop=${rect ? Math.round(rect.top) : "-"} ` +
-          `sY=${Math.round(window.scrollY)} ` +
-          `vvH=${vv ? Math.round(vv.height) : "-"} foc=${foc}`,
-      );
-    };
-    tick();
-    vv?.addEventListener("resize", tick);
-    vv?.addEventListener("scroll", tick);
-    const id = window.setInterval(tick, 400);
-    return () => {
-      vv?.removeEventListener("resize", tick);
-      vv?.removeEventListener("scroll", tick);
-      window.clearInterval(id);
-    };
-  }, [debug, editor]);
-
   // Бар держим смонтированным, пока открыт любой поповер. Особенно важно для
   // link-инпута: тап в поле уводит фокус из редактора → editor.isFocused()
   // становится false → visible=false; без условия `activeSheet !== null` бар
   // (и сам инпут) размонтировались бы, и ввод ссылки обрывался (Codex P1 #448).
-  // При ?kbdebug рендерим всегда — чтобы видеть числа даже когда бар скрыт.
-  if (
-    typeof document === "undefined" ||
-    (!visible && activeSheet === null && !debug)
-  ) {
+  if (typeof document === "undefined" || (!visible && activeSheet === null)) {
     return null;
   }
 
@@ -387,36 +402,108 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     closeSheetAndFocus();
   };
 
+  // ── Блочные действия (лист «⋯») ─────────────────────────────────────
+  const insertBelow = () => {
+    try {
+      const block = editor.getTextCursorPosition().block;
+      if (block) {
+        const inserted = editor.insertBlocks(
+          [{ type: "paragraph" }] as Parameters<typeof editor.insertBlocks>[0],
+          block,
+          "after",
+        );
+        const next = inserted?.[0];
+        if (next) editor.setTextCursorPosition(next, "start");
+      }
+    } catch {
+      /* no cursor */
+    }
+    closeSheetAndFocus();
+  };
+
+  const duplicateBlock = () => {
+    try {
+      const block = editor.getTextCursorPosition().block as
+        | { type?: string; props?: Record<string, unknown>; content?: unknown }
+        | undefined;
+      if (block) {
+        editor.insertBlocks(
+          [
+            {
+              type: block.type,
+              props: block.props,
+              content: block.content,
+            },
+          ] as Parameters<typeof editor.insertBlocks>[0],
+          block as Parameters<typeof editor.insertBlocks>[1],
+          "after",
+        );
+      }
+    } catch {
+      /* no cursor */
+    }
+    closeSheetAndFocus();
+  };
+
+  const deleteBlock = () => {
+    try {
+      const block = editor.getTextCursorPosition().block;
+      if (block) {
+        editor.removeBlocks([
+          block,
+        ] as Parameters<typeof editor.removeBlocks>[0]);
+      }
+    } catch {
+      /* no cursor */
+    }
+    // После удаления каретка переезжает на соседний блок сама — просто закрываем
+    // лист и возвращаем фокус (без apply по старому выделению).
+    setActiveSheet(null);
+    try {
+      editor.focus();
+    } catch {
+      /* editor мог потерять блок — игнор */
+    }
+    syncBlock();
+  };
+
+  // ── AI-команда (лист «AI») ──────────────────────────────────────────
+  const runAi = async (spec: (typeof KB_AI_COMMAND_SPECS)[number]) => {
+    const { text, error: srcErr } = resolveAiSourceText(editor, spec);
+    if (srcErr || !text) {
+      toast.info(srcErr ?? "Нет текста для AI-команды");
+      return;
+    }
+    setAiPending(spec.id);
+    const { result, error } = await runKbAiCommand({
+      command: spec.id,
+      text,
+    });
+    setAiPending(null);
+    if (error || !result) {
+      toast.error(`AI: ${error ?? "пустой ответ"}`);
+      return;
+    }
+    try {
+      applyAiResultToEditor(editor, spec, result);
+    } catch {
+      toast.error("Не удалось вставить результат");
+    }
+    closeSheetAndFocus();
+  };
+
   const CurrentIcon = current.icon;
+  const showAi = aiEnabled && !NON_TEXT_AI_BLOCK_TYPES.has(rawBlockType);
+  const showComment =
+    canComment && !NON_COMMENTABLE_MOBILE_BLOCK_TYPES.has(rawBlockType);
 
   return createPortal(
-    <>
-      {debug ? (
-        <div
-          style={{
-            position: "fixed",
-            top: 8,
-            left: 8,
-            zIndex: 9999,
-            background: "rgba(0,0,0,0.82)",
-            color: "#3f3",
-            font: "11px/1.35 ui-monospace, monospace",
-            padding: "4px 6px",
-            borderRadius: 6,
-            pointerEvents: "none",
-            maxWidth: "94vw",
-          }}
-        >
-          {dbg}
-        </div>
-      ) : null}
-      {visible || activeSheet !== null ? (
-        <div
-          ref={barRef}
-          className="kb-mobile-toolbar"
-          style={{ top: barTop }}
-          role="toolbar"
-          aria-label="Форматирование"
+    <div
+      ref={barRef}
+      className="kb-mobile-toolbar"
+      style={{ top: barTop }}
+      role="toolbar"
+      aria-label="Форматирование"
       // preventDefault на mousedown сохраняет выделение/фокус редактора при
       // тапе по кнопкам бара (стандартный приём для редакторских тулбаров).
       // Только mousedown — preventDefault на pointerdown/touchstart на iOS
@@ -542,6 +629,94 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         </div>
       ) : null}
 
+      {activeSheet === "more" ? (
+        <div className="kb-mobile-fullsheet" role="dialog" aria-label="Действия с блоком">
+          <div className="kb-mobile-fullsheet-header">
+            <span className="kb-mobile-fullsheet-title">Действия</span>
+            <button
+              type="button"
+              className="kb-mobile-fullsheet-cancel"
+              onClick={closeSheetAndFocus}
+            >
+              Отмена
+            </button>
+          </div>
+          <div className="kb-mobile-fullsheet-body" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-mobile-fullsheet-item"
+              onClick={insertBelow}
+            >
+              <Plus className="size-5 shrink-0" />
+              <span className="flex-1 text-left">Вставить ниже</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-mobile-fullsheet-item"
+              onClick={duplicateBlock}
+            >
+              <Copy className="size-5 shrink-0" />
+              <span className="flex-1 text-left">Дублировать</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="kb-mobile-fullsheet-item kb-mobile-fullsheet-item-danger"
+              onClick={deleteBlock}
+            >
+              <Trash2 className="size-5 shrink-0" />
+              <span className="flex-1 text-left">Удалить</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {activeSheet === "ai" ? (
+        <div className="kb-mobile-fullsheet" role="dialog" aria-label="AI-команды">
+          <div className="kb-mobile-fullsheet-header">
+            <span className="kb-mobile-fullsheet-title">AI-команды</span>
+            <button
+              type="button"
+              className="kb-mobile-fullsheet-cancel"
+              onClick={closeSheetAndFocus}
+              disabled={aiPending !== null}
+            >
+              Отмена
+            </button>
+          </div>
+          <div className="kb-mobile-fullsheet-body" role="menu">
+            {KB_AI_COMMAND_SPECS.map((spec) => {
+              const Icon = spec.icon;
+              const pending = aiPending === spec.id;
+              return (
+                <button
+                  key={spec.id}
+                  type="button"
+                  role="menuitem"
+                  className="kb-mobile-fullsheet-item"
+                  disabled={aiPending !== null}
+                  onClick={() => void runAi(spec)}
+                >
+                  {pending ? (
+                    <Loader2 className="size-5 shrink-0 animate-spin text-brand" />
+                  ) : (
+                    <Icon className="size-5 shrink-0 text-brand" />
+                  )}
+                  <span className="flex flex-1 flex-col text-left">
+                    <span className="font-medium">{spec.label}</span>
+                    <span className="text-[12px] text-muted-foreground">
+                      {spec.description}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {activeSheet === "link" ? (
         <div className="kb-mobile-sheet kb-mobile-link-sheet" role="menu">
           <input
@@ -632,10 +807,46 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
         >
           <Link2 className="size-[18px]" />
         </button>
+
+        {showComment ? (
+          <button
+            type="button"
+            className="kb-mobile-toolbar-btn"
+            aria-label="Комментарий"
+            onClick={() => {
+              setActiveSheet(null);
+              onComment?.();
+            }}
+          >
+            <MessageSquarePlus className="size-[18px]" />
+          </button>
+        ) : null}
+
+        {showAi ? (
+          <button
+            type="button"
+            className="kb-mobile-toolbar-btn"
+            data-active={activeSheet === "ai" ? true : undefined}
+            aria-label="AI-команды"
+            aria-expanded={activeSheet === "ai"}
+            onClick={() => setActiveSheet((v) => (v === "ai" ? null : "ai"))}
+          >
+            <Sparkles className="size-[18px] text-brand" />
+          </button>
+        ) : null}
+
+        <button
+          type="button"
+          className="kb-mobile-toolbar-btn"
+          data-active={activeSheet === "more" ? true : undefined}
+          aria-label="Действия с блоком"
+          aria-expanded={activeSheet === "more"}
+          onClick={() => setActiveSheet((v) => (v === "more" ? null : "more"))}
+        >
+          <MoreHorizontal className="size-[18px]" />
+        </button>
       </div>
-        </div>
-      ) : null}
-    </>,
+    </div>,
     document.body,
   );
 }

@@ -403,21 +403,36 @@ touch-нативный.
   пропсов вроде `autoFocus`) + реактивен по `change`. Гейт по **input-mode**, а
   НЕ по ширине (тач-планшет > 768px тоже тач). Все инлайновые matchMedia
   (slash-меню, меню колонки/вида, link-preview) сконсолидированы на него.
-- **Нижний тулбар форматирования вместо плавающего** на touch
+- **Свой тулбар форматирования вместо плавающего BN** на touch
   ([`src/components/knowledge/kb-mobile-toolbar.tsx`](../src/components/knowledge/kb-mobile-toolbar.tsx)):
   плавающий BN-`FormattingToolbar` на iOS не помещается, ловит клавиатуру, и
-  Radix-`BlockTypeSelect` внутри не открывается по тапу. Решение (паттерн
-  Notion/Word) — фикс. бар снизу **над клавиатурой**, не над текстом (нет
-  наезда). Работает через editor-API (`useActiveStyles`, `toggleStyles`,
-  `getTextCursorPosition().block` + `updateBlock`). Выбор типа блока — свой
-  поповер вверх (не Radix Select). Видимость + позиция над клавиатурой —
-  `window.visualViewport` (показываем при `editor.isFocused()` + поднятой
-  клавиатуре; `bottom` = высота клавиатуры). Кнопки `onMouseDown preventDefault`
+  Radix-`BlockTypeSelect` внутри не открывается по тапу. Решение — свой бар:
+  работает через editor-API (`useActiveStyles`, `toggleStyles`, `addStyles`,
+  `getTextCursorPosition().block` + `updateBlock`, `createLink`, `insertBlocks`/
+  `removeBlocks`). Выбор типа блока / цвет / AI / действия — свои **полноэкранные
+  листы** (`.kb-mobile-fullsheet`, паттерн Notion), НЕ Radix Select/Popover.
+  Состав бара: тип блока · B/I/U/S/код · цвет текста+фона · ссылка ·
+  комментарий (при `commentsBundle.canComment`) · AI (при `aiSlashEnabled`) ·
+  ⋯ (вставить ниже / дублировать / удалить). Кнопки `onMouseDown preventDefault`
   (сохранить выделение); **не** `pointerdown` (на iOS отменил бы click).
   В [`blocknote-editor.tsx`](../src/components/knowledge/blocknote-editor.tsx):
   на touch `formattingToolbar={false}` + рендер `KbMobileToolbar`; на desktop —
-  плавающий тулбар как был. *(Stage 1a: block-type + B/I/U/S/код; ссылка / цвет /
-  комментарий / AI на баре — fast-follow.)*
+  плавающий тулбар как был.
+- **Позиционирование бара: плавающий НАД выделением, не над клавиатурой.**
+  Сначала пробовали фикс. бар над клавиатурой — на iOS `position: fixed` ломается
+  при открытой soft-клавиатуре (уезжает при скролле), а пересчёт `top` на каждый
+  scroll давал дёрганье + бесконечный скролл (бар у низа вьюпорта раздувал
+  прокручиваемую область). Итог: бар `position: absolute`, `top` в координатах
+  документа = `scrollY + selRect.top − высота бара − зазор`
+  (`window.getSelection().getRangeAt(0).getBoundingClientRect()`, фолбэк
+  `getClientRects()` для схлопнутой каретки). Бар привязан к позиции выделения →
+  скроллится вместе с текстом сам, без scroll-листенера. Пересчёт только на смену
+  выделения / фокус / `visualViewport` resize.
+- **AI-команды — единый источник** в
+  [`src/lib/knowledge/ai-command-specs.ts`](../src/lib/knowledge/ai-command-specs.ts)
+  (`KB_AI_COMMAND_SPECS` + `resolveAiSourceText` + `applyAiResultToEditor`):
+  один список команд для десктопной `KbAiFormattingButton` и мобильного бара.
+  Серверный вызов модели — `runKbAiCommand` в `ai-commands.ts`.
 
 ---
 

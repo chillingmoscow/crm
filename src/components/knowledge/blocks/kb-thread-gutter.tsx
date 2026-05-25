@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { MessageSquare } from "lucide-react";
 
 import {
@@ -62,11 +63,14 @@ export function KbThreadGutterIndicators() {
       setItems([]);
       return;
     }
-    // Координаты — viewport-based (для `position: fixed`). Переcчёт
-     // на scroll/resize держит индикаторы синхронно с прокруткой.
-     // Альтернатива (position:absolute от .bn-editor) сложнее, потому
-     // что у BN-обёрток нет надёжного positioned-предка в нашей DOM-
-     // иерархии — пришлось бы добавлять wrapper.
+    // Координаты — в КООРДИНАТАХ ДОКУМЕНТА (top += scrollY), индикаторы
+     // порталятся в body и позиционируются `position: absolute`. Почему не
+     // `position: fixed` (viewport-coords): на iOS fixed во время открытой
+     // soft-клавиатуры ломается — элемент плавает/уезжает при скролле (та же
+     // проблема, что чинили на мобильном баре). absolute от документа держит
+     // индикатор на блоке без дёрганья. publishItems дедупает по сигнатуре,
+     // поэтому пересчёт на скролл не вызывает лишних ре-рендеров (док-coord
+     // стабилен: scrollY растёт, rect.top падает, сумма постоянна).
     let rafId: number | null = null;
     let lastSignature = "";
 
@@ -107,13 +111,16 @@ export function KbThreadGutterIndicators() {
         else blockMap.set(block, { count: 1, firstThreadId: id });
       });
 
+      const scrollY = window.scrollY || window.pageYOffset || 0;
+      const scrollX = window.scrollX || window.pageXOffset || 0;
       const next: IndicatorPos[] = [];
       blockMap.forEach((info, block) => {
         const r = block.getBoundingClientRect();
         next.push({
           key: info.firstThreadId,
-          top: r.top + r.height / 2,
-          left: r.right + 8,
+          // Координаты документа (для position:absolute, портал в body).
+          top: r.top + scrollY + r.height / 2,
+          left: r.right + scrollX + 8,
           count: info.count,
           firstThreadId: info.firstThreadId,
         });
@@ -203,9 +210,9 @@ export function KbThreadGutterIndicators() {
     };
   }, [editor, threads, hasActiveThreads]);
 
-  if (items.length === 0) return null;
+  if (items.length === 0 || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <>
       {items.map((it) => (
         <button
@@ -227,14 +234,15 @@ export function KbThreadGutterIndicators() {
               ? {
                   // На мобильном блок занимает почти всю ширину, поэтому
                   // `left: block.right + 8` уезжает за правый край экрана и
-                  // индикатор не виден. Прижимаем к правому краю viewport'а.
-                  position: "fixed",
+                  // индикатор не виден. Прижимаем к правому краю (absolute от
+                  // body = правый край документа/viewport'а).
+                  position: "absolute",
                   top: `${it.top}px`,
                   right: 6,
                   transform: "translateY(-50%)",
                 }
               : {
-                  position: "fixed",
+                  position: "absolute",
                   top: `${it.top}px`,
                   left: `${it.left}px`,
                   transform: "translateY(-50%)",
@@ -262,7 +270,8 @@ export function KbThreadGutterIndicators() {
           )}
         </button>
       ))}
-    </>
+    </>,
+    document.body,
   );
 }
 

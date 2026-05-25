@@ -22,18 +22,21 @@
 -- заведение (external_entity_links provider='quickresto', entity_type='venue'),
 -- и склады этой интеграции должны АВТОМАТИЧЕСКИ привязываться к нему.
 --
--- Фикс (на уровне БД — работает для всех путей: onboarding, full-синк,
--- ручной upsert):
---   1. helper resolve_default_store_venue(account) — QR-venue-линк (live)
---      ИЛИ единственное live-заведение аккаунта.
---   2. BEFORE-триггер на stores: если local_venue_id пуст — проставляем из
---      резолвера. Ручную привязку (не-NULL) НЕ трогаем.
+-- Фикс (на уровне БД):
+--   1. helper resolve_default_store_venue(account) — QR-venue-линк (если он
+--      ОДНОЗНАЧЕН: ровно одно live QR-смапленное заведение) ИЛИ единственное
+--      live-заведение аккаунта. Иначе NULL (неоднозначно → ручная привязка).
+--   2. BEFORE INSERT-триггер на stores: новый склад без venue получает его из
+--      резолвера. ТОЛЬКО на INSERT — чтобы не ломать ручное «Не привязан»
+--      (явный UPDATE local_venue_id=NULL через UI/API) (Codex P1).
 --   3. Разовый backfill существующих NULL-складов — он же через триггер 194
 --      (stores→documents) проставит venue_id всем их актам.
 
--- 1. Резолвер дефолтного venue для склада. SECURITY DEFINER: читает
---    external_entity_links / venues независимо от RLS вызывающего (склады
---    апсертятся сервис-ролью, но логику держим устойчивой к любому контексту).
+-- 1. Резолвер дефолтного venue для склада.
+--    SECURITY DEFINER: вызывается из триггера/бэкфилла под владельцем и должен
+--    читать external_entity_links / venues независимо от RLS. EXECUTE у public
+--    отзываем ниже — иначе тенант мог бы дёрнуть его как RPC с чужим account_id
+--    и в обход RLS узнать venue другого аккаунта (Codex P1).
 create or replace function public.resolve_default_store_venue(p_account_id uuid)
 returns uuid
 language sql
@@ -42,8 +45,9 @@ security definer
 set search_path = public, pg_catalog
 as $$
   select coalesce(
-    -- Приоритет: venue, смапленное на QuickResto (то же, что использует
-    -- resolveDefaultVenueId в коде). Только live (не архив).
+    -- Приоритет: venue, смапленное на QuickResto. Берём ТОЛЬКО если оно
+    -- однозначно — ровно одно live QR-смапленное заведение в аккаунте.
+    -- Иначе (0 или >1, мульти-клауд #362) не гадаем → NULL.
     (
       select v.id
       from public.external_entity_links l
@@ -54,6 +58,17 @@ as $$
       where l.account_id = p_account_id
         and l.provider = 'quickresto'
         and l.entity_type = 'venue'
+        and (
+          select count(distinct v2.id)
+          from public.external_entity_links l2
+          join public.venues v2
+            on v2.id = l2.local_id
+           and v2.account_id = p_account_id
+           and v2.archived_at is null
+          where l2.account_id = p_account_id
+            and l2.provider = 'quickresto'
+            and l2.entity_type = 'venue'
+        ) = 1
       limit 1
     ),
     -- Fallback: единственное live-заведение аккаунта.
@@ -73,7 +88,13 @@ as $$
   );
 $$;
 
--- 2. BEFORE-триггер: автопривязка склада к venue, когда local_venue_id пуст.
+-- Закрываем прямой вызов резолвера тенантами (cross-tenant leak, Codex P1).
+revoke all on function public.resolve_default_store_venue(uuid) from public;
+revoke all on function public.resolve_default_store_venue(uuid) from anon, authenticated;
+
+-- 2. BEFORE INSERT-триггер: автопривязка нового склада к venue, когда
+--    local_venue_id пуст. На UPDATE НЕ вешаем — чтобы явное «Не привязан»
+--    (UPDATE local_venue_id=NULL) сохранялось (Codex P1).
 create or replace function public.tg_stores_set_venue_from_qr_link()
 returns trigger
 language plpgsql
@@ -88,18 +109,21 @@ begin
 end;
 $$;
 
+revoke all on function public.tg_stores_set_venue_from_qr_link() from public;
+revoke all on function public.tg_stores_set_venue_from_qr_link() from anon, authenticated;
+
 drop trigger if exists trg_stores_set_venue_from_qr_link on public.stores;
 create trigger trg_stores_set_venue_from_qr_link
-  before insert or update of local_venue_id on public.stores
+  before insert on public.stores
   for each row
   execute function public.tg_stores_set_venue_from_qr_link();
 
 -- 3. Backfill существующих складов без venue. UPDATE на не-NULL значение
 --    меняет local_venue_id → срабатывает триггер 194
 --    (trg_stores_propagate_venue_to_documents) и проставляет documents.venue_id
---    всем актам этих складов. Где резолвер вернул NULL (нет QR-линка и
---    заведений > 1) — склад остаётся непривязанным (неоднозначно, нужна
---    ручная привязка в /org/stores).
+--    всем актам этих складов. Где резолвер вернул NULL (нет однозначного
+--    QR-линка и заведений != 1) — склад остаётся непривязанным (нужна ручная
+--    привязка в /org/stores).
 update public.stores s
 set local_venue_id = public.resolve_default_store_venue(s.account_id)
 where s.local_venue_id is null

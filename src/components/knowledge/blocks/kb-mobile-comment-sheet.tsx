@@ -4,6 +4,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
+// Высота полоски фона над листом — тапабельная зона «закрыть по фону».
+// Лист всё равно почти во весь экран.
+const TOP_GAP = 44;
+
 /**
  * Полноэкранный лист для комментариев на touch. Заменяет плавающий
  * BN-поповер (KbFloatingComposer / KbFloatingThread), который на мобильном
@@ -77,10 +81,15 @@ export function KbMobileCommentSheet({
     >
       <div
         className="kb-mobile-comment-sheet bn-thread"
-        style={{ top: vp.top, height: vp.height }}
+        // Полоска фона сверху (TOP_GAP) намеренно НЕ перекрыта листом — это
+        // тапабельная зона для закрытия по фону (Codex P2: при height=vv.height
+        // фон был полностью закрыт и «тап по фону» не срабатывал). Лист всё
+        // равно почти на весь экран.
+        style={{ top: vp.top + TOP_GAP, height: Math.max(0, vp.height - TOP_GAP) }}
         role="dialog"
         aria-label={title}
       >
+        <div className="kb-mobile-comment-sheet-grabber" aria-hidden />
         <div className="kb-mobile-comment-sheet-header">
           <span className="kb-mobile-comment-sheet-title">{title}</span>
           <div className="kb-mobile-comment-sheet-actions">

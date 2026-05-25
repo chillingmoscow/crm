@@ -1298,6 +1298,16 @@ input:-webkit-autofill {
   background-color: hsl(var(--background));
   box-shadow: 0 -8px 30px rgb(0 0 0 / 0.18);
   overscroll-behavior: contain;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+.kb-mobile-comment-sheet-grabber {
+  flex-shrink: 0;
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 999px;
+  background-color: hsl(var(--border));
 }
 .kb-mobile-comment-sheet-header {
   flex-shrink: 0;

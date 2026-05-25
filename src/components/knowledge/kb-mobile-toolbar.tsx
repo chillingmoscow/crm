@@ -169,12 +169,6 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   // выделением). Привязка к позиции выделения, а не к низу вьюпорта: бар
   // скроллится вместе с текстом, без дёрганья и без раздувания скролла.
   const [barTop, setBarTop] = useState(0);
-  // ВРЕМЕННАЯ диагностика позиции бара над клавиатурой. Видно только при
-  // `?kbdebug` в URL (обычным юзерам — нет). Нужна, чтобы снять реальные числа
-  // viewport'а с iOS-устройства и точно починить расчёт. Удалить после фикса.
-  const debug =
-    typeof window !== "undefined" && /[?&]kbdebug/.test(window.location.search);
-  const [dbg, setDbg] = useState("");
 
   const syncBlock = useCallback(() => {
     try {
@@ -294,44 +288,11 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
     };
   }, [activeSheet]);
 
-  // ВРЕМЕННО: живой вывод чисел позиции (только при ?kbdebug).
-  useEffect(() => {
-    if (!debug || typeof window === "undefined") return;
-    const vv = window.visualViewport;
-    const tick = () => {
-      const rect = getSelectionRect();
-      let foc = "?";
-      try {
-        foc = editor.isFocused() ? "1" : "0";
-      } catch {
-        foc = "?";
-      }
-      setDbg(
-        `selTop=${rect ? Math.round(rect.top) : "-"} ` +
-          `sY=${Math.round(window.scrollY)} ` +
-          `vvH=${vv ? Math.round(vv.height) : "-"} foc=${foc}`,
-      );
-    };
-    tick();
-    vv?.addEventListener("resize", tick);
-    vv?.addEventListener("scroll", tick);
-    const id = window.setInterval(tick, 400);
-    return () => {
-      vv?.removeEventListener("resize", tick);
-      vv?.removeEventListener("scroll", tick);
-      window.clearInterval(id);
-    };
-  }, [debug, editor]);
-
   // Бар держим смонтированным, пока открыт любой поповер. Особенно важно для
   // link-инпута: тап в поле уводит фокус из редактора → editor.isFocused()
   // становится false → visible=false; без условия `activeSheet !== null` бар
   // (и сам инпут) размонтировались бы, и ввод ссылки обрывался (Codex P1 #448).
-  // При ?kbdebug рендерим всегда — чтобы видеть числа даже когда бар скрыт.
-  if (
-    typeof document === "undefined" ||
-    (!visible && activeSheet === null && !debug)
-  ) {
+  if (typeof document === "undefined" || (!visible && activeSheet === null)) {
     return null;
   }
 
@@ -390,33 +351,12 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
   const CurrentIcon = current.icon;
 
   return createPortal(
-    <>
-      {debug ? (
-        <div
-          style={{
-            position: "fixed",
-            top: 8,
-            left: 8,
-            zIndex: 9999,
-            background: "rgba(0,0,0,0.82)",
-            color: "#3f3",
-            font: "11px/1.35 ui-monospace, monospace",
-            padding: "4px 6px",
-            borderRadius: 6,
-            pointerEvents: "none",
-            maxWidth: "94vw",
-          }}
-        >
-          {dbg}
-        </div>
-      ) : null}
-      {visible || activeSheet !== null ? (
-        <div
-          ref={barRef}
-          className="kb-mobile-toolbar"
-          style={{ top: barTop }}
-          role="toolbar"
-          aria-label="Форматирование"
+    <div
+      ref={barRef}
+      className="kb-mobile-toolbar"
+      style={{ top: barTop }}
+      role="toolbar"
+      aria-label="Форматирование"
       // preventDefault на mousedown сохраняет выделение/фокус редактора при
       // тапе по кнопкам бара (стандартный приём для редакторских тулбаров).
       // Только mousedown — preventDefault на pointerdown/touchstart на iOS
@@ -633,9 +573,7 @@ export function KbMobileToolbar({ editor }: { editor: AnyEditor }) {
           <Link2 className="size-[18px]" />
         </button>
       </div>
-        </div>
-      ) : null}
-    </>,
+    </div>,
     document.body,
   );
 }

@@ -14,6 +14,7 @@ import { getInventoryResultAdjustLockReason } from "@/lib/inventory/act-status";
 import {
   listInventoryItemsBackOffice,
   loginQuickRestoBackOffice,
+  processInventoryDocumentBackOffice,
   type QuickRestoInventoryDocument2,
   type QuickRestoInventoryItem2,
   type QuickRestoSingleCategory,
@@ -81,6 +82,9 @@ export type InventoryResultDocumentRow = {
   reviewer_id: string | null;
   document_number: string;
   venue_id: string | null;
+  // QR-сторонний id (для backoffice-action /process). Хранится как текст
+  // в БД, для QR API нужен number — конвертируем в caller'е.
+  external_id: string | null;
 };
 
 // Замки статусной машины (isInventoryResultLocked / *AdjustLocked /
@@ -630,6 +634,46 @@ export async function listBackOfficeInventoryItemsWithSession(input: {
   }
 }
 
+/**
+ * Провести акт инвентаризации в Quick Resto (выставить processed=true и
+ * двинуть остатки). Использует backoffice-action /warehouse.inventory.document.v2/action
+ * (тот же, что нажимает юзер в QR backoffice). На 401/403 — рефреш cookie и retry.
+ *
+ * Бросает Error при сетевой ошибке / отказе QR. Caller ловит и не меняет
+ * локальное состояние (QR — источник правды для status=processed).
+ */
+export async function processBackOfficeInventoryDocumentWithSession(input: {
+  connection: QuickRestoConnection;
+  admin: LooseDb;
+  documentExternalId: number;
+}) {
+  let cookieHeader = await getBackOfficeCookie({
+    connection: input.connection,
+    admin: input.admin,
+  });
+
+  const call = (cookie: string) =>
+    processInventoryDocumentBackOffice({
+      layerName: input.connection.login,
+      baseUrl: input.connection.backoffice_base_url,
+      cookieHeader: cookie,
+      documentId: input.documentExternalId,
+    });
+
+  try {
+    return await call(cookieHeader);
+  } catch (error) {
+    if (isBackOfficeAuthError(error)) {
+      cookieHeader = await refreshBackOfficeCookie({
+        connection: input.connection,
+        admin: input.admin,
+      });
+      return call(cookieHeader);
+    }
+    throw error;
+  }
+}
+
 export async function upsertExternalLink(input: {
   admin: LooseDb;
   accountId: string;
@@ -858,7 +902,7 @@ export async function getResultDocumentForAction(input: {
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
     .select(
-      "id, account_id, status, results_finalized_at, results_reopened_at, assigned_to, reviewer_id, document_number, venue_id",
+      "id, account_id, status, results_finalized_at, results_reopened_at, assigned_to, reviewer_id, document_number, venue_id, external_id",
     )
     .eq("id", input.documentId)
     .eq("account_id", input.accountId)

@@ -801,6 +801,48 @@ export async function readInventoryDocument(input: {
   });
 }
 
+/**
+ * Backoffice-action «провести акт» (то же, что юзер делает кнопкой в QR
+ * backoffice). Контракт получен с боевой backoffice-сессии:
+ * POST /platform/data/warehouse.inventory.document.v2/action
+ * body: { actionName: "process", ids: [<externalId>], data: {...list filter...} }
+ * Auth — backoffice cookie (см. callQuickRestoBackOfficeData).
+ *
+ * QR на этом эндпоинте проводит акт (выставляет processed=true и движет
+ * остатки на складе). Возвращает обновлённый response в формате list-API.
+ *
+ * NB: «data» (start/count/mode/timeZone) — контекст списка, QR использует его
+ * для формирования ответа (re-fetch); сам action работает только по `ids`.
+ * Передаём дефолты, эквивалентные «previous30Days».
+ */
+export async function processInventoryDocumentBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  cookieHeader: string;
+  documentId: number;
+}) {
+  return callQuickRestoBackOfficeData<unknown>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    cookieHeader: input.cookieHeader,
+    path: "warehouse.inventory.document.v2/action",
+    query: {
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: new Date().getTimezoneOffset(),
+    },
+    body: {
+      actionName: "process",
+      ids: [input.documentId],
+      data: {
+        start: 0,
+        count: 150,
+        mode: "previous30Days",
+        timeZone: new Date().getTimezoneOffset(),
+      },
+    },
+  });
+}
+
 export async function updateInventoryDocument(input: {
   layerName: string;
   login: string;

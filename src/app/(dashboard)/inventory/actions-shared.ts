@@ -656,30 +656,48 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  // /action работает по **owner-API-creds** (connection.login + password_*).
-  // Cookie НЕ шлём (см. processInventoryDocumentBackOffice): backoffice-cookie
-  // принадлежит technical-юзеру sheerly@bot.ru, Spring бы аутентифицировал
-  // по ней и отдал 403; Basic Auth с owner-API проходит чисто, как в Make.
-  // Поэтому никаких getBackOfficeCookie/refresh — Basic Auth достаточен.
-  const login = input.connection.login.trim();
-  const password = decryptSecret({
+  // Match Make-схему: /action требует И backoffice session cookie, И
+  // Authorization: Basic с API-creds (connection.login + password_*).
+  // На 401 — cookie протухла → wrapper рефрешит и ретраит.
+  const basicAuthLogin = input.connection.login.trim();
+  const basicAuthPassword = decryptSecret({
     encrypted: input.connection.password_encrypted,
     iv: input.connection.password_iv,
     tag: input.connection.password_tag,
   });
-  if (!login || !password) {
+  if (!basicAuthLogin || !basicAuthPassword) {
     throw new Error(
-      "Не настроены API-учётные данные Quick Resto (нужны для проведения акта).",
+      "Не настроены API-учётные данные Quick Resto (нужны для Basic Auth на /action).",
     );
   }
 
-  return processInventoryDocumentBackOffice({
-    layerName: input.connection.login,
-    baseUrl: input.connection.backoffice_base_url,
-    login,
-    password,
-    documentId: input.documentExternalId,
+  let cookieHeader = await getBackOfficeCookie({
+    connection: input.connection,
+    admin: input.admin,
   });
+
+  const call = (cookie: string) =>
+    processInventoryDocumentBackOffice({
+      layerName: input.connection.login,
+      baseUrl: input.connection.backoffice_base_url,
+      cookieHeader: cookie,
+      basicAuthLogin,
+      basicAuthPassword,
+      documentId: input.documentExternalId,
+    });
+
+  try {
+    return await call(cookieHeader);
+  } catch (error) {
+    if (isBackOfficeAuthError(error)) {
+      cookieHeader = await refreshBackOfficeCookie({
+        connection: input.connection,
+        admin: input.admin,
+      });
+      return call(cookieHeader);
+    }
+    throw error;
+  }
 }
 
 export async function upsertExternalLink(input: {

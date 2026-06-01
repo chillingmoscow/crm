@@ -811,43 +811,40 @@ export async function readInventoryDocument(input: {
 }
 
 /**
- * Backoffice-action «провести акт». Контракт 1-в-1 с рабочим Make-сценарием
- * пользователя (HTTP-модуль):
+ * Backoffice-action «провести акт». Контракт ровно как в работающем
+ * Make-сценарии пользователя:
  *
- *   POST https://<host>/platform/data/warehouse.inventory.document.v2/action
+ *   POST {origin}/platform/data/warehouse.inventory.document.v2/action
  *        ?businessDayOffsetInMs=32400000&timeZone=0
- *   Headers:
- *     Authorization: Basic base64(login:password)
+ *   Headers (ровно 4, ничего лишнего):
+ *     Authorization: Basic base64(login:password)   ← API-creds
+ *     Cookie: <session>                              ← из backoffice-логина
  *     Connection: keep-alive
  *     Content-Type: application/json; charset=utf-8
- *   Body:
- *     { "actionName":"process", "ids":[<id>], "data":{
- *         "start":0,"count":150,"mode":"previous30Days",
- *         "sortField":["invoiceDate"],"sortOrder":["desc"],"timeZone":0
- *       }}
  *
- * ВАЖНО: НЕ шлём Cookie / Accept / Origin / Referer. У нас backoffice-cookie
- * принадлежит technical-юзеру (`sheerly@bot.ru`), у которого нет прав на
- * /action. Если её прислать, Spring аутентифицирует по JSESSIONID (она в
- * приоритете перед Basic Auth) → 403. Make ничего лишнего не шлёт — и оно
- * работает: Basic Auth с owner-API-creds (`nx815`) проходит чисто.
+ * Spring у /action хочет ОБА: и сессионную cookie (auth identity), и
+ * Authorization Basic (по-видимому, role/CSRF-like guard). Изолированный
+ * curl-тест с одним Basic Auth (без cookie) → 401; с одной только cookie
+ * (без Basic) → 403. Match Make: и то, и другое.
  *
- * Поэтому здесь намеренно НЕ используем callQuickRestoBackOfficeData (он
- * шлёт cookie + Origin + Referer и нужен для read-эндпоинтов): делаем прямой
- * fetch с минимальным набором headers, идентичным Make.
+ * Диагностика: при 401/403 логируем тело Spring (бывает «Access is denied»
+ * или имя ожидаемой роли).
  */
 export async function processInventoryDocumentBackOffice(input: {
-  baseUrl?: string | null;
   layerName: string;
-  login: string;
-  password: string;
+  baseUrl?: string | null;
+  cookieHeader: string;
+  /** API-логин для Basic Auth (обычно connection.login, напр. "nx815"). */
+  basicAuthLogin: string;
+  /** Расшифрованный API-пароль для Basic Auth. */
+  basicAuthPassword: string;
   documentId: number;
 }) {
   const origin = buildQuickRestoBackOfficeOrigin(input);
   const url =
     `${origin}/platform/data/warehouse.inventory.document.v2/action` +
     `?businessDayOffsetInMs=32400000&timeZone=0`;
-  const basic = `Basic ${Buffer.from(`${input.login}:${input.password}`).toString("base64")}`;
+  const basic = `Basic ${Buffer.from(`${input.basicAuthLogin}:${input.basicAuthPassword}`).toString("base64")}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
@@ -857,6 +854,7 @@ export async function processInventoryDocumentBackOffice(input: {
       method: "POST",
       headers: {
         Authorization: basic,
+        Cookie: input.cookieHeader,
         Connection: "keep-alive",
         "Content-Type": "application/json; charset=utf-8",
       },
@@ -887,6 +885,18 @@ export async function processInventoryDocumentBackOffice(input: {
     clearTimeout(timeoutId);
   }
 
+  if (response.status === 401 || response.status === 403) {
+    // 401 = cookie не дала auth (просрочена/невалидна) → wrapper рефрешит и ретраит.
+    // 403 = auth ok, но user не имеет нужной роли → не лечится ретраем; пробрасываем
+    // сырой текст Spring'а, чтобы было видно «какой role не хватает».
+    const body = await response.text();
+    if (response.status === 401) {
+      throw new Error(`Quick Resto back-office auth failed (401): ${body.slice(0, 400)}`);
+    }
+    throw new Error(
+      `Quick Resto /action — 403 (нет прав у backoffice-юзера). Spring: ${body.slice(0, 400) || "<empty body>"}`,
+    );
+  }
   if (!response.ok) {
     const body = await response.text();
     throw new Error(quickRestoErrorMessage(response.status, body));

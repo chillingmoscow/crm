@@ -656,30 +656,36 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  // /action работает по **owner-API-creds** (connection.login + password_*).
-  // Cookie НЕ шлём (см. processInventoryDocumentBackOffice): backoffice-cookie
-  // принадлежит technical-юзеру sheerly@bot.ru, Spring бы аутентифицировал
-  // по ней и отдал 403; Basic Auth с owner-API проходит чисто, как в Make.
-  // Поэтому никаких getBackOfficeCookie/refresh — Basic Auth достаточен.
-  const login = input.connection.login.trim();
-  const password = decryptSecret({
-    encrypted: input.connection.password_encrypted,
-    iv: input.connection.password_iv,
-    tag: input.connection.password_tag,
+  // /action на QR backoffice аутентифицируется через session cookie (как и в
+  // Make: cookie из login step). НЕ Basic Auth — изолированный тест Basic Auth
+  // даёт 401, т.е. он там bystander. Используем тот же auth-retry паттерн,
+  // что у read-эндпоинтов: на 401 (cookie протухла) рефрешим и ретраим.
+  // 403 = backoffice-юзер не имеет роли — это конфиг QR, ретраем не лечится.
+  let cookieHeader = await getBackOfficeCookie({
+    connection: input.connection,
+    admin: input.admin,
   });
-  if (!login || !password) {
-    throw new Error(
-      "Не настроены API-учётные данные Quick Resto (нужны для проведения акта).",
-    );
-  }
 
-  return processInventoryDocumentBackOffice({
-    layerName: input.connection.login,
-    baseUrl: input.connection.backoffice_base_url,
-    login,
-    password,
-    documentId: input.documentExternalId,
-  });
+  const call = (cookie: string) =>
+    processInventoryDocumentBackOffice({
+      layerName: input.connection.login,
+      baseUrl: input.connection.backoffice_base_url,
+      cookieHeader: cookie,
+      documentId: input.documentExternalId,
+    });
+
+  try {
+    return await call(cookieHeader);
+  } catch (error) {
+    if (isBackOfficeAuthError(error)) {
+      cookieHeader = await refreshBackOfficeCookie({
+        connection: input.connection,
+        admin: input.admin,
+      });
+      return call(cookieHeader);
+    }
+    throw error;
+  }
 }
 
 export async function upsertExternalLink(input: {

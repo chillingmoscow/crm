@@ -656,12 +656,11 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  // /action требует Authorization: Basic с **API-creds** (connection.login +
-  // connection.password_*), НЕ с backoffice-creds. Эмпирически: у пользователя
-  // в БД два юзера — owner-API (nx815) и technical backoffice (sheerly@bot.ru).
-  // Make-сценарий пользователя шлёт Basic Auth именно от owner-API; Spring
-  // у /action отбивает backoffice-юзера 403 даже при валидной cookie.
-  // Cookie оставляем backoffice'овой — Spring аутентифицирует по Basic Auth.
+  // /action работает по **owner-API-creds** (connection.login + password_*).
+  // Cookie НЕ шлём (см. processInventoryDocumentBackOffice): backoffice-cookie
+  // принадлежит technical-юзеру sheerly@bot.ru, Spring бы аутентифицировал
+  // по ней и отдал 403; Basic Auth с owner-API проходит чисто, как в Make.
+  // Поэтому никаких getBackOfficeCookie/refresh — Basic Auth достаточен.
   const login = input.connection.login.trim();
   const password = decryptSecret({
     encrypted: input.connection.password_encrypted,
@@ -674,33 +673,13 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
     );
   }
 
-  let cookieHeader = await getBackOfficeCookie({
-    connection: input.connection,
-    admin: input.admin,
+  return processInventoryDocumentBackOffice({
+    layerName: input.connection.login,
+    baseUrl: input.connection.backoffice_base_url,
+    login,
+    password,
+    documentId: input.documentExternalId,
   });
-
-  const call = (cookie: string) =>
-    processInventoryDocumentBackOffice({
-      layerName: input.connection.login,
-      baseUrl: input.connection.backoffice_base_url,
-      cookieHeader: cookie,
-      login,
-      password,
-      documentId: input.documentExternalId,
-    });
-
-  try {
-    return await call(cookieHeader);
-  } catch (error) {
-    if (isBackOfficeAuthError(error)) {
-      cookieHeader = await refreshBackOfficeCookie({
-        connection: input.connection,
-        admin: input.admin,
-      });
-      return call(cookieHeader);
-    }
-    throw error;
-  }
 }
 
 export async function upsertExternalLink(input: {

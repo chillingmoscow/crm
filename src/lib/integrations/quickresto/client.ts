@@ -811,29 +811,40 @@ export async function readInventoryDocument(input: {
 }
 
 /**
- * Backoffice-action «провести акт». Аутентификация через cookie из
- * backoffice-логина — Spring у /action использует session-cookie. Make делает
- * то же самое (cookie из step 4 login); Basic Auth в Make-blueprint при
- * прямом тесте без cookie возвращает 401 — то есть он там bystander.
+ * Backoffice-action «провести акт». Контракт ровно как в работающем
+ * Make-сценарии пользователя:
  *
- * Если backoffice-юзер (login, под которым login'ился) НЕ имеет нужной роли
- * в QR — Spring отдаст 403 на этом эндпоинте. Тогда нужно либо выдать роль в
- * QR-админке, либо сменить backoffice creds в integration_connections на
- * того юзера, у которого роль есть (обычно — owner).
+ *   POST {origin}/platform/data/warehouse.inventory.document.v2/action
+ *        ?businessDayOffsetInMs=32400000&timeZone=0
+ *   Headers (ровно 4, ничего лишнего):
+ *     Authorization: Basic base64(login:password)   ← API-creds
+ *     Cookie: <session>                              ← из backoffice-логина
+ *     Connection: keep-alive
+ *     Content-Type: application/json; charset=utf-8
  *
- * Диагностика: при не-2xx логируем тело и статус целиком (Spring в 403 часто
- * пишет имя ожидаемой роли / "Access is denied" / etc).
+ * Spring у /action хочет ОБА: и сессионную cookie (auth identity), и
+ * Authorization Basic (по-видимому, role/CSRF-like guard). Изолированный
+ * curl-тест с одним Basic Auth (без cookie) → 401; с одной только cookie
+ * (без Basic) → 403. Match Make: и то, и другое.
+ *
+ * Диагностика: при 401/403 логируем тело Spring (бывает «Access is denied»
+ * или имя ожидаемой роли).
  */
 export async function processInventoryDocumentBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
   cookieHeader: string;
+  /** API-логин для Basic Auth (обычно connection.login, напр. "nx815"). */
+  basicAuthLogin: string;
+  /** Расшифрованный API-пароль для Basic Auth. */
+  basicAuthPassword: string;
   documentId: number;
 }) {
   const origin = buildQuickRestoBackOfficeOrigin(input);
   const url =
     `${origin}/platform/data/warehouse.inventory.document.v2/action` +
     `?businessDayOffsetInMs=32400000&timeZone=0`;
+  const basic = `Basic ${Buffer.from(`${input.basicAuthLogin}:${input.basicAuthPassword}`).toString("base64")}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
@@ -842,6 +853,7 @@ export async function processInventoryDocumentBackOffice(input: {
     response = await fetch(url, {
       method: "POST",
       headers: {
+        Authorization: basic,
         Cookie: input.cookieHeader,
         Connection: "keep-alive",
         "Content-Type": "application/json; charset=utf-8",

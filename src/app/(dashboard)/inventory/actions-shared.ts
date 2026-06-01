@@ -656,11 +656,21 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  // /action на QR backoffice аутентифицируется через session cookie (как и в
-  // Make: cookie из login step). НЕ Basic Auth — изолированный тест Basic Auth
-  // даёт 401, т.е. он там bystander. Используем тот же auth-retry паттерн,
-  // что у read-эндпоинтов: на 401 (cookie протухла) рефрешим и ретраим.
-  // 403 = backoffice-юзер не имеет роли — это конфиг QR, ретраем не лечится.
+  // Match Make-схему: /action требует И backoffice session cookie, И
+  // Authorization: Basic с API-creds (connection.login + password_*).
+  // На 401 — cookie протухла → wrapper рефрешит и ретраит.
+  const basicAuthLogin = input.connection.login.trim();
+  const basicAuthPassword = decryptSecret({
+    encrypted: input.connection.password_encrypted,
+    iv: input.connection.password_iv,
+    tag: input.connection.password_tag,
+  });
+  if (!basicAuthLogin || !basicAuthPassword) {
+    throw new Error(
+      "Не настроены API-учётные данные Quick Resto (нужны для Basic Auth на /action).",
+    );
+  }
+
   let cookieHeader = await getBackOfficeCookie({
     connection: input.connection,
     admin: input.admin,
@@ -671,6 +681,8 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
       layerName: input.connection.login,
       baseUrl: input.connection.backoffice_base_url,
       cookieHeader: cookie,
+      basicAuthLogin,
+      basicAuthPassword,
       documentId: input.documentExternalId,
     });
 

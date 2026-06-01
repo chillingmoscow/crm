@@ -656,25 +656,23 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  // /action требует Authorization: Basic — поэтому расшифровываем пароль
-  // backoffice-пользователя и передаём ниже в processInventoryDocumentBackOffice
-  // (см. комментарий в client.ts:processInventoryDocumentBackOffice).
-  if (!hasBackOfficePassword(input.connection)) {
-    throw new Error(
-      "Настройте back-office доступ Quick Resto для пользователя Sheerly Bot перед отправкой акта.",
-    );
-  }
-  const password = decryptNullableSecret({
-    encrypted: input.connection.backoffice_password_encrypted,
-    iv: input.connection.backoffice_password_iv,
-    tag: input.connection.backoffice_password_tag,
+  // /action требует Authorization: Basic с **API-creds** (connection.login +
+  // connection.password_*), НЕ с backoffice-creds. Эмпирически: у пользователя
+  // в БД два юзера — owner-API (nx815) и technical backoffice (sheerly@bot.ru).
+  // Make-сценарий пользователя шлёт Basic Auth именно от owner-API; Spring
+  // у /action отбивает backoffice-юзера 403 даже при валидной cookie.
+  // Cookie оставляем backoffice'овой — Spring аутентифицирует по Basic Auth.
+  const login = input.connection.login.trim();
+  const password = decryptSecret({
+    encrypted: input.connection.password_encrypted,
+    iv: input.connection.password_iv,
+    tag: input.connection.password_tag,
   });
-  if (!password) {
+  if (!login || !password) {
     throw new Error(
-      "Настройте back-office доступ Quick Resto для пользователя Sheerly Bot перед отправкой акта.",
+      "Не настроены API-учётные данные Quick Resto (нужны для проведения акта).",
     );
   }
-  const login = input.connection.backoffice_login?.trim() ?? "";
 
   let cookieHeader = await getBackOfficeCookie({
     connection: input.connection,

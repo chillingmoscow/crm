@@ -199,14 +199,29 @@ async function loadStaff(accountId: string): Promise<AssigneeOption[]> {
 
   const venueIds = (venuesRaw ?? []).map((v) => v.id);
 
-  const { data: memberships } =
+  // Disambiguation NB: user_venue_roles имеет ДВА FK на profiles —
+  // user_id_fkey и invited_by_fkey. Голый embed `profiles(...)` PostgREST
+  // расценивает как неоднозначный и возвращает PGRST201 → data=null. До этого
+  // фикса ошибка молча игнорировалась и в списке оставался ТОЛЬКО владелец
+  // (его добавляет блок ниже отдельным запросом) — поэтому невозможно было
+  // назначить никого, кроме себя. Указываем FK явно. Ошибку логируем, чтобы
+  // следующая такая регрессия не была тихой.
+  const { data: memberships, error: membershipsError } =
     venueIds.length > 0
       ? await admin
           .from<MembershipRow[]>("user_venue_roles")
-          .select("user_id, profiles(first_name, last_name)")
+          .select(
+            "user_id, profiles!user_venue_roles_user_id_fkey(first_name, last_name)",
+          )
           .in("venue_id", venueIds)
           .eq("status", "active")
-      : { data: [] as MembershipRow[] };
+      : { data: [] as MembershipRow[], error: null };
+  if (membershipsError) {
+    console.error(
+      "[inventory/loadStaff] memberships query failed",
+      membershipsError,
+    );
+  }
 
   const staffById = new Map<string, AssigneeOption>();
   const ownerId = accountRow?.owner_id ?? null;

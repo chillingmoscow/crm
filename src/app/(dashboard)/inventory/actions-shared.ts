@@ -656,53 +656,30 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  // /action требует Authorization: Basic — поэтому расшифровываем пароль
-  // backoffice-пользователя и передаём ниже в processInventoryDocumentBackOffice
-  // (см. комментарий в client.ts:processInventoryDocumentBackOffice).
-  if (!hasBackOfficePassword(input.connection)) {
+  // /action работает по **owner-API-creds** (connection.login + password_*).
+  // Cookie НЕ шлём (см. processInventoryDocumentBackOffice): backoffice-cookie
+  // принадлежит technical-юзеру sheerly@bot.ru, Spring бы аутентифицировал
+  // по ней и отдал 403; Basic Auth с owner-API проходит чисто, как в Make.
+  // Поэтому никаких getBackOfficeCookie/refresh — Basic Auth достаточен.
+  const login = input.connection.login.trim();
+  const password = decryptSecret({
+    encrypted: input.connection.password_encrypted,
+    iv: input.connection.password_iv,
+    tag: input.connection.password_tag,
+  });
+  if (!login || !password) {
     throw new Error(
-      "Настройте back-office доступ Quick Resto для пользователя Sheerly Bot перед отправкой акта.",
+      "Не настроены API-учётные данные Quick Resto (нужны для проведения акта).",
     );
   }
-  const password = decryptNullableSecret({
-    encrypted: input.connection.backoffice_password_encrypted,
-    iv: input.connection.backoffice_password_iv,
-    tag: input.connection.backoffice_password_tag,
+
+  return processInventoryDocumentBackOffice({
+    layerName: input.connection.login,
+    baseUrl: input.connection.backoffice_base_url,
+    login,
+    password,
+    documentId: input.documentExternalId,
   });
-  if (!password) {
-    throw new Error(
-      "Настройте back-office доступ Quick Resto для пользователя Sheerly Bot перед отправкой акта.",
-    );
-  }
-  const login = input.connection.backoffice_login?.trim() ?? "";
-
-  let cookieHeader = await getBackOfficeCookie({
-    connection: input.connection,
-    admin: input.admin,
-  });
-
-  const call = (cookie: string) =>
-    processInventoryDocumentBackOffice({
-      layerName: input.connection.login,
-      baseUrl: input.connection.backoffice_base_url,
-      cookieHeader: cookie,
-      login,
-      password,
-      documentId: input.documentExternalId,
-    });
-
-  try {
-    return await call(cookieHeader);
-  } catch (error) {
-    if (isBackOfficeAuthError(error)) {
-      cookieHeader = await refreshBackOfficeCookie({
-        connection: input.connection,
-        admin: input.admin,
-      });
-      return call(cookieHeader);
-    }
-    throw error;
-  }
 }
 
 export async function upsertExternalLink(input: {

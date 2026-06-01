@@ -811,57 +811,93 @@ export async function readInventoryDocument(input: {
 }
 
 /**
- * Backoffice-action «провести акт» (то же, что юзер делает кнопкой в QR
- * backoffice). Контракт повторяет рабочий Make-сценарий пользователя:
- * POST /platform/data/warehouse.inventory.document.v2/action
- *   ?businessDayOffsetInMs=32400000&timeZone=0
- * headers: Authorization: Basic base64(login:password)  + Cookie сессии
- * body: { actionName: "process", ids: [id], data: {start,count,mode,sortField,sortOrder,timeZone} }
+ * Backoffice-action «провести акт». Контракт 1-в-1 с рабочим Make-сценарием
+ * пользователя (HTTP-модуль):
  *
- * ВАЖНО: Spring на этом эндпоинте отказывается работать без Basic Auth —
- * cookie-сессии ему не хватает (403 «Forbidden»), хотя те же cookie проходят
- * на read-эндпоинтах (items/select и т.п.). В Make это ровно так и сделано —
- * рядом с cookie шлётся Authorization: Basic … Повторяем тот же контракт.
+ *   POST https://<host>/platform/data/warehouse.inventory.document.v2/action
+ *        ?businessDayOffsetInMs=32400000&timeZone=0
+ *   Headers:
+ *     Authorization: Basic base64(login:password)
+ *     Connection: keep-alive
+ *     Content-Type: application/json; charset=utf-8
+ *   Body:
+ *     { "actionName":"process", "ids":[<id>], "data":{
+ *         "start":0,"count":150,"mode":"previous30Days",
+ *         "sortField":["invoiceDate"],"sortOrder":["desc"],"timeZone":0
+ *       }}
  *
- * QR на успешный запрос возвращает обновлённый list-response (re-fetch
- * фильтра data); сам action работает по `ids`.
+ * ВАЖНО: НЕ шлём Cookie / Accept / Origin / Referer. У нас backoffice-cookie
+ * принадлежит technical-юзеру (`sheerly@bot.ru`), у которого нет прав на
+ * /action. Если её прислать, Spring аутентифицирует по JSESSIONID (она в
+ * приоритете перед Basic Auth) → 403. Make ничего лишнего не шлёт — и оно
+ * работает: Basic Auth с owner-API-creds (`nx815`) проходит чисто.
+ *
+ * Поэтому здесь намеренно НЕ используем callQuickRestoBackOfficeData (он
+ * шлёт cookie + Origin + Referer и нужен для read-эндпоинтов): делаем прямой
+ * fetch с минимальным набором headers, идентичным Make.
  */
 export async function processInventoryDocumentBackOffice(input: {
-  layerName: string;
   baseUrl?: string | null;
-  cookieHeader: string;
-  /** Логин backoffice-пользователя (тот же, что и для login API). */
+  layerName: string;
   login: string;
-  /** Пароль backoffice-пользователя (расшифрованный). */
   password: string;
   documentId: number;
 }) {
-  // Basic Auth header — Spring проверяет на /action. Без него 403.
+  const origin = buildQuickRestoBackOfficeOrigin(input);
+  const url =
+    `${origin}/platform/data/warehouse.inventory.document.v2/action` +
+    `?businessDayOffsetInMs=32400000&timeZone=0`;
   const basic = `Basic ${Buffer.from(`${input.login}:${input.password}`).toString("base64")}`;
-  return callQuickRestoBackOfficeData<unknown>({
-    layerName: input.layerName,
-    baseUrl: input.baseUrl,
-    cookieHeader: input.cookieHeader,
-    authorization: basic,
-    path: "warehouse.inventory.document.v2/action",
-    query: {
-      // Дублируем константы Make-сценария ровно как там.
-      businessDayOffsetInMs: 32_400_000,
-      timeZone: 0,
-    },
-    body: {
-      actionName: "process",
-      ids: [input.documentId],
-      data: {
-        start: 0,
-        count: 150,
-        mode: "previous30Days",
-        sortField: ["invoiceDate"],
-        sortOrder: ["desc"],
-        timeZone: 0,
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: basic,
+        Connection: "keep-alive",
+        "Content-Type": "application/json; charset=utf-8",
       },
-    },
-  });
+      body: JSON.stringify({
+        actionName: "process",
+        ids: [input.documentId],
+        data: {
+          start: 0,
+          count: 150,
+          mode: "previous30Days",
+          sortField: ["invoiceDate"],
+          sortOrder: ["desc"],
+          timeZone: 0,
+        },
+      }),
+      cache: "no-store",
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(quickRestoErrorMessage(response.status, body));
+  }
+  const text = await response.text();
+  if (!text.trim()) return {} as unknown;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text as unknown;
+  }
 }
 
 export async function updateInventoryDocument(input: {

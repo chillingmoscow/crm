@@ -522,7 +522,16 @@ export function isBackOfficeAuthError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return (
     message.includes("Quick Resto back-office auth failed") ||
-    message.includes("Неверный логин или пароль back-office")
+    message.includes("Неверный логин или пароль back-office") ||
+    // Spring Security remember-me ротирует токен на каждый запрос; если юзер
+    // параллельно ходил в QR backoffice браузером, наша сохранённая cookie
+    // становится «старой» и QR кидает 500 + CookieTheftException, инвалидируя
+    // всю серию. Лечится тем же путём: re-login (refreshBackOfficeCookie)
+    // создаёт новую серию → ретрай action'а проходит. Не реагируем на
+    // подстроку только в одном направлении — матчим несколько признаков.
+    message.includes("CookieTheftException") ||
+    message.includes("remember-me token") ||
+    /Invalid remember-me token \(Series\/token\) mismatch/i.test(message)
   );
 }
 

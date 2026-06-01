@@ -49,6 +49,7 @@ import {
   normalizeReason,
   num,
   priceNum,
+  processBackOfficeInventoryDocumentWithSession,
   productName,
   quickRestoParentExternalId,
   readActualAmountsByExternalItemId,
@@ -1785,7 +1786,10 @@ export async function finalizeInventoryResults(input: {
       accountId: ctx.accountId,
       documentId: input.documentId,
     });
-    if (document.results_finalized_at) return { error: null };
+    // Уже проведён / финализирован — no-op.
+    if (document.status === "processed" || document.results_finalized_at) {
+      return { error: null };
+    }
     // Акт на пересчёте закрыть нельзя — сначала исполнитель должен завершить
     // пересчёт (статус вернётся в ready_for_review).
     if (document.status === "recount_pending") {
@@ -1795,9 +1799,50 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    // QR — источник правды для проведения акта. Сначала push в QR
+    // (backoffice action /warehouse.inventory.document.v2/action,
+    // actionName=process), и только при успехе обновляем локально:
+    // status=processed + processed=true + results_finalized_at. На фейле QR
+    // (нет коннекта / 5xx / отказ) локально НИЧЕГО не меняем — юзер видит
+    // ошибку, может починить и попробовать заново. Следующий pull-sync
+    // в любом случае подтянет реальное состояние из QR.
+    const connection = await getConnection(ctx.accountId);
+    if (!connection) {
+      return {
+        error:
+          "Quick Resto не подключён — нельзя провести акт. Подключите интеграцию в настройках.",
+      };
+    }
+    const externalIdNum = Number(document.external_id);
+    if (!Number.isFinite(externalIdNum)) {
+      return { error: "Не удалось определить ID акта в Quick Resto." };
+    }
+    try {
+      await processBackOfficeInventoryDocumentWithSession({
+        connection,
+        admin,
+        documentExternalId: externalIdNum,
+      });
+      console.info("[finalize] QR processed", {
+        documentId: document.id,
+        externalId: externalIdNum,
+      });
+    } catch (qrError) {
+      const message =
+        qrError instanceof Error ? qrError.message : "Quick Resto не ответил";
+      console.error("[finalize] QR process failed", {
+        documentId: document.id,
+        externalId: externalIdNum,
+        error: qrError,
+      });
+      return { error: `Не удалось провести акт в Quick Resto: ${message}` };
+    }
+
     const { error } = await admin
       .from("documents")
       .update({
+        status: "processed",
+        processed: true,
         results_finalized_at: new Date().toISOString(),
         results_finalized_by: ctx.user.id,
         // Авто-фоллбэк: финализирующий становится проверяющим, если поле пусто.

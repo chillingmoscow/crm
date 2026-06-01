@@ -1786,10 +1786,13 @@ export async function finalizeInventoryResults(input: {
       accountId: ctx.accountId,
       documentId: input.documentId,
     });
-    // Уже проведён / финализирован — no-op.
-    if (document.status === "processed" || document.results_finalized_at) {
-      return { error: null };
-    }
+    // Уже финализирован — no-op. NB: ТОЛЬКО results_finalized_at, не status.
+    // reopenInventoryResults очищает results_finalized_at, но НЕ меняет status
+    // (остаётся 'processed'); UI после reopen снова показывает «Подвести
+    // итоги». Если гейтить и по status='processed', повторная финализация
+    // тихо проглатывалась бы как успех — акт оставался в editable-режиме
+    // навсегда (Codex P2).
+    if (document.results_finalized_at) return { error: null };
     // Акт на пересчёте закрыть нельзя — сначала исполнитель должен завершить
     // пересчёт (статус вернётся в ready_for_review).
     if (document.status === "recount_pending") {
@@ -1845,6 +1848,11 @@ export async function finalizeInventoryResults(input: {
         processed: true,
         results_finalized_at: new Date().toISOString(),
         results_finalized_by: ctx.user.id,
+        // Сбрасываем reopened-метки: если это была повторная финализация после
+        // reopen, акт должен снова залочиться (isLocked на странице итогов
+        // считает реопен-флаг → editable). Без сброса UI остался бы editable.
+        results_reopened_at: null,
+        results_reopened_by: null,
         // Авто-фоллбэк: финализирующий становится проверяющим, если поле пусто.
         ...(document.reviewer_id ? {} : { reviewer_id: ctx.user.id }),
       })

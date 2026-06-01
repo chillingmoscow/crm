@@ -656,6 +656,26 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
+  // /action требует Authorization: Basic — поэтому расшифровываем пароль
+  // backoffice-пользователя и передаём ниже в processInventoryDocumentBackOffice
+  // (см. комментарий в client.ts:processInventoryDocumentBackOffice).
+  if (!hasBackOfficePassword(input.connection)) {
+    throw new Error(
+      "Настройте back-office доступ Quick Resto для пользователя Sheerly Bot перед отправкой акта.",
+    );
+  }
+  const password = decryptNullableSecret({
+    encrypted: input.connection.backoffice_password_encrypted,
+    iv: input.connection.backoffice_password_iv,
+    tag: input.connection.backoffice_password_tag,
+  });
+  if (!password) {
+    throw new Error(
+      "Настройте back-office доступ Quick Resto для пользователя Sheerly Bot перед отправкой акта.",
+    );
+  }
+  const login = input.connection.backoffice_login?.trim() ?? "";
+
   let cookieHeader = await getBackOfficeCookie({
     connection: input.connection,
     admin: input.admin,
@@ -666,6 +686,8 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
       layerName: input.connection.login,
       baseUrl: input.connection.backoffice_base_url,
       cookieHeader: cookie,
+      login,
+      password,
       documentId: input.documentExternalId,
     });
 

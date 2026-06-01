@@ -319,6 +319,12 @@ async function callQuickRestoBackOfficeData<T>(input: {
   path: string;
   query?: Record<string, string | number | null | undefined>;
   body?: unknown;
+  /** Опциональный заголовок Authorization (например, "Basic …"). Для
+   *  большинства backoffice-эндпоинтов достаточно cookie, но
+   *  /warehouse.inventory.document.v2/action (provesti акт) на проде требует
+   *  ИМЕННО Basic Auth — без него Spring возвращает 403 даже с валидной
+   *  cookie-сессией. Проверено через рабочий Make-сценарий пользователя. */
+  authorization?: string;
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(input.query ?? {})) {
@@ -341,6 +347,9 @@ async function callQuickRestoBackOfficeData<T>(input: {
         Cookie: input.cookieHeader,
         Origin: origin,
         Referer: `${origin}/`,
+        ...(input.authorization
+          ? { Authorization: input.authorization }
+          : {}),
       },
       body: input.body === undefined ? undefined : JSON.stringify(input.body),
       cache: "no-store",
@@ -803,32 +812,42 @@ export async function readInventoryDocument(input: {
 
 /**
  * Backoffice-action «провести акт» (то же, что юзер делает кнопкой в QR
- * backoffice). Контракт получен с боевой backoffice-сессии:
+ * backoffice). Контракт повторяет рабочий Make-сценарий пользователя:
  * POST /platform/data/warehouse.inventory.document.v2/action
- * body: { actionName: "process", ids: [<externalId>], data: {...list filter...} }
- * Auth — backoffice cookie (см. callQuickRestoBackOfficeData).
+ *   ?businessDayOffsetInMs=32400000&timeZone=0
+ * headers: Authorization: Basic base64(login:password)  + Cookie сессии
+ * body: { actionName: "process", ids: [id], data: {start,count,mode,sortField,sortOrder,timeZone} }
  *
- * QR на этом эндпоинте проводит акт (выставляет processed=true и движет
- * остатки на складе). Возвращает обновлённый response в формате list-API.
+ * ВАЖНО: Spring на этом эндпоинте отказывается работать без Basic Auth —
+ * cookie-сессии ему не хватает (403 «Forbidden»), хотя те же cookie проходят
+ * на read-эндпоинтах (items/select и т.п.). В Make это ровно так и сделано —
+ * рядом с cookie шлётся Authorization: Basic … Повторяем тот же контракт.
  *
- * NB: «data» (start/count/mode/timeZone) — контекст списка, QR использует его
- * для формирования ответа (re-fetch); сам action работает только по `ids`.
- * Передаём дефолты, эквивалентные «previous30Days».
+ * QR на успешный запрос возвращает обновлённый list-response (re-fetch
+ * фильтра data); сам action работает по `ids`.
  */
 export async function processInventoryDocumentBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
   cookieHeader: string;
+  /** Логин backoffice-пользователя (тот же, что и для login API). */
+  login: string;
+  /** Пароль backoffice-пользователя (расшифрованный). */
+  password: string;
   documentId: number;
 }) {
+  // Basic Auth header — Spring проверяет на /action. Без него 403.
+  const basic = `Basic ${Buffer.from(`${input.login}:${input.password}`).toString("base64")}`;
   return callQuickRestoBackOfficeData<unknown>({
     layerName: input.layerName,
     baseUrl: input.baseUrl,
     cookieHeader: input.cookieHeader,
+    authorization: basic,
     path: "warehouse.inventory.document.v2/action",
     query: {
+      // Дублируем константы Make-сценария ровно как там.
       businessDayOffsetInMs: 32_400_000,
-      timeZone: new Date().getTimezoneOffset(),
+      timeZone: 0,
     },
     body: {
       actionName: "process",
@@ -837,7 +856,9 @@ export async function processInventoryDocumentBackOffice(input: {
         start: 0,
         count: 150,
         mode: "previous30Days",
-        timeZone: new Date().getTimezoneOffset(),
+        sortField: ["invoiceDate"],
+        sortOrder: ["desc"],
+        timeZone: 0,
       },
     },
   });

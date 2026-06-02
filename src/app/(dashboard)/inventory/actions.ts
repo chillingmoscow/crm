@@ -2641,14 +2641,16 @@ export async function markInventoryDraftStarted(input: {
   const admin = asLooseDb(createAdminClient());
   try {
     const { data: document } = await admin
-      .from<{ id: string; status: string; assigned_to: string | null }>("documents")
-      .select("id, status, assigned_to")
+      .from<{ id: string; status: string; assigned_to: string | null; archived_at: string | null }>("documents")
+      .select("id, status, assigned_to, archived_at")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     // best-effort: молча выходим, если акта нет / переводить нечего /
-    // дёргает не назначенный исполнитель / нет права заполнять.
+    // дёргает не назначенный исполнитель / нет права заполнять / акт удалён
+    // в QR (архивный).
     if (!document?.id) return { error: null };
+    if (document.archived_at) return { error: null };
     if (document.assigned_to !== ctx.user.id) return { error: null };
     const allowed = Boolean(canManage) || Boolean(canFill);
     if (!allowed) return { error: null };
@@ -2710,15 +2712,20 @@ export async function submitInventoryDocumentDraft(input: {
       status: string;
       results_finalized_at: string | null;
       base_last_update_date: string | null;
+      archived_at: string | null;
     }>("documents")
     .select(
-      "id, account_id, external_id, assigned_to, reviewer_id, document_number, venue_id, processed, status, results_finalized_at, base_last_update_date",
+      "id, account_id, external_id, assigned_to, reviewer_id, document_number, venue_id, processed, status, results_finalized_at, base_last_update_date, archived_at",
     )
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
 
   if (!document?.id) return { resultsHasLineAmounts: false, error: "Акт не найден" };
+  // Акт удалён в Quick Resto (авто-архив) — отправлять нечего.
+  if (document.archived_at) {
+    return { resultsHasLineAmounts: false, error: "Этот акт удалён в Quick Resto и недоступен." };
+  }
   const allowed = Boolean(canManage) || (Boolean(canFill) && document.assigned_to === ctx.user.id);
   if (!allowed) return { resultsHasLineAmounts: false, error: "Недостаточно прав" };
   if (document.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };

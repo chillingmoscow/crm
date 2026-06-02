@@ -85,6 +85,9 @@ export type InventoryResultDocumentRow = {
   // QR-сторонний id (для backoffice-action /process). Хранится как текст
   // в БД, для QR API нужен number — конвертируем в caller'е.
   external_id: string | null;
+  // Системный авто-архив: акт удалён в Quick Resto (миграция 216). Любое
+  // действие над таким актом запрещаем — см. getResultDocumentForAction.
+  archived_at: string | null;
 };
 
 // Замки статусной машины (isInventoryResultLocked / *AdjustLocked /
@@ -928,13 +931,19 @@ export async function getResultDocumentForAction(input: {
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
     .select(
-      "id, account_id, status, results_finalized_at, results_reopened_at, assigned_to, reviewer_id, document_number, venue_id, external_id",
+      "id, account_id, status, results_finalized_at, results_reopened_at, assigned_to, reviewer_id, document_number, venue_id, external_id, archived_at",
     )
     .eq("id", input.documentId)
     .eq("account_id", input.accountId)
     .maybeSingle();
 
   if (!document?.id) throw new Error("Акт не найден");
+  // Акт удалён в Quick Resto (авто-архив при синхронизации) — любые действия
+  // запрещены. Закрывает доступ по закладке / из уже открытой страницы, минуя
+  // скрытие из списка. Едина точка для всех result-экшенов.
+  if (document.archived_at) {
+    throw new Error("Этот акт удалён в Quick Resto и недоступен для изменений.");
+  }
   if (input.requireOpen) {
     // Инструменты ревьюера закрыты при пересчёте (анти-подгонка) /
     // финализации / проведении — единый источник предиката и текста.

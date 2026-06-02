@@ -186,7 +186,10 @@ Wrappers `listBackOfficeInventoryItemsWithSession` и
 
 1. **403 на `/action` при валидной cookie** — у backoffice-пользователя
    (`sheerly@bot.ru`) **не выдана должность с нужными правами** в QR. Лечится
-   только в QR-админке. См. `quickresto_backoffice_auth.md`.
+   только в QR-админке (выдать роль), не кодом. **Подтверждено и закрыто
+   2026-06-02**: blueprint Make ходит под владельцем `chillingmoscow@gmail.com`,
+   у которого право есть; после выдачи боту системной роли на проведение
+   инвентаризации `/action` стал отдавать 200. См. `quickresto_backoffice_auth.md`.
 2. **401 на `/action` с только Basic Auth (без cookie)** — Spring у /action
    хочет ОБА: и cookie, и Basic. Один Basic не аутентифицирует.
 3. **CookieTheft 500** при параллельной сессии пользователя в QR — лечится

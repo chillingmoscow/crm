@@ -42,6 +42,7 @@ import {
   inventoryDocumentItems,
   inventoryDocumentNumber,
   isBackOfficeAuthError,
+  isDeletedQuickRestoRow,
   isQuickRestoClass,
   isRecentOpenInventoryDocument,
   listBackOfficeInventoryItemsWithSession,
@@ -413,6 +414,10 @@ export async function syncQuickRestoInventory(input?: {
           comment: text(document.comment),
           qr_payload: document,
           synced_at: syncedAt,
+          // Акт пришёл живым из выгрузки → снимаем системный авто-архив,
+          // если он стоял (акт удаляли в QR, потом восстановили).
+          archived_at: null,
+          archived_reason: null,
         },
         { onConflict: "account_id,external_id" }
       )
@@ -448,6 +453,36 @@ export async function syncQuickRestoInventory(input?: {
       localId: data.id,
     });
     await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
+  }
+
+  // Авто-архив актов, удалённых в Quick Resto. Сигнал — явный deleted-флаг в
+  // выгрузке списка (isDeletedQuickRestoRow). Без этого удалённый акт навсегда
+  // висел «живым» локально (его отфильтровывает isRecentOpenInventoryDocument,
+  // поэтому он больше не апдейтился) — и его можно было ошибочно «провести».
+  // Archived прячется из списка (RPC list_inventory_documents, миграция 216) и
+  // снимается автоматически в upsert выше, если акт вернулся живым.
+  // Безопасно: архивируем ТОЛЬКО по явному deleted-флагу из QR, не «по
+  // отсутствию» (выгрузка может быть оконной — это дало бы ложные архивы).
+  const deletedExternalIds = documentList
+    .filter((doc) => isDeletedQuickRestoRow(doc) && typeof doc.id === "number")
+    .map((doc) => String(doc.id));
+  console.info(
+    `[syncQuickRestoInventory] deleted-in-QR актов в выгрузке: ${deletedExternalIds.length}`,
+  );
+  if (deletedExternalIds.length > 0) {
+    const { data: archived } = await admin
+      .from<Array<{ id: string }>>("documents")
+      .update({ archived_at: syncedAt, archived_reason: "deleted_in_quickresto" })
+      .eq("account_id", ctx.accountId)
+      .eq("document_kind", "inventory")
+      .is("archived_at", null)
+      .in("external_id", deletedExternalIds)
+      .select("id");
+    if (archived && archived.length > 0) {
+      console.info(
+        `[syncQuickRestoInventory] авто-архив удалённых в QR актов: ${archived.length}`,
+      );
+    }
   }
 
   revalidatePath("/documents/inventory");
@@ -1820,6 +1855,38 @@ export async function finalizeInventoryResults(input: {
     if (!Number.isFinite(externalIdNum)) {
       return { error: "Не удалось определить ID акта в Quick Resto." };
     }
+    const apiAuth = {
+      layerName: connection.login,
+      login: connection.login,
+      password: connectionPassword(connection),
+    };
+
+    // Guard от «тихого успеха»: акт мог быть удалён в QR (или его там нет).
+    // На удалённом акте /action отвечает 200 и НИЧЕГО не делает — без этой
+    // проверки мы бы впустую пометили акт проведённым локально. Читаем акт
+    // из QR перед проведением: если удалён / не найден — явная ошибка, локально
+    // ничего не трогаем. (См. инцидент: финализация СВ-акта, удалённого в QR.)
+    let qrDocBefore: QuickRestoInventoryDocument2;
+    try {
+      qrDocBefore = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+    } catch (readError) {
+      console.error("[finalize] QR read failed (акт удалён в QR?)", {
+        documentId: document.id,
+        externalId: externalIdNum,
+        error: readError,
+      });
+      return {
+        error:
+          "Не удалось прочитать акт в Quick Resto — возможно, он удалён. Обновите синхронизацию и проверьте акт.",
+      };
+    }
+    if (isDeletedQuickRestoRow(qrDocBefore)) {
+      return {
+        error:
+          "Этот акт удалён в Quick Resto — провести его нельзя. Обновите синхронизацию.",
+      };
+    }
+
     try {
       await processBackOfficeInventoryDocumentWithSession({
         connection,
@@ -1839,6 +1906,33 @@ export async function finalizeInventoryResults(input: {
         error: qrError,
       });
       return { error: `Не удалось провести акт в Quick Resto: ${message}` };
+    }
+
+    // Постусловие: убеждаемся, что QR реально провёл акт. /action на удалённом /
+    // изменённом акте может тихо вернуть 200 ничего не сделав — тогда локально
+    // НЕ помечаем проведённым, иначе разъедемся с QR (источник правды).
+    try {
+      const qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+      if (!qrDocAfter.processed) {
+        console.error("[finalize] QR не отметил акт проведённым после process", {
+          documentId: document.id,
+          externalId: externalIdNum,
+        });
+        return {
+          error:
+            "Quick Resto не отметил акт проведённым. Возможно, акт удалён или изменён — обновите синхронизацию и попробуйте снова.",
+        };
+      }
+    } catch (verifyError) {
+      console.error("[finalize] QR re-read after process failed", {
+        documentId: document.id,
+        externalId: externalIdNum,
+        error: verifyError,
+      });
+      return {
+        error:
+          "Не удалось подтвердить проведение акта в Quick Resto. Обновите синхронизацию и проверьте статус акта.",
+      };
     }
 
     const { error } = await admin
@@ -2547,14 +2641,16 @@ export async function markInventoryDraftStarted(input: {
   const admin = asLooseDb(createAdminClient());
   try {
     const { data: document } = await admin
-      .from<{ id: string; status: string; assigned_to: string | null }>("documents")
-      .select("id, status, assigned_to")
+      .from<{ id: string; status: string; assigned_to: string | null; archived_at: string | null }>("documents")
+      .select("id, status, assigned_to, archived_at")
       .eq("id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     // best-effort: молча выходим, если акта нет / переводить нечего /
-    // дёргает не назначенный исполнитель / нет права заполнять.
+    // дёргает не назначенный исполнитель / нет права заполнять / акт удалён
+    // в QR (архивный).
     if (!document?.id) return { error: null };
+    if (document.archived_at) return { error: null };
     if (document.assigned_to !== ctx.user.id) return { error: null };
     const allowed = Boolean(canManage) || Boolean(canFill);
     if (!allowed) return { error: null };
@@ -2616,15 +2712,20 @@ export async function submitInventoryDocumentDraft(input: {
       status: string;
       results_finalized_at: string | null;
       base_last_update_date: string | null;
+      archived_at: string | null;
     }>("documents")
     .select(
-      "id, account_id, external_id, assigned_to, reviewer_id, document_number, venue_id, processed, status, results_finalized_at, base_last_update_date",
+      "id, account_id, external_id, assigned_to, reviewer_id, document_number, venue_id, processed, status, results_finalized_at, base_last_update_date, archived_at",
     )
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
 
   if (!document?.id) return { resultsHasLineAmounts: false, error: "Акт не найден" };
+  // Акт удалён в Quick Resto (авто-архив) — отправлять нечего.
+  if (document.archived_at) {
+    return { resultsHasLineAmounts: false, error: "Этот акт удалён в Quick Resto и недоступен." };
+  }
   const allowed = Boolean(canManage) || (Boolean(canFill) && document.assigned_to === ctx.user.id);
   if (!allowed) return { resultsHasLineAmounts: false, error: "Недостаточно прав" };
   if (document.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };

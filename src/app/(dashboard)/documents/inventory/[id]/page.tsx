@@ -17,6 +17,7 @@ type InventoryDocumentDetailRow = {
   synced_at: string | null;
   last_returned_at: string | null;
   recount_count: number | null;
+  archived_at: string | null;
 };
 
 type InventoryDocumentItemRow = {
@@ -148,12 +149,15 @@ export default async function InventoryDocumentPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentDetailRow>("documents")
-    .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date, synced_at, last_returned_at, recount_count")
+    .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date, synced_at, last_returned_at, recount_count, archived_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
 
   if (!document) notFound();
+  // Акт удалён в Quick Resto (авто-архив) — скрыт из списка; закрываем и прямой
+  // доступ по URL/закладке, чтобы нельзя было редактировать мёртвый акт.
+  if (document.archived_at) redirect("/documents/inventory");
   if (!canView && document.assigned_to !== user.id) redirect("/documents/inventory");
 
   const [{ data: store }, { data: itemsRaw }, { data: groupsRaw }] = await Promise.all([

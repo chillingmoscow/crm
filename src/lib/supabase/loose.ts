@@ -9,6 +9,7 @@ export type LooseResult<T = unknown> = {
 export type LooseQuery<T = unknown> = PromiseLike<LooseResult<T>> & {
   select: (columns?: string, options?: Record<string, unknown>) => LooseQuery<T>;
   eq: (column: string, value: unknown) => LooseQuery<T>;
+  is: (column: string, value: unknown) => LooseQuery<T>;
   in: (column: string, values: unknown[]) => LooseQuery<T>;
   or: (filters: string) => LooseQuery<T>;
   order: (column: string, options?: Record<string, unknown>) => LooseQuery<T>;

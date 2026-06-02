@@ -31,6 +31,7 @@ type InventoryDocumentResultRow = {
   external_store_id: string | null;
   results_finalized_at: string | null;
   results_reopened_at: string | null;
+  archived_at: string | null;
 };
 
 type ProductGroupLookupRow = {
@@ -111,12 +112,14 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, archived_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
 
   if (!document) notFound();
+  // Акт удалён в Quick Resto (авто-архив) — закрываем прямой доступ по URL.
+  if (document.archived_at) redirect("/documents/inventory");
   if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents/inventory");
 
   const { data: itemsRaw } = await admin

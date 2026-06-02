@@ -414,6 +414,10 @@ export async function syncQuickRestoInventory(input?: {
           comment: text(document.comment),
           qr_payload: document,
           synced_at: syncedAt,
+          // Акт пришёл живым из выгрузки → снимаем системный авто-архив,
+          // если он стоял (акт удаляли в QR, потом восстановили).
+          archived_at: null,
+          archived_reason: null,
         },
         { onConflict: "account_id,external_id" }
       )
@@ -449,6 +453,36 @@ export async function syncQuickRestoInventory(input?: {
       localId: data.id,
     });
     await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
+  }
+
+  // Авто-архив актов, удалённых в Quick Resto. Сигнал — явный deleted-флаг в
+  // выгрузке списка (isDeletedQuickRestoRow). Без этого удалённый акт навсегда
+  // висел «живым» локально (его отфильтровывает isRecentOpenInventoryDocument,
+  // поэтому он больше не апдейтился) — и его можно было ошибочно «провести».
+  // Archived прячется из списка (RPC list_inventory_documents, миграция 216) и
+  // снимается автоматически в upsert выше, если акт вернулся живым.
+  // Безопасно: архивируем ТОЛЬКО по явному deleted-флагу из QR, не «по
+  // отсутствию» (выгрузка может быть оконной — это дало бы ложные архивы).
+  const deletedExternalIds = documentList
+    .filter((doc) => isDeletedQuickRestoRow(doc) && typeof doc.id === "number")
+    .map((doc) => String(doc.id));
+  console.info(
+    `[syncQuickRestoInventory] deleted-in-QR актов в выгрузке: ${deletedExternalIds.length}`,
+  );
+  if (deletedExternalIds.length > 0) {
+    const { data: archived } = await admin
+      .from<Array<{ id: string }>>("documents")
+      .update({ archived_at: syncedAt, archived_reason: "deleted_in_quickresto" })
+      .eq("account_id", ctx.accountId)
+      .eq("document_kind", "inventory")
+      .is("archived_at", null)
+      .in("external_id", deletedExternalIds)
+      .select("id");
+    if (archived && archived.length > 0) {
+      console.info(
+        `[syncQuickRestoInventory] авто-архив удалённых в QR актов: ${archived.length}`,
+      );
+    }
   }
 
   revalidatePath("/documents/inventory");

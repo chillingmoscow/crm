@@ -42,6 +42,7 @@ import {
   inventoryDocumentItems,
   inventoryDocumentNumber,
   isBackOfficeAuthError,
+  isDeletedQuickRestoRow,
   isQuickRestoClass,
   isRecentOpenInventoryDocument,
   listBackOfficeInventoryItemsWithSession,
@@ -1820,6 +1821,38 @@ export async function finalizeInventoryResults(input: {
     if (!Number.isFinite(externalIdNum)) {
       return { error: "Не удалось определить ID акта в Quick Resto." };
     }
+    const apiAuth = {
+      layerName: connection.login,
+      login: connection.login,
+      password: connectionPassword(connection),
+    };
+
+    // Guard от «тихого успеха»: акт мог быть удалён в QR (или его там нет).
+    // На удалённом акте /action отвечает 200 и НИЧЕГО не делает — без этой
+    // проверки мы бы впустую пометили акт проведённым локально. Читаем акт
+    // из QR перед проведением: если удалён / не найден — явная ошибка, локально
+    // ничего не трогаем. (См. инцидент: финализация СВ-акта, удалённого в QR.)
+    let qrDocBefore: QuickRestoInventoryDocument2;
+    try {
+      qrDocBefore = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+    } catch (readError) {
+      console.error("[finalize] QR read failed (акт удалён в QR?)", {
+        documentId: document.id,
+        externalId: externalIdNum,
+        error: readError,
+      });
+      return {
+        error:
+          "Не удалось прочитать акт в Quick Resto — возможно, он удалён. Обновите синхронизацию и проверьте акт.",
+      };
+    }
+    if (isDeletedQuickRestoRow(qrDocBefore)) {
+      return {
+        error:
+          "Этот акт удалён в Quick Resto — провести его нельзя. Обновите синхронизацию.",
+      };
+    }
+
     try {
       await processBackOfficeInventoryDocumentWithSession({
         connection,
@@ -1839,6 +1872,33 @@ export async function finalizeInventoryResults(input: {
         error: qrError,
       });
       return { error: `Не удалось провести акт в Quick Resto: ${message}` };
+    }
+
+    // Постусловие: убеждаемся, что QR реально провёл акт. /action на удалённом /
+    // изменённом акте может тихо вернуть 200 ничего не сделав — тогда локально
+    // НЕ помечаем проведённым, иначе разъедемся с QR (источник правды).
+    try {
+      const qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+      if (!qrDocAfter.processed) {
+        console.error("[finalize] QR не отметил акт проведённым после process", {
+          documentId: document.id,
+          externalId: externalIdNum,
+        });
+        return {
+          error:
+            "Quick Resto не отметил акт проведённым. Возможно, акт удалён или изменён — обновите синхронизацию и попробуйте снова.",
+        };
+      }
+    } catch (verifyError) {
+      console.error("[finalize] QR re-read after process failed", {
+        documentId: document.id,
+        externalId: externalIdNum,
+        error: verifyError,
+      });
+      return {
+        error:
+          "Не удалось подтвердить проведение акта в Quick Resto. Обновите синхронизацию и проверьте статус акта.",
+      };
     }
 
     const { error } = await admin

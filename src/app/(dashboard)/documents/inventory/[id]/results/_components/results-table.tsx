@@ -415,6 +415,37 @@ export function InventoryResultsTable({
     [items, selectedIds],
   );
 
+  // Строки, которые вообще можно выбрать (тот же предикат, что в renderSelectCell):
+  // не залочено редактирование, не исключено из итогов, нет активной пересортицы.
+  const selectableItems = useMemo(
+    () =>
+      items.filter((item) => {
+        const resortItem = activeResortItemByItemId.get(item.id);
+        const isExcluded = item.excluded_from_totals === true;
+        return !adjustLocked && !isExcluded && !resortItem;
+      }),
+    [items, activeResortItemByItemId, adjustLocked],
+  );
+  const allSelectableSelected =
+    selectableItems.length > 0 && selectableItems.every((item) => selectedIds.has(item.id));
+  const someSelectableSelected = selectableItems.some((item) => selectedIds.has(item.id));
+  const selectAllState: boolean | "indeterminate" = allSelectableSelected
+    ? true
+    : someSelectableSelected
+      ? "indeterminate"
+      : false;
+  const toggleSelectAll = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allSelectableSelected) {
+        selectableItems.forEach((item) => next.delete(item.id));
+      } else {
+        selectableItems.forEach((item) => next.add(item.id));
+      }
+      return next;
+    });
+  };
+
   const runAction = useCallback(
     (
       action: () => Promise<{ error: string | null }>,
@@ -1258,7 +1289,14 @@ export function InventoryResultsTable({
                           aria-sort={headerAriaSort(header.column.id)}
                           className={cn("relative border-b px-3 py-3 text-left")}
                         >
-                          {isControl ? null : isSortable ? (
+                          {header.column.id === "select" ? (
+                            <Checkbox
+                              checked={selectAllState}
+                              disabled={selectableItems.length === 0}
+                              onCheckedChange={toggleSelectAll}
+                              aria-label="Выбрать все строки"
+                            />
+                          ) : isControl ? null : isSortable ? (
                             <button
                               type="button"
                               className="flex max-w-full items-center gap-1 truncate hover:text-foreground"

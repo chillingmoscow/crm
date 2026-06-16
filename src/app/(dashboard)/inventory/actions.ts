@@ -426,12 +426,27 @@ export async function syncQuickRestoInventory(input?: {
     if (error || !data?.id) throw new Error(error?.message ?? `Не удалось сохранить акт ${document.id}`);
 
     if (items.length > 0) {
+      // Подсчёт остатков в нашем флоу ведётся ТОЛЬКО в CRM (submitted_amount).
+      // Full-sync обновляет список позиций и метаданные акта, но НЕ должен
+      // перетирать уже введённые количества QR-нулями: для непроведённого акта
+      // QR присылает actualAmount=0 как дефолт. Читаем существующие
+      // submitted_amount по external_item_id и переносим их обратно.
+      const { data: existingItems } = await admin
+        .from<Array<{ external_item_id: string; submitted_amount: number | null }>>("document_items")
+        .select("external_item_id, submitted_amount")
+        .eq("document_id", data.id);
+      const preservedSubmitted = new Map<string, number | null>(
+        (existingItems ?? [])
+          .filter((row) => row.submitted_amount !== null)
+          .map((row) => [row.external_item_id, row.submitted_amount]),
+      );
       const result = await syncDocumentItems({
         admin,
         accountId: ctx.accountId,
         documentId: data.id,
         items,
         productByExternalId,
+        submittedAmounts: preservedSubmitted,
       });
       summary.items += result.count;
       if (!result.resultsFound) summary.resultsBlocked += 1;
@@ -483,6 +498,30 @@ export async function syncQuickRestoInventory(input?: {
         `[syncQuickRestoInventory] авто-архив удалённых в QR актов: ${archived.length}`,
       );
     }
+  }
+
+  // Бэкфилл единицы измерения ингредиентов. Каталог QR (SingleProduct) отдаёт
+  // measureUnit как заглушку {id, className} без `name`, поэтому
+  // ingredients.measure_unit_name приходит пустым (хотя measure_unit_id есть).
+  // Позиции акта несут полную единицу (id + name) — строим словарь id→name из
+  // document_items и проставляем имя ингредиентам, у которых оно отсутствует.
+  const { data: unitRows } = await admin
+    .from<Array<{ measure_unit_id: number | null; measure_unit_name: string | null }>>("document_items")
+    .select("measure_unit_id, measure_unit_name")
+    .eq("account_id", ctx.accountId);
+  const unitNameById = new Map<number, string>();
+  for (const row of unitRows ?? []) {
+    if (typeof row.measure_unit_id === "number" && row.measure_unit_name && !unitNameById.has(row.measure_unit_id)) {
+      unitNameById.set(row.measure_unit_id, row.measure_unit_name);
+    }
+  }
+  for (const [unitId, unitName] of unitNameById) {
+    await admin
+      .from("ingredients")
+      .update({ measure_unit_name: unitName })
+      .eq("account_id", ctx.accountId)
+      .eq("measure_unit_id", unitId)
+      .is("measure_unit_name", null);
   }
 
   revalidatePath("/documents/inventory");

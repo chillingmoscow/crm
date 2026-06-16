@@ -52,6 +52,10 @@ type EditorDocument = {
   documentNumber: string;
   storeTitle: string | null;
   status: string;
+  /** Акт проведён в QR. Только тогда QR-`actualAmount` авторитетен и может
+      подставляться в форму как fallback; для непроведённого акта подсчёт
+      ведётся в CRM (submittedAmount), QR-нули игнорируются. */
+  processed: boolean;
   baseLastUpdateDate: string | null;
   /** ISO timestamp последней QR-синхронизации акта. Используется в
       hydration: draft до sync — игнорируем (старый, sync свежее);
@@ -190,6 +194,18 @@ function toInputValue(value: number | null) {
   return value === null || value === undefined ? "" : String(value);
 }
 
+// Начальное значение поля акта. Приоритет — submittedAmount (подсчёт в нашем
+// CRM). Fallback на QR-`actualAmount` ТОЛЬКО для проведённого акта: в
+// непроведённом QR присылает actualAmount=0 как дефолт для непосчитанных
+// позиций, и подставлять его нельзя — иначе форма выглядит «100% заполнена
+// нулями», а подсчёт у нас всегда ведётся в CRM.
+function editorInitialValue(
+  item: Pick<EditorItem, "submittedAmount" | "actualAmount">,
+  processed: boolean,
+) {
+  return toInputValue(item.submittedAmount ?? (processed ? item.actualAmount : null));
+}
+
 function parseAmount(value: string) {
   if (!value.trim()) return null;
   const normalized = value.replace(",", ".");
@@ -221,15 +237,13 @@ export function InventoryDocumentEditor({
   items: EditorItem[];
 }) {
   const router = useRouter();
-  // Initial value поля: приоритет submittedAmount (наш CRM писал через
-  // submit-flow), fallback на actualAmount (синкнулось из QR — если
-  // пользователь заполнял акт напрямую в QR-backoffice). Без fallback
-  // форма выглядела пустой, хотя данные из QR в БД есть.
+  // Initial value поля — см. editorInitialValue: submittedAmount (подсчёт в
+  // CRM), а QR-`actualAmount` как fallback только для проведённого акта.
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       items.map((item) => [
         item.id,
-        toInputValue(item.submittedAmount ?? item.actualAmount),
+        editorInitialValue(item, document.processed),
       ])
     )
   );
@@ -280,7 +294,7 @@ export function InventoryDocumentEditor({
     Object.fromEntries(
       items.map((item) => [
         item.id,
-        toInputValue(item.submittedAmount ?? item.actualAmount),
+        editorInitialValue(item, document.processed),
       ])
     )
   );
@@ -402,25 +416,29 @@ export function InventoryDocumentEditor({
       const draft = await readDraft(draftKey);
       if (!alive) return;
       if (draft?.values) {
-        // Игнорируем draft если он СТАРШЕ последнего QR-sync:
-        //  - Сценарий-1 (закрывает первоначальный bug #390): старая сессия
-        //    открыла акт когда actual_amount=NULL, autosave записал
-        //    пустой draft. Потом QR-sync заполнил actual_amount. Сейчас
-        //    page rendering показывает prefill из QR, но stale draft
-        //    перезатирает его на пустоту. Условие draft.savedAt <
-        //    document.syncedAt отсеивает этот случай.
-        //  - Сценарий-2 (Codex P2 #390): легитимная очистка полей user'ом
-        //    после sync — draft.savedAt > document.syncedAt → restore
-        //    работает, включая полностью-пустой draft (user намеренно
-        //    очистил всё).
+        // Игнорируем draft если он СТАРШЕ последнего QR-sync — но ТОЛЬКО для
+        // проведённого акта (processed). Логика:
+        //  - Проведённый акт: QR-значения авторитетны, prefill идёт из
+        //    actualAmount. Stale-draft (закрывает bug #390): старая сессия
+        //    открыла акт когда actual_amount=NULL, autosave записал пустой
+        //    draft; потом QR-sync заполнил actual_amount; draft.savedAt <
+        //    syncedAt отсеивает перезатирание prefill пустотой. Codex P2 #390:
+        //    легитимная очистка user'ом после sync (savedAt > syncedAt) —
+        //    restore работает.
+        //  - Непроведённый акт: подсчёт ведётся в CRM, «Синхронизировать» не
+        //    должна трогать подсчёт. QR-нули в форму не подставляются, поэтому
+        //    sync (bump synced_at) НЕ делает локальный черновик stale — иначе
+        //    full-sync менеджера обнулял бы незавершённую работу исполнителя.
         // Если syncedAt отсутствует (старые акты до миграции 194 / тестовые
         // случаи) — fallback на restore (легитимный draft user'а
         // приоритетнее пустого начального state).
         const draftSavedMs = Date.parse(draft.savedAt);
-        const syncedMs = document.syncedAt ? Date.parse(document.syncedAt) : NaN;
-        // last_returned_at работает по той же логике, что и syncedAt: draft,
-        // сохранённый ДО возврата на пересчёт, не должен перезатирать
-        // значения, которые сервер вернул после `returnDocumentForRecount`.
+        const syncedMs =
+          document.processed && document.syncedAt ? Date.parse(document.syncedAt) : NaN;
+        // last_returned_at работает по той же логике, что и syncedAt, и
+        // применяется независимо от processed: draft, сохранённый ДО возврата
+        // на пересчёт, не должен перезатирать значения, которые сервер вернул
+        // после `returnDocumentForRecount`.
         const returnedMs = document.lastReturnedAt
           ? Date.parse(document.lastReturnedAt)
           : NaN;
@@ -484,7 +502,7 @@ export function InventoryDocumentEditor({
 
   useEffect(() => {
     const hasChanges = items.some(
-      (item) => values[item.id] !== toInputValue(item.submittedAmount ?? item.actualAmount),
+      (item) => values[item.id] !== editorInitialValue(item, document.processed),
     );
     const handler = (event: BeforeUnloadEvent) => {
       if (!hasChanges) return;
@@ -493,7 +511,7 @@ export function InventoryDocumentEditor({
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [items, values]);
+  }, [items, values, document.processed]);
 
   // ── Controls state-derivatives ────────────────────────────
   const hasGroupFilter = Boolean(selectedGroupId);

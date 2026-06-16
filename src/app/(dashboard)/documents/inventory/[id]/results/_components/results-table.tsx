@@ -417,14 +417,17 @@ export function InventoryResultsTable({
 
   // Строки, которые вообще можно выбрать (тот же предикат, что в renderSelectCell):
   // не залочено редактирование, не исключено из итогов, нет активной пересортицы.
+  // Базируемся на visibleItems (то, что реально рендерит таблица с учётом
+  // поиска/фильтров), а не на полном items — иначе «выбрать все» захватило бы
+  // скрытые строки, и массовые действия применились бы к невидимым позициям.
   const selectableItems = useMemo(
     () =>
-      items.filter((item) => {
+      visibleItems.filter((item) => {
         const resortItem = activeResortItemByItemId.get(item.id);
         const isExcluded = item.excluded_from_totals === true;
         return !adjustLocked && !isExcluded && !resortItem;
       }),
-    [items, activeResortItemByItemId, adjustLocked],
+    [visibleItems, activeResortItemByItemId, adjustLocked],
   );
   const allSelectableSelected =
     selectableItems.length > 0 && selectableItems.every((item) => selectedIds.has(item.id));

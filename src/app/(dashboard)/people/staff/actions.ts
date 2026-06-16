@@ -736,6 +736,29 @@ export async function updateStaffRole(
   roleId: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
+
+  // Право на UPDATE user_venue_roles гейтит RLS-политика
+  // (has_permission('people.edit_staff')). Дополнительно проверяем, что
+  // назначаемая роль принадлежит тому же venue, что и членство — RLS на
+  // user_venue_roles не имеет WITH CHECK, поэтому без этого можно было бы
+  // переподключить сотрудника на роль чужого заведения. Owner (venue_id
+  // NULL) через staff-UI не назначается — он не из списка venue-ролей.
+  const { data: uvr } = await supabase
+    .from("user_venue_roles")
+    .select("venue_id")
+    .eq("id", uvrId)
+    .maybeSingle();
+  if (!uvr) return { error: "Сотрудник не найден" };
+
+  const { data: role } = await supabase
+    .from("roles")
+    .select("venue_id")
+    .eq("id", roleId)
+    .maybeSingle();
+  if (!role || role.venue_id !== uvr.venue_id) {
+    return { error: "Должность недоступна для этого заведения" };
+  }
+
   const { error } = await supabase
     .from("user_venue_roles")
     .update({ role_id: roleId })

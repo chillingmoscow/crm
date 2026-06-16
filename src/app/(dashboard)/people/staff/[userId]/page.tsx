@@ -232,6 +232,7 @@ export default async function StaffMemberPage({
       uvrId={targetUvr.id}
       roleId={targetUvr.role_id}
       roleName={targetUvr.roles?.name ?? ""}
+      roleCode={targetUvr.roles?.code ?? ""}
       departmentId={targetUvr.roles?.departments?.id ?? null}
       departmentName={targetUvr.roles?.departments?.name ?? null}
       terminalPin={targetUvr.terminal_pin}

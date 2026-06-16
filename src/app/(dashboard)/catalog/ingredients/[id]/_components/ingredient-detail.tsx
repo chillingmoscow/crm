@@ -32,6 +32,11 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { formatAmount, type AmountRoundingScale } from "@/lib/format/amount";
 import type {
@@ -124,34 +129,67 @@ export function IngredientDetail({
       </PageBreadcrumb>
 
       <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        {/* Header — плашка-иконка + H1 + бейджи (как карточка должности) */}
-        <div className="flex items-center gap-4 min-w-0">
-          <div className="shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center bg-muted text-muted-foreground">
-            <Package className="w-7 h-7" />
-          </div>
-          <div className="flex flex-col gap-1.5 min-w-0">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
-                {ingredient.name}
-              </h1>
-              <Badge
-                variant="secondary"
-                className="font-medium text-muted-foreground"
-              >
-                Quick Resto
-              </Badge>
-              {isArchived && (
-                <Badge variant="outline" className="text-amber-700 border-amber-300">
-                  Архивирован
+        {/* Header — плашка-иконка + H1 + бейджи (как карточка должности).
+            Справа — кнопка «ℹ️» со сведениями о карточке (технические QR-поля). */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="shrink-0 w-14 h-14 rounded-2xl flex items-center justify-center bg-muted text-muted-foreground">
+              <Package className="w-7 h-7" />
+            </div>
+            <div className="flex flex-col gap-1.5 min-w-0">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+                  {ingredient.name}
+                </h1>
+                <Badge
+                  variant="secondary"
+                  className="font-medium text-muted-foreground"
+                >
+                  Quick Resto
                 </Badge>
+                {isArchived && (
+                  <Badge variant="outline" className="text-amber-700 border-amber-300">
+                    Архивирован
+                  </Badge>
+                )}
+              </div>
+              {ingredient.groupName && (
+                <p className="text-sm text-muted-foreground leading-snug">
+                  {ingredient.groupName}
+                </p>
               )}
             </div>
-            {ingredient.groupName && (
-              <p className="text-sm text-muted-foreground leading-snug">
-                {ingredient.groupName}
-              </p>
-            )}
           </div>
+
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Сведения о карточке"
+                title="Сведения о карточке"
+                className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Info className="h-[18px] w-[18px]" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72">
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Источник этой карточки — Quick Resto. Поля ниже технические,
+                  обновляются синхронизацией.
+                </p>
+                <Field label="QR external id" value={ingredient.externalId} />
+                <Field
+                  label="Синхронизирован"
+                  value={
+                    ingredient.syncedAt
+                      ? new Date(ingredient.syncedAt).toLocaleString("ru-RU")
+                      : "—"
+                  }
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         <Tabs defaultValue="overview">
@@ -172,19 +210,27 @@ export function IngredientDetail({
             <div className="mx-auto w-full max-w-[920px]">
               <div className="flex flex-col gap-6 md:flex-row">
                 <div className="flex flex-col items-center gap-3">
-                  <div className="relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-lg border bg-muted">
-                    {ingredient.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={ingredient.imageUrl}
-                        alt={ingredient.name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <Package className="h-8 w-8 text-muted-foreground" />
-                    )}
-                  </div>
-                  {canManage ? <ProductImageUpload productId={ingredient.id} /> : null}
+                  {canManage ? (
+                    <ProductImageUpload
+                      variant="box"
+                      productId={ingredient.id}
+                      imageUrl={ingredient.imageUrl}
+                      name={ingredient.name}
+                    />
+                  ) : (
+                    <div className="relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+                      {ingredient.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={ingredient.imageUrl}
+                          alt={ingredient.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <Package className="h-8 w-8 text-muted-foreground" />
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid flex-1 grid-cols-2 gap-4 md:grid-cols-3">
@@ -193,29 +239,17 @@ export function IngredientDetail({
                   <Field label="Ед. изм." value={ingredient.measureUnitName} />
                   <Field label="Артикул" value={ingredient.article} />
                   <Field label="Штрих-код" value={ingredient.barcode} />
-                  <Field label="QR external id" value={ingredient.externalId} />
                   <Field
                     label="Себестоимость"
                     value={formatAmount(ingredient.currentPrimeCost, amountRoundingScale)}
                   />
                   <Field label="Остаток QR" value={ingredient.storeQuantityKg ?? "—"} />
                   <Field label="Лимит" value={ingredient.stockLimit ?? "—"} />
-                  <Field
-                    label="Синхронизирован"
-                    value={
-                      ingredient.syncedAt
-                        ? new Date(ingredient.syncedAt).toLocaleString("ru-RU")
-                        : "—"
-                    }
-                  />
                 </div>
               </div>
 
               <div className="mt-8 max-w-2xl">
                 <label className="mb-1 block text-sm font-medium">Описание</label>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Локальное поле. Не перезаписывается синхронизацией QuickResto.
-                </p>
                 <Textarea
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}

@@ -236,6 +236,10 @@ export default async function InventoryDocumentPage({
         documentNumber: document.document_number,
         storeTitle: store?.title ?? null,
         status: document.status,
+        // processed: QR-значения (actualAmount) авторитетны только для
+        // проведённого акта. Для непроведённого подсчёт ведётся в CRM, и
+        // QR-нули не подставляются в форму (см. document-editor.tsx).
+        processed: document.processed,
         baseLastUpdateDate: document.base_last_update_date ?? null,
         // syncedAt + lastReturnedAt — для editor hydration: draft до любого
         // из этих timestamp'ов = stale (см. document-editor.tsx draft-stale).

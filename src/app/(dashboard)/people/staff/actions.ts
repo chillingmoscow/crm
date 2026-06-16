@@ -736,12 +736,59 @@ export async function updateStaffRole(
   roleId: string
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
+
+  // Право на UPDATE user_venue_roles гейтит RLS-политика
+  // (has_permission('people.edit_staff')). Дополнительно проверяем, что
+  // назначаемая роль принадлежит тому же venue, что и членство — RLS на
+  // user_venue_roles не имеет WITH CHECK, поэтому без этого можно было бы
+  // переподключить сотрудника на роль чужого заведения. Owner (venue_id
+  // NULL) через staff-UI не назначается — он не из списка venue-ролей.
+  const { data: uvr } = await supabase
+    .from("user_venue_roles")
+    .select("venue_id, user_id")
+    .eq("id", uvrId)
+    .maybeSingle();
+  if (!uvr) return { error: "Сотрудник не найден" };
+
+  const { data: role } = await supabase
+    .from("roles")
+    .select("venue_id, archived_at")
+    .eq("id", roleId)
+    .maybeSingle();
+  if (!role || role.venue_id !== uvr.venue_id) {
+    return { error: "Должность недоступна для этого заведения" };
+  }
+  // Архивную роль назначать нельзя. RLS прячет архивные от обычных членов,
+  // но owner их видит (roles_select_archived_owner, миграция 203) — поэтому
+  // в пикере у владельца они могут всплыть. Серверный отказ — точка истины.
+  if (role.archived_at) {
+    return { error: "Нельзя назначить архивную должность" };
+  }
+
   const { error } = await supabase
     .from("user_venue_roles")
     .update({ role_id: roleId })
     .eq("id", uvrId);
 
   if (error) return { error: error.message };
+
+  // Синхронизируем неактивированное приглашение этого сотрудника в это
+  // заведение. Иначе acceptInvitation (upsert по onConflict user_id,venue_id)
+  // при активации перезапишет role_id обратно на старую роль из инвайта и
+  // затрёт только что сделанную смену. Касается импортированных/pending
+  // сотрудников, у которых UVR уже есть, но инвайт ещё не принят.
+  const admin = createAdminClient();
+  const { data: authData } = await admin.auth.admin.getUserById(uvr.user_id);
+  const email = authData?.user?.email;
+  if (email) {
+    await admin
+      .from("invitations")
+      .update({ role_id: roleId })
+      .eq("venue_id", uvr.venue_id)
+      .ilike("email", email)
+      .eq("status", "pending");
+  }
+
   revalidatePath("/people/staff");
   return { error: null };
 }

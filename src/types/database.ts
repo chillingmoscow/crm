@@ -2337,6 +2337,8 @@ export type Database = {
       }
       roles: {
         Row: {
+          archived_at: string | null
+          archived_by: string | null
           code: string
           comment: string | null
           created_at: string
@@ -2351,6 +2353,8 @@ export type Database = {
           venue_id: string | null
         }
         Insert: {
+          archived_at?: string | null
+          archived_by?: string | null
           code: string
           comment?: string | null
           created_at?: string
@@ -2365,6 +2369,8 @@ export type Database = {
           venue_id?: string | null
         }
         Update: {
+          archived_at?: string | null
+          archived_by?: string | null
           code?: string
           comment?: string | null
           created_at?: string

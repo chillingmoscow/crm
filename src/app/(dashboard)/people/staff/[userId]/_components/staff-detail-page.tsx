@@ -64,6 +64,7 @@ import {
   updateStaffProfile,
   updateStaffAccountDetails,
   updateStaffTerminalPin,
+  updateStaffRole,
 } from "../../actions";
 import type { StaffProfile, StaffAccountDetails } from "../../actions";
 
@@ -85,6 +86,7 @@ const schema = z.object({
 
   // UVR (venue-specific)
   terminal_pin: z.string().optional(),
+  role_id:      z.string().min(1, "Выберите должность"),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -101,6 +103,9 @@ interface Props {
   uvrId:          string;
   roleId:         string;
   roleName:       string;
+  /** code текущей роли. owner (системная) через staff-UI не меняется —
+   *  при roleCode==='owner' селектор должности read-only. */
+  roleCode:       string;
   departmentId:   string | null;
   departmentName: string | null;
   terminalPin:    string | null;
@@ -204,10 +209,12 @@ export function StaffDetailPage({
   uvrId,
   roleId,
   roleName,
+  roleCode,
   departmentId,
   departmentName,
   terminalPin,
   venueId,
+  roles,
   canEdit: canEditProp,
   isFired,
   firedAt,
@@ -287,6 +294,11 @@ export function StaffDetailPage({
   const canManageStaff = canEditProp;
   const canEdit = canEditProp && !isFired;
 
+  // Смена должности: владелец (owner) через staff-UI не переназначается —
+  // это единственная системная роль, привязанная к владельцу аккаунта, и
+  // её нет в списке venue-ролей. Для всех остальных — обычный edit-гейт.
+  const canEditRole = canEdit && roleCode !== "owner";
+
   // Email-поле и кнопку «Пригласить»/«Изменить и переслать» админ видит,
   // пока сотрудник не подтвердил email. После — read-only.
   const canManageImportedInvite =
@@ -313,6 +325,7 @@ export function StaffDetailPage({
         medical_book_date:   accountDetails.medical_book_date ?? "",
         comment:             accountDetails.comment ?? "",
         terminal_pin:        terminalPin ?? "",
+        role_id:             roleId,
       },
     });
 
@@ -336,6 +349,7 @@ export function StaffDetailPage({
       medical_book_date:   accountDetails.medical_book_date ?? "",
       comment:             accountDetails.comment ?? "",
       terminal_pin:        terminalPin ?? "",
+      role_id:             roleId,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -351,6 +365,7 @@ export function StaffDetailPage({
     accountDetails.medical_book_date,
     accountDetails.comment,
     terminalPin,
+    roleId,
   ]);
 
   // Generate signed URLs for passport photos
@@ -383,6 +398,7 @@ export function StaffDetailPage({
     address:              "main",
     employment_date:      "main",
     terminal_pin:         "main",
+    role_id:              "main",
     medical_book_number:  "documents",
     medical_book_date:    "documents",
     comment:              "main",
@@ -399,10 +415,12 @@ export function StaffDetailPage({
     toast.error(message);
   };
 
-  // Save: три параллельных action'а.
+  // Save: параллельные action'ы.
   // - updateStaffProfile — личные поля (тир 1+2)
   // - updateStaffAccountDetails — HR-данные аккаунта (тир 3)
   // - updateStaffTerminalPin — UVR (venue-specific)
+  // - updateStaffRole — UVR.role_id, только если должность реально изменилась
+  //   и текущая роль не owner (owner через staff-UI не переназначается).
   // Если упал хоть один, показываем toast и не делаем общий «Сохранено».
   const onSave = (values: FormValues) => {
     startTransition(async () => {
@@ -420,7 +438,12 @@ export function StaffDetailPage({
           })
         : Promise.resolve({ error: null });
 
-      const [profileResult, detailsResult, pinResult] = await Promise.all([
+      const rolePromise =
+        canEditRole && values.role_id !== roleId
+          ? updateStaffRole(uvrId, values.role_id)
+          : Promise.resolve({ error: null });
+
+      const [profileResult, detailsResult, pinResult, roleResult] = await Promise.all([
         profilePromise,
         updateStaffAccountDetails(profile.id, accountId, {
           employment_date:     values.employment_date,
@@ -429,9 +452,10 @@ export function StaffDetailPage({
           comment:             values.comment || null,
         }),
         updateStaffTerminalPin(uvrId, values.terminal_pin || null),
+        rolePromise,
       ]);
 
-      const errors = [profileResult.error, detailsResult.error, pinResult.error]
+      const errors = [profileResult.error, detailsResult.error, pinResult.error, roleResult.error]
         .filter(Boolean) as string[];
       if (errors.length > 0) {
         toast.error(errors.join(" · "));
@@ -1036,8 +1060,35 @@ export function StaffDetailPage({
               {/* Трудоустройство + PIN — тир 3 (account) + UVR (venue) */}
               <FormSection
                 title="Трудоустройство"
-                description="Дата начала работы и PIN терминала для этого заведения"
+                description="Должность, дата начала работы и PIN терминала для этого заведения"
               >
+                <div className="space-y-1.5">
+                  <Label className="text-[13px] font-medium">Должность</Label>
+                  {canEditRole ? (
+                    <Controller
+                      control={control}
+                      name="role_id"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Выберите должность" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {roles.map((r) => (
+                              <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  ) : (
+                    <Input value={roleName} readOnly className="bg-muted/50" />
+                  )}
+                  {errors.role_id && (
+                    <p className="text-xs text-destructive">{errors.role_id.message}</p>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="employment_date" className="text-[13px] font-medium">

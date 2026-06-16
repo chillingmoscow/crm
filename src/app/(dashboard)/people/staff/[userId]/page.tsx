@@ -163,8 +163,14 @@ export default async function StaffMemberPage({
     // Stage D: список ролей для смены — строго текущий venue. Owner
     // через staff-UI не назначается (он единственный, привязан к
     // владельцу аккаунта), поэтому system-роль (venue_id IS NULL)
-    // не включаем.
-    supabase.from("roles").select("id, name, code").eq("venue_id", venueId).order("name"),
+    // не включаем. archived_at IS NULL — архивные роли не предлагаем для
+    // назначения (RLS прячет их от обычных членов, но owner их видит).
+    supabase
+      .from("roles")
+      .select("id, name, code")
+      .eq("venue_id", venueId)
+      .is("archived_at", null)
+      .order("name"),
     // Есть ли неотозванное приглашение на email этого юзера в текущем venue.
     // Надёжный признак «приглашён, но ещё не активировал» — в отличие от
     // email_confirmed, который у импортированного сотрудника после смены email

@@ -9,7 +9,7 @@ import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type Tab = "form" | "results" | "history" | "danger";
+type Tab = "overview" | "form" | "results" | "history" | "danger";
 
 /**
  * Шапка страницы акта инвентаризации. Состоит из:
@@ -52,15 +52,18 @@ export function DocumentActHeader({
   const pathname = usePathname() ?? "";
   const router = useRouter();
 
-  const activeTab: Tab = pathname.endsWith("/results")
-    ? "results"
-    : pathname.endsWith("/history")
-      ? "history"
-      : pathname.endsWith("/danger")
-        ? "danger"
-        : "form";
+  const activeTab: Tab = pathname.endsWith("/overview")
+    ? "overview"
+    : pathname.endsWith("/results")
+      ? "results"
+      : pathname.endsWith("/history")
+        ? "history"
+        : pathname.endsWith("/danger")
+          ? "danger"
+          : "form";
 
   const tabHref: Record<Tab, string> = {
+    overview: `/documents/inventory/${documentId}/overview`,
     form: `/documents/inventory/${documentId}`,
     results: `/documents/inventory/${documentId}/results`,
     history: `/documents/inventory/${documentId}/history`,
@@ -97,6 +100,7 @@ export function DocumentActHeader({
           onValueChange={(value) => router.push(tabHref[value as Tab])}
         >
           <TabsList className="justify-center">
+            <TabsTrigger value="overview">Основное</TabsTrigger>
             {canFill ? <TabsTrigger value="form">Форма</TabsTrigger> : null}
             {canViewResults ? (
               resultsAvailable ? (

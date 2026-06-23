@@ -2525,14 +2525,27 @@ export async function returnDocumentForRecount(input: {
     }
 
     const { data: flaggedItems } = await admin
-      .from<Array<{ id: string }>>("document_items")
-      .select("id")
+      .from<Array<{ id: string; actual_amount: number | null }>>("document_items")
+      .select("id, actual_amount")
       .eq("document_id", document.id)
       .eq("account_id", ctx.accountId)
       .eq("needs_recount", true);
     const flaggedIds = (flaggedItems ?? []).map((row) => row.id);
     if (flaggedIds.length === 0) {
       return { error: "Отметьте хотя бы одну строку на пересчёт перед отправкой." };
+    }
+
+    // Снимок «было»: фиксируем текущий факт каждой отмеченной строки в
+    // recount_previous_amount, чтобы после пересчёта сравнить с новым значением
+    // и видеть в Итогах, какие строки уходили на пересчёт. Не очищается при
+    // повторном проведении (см. миграцию 218); на повторных кругах
+    // перезаписываем значением перед текущим кругом.
+    for (const item of flaggedItems ?? []) {
+      await admin
+        .from("document_items")
+        .update({ recount_previous_amount: item.actual_amount })
+        .eq("id", item.id)
+        .eq("account_id", ctx.accountId);
     }
 
     const { error: updateError } = await admin

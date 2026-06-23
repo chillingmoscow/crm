@@ -269,7 +269,7 @@ export function ResultRecountPicker({
   value: ResultRecountFilter;
   onChange: (next: ResultRecountFilter) => void;
 }) {
-  const options: ResultRecountFilter[] = ["all", "flagged", "clear"];
+  const options: ResultRecountFilter[] = ["all", "flagged", "clear", "recounted"];
   return (
     <div className="space-y-0.5 p-1">
       {options.map((option) => (

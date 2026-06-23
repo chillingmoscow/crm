@@ -15,6 +15,7 @@
  * list-documents-shared.ts.
  */
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 
@@ -68,5 +69,38 @@ export async function listInventoryDocuments(
   }
 
   const { rows, total } = parseRpcResponse(data);
+
+  // «Итоги» в списке = QR-нетто по позициям (как блок «По QR» в карточке акта).
+  // documents.shortfall_sum/surplus_sum приходят из Quick Resto на уровне
+  // документа и часто = 0 (QR их не заполняет для проведённых актов), хотя по
+  // позициям суммы есть. Поэтому считаем сами из document_items.difference_sum.
+  // admin-клиент здесь безопасен: суммируем только по document_id, которые RPC
+  // (security invoker) уже отдал текущему пользователю — новых данных не раскрываем.
+  if (rows.length > 0) {
+    const admin = asLooseDb(createAdminClient());
+    const documentIds = rows.map((row) => row.id);
+    const { data: itemRows } = await admin
+      .from<Array<{ document_id: string; difference_sum: number | null }>>("document_items")
+      .select("document_id, difference_sum")
+      .in("document_id", documentIds);
+    const totalsByDocId = new Map<string, { shortfall: number; surplus: number }>();
+    for (const item of itemRows ?? []) {
+      const value = typeof item.difference_sum === "number" ? item.difference_sum : 0;
+      if (value === 0) continue;
+      const entry = totalsByDocId.get(item.document_id) ?? { shortfall: 0, surplus: 0 };
+      if (value < 0) entry.shortfall += value;
+      else entry.surplus += value;
+      totalsByDocId.set(item.document_id, entry);
+    }
+    for (const row of rows) {
+      const entry = totalsByDocId.get(row.id);
+      if (!entry) continue;
+      // Храним недостачу положительным модулем — documents-table считает
+      // net = surplus_sum − shortfall_sum.
+      row.shortfall_sum = Math.abs(entry.shortfall);
+      row.surplus_sum = entry.surplus;
+    }
+  }
+
   return { rows, total, page, pageSize, error: null };
 }

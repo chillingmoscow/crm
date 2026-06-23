@@ -11,12 +11,13 @@ export type ResultColumnKey =
   | "recount"
   | "comment";
 export type ResultStatusFilter = "all" | "included" | "excluded" | "resort";
-export type ResultRecountFilter = "all" | "flagged" | "clear";
+export type ResultRecountFilter = "all" | "flagged" | "clear" | "recounted";
 
 export const RESULT_RECOUNT_LABEL: Record<ResultRecountFilter, string> = {
-  all:     "Все",
-  flagged: "На пересчёт",
-  clear:   "Без пересчёта",
+  all:       "Все",
+  flagged:   "На пересчёт",
+  clear:     "Без пересчёта",
+  recounted: "Был на пересчёте",
 };
 
 // Multi-sort 1-в-1 с эталоном documents-table.tsx / form-editor: поле +

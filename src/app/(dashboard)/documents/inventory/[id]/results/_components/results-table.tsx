@@ -149,6 +149,9 @@ export type InventoryDocumentResultItem = {
   needs_recount: boolean | null;
   recount_auto_flagged: boolean | null;
   recount_note: string | null;
+  /** Факт на момент последней отправки на пересчёт (снимок «было»).
+      Не null → строка была на пересчёте (постоянная пометка). */
+  recount_previous_amount: number | null;
 };
 
 export type InventoryResultResortRow = {
@@ -375,6 +378,8 @@ export function InventoryResultsTable({
 
       if (recountFilter === "flagged" && !item.needs_recount) return false;
       if (recountFilter === "clear" && item.needs_recount) return false;
+      // «Был на пересчёте» — постоянная пометка по снимку «было».
+      if (recountFilter === "recounted" && item.recount_previous_amount == null) return false;
 
       if (!query) return true;
       return [
@@ -684,8 +689,10 @@ export function InventoryResultsTable({
       if (key === "recount") {
         const flagged = Boolean(item.needs_recount);
         const auto = Boolean(item.recount_auto_flagged);
+        const wasRecounted = item.recount_previous_amount != null;
         return (
-          <div className="flex items-center gap-2" data-row-interactive>
+          <div className="flex flex-col gap-1" data-row-interactive>
+          <div className="flex items-center gap-2">
             <button
               type="button"
               role="switch"
@@ -720,6 +727,17 @@ export function InventoryResultsTable({
               />
             </button>
             {flagged && auto ? <span className="text-[11px] text-muted-foreground">Авто</span> : null}
+          </div>
+          {wasRecounted ? (
+            // Постоянный след пересчёта: «было → стало», чтобы проверяющий
+            // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
+            <span
+              className="text-[11px] text-rose-700 dark:text-rose-300"
+              title="Строка была отправлена на пересчёт"
+            >
+              было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(item.actual_amount, item.measure_unit_name)}
+            </span>
+          ) : null}
           </div>
         );
       }

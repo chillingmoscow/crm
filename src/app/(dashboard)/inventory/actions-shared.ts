@@ -769,6 +769,29 @@ export async function syncDocumentItems(input: {
       .map((rule) => [rule.external_product_id as string, rule]),
   );
 
+  // Существующее состояние исключений по строкам акта. Нужно по двум причинам:
+  // 1) сохранить РУЧНЫЕ исключения (excluded_from_totals без exclusion-rule),
+  //    чтобы sync их не сбрасывал;
+  // 2) НЕ слать NULL в excluded_from_totals. supabase-js upsert при разнородном
+  //    батче (одни строки задают колонку, другие — нет) подставляет остальным
+  //    NULL, а не DEFAULT → NOT NULL violation в актах с исключёнными позициями.
+  //    Поэтому 4 поля исключения задаём явно на КАЖДОЙ строке.
+  const { data: existingExclusionRows } = await input.admin
+    .from<
+      Array<{
+        external_item_id: string;
+        excluded_from_totals: boolean | null;
+        exclude_reason: string | null;
+        excluded_by: string | null;
+        excluded_at: string | null;
+      }>
+    >("document_items")
+    .select("external_item_id, excluded_from_totals, exclude_reason, excluded_by, excluded_at")
+    .eq("document_id", input.documentId);
+  const existingExclusionByItemId = new Map(
+    (existingExclusionRows ?? []).map((row) => [row.external_item_id, row]),
+  );
+
   const rows = input.items.map((item, index) => {
     const productId = externalProductId(item);
     const localProduct = productId ? input.productByExternalId.get(productId) : null;
@@ -779,6 +802,24 @@ export async function syncDocumentItems(input: {
     const result = extractLineResult(item);
     if (result.hasResult) resultsFound = true;
     const itemExternalId = externalItemId(item, index);
+
+    // Поля исключения — явно на каждой строке (см. existingExclusionByItemId).
+    // Правило (если есть) приоритетнее; иначе сохраняем ручное исключение;
+    // иначе дефолт (не исключено).
+    const existingExclusion = existingExclusionByItemId.get(itemExternalId);
+    const exclusion = exclusionRule
+      ? {
+          excluded_from_totals: true,
+          exclude_reason: exclusionRule.reason,
+          excluded_by: exclusionRule.created_by,
+          excluded_at: exclusionRule.created_at,
+        }
+      : {
+          excluded_from_totals: existingExclusion?.excluded_from_totals ?? false,
+          exclude_reason: existingExclusion?.exclude_reason ?? null,
+          excluded_by: existingExclusion?.excluded_by ?? null,
+          excluded_at: existingExclusion?.excluded_at ?? null,
+        };
 
     return {
       account_id: input.accountId,
@@ -805,14 +846,7 @@ export async function syncDocumentItems(input: {
       sort_order: index,
       raw_payload: item,
       result_payload: result.hasResult ? item : {},
-      ...(exclusionRule
-        ? {
-            excluded_from_totals: true,
-            exclude_reason: exclusionRule.reason,
-            excluded_by: exclusionRule.created_by,
-            excluded_at: exclusionRule.created_at,
-          }
-        : {}),
+      ...exclusion,
     };
   });
 

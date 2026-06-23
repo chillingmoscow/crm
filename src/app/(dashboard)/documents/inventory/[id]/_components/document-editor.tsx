@@ -52,10 +52,15 @@ type EditorDocument = {
   documentNumber: string;
   storeTitle: string | null;
   status: string;
-  /** Акт проведён в QR. Только тогда QR-`actualAmount` авторитетен и может
-      подставляться в форму как fallback; для непроведённого акта подсчёт
-      ведётся в CRM (submittedAmount), QR-нули игнорируются. */
+  /** Акт проведён в QR. Используется в stale-draft логике (synced_at). */
   processed: boolean;
+  /** Можно ли использовать QR-`actualAmount` как fallback при prefill формы.
+      true для актов, которые уже считали (ready_for_review / recount_pending /
+      processed и т.п.) — там actual_amount = реальные числа исполнителя
+      (их и должен видеть проверяющий, без округления). false для свежего
+      черновика первого счёта (synced / assigned / in_progress без возвратов) —
+      там actual_amount = QR-нули, подставлять нельзя. Считается на сервере. */
+  prefillFromActual: boolean;
   baseLastUpdateDate: string | null;
   /** ISO timestamp последней QR-синхронизации акта. Используется в
       hydration: draft до sync — игнорируем (старый, sync свежее);
@@ -195,15 +200,16 @@ function toInputValue(value: number | null) {
 }
 
 // Начальное значение поля акта. Приоритет — submittedAmount (подсчёт в нашем
-// CRM). Fallback на QR-`actualAmount` ТОЛЬКО для проведённого акта: в
-// непроведённом QR присылает actualAmount=0 как дефолт для непосчитанных
-// позиций, и подставлять его нельзя — иначе форма выглядит «100% заполнена
-// нулями», а подсчёт у нас всегда ведётся в CRM.
+// CRM). Fallback на QR-`actualAmount` — только когда prefillFromActual=true
+// (акт уже считали: review / recount / проведён). Для свежего черновика
+// первого счёта fallback подавлен — иначе QR-нули делают форму «100%
+// заполненной». При проверке/пересчёте это даёт исполнителю/проверяющему
+// увидеть реально введённые числа (без округления, через String()).
 function editorInitialValue(
   item: Pick<EditorItem, "submittedAmount" | "actualAmount">,
-  processed: boolean,
+  prefillFromActual: boolean,
 ) {
-  return toInputValue(item.submittedAmount ?? (processed ? item.actualAmount : null));
+  return toInputValue(item.submittedAmount ?? (prefillFromActual ? item.actualAmount : null));
 }
 
 function parseAmount(value: string) {
@@ -243,7 +249,7 @@ export function InventoryDocumentEditor({
     Object.fromEntries(
       items.map((item) => [
         item.id,
-        editorInitialValue(item, document.processed),
+        editorInitialValue(item, document.prefillFromActual),
       ])
     )
   );
@@ -294,7 +300,7 @@ export function InventoryDocumentEditor({
     Object.fromEntries(
       items.map((item) => [
         item.id,
-        editorInitialValue(item, document.processed),
+        editorInitialValue(item, document.prefillFromActual),
       ])
     )
   );
@@ -502,7 +508,7 @@ export function InventoryDocumentEditor({
 
   useEffect(() => {
     const hasChanges = items.some(
-      (item) => values[item.id] !== editorInitialValue(item, document.processed),
+      (item) => values[item.id] !== editorInitialValue(item, document.prefillFromActual),
     );
     const handler = (event: BeforeUnloadEvent) => {
       if (!hasChanges) return;
@@ -511,7 +517,7 @@ export function InventoryDocumentEditor({
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [items, values, document.processed]);
+  }, [items, values, document.prefillFromActual]);
 
   // ── Controls state-derivatives ────────────────────────────
   const hasGroupFilter = Boolean(selectedGroupId);
@@ -588,12 +594,20 @@ export function InventoryDocumentEditor({
   // recount_pending сюда НЕ попадает: перерасчёт исполнителем легитимен.
   const formLocked = isInventoryFormLocked(document.status, false);
   const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
+  // В режиме пересчёта исполнитель перезаполняет ТОЛЬКО отмеченные строки
+  // (остальные read-only). Поэтому прогресс и гейт «Завершить пересчёт»
+  // считаем по отмеченным позициям, а не по всем — иначе «4 из 54» и кнопку
+  // не нажать, хотя пересчитать нужно было только 4.
+  const countableItems =
+    isRecountPending && flaggedItemsCount > 0
+      ? items.filter((item) => item.needsRecount)
+      : items;
   // Прогресс заполнения — по live-значениям формы (черновик локальный, на
   // сервере его нет, поэтому считаем здесь). Показываем, пока акт заполняется.
-  const filledCount = items.filter((item) => parseAmount(values[item.id] ?? "") !== null).length;
-  const totalCount = items.length;
+  const filledCount = countableItems.filter((item) => parseAmount(values[item.id] ?? "") !== null).length;
+  const totalCount = countableItems.length;
   const progressPct = totalCount > 0 ? Math.round((filledCount / totalCount) * 100) : 0;
-  // Завершать акт можно, только когда заполнены ВСЕ строки (0 — тоже значение).
+  // Завершать акт можно, только когда заполнены ВСЕ нужные строки (0 — тоже значение).
   const unfilledCount = totalCount - filledCount;
   const hasUnfilled = totalCount > 0 && unfilledCount > 0;
 

@@ -236,10 +236,18 @@ export default async function InventoryDocumentPage({
         documentNumber: document.document_number,
         storeTitle: store?.title ?? null,
         status: document.status,
-        // processed: QR-значения (actualAmount) авторитетны только для
-        // проведённого акта. Для непроведённого подсчёт ведётся в CRM, и
-        // QR-нули не подставляются в форму (см. document-editor.tsx).
         processed: document.processed,
+        // prefillFromActual: actual_amount = реальные числа исполнителя для
+        // актов, которые уже считали (review / recount / проведён). Для свежего
+        // черновика первого счёта (synced / assigned / in_progress без
+        // возвратов) actual_amount = QR-нули — fallback подавлен (см.
+        // editorInitialValue). Иначе форма «100% заполнена нулями», а при
+        // проверке/пересчёте не видно реально введённого (regression #478).
+        prefillFromActual: !(
+          document.status === "synced" ||
+          document.status === "assigned" ||
+          (document.status === "in_progress" && (document.recount_count ?? 0) === 0)
+        ),
         baseLastUpdateDate: document.base_last_update_date ?? null,
         // syncedAt + lastReturnedAt — для editor hydration: draft до любого
         // из этих timestamp'ов = stale (см. document-editor.tsx draft-stale).

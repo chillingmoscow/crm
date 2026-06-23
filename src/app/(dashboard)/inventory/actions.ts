@@ -1164,6 +1164,57 @@ export async function updateInventoryResultComment(input: {
   }
 }
 
+/**
+ * Общий комментарий к акту (таб «Основное»). Локальное поле documents.note,
+ * sync его не трогает. Редактировать может управляющий актами
+ * (`inventory.manage_documents`), назначенный исполнитель или проверяющий —
+ * остальным поле read-only.
+ */
+export async function updateInventoryDocumentNote(input: {
+  documentId: string;
+  note: string;
+}): Promise<{ error: string | null }> {
+  const ctx = await getActiveContext();
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error ?? "Ошибка" };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const { data: document } = await admin
+      .from<{ id: string; assigned_to: string | null; reviewer_id: string | null; archived_at: string | null }>(
+        "documents",
+      )
+      .select("id, assigned_to, reviewer_id, archived_at")
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+    if (!document?.id) throw new Error("Акт не найден");
+    if (document.archived_at) throw new Error("Этот акт удалён в Quick Resto и недоступен для изменений.");
+
+    const [{ data: canManage }, { data: canRecount }] = await Promise.all([
+      ctx.supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+      ctx.supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
+    ]);
+    const canEdit =
+      Boolean(canManage) ||
+      document.assigned_to === ctx.user.id ||
+      (document.reviewer_id === ctx.user.id && Boolean(canRecount));
+    if (!canEdit) throw new Error("Недостаточно прав для редактирования комментария");
+
+    const note = text(input.note);
+    const { error } = await admin
+      .from("documents")
+      .update({ note })
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId);
+    if (error) throw new Error(error.message);
+
+    revalidatePath(`/documents/inventory/${input.documentId}/overview`);
+    return { error: null };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось сохранить комментарий") };
+  }
+}
+
 export async function setInventoryResultItemExcluded(input: {
   documentId: string;
   itemId: string;
@@ -1560,6 +1611,22 @@ export async function createInventoryResultResort(input: {
         .eq("account_id", ctx.accountId);
       throw new Error(itemsError.message);
     }
+
+    // Пересорт снимает отметку «на пересчёт» с вошедших строк: если позицию
+    // свели в пересорт, перепроверять её отдельным пересчётом уже не нужно.
+    // Зеркалит cleanup recount-флагов в submitInventoryDocumentDraft.
+    await admin
+      .from("document_items")
+      .update({
+        needs_recount: false,
+        recount_auto_flagged: false,
+        recount_marked_by: null,
+        recount_marked_at: null,
+        recount_note: null,
+      })
+      .eq("document_id", input.documentId)
+      .eq("account_id", ctx.accountId)
+      .in("id", itemIds);
 
     const shortfallItems = resortRows.filter((row) => row.role === "shortage");
     const surplusItems = resortRows.filter((row) => row.role === "surplus");

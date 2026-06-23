@@ -5,6 +5,7 @@ import {
   type ColumnDef,
   flexRender,
   getCoreRowModel,
+  getPaginationRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
@@ -82,7 +83,6 @@ import {
 import {
   formatAmount,
   formatMoney,
-  formatQuantityAmount,
   formatSignedMoney,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
@@ -117,6 +117,7 @@ import {
   TableColumnManager,
   TableControls,
   TableControlPin,
+  TablePagination,
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
@@ -209,15 +210,22 @@ type Props = {
   documentStatus: string;
 };
 
+// Количество в Итогах показываем точнее, чем деньги: денежная шкала
+// (amountRoundingScale, по умолчанию десятые) скрывала бы сотые, введённые
+// исполнителем, — план и факт «сходились» визуально при ненулевой разнице в
+// управленческой сумме. Поэтому количества — до 3 знаков (целые без «,0»,
+// хвостовые нули обрезаются). Деньги (Сумма/итоги) остаются на шкале аккаунта.
+const RESULT_QUANTITY_MAX_FRACTION = 3;
+
 function formatQuantity(
   value: number | null | undefined,
   measureUnitName: string | null | undefined,
-  amountRoundingScale: AmountRoundingScale,
 ) {
-  // Целые количества показываем без «,0» (штучные позиции), дробные —
-  // до scale знаков (литры/кг). См. formatQuantityAmount.
-  const formatted = formatQuantityAmount(value, amountRoundingScale);
-  if (formatted === "—") return formatted;
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const formatted = new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: RESULT_QUANTITY_MAX_FRACTION,
+  }).format(value);
   return `${formatted} ${measureUnitName ?? "ед."}`;
 }
 
@@ -284,6 +292,23 @@ export function InventoryResultsTable({
     }
     return lookup;
   }, [activeResortIds, resortItems]);
+  // Наименования позиций в каждом активном пересорте — чтобы в блоке «Активные
+  // пересорты» было видно, что с чем сводилось (недостача ↔ излишек).
+  const itemNameById = useMemo(
+    () => new Map(items.map((item) => [item.id, item.product_name])),
+    [items],
+  );
+  const resortNamesByResortId = useMemo(() => {
+    const map = new Map<string, { shortage: string[]; surplus: string[] }>();
+    for (const resortItem of resortItems) {
+      if (!activeResortIds.has(resortItem.resortId)) continue;
+      const entry = map.get(resortItem.resortId) ?? { shortage: [], surplus: [] };
+      const name = itemNameById.get(resortItem.documentItemId) ?? "Позиция";
+      (resortItem.role === "shortage" ? entry.shortage : entry.surplus).push(name);
+      map.set(resortItem.resortId, entry);
+    }
+    return map;
+  }, [resortItems, activeResortIds, itemNameById]);
   const totals = useMemo(
     () =>
       calculateManagementTotals({
@@ -614,17 +639,17 @@ export function InventoryResultsTable({
       if (key === "calculated") {
         return (
           <span className="text-muted-foreground">
-            {formatQuantity(item.calculated_amount, item.measure_unit_name, amountRoundingScale)}
+            {formatQuantity(item.calculated_amount, item.measure_unit_name)}
           </span>
         );
       }
       if (key === "fact") {
-        return <span>{formatQuantity(item.actual_amount, item.measure_unit_name, amountRoundingScale)}</span>;
+        return <span>{formatQuantity(item.actual_amount, item.measure_unit_name)}</span>;
       }
       if (key === "difference") {
         return (
           <span className={differenceClass(item.difference_amount)}>
-            {formatQuantity(item.difference_amount, item.measure_unit_name, amountRoundingScale)}
+            {formatQuantity(item.difference_amount, item.measure_unit_name)}
           </span>
         );
       }
@@ -893,13 +918,18 @@ export function InventoryResultsTable({
       columnVisibility: tableState.columnVisibility,
       columnOrder: tableState.columnOrder,
       columnSizing: tableState.columnSizing,
+      pagination: tableState.pagination,
     },
     getRowId: (row) => row.id,
     columnResizeMode: "onChange",
     onColumnVisibilityChange: tableState.setColumnVisibility,
     onColumnOrderChange: tableState.setColumnOrder,
     onColumnSizingChange: tableState.setColumnSizing,
+    onPaginationChange: tableState.setPagination,
     getCoreRowModel: getCoreRowModel(),
+    // Клиентская пагинация: все строки итогов уже на руках. autoResetPageIndex
+    // (дефолт) сбрасывает на 1-ю страницу при смене фильтров/сортировки.
+    getPaginationRowModel: getPaginationRowModel(),
   });
   const managedColumns: ManagedTableColumn[] = tableState.columnOrder
     .filter((id) => id !== "select" && id !== "actions")
@@ -1355,6 +1385,20 @@ export function InventoryResultsTable({
         </div>
       )}
 
+      {visibleItems.length > 0 ? (
+        <TablePagination
+          pageIndex={tableState.pagination.pageIndex}
+          pageSize={tableState.pagination.pageSize}
+          total={visibleItems.length}
+          onPageChange={(pageIndex) =>
+            tableState.setPagination((current) => ({ ...current, pageIndex }))
+          }
+          onPageSizeChange={(pageSize) =>
+            tableState.setPagination((current) => ({ ...current, pageSize }))
+          }
+        />
+      ) : null}
+
       {activeResorts.length > 0 ? (
         <div className="rounded-lg border bg-card p-4">
           <div className="mb-3 text-sm font-medium">Активные пересорты</div>
@@ -1363,6 +1407,31 @@ export function InventoryResultsTable({
               <div key={resort.id} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-medium">{resort.group_name ?? "Группа"} · {formatAmount(resort.offset_amount, amountRoundingScale)} ед.</div>
+                  {(() => {
+                    const names = resortNamesByResortId.get(resort.id);
+                    if (!names || (names.shortage.length === 0 && names.surplus.length === 0)) {
+                      return null;
+                    }
+                    return (
+                      <div className="mt-1 text-xs text-foreground/80">
+                        {names.shortage.length > 0 ? (
+                          <span>
+                            <span className="text-muted-foreground">Недостача:</span>{" "}
+                            {names.shortage.join(", ")}
+                          </span>
+                        ) : null}
+                        {names.shortage.length > 0 && names.surplus.length > 0 ? (
+                          <span className="text-muted-foreground"> → </span>
+                        ) : null}
+                        {names.surplus.length > 0 ? (
+                          <span>
+                            <span className="text-muted-foreground">Излишек:</span>{" "}
+                            {names.surplus.join(", ")}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                   <div className="mt-1 text-xs text-muted-foreground">
                     Остаток: недостача {formatMoney(Math.abs(resort.residual_shortfall_sum ?? 0), "RUB", amountRoundingScale)}, излишек {formatMoney(Math.abs(resort.residual_surplus_sum ?? 0), "RUB", amountRoundingScale)}
                   </div>

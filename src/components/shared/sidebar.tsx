@@ -703,6 +703,11 @@ function CollapsedSectionFlyout({
         <button
           type="button"
           aria-label={section.label}
+          // Тултип в collapsed-режиме — как у flat-ссылок и KbNavLink
+          // (GlobalTooltip ловит [data-tip]). На hover — подсказка,
+          // на click — открывается flyout (GlobalTooltip прячется на
+          // pointerdown, конфликта нет).
+          data-tip={section.label}
           className={cn(
             "relative flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
             (hasActiveChild || open) && "bg-sidebar-accent",

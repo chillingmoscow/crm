@@ -46,18 +46,31 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
-  // Редиректим на /login ТОЛЬКО когда пользователя реально нет.
-  // Раньше редиректили по любому `userError` — но при навигации
-  // Next prefetch'ит несколько разделов сразу, и параллельные
-  // запросы устраивают гонку ротации refresh-токена Supabase SSR:
-  // один обновляет токен, остальные приходят с уже использованным →
-  // transient `userError`, хотя пользователь залогинен. Это
-  // выбрасывало на /login на ровном месте. Если refresh-token
-  // действительно протух — getUser вернёт user=null и сработает
-  // ветка ниже; защита остаётся на RLS + серверных guard'ах.
-  if (!user && !isPublicPath) {
+  // Транзиентный сбой auth-бэкенда (GoTrue 5xx / сетевая ошибка /
+  // retryable fetch) → user=null, НО пользователь не разлогинен.
+  // На таких НЕ редиректим на /login: оставляем текущие cookie и
+  // пропускаем запрос — данные всё равно под RLS, а на следующем
+  // запросе сессия восстановится. Иначе кратковременный сбой auth
+  // (напр. рестарт GoTrue) выбрасывал бы всех на /login.
+  // Прецедент: инцидент 2026-07-12 — refresh_token стабильно 500-ил
+  // из-за рассинхрона версии GoTrue со схемой, и middleware
+  // разлогинивал по каждому протухшему access-токену.
+  const isTransientAuthFailure =
+    !user &&
+    !!userError &&
+    (userError.name === "AuthRetryableFetchError" ||
+      typeof userError.status !== "number" ||
+      userError.status >= 500);
+
+  // Редиректим на /login ТОЛЬКО когда пользователь ДОСТОВЕРНО не
+  // аутентифицирован (нет user и это не транзиентный сбой). При
+  // навигации Next prefetch'ит несколько разделов сразу, и
+  // параллельные запросы устраивают гонку ротации refresh-токена
+  // Supabase SSR — их мы тоже не роняем на /login по transient-ошибке.
+  if (!user && !isPublicPath && !isTransientAuthFailure) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

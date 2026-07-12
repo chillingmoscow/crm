@@ -34,6 +34,14 @@ export interface KbAiSource {
 
 const TOP_K = 5;
 
+/** Сколько топ-страниц-источников разворачивать в полный текст для
+ *  LLM-контекста. 3 — баланс между полнотой и token-бюджетом. */
+const MAX_CONTEXT_PAGES = 3;
+
+/** Верхняя граница символов контекста (~1.5-2K токенов на русском).
+ *  Тело топ-страниц режется по этой квоте, чтобы не раздувать prompt. */
+const MAX_CONTEXT_CHARS = 6000;
+
 const SYSTEM_PROMPT =
   "Ты ассистент для базы знаний ресторана. Отвечай на вопрос " +
   "пользователя, ОПИРАЯСЬ ТОЛЬКО на предоставленный контекст из " +
@@ -140,15 +148,12 @@ export async function askKbAi(input: {
     };
   }
 
-  // 3. Сборка LLM-context. Дедублицируем по page_id — если у одной
-  // страницы попало несколько chunks, склеиваем.
-  const contextLines: string[] = [];
+  // 3a. Sources — дедуп по page_id, лучший similarity (для UI-ссылок).
+  //     Порядок распределения = порядок появления hits (по similarity).
   const sourceMap = new Map<string, KbAiSource>();
-
+  const orderedPageIds: string[] = [];
   for (const hit of rows) {
-    contextLines.push(
-      `### ${hit.page_title}\n${hit.content_chunk}`,
-    );
+    if (!sourceMap.has(hit.page_id)) orderedPageIds.push(hit.page_id);
     const existing = sourceMap.get(hit.page_id);
     if (!existing || existing.similarity < hit.similarity) {
       sourceMap.set(hit.page_id, {
@@ -161,10 +166,51 @@ export async function askKbAi(input: {
       });
     }
   }
-
   const sources = Array.from(sourceMap.values()).sort(
     (a, b) => b.similarity - a.similarity,
   );
+
+  // 3b. Сборка LLM-context. НЕ ограничиваемся совпавшим chunk'ом:
+  //     подтягиваем ПОЛНОЕ тело топ-N страниц-источников. Иначе
+  //     definition-style запрос («что такое X»), совпавший только с
+  //     заголовочным chunk'ом, отдал бы LLM один заголовок без
+  //     содержимого → «в базе нет ответа» при живом теле страницы.
+  //     Тело склеиваем из всех chunk'ов страницы по chunk_index; RLS
+  //     на kb_page_embeddings — account-scoped (kb.ask_ai уже
+  //     проверен выше), так что прямой select безопасен.
+  const contextPageIds = orderedPageIds.slice(0, MAX_CONTEXT_PAGES);
+  const titleById = new Map(rows.map((h) => [h.page_id, h.page_title]));
+
+  const { data: bodyRows } = await supabase
+    .from("kb_page_embeddings")
+    .select("page_id, chunk_index, content_chunk")
+    .in("page_id", contextPageIds)
+    .order("chunk_index", { ascending: true });
+
+  const bodyByPage = new Map<string, string[]>();
+  for (const r of (bodyRows as { page_id: string; content_chunk: string }[]) ??
+    []) {
+    const arr = bodyByPage.get(r.page_id) ?? [];
+    arr.push(r.content_chunk);
+    bodyByPage.set(r.page_id, arr);
+  }
+
+  const contextLines: string[] = [];
+  let budget = MAX_CONTEXT_CHARS;
+  for (const pageId of contextPageIds) {
+    // Fallback на совпавший chunk, если по какой-то причине не
+    // достали тело (RLS/пустой ответ) — контекст не должен исчезнуть.
+    const body =
+      bodyByPage.get(pageId)?.join("\n") ??
+      rows.find((h) => h.page_id === pageId)?.content_chunk ??
+      "";
+    if (!body) continue;
+    const slice = body.slice(0, Math.max(0, budget));
+    if (!slice) break;
+    contextLines.push(`### ${titleById.get(pageId) ?? ""}\n${slice}`);
+    budget -= slice.length;
+    if (budget <= 0) break;
+  }
 
   const userPrompt = `Контекст из базы знаний:\n\n${contextLines.join("\n\n---\n\n")}\n\nВопрос: ${question}`;
 

@@ -195,15 +195,28 @@ export async function askKbAi(input: {
     bodyByPage.set(r.page_id, arr);
   }
 
+  // Совпавшие chunk'и по страницам (в порядке similarity из RPC) —
+  // ставим их ПЕРВЫМИ в тело страницы. Иначе при длинной странице,
+  // где совпал поздний chunk, склейка «с 0-го + обрезка по бюджету»
+  // могла выкинуть сам найденный ответ из контекста (Codex P2).
+  const matchedByPage = new Map<string, string[]>();
+  for (const hit of rows) {
+    const arr = matchedByPage.get(hit.page_id) ?? [];
+    arr.push(hit.content_chunk);
+    matchedByPage.set(hit.page_id, arr);
+  }
+
   const contextLines: string[] = [];
   let budget = MAX_CONTEXT_CHARS;
   for (const pageId of contextPageIds) {
-    // Fallback на совпавший chunk, если по какой-то причине не
-    // достали тело (RLS/пустой ответ) — контекст не должен исчезнуть.
-    const body =
-      bodyByPage.get(pageId)?.join("\n") ??
-      rows.find((h) => h.page_id === pageId)?.content_chunk ??
-      "";
+    const matched = matchedByPage.get(pageId) ?? [];
+    const full = bodyByPage.get(pageId) ?? [];
+    // Matched-first, затем остальное тело по chunk_index (без повторов).
+    // Fallback на matched, если тело не достали (RLS/пустой ответ) —
+    // контекст не должен исчезнуть.
+    const seen = new Set(matched);
+    const ordered = [...matched, ...full.filter((c) => !seen.has(c))];
+    const body = ordered.join("\n");
     if (!body) continue;
     const slice = body.slice(0, Math.max(0, budget));
     if (!slice) break;

@@ -49,21 +49,22 @@ export async function updateSession(request: NextRequest) {
     error: userError,
   } = await supabase.auth.getUser();
 
-  // Транзиентный сбой auth-бэкенда (GoTrue 5xx / сетевая ошибка /
-  // retryable fetch) → user=null, НО пользователь не разлогинен.
-  // На таких НЕ редиректим на /login: оставляем текущие cookie и
-  // пропускаем запрос — данные всё равно под RLS, а на следующем
-  // запросе сессия восстановится. Иначе кратковременный сбой auth
-  // (напр. рестарт GoTrue) выбрасывал бы всех на /login.
-  // Прецедент: инцидент 2026-07-12 — refresh_token стабильно 500-ил
-  // из-за рассинхрона версии GoTrue со схемой, и middleware
-  // разлогинивал по каждому протухшему access-токену.
+  // Транзиентный, retryable-сбой auth-бэкенда (сетевая ошибка или
+  // 502/503/504) → user=null, НО пользователь не разлогинен. КЛЮЧЕВОЕ:
+  // ровно для этого класса ошибок @supabase/auth-js НЕ удаляет сессию
+  // (`_callRefreshToken`: `if (!isAuthRetryableFetchError) _removeSession()`),
+  // поэтому `supabaseResponse` НЕ содержит cookie-удаляющих Set-Cookie,
+  // и вернуть его = сохранить сессию. На таких НЕ редиректим на /login:
+  // данные всё равно под RLS, сессия восстановится на следующем запросе.
+  //
+  // ВАЖНО (Codex P1): «голый» 500 сюда НЕ входит — auth-js мапит его в
+  // AuthApiError (не retryable) и УЖЕ удаляет cookie внутри getUser().
+  // По status>=500 гейтить было нельзя: вернули бы ответ с удалением
+  // cookie и всё равно разлогинили. Retryable = только name ===
+  // "AuthRetryableFetchError" (сеть/502/503/504). Наш прод-500 на
+  // refresh_token лечится на уровне GoTrue (bump версии), не здесь.
   const isTransientAuthFailure =
-    !user &&
-    !!userError &&
-    (userError.name === "AuthRetryableFetchError" ||
-      typeof userError.status !== "number" ||
-      userError.status >= 500);
+    !user && userError?.name === "AuthRetryableFetchError";
 
   // Редиректим на /login ТОЛЬКО когда пользователь ДОСТОВЕРНО не
   // аутентифицирован (нет user и это не транзиентный сбой). При

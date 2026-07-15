@@ -89,6 +89,7 @@ export default async function InventoryDocumentResultsPage({
     { data: canRecountDocuments },
     { data: canUseAiSuggestions },
     { data: canViewProducts },
+    { data: canFillAssigned },
     {
       data: { user },
     },
@@ -103,12 +104,13 @@ export default async function InventoryDocumentResultsPage({
     supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
     supabase.rpc("has_permission", { permission_code: "inventory.use_ai_suggestions" }),
     supabase.rpc("has_permission", { permission_code: "inventory.view_products" }),
+    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
     supabase.auth.getUser(),
     getActiveAccountAmountRoundingScale(),
   ]);
 
   if (!user) redirect("/login");
-  if (!accountId || !canViewResults) redirect("/dashboard");
+  if (!accountId) redirect("/dashboard");
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
@@ -120,7 +122,20 @@ export default async function InventoryDocumentResultsPage({
   if (!document) notFound();
   // Акт удалён в Quick Resto (авто-архив) — закрываем прямой доступ по URL.
   if (document.archived_at) redirect("/documents/inventory");
-  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents/inventory");
+
+  const isAssignedExecutor = document.assigned_to === user.id;
+  // Итоги видит: держатель права `inventory.view_results` ИЛИ назначенный
+  // ИСПОЛНИТЕЛЬ (с правом заполнения) — но ТОЛЬКО после проведения акта. В
+  // процессе заполнения линейному сотруднику итоги недоступны (анти-подгонка).
+  // canFill в исключении обязателен: иначе assignee лишь с view_documents (без
+  // view_results/fill) обошёл бы границу view_results по прямому URL (Codex P1).
+  // Все действия по итогам требуют отдельных прав (adjust/comment/finalize),
+  // которых у исполнителя нет → страница для него read-only.
+  const isProcessedExecutor =
+    isAssignedExecutor && Boolean(canFillAssigned) && document.status === "processed";
+  const canSeeResults = Boolean(canViewResults) || isProcessedExecutor;
+  if (!canSeeResults) redirect("/documents/inventory");
+  if (!canViewDocuments && !isAssignedExecutor) redirect("/documents/inventory");
 
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
@@ -320,6 +335,7 @@ export default async function InventoryDocumentResultsPage({
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}
           canRecount={Boolean(canRecountDocuments)}
+          canRefreshResults={Boolean(canViewResults)}
           canViewProducts={Boolean(canViewProducts)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
           documentStatus={document.status}

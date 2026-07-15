@@ -21,13 +21,13 @@ type Tab = "overview" | "form" | "results" | "history" | "danger";
  *
  * Видимость табов:
  *  - «Форма» — если canFill && мой_акт ИЛИ canView,
- *  - «Итоги» — если canViewResults. Дисейблится, когда у акта ещё
- *    нет построчных результатов (см. resultsAvailable). Для
- *    ready_for_review мы тоже считаем что итоги есть — менеджер
- *    должен посмотреть их при approve.
- *  - «Журнал» — только canViewResults (журнал решений по итогам;
- *    заполнителю без права на итоги он не нужен). Зеркалится серверным
- *    гейтом в history/page.tsx.
+ *  - «Итоги» — если canViewResults (view_results ИЛИ назначенный исполнитель
+ *    проведённого акта, read-only). Дисейблится, когда у акта ещё нет
+ *    построчных результатов (см. resultsAvailable). Для ready_for_review мы
+ *    тоже считаем что итоги есть — менеджер должен посмотреть их при approve.
+ *  - «Журнал» — только canViewJournal (настоящий view_results; read-only
+ *    исполнителю журнал не положен). Зеркалится серверным гейтом в
+ *    history/page.tsx.
  *  - «Опасная зона» — только canManage. Destructive-стиль.
  */
 export function DocumentActHeader({
@@ -37,6 +37,7 @@ export function DocumentActHeader({
   storeTitle,
   canFill,
   canViewResults,
+  canViewJournal,
   canManage,
   resultsAvailable,
 }: {
@@ -45,7 +46,10 @@ export function DocumentActHeader({
   status: string;
   storeTitle: string | null;
   canFill: boolean;
+  /** Таб «Итоги»: view_results ИЛИ назначенный исполнитель проведённого акта. */
   canViewResults: boolean;
+  /** Таб «Журнал»: только настоящий view_results (см. history/page.tsx). */
+  canViewJournal: boolean;
   canManage: boolean;
   resultsAvailable: boolean;
 }) {
@@ -115,7 +119,7 @@ export function DocumentActHeader({
                 </TabsTrigger>
               )
             ) : null}
-            {canViewResults ? (
+            {canViewJournal ? (
               <TabsTrigger value="history">Журнал</TabsTrigger>
             ) : null}
             {canManage ? (

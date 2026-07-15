@@ -959,7 +959,18 @@ export function InventoryResultsTable({
   // (2) перезагрузке страницы — запоминаем в sessionStorage per-акт.
   const { setPagination: setTablePagination } = tableState;
   const currentPageIndex = tableState.pagination.pageIndex;
+  const currentPageSize = tableState.pagination.pageSize;
   const pageStorageKey = `sheerly-inventory-results-page:${documentId}`;
+  // Кламп страницы, когда выборка сузилась БЕЗ смены фильтров (autoResetPageIndex
+  // выключен): напр. исключили последнюю видимую строку на последней странице —
+  // pageIndex оказался бы за пределами и таблица показала бы пустоту. Держим
+  // pageIndex в диапазоне на каждый рендер (не только при гидрации).
+  useEffect(() => {
+    const maxIndex = Math.max(0, Math.ceil(visibleItems.length / currentPageSize) - 1);
+    if (currentPageIndex > maxIndex) {
+      setTablePagination((current) => ({ ...current, pageIndex: maxIndex }));
+    }
+  }, [visibleItems.length, currentPageSize, currentPageIndex, setTablePagination]);
   // Гидрация из sessionStorage один раз на акт (в state изначально pageIndex=0).
   const pageHydratedRef = useRef(false);
   useEffect(() => {

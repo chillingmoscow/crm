@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 
 import { Providers } from "@/components/shared/providers";
 import { GlobalTooltip } from "@/components/ui/global-tooltip";
+import { DeploymentSkewListener } from "@/components/shared/deployment-skew-listener";
 
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default function RootLayout({
       <body className="antialiased font-sans">
         <Providers>{children}</Providers>
         <GlobalTooltip />
+        <DeploymentSkewListener />
       </body>
     </html>
   );

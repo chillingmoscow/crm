@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   type ColumnDef,
   flexRender,
@@ -945,10 +945,56 @@ export function InventoryResultsTable({
     onColumnSizingChange: tableState.setColumnSizing,
     onPaginationChange: tableState.setPagination,
     getCoreRowModel: getCoreRowModel(),
-    // Клиентская пагинация: все строки итогов уже на руках. autoResetPageIndex
-    // (дефолт) сбрасывает на 1-ю страницу при смене фильтров/сортировки.
+    // Клиентская пагинация: все строки итогов уже на руках.
     getPaginationRowModel: getPaginationRowModel(),
+    // autoResetPageIndex выключен: иначе router.refresh() после действия над
+    // строкой (напр. «Не учитывать») менял data → tanstack сбрасывал на 1-ю
+    // страницу. Сброс на 1-ю страницу при смене фильтров/сортировки делаем сами
+    // отдельным эффектом (см. ниже).
+    autoResetPageIndex: false,
   });
+
+  // Страница пагинации Итогов, устойчивая к: (1) действиям над строкой
+  // (autoResetPageIndex выключен — router.refresh() не сбрасывает на 1-ю);
+  // (2) перезагрузке страницы — запоминаем в sessionStorage per-акт.
+  const { setPagination: setTablePagination } = tableState;
+  const currentPageIndex = tableState.pagination.pageIndex;
+  const pageStorageKey = `sheerly-inventory-results-page:${documentId}`;
+  // Гидрация из sessionStorage один раз на акт (в state изначально pageIndex=0).
+  const pageHydratedRef = useRef(false);
+  useEffect(() => {
+    if (pageHydratedRef.current) return;
+    pageHydratedRef.current = true;
+    const raw = typeof window !== "undefined" ? window.sessionStorage.getItem(pageStorageKey) : null;
+    const storedIndex = raw ? Number(raw) : 0;
+    if (!Number.isFinite(storedIndex) || storedIndex <= 0) return;
+    setTablePagination((current) => {
+      // Кламп: если позиций стало меньше — не застреваем за последней страницей.
+      const maxIndex = Math.max(0, Math.ceil(visibleItems.length / current.pageSize) - 1);
+      const pageIndex = Math.min(storedIndex, maxIndex);
+      return pageIndex === current.pageIndex ? current : { ...current, pageIndex };
+    });
+  }, [pageStorageKey, setTablePagination, visibleItems.length]);
+  // Персист текущей страницы.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(pageStorageKey, String(currentPageIndex));
+  }, [pageStorageKey, currentPageIndex]);
+
+  // При РЕАЛЬНОЙ смене фильтров/поиска/сортировки возвращаемся на 1-ю страницу
+  // (иначе можно застрять на пустой странице после сужения выборки). Пропускаем
+  // первый прогон (mount), чтобы не перетереть гидрацию сохранённой страницы.
+  const filtersInitRef = useRef(false);
+  useEffect(() => {
+    if (!filtersInitRef.current) {
+      filtersInitRef.current = true;
+      return;
+    }
+    setTablePagination((current) =>
+      current.pageIndex === 0 ? current : { ...current, pageIndex: 0 },
+    );
+  }, [showDifferences, searchQuery, groupFilter, statusFilter, recountFilter, sorts, setTablePagination]);
+
   const managedColumns: ManagedTableColumn[] = tableState.columnOrder
     .filter((id) => id !== "select" && id !== "actions")
     .map((id) => table.getAllLeafColumns().find((col) => col.id === id))

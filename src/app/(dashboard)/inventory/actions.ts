@@ -1018,7 +1018,10 @@ export async function refreshInventoryDocumentResults(input: {
   resultsHasLineAmounts: boolean;
   error: string | null;
 }> {
-  const ctx = await getActiveContext();
+  // «Обновить итоги» — управленческая операция (перечитывает итоги из QR,
+  // меняет статус/позиции). Требует именно право на итоги: назначенный
+  // исполнитель, который просто смотрит проведённый акт, её не запускает.
+  const ctx = await getActiveContext("inventory.view_results");
   if (ctx.error || !ctx.user || !ctx.accountId) {
     return { processed: false, resultsHasLineAmounts: false, error: ctx.error };
   }

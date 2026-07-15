@@ -126,7 +126,11 @@ export default async function InventoryDocumentLayout({
   const storeTitle = document.store_id ? await getCachedStoreTitle(document.store_id) : null;
 
   const showFillingTab = Boolean(canView) || (Boolean(canFill) && isAssignedToMe);
-  const showResultsTab = Boolean(canViewResults);
+  // Итоги: право view_results ИЛИ назначенный исполнитель — но таб показываем
+  // только после ПРОВЕДЕНИЯ акта (в процессе заполнения линейный сотрудник
+  // итоги не видит; страница результатов зеркалит это ограничение).
+  const showResultsTab =
+    Boolean(canViewResults) || (isAssignedToMe && Boolean(canFill) && document.processed);
 
   // ready_for_review: workflow завершён заполнителем, ожидает менеджера —
   // итоги уже посчитаны Quick Resto, ему есть на что посмотреть перед

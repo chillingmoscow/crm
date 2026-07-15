@@ -206,6 +206,10 @@ type Props = {
   canAdjust: boolean;
   canFinalize: boolean;
   canRecount: boolean;
+  /** inventory.view_results — держатель права может «Обновить итоги»
+      (перечитать из QR). Назначенный исполнитель, просто смотрящий проведённый
+      акт, этого права не имеет → кнопка ему не показывается (read-only). */
+  canRefreshResults: boolean;
   /** inventory.view_products — нужно, чтобы открыть карточку ингредиента
       из «Итогов» (та же граница, что у каталога). */
   canViewProducts: boolean;
@@ -245,6 +249,7 @@ export function InventoryResultsTable({
   canAdjust,
   canFinalize,
   canRecount,
+  canRefreshResults,
   canViewProducts,
   aiSuggestionsEnabled,
   documentStatus,
@@ -1106,7 +1111,7 @@ export function InventoryResultsTable({
                   <TooltipContent sideOffset={6}>Подсказки пересорта (ИИ)</TooltipContent>
                 </Tooltip>
               ) : null}
-              <RefreshResultsButton documentId={documentId} />
+              {canRefreshResults ? <RefreshResultsButton documentId={documentId} /> : null}
             </>
           }
           summary={

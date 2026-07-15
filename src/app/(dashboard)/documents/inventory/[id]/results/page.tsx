@@ -108,7 +108,7 @@ export default async function InventoryDocumentResultsPage({
   ]);
 
   if (!user) redirect("/login");
-  if (!accountId || !canViewResults) redirect("/dashboard");
+  if (!accountId) redirect("/dashboard");
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
@@ -120,7 +120,17 @@ export default async function InventoryDocumentResultsPage({
   if (!document) notFound();
   // Акт удалён в Quick Resto (авто-архив) — закрываем прямой доступ по URL.
   if (document.archived_at) redirect("/documents/inventory");
-  if (!canViewDocuments && document.assigned_to !== user.id) redirect("/documents/inventory");
+
+  const isAssignedExecutor = document.assigned_to === user.id;
+  // Итоги видит: держатель права `inventory.view_results` ИЛИ назначенный
+  // исполнитель — но ТОЛЬКО после проведения акта. В процессе заполнения
+  // линейному сотруднику итоги недоступны (анти-подгонка). Все действия по
+  // итогам всё равно требуют отдельных прав (adjust/comment/finalize), которых
+  // у исполнителя нет → страница для него read-only.
+  const canSeeResults =
+    Boolean(canViewResults) || (isAssignedExecutor && document.status === "processed");
+  if (!canSeeResults) redirect("/documents/inventory");
+  if (!canViewDocuments && !isAssignedExecutor) redirect("/documents/inventory");
 
   const { data: itemsRaw } = await admin
     .from<InventoryDocumentResultItem[]>("document_items")
@@ -320,6 +330,7 @@ export default async function InventoryDocumentResultsPage({
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}
           canRecount={Boolean(canRecountDocuments)}
+          canRefreshResults={Boolean(canViewResults)}
           canViewProducts={Boolean(canViewProducts)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
           documentStatus={document.status}

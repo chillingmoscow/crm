@@ -4,12 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 
 import { isDeploymentSkewError } from "@/lib/deployment-skew";
-
-/** Не перезагружаемся чаще этого окна — иначе детерминированная
- *  «skew-подобная» ошибка зациклила бы reload. Если после reload
- *  ошибка повторилась в течение окна — показываем ручное восстановление. */
-const RELOAD_GUARD_MS = 15_000;
-const RELOAD_KEY = "sheerly:deploy-skew-reload";
+import { maybeReloadForDeploymentSkew } from "@/lib/deployment-skew-reload";
 
 /**
  * Общий UI для error-boundary'ев (`app/error.tsx`, `app/global-error.tsx`).
@@ -33,25 +28,10 @@ export function ErrorRecovery({
   useEffect(() => {
     if (!skew || handled.current) return;
     handled.current = true;
-
-    let last = 0;
-    try {
-      last = Number(sessionStorage.getItem(RELOAD_KEY) ?? 0);
-    } catch {
-      // sessionStorage может быть недоступен (private mode) — не блокируем.
-    }
-    if (Date.now() - last < RELOAD_GUARD_MS) {
-      // Только что перезагружались и ошибка повторилась — не зацикливаемся.
-      setReloading(false);
-      return;
-    }
-    try {
-      sessionStorage.setItem(RELOAD_KEY, String(Date.now()));
-    } catch {
-      /* ignore */
-    }
-    window.location.reload();
-  }, [skew]);
+    // Guard от циклов внутри helper'а: если reload не инициирован
+    // (недавно уже перезагружались) — показываем ручное восстановление.
+    if (!maybeReloadForDeploymentSkew(error)) setReloading(false);
+  }, [skew, error]);
 
   if (reloading) {
     return (

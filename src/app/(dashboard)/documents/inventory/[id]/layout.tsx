@@ -150,6 +150,10 @@ export default async function InventoryDocumentLayout({
         storeTitle={storeTitle}
         canFill={showFillingTab}
         canViewResults={showResultsTab}
+        // Журнал гейтим настоящим view_results: history/page.tsx редиректит без
+        // него, а read-only исполнителю (showResultsTab по assigned+processed)
+        // журнал не положен — иначе таб «Журнал» отбрасывал бы обратно (Codex P2).
+        canViewJournal={Boolean(canViewResults)}
         canManage={Boolean(canManage)}
         resultsAvailable={resultsAvailable}
       />

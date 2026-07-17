@@ -562,7 +562,10 @@ export async function probeQuickRestoNomenclature(): Promise<{
     semiproductParentInGroups: boolean | null;
   };
 }> {
-  const ctx = await getActiveContext("inventory.sync_quickresto");
+  // Гейт совпадает со страницей настроек интеграций, где показана кнопка
+  // (settings.manage_integrations), а не sync_quickresto — иначе роль с
+  // управлением интеграциями, но без синка, видела бы кнопку и получала отказ.
+  const ctx = await getActiveContext("settings.manage_integrations");
   if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Ошибка" };
 
   const connection = await getConnection(ctx.accountId);

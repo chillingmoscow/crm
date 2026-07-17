@@ -1113,7 +1113,7 @@ export async function updateInventoryResultComment(input: {
   itemId: string;
   comment: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.comment_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.comment_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1224,7 +1224,7 @@ export async function setInventoryResultItemExcluded(input: {
   excluded: boolean;
   reason?: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1296,7 +1296,7 @@ export async function createInventoryResultExclusionRule(input: {
   itemId: string;
   reason?: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1400,7 +1400,7 @@ export async function deleteInventoryResultExclusionRule(input: {
   itemId: string;
   reason: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1491,7 +1491,7 @@ export async function createInventoryResultResort(input: {
   suggestionSource?: "manual" | "history" | "ai";
   suggestionConfidence?: number | null;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1704,7 +1704,7 @@ export async function voidInventoryResultResort(input: {
   resortId: string;
   reason: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1765,7 +1765,7 @@ export async function dismissInventoryResortSuggestion(input: {
   confidence: number | null;
   reason: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1809,7 +1809,7 @@ export async function dismissInventoryResortSuggestion(input: {
 export async function getAiResortSuggestions(input: {
   documentId: string;
 }): Promise<{ suggestions: ResortSuggestion[]; error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { suggestions: [], error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -1920,7 +1920,7 @@ export async function getAiResortSuggestions(input: {
 export async function finalizeInventoryResults(input: {
   documentId: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.finalize_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.finalize_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -2097,7 +2097,7 @@ export async function reopenInventoryResults(input: {
   documentId: string;
   reason: string;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.finalize_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.finalize_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -2160,7 +2160,7 @@ export async function setRecountFlag(input: {
   needsRecount: boolean;
   note?: string | null;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.recount_documents");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.recount_documents"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -2222,7 +2222,7 @@ export async function bulkSetInventoryResultItemsExcluded(input: {
   excluded: boolean;
   reason?: string;
 }): Promise<{ updated: number; skipped: number; error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, skipped: 0, error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -2307,7 +2307,7 @@ export async function bulkSetRecountFlag(input: {
   itemIds: string[];
   needsRecount: boolean;
 }): Promise<{ updated: number; error: string | null }> {
-  const ctx = await getActiveContext("inventory.recount_documents");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.recount_documents"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -2376,7 +2376,7 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
   itemIds: string[];
   reason?: string;
 }): Promise<{ updated: number; skipped: number; error: string | null }> {
-  const ctx = await getActiveContext("inventory.adjust_results");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, skipped: 0, error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
@@ -2494,7 +2494,7 @@ export async function returnDocumentForRecount(input: {
   documentId: string;
   note?: string | null;
 }): Promise<{ error: string | null }> {
-  const ctx = await getActiveContext("inventory.recount_documents");
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.recount_documents"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());

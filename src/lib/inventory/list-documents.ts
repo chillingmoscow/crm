@@ -86,7 +86,12 @@ export async function listInventoryDocuments(
     const admin = asLooseDb(createAdminClient());
     const documentIds = rows.map((row) => row.id);
 
-    const [{ data: itemRows }, { data: resortRows }, { data: resortItemRows }] = await Promise.all([
+    const [
+      { data: itemRows },
+      { data: resortRows },
+      { data: resortItemRows },
+      { data: docFlagRows },
+    ] = await Promise.all([
       admin
         .from<
           Array<{
@@ -124,8 +129,17 @@ export async function listInventoryDocuments(
           "document_id, resort_id, document_item_id, role, source_difference_amount, source_difference_sum, offset_amount, remaining_difference_amount, remaining_difference_sum",
         )
         .in("document_id", documentIds),
+      admin
+        .from<Array<{ id: string; results_reopened_after_processed: boolean | null }>>("documents")
+        .select("id, results_reopened_after_processed")
+        .in("id", documentIds),
     ]);
 
+    const reopenedAfterProcessedIds = new Set(
+      (docFlagRows ?? [])
+        .filter((row) => row.results_reopened_after_processed)
+        .map((row) => row.id),
+    );
     const activeResortIds = new Set((resortRows ?? []).map((resort) => resort.id));
 
     const itemsByDoc = new Map<string, InventoryResultCalculationItem[]>();
@@ -167,6 +181,8 @@ export async function listInventoryDocuments(
     }
 
     for (const row of rows) {
+      // F6: метка «итоги правились после проведения» — независимо от наличия позиций.
+      row.results_reopened_after_processed = reopenedAfterProcessedIds.has(row.id);
       const items = itemsByDoc.get(row.id);
       if (!items) continue;
       const totals = calculateManagementTotals({

@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -473,8 +474,20 @@ export function DocumentsTable({
       {
         id: "status",
         label: "Статус",
-        size: 170,
-        cell: (row: DocumentListRow) => <InventoryStatusBadge status={row.status} />,
+        size: 190,
+        cell: (row: DocumentListRow) => (
+          <div className="flex items-center gap-1.5">
+            <InventoryStatusBadge status={row.status} />
+            {row.results_reopened_after_processed ? (
+              <span
+                className="text-amber-600 dark:text-amber-400"
+                title="Итоги правились после проведения — управленческие суммы могут расходиться с Quick Resto."
+              >
+                <AlertTriangle className="h-4 w-4" />
+              </span>
+            ) : null}
+          </div>
+        ),
       },
       {
         id: "store_title",

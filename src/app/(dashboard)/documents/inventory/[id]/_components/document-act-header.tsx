@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { AlertTriangle, ChevronLeft } from "lucide-react";
 
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
@@ -40,6 +40,7 @@ export function DocumentActHeader({
   canViewJournal,
   canManage,
   resultsAvailable,
+  reopenedAfterProcessed,
 }: {
   documentId: string;
   documentNumber: string;
@@ -52,6 +53,9 @@ export function DocumentActHeader({
   canViewJournal: boolean;
   canManage: boolean;
   resultsAvailable: boolean;
+  /** Проведённый акт переоткрывали для правки итогов (F6): управленческие
+      итоги могут расходиться с Quick Resto. */
+  reopenedAfterProcessed: boolean;
 }) {
   const pathname = usePathname() ?? "";
   const router = useRouter();
@@ -96,6 +100,15 @@ export function DocumentActHeader({
               {storeTitle ?? "Склад не указан"}
             </span>
             <InventoryStatusBadge status={status} />
+            {reopenedAfterProcessed ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300"
+                title="Проведённый акт переоткрывали и правили итоги — управленческие суммы могут расходиться с Quick Resto."
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Итоги правились после проведения
+              </span>
+            ) : null}
           </div>
         </div>
 

@@ -16,8 +16,10 @@ import {
 } from "@/lib/inventory/act-status";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
 import {
+  listDishes,
   listIngredientTreeItems,
   listInventoryDocuments,
+  listSemiProducts,
   listStores,
   readInventoryDocument,
   updateInventoryItemBackOffice,
@@ -535,6 +537,97 @@ export async function syncQuickRestoInventory(input?: {
       summary: null,
       error: actionErrorMessage(error, "Не удалось синхронизировать Quick Resto"),
     };
+  }
+}
+
+/**
+ * ВРЕМЕННО (диагностика #3, блюда/полуфабрикаты): проба структуры QR-номенклатуры
+ * блюд и полуфабрикатов, чтобы подтвердить модули/поля перед реальным синком.
+ * Ничего не сохраняет. Возвращает счётчики + первый сэмпл каждого типа + проверку,
+ * лежит ли parentId сэмпла в наших ingredient_groups (общая ли дерево категорий).
+ * Удаляется после того, как структура подтверждена.
+ */
+export async function probeQuickRestoNomenclature(): Promise<{
+  error: string | null;
+  result?: {
+    dishCount: number;
+    semiproductCount: number;
+    dishError: string | null;
+    semiproductError: string | null;
+    sampleDish: unknown;
+    sampleSemiproduct: unknown;
+    dishParentId: string | null;
+    semiproductParentId: string | null;
+    dishParentInGroups: boolean | null;
+    semiproductParentInGroups: boolean | null;
+  };
+}> {
+  const ctx = await getActiveContext("inventory.sync_quickresto");
+  if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Ошибка" };
+
+  const connection = await getConnection(ctx.accountId);
+  if (!connection) return { error: "Активное подключение Quick Resto не найдено" };
+
+  try {
+    const password = connectionPassword(connection);
+    const auth = { layerName: connection.login, login: connection.login, password };
+    const admin = asLooseDb(createAdminClient());
+
+    let dishes: unknown[] = [];
+    let semi: unknown[] = [];
+    let dishError: string | null = null;
+    let semiproductError: string | null = null;
+    try {
+      dishes = (await listDishes(auth)) as unknown[];
+    } catch (e) {
+      dishError = e instanceof Error ? e.message : String(e);
+    }
+    try {
+      semi = (await listSemiProducts(auth)) as unknown[];
+    } catch (e) {
+      semiproductError = e instanceof Error ? e.message : String(e);
+    }
+
+    const parentIdOf = (item: unknown): string | null => {
+      const obj = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      const parentItem =
+        obj.parentItem && typeof obj.parentItem === "object"
+          ? (obj.parentItem as Record<string, unknown>).id
+          : null;
+      const pid = obj.parentId ?? parentItem;
+      return pid != null ? String(pid) : null;
+    };
+    const groupExists = async (externalId: string | null): Promise<boolean | null> => {
+      if (!externalId) return null;
+      const { data } = await admin
+        .from<{ id: string }>("ingredient_groups")
+        .select("id")
+        .eq("account_id", ctx.accountId)
+        .eq("external_id", externalId)
+        .maybeSingle();
+      return Boolean(data?.id);
+    };
+
+    const dishParentId = parentIdOf(dishes[0]);
+    const semiproductParentId = parentIdOf(semi[0]);
+
+    return {
+      error: null,
+      result: {
+        dishCount: dishes.length,
+        semiproductCount: semi.length,
+        dishError,
+        semiproductError,
+        sampleDish: dishes[0] ?? null,
+        sampleSemiproduct: semi[0] ?? null,
+        dishParentId,
+        semiproductParentId,
+        dishParentInGroups: await groupExists(dishParentId),
+        semiproductParentInGroups: await groupExists(semiproductParentId),
+      },
+    };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Проба номенклатуры не удалась") };
   }
 }
 

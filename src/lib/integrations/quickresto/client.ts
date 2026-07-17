@@ -175,6 +175,14 @@ const SINGLE_CATEGORY_CLASS =
   "ru.edgex.quickresto.modules.warehouse.nomenclature.singleproduct.SingleCategory";
 const SINGLE_PRODUCT_MODULE = "warehouse.nomenclature.singleproduct";
 
+// Блюда и полуфабрикаты — отдельные модули номенклатуры (по аналогии с
+// singleproduct). Класс-суффикс из raw_payload позиций акта: Dish / SemiProduct.
+const DISH_CLASS = "ru.edgex.quickresto.modules.warehouse.nomenclature.dish.Dish";
+const DISH_MODULE = "warehouse.nomenclature.dish";
+const SEMIPRODUCT_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.nomenclature.semiproduct.SemiProduct";
+const SEMIPRODUCT_MODULE = "warehouse.nomenclature.semiproduct";
+
 const STORE_CLASS = "ru.edgex.quickresto.modules.warehouse.store.Store";
 const STORE_MODULE = "warehouse.store";
 
@@ -753,6 +761,36 @@ export async function readIngredient(input: {
     path: "read",
     moduleName: SINGLE_PRODUCT_MODULE,
     className: SINGLE_PRODUCT_CLASS,
+  });
+}
+
+// Блюда / полуфабрикаты — плоский list (root-уровень). Структура полей у них
+// параллельна SingleProduct (id, name, measureUnit, parentId), поэтому типизируем
+// тем же типом с index-signature. Для полного дерева с категориями — отдельный
+// фетчер на этапе реального синка (после подтверждения структуры пробой).
+export async function listDishes(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return callQuickResto<QuickRestoSingleProduct[]>({
+    ...input,
+    path: "list",
+    moduleName: DISH_MODULE,
+    className: DISH_CLASS,
+  });
+}
+
+export async function listSemiProducts(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return callQuickResto<QuickRestoSingleProduct[]>({
+    ...input,
+    path: "list",
+    moduleName: SEMIPRODUCT_MODULE,
+    className: SEMIPRODUCT_CLASS,
   });
 }
 

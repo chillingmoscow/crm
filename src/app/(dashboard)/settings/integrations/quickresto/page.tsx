@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { QuickRestoIntegrationFlow } from "./_components/quickresto-integration-flow";
+import { NomenclatureProbeButton } from "./_components/nomenclature-probe-button";
 
 type IntegrationConnection = {
   id: string;
@@ -89,6 +90,8 @@ export default async function QuickRestoIntegrationPage() {
         initialBotRoleExternalId={Number.isFinite(botRoleExternalId) ? botRoleExternalId : null}
         initialBotEmployeeExternalId={Number.isFinite(botEmployeeExternalId) ? botEmployeeExternalId : null}
       />
+
+      {connection ? <NomenclatureProbeButton /> : null}
     </div>
   );
 }

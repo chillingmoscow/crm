@@ -356,7 +356,7 @@ export function actionErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
-export async function getActiveContext(permission?: string) {
+export async function getActiveContext(permission?: string | string[]) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -370,16 +370,22 @@ export async function getActiveContext(permission?: string) {
 
   const { data: venueId } = await supabase.rpc("get_active_venue_id");
 
+  // Массив = требуются ВСЕ права (AND). Используется для итог-экшенов, где база —
+  // inventory.view_results (менять итоги нельзя, если их не видишь), плюс
+  // специфичное право (adjust/finalize/recount/comment). См. аудит прав F2/F3.
   if (permission) {
-    const { data: allowed } = await supabase.rpc("has_permission", { permission_code: permission });
-    if (!allowed) {
-      return {
-        supabase,
-        user,
-        accountId: accountId as string,
-        venueId: (venueId as string | null) ?? null,
-        error: "Недостаточно прав",
-      };
+    const codes = Array.isArray(permission) ? permission : [permission];
+    for (const code of codes) {
+      const { data: allowed } = await supabase.rpc("has_permission", { permission_code: code });
+      if (!allowed) {
+        return {
+          supabase,
+          user,
+          accountId: accountId as string,
+          venueId: (venueId as string | null) ?? null,
+          error: "Недостаточно прав",
+        };
+      }
     }
   }
 

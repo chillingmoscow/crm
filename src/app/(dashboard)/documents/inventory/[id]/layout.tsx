@@ -18,6 +18,7 @@ type DocumentBasicsRow = {
   reviewer_id: string | null;
   store_id: string | null;
   venue_id: string | null;
+  results_reopened_after_processed: boolean;
 };
 
 type StoreTitleRow = { title: string };
@@ -32,7 +33,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed",
     )
     .eq("id", id)
     .eq("account_id", accountId)
@@ -156,6 +157,7 @@ export default async function InventoryDocumentLayout({
         canViewJournal={Boolean(canViewResults)}
         canManage={Boolean(canManage)}
         resultsAvailable={resultsAvailable}
+        reopenedAfterProcessed={document.results_reopened_after_processed}
       />
       {children}
     </div>

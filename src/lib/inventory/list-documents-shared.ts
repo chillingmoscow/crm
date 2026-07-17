@@ -81,6 +81,9 @@ export type DocumentListRow = {
   venue_id: string | null;
   comment: string | null;
   matched_ingredients: string[] | null;
+  /** F6: проведённый акт переоткрывали для правки итогов. Не из RPC —
+      дозагружается в list-documents.ts (как управленческие тоталы). */
+  results_reopened_after_processed?: boolean;
 };
 
 export type ListDocumentsResult = {

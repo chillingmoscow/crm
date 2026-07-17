@@ -2121,6 +2121,10 @@ export async function reopenInventoryResults(input: {
         results_finalized_by: null,
         results_reopened_at: new Date().toISOString(),
         results_reopened_by: ctx.user.id,
+        // Устойчивый сигнал «итоги правились после проведения» — только когда
+        // разблокируем УЖЕ проведённый акт (F6). Для обычного reopen на этапе
+        // проверки (не processed) не ставим.
+        ...(isProcessed ? { results_reopened_after_processed: true } : {}),
       })
       .eq("id", document.id)
       .eq("account_id", ctx.accountId);

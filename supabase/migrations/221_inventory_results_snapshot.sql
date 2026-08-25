@@ -21,12 +21,15 @@
 
 -- 1) Снимок построчных итогов.
 alter table public.document_items
+  add column if not exists finalized_at                timestamptz,
   add column if not exists finalized_actual_amount     numeric,
   add column if not exists finalized_calculated_amount numeric,
   add column if not exists finalized_difference_amount numeric,
   add column if not exists finalized_difference_sum    numeric,
   add column if not exists finalized_prime_cost        numeric;
 
+comment on column public.document_items.finalized_at is
+  'Когда со строки сняли снимок итогов. Явный маркер «снимок есть»: сами finalized_*-значения нулевого сигнала не дают — строка, у которой на момент фиксации все поля были пустыми, иначе выглядела бы как строка, добавленная после снимка, и показывала бы живые значения.';
 comment on column public.document_items.finalized_actual_amount is
   'Факт на момент подведения итогов. Снимок, не меняется при повторном импорте из Quick Resto.';
 comment on column public.document_items.finalized_calculated_amount is
@@ -65,7 +68,8 @@ declare
   v_rows integer;
 begin
   update public.document_items di
-     set finalized_actual_amount     = di.actual_amount,
+     set finalized_at                = now(),
+         finalized_actual_amount     = di.actual_amount,
          finalized_calculated_amount = di.calculated_amount,
          finalized_difference_amount = di.difference_amount,
          finalized_difference_sum    = di.difference_sum,
@@ -91,7 +95,8 @@ grant execute on function public.freeze_inventory_result_snapshot(uuid, uuid) to
 --    проведения» — для старых актов живые значения могли уже уехать (СВ340).
 --    Смысл бэкфилла в другом: с этого момента их больше нельзя перетереть.
 update public.document_items di
-   set finalized_actual_amount     = di.actual_amount,
+   set finalized_at                = d.results_finalized_at,
+       finalized_actual_amount     = di.actual_amount,
        finalized_calculated_amount = di.calculated_amount,
        finalized_difference_amount = di.difference_amount,
        finalized_difference_sum    = di.difference_sum,

@@ -16,6 +16,7 @@ const mangoCream: InventoryResultSnapshotRow = {
   difference_amount: 0.6,
   difference_sum: 4350,
   prime_cost: 7250,
+  finalized_at: "2026-08-24T12:27:43Z",
   finalized_actual_amount: 0.2,
   finalized_calculated_amount: 0.2,
   finalized_difference_amount: 0,
@@ -59,6 +60,7 @@ test("пустое поле снимка не подтягивает живое 
     difference_amount: -2,
     difference_sum: -200,
     prime_cost: 100,
+    finalized_at: "2026-08-24T12:27:43Z",
     finalized_actual_amount: 3,
     finalized_calculated_amount: null,
     finalized_difference_amount: null,
@@ -77,8 +79,33 @@ test("исходная строка не мутируется", () => {
   assert.equal(row.calculated_amount, -0.4);
 });
 
-test("hasResultSnapshot: достаточно одного заполненного поля", () => {
-  assert.equal(hasResultSnapshot({ finalized_difference_sum: 0 }), true);
-  assert.equal(hasResultSnapshot({ finalized_difference_sum: null }), false);
+test("снимок из одних null всё равно снимок: живые значения не подставляем", () => {
+  // QR не вернул по строке ни одного расчётного поля — снимок легитимно пустой.
+  // Без явного маркера такая строка выглядела бы как «снимка нет», и после
+  // гонки «импорт прошёл проверку замка → финализация → импорт дописал строки»
+  // залоченная страница показала бы новые живые числа.
+  const row: InventoryResultSnapshotRow = {
+    actual_amount: 1,
+    calculated_amount: 2,
+    difference_amount: -1,
+    difference_sum: -100,
+    prime_cost: 100,
+    finalized_at: "2026-08-24T12:27:43Z",
+    finalized_actual_amount: null,
+    finalized_calculated_amount: null,
+    finalized_difference_amount: null,
+    finalized_difference_sum: null,
+    finalized_prime_cost: null,
+  };
+  const out = applyResultSnapshot(row, true);
+  assert.equal(out.results_frozen, true);
+  assert.equal(out.actual_amount, null);
+  assert.equal(out.calculated_amount, null);
+  assert.equal(out.difference_sum, null);
+});
+
+test("hasResultSnapshot: смотрим на маркер, а не на значения", () => {
+  assert.equal(hasResultSnapshot({ finalized_at: "2026-08-24T12:27:43Z" }), true);
+  assert.equal(hasResultSnapshot({ finalized_difference_sum: 0 }), false);
   assert.equal(hasResultSnapshot({}), false);
 });

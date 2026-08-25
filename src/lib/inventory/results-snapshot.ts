@@ -15,6 +15,8 @@ export type InventoryResultLiveAmounts = {
 };
 
 export type InventoryResultSnapshotAmounts = {
+  /** Маркер «со строки снят снимок» (миграция 221). */
+  finalized_at?: string | null;
   finalized_actual_amount?: number | null;
   finalized_calculated_amount?: number | null;
   finalized_difference_amount?: number | null;
@@ -27,15 +29,14 @@ export type InventoryResultSnapshotRow = InventoryResultLiveAmounts & InventoryR
 /**
  * Есть ли у строки снимок. Строка, добавленная в акт уже ПОСЛЕ снятия снимка,
  * снимка не имеет — для неё показываем живые значения (замораживать нечего).
+ *
+ * Смотрим на явный маркер `finalized_at`, а не на сами значения: строка, у
+ * которой на момент фиксации все поля были пустыми (QR не вернул построчные
+ * расчёты), по значениям неотличима от строки, добавленной позже, — и показала
+ * бы живые числа вместо утверждённых пустых.
  */
 export function hasResultSnapshot(row: InventoryResultSnapshotAmounts): boolean {
-  return (
-    row.finalized_actual_amount != null ||
-    row.finalized_calculated_amount != null ||
-    row.finalized_difference_amount != null ||
-    row.finalized_difference_sum != null ||
-    row.finalized_prime_cost != null
-  );
+  return row.finalized_at != null;
 }
 
 /**

@@ -154,7 +154,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: itemsRaw } = await admin
     .from<Array<InventoryDocumentResultItem & InventoryResultSnapshotAmounts>>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
     .order("product_name");

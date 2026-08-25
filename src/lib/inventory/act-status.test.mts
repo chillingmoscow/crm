@@ -6,6 +6,7 @@ import {
   getAssigneeLockReason,
   getInventoryResultAdjustLockReason,
   getInventoryResultRefreshLockReason,
+  resolveStatusAfterImport,
   getReviewerLockReason,
   isInventoryFormLocked,
   isInventoryResultAdjustLocked,
@@ -194,9 +195,9 @@ test("refresh lock reason: импорт из QR закрыт ровно на з�
   for (const status of ["synced", "assigned", "in_progress", "ready_for_review", "results_blocked"] as const) {
     assert.equal(getInventoryResultRefreshLockReason({ ...OPEN, status }), null);
   }
-  // Пересчёт правку итогов лочит, а импорт из QR — нет: свежие расчётные
-  // значения как раз и нужны, чтобы увидеть результат пересчёта.
-  assert.equal(getInventoryResultRefreshLockReason({ ...OPEN, status: "recount_pending" }), null);
+  // Пересчёт лочит и импорт: он перезаписал бы строки под руками исполнителя
+  // и вышиб бы его из формы (статус уехал бы в ready_for_review).
+  assert.match(getInventoryResultRefreshLockReason({ ...OPEN, status: "recount_pending" }) ?? "", /пересч/i);
 
   assert.match(
     getInventoryResultRefreshLockReason({ status: "ready_for_review", results_finalized_at: "2026-08-24T12:27:43Z", results_reopened_at: null }) ?? "",
@@ -214,4 +215,23 @@ test("refresh lock reason: переоткрытые итоги снова мож
     }),
     null,
   );
+});
+
+test("статус после импорта: акт у исполнителя не двигаем", () => {
+  for (const current of ["synced", "assigned", "in_progress", "recount_pending"] as const) {
+    assert.equal(resolveStatusAfterImport({ current, processed: false, resultsFound: true }), current);
+    assert.equal(resolveStatusAfterImport({ current, processed: false, resultsFound: false }), current);
+  }
+});
+
+test("статус после импорта: на проверке уточняем по наличию расчётов", () => {
+  assert.equal(resolveStatusAfterImport({ current: "ready_for_review", processed: false, resultsFound: true }), "ready_for_review");
+  assert.equal(resolveStatusAfterImport({ current: "ready_for_review", processed: false, resultsFound: false }), "results_blocked");
+  assert.equal(resolveStatusAfterImport({ current: "results_blocked", processed: false, resultsFound: true }), "ready_for_review");
+});
+
+test("статус после импорта: проведение в QR перебивает всё", () => {
+  for (const current of ["recount_pending", "in_progress", "ready_for_review"] as const) {
+    assert.equal(resolveStatusAfterImport({ current, processed: true, resultsFound: false }), "processed");
+  }
 });

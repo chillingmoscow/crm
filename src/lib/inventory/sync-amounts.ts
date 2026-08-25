@@ -24,3 +24,50 @@ export function resolveSubmittedAmount(input: {
   }
   return input.existingAmount ?? null;
 }
+
+/** Построчные расчётные значения акта (то, что отдаёт Quick Resto). */
+export type InventoryLineResultValues = {
+  calculatedAmount: number | null;
+  differenceAmount: number | null;
+  primeCost: number | null;
+  differenceSum: number | null;
+};
+
+/**
+ * Какие расчётные значения писать в строку акта.
+ *
+ * Quick Resto отдаёт расчётный остаток и разницу только через backoffice. Если
+ * backoffice не ответил (таймаут, слетевшая cookie, пустой ответ), импорт
+ * сваливается на public-payload, где этих полей нет вообще — и раньше писал
+ * NULL поверх уже посчитанных итогов: таблица итогов пропадала, авто-флаги
+ * пересчёта гасли, а восстановить прежние числа было нечем.
+ *
+ * Правило: пустой ответ ничего не значит. Затираем существующие значения
+ * только тогда, когда пришли новые.
+ */
+export function resolveLineResult(input: {
+  incoming: InventoryLineResultValues & { hasResult: boolean };
+  existing?: Partial<InventoryLineResultValues> | null;
+}): { values: InventoryLineResultValues; preserved: boolean } {
+  const { hasResult, ...incoming } = input.incoming;
+  if (hasResult) return { values: incoming, preserved: false };
+
+  const existing = input.existing;
+  const hasExisting =
+    existing != null &&
+    (existing.calculatedAmount != null ||
+      existing.differenceAmount != null ||
+      existing.differenceSum != null ||
+      existing.primeCost != null);
+  if (!hasExisting) return { values: incoming, preserved: false };
+
+  return {
+    values: {
+      calculatedAmount: existing.calculatedAmount ?? null,
+      differenceAmount: existing.differenceAmount ?? null,
+      primeCost: existing.primeCost ?? null,
+      differenceSum: existing.differenceSum ?? null,
+    },
+    preserved: true,
+  };
+}

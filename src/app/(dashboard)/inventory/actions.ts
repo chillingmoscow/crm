@@ -15,6 +15,12 @@ import {
   isInventoryFormLocked,
   nextStatusAfterAssign,
 } from "@/lib/inventory/act-status";
+import {
+  compareResultLines,
+  describeResultDrift,
+  hasResultDrift,
+  type InventoryRecheckLine,
+} from "@/lib/inventory/results-recheck";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
 import {
   listDishes,
@@ -1190,6 +1196,18 @@ export async function refreshInventoryDocumentResults(input: {
       status: qrDocument.processed ? "processed" : undefined,
     });
 
+    // Quick Resto ответил без позиций — данные акта мы намеренно не тронули.
+    // Раньше это молча удаляло все строки; теперь говорим об этом вслух, иначе
+    // пользователь решит, что «обновилось» и цифры актуальны.
+    if (syncResult.skippedEmptyPayload) {
+      return {
+        processed: Boolean(qrDocument.processed),
+        resultsHasLineAmounts: false,
+        error:
+          "Quick Resto не вернул позиции акта — данные оставлены без изменений. Попробуйте ещё раз через минуту.",
+      };
+    }
+
     revalidatePath("/documents/inventory");
     revalidatePath(`/documents/inventory/${document.id}`);
     revalidatePath(`/documents/inventory/${document.id}/results`);
@@ -2096,6 +2114,86 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    // Сверка перед проведением. Между тем моментом, когда проверяющий смотрел
+    // «Итоги», и нажатием «Подвести итоги» Quick Resto мог пересчитать
+    // расчётные остатки (правки в учёте за период до даты акта). Тогда
+    // утверждают одни числа, а проводятся другие — так и вышло с СВ340:
+    // на экране был итог +89,25 ₽, провелось +16 301,75 ₽.
+    // Поэтому: перечитываем строки, и если они разъехались — НЕ проводим,
+    // а показываем разницу и просим подтвердить ещё раз.
+    const readResultLines = async (): Promise<InventoryRecheckLine[]> => {
+      const { data } = await admin
+        .from<Array<{ external_item_id: string; difference_amount: number | null; difference_sum: number | null }>>(
+          "document_items",
+        )
+        .select("external_item_id, difference_amount, difference_sum")
+        .eq("account_id", ctx.accountId)
+        .eq("document_id", document.id);
+      return (data ?? []).map((row) => ({
+        externalItemId: row.external_item_id,
+        differenceAmount: row.difference_amount,
+        differenceSum: row.difference_sum,
+      }));
+    };
+
+    let recheckSkippedReason: string | null = null;
+    try {
+      const linesBefore = await readResultLines();
+      const freshItems = await listBackOfficeInventoryItemsWithSession({
+        connection,
+        admin,
+        documentExternalId: externalIdNum,
+      });
+      if (freshItems.length === 0) {
+        recheckSkippedReason = "Quick Resto не вернул позиции для сверки";
+      } else {
+        await refreshLocalInventoryDocumentFromPayload({
+          admin,
+          accountId: ctx.accountId,
+          documentId: document.id,
+          document: { ...qrDocBefore, effectedItems: freshItems },
+          // Статус не двигаем: сверка — это обновление данных, а не переход
+          // по статусной машине.
+          status: document.status,
+        });
+        const diff = compareResultLines(linesBefore, await readResultLines());
+        if (hasResultDrift(diff)) {
+          console.info("[finalize] данные QR разъехались, проведение отменено", {
+            documentId: document.id,
+            changed: diff.changedLines,
+            beforeTotal: diff.beforeTotal,
+            afterTotal: diff.afterTotal,
+          });
+          await writeInventoryResultEvent({
+            supabase: ctx.supabase,
+            admin,
+            accountId: ctx.accountId,
+            userId: ctx.user.id,
+            documentId: document.id,
+            eventType: "results_recheck_drift",
+            message: "Данные Quick Resto изменились перед проведением",
+            payload: {
+              changedLines: diff.changedLines,
+              addedLines: diff.addedLines,
+              removedLines: diff.removedLines,
+              beforeTotal: diff.beforeTotal,
+              afterTotal: diff.afterTotal,
+            },
+          });
+          revalidateInventoryResultPages(document.id);
+          return { error: describeResultDrift(diff) };
+        }
+      }
+    } catch (recheckError) {
+      // Сверка — защита, а не предусловие: если backoffice недоступен, не
+      // блокируем проведение, но оставляем след в журнале.
+      console.error("[finalize] сверка перед проведением не выполнена", {
+        documentId: document.id,
+        error: recheckError,
+      });
+      recheckSkippedReason = "Quick Resto недоступен для сверки";
+    }
+
     // Снимок построчных итогов — ДО обращения к QR. «Расчёт» и «Разница» в
     // строках приходят из QR и пересчитываются им по движениям товара, поэтому
     // фиксируем ровно то, что утвердил проверяющий (миграция 221). Если снимок
@@ -2202,8 +2300,10 @@ export async function finalizeInventoryResults(input: {
       userId: ctx.user.id,
       documentId: document.id,
       eventType: "results_finalized",
-      message: "Подвел итоги акта",
-      payload: { documentId: document.id },
+      message: recheckSkippedReason
+        ? `Подвел итоги акта (без сверки с Quick Resto: ${recheckSkippedReason})`
+        : "Подвел итоги акта",
+      payload: { documentId: document.id, recheckSkipped: recheckSkippedReason },
     });
 
     // Уведомляем исполнителя, что его акт принят.

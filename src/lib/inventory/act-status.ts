@@ -75,6 +75,40 @@ export function getInventoryResultAdjustLockReason(doc: InventoryActLockInput): 
 }
 
 /**
+ * Статус акта после импорта строк из Quick Resto.
+ *
+ * Импорт — это обновление ДАННЫХ, а не событие процесса, поэтому он не должен
+ * двигать акт по статусной машине. Раньше статус пересчитывался безусловно
+ * (`processed` → иначе `resultsFound ? ready_for_review : results_blocked`), и
+ * один клик «Обновить итоги» переводил акт с пересчёта или из работы
+ * исполнителя в «Готов к проверке»: исполнителю закрывалась форма посреди
+ * пересчёта, а с проверяющего снималась анти-подгонка.
+ *
+ * Правила:
+ *  - QR says processed → `processed` (это факт на стороне источника правды);
+ *  - акт ещё у исполнителя (synced / assigned / in_progress / recount_pending)
+ *    → статус не трогаем;
+ *  - акт уже на проверке (ready_for_review / results_blocked) → уточняем по
+ *    тому, вернул ли QR построчные расчёты.
+ */
+export function resolveStatusAfterImport(input: {
+  current: string;
+  processed: boolean;
+  resultsFound: boolean;
+}): string {
+  if (input.processed) return "processed";
+  if (
+    input.current === "synced" ||
+    input.current === "assigned" ||
+    input.current === "in_progress" ||
+    input.current === "recount_pending"
+  ) {
+    return input.current;
+  }
+  return input.resultsFound ? "ready_for_review" : "results_blocked";
+}
+
+/**
  * Причина, по которой повторный импорт итогов из Quick Resto («Обновить итоги»)
  * закрыт, либо null если импорт разрешён.
  *
@@ -88,6 +122,9 @@ export function getInventoryResultAdjustLockReason(doc: InventoryActLockInput): 
  * «итоги правились после проведения».
  */
 export function getInventoryResultRefreshLockReason(doc: InventoryActLockInput): string | null {
+  if (doc.status === "recount_pending") {
+    return "Акт отправлен исполнителю на пересчёт. Импорт из Quick Resto сейчас перезапишет строки и закроет исполнителю форму — дождитесь завершения пересчёта.";
+  }
   if (doc.results_finalized_at) {
     return "Итоги акта зафиксированы. Quick Resto пересчитывает расчётные остатки по движениям товара, поэтому повторный импорт заменит утверждённые числа. Переоткройте итоги, если импорт действительно нужен.";
   }

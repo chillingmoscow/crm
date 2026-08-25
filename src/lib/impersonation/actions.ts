@@ -13,7 +13,9 @@ import {
 import { isImpersonationAllowed, isImpersonationEnabled } from "./config";
 import {
   clearImpersonation,
+  readActiveImpersonation,
   readImpersonation,
+  sessionIdFromAccessToken,
   writeImpersonation,
 } from "./session";
 
@@ -278,17 +280,15 @@ export async function startImpersonation(
   if (!isImpersonationAllowed(me.id)) return { error: NOT_ALLOWED };
   if (targetUserId === me.id) return { error: "Это вы и есть" };
 
-  const already = await readImpersonation();
-  if (already?.targetUserId === me.id) {
+  if (await readActiveImpersonation()) {
     return {
       error: "Вы уже смотрите за другого пользователя — сначала вернитесь к себе",
     };
   }
-  if (already) {
-    // Кука есть, но текущая сессия — не та цель: значит просмотр не
-    // состоялся (упал verifyOtp) либо человек успел перелогиниться.
-    // Такой «обратный билет» уже никуда не ведёт, гасим и идём дальше,
-    // иначе вход был бы заперт до истечения куки.
+  if (await readImpersonation()) {
+    // Билет есть, но он не про эту сессию: просмотр не состоялся либо
+    // человек успел перелогиниться. Такой билет никуда не ведёт — гасим
+    // и идём дальше, иначе вход был бы заперт до истечения куки.
     await clearImpersonation();
   }
 
@@ -325,35 +325,45 @@ export async function startImpersonation(
     };
   }
 
+  // Билет пишем ПОСЛЕ входа, а не до: в него нужен session_id новой
+  // сессии, а до verifyOtp её ещё не существует.
+  let verifyMessage: string | null = null;
+  let targetSessionId: string | null = null;
+  try {
+    const { data: verified, error: verifyError } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: "magiclink",
+    });
+    verifyMessage = verifyError?.message ?? null;
+    targetSessionId = sessionIdFromAccessToken(verified?.session?.access_token);
+  } catch (err) {
+    // Сетевой сбой до GoTrue приходит исключением, а не { error }.
+    verifyMessage = err instanceof Error ? err.message : "Не удалось войти";
+  }
+  if (verifyMessage) return { error: verifyMessage };
+
+  if (!targetSessionId) {
+    // Билет без привязки к сессии небезопасен, а без билета не вернуться.
+    // Откатываем вход сразу, чтобы не оставить человека в чужой шкуре.
+    await supabase.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    });
+    return { error: "Не удалось привязать сессию просмотра — попробуйте ещё раз" };
+  }
+
   await writeImpersonation({
-    v: 1,
+    v: 2,
     originUserId: me.id,
     originAccessToken: session.access_token,
     originRefreshToken: session.refresh_token,
     targetUserId: target.userId,
+    targetSessionId,
     targetName: target.name,
     targetRoleName: target.roleName === "—" ? null : target.roleName,
     targetVenueName: target.venueName === "—" ? null : target.venueName,
     startedAt: new Date().toISOString(),
   });
-
-  let verifyMessage: string | null = null;
-  try {
-    const { error: verifyError } = await supabase.auth.verifyOtp({
-      token_hash: tokenHash,
-      type: "magiclink",
-    });
-    verifyMessage = verifyError?.message ?? null;
-  } catch (err) {
-    // Сетевой сбой до GoTrue приходит исключением, а не { error }.
-    verifyMessage = err instanceof Error ? err.message : "Не удалось войти";
-  }
-  if (verifyMessage) {
-    // Сессия не сменилась — «обратный билет» больше не нужен и только
-    // мешал бы следующей попытке.
-    await clearImpersonation();
-    return { error: verifyMessage };
-  }
 
   revalidatePath("/", "layout");
   redirect("/dashboard");
@@ -361,18 +371,20 @@ export async function startImpersonation(
 
 /** Вернуться к себе: восстановить сохранённую сессию. */
 export async function stopImpersonation(): Promise<{ error: string | null }> {
-  const state = await readImpersonation();
-  if (!state) return { error: "Режим просмотра не активен" };
-
-  // Кука httpOnly, но setSession() применит те токены, что в ней лежат.
-  // Проверяем, что «обратный билет» выписан на того, кому вообще разрешён
-  // этот режим — иначе подложенная кука стала бы способом залогинить
-  // человека в чужую сессию (session fixation).
-  if (!isImpersonationAllowed(state.originUserId)) {
+  const state = await readActiveImpersonation();
+  if (!state) {
+    // Либо просмотр не идёт, либо билет не про эту сессию — например,
+    // пережил выход из аккаунта и достался следующему, кто вошёл на этом
+    // браузере. Восстанавливать по нему нечего, гасим.
     await clearImpersonation();
-    return { error: NOT_ALLOWED };
+    return { error: "Режим просмотра не активен" };
   }
 
+  // Список доступа здесь НЕ проверяем. Привязка к session_id уже
+  // доказывает, что билет выписан нами для этой самой сессии, то есть
+  // подлог куки закрыт. А проверка списка ломала бы возврат ровно в тот
+  // момент, когда фичу выключают на проде, — оставляя человека в чужой
+  // шкуре без выхода.
   const supabase = await createClient();
   const { error } = await supabase.auth.setSession({
     access_token: state.originAccessToken,

@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/popover";
 import { createClient } from "@/lib/supabase/client";
 import { unsubscribePushForSignOut } from "@/lib/push/client";
+import { clearImpersonationForSignOut } from "@/lib/impersonation/actions";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
 import { SupportReportDialog } from "@/components/shared/support-report-dialog";
@@ -342,6 +343,10 @@ function SidebarBody({
     // сессии). На общем устройстве это не даёт следующему юзеру
     // получать push прежнего владельца.
     await unsubscribePushForSignOut();
+    // Билет режима просмотра — httpOnly, клиентский signOut его не тронет.
+    // Это ОСНОВНОЙ выход из аккаунта, и без уборки кука с живыми токенами
+    // разработчика пережила бы выход на общем браузере.
+    await clearImpersonationForSignOut().catch(() => {});
     const { error } = await supabase.auth.signOut();
     if (error) {
       toast.error("Не удалось выйти");

@@ -13,7 +13,7 @@ import { PageHeaderActionsProvider } from "@/components/shared/page-header-actio
 import { HotkeysDialogProvider } from "@/components/shared/hotkeys-dialog";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
 import { ImpersonationBanner } from "@/components/shared/impersonation-banner";
-import { readImpersonation } from "@/lib/impersonation/session";
+import { readActiveImpersonation } from "@/lib/impersonation/session";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function DashboardLayout({
@@ -141,12 +141,9 @@ export default async function DashboardLayout({
   const kbSidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
 
   // Режим «смотрю за другого пользователя» (см. src/lib/impersonation).
-  // Сверяем цель с текущей сессией: если человек успел выйти и войти под
-  // собой, кука с «обратным билетом» ещё жива, но относится к прошлой
-  // сессии — баннер по ней рисовать нельзя.
-  const impersonation = await readImpersonation();
-  const activeImpersonation =
-    impersonation && impersonation.targetUserId === user.id ? impersonation : null;
+  // readActiveImpersonation сверяет билет и с пользователем, и с
+  // session_id: билет, переживший выход из аккаунта, до баннера не дойдёт.
+  const activeImpersonation = await readActiveImpersonation();
 
   return (
     // delayDuration=500 — задержка перед показом, чтобы tooltip не

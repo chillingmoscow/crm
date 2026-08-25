@@ -10,6 +10,7 @@ import {
 } from "@/lib/inventory/results";
 import {
   getAssigneeLockReason,
+  getInventoryResultRefreshLockReason,
   getReviewerLockReason,
   isInventoryFormLocked,
   nextStatusAfterAssign,
@@ -431,24 +432,16 @@ export async function syncQuickRestoInventory(input?: {
       // Подсчёт остатков в нашем флоу ведётся ТОЛЬКО в CRM (submitted_amount).
       // Full-sync обновляет список позиций и метаданные акта, но НЕ должен
       // перетирать уже введённые количества QR-нулями: для непроведённого акта
-      // QR присылает actualAmount=0 как дефолт. Читаем существующие
-      // submitted_amount по external_item_id и переносим их обратно.
-      const { data: existingItems } = await admin
-        .from<Array<{ external_item_id: string; submitted_amount: number | null }>>("document_items")
-        .select("external_item_id, submitted_amount")
-        .eq("document_id", data.id);
-      const preservedSubmitted = new Map<string, number | null>(
-        (existingItems ?? [])
-          .filter((row) => row.submitted_amount !== null)
-          .map((row) => [row.external_item_id, row.submitted_amount]),
-      );
+      // QR присылает actualAmount=0 как дефолт. submittedAmounts не передаём —
+      // syncDocumentItems сам сохраняет уже введённые значения по строкам,
+      // которых нет в вызове (см. resolveSubmittedAmount). Отдельная
+      // предзагрузка здесь была лишним запросом на каждый акт.
       const result = await syncDocumentItems({
         admin,
         accountId: ctx.accountId,
         documentId: data.id,
         items,
         productByExternalId,
-        submittedAmounts: preservedSubmitted,
       });
       summary.items += result.count;
       if (!result.resultsFound) summary.resultsBlocked += 1;
@@ -1138,8 +1131,11 @@ export async function refreshInventoryDocumentResults(input: {
       account_id: string;
       external_id: string;
       assigned_to: string | null;
+      status: string;
+      results_finalized_at: string | null;
+      results_reopened_at: string | null;
     }>("documents")
-    .select("id, account_id, external_id, assigned_to")
+    .select("id, account_id, external_id, assigned_to, status, results_finalized_at, results_reopened_at")
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -1150,6 +1146,14 @@ export async function refreshInventoryDocumentResults(input: {
   const allowed = Boolean(canViewDocuments) || (Boolean(canFill) && document.assigned_to === ctx.user.id);
   if (!allowed) {
     return { processed: false, resultsHasLineAmounts: false, error: "Недостаточно прав" };
+  }
+
+  // Импорт заменяет построчные итоги тем, что QR отдаёт СЕЙЧАС. На залоченных
+  // итогах это молча перезаписывает утверждённые числа — так и потерялись итоги
+  // акта СВ340. Легальный путь — сначала переоткрыть итоги.
+  const refreshLockReason = getInventoryResultRefreshLockReason(document);
+  if (refreshLockReason) {
+    return { processed: false, resultsHasLineAmounts: false, error: refreshLockReason };
   }
 
   const connection = await getConnection(ctx.accountId);
@@ -2092,6 +2096,23 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    // Снимок построчных итогов — ДО обращения к QR. «Расчёт» и «Разница» в
+    // строках приходят из QR и пересчитываются им по движениям товара, поэтому
+    // фиксируем ровно то, что утвердил проверяющий (миграция 221). Если снимок
+    // не снялся — выходим, не проведя акт: лучше ничего не делать, чем провести
+    // и остаться без зафиксированных итогов.
+    const { error: snapshotError } = await admin.rpc("freeze_inventory_result_snapshot", {
+      p_account_id: ctx.accountId,
+      p_document_id: document.id,
+    });
+    if (snapshotError) {
+      console.error("[finalize] snapshot failed", {
+        documentId: document.id,
+        error: snapshotError,
+      });
+      return { error: "Не удалось зафиксировать итоги акта. Попробуйте ещё раз." };
+    }
+
     try {
       await processBackOfficeInventoryDocumentWithSession({
         connection,
@@ -2140,13 +2161,17 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    const finalizedAt = new Date().toISOString();
     const { error } = await admin
       .from("documents")
       .update({
         status: "processed",
         processed: true,
-        results_finalized_at: new Date().toISOString(),
+        results_finalized_at: finalizedAt,
         results_finalized_by: ctx.user.id,
+        // Включает снимок строк (finalized_* выше) — с этого момента страница
+        // итогов показывает зафиксированные числа, а не живые из Quick Resto.
+        results_snapshot_at: finalizedAt,
         // Сбрасываем reopened-метки: если это была повторная финализация после
         // reopen, акт должен снова залочиться (isLocked на странице итогов
         // считает реопен-флаг → editable). Без сброса UI остался бы editable.

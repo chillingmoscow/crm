@@ -200,6 +200,9 @@ type Props = {
   suggestions: InventoryResortSuggestion[];
   amountRoundingScale: AmountRoundingScale;
   isFinalized: boolean;
+  /** Когда сняли снимок построчных итогов (миграция 221). Не null → в таблице
+      зафиксированные числа, а не живые из Quick Resto. */
+  resultsSnapshotAt: string | null;
   /** Read-only: финализирован ИЛИ проведён в QR и не разблокирован. */
   isLocked: boolean;
   canComment: boolean;
@@ -244,6 +247,7 @@ export function InventoryResultsTable({
   suggestions,
   amountRoundingScale,
   isFinalized,
+  resultsSnapshotAt,
   isLocked,
   canComment,
   canAdjust,
@@ -1168,12 +1172,17 @@ export function InventoryResultsTable({
                   <TooltipContent sideOffset={6}>Подсказки пересорта (ИИ)</TooltipContent>
                 </Tooltip>
               ) : null}
-              {canRefreshResults ? <RefreshResultsButton documentId={documentId} /> : null}
+              {canRefreshResults && !isLocked ? (
+                <RefreshResultsButton documentId={documentId} />
+              ) : null}
             </>
           }
           summary={
             <>
               Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
+              {resultsSnapshotAt ? (
+                <> · итоги зафиксированы {new Date(resultsSnapshotAt).toLocaleDateString("ru-RU")}</>
+              ) : null}
             </>
           }
         />

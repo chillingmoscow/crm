@@ -5,6 +5,7 @@ import {
   FORM_LOCKED_STATUSES,
   getAssigneeLockReason,
   getInventoryResultAdjustLockReason,
+  getInventoryResultRefreshLockReason,
   getReviewerLockReason,
   isInventoryFormLocked,
   isInventoryResultAdjustLocked,
@@ -187,4 +188,30 @@ test("nextStatusAfterAssign: обычное назначение → assigned", 
   for (const s of ["synced", "assigned", "in_progress"] as const) {
     assert.equal(nextStatusAfterAssign(s, "user-1"), "assigned");
   }
+});
+
+test("refresh lock reason: импорт из QR закрыт ровно на залоченных итогах", () => {
+  for (const status of ["synced", "assigned", "in_progress", "ready_for_review", "results_blocked"] as const) {
+    assert.equal(getInventoryResultRefreshLockReason({ ...OPEN, status }), null);
+  }
+  // Пересчёт правку итогов лочит, а импорт из QR — нет: свежие расчётные
+  // значения как раз и нужны, чтобы увидеть результат пересчёта.
+  assert.equal(getInventoryResultRefreshLockReason({ ...OPEN, status: "recount_pending" }), null);
+
+  assert.match(
+    getInventoryResultRefreshLockReason({ status: "ready_for_review", results_finalized_at: "2026-08-24T12:27:43Z", results_reopened_at: null }) ?? "",
+    /зафиксирован/i,
+  );
+  assert.match(getInventoryResultRefreshLockReason({ ...OPEN, status: "processed" }) ?? "", /проведён/i);
+});
+
+test("refresh lock reason: переоткрытые итоги снова можно импортировать", () => {
+  assert.equal(
+    getInventoryResultRefreshLockReason({
+      status: "processed",
+      results_finalized_at: null,
+      results_reopened_at: "2026-08-25T09:00:00Z",
+    }),
+    null,
+  );
 });

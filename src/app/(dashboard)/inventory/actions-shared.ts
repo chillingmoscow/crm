@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import { getInventoryResultAdjustLockReason } from "@/lib/inventory/act-status";
+import { resolveSubmittedAmount } from "@/lib/inventory/sync-amounts";
 import {
   listInventoryItemsBackOffice,
   loginQuickRestoBackOffice,
@@ -775,27 +776,32 @@ export async function syncDocumentItems(input: {
       .map((rule) => [rule.external_product_id as string, rule]),
   );
 
-  // Существующее состояние исключений по строкам акта. Нужно по двум причинам:
+  // Существующее состояние строк акта. Нужно по трём причинам:
   // 1) сохранить РУЧНЫЕ исключения (excluded_from_totals без exclusion-rule),
   //    чтобы sync их не сбрасывал;
   // 2) НЕ слать NULL в excluded_from_totals. supabase-js upsert при разнородном
   //    батче (одни строки задают колонку, другие — нет) подставляет остальным
   //    NULL, а не DEFAULT → NOT NULL violation в актах с исключёнными позициями.
   //    Поэтому 4 поля исключения задаём явно на КАЖДОЙ строке.
-  const { data: existingExclusionRows } = await input.admin
+  // 3) сохранить введённые исполнителем количества (submitted_amount) для строк,
+  //    которых нет в `submittedAmounts` текущего вызова. Раньше им писался NULL,
+  //    и «Обновить итоги из Quick Resto» (вызывает нас без submittedAmounts)
+  //    стирал введённые количества по всему акту — прод, СВ340, 300 строк.
+  const { data: existingItemRows } = await input.admin
     .from<
       Array<{
         external_item_id: string;
+        submitted_amount: number | null;
         excluded_from_totals: boolean | null;
         exclude_reason: string | null;
         excluded_by: string | null;
         excluded_at: string | null;
       }>
     >("document_items")
-    .select("external_item_id, excluded_from_totals, exclude_reason, excluded_by, excluded_at")
+    .select("external_item_id, submitted_amount, excluded_from_totals, exclude_reason, excluded_by, excluded_at")
     .eq("document_id", input.documentId);
-  const existingExclusionByItemId = new Map(
-    (existingExclusionRows ?? []).map((row) => [row.external_item_id, row]),
+  const existingItemByItemId = new Map(
+    (existingItemRows ?? []).map((row) => [row.external_item_id, row]),
   );
 
   const rows = input.items.map((item, index) => {
@@ -809,10 +815,10 @@ export async function syncDocumentItems(input: {
     if (result.hasResult) resultsFound = true;
     const itemExternalId = externalItemId(item, index);
 
-    // Поля исключения — явно на каждой строке (см. existingExclusionByItemId).
+    // Поля исключения — явно на каждой строке (см. existingItemByItemId).
     // Правило (если есть) приоритетнее; иначе сохраняем ручное исключение;
     // иначе дефолт (не исключено).
-    const existingExclusion = existingExclusionByItemId.get(itemExternalId);
+    const existingItem = existingItemByItemId.get(itemExternalId);
     const exclusion = exclusionRule
       ? {
           excluded_from_totals: true,
@@ -821,10 +827,10 @@ export async function syncDocumentItems(input: {
           excluded_at: exclusionRule.created_at,
         }
       : {
-          excluded_from_totals: existingExclusion?.excluded_from_totals ?? false,
-          exclude_reason: existingExclusion?.exclude_reason ?? null,
-          excluded_by: existingExclusion?.excluded_by ?? null,
-          excluded_at: existingExclusion?.excluded_at ?? null,
+          excluded_from_totals: existingItem?.excluded_from_totals ?? false,
+          exclude_reason: existingItem?.exclude_reason ?? null,
+          excluded_by: existingItem?.excluded_by ?? null,
+          excluded_at: existingItem?.excluded_at ?? null,
         };
 
     return {
@@ -842,9 +848,11 @@ export async function syncDocumentItems(input: {
       measure_unit_id: typeof item.measureUnit?.id === "number" ? item.measureUnit.id : null,
       measure_unit_name: text(item.measureUnitName) ?? text(item.measureUnit?.name) ?? text(item.measureUnit?.title),
       actual_amount: num(item.actualAmount),
-      submitted_amount: input.submittedAmounts?.has(itemExternalId)
-        ? input.submittedAmounts.get(itemExternalId)
-        : null,
+      submitted_amount: resolveSubmittedAmount({
+        externalItemId: itemExternalId,
+        submittedAmounts: input.submittedAmounts,
+        existingAmount: existingItem?.submitted_amount ?? null,
+      }),
       calculated_amount: result.calculatedAmount,
       difference_amount: result.differenceAmount,
       prime_cost: result.primeCost,

@@ -33,14 +33,18 @@ export function ImpersonationBanner({ targetName, roleName, venueName }: Props) 
 
   const handleReturn = () => {
     startTransition(async () => {
-      // Успех уводит редиректом внутри самого action'а — сюда попадаем
-      // только когда вернуть сессию не удалось. catch на случай сетевого
-      // сбоя: без него кнопка молча не сработает, а это единственный
-      // выход из режима просмотра.
       try {
         const result = await stopImpersonation();
-        if (result?.error) toast.error(result.error);
+        // Полная перезагрузка, а не router.push: сессия сменилась, и надо
+        // сбросить Router Cache вместе с RSC прошлой сессии.
+        if (result.next) {
+          window.location.assign(result.next);
+          return;
+        }
+        if (result.error) toast.error(result.error);
       } catch {
+        // Сюда попадаем только при настоящем сбое: успех теперь приходит
+        // обычным значением, а не исключением-редиректом.
         toast.error("Не удалось вернуться к себе — попробуйте ещё раз");
       }
     });

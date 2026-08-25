@@ -353,11 +353,14 @@ function SidebarBody({
       // try/catch обязателен: это единственный выход из режима просмотра,
       // и если действие упадёт по сети, кнопка просто молча ничего не
       // сделает — человек решит, что она сломана, и останется в чужой
-      // шкуре. Успешный возврат уходит редиректом внутри самого действия,
-      // сюда мы попадаем только при отказе.
+      // шкуре.
       try {
         const result = await stopImpersonation();
-        if (result?.error) toast.error(result.error);
+        if (result.next) {
+          window.location.assign(result.next);
+          return;
+        }
+        if (result.error) toast.error(result.error);
       } catch {
         toast.error("Не удалось вернуться к себе — попробуйте ещё раз");
       }

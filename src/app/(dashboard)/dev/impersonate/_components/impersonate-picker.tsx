@@ -39,10 +39,18 @@ export function ImpersonatePicker({ targets, loadError, alreadyImpersonating }: 
   const handleStart = (target: ImpersonationTarget) => {
     setPendingId(target.userId);
     startTransition(async () => {
-      const result = await startImpersonation(target.userId);
-      // Успех уходит редиректом внутри action'а — сюда возвращаемся
-      // только с ошибкой.
-      if (result?.error) toast.error(result.error);
+      try {
+        const result = await startImpersonation(target.userId);
+        // Полная перезагрузка: сессия сменилась, Router Cache прошлой
+        // сессии надо сбросить.
+        if (result.next) {
+          window.location.assign(result.next);
+          return;
+        }
+        if (result.error) toast.error(result.error);
+      } catch {
+        toast.error("Не удалось войти в режим просмотра — попробуйте ещё раз");
+      }
       setPendingId(null);
     });
   };

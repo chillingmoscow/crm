@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
@@ -31,6 +30,20 @@ export type ImpersonationTarget = {
 };
 
 const NOT_ALLOWED = "Режим просмотра за другого пользователя недоступен";
+
+/**
+ * Результат действий, меняющих сессию.
+ *
+ * Намеренно НЕ используем redirect() из next/navigation: он сигнализирует
+ * об успехе исключением NEXT_REDIRECT, а запрос действия при этом
+ * обрывается (net::ERR_ABORTED). На клиенте это неотличимо от сетевого
+ * сбоя — try/catch вокруг вызова показывал «не удалось вернуться к себе»
+ * поверх успешного возврата. Вместо этого возвращаем, куда идти, и клиент
+ * уходит туда сам через window.location.assign: полная перезагрузка после
+ * смены сессии всё равно нужна, чтобы сбросить Router Cache и RSC прошлой
+ * сессии (тем же приёмом уже пользуется обычный выход в сайдбаре).
+ */
+type SessionActionResult = { error: string | null; next: string | null };
 
 /** Из auth.users нам нужны только эти два поля. */
 type AuthUserLite = { email?: string | null; email_confirmed_at?: string | null };
@@ -308,18 +321,16 @@ export async function listImpersonationTargets(): Promise<{
  */
 export async function startImpersonation(
   targetUserId: string
-): Promise<{ error: string | null }> {
-  if (!isImpersonationEnabled()) return { error: NOT_ALLOWED };
+): Promise<SessionActionResult> {
+  if (!isImpersonationEnabled()) return { error: NOT_ALLOWED, next: null };
 
   const me = await getCachedUser();
-  if (!me) return { error: "Не авторизован" };
-  if (!isImpersonationAllowed(me.id)) return { error: NOT_ALLOWED };
-  if (targetUserId === me.id) return { error: "Это вы и есть" };
+  if (!me) return { error: "Не авторизован", next: null };
+  if (!isImpersonationAllowed(me.id)) return { error: NOT_ALLOWED, next: null };
+  if (targetUserId === me.id) return { error: "Это вы и есть", next: null };
 
   if (await readActiveImpersonation()) {
-    return {
-      error: "Вы уже смотрите за другого пользователя — сначала вернитесь к себе",
-    };
+    return { error: "Вы уже смотрите за другого пользователя — сначала вернитесь к себе", next: null };
   }
   if (await readImpersonation()) {
     // Билет есть, но он не про эту сессию: просмотр не состоялся либо
@@ -330,11 +341,11 @@ export async function startImpersonation(
 
   // Цель проверяем заново на сервере: клиенту с его списком не верим.
   const { targets, error: listError } = await collectTargets();
-  if (listError) return { error: listError };
+  if (listError) return { error: listError, next: null };
 
   const target = targets.find((t) => t.userId === targetUserId);
-  if (!target) return { error: "Пользователь не найден в вашем аккаунте" };
-  if (target.blockedReason) return { error: target.blockedReason };
+  if (!target) return { error: "Пользователь не найден в вашем аккаунте", next: null };
+  if (target.blockedReason) return { error: target.blockedReason, next: null };
 
   const supabase = await createClient();
 
@@ -344,7 +355,7 @@ export async function startImpersonation(
     data: { session },
   } = await supabase.auth.getSession();
   if (!session?.access_token || !session?.refresh_token) {
-    return { error: "Не удалось снять текущую сессию — перелогиньтесь" };
+    return { error: "Не удалось снять текущую сессию — перелогиньтесь", next: null };
   }
 
   const admin = createAdminClient();
@@ -356,9 +367,7 @@ export async function startImpersonation(
 
   const tokenHash = linkData?.properties?.hashed_token;
   if (linkError || !tokenHash) {
-    return {
-      error: linkError?.message ?? "Не удалось выпустить токен для входа",
-    };
+    return { error: linkError?.message ?? "Не удалось выпустить токен для входа", next: null };
   }
 
   // Билет пишем ПОСЛЕ входа, а не до: в него нужен session_id новой
@@ -376,17 +385,16 @@ export async function startImpersonation(
     // Сетевой сбой до GoTrue приходит исключением, а не { error }.
     verifyMessage = err instanceof Error ? err.message : "Не удалось войти";
   }
-  if (verifyMessage) return { error: verifyMessage };
+  if (verifyMessage) return { error: verifyMessage, next: null };
 
   if (!targetSessionId) {
     // Билет без привязки к сессии небезопасен, а без билета не вернуться.
-    return {
-      error: await abortIntoOwnSession(
-        supabase,
-        session,
-        "Не удалось привязать сессию просмотра"
-      ),
-    };
+    const error = await abortIntoOwnSession(
+      supabase,
+      session,
+      "Не удалось привязать сессию просмотра"
+    );
+    return { error, next: null };
   }
 
   // Имя, должность и заведение в билет НЕ кладём: их длина ничем не
@@ -405,28 +413,27 @@ export async function startImpersonation(
 
   if (!ticketWritten) {
     // Билет не влез — без него из чужой шкуры не выбраться.
-    return {
-      error: await abortIntoOwnSession(
-        supabase,
-        session,
-        "Не удалось сохранить возврат к своей сессии"
-      ),
-    };
+    const error = await abortIntoOwnSession(
+      supabase,
+      session,
+      "Не удалось сохранить возврат к своей сессии"
+    );
+    return { error, next: null };
   }
 
   revalidatePath("/", "layout");
-  redirect("/dashboard");
+  return { error: null, next: "/dashboard" };
 }
 
 /** Вернуться к себе: восстановить сохранённую сессию. */
-export async function stopImpersonation(): Promise<{ error: string | null }> {
+export async function stopImpersonation(): Promise<SessionActionResult> {
   const state = await readActiveImpersonation();
   if (!state) {
     // Либо просмотр не идёт, либо билет не про эту сессию — например,
     // пережил выход из аккаунта и достался следующему, кто вошёл на этом
     // браузере. Восстанавливать по нему нечего, гасим.
     await clearImpersonation();
-    return { error: "Режим просмотра не активен" };
+    return { error: "Режим просмотра не активен", next: null };
   }
 
   // Список доступа здесь НЕ проверяем. Привязка к session_id уже
@@ -435,10 +442,6 @@ export async function stopImpersonation(): Promise<{ error: string | null }> {
   // момент, когда фичу выключают на проде, — оставляя человека в чужой
   // шкуре без выхода.
   const supabase = await createClient();
-
-  // Дальше важен порядок: redirect() из next/navigation бросает
-  // NEXT_REDIRECT, поэтому он обязан стоять ВНЕ try — иначе catch поймает
-  // собственный редирект и примет его за сбой сети.
 
   // Основной путь: вернуть свою сессию.
   let restoreMessage: string | null = null;
@@ -455,7 +458,7 @@ export async function stopImpersonation(): Promise<{ error: string | null }> {
   if (!restoreMessage) {
     await clearImpersonation();
     revalidatePath("/", "layout");
-    redirect("/dashboard");
+    return { error: null, next: "/dashboard" };
   }
 
   // Свою сессию вернуть не вышло (токен отозван, GoTrue недоступен).
@@ -472,12 +475,13 @@ export async function stopImpersonation(): Promise<{ error: string | null }> {
   if (!signOutMessage) {
     await clearImpersonation();
     revalidatePath("/", "layout");
-    redirect("/login");
+    return { error: null, next: "/login" };
   }
 
   // Ни туда, ни сюда. Билет НЕ гасим: мы всё ещё в чужой сессии, и он —
   // единственное, что рисует баннер и даёт повторить попытку.
   return {
     error: `Не удалось вернуть вашу сессию (${restoreMessage}) и выйти тоже не вышло (${signOutMessage}). Попробуйте ещё раз.`,
+    next: null,
   };
 }

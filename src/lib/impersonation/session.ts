@@ -54,11 +54,20 @@ export type ImpersonationState = {
    * подходит. Он же закрывает подлог куки: session_id не угадать.
    */
   targetSessionId: string;
-  targetName: string;
-  targetRoleName: string | null;
-  targetVenueName: string | null;
   startedAt: string;
 };
+
+/**
+ * Потолок размера значения куки.
+ *
+ * Браузер молча отбрасывает куку больше ~4096 байт — не ошибка, просто её
+ * не будет. Для нас это худший исход: sb-куки от verifyOtp браузер примет,
+ * а билет нет, и человек останется в чужой шкуре без баннера и без выхода.
+ * Поэтому в билете лежат только токены и идентификаторы фиксированной
+ * длины (имена и списки заведений выкинуты — их и так знает layout), а
+ * этот порог страхует от неожиданно раздутого user_metadata в токене.
+ */
+const MAX_COOKIE_BYTES = 3500;
 
 /**
  * Читает состояние. Возвращает null, если куки нет или она битая —
@@ -90,12 +99,22 @@ export async function readImpersonation(): Promise<ImpersonationState | null> {
   }
 }
 
-/** Пишет состояние. Только из server action — cookies() иначе read-only. */
-export async function writeImpersonation(state: ImpersonationState): Promise<void> {
+/**
+ * Пишет состояние. Только из server action — cookies() иначе read-only.
+ *
+ * Возвращает false, если билет не влезает в куку: писать его смысла нет,
+ * браузер всё равно отбросит, а caller обязан откатить вход.
+ */
+export async function writeImpersonation(
+  state: ImpersonationState
+): Promise<boolean> {
+  const value = Buffer.from(JSON.stringify(state), "utf8").toString("base64url");
+  if (value.length > MAX_COOKIE_BYTES) return false;
+
   const store = await cookies();
   store.set(
     IMPERSONATION_COOKIE,
-    Buffer.from(JSON.stringify(state), "utf8").toString("base64url"),
+    value,
     {
       httpOnly: true,
       sameSite: "lax",
@@ -104,6 +123,7 @@ export async function writeImpersonation(state: ImpersonationState): Promise<voi
       maxAge: MAX_AGE_SECONDS,
     }
   );
+  return true;
 }
 
 /** Гасит состояние. Только из server action. */

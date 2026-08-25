@@ -17,10 +17,10 @@ type Props = {
   targets: ImpersonationTarget[];
   loadError: string | null;
   /** Уже идёт просмотр за кем-то (редкий случай: цель тоже в allowlist). */
-  activeTargetName: string | null;
+  alreadyImpersonating: boolean;
 };
 
-export function ImpersonatePicker({ targets, loadError, activeTargetName }: Props) {
+export function ImpersonatePicker({ targets, loadError, alreadyImpersonating }: Props) {
   const [query, setQuery] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -66,11 +66,9 @@ export function ImpersonatePicker({ targets, loadError, activeTargetName }: Prop
         </div>
       </div>
 
-      {activeTargetName && (
+      {alreadyImpersonating && (
         <p className="text-sm text-muted-foreground">
-          Сейчас уже идёт просмотр за{" "}
-          <span className="font-medium text-foreground">{activeTargetName}</span>
-          . Сначала вернитесь к себе через баннер сверху.
+          Просмотр уже идёт — сначала вернитесь к себе через баннер сверху.
         </p>
       )}
 
@@ -118,7 +116,7 @@ export function ImpersonatePicker({ targets, loadError, activeTargetName }: Prop
                       size="sm"
                       variant="outline"
                       className="h-8 shrink-0"
-                      disabled={pendingId !== null || Boolean(activeTargetName)}
+                      disabled={pendingId !== null || alreadyImpersonating}
                       onClick={() => handleStart(target)}
                     >
                       {pendingId === target.userId ? "…" : "Смотреть как"}

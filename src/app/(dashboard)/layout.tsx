@@ -176,9 +176,9 @@ export default async function DashboardLayout({
       <SidebarInset className="min-w-0">
         {activeImpersonation && (
           <ImpersonationBanner
-            targetName={activeImpersonation.targetName}
-            roleName={activeImpersonation.targetRoleName}
-            venueName={activeImpersonation.targetVenueName}
+            targetName={userName}
+            roleName={activeRoleName}
+            venueName={activeVenue?.venue_name ?? null}
           />
         )}
         <KbSearchProvider aiAskEnabled={aiAskEnabled}>

@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
 import { isImpersonationAllowed } from "@/lib/impersonation/config";
 import { listImpersonationTargets } from "@/lib/impersonation/actions";
-import { readImpersonation } from "@/lib/impersonation/session";
+import { readActiveImpersonation } from "@/lib/impersonation/session";
 import { ImpersonatePicker } from "./_components/impersonate-picker";
 
 /**
@@ -22,16 +22,14 @@ export default async function ImpersonatePage() {
 
   const [{ targets, error }, impersonation] = await Promise.all([
     listImpersonationTargets(),
-    readImpersonation(),
+    readActiveImpersonation(),
   ]);
 
   return (
     <ImpersonatePicker
       targets={targets}
       loadError={error}
-      activeTargetName={
-        impersonation?.targetUserId === user.id ? impersonation.targetName : null
-      }
+      alreadyImpersonating={Boolean(impersonation)}
     />
   );
 }

@@ -49,12 +49,13 @@ function SignOutInner() {
     // clearImpersonationForSignOut — кука с «обратным билетом» httpOnly,
     // клиентский signOut() её не тронет. Без этого после следующего входа
     // под собой висел бы мёртвый impersonation-баннер.
-    // .catch по тому же принципу, что и у unsubscribePushForSignOut:
-    // это best-effort уборка, и её сбой не должен оборвать цепочку до
-    // самого signOut — иначе сетевой блип оставил бы юзера залогиненным.
+    // Порядок как в сайдбаре: сначала выход, потом уборка билета — пока
+    // сессия жива, билет остаётся единственным путём назад. .catch по тому
+    // же принципу, что и у unsubscribePushForSignOut: это best-effort
+    // уборка, её сбой не должен ломать сам выход.
     unsubscribePushForSignOut()
-      .then(() => clearImpersonationForSignOut().catch(() => {}))
       .then(() => supabase.auth.signOut({ scope: "local" }))
+      .then(() => clearImpersonationForSignOut().catch(() => {}))
       .finally(() => router.replace(next));
   }, [params, router]);
 

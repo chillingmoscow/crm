@@ -352,18 +352,28 @@ export async function startImpersonation(
     return { error: "Не удалось привязать сессию просмотра — попробуйте ещё раз" };
   }
 
-  await writeImpersonation({
+  // Имя, должность и заведение в билет НЕ кладём: их длина ничем не
+  // ограничена (у сети это список всех заведений), а кука больше ~4 КБ
+  // молча отбрасывается браузером. Баннер и так получает эти данные из
+  // layout'а — там они к тому же точнее: активное заведение, а не все.
+  const ticketWritten = await writeImpersonation({
     v: 2,
     originUserId: me.id,
     originAccessToken: session.access_token,
     originRefreshToken: session.refresh_token,
     targetUserId: target.userId,
     targetSessionId,
-    targetName: target.name,
-    targetRoleName: target.roleName === "—" ? null : target.roleName,
-    targetVenueName: target.venueName === "—" ? null : target.venueName,
     startedAt: new Date().toISOString(),
   });
+
+  if (!ticketWritten) {
+    // Билет не влез — без него из чужой шкуры не выбраться. Откатываемся.
+    await supabase.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    });
+    return { error: "Не удалось сохранить возврат к своей сессии" };
+  }
 
   revalidatePath("/", "layout");
   redirect("/dashboard");

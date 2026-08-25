@@ -1,79 +1,29 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { Suspense, useEffect, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
-
-import { createClient } from "@/lib/supabase/client";
-import { unsubscribePushForSignOut } from "@/lib/push/client";
-import { clearImpersonationForSignOut } from "@/lib/impersonation/actions";
+import { readActiveImpersonation } from "@/lib/impersonation/session";
+import { SignOutRunner } from "./_components/sign-out-runner";
 
 /**
- * /auth/sign-out — client-side sign-out + редирект на ?next= (default /login).
+ * /auth/sign-out — выход из СВОЕЙ сессии + редирект на ?next= (default /login).
  *
  * Раньше был server-route с supabase.auth.signOut() — в проде висел /
  * timed out (видимо, server-side GoTrue endpoint иногда долго отвечает,
- * + Next.js RSC-prefetch шлёт side-effecting GET). Теперь client:
- * мгновенно чистит куки на стороне браузера, потом router.replace.
+ * + Next.js RSC-prefetch шлёт side-effecting GET). Сам выход остался
+ * клиентским (см. _components/sign-out-runner.tsx), серверной осталась
+ * только проверка ниже.
  *
- * Suspense-wrapper: Next 15 требует чтобы `useSearchParams()` жил под
- * Suspense — иначе static-prerender падает с «missing-suspense-with-csr-
- * bailout» (Coolify build #260 поймал именно это). Само ожидание params
- * мгновенно (это client-side bailout, не data-fetch), так что fallback
- * показывает тот же спиннер.
+ * Проверка нужна вот зачем: пока идёт просмотр за другого пользователя,
+ * текущая сессия — не ваша, а синтетическая. Выходить из неё нечем:
+ * глобальный signOut отозвал бы токены сотрудника на всех его
+ * устройствах, локальный оставил бы вас разлогиненным с чужим «обратным
+ * билетом» в куке. Поэтому из режима просмотра ровно один выход —
+ * вернуться к себе, и уже потом выходить. Здесь мы просто возвращаем
+ * человека в приложение, где эта кнопка есть (баннер сверху и пункт в
+ * меню профиля).
  */
-export default function SignOutPage() {
-  return (
-    <Suspense fallback={<SignOutShell />}>
-      <SignOutInner />
-    </Suspense>
-  );
-}
-
-function SignOutInner() {
-  const router = useRouter();
-  const params = useSearchParams();
-  const ranRef = useRef(false);
-
-  useEffect(() => {
-    if (ranRef.current) return;
-    ranRef.current = true;
-    const next = params.get("next") || "/login";
-    const supabase = createClient();
-    // Отписываем браузер от push ДО signOut (server action требует
-    // активной сессии). На общем устройстве это не даёт следующему
-    // юзеру получать push прежнего владельца.
-    // scope: 'local' — без round-trip'а на GoTrue, просто чистим
-    // sb-cookies локально. Этого достаточно для нашего case'а
-    // (юзер сменил email и хочет залогиниться заново).
-    // clearImpersonationForSignOut — кука с «обратным билетом» httpOnly,
-    // клиентский signOut() её не тронет. Без этого после следующего входа
-    // под собой висел бы мёртвый impersonation-баннер.
-    // Порядок как в сайдбаре: сначала выход, потом уборка билета — пока
-    // сессия жива, билет остаётся единственным путём назад. .catch по тому
-    // же принципу, что и у unsubscribePushForSignOut: это best-effort
-    // уборка, её сбой не должен ломать сам выход.
-    unsubscribePushForSignOut()
-      .then(() => supabase.auth.signOut({ scope: "local" }))
-      .then(({ error }) => {
-        // signOut резолвится с { error }, а не реджектится, поэтому просто
-        // цепочка .then() тут не годится: билет удалился бы и после
-        // неудачного выхода, оставив человека в чужой сессии без возврата.
-        if (error) return;
-        return clearImpersonationForSignOut().catch(() => {});
-      })
-      .finally(() => router.replace(next));
-  }, [params, router]);
-
-  return <SignOutShell />;
-}
-
-function SignOutShell() {
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white px-6">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo-full.svg" alt="Sheerly" className="h-8 mb-12" />
-      <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-    </div>
-  );
+export default async function SignOutPage() {
+  if (await readActiveImpersonation()) {
+    redirect("/dashboard");
+  }
+  return <SignOutRunner />;
 }

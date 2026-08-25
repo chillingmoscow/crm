@@ -6,33 +6,34 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
-  User,
+  ArrowLeftRight,
+  BookOpen,
+  Boxes,
   Building2,
-  Shield,
-  LogOut,
-  Settings,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   ChevronsUpDown,
+  ClipboardList,
+  Eye,
   FileBadge2,
   Keyboard,
   Laptop,
   LayoutDashboard,
   LifeBuoy,
+  LogOut,
   Moon,
-  Sun,
+  PackageSearch,
+  ScrollText,
+  Settings,
+  Shield,
   SlidersHorizontal,
+  Sun,
   Tags,
+  User,
   Users,
   Wallet,
-  ArrowLeftRight,
-  BookOpen,
-  Boxes,
-  ScrollText,
-  ClipboardList,
-  PackageSearch,
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
@@ -51,7 +52,7 @@ import {
 } from "@/components/ui/popover";
 import { createClient } from "@/lib/supabase/client";
 import { unsubscribePushForSignOut } from "@/lib/push/client";
-import { clearImpersonationForSignOut } from "@/lib/impersonation/actions";
+import { stopImpersonation } from "@/lib/impersonation/actions";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
 import { SupportReportDialog } from "@/components/shared/support-report-dialog";
@@ -220,6 +221,10 @@ interface AppSidebarProps {
    *  active) до того как hydration-effect поднимет module-store
    *  (Codex P2 на PR #129). */
   kbSidebarHidden?: boolean;
+  /** Идёт режим просмотра за другого пользователя. Пока он активен, выход
+   *  из аккаунта недоступен: из чужой сессии выходить нечем — сначала
+   *  нужно вернуться в свою. См. src/lib/impersonation. */
+  isImpersonating?: boolean;
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -273,6 +278,7 @@ function SidebarBody({
   userPermissions,
   staffAttentionCount = 0,
   kbSidebarHidden = false,
+  isImpersonating = false,
 }: AppSidebarProps) {
   // activeRoleName / accountName в SidebarBody не нужны — раньше
   // прокидывались в ProfileMenu для верхнего user-блока, который убран.
@@ -339,6 +345,16 @@ function SidebarBody({
   const [supportOpen, setSupportOpen] = useState(false);
 
   const handleSignOut = async () => {
+    // Из чужой шкуры выйти нельзя — только вернуться в свою. Иначе пришлось
+    // бы решать, чью сессию мы гасим и что делать с билетом, а это ровно
+    // тот узел, из которого росли баги. Здесь просто нет второй ветки:
+    // пункт меню меняет смысл, а не поведение выхода.
+    if (isImpersonating) {
+      const result = await stopImpersonation();
+      if (result?.error) toast.error(result.error);
+      return;
+    }
+
     // Отписываем браузер от push ДО signOut (server action требует
     // сессии). На общем устройстве это не даёт следующему юзеру
     // получать push прежнего владельца.
@@ -348,13 +364,6 @@ function SidebarBody({
       toast.error("Не удалось выйти");
       return;
     }
-    // Билет режима просмотра — httpOnly, клиентский signOut его не тронет.
-    // Это ОСНОВНОЙ выход из аккаунта, и без уборки кука с живыми токенами
-    // разработчика пережила бы выход на общем браузере.
-    // Строго ПОСЛЕ успешного signOut: если выход не удался, мы всё ещё в
-    // чужой сессии, и билет — единственный путь назад. Удалив его раньше,
-    // мы бы заперли человека в чужой шкуре без баннера.
-    await clearImpersonationForSignOut().catch(() => {});
     // Полная перезагрузка: сбрасывает Next Router Cache и RSC
     // прошлой сессии (иначе после смены аккаунта видны старые
     // права/сайдбар до ручного refresh).
@@ -500,6 +509,7 @@ function SidebarBody({
             </PopoverTrigger>
             <ProfileMenu
               onSignOut={handleSignOut}
+              isImpersonating={isImpersonating}
               onClose={() => setUserMenuOpen(false)}
               onOpenSupport={() => setSupportOpen(true)}
             />
@@ -533,6 +543,7 @@ function SidebarBody({
             </PopoverTrigger>
             <ProfileMenu
               onSignOut={handleSignOut}
+              isImpersonating={isImpersonating}
               onClose={() => setUserMenuOpen(false)}
               onOpenSupport={() => setSupportOpen(true)}
             />
@@ -808,10 +819,12 @@ function ProfileMenu({
   onSignOut,
   onClose,
   onOpenSupport,
+  isImpersonating = false,
 }: {
   onSignOut: () => void;
   onClose: () => void;
   onOpenSupport: () => void;
+  isImpersonating?: boolean;
 }) {
   // Note: верхний user-блок (name + role · account + avatar) намеренно
   // убран — он дублировал trigger-кнопку в футере сайдбара (на которую
@@ -877,7 +890,9 @@ function ProfileMenu({
 
       <div className="h-px bg-border" />
 
-      {/* Logout */}
+      {/* Logout. В режиме просмотра за другого пользователя пункт меняет
+          смысл: выйти из чужой сессии нельзя, можно только вернуться в
+          свою — и уже оттуда выходить. Одна кнопка, один сценарий. */}
       <div className="px-1.5 pt-1.5 pb-2">
         <button
           type="button"
@@ -885,10 +900,19 @@ function ProfileMenu({
             onClose();
             onSignOut();
           }}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-semibold text-destructive hover:bg-destructive/5 transition-colors w-full text-left"
+          className={
+            "flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors w-full text-left " +
+            (isImpersonating
+              ? "text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-500/15"
+              : "text-destructive hover:bg-destructive/5")
+          }
         >
-          <LogOut className="w-3.5 h-3.5" />
-          Выйти из аккаунта
+          {isImpersonating ? (
+            <Eye className="w-3.5 h-3.5" />
+          ) : (
+            <LogOut className="w-3.5 h-3.5" />
+          )}
+          {isImpersonating ? "Вернуться к себе" : "Выйти из аккаунта"}
         </button>
       </div>
     </PopoverContent>

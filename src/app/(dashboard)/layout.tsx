@@ -182,6 +182,7 @@ export default async function DashboardLayout({
         userPermissions={userPermissions}
         staffAttentionCount={staffAttentionCount}
         kbSidebarHidden={kbSidebarHidden}
+        isImpersonating={Boolean(activeImpersonation)}
       />
       {/* min-w-0: SidebarInset и вложенный <main> — флекс-элементы с
           дефолтным min-width:auto. Без этого широкий потомок (напр. таблица

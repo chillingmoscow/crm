@@ -278,11 +278,16 @@ async function abortIntoOwnSession(
   }
 
   try {
-    await supabase.auth.signOut();
-    return `${reason}, и вернуть вашу сессию не вышло — войдите заново`;
+    // scope: "local" — гасим ТОЛЬКО эту синтетическую сессию в этом
+    // браузере. Глобальный scope отозвал бы refresh-токены сотрудника на
+    // всех его устройствах: человек, который ничего не делал, оказался бы
+    // разлогинен везде.
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (!error) return `${reason}, и вернуть вашу сессию не вышло — войдите заново`;
   } catch {
-    return `${reason}. Вы остались в чужой сессии — выйдите из аккаунта вручную`;
+    // падаем в общий текст ниже
   }
+  return `${reason}. Выйти автоматически тоже не вышло — очистите куки сайта`;
 }
 
 /** Список для пикера на /dev/impersonate. */
@@ -430,35 +435,33 @@ export async function stopImpersonation(): Promise<{ error: string | null }> {
   // момент, когда фичу выключают на проде, — оставляя человека в чужой
   // шкуре без выхода.
   const supabase = await createClient();
-  const { error } = await supabase.auth.setSession({
+
+  // Основной путь: вернуть свою сессию.
+  const { error: restoreError } = await supabase.auth.setSession({
     access_token: state.originAccessToken,
     refresh_token: state.originRefreshToken,
   });
 
-  if (error) {
-    // Куку намеренно НЕ гасим. При временном сбое сессия цели остаётся
-    // живой, баннер вместе с ней — и попытку можно повторить; погасив
-    // куку, мы бы оставили человека в чужом кабинете без единого
-    // признака этого. При жёстком отказе (токен отозван или протух)
-    // supabase-js сам роняет локальную сессию, и человек оказывается на
-    // /login с этим текстом — тоже безопасный исход. Осиротевшая кука
-    // безвредна: баннер её игнорирует (targetUserId не совпадёт с
-    // текущим юзером), а следующий startImpersonation её погасит.
-    return {
-      error: `Не удалось вернуть вашу сессию (${error.message}). Выйдите и войдите заново.`,
-    };
+  if (!restoreError) {
+    await clearImpersonation();
+    revalidatePath("/", "layout");
+    redirect("/dashboard");
   }
 
-  await clearImpersonation();
-  revalidatePath("/", "layout");
-  redirect("/dashboard");
-}
+  // Свою сессию вернуть не вышло (токен отозван, GoTrue недоступен).
+  // Оставлять человека в чужой шкуре нельзя, поэтому выходим совсем —
+  // но локально, чтобы не отозвать сессии сотрудника на его устройствах.
+  const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
 
-/**
- * Погасить «обратный билет» перед sign-out. Кука httpOnly, клиентский
- * signOut() до неё не дотянется, и после следующего входа под собой
- * висел бы мёртвый баннер.
- */
-export async function clearImpersonationForSignOut(): Promise<void> {
-  await clearImpersonation();
+  if (!signOutError) {
+    await clearImpersonation();
+    revalidatePath("/", "layout");
+    redirect("/login");
+  }
+
+  // Ни туда, ни сюда. Билет НЕ гасим: мы всё ещё в чужой сессии, и он —
+  // единственное, что рисует баннер и даёт повторить попытку.
+  return {
+    error: `Не удалось вернуть вашу сессию (${restoreError.message}) и выйти тоже не вышло (${signOutError.message}). Попробуйте ещё раз.`,
+  };
 }

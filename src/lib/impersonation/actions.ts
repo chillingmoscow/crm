@@ -1,0 +1,408 @@
+"use server";
+
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  createClient,
+  getCachedUser,
+  getCachedActiveAccountId,
+} from "@/lib/supabase/server";
+import { isImpersonationAllowed, isImpersonationEnabled } from "./config";
+import {
+  clearImpersonation,
+  readImpersonation,
+  writeImpersonation,
+} from "./session";
+
+export type ImpersonationTarget = {
+  userId: string;
+  name: string;
+  email: string;
+  /** Заведения моего аккаунта, где у человека активный membership. */
+  venueName: string;
+  roleName: string;
+  /** null = цель доступна; строка = почему нельзя (показываем серым). */
+  blockedReason: string | null;
+};
+
+const NOT_ALLOWED = "Режим просмотра за другого пользователя недоступен";
+
+/** Из auth.users нам нужны только эти два поля. */
+type AuthUserLite = { email?: string | null; email_confirmed_at?: string | null };
+
+function fullName(
+  first: string | null,
+  last: string | null,
+  email: string
+): string {
+  const joined = [first, last].filter(Boolean).join(" ").trim();
+  return joined || email.split("@")[0] || "Без имени";
+}
+
+/**
+ * Собирает список людей активного аккаунта, за которых можно посмотреть.
+ *
+ * Идёт через service-role: обычный клиент под RLS показал бы только
+ * сотрудников активного venue, а нам нужны все venue аккаунта. Право на
+ * это уже проверено (allowlist + владение аккаунтом через
+ * get_active_account_id), поэтому обход RLS здесь осознанный.
+ */
+async function collectTargets(): Promise<{
+  targets: ImpersonationTarget[];
+  accountId: string | null;
+  error: string | null;
+}> {
+  const me = await getCachedUser();
+  if (!me) return { targets: [], accountId: null, error: "Не авторизован" };
+  if (!isImpersonationAllowed(me.id)) {
+    return { targets: [], accountId: null, error: NOT_ALLOWED };
+  }
+
+  const accountId = await getCachedActiveAccountId();
+  if (!accountId) {
+    return { targets: [], accountId: null, error: "Нет активного аккаунта" };
+  }
+
+  const admin = createAdminClient();
+
+  const { data: myVenues, error: venuesErr } = await admin
+    .from("venues")
+    .select("id, name")
+    .eq("account_id", accountId);
+  if (venuesErr) return { targets: [], accountId, error: venuesErr.message };
+
+  const myVenueIds = (myVenues ?? []).map((v) => v.id);
+  if (myVenueIds.length === 0) {
+    return { targets: [], accountId, error: null };
+  }
+  const venueNameById = new Map(
+    (myVenues ?? []).map((v) => [v.id, v.name as string])
+  );
+
+  const { data: memberships, error: membersErr } = await admin
+    .from("user_venue_roles")
+    .select("user_id, venue_id, role_id")
+    .in("venue_id", myVenueIds)
+    .eq("status", "active");
+  if (membersErr) return { targets: [], accountId, error: membersErr.message };
+
+  const candidateIds = [
+    ...new Set((memberships ?? []).map((m) => m.user_id as string)),
+  ].filter((id) => id !== me.id);
+
+  if (candidateIds.length === 0) {
+    return { targets: [], accountId, error: null };
+  }
+
+  const roleIds = [
+    ...new Set((memberships ?? []).map((m) => m.role_id as string)),
+  ];
+
+  // Всё, что нужно для карточек и для guard'ов, — одним заходом.
+  const [
+    { data: roles },
+    { data: profiles },
+    { data: allMemberships, error: allMembershipsErr },
+    { data: ownedAccounts, error: ownedAccountsErr },
+  ] = await Promise.all([
+    admin.from("roles").select("id, name").in("id", roleIds),
+    admin.from("profiles").select("id, first_name, last_name").in("id", candidateIds),
+    // Активные membership'ы кандидатов ВЕЗДЕ, не только у меня — база
+    // для кросс-тенантного guard'а.
+    admin
+      .from("user_venue_roles")
+      .select("user_id, venue_id")
+      .in("user_id", candidateIds)
+      .eq("status", "active"),
+    admin.from("accounts").select("id, owner_id").in("owner_id", candidateIds),
+  ]);
+
+  // Эти два запроса — сырьё кросс-тенантного guard'а, а не украшение
+  // карточек. Проглотить их ошибку через `?? []` значит молча выключить
+  // guard: множество «состоит ещё в одном аккаунте» окажется пустым, и
+  // чужой сотрудник станет доступной целью. Падаем закрыто.
+  if (allMembershipsErr || ownedAccountsErr) {
+    return {
+      targets: [],
+      accountId,
+      error: `Не удалось проверить принадлежность сотрудников к аккаунту: ${
+        (allMembershipsErr ?? ownedAccountsErr)!.message
+      }`,
+    };
+  }
+
+  const roleNameById = new Map(
+    (roles ?? []).map((r) => [r.id as string, r.name as string])
+  );
+  const profileById = new Map(
+    (profiles ?? []).map((p) => [
+      p.id as string,
+      { first: p.first_name as string | null, last: p.last_name as string | null },
+    ])
+  );
+
+  // venue -> account для всех venue, где кандидаты состоят.
+  const foreignVenueIds = [
+    ...new Set(
+      (allMemberships ?? [])
+        .map((m) => m.venue_id as string)
+        .filter((id) => !myVenueIds.includes(id))
+    ),
+  ];
+  const foreignVenueOwners = new Map<string, string>();
+  if (foreignVenueIds.length > 0) {
+    const { data: foreignVenues, error: foreignVenuesErr } = await admin
+      .from("venues")
+      .select("id, account_id")
+      .in("id", foreignVenueIds);
+    // Тоже guard-запрос: без него не узнать, чьи это venue.
+    if (foreignVenuesErr) {
+      return {
+        targets: [],
+        accountId,
+        error: `Не удалось проверить чужие заведения: ${foreignVenuesErr.message}`,
+      };
+    }
+    for (const v of foreignVenues ?? []) {
+      foreignVenueOwners.set(v.id as string, v.account_id as string);
+    }
+  }
+
+  const outsideAccount = new Set<string>();
+  for (const m of allMemberships ?? []) {
+    const otherAccount = foreignVenueOwners.get(m.venue_id as string);
+    if (otherAccount && otherAccount !== accountId) {
+      outsideAccount.add(m.user_id as string);
+    }
+  }
+  for (const a of ownedAccounts ?? []) {
+    if ((a.id as string) !== accountId) {
+      outsideAccount.add(a.owner_id as string);
+    }
+  }
+
+  // email + email_confirmed_at живут в auth.users, PostgREST её не
+  // отдаёт — только через Admin Auth API, по одному на пользователя.
+  // Через runWithConcurrency, а не Promise.all: в аккаунте сети может быть
+  // под сотню человек, и столько же одновременных запросов в GoTrue —
+  // лишний способ словить таймаут. Ошибку по одному человеку глотаем:
+  // он просто станет заблокированной целью («не найден в Auth»).
+  const authById = new Map<string, AuthUserLite | null>();
+  await runWithConcurrency(candidateIds, 8, async (id) => {
+    try {
+      const { data } = await admin.auth.admin.getUserById(id);
+      authById.set(id, data?.user ?? null);
+    } catch {
+      authById.set(id, null);
+    }
+  });
+
+  // Заведения/роли конкретного человека внутри МОЕГО аккаунта.
+  const placesByUser = new Map<string, { venues: string[]; roles: string[] }>();
+  for (const m of memberships ?? []) {
+    const uid = m.user_id as string;
+    if (uid === me.id) continue;
+    const bucket = placesByUser.get(uid) ?? { venues: [], roles: [] };
+    const venueName = venueNameById.get(m.venue_id as string);
+    const roleName = roleNameById.get(m.role_id as string);
+    if (venueName && !bucket.venues.includes(venueName)) bucket.venues.push(venueName);
+    if (roleName && !bucket.roles.includes(roleName)) bucket.roles.push(roleName);
+    placesByUser.set(uid, bucket);
+  }
+
+  const targets: ImpersonationTarget[] = candidateIds.map((id) => {
+    const authUser = authById.get(id) ?? null;
+    const email = authUser?.email ?? "";
+    const profile = profileById.get(id);
+    const places = placesByUser.get(id) ?? { venues: [], roles: [] };
+
+    let blockedReason: string | null = null;
+    if (!authUser) {
+      blockedReason = "Пользователь не найден в Auth";
+    } else if (!email) {
+      blockedReason = "У пользователя нет email";
+    } else if (outsideAccount.has(id)) {
+      // Иначе, войдя его глазами, через штатный venue-switcher можно
+      // уехать в чужой тенант.
+      blockedReason = "Состоит ещё в одном аккаунте";
+    } else if (!authUser.email_confirmed_at) {
+      // Верификация magic-link подтверждает email побочным эффектом —
+      // на placeholder-юзерах это молча меняет их состояние.
+      blockedReason = "Email не подтверждён";
+    }
+
+    return {
+      userId: id,
+      name: fullName(profile?.first ?? null, profile?.last ?? null, email),
+      email,
+      venueName: places.venues.join(", ") || "—",
+      roleName: places.roles.join(", ") || "—",
+      blockedReason,
+    };
+  });
+
+  targets.sort((a, b) => {
+    if (!a.blockedReason !== !b.blockedReason) return a.blockedReason ? 1 : -1;
+    return a.name.localeCompare(b.name, "ru");
+  });
+
+  return { targets, accountId, error: null };
+}
+
+/** Список для пикера на /dev/impersonate. */
+export async function listImpersonationTargets(): Promise<{
+  targets: ImpersonationTarget[];
+  error: string | null;
+}> {
+  const { targets, error } = await collectTargets();
+  return { targets, error };
+}
+
+/**
+ * Войти в приложение глазами другого пользователя.
+ *
+ * Не имитирует личность — по-настоящему меняет сессию. Порядок важен:
+ * снимаем свои токены → генерим magic-link цели → сохраняем «обратный
+ * билет» → верифицируем токен (это и перезапишет sb-* куки).
+ */
+export async function startImpersonation(
+  targetUserId: string
+): Promise<{ error: string | null }> {
+  if (!isImpersonationEnabled()) return { error: NOT_ALLOWED };
+
+  const me = await getCachedUser();
+  if (!me) return { error: "Не авторизован" };
+  if (!isImpersonationAllowed(me.id)) return { error: NOT_ALLOWED };
+  if (targetUserId === me.id) return { error: "Это вы и есть" };
+
+  const already = await readImpersonation();
+  if (already?.targetUserId === me.id) {
+    return {
+      error: "Вы уже смотрите за другого пользователя — сначала вернитесь к себе",
+    };
+  }
+  if (already) {
+    // Кука есть, но текущая сессия — не та цель: значит просмотр не
+    // состоялся (упал verifyOtp) либо человек успел перелогиниться.
+    // Такой «обратный билет» уже никуда не ведёт, гасим и идём дальше,
+    // иначе вход был бы заперт до истечения куки.
+    await clearImpersonation();
+  }
+
+  // Цель проверяем заново на сервере: клиенту с его списком не верим.
+  const { targets, error: listError } = await collectTargets();
+  if (listError) return { error: listError };
+
+  const target = targets.find((t) => t.userId === targetUserId);
+  if (!target) return { error: "Пользователь не найден в вашем аккаунте" };
+  if (target.blockedReason) return { error: target.blockedReason };
+
+  const supabase = await createClient();
+
+  // getSession(), а не getUser(): нужны сами токены, а их отдаёт только
+  // сессия. Токены тут же уедут в httpOnly-куку и клиенту не достанутся.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token || !session?.refresh_token) {
+    return { error: "Не удалось снять текущую сессию — перелогиньтесь" };
+  }
+
+  const admin = createAdminClient();
+  const { data: linkData, error: linkError } =
+    await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email: target.email,
+    });
+
+  const tokenHash = linkData?.properties?.hashed_token;
+  if (linkError || !tokenHash) {
+    return {
+      error: linkError?.message ?? "Не удалось выпустить токен для входа",
+    };
+  }
+
+  await writeImpersonation({
+    v: 1,
+    originUserId: me.id,
+    originAccessToken: session.access_token,
+    originRefreshToken: session.refresh_token,
+    targetUserId: target.userId,
+    targetName: target.name,
+    targetRoleName: target.roleName === "—" ? null : target.roleName,
+    targetVenueName: target.venueName === "—" ? null : target.venueName,
+    startedAt: new Date().toISOString(),
+  });
+
+  let verifyMessage: string | null = null;
+  try {
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: "magiclink",
+    });
+    verifyMessage = verifyError?.message ?? null;
+  } catch (err) {
+    // Сетевой сбой до GoTrue приходит исключением, а не { error }.
+    verifyMessage = err instanceof Error ? err.message : "Не удалось войти";
+  }
+  if (verifyMessage) {
+    // Сессия не сменилась — «обратный билет» больше не нужен и только
+    // мешал бы следующей попытке.
+    await clearImpersonation();
+    return { error: verifyMessage };
+  }
+
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
+}
+
+/** Вернуться к себе: восстановить сохранённую сессию. */
+export async function stopImpersonation(): Promise<{ error: string | null }> {
+  const state = await readImpersonation();
+  if (!state) return { error: "Режим просмотра не активен" };
+
+  // Кука httpOnly, но setSession() применит те токены, что в ней лежат.
+  // Проверяем, что «обратный билет» выписан на того, кому вообще разрешён
+  // этот режим — иначе подложенная кука стала бы способом залогинить
+  // человека в чужую сессию (session fixation).
+  if (!isImpersonationAllowed(state.originUserId)) {
+    await clearImpersonation();
+    return { error: NOT_ALLOWED };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.setSession({
+    access_token: state.originAccessToken,
+    refresh_token: state.originRefreshToken,
+  });
+
+  if (error) {
+    // Куку намеренно НЕ гасим. При временном сбое сессия цели остаётся
+    // живой, баннер вместе с ней — и попытку можно повторить; погасив
+    // куку, мы бы оставили человека в чужом кабинете без единого
+    // признака этого. При жёстком отказе (токен отозван или протух)
+    // supabase-js сам роняет локальную сессию, и человек оказывается на
+    // /login с этим текстом — тоже безопасный исход. Осиротевшая кука
+    // безвредна: баннер её игнорирует (targetUserId не совпадёт с
+    // текущим юзером), а следующий startImpersonation её погасит.
+    return {
+      error: `Не удалось вернуть вашу сессию (${error.message}). Выйдите и войдите заново.`,
+    };
+  }
+
+  await clearImpersonation();
+  revalidatePath("/", "layout");
+  redirect("/dashboard");
+}
+
+/**
+ * Погасить «обратный билет» перед sign-out. Кука httpOnly, клиентский
+ * signOut() до неё не дотянется, и после следующего входа под собой
+ * висел бы мёртвый баннер.
+ */
+export async function clearImpersonationForSignOut(): Promise<void> {
+  await clearImpersonation();
+}

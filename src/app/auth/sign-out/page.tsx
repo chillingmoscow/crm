@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { unsubscribePushForSignOut } from "@/lib/push/client";
+import { clearImpersonationForSignOut } from "@/lib/impersonation/actions";
 
 /**
  * /auth/sign-out — client-side sign-out + редирект на ?next= (default /login).
@@ -45,7 +46,14 @@ function SignOutInner() {
     // scope: 'local' — без round-trip'а на GoTrue, просто чистим
     // sb-cookies локально. Этого достаточно для нашего case'а
     // (юзер сменил email и хочет залогиниться заново).
+    // clearImpersonationForSignOut — кука с «обратным билетом» httpOnly,
+    // клиентский signOut() её не тронет. Без этого после следующего входа
+    // под собой висел бы мёртвый impersonation-баннер.
+    // .catch по тому же принципу, что и у unsubscribePushForSignOut:
+    // это best-effort уборка, и её сбой не должен оборвать цепочку до
+    // самого signOut — иначе сетевой блип оставил бы юзера залогиненным.
     unsubscribePushForSignOut()
+      .then(() => clearImpersonationForSignOut().catch(() => {}))
       .then(() => supabase.auth.signOut({ scope: "local" }))
       .finally(() => router.replace(next));
   }, [params, router]);

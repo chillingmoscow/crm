@@ -12,6 +12,8 @@ import { PushPromptBanner } from "@/components/shared/push-prompt-banner";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
 import { HotkeysDialogProvider } from "@/components/shared/hotkeys-dialog";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
+import { ImpersonationBanner } from "@/components/shared/impersonation-banner";
+import { readImpersonation } from "@/lib/impersonation/session";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function DashboardLayout({
@@ -138,6 +140,14 @@ export default async function DashboardLayout({
   // flicker'а (Codex P2 на PR #129).
   const kbSidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
 
+  // Режим «смотрю за другого пользователя» (см. src/lib/impersonation).
+  // Сверяем цель с текущей сессией: если человек успел выйти и войти под
+  // собой, кука с «обратным билетом» ещё жива, но относится к прошлой
+  // сессии — баннер по ней рисовать нельзя.
+  const impersonation = await readImpersonation();
+  const activeImpersonation =
+    impersonation && impersonation.targetUserId === user.id ? impersonation : null;
+
   return (
     // delayDuration=500 — задержка перед показом, чтобы tooltip не
     // выскакивал моментально при beit-курсорах и случайных проходах.
@@ -167,12 +177,19 @@ export default async function DashboardLayout({
           создаёт scroll-контейнер, поэтому sticky-шапки таблиц продолжают
           липнуть к верху страницы. */}
       <SidebarInset className="min-w-0">
+        {activeImpersonation && (
+          <ImpersonationBanner
+            targetName={activeImpersonation.targetName}
+            roleName={activeImpersonation.targetRoleName}
+            venueName={activeImpersonation.targetVenueName}
+          />
+        )}
         <KbSearchProvider aiAskEnabled={aiAskEnabled}>
           <PageHeaderActionsProvider>
             {/* Top bar: [trigger | breadcrumb] … [actions | bell].
                 На /knowledge скрывается — KB рендерит собственный topbar
                 (см. components/shared/dashboard-topbar.tsx). */}
-            <PushPromptBanner />
+            {!activeImpersonation && <PushPromptBanner />}
             <DashboardTopbar />
             <main className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</main>
           </PageHeaderActionsProvider>

@@ -151,7 +151,25 @@ export default async function DashboardLayout({
     // Должно совпадать с вложенным TooltipProvider в SidebarProvider
     // (components/ui/sidebar.tsx), иначе значение оттуда перекрывает это.
     <TooltipProvider delayDuration={500} skipDelayDuration={500}>
-    <SidebarProvider defaultOpen={sidebarDefaultOpen}>
+    <SidebarProvider
+      defaultOpen={sidebarDefaultOpen}
+      // Баннер режима просмотра — fixed, поэтому из потока он выпадает и
+      // накрыл бы верх сайдбара и контента. Освобождаем ему место отступом
+      // на всём враппере; box-border оставляет общую высоту равной экрану.
+      className={activeImpersonation ? "pt-[var(--impersonation-offset)]" : undefined}
+      style={
+        activeImpersonation
+          ? ({ "--impersonation-offset": "49px" } as React.CSSProperties)
+          : undefined
+      }
+    >
+      {activeImpersonation && (
+        <ImpersonationBanner
+          targetName={userName}
+          roleName={activeRoleName}
+          venueName={activeVenue?.venue_name ?? null}
+        />
+      )}
       <AppSidebar
         userName={userName}
         userEmail={user.email ?? ""}
@@ -174,13 +192,6 @@ export default async function DashboardLayout({
           создаёт scroll-контейнер, поэтому sticky-шапки таблиц продолжают
           липнуть к верху страницы. */}
       <SidebarInset className="min-w-0">
-        {activeImpersonation && (
-          <ImpersonationBanner
-            targetName={userName}
-            roleName={activeRoleName}
-            venueName={activeVenue?.venue_name ?? null}
-          />
-        )}
         <KbSearchProvider aiAskEnabled={aiAskEnabled}>
           <PageHeaderActionsProvider>
             {/* Top bar: [trigger | breadcrumb] … [actions | bell].

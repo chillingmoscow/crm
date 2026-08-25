@@ -20,7 +20,7 @@ type Props = {
  * поэтому любая запись уйдёт в БД от его имени, а `log_audit()` проставит
  * его в `audit_logs.user_id`. Отличить такую запись от настоящей потом
  * нельзя, так что баннер — единственная защита от «забыл, где я». Отсюда
- * sticky и полная ширина: он не должен уезжать при скролле.
+ * fixed и полная ширина: он не должен уезжать при скролле.
  *
  * Палитра warning из docs/design-system.md §«Dark-варианты статусных
  * бейджей» (эталон — InventoryStatusBadge), rounded-none — по §«Скругления»
@@ -43,7 +43,12 @@ export function ImpersonationBanner({ targetName, roleName, venueName }: Props) 
   return (
     <div
       className={
-        "sticky top-0 z-30 flex items-center gap-3 rounded-none border-b " +
+        // fixed, а не sticky. В globals.css у html и body стоит
+        // overflow-x: hidden — это делает body scroll-контейнером и ломает
+        // прилипание к вьюпорту: баннер просто уезжал вверх вместе со
+        // страницей. Место под него освобождает padding-top на
+        // sidebar-враппере (см. dashboard/layout.tsx).
+        "fixed inset-x-0 top-0 z-50 flex items-center gap-3 rounded-none border-b " +
         "border-amber-200 bg-amber-50 px-4 py-2 md:px-6 " +
         "dark:border-amber-500/30 dark:bg-amber-500/15"
       }

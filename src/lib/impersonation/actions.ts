@@ -254,6 +254,37 @@ async function collectTargets(): Promise<{
   return { targets, accountId, error: null };
 }
 
+/**
+ * Аварийный выход из уже надетой чужой шкуры, когда билет выписать не вышло.
+ *
+ * Порядок важен: сначала пробуем вернуть свою сессию, и только если это не
+ * удалось — принудительно разлогиниваем. Просто вернуть ошибку нельзя: к
+ * этому моменту verifyOtp уже поставил чужие куки, и без одного из двух
+ * действий человек останется в чужом кабинете без баннера и без выхода.
+ */
+async function abortIntoOwnSession(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  origin: { access_token: string; refresh_token: string },
+  reason: string
+): Promise<string> {
+  try {
+    const { error } = await supabase.auth.setSession({
+      access_token: origin.access_token,
+      refresh_token: origin.refresh_token,
+    });
+    if (!error) return `${reason} — вход отменён`;
+  } catch {
+    // падаем в разлогин ниже
+  }
+
+  try {
+    await supabase.auth.signOut();
+    return `${reason}, и вернуть вашу сессию не вышло — войдите заново`;
+  } catch {
+    return `${reason}. Вы остались в чужой сессии — выйдите из аккаунта вручную`;
+  }
+}
+
 /** Список для пикера на /dev/impersonate. */
 export async function listImpersonationTargets(): Promise<{
   targets: ImpersonationTarget[];
@@ -344,12 +375,13 @@ export async function startImpersonation(
 
   if (!targetSessionId) {
     // Билет без привязки к сессии небезопасен, а без билета не вернуться.
-    // Откатываем вход сразу, чтобы не оставить человека в чужой шкуре.
-    await supabase.auth.setSession({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-    });
-    return { error: "Не удалось привязать сессию просмотра — попробуйте ещё раз" };
+    return {
+      error: await abortIntoOwnSession(
+        supabase,
+        session,
+        "Не удалось привязать сессию просмотра"
+      ),
+    };
   }
 
   // Имя, должность и заведение в билет НЕ кладём: их длина ничем не
@@ -367,12 +399,14 @@ export async function startImpersonation(
   });
 
   if (!ticketWritten) {
-    // Билет не влез — без него из чужой шкуры не выбраться. Откатываемся.
-    await supabase.auth.setSession({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-    });
-    return { error: "Не удалось сохранить возврат к своей сессии" };
+    // Билет не влез — без него из чужой шкуры не выбраться.
+    return {
+      error: await abortIntoOwnSession(
+        supabase,
+        session,
+        "Не удалось сохранить возврат к своей сессии"
+      ),
+    };
   }
 
   revalidatePath("/", "layout");

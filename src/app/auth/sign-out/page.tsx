@@ -55,7 +55,13 @@ function SignOutInner() {
     // уборка, её сбой не должен ломать сам выход.
     unsubscribePushForSignOut()
       .then(() => supabase.auth.signOut({ scope: "local" }))
-      .then(() => clearImpersonationForSignOut().catch(() => {}))
+      .then(({ error }) => {
+        // signOut резолвится с { error }, а не реджектится, поэтому просто
+        // цепочка .then() тут не годится: билет удалился бы и после
+        // неудачного выхода, оставив человека в чужой сессии без возврата.
+        if (error) return;
+        return clearImpersonationForSignOut().catch(() => {});
+      })
       .finally(() => router.replace(next));
   }, [params, router]);
 

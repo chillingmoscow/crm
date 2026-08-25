@@ -2137,8 +2137,9 @@ export async function finalizeInventoryResults(input: {
     // Постусловие: убеждаемся, что QR реально провёл акт. /action на удалённом /
     // изменённом акте может тихо вернуть 200 ничего не сделав — тогда локально
     // НЕ помечаем проведённым, иначе разъедемся с QR (источник правды).
+    let qrDocAfter: QuickRestoInventoryDocument2 | null = null;
     try {
-      const qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+      qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
       if (!qrDocAfter.processed) {
         console.error("[finalize] QR не отметил акт проведённым после process", {
           documentId: document.id,
@@ -2162,11 +2163,21 @@ export async function finalizeInventoryResults(input: {
     }
 
     const finalizedAt = new Date().toISOString();
+    // Суммы акта (колонка «Сумма итогов» в списке) Quick Resto заполняет
+    // ТОЛЬКО у проведённого акта: до проведения public-payload отдаёт нули,
+    // а мы читали акт именно до. Поэтому по всем актам в списке стояло 0
+    // (прод: СВ340 — 0 против 16 301,75 ₽ в QR). Берём их из ответа, которым
+    // только что подтвердили проведение; если QR не прислал числа, оставляем
+    // прежние значения, а не затираем нулями.
+    const qrShortfallSum = num(qrDocAfter?.shortfallSum);
+    const qrSurplusSum = num(qrDocAfter?.surplusSum);
     const { error } = await admin
       .from("documents")
       .update({
         status: "processed",
         processed: true,
+        ...(qrShortfallSum !== null ? { shortfall_sum: qrShortfallSum } : {}),
+        ...(qrSurplusSum !== null ? { surplus_sum: qrSurplusSum } : {}),
         results_finalized_at: finalizedAt,
         results_finalized_by: ctx.user.id,
         // Включает снимок строк (finalized_* выше) — с этого момента страница

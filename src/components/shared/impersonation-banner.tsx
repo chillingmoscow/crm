@@ -33,10 +33,16 @@ export function ImpersonationBanner({ targetName, roleName, venueName }: Props) 
 
   const handleReturn = () => {
     startTransition(async () => {
-      const result = await stopImpersonation();
       // Успех уводит редиректом внутри самого action'а — сюда попадаем
-      // только когда вернуть сессию не удалось.
-      if (result?.error) toast.error(result.error);
+      // только когда вернуть сессию не удалось. catch на случай сетевого
+      // сбоя: без него кнопка молча не сработает, а это единственный
+      // выход из режима просмотра.
+      try {
+        const result = await stopImpersonation();
+        if (result?.error) toast.error(result.error);
+      } catch {
+        toast.error("Не удалось вернуться к себе — попробуйте ещё раз");
+      }
     });
   };
 

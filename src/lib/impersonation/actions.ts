@@ -436,13 +436,23 @@ export async function stopImpersonation(): Promise<{ error: string | null }> {
   // шкуре без выхода.
   const supabase = await createClient();
 
-  // Основной путь: вернуть свою сессию.
-  const { error: restoreError } = await supabase.auth.setSession({
-    access_token: state.originAccessToken,
-    refresh_token: state.originRefreshToken,
-  });
+  // Дальше важен порядок: redirect() из next/navigation бросает
+  // NEXT_REDIRECT, поэтому он обязан стоять ВНЕ try — иначе catch поймает
+  // собственный редирект и примет его за сбой сети.
 
-  if (!restoreError) {
+  // Основной путь: вернуть свою сессию.
+  let restoreMessage: string | null = null;
+  try {
+    const { error } = await supabase.auth.setSession({
+      access_token: state.originAccessToken,
+      refresh_token: state.originRefreshToken,
+    });
+    restoreMessage = error?.message ?? null;
+  } catch (err) {
+    restoreMessage = err instanceof Error ? err.message : "сбой связи";
+  }
+
+  if (!restoreMessage) {
     await clearImpersonation();
     revalidatePath("/", "layout");
     redirect("/dashboard");
@@ -451,9 +461,15 @@ export async function stopImpersonation(): Promise<{ error: string | null }> {
   // Свою сессию вернуть не вышло (токен отозван, GoTrue недоступен).
   // Оставлять человека в чужой шкуре нельзя, поэтому выходим совсем —
   // но локально, чтобы не отозвать сессии сотрудника на его устройствах.
-  const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+  let signOutMessage: string | null = null;
+  try {
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    signOutMessage = error?.message ?? null;
+  } catch (err) {
+    signOutMessage = err instanceof Error ? err.message : "сбой связи";
+  }
 
-  if (!signOutError) {
+  if (!signOutMessage) {
     await clearImpersonation();
     revalidatePath("/", "layout");
     redirect("/login");
@@ -462,6 +478,6 @@ export async function stopImpersonation(): Promise<{ error: string | null }> {
   // Ни туда, ни сюда. Билет НЕ гасим: мы всё ещё в чужой сессии, и он —
   // единственное, что рисует баннер и даёт повторить попытку.
   return {
-    error: `Не удалось вернуть вашу сессию (${restoreError.message}) и выйти тоже не вышло (${signOutError.message}). Попробуйте ещё раз.`,
+    error: `Не удалось вернуть вашу сессию (${restoreMessage}) и выйти тоже не вышло (${signOutMessage}). Попробуйте ещё раз.`,
   };
 }

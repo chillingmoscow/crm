@@ -22,8 +22,20 @@ import { SignOutRunner } from "./_components/sign-out-runner";
  * меню профиля).
  */
 export default async function SignOutPage() {
-  if (await readActiveImpersonation()) {
-    redirect("/dashboard");
+  // Падаем ОТКРЫТО: если проверка сама сломалась, пускаем выходить.
+  // Невозможность выйти из аккаунта — худший исход, чем пропущенный
+  // редирект, а пропуск ничем не грозит: билет привязан к session_id,
+  // после нового входа он мёртв.
+  let impersonating = false;
+  try {
+    impersonating = Boolean(await readActiveImpersonation());
+  } catch {
+    impersonating = false;
   }
+
+  // redirect() вне try — он бросает NEXT_REDIRECT, и catch выше принял бы
+  // собственный редирект за поломку проверки.
+  if (impersonating) redirect("/dashboard");
+
   return <SignOutRunner />;
 }

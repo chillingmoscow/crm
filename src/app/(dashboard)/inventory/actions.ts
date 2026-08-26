@@ -23,6 +23,10 @@ import {
 } from "@/lib/inventory/results-recheck";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
 import {
+  createInventoryDocumentBackOffice,
+  createInventoryItemBackOffice,
+  removeInventoryDocumentBackOffice,
+  removeInventoryItemBackOffice,
   listDishes,
   listIngredientTreeItems,
   listInventoryDocuments,
@@ -31,6 +35,7 @@ import {
   readInventoryDocument,
   updateInventoryItemBackOffice,
   type QuickRestoInventoryDocument2,
+  type QuickRestoInventoryItem2,
   type QuickRestoSingleCategory,
   type QuickRestoSingleProduct,
 } from "@/lib/integrations/quickresto/client";
@@ -75,6 +80,7 @@ import {
   syncDocumentItems,
   text,
   upsertExternalLink,
+  withBackOfficeSession,
   writeInventoryResultEvent,
   type InventoryExclusionRuleLookup,
   type InventoryProductLookup,
@@ -2833,6 +2839,358 @@ export async function returnDocumentForRecount(input: {
     return { error: null };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось отправить акт на пересчёт") };
+  }
+}
+
+/**
+ * Вынести отмеченные позиции в отдельный акт пересчёта с датой пересчёта.
+ *
+ * Зачем: расчётный остаток в Quick Resto привязан к дате акта. Позиция, которую
+ * пересчитывают через день-два, в исходном акте сравнивалась бы с остатком на
+ * его дату — и всё движение между датами (поставка, продажи) попадало бы в
+ * разницу. В отдельном акте с датой пересчёта базу считает сам QR.
+ *
+ * Как это ложится на Quick Resto API (проверено на проде 2026-08-26):
+ *  - акт создаётся ПУСТЫМ (`document.v2/create`), позиции добавляются по одной
+ *    (`items/create`);
+ *  - вынесенные строки из исходного акта именно УДАЛЯЮТСЯ
+ *    (`items/remove`) — в акте не остаётся фиктивного «сошлось»;
+ *  - операция идемпотентна: если акт пересчёта на эту дату уже создан
+ *    (предыдущая попытка упала на середине), мы продолжаем наполнять его.
+ *    Если упали до первой перенесённой позиции — созданный акт удаляется
+ *    (`document.v2/remove`), чтобы не плодить пустышки.
+ */
+export async function splitDocumentForRecount(input: {
+  documentId: string;
+  /** Дата пересчёта, YYYY-MM-DD. */
+  recountDate: string;
+  note?: string | null;
+}): Promise<{ error: string | null; recountDocumentId?: string }> {
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.recount_documents"]);
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const { data: document } = await admin
+      .from<{
+        id: string;
+        status: string;
+        results_finalized_at: string | null;
+        assigned_to: string | null;
+        reviewer_id: string | null;
+        document_number: string;
+        venue_id: string | null;
+        store_id: string | null;
+        external_store_id: string | null;
+        external_id: string | null;
+        archived_at: string | null;
+        processed: boolean;
+      }>("documents")
+      .select(
+        "id, status, results_finalized_at, assigned_to, reviewer_id, document_number, venue_id, store_id, external_store_id, external_id, archived_at, processed",
+      )
+      .eq("id", input.documentId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+
+    if (!document?.id) return { error: "Акт не найден" };
+    if (document.archived_at) return { error: "Акт удалён в Quick Resto." };
+    if (document.processed || document.results_finalized_at) {
+      return { error: "Акт уже проведён. Вынести позиции можно только до проведения." };
+    }
+    if (document.status !== "ready_for_review" && document.status !== "results_blocked") {
+      return {
+        error:
+          "Вынести позиции можно только у акта со статусом «Готов к проверке» или «Итоги требуют проверки».",
+      };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.recountDate)) {
+      return { error: "Некорректная дата пересчёта." };
+    }
+    const externalStoreId = Number(document.external_store_id);
+    if (!Number.isFinite(externalStoreId)) {
+      return { error: "У акта не определён склад Quick Resto." };
+    }
+    const documentExternalId = Number(document.external_id);
+    if (!Number.isFinite(documentExternalId)) {
+      return { error: "У акта некорректный ID Quick Resto." };
+    }
+
+    const { data: flaggedItems } = await admin
+      .from<
+        Array<{
+          id: string;
+          external_item_id: string;
+          product_name: string;
+          ingredient_id: string | null;
+          calculated_amount: number | null;
+          raw_payload: QuickRestoInventoryItem2 | null;
+        }>
+      >("document_items")
+      .select("id, external_item_id, product_name, ingredient_id, calculated_amount, raw_payload")
+      .eq("document_id", document.id)
+      .eq("account_id", ctx.accountId)
+      .eq("needs_recount", true);
+    const flagged = flaggedItems ?? [];
+    if (flagged.length === 0) return { error: "Отметьте хотя бы одну строку на пересчёт." };
+    const withoutPayload = flagged.filter((item) => !item.raw_payload?.product);
+    if (withoutPayload.length > 0) {
+      return {
+        error: `По ${withoutPayload.length} строкам нет данных Quick Resto — обновите итоги и повторите.`,
+      };
+    }
+
+    const connection = await getConnection(ctx.accountId);
+    if (!connection) return { error: "Активное подключение Quick Resto не найдено" };
+    const basicAuthPassword = connectionPassword(connection);
+    const qrAuth = {
+      layerName: connection.login,
+      baseUrl: connection.backoffice_base_url,
+      basicAuthLogin: connection.login,
+      basicAuthPassword,
+    };
+
+    // Идемпотентность: акт пересчёта мог быть создан предыдущей (упавшей)
+    // попыткой, а удалить его в QR нельзя — поэтому продолжаем наполнять его.
+    const { data: existingChildren } = await admin
+      .from<Array<{ id: string; external_id: string; invoice_date: string | null }>>("documents")
+      .select("id, external_id, invoice_date")
+      .eq("account_id", ctx.accountId)
+      .eq("recount_of_document_id", document.id)
+      .eq("processed", false);
+    const existingChild = (existingChildren ?? []).find(
+      (row) => (row.invoice_date ?? "").slice(0, 10) === input.recountDate,
+    );
+
+    let recountExternalId = existingChild ? Number(existingChild.external_id) : null;
+    let recountLocalId = existingChild?.id ?? null;
+
+    if (!recountExternalId || !Number.isFinite(recountExternalId)) {
+      // 09:00 UTC — безопасная точка внутри суток: QR трактует дату в таймзоне
+      // заведения, и полночь могла бы «съехать» на предыдущий день.
+      const invoiceDate = Date.parse(`${input.recountDate}T09:00:00.000Z`);
+      const createdDoc = await withBackOfficeSession({
+        connection,
+        admin,
+        run: (cookieHeader) =>
+          createInventoryDocumentBackOffice({
+            ...qrAuth,
+            cookieHeader,
+            storeId: externalStoreId,
+            invoiceDate,
+            comment: `Пересчёт по акту ${document.document_number}`,
+          }),
+      });
+      if (typeof createdDoc?.id !== "number") {
+        return { error: "Quick Resto не создал акт пересчёта. Попробуйте ещё раз." };
+      }
+      recountExternalId = createdDoc.id;
+
+      const { data: localChild, error: childError } = await admin
+        .from<{ id: string }>("documents")
+        .upsert(
+          {
+            account_id: ctx.accountId,
+            external_id: String(createdDoc.id),
+            document_kind: "inventory",
+            document_number: inventoryDocumentNumber(createdDoc),
+            invoice_date: dateText(createdDoc.invoiceDate) ?? `${input.recountDate}T09:00:00.000Z`,
+            store_id: document.store_id,
+            external_store_id: document.external_store_id,
+            status: document.assigned_to ? "assigned" : "synced",
+            processed: false,
+            results_has_line_amounts: false,
+            comment: `Пересчёт по акту ${document.document_number}`,
+            qr_payload: createdDoc,
+            synced_at: new Date().toISOString(),
+            recount_of_document_id: document.id,
+            assigned_to: document.assigned_to,
+            reviewer_id: document.reviewer_id ?? ctx.user.id,
+          },
+          { onConflict: "account_id,external_id" },
+        )
+        .select("id")
+        .single();
+      if (childError || !localChild?.id) {
+        return {
+          error: `Акт пересчёта создан в Quick Resto (id ${createdDoc.id}), но не сохранён локально: ${childError?.message ?? "неизвестная ошибка"}`,
+        };
+      }
+      recountLocalId = localChild.id;
+    }
+
+    const targetExternalId = recountExternalId as number;
+    const targetLocalId = recountLocalId as string;
+
+    const moved: string[] = [];
+    try {
+      for (const item of flagged) {
+        const sample = item.raw_payload as QuickRestoInventoryItem2;
+        // Сначала кладём позицию в акт пересчёта, потом убираем из исходного:
+        // при сбое между шагами позиция максимум задвоится, а не пропадёт.
+        await withBackOfficeSession({
+          connection,
+          admin,
+          run: (cookieHeader) =>
+            createInventoryItemBackOffice({
+              ...qrAuth,
+              cookieHeader,
+              documentId: targetExternalId,
+              sample,
+              actualAmount: 0,
+            }),
+        });
+
+        await withBackOfficeSession({
+          connection,
+          admin,
+          run: (cookieHeader) =>
+            removeInventoryItemBackOffice({
+              ...qrAuth,
+              cookieHeader,
+              documentId: documentExternalId,
+              item: sample,
+            }),
+        });
+
+        await admin.from("inventory_recount_moves").insert({
+          account_id: ctx.accountId,
+          document_id: document.id,
+          recount_document_id: targetLocalId,
+          external_item_id: item.external_item_id,
+          product_name: item.product_name,
+          ingredient_id: item.ingredient_id,
+          moved_by: ctx.user.id,
+        });
+        moved.push(item.id);
+      }
+    } catch (moveError) {
+      const message = moveError instanceof Error ? moveError.message : "Quick Resto не ответил";
+      if (moved.length === 0 && !existingChild) {
+        // Ничего перенести не успели — убираем за собой пустой акт.
+        try {
+          const createdQrDoc = await readInventoryDocument({
+            layerName: connection.login,
+            login: connection.login,
+            password: basicAuthPassword,
+            objectId: targetExternalId,
+          });
+          await withBackOfficeSession({
+            connection,
+            admin,
+            run: (cookieHeader) =>
+              removeInventoryDocumentBackOffice({ ...qrAuth, cookieHeader, document: createdQrDoc }),
+          });
+          await admin
+            .from("documents")
+            .delete()
+            .eq("id", targetLocalId)
+            .eq("account_id", ctx.accountId);
+        } catch (rollbackError) {
+          console.error("[splitDocumentForRecount] откат пустого акта не удался", rollbackError);
+        }
+        return { error: `Не удалось перенести позиции: ${message}` };
+      }
+      return {
+        error:
+          `Перенесено позиций: ${moved.length} из ${flagged.length}, дальше Quick Resto ответил ошибкой: ${message}. ` +
+          "Повторите операцию — оставшиеся позиции уйдут в тот же акт пересчёта.",
+      };
+    }
+
+    // Отметки пересчёта снимаем: строки уехали в другой акт.
+    if (moved.length > 0) {
+      await admin
+        .from("document_items")
+        .update({
+          needs_recount: false,
+          recount_auto_flagged: false,
+          recount_marked_by: null,
+          recount_marked_at: null,
+          recount_note: null,
+        })
+        .eq("document_id", document.id)
+        .eq("account_id", ctx.accountId)
+        .in("id", moved);
+    }
+
+    // Перечитываем оба акта — состояние после правок берём у источника правды.
+    for (const target of [
+      { localId: document.id, externalId: documentExternalId },
+      { localId: targetLocalId, externalId: targetExternalId },
+    ]) {
+      try {
+        const qrDoc = await readInventoryDocument({
+          layerName: connection.login,
+          login: connection.login,
+          password: basicAuthPassword,
+          objectId: target.externalId,
+        });
+        const boItems = await listBackOfficeInventoryItemsWithSession({
+          connection,
+          admin,
+          documentExternalId: target.externalId,
+        });
+        await refreshLocalInventoryDocumentFromPayload({
+          admin,
+          accountId: ctx.accountId,
+          documentId: target.localId,
+          document: { ...qrDoc, effectedItems: boItems },
+        });
+      } catch (refreshError) {
+        console.error("[splitDocumentForRecount] перечитать акт не удалось", {
+          documentId: target.localId,
+          error: refreshError,
+        });
+      }
+    }
+
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: "recount_split",
+      message: `Вынес позиции на пересчёт (${moved.length}) в отдельный акт на ${input.recountDate}`,
+      payload: {
+        recountDocumentId: targetLocalId,
+        recountExternalId: targetExternalId,
+        recountDate: input.recountDate,
+        itemCount: moved.length,
+        note: input.note ?? null,
+      },
+    });
+    await writeInventoryResultEvent({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: targetLocalId,
+      eventType: "recount_split",
+      message: `Акт пересчёта по акту № ${document.document_number}`,
+      payload: { parentDocumentId: document.id, itemCount: moved.length },
+    });
+
+    if (document.assigned_to) {
+      await notifyInventoryDocumentEvent({
+        admin,
+        recipientId: document.assigned_to,
+        actorId: ctx.user.id,
+        venueId: document.venue_id,
+        documentId: targetLocalId,
+        type: "inventory.document.assigned",
+        title: "Назначен акт пересчёта",
+        body: `Позиции из акта № ${document.document_number} нужно пересчитать в новом акте на ${input.recountDate}.`,
+      });
+    }
+
+    revalidatePath("/documents/inventory");
+    revalidateInventoryResultPages(document.id);
+    revalidateInventoryResultPages(targetLocalId);
+    return { error: null, recountDocumentId: targetLocalId };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось вынести позиции в акт пересчёта") };
   }
 }
 

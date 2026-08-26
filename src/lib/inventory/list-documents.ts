@@ -165,8 +165,8 @@ export async function listInventoryDocuments(
         documentIds,
       }).then((data) => ({ data })),
       admin
-        .from<Array<{ id: string; results_reopened_after_processed: boolean | null }>>("documents")
-        .select("id, results_reopened_after_processed")
+        .from<Array<{ id: string; results_reopened_after_processed: boolean | null; recount_of_document_id: string | null }>>("documents")
+        .select("id, results_reopened_after_processed, recount_of_document_id")
         .in("id", documentIds),
     ]);
 
@@ -174,6 +174,11 @@ export async function listInventoryDocuments(
       (docFlagRows ?? [])
         .filter((row) => row.results_reopened_after_processed)
         .map((row) => row.id),
+    );
+    const recountParentByDoc = new Map(
+      (docFlagRows ?? [])
+        .filter((row) => row.recount_of_document_id)
+        .map((row) => [row.id, row.recount_of_document_id as string]),
     );
     const activeResortIds = new Set((resortRows ?? []).map((resort) => resort.id));
 
@@ -218,6 +223,7 @@ export async function listInventoryDocuments(
     for (const row of rows) {
       // F6: метка «итоги правились после проведения» — независимо от наличия позиций.
       row.results_reopened_after_processed = reopenedAfterProcessedIds.has(row.id);
+      row.recount_of_document_id = recountParentByDoc.get(row.id) ?? null;
       const items = itemsByDoc.get(row.id);
       if (!items) continue;
       const totals = calculateManagementTotals({

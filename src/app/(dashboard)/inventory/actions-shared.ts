@@ -613,6 +613,35 @@ export async function getBackOfficeCookie(input: {
   return refreshBackOfficeCookie(input);
 }
 
+
+/**
+ * Выполнить backoffice-операцию под сессией sheerly-bot с одним auth-ретраем.
+ *
+ * Тот же паттерн, что у listBackOfficeInventoryItemsWithSession: cookie
+ * протухает и Spring ротирует remember-me, поэтому при auth-ошибке логинимся
+ * заново и повторяем ровно один раз.
+ */
+export async function withBackOfficeSession<T>(input: {
+  connection: QuickRestoConnection;
+  admin: LooseDb;
+  run: (cookieHeader: string) => Promise<T>;
+}): Promise<T> {
+  const cookieHeader = await getBackOfficeCookie({
+    connection: input.connection,
+    admin: input.admin,
+  });
+  try {
+    return await input.run(cookieHeader);
+  } catch (error) {
+    if (!isBackOfficeAuthError(error)) throw error;
+    const fresh = await refreshBackOfficeCookie({
+      connection: input.connection,
+      admin: input.admin,
+    });
+    return input.run(fresh);
+  }
+}
+
 export async function listBackOfficeInventoryItemsWithSession(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   type ColumnDef,
@@ -42,7 +43,6 @@ import {
   finalizeInventoryResults,
   getAiResortSuggestions,
   reopenInventoryResults,
-  returnDocumentForRecount,
   setInventoryResultItemExcluded,
   setRecountFlag,
   updateInventoryResultComment,
@@ -125,6 +125,7 @@ import {
 import { cn } from "@/lib/utils";
 import { IngredientOverviewSheet } from "./ingredient-overview-sheet";
 import { RefreshResultsButton } from "./refresh-results-button";
+import { RecountSplitDialog } from "./recount-split-dialog";
 
 export type InventoryDocumentResultItem = {
   id: string;
@@ -203,6 +204,16 @@ type Props = {
   /** Когда сняли снимок построчных итогов (миграция 221). Не null → в таблице
       зафиксированные числа, а не живые из Quick Resto. */
   resultsSnapshotAt: string | null;
+  /** Дата акта (ISO) — для развилки «пересчёт сегодня / другим днём». */
+  documentInvoiceDate: string | null;
+  /** Акты пересчёта, в которые вынесены позиции этого акта. */
+  recountSplits: Array<{
+    documentId: string;
+    documentNumber: string;
+    invoiceDate: string | null;
+    status: string;
+    itemCount: number;
+  }>;
   /** Read-only: финализирован ИЛИ проведён в QR и не разблокирован. */
   isLocked: boolean;
   canComment: boolean;
@@ -248,6 +259,8 @@ export function InventoryResultsTable({
   amountRoundingScale,
   isFinalized,
   resultsSnapshotAt,
+  documentInvoiceDate,
+  recountSplits,
   isLocked,
   canComment,
   canAdjust,
@@ -1188,6 +1201,27 @@ export function InventoryResultsTable({
         />
       </div>
 
+      {recountSplits.length > 0 ? (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-900 dark:text-blue-200">
+          {recountSplits.map((split) => (
+            <div key={split.documentId} className="flex flex-wrap items-center gap-1">
+              <span>
+                {split.itemCount} {pluralRu(split.itemCount, "позиция вынесена", "позиции вынесены", "позиций вынесено")} в
+              </span>
+              <Link href={`/documents/inventory/${split.documentId}/results`} className="font-medium underline underline-offset-2">
+                акт пересчёта № {split.documentNumber}
+              </Link>
+              {split.invoiceDate ? (
+                <span>от {new Date(split.invoiceDate).toLocaleDateString("ru-RU")}</span>
+              ) : null}
+              <span className="text-blue-900/70 dark:text-blue-200/70">
+                — расхождение по ним считается на дату пересчёта
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {/* Pin-row — порядок 1-в-1 с documents-table: Сортировка → divider →
           Расхождения · Группа · Статус → divider → Поиск → «Очистить все». */}
       {/* Pin-row НЕ показываем, если активен только поиск (без фильтров/
@@ -1568,20 +1602,15 @@ export function InventoryResultsTable({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={adjustLocked || isPending || flaggedCount === 0}
-                      onClick={() =>
-                        runAction(
-                          () => returnDocumentForRecount({ documentId }),
-                          `Акт отправлен на пересчёт (${flaggedCount} ${pluralRu(flaggedCount, "строка", "строки", "строк")})`,
-                        )
-                      }
-                    >
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                      Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
-                    </Button>
+                    {/* Развилка «сегодня / другим днём»: расчётный остаток в QR
+                        привязан к дате акта, поэтому пересчёт другим днём должен
+                        уходить в отдельный акт (см. recount-split-dialog). */}
+                    <RecountSplitDialog
+                      documentId={documentId}
+                      documentInvoiceDate={documentInvoiceDate}
+                      flaggedCount={flaggedCount}
+                      disabled={adjustLocked || isPending}
+                    />
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>

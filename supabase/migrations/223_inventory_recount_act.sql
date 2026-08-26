@@ -86,6 +86,11 @@ create policy "inventory_recount_moves_select" on public.inventory_recount_moves
     )
   );
 
+-- Гранты: только чтение. Новая таблица иначе получает полный набор прав из
+-- ALTER DEFAULT PRIVILEGES (миграции 021/047), и хотя RLS без write-политик
+-- запись всё равно не пропустит, оставлять висящие INSERT/UPDATE/DELETE нельзя —
+-- это тот же defense in depth, что в миграции 219.
+revoke all on public.inventory_recount_moves from anon, authenticated;
 grant select on public.inventory_recount_moves to anon, authenticated;
 
 -- 3) Событие журнала о выносе позиций.

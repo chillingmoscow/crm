@@ -2940,6 +2940,26 @@ export async function splitDocumentForRecount(input: {
       };
     }
 
+    // Строку, сведённую в активный пересорт, выносить нельзя: она удаляется из
+    // акта, а вместе с ней каскадом уходит половина пересорта. Тот же гард, что
+    // на исключении строки из итогов.
+    const activeResortItemIds = await getActiveResortItemIds({
+      admin,
+      accountId: ctx.accountId,
+      documentId: document.id,
+      itemIds: flagged.map((item) => item.id),
+    });
+    if (activeResortItemIds.size > 0) {
+      const names = flagged
+        .filter((item) => activeResortItemIds.has(item.id))
+        .map((item) => item.product_name)
+        .slice(0, 3)
+        .join(", ");
+      return {
+        error: `Позиции в активном пересорте выносить нельзя — сначала отмените пересорт (${names}).`,
+      };
+    }
+
     const connection = await getConnection(ctx.accountId);
     if (!connection) return { error: "Активное подключение Quick Resto не найдено" };
     const basicAuthPassword = connectionPassword(connection);
@@ -3121,7 +3141,7 @@ export async function splitDocumentForRecount(input: {
       }
       return {
         error:
-          `Перенесено позиций: ${moved.length} из ${flagged.length}, дальше Quick Resto ответил ошибкой: ${message}. ` +
+          `Перенесено позиций: ${moved.length} из ${pending.length}, дальше Quick Resto ответил ошибкой: ${message}. ` +
           "Повторите операцию — оставшиеся позиции уйдут в тот же акт пересчёта.",
       };
     }

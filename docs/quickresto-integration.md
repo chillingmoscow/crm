@@ -178,8 +178,12 @@ helper `callQuickRestoBackOfficeData`, который добавляет `Origin
 
 Документ (`public API read`):
 
-- `effectedItems` в public-payload **всегда пуст** — позиции только через
-  backoffice `items/select`;
+- позиции с расчётным остатком и разницей отдаёт **только** backoffice
+  `items/select`. Массивы позиций public-payload (`effectedItems`,
+  `prefabricatedItems`, `disassembledItems`) на живых актах приходили пустыми,
+  но пустыми они бывают не всегда: `syncQuickRestoInventory` намеренно
+  сваливается на них, когда backoffice недоступен, и сохраняет оттуда хотя бы
+  id строк и `actualAmount`. Этот fallback рабочий — удалять его нельзя;
 - `shortfallSum` / `surplusSum` заполняются **только после проведения**, до него нули;
 - `className` в ответе — `…document.v2.InventoryDocument`, тогда как константа
   `INVENTORY_DOCUMENT_UPDATE_CLASS` в клиенте — `…document.InventoryDocument2`.

@@ -151,6 +151,40 @@ helper `callQuickRestoBackOfficeData`, который добавляет `Origin
 - `processInventoryDocumentBackOffice({ … cookieHeader, basicAuthLogin, basicAuthPassword })` —
   прямой fetch с минимальными headers для state-changing `/action`.
 
+### Семантика полей акта инвентаризации
+
+Проверено на проде 2026-08-25/26 (акты СВ324, СВ338–СВ350).
+
+Строка акта (`warehouse.inventory.items/select`):
+
+| Поле QR | Смысл | Куда мапим |
+| --- | --- | --- |
+| `amountAtStore` (= `storeQuantity` = `storeQuantityKg`) | расчётный остаток | `calculated_amount` |
+| `actualAmount` | факт, введённый при подсчёте | `actual_amount` |
+| `amountTotal` | «общий фактический остаток» | — |
+| `delta` | факт − расчётный | `difference_amount` |
+| `differenceCost` | `delta × costPrice` | `difference_sum` |
+| `costPrice` | себестоимость | `prime_cost` |
+
+Отдельного `calculatedAmount` в payload **нет** — не искать.
+
+**Расчётный остаток привязан к дате акта (`invoiceDate`), а не к моменту чтения.**
+Продажи и поставки после даты акта его не двигают: акт СВ324 с пятидневным
+разрывом между подсчётом и пересчётом показал 297 из 305 позиций без
+расхождения. Меняется он только когда правят учёт за период **до** даты акта
+(документы задним числом, пересчёт остатков) — так у СВ340 уехали 6 позиций на
+16 212,50 ₽ уже после того, как мы прочитали акт. Практическое следствие: перед
+проведением строки нужно перечитывать и сверять (`finalizeInventoryResults`).
+
+Документ (`public API read`):
+
+- `effectedItems` в public-payload **всегда пуст** — позиции только через
+  backoffice `items/select`;
+- `shortfallSum` / `surplusSum` заполняются **только после проведения**, до него нули;
+- `className` в ответе — `…document.v2.InventoryDocument`, тогда как константа
+  `INVENTORY_DOCUMENT_UPDATE_CLASS` в клиенте — `…document.InventoryDocument2`.
+  При create/update это стоит проверять отдельно.
+
 ### Auth-retry
 
 Backoffice cookie живёт ограниченное время; кроме того, Spring's

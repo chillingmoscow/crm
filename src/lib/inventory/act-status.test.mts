@@ -5,6 +5,8 @@ import {
   FORM_LOCKED_STATUSES,
   getAssigneeLockReason,
   getInventoryResultAdjustLockReason,
+  getInventoryResultRefreshLockReason,
+  resolveStatusAfterImport,
   getReviewerLockReason,
   isInventoryFormLocked,
   isInventoryResultAdjustLocked,
@@ -186,5 +188,50 @@ test("nextStatusAfterAssign: смена на пересчёте сохраняе
 test("nextStatusAfterAssign: обычное назначение → assigned", () => {
   for (const s of ["synced", "assigned", "in_progress"] as const) {
     assert.equal(nextStatusAfterAssign(s, "user-1"), "assigned");
+  }
+});
+
+test("refresh lock reason: импорт из QR закрыт ровно на залоченных итогах", () => {
+  for (const status of ["synced", "assigned", "in_progress", "ready_for_review", "results_blocked"] as const) {
+    assert.equal(getInventoryResultRefreshLockReason({ ...OPEN, status }), null);
+  }
+  // Пересчёт лочит и импорт: он перезаписал бы строки под руками исполнителя
+  // и вышиб бы его из формы (статус уехал бы в ready_for_review).
+  assert.match(getInventoryResultRefreshLockReason({ ...OPEN, status: "recount_pending" }) ?? "", /пересч/i);
+
+  assert.match(
+    getInventoryResultRefreshLockReason({ status: "ready_for_review", results_finalized_at: "2026-08-24T12:27:43Z", results_reopened_at: null }) ?? "",
+    /зафиксирован/i,
+  );
+  assert.match(getInventoryResultRefreshLockReason({ ...OPEN, status: "processed" }) ?? "", /проведён/i);
+});
+
+test("refresh lock reason: переоткрытые итоги снова можно импортировать", () => {
+  assert.equal(
+    getInventoryResultRefreshLockReason({
+      status: "processed",
+      results_finalized_at: null,
+      results_reopened_at: "2026-08-25T09:00:00Z",
+    }),
+    null,
+  );
+});
+
+test("статус после импорта: акт у исполнителя не двигаем", () => {
+  for (const current of ["synced", "assigned", "in_progress", "recount_pending"] as const) {
+    assert.equal(resolveStatusAfterImport({ current, processed: false, resultsFound: true }), current);
+    assert.equal(resolveStatusAfterImport({ current, processed: false, resultsFound: false }), current);
+  }
+});
+
+test("статус после импорта: на проверке уточняем по наличию расчётов", () => {
+  assert.equal(resolveStatusAfterImport({ current: "ready_for_review", processed: false, resultsFound: true }), "ready_for_review");
+  assert.equal(resolveStatusAfterImport({ current: "ready_for_review", processed: false, resultsFound: false }), "results_blocked");
+  assert.equal(resolveStatusAfterImport({ current: "results_blocked", processed: false, resultsFound: true }), "ready_for_review");
+});
+
+test("статус после импорта: проведение в QR перебивает всё", () => {
+  for (const current of ["recount_pending", "in_progress", "ready_for_review"] as const) {
+    assert.equal(resolveStatusAfterImport({ current, processed: true, resultsFound: false }), "processed");
   }
 });

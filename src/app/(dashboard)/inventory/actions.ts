@@ -10,10 +10,17 @@ import {
 } from "@/lib/inventory/results";
 import {
   getAssigneeLockReason,
+  getInventoryResultRefreshLockReason,
   getReviewerLockReason,
   isInventoryFormLocked,
   nextStatusAfterAssign,
 } from "@/lib/inventory/act-status";
+import {
+  compareResultLines,
+  describeResultDrift,
+  hasResultDrift,
+  type InventoryRecheckLine,
+} from "@/lib/inventory/results-recheck";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
 import {
   listDishes,
@@ -431,24 +438,16 @@ export async function syncQuickRestoInventory(input?: {
       // Подсчёт остатков в нашем флоу ведётся ТОЛЬКО в CRM (submitted_amount).
       // Full-sync обновляет список позиций и метаданные акта, но НЕ должен
       // перетирать уже введённые количества QR-нулями: для непроведённого акта
-      // QR присылает actualAmount=0 как дефолт. Читаем существующие
-      // submitted_amount по external_item_id и переносим их обратно.
-      const { data: existingItems } = await admin
-        .from<Array<{ external_item_id: string; submitted_amount: number | null }>>("document_items")
-        .select("external_item_id, submitted_amount")
-        .eq("document_id", data.id);
-      const preservedSubmitted = new Map<string, number | null>(
-        (existingItems ?? [])
-          .filter((row) => row.submitted_amount !== null)
-          .map((row) => [row.external_item_id, row.submitted_amount]),
-      );
+      // QR присылает actualAmount=0 как дефолт. submittedAmounts не передаём —
+      // syncDocumentItems сам сохраняет уже введённые значения по строкам,
+      // которых нет в вызове (см. resolveSubmittedAmount). Отдельная
+      // предзагрузка здесь была лишним запросом на каждый акт.
       const result = await syncDocumentItems({
         admin,
         accountId: ctx.accountId,
         documentId: data.id,
         items,
         productByExternalId,
-        submittedAmounts: preservedSubmitted,
       });
       summary.items += result.count;
       if (!result.resultsFound) summary.resultsBlocked += 1;
@@ -1138,8 +1137,11 @@ export async function refreshInventoryDocumentResults(input: {
       account_id: string;
       external_id: string;
       assigned_to: string | null;
+      status: string;
+      results_finalized_at: string | null;
+      results_reopened_at: string | null;
     }>("documents")
-    .select("id, account_id, external_id, assigned_to")
+    .select("id, account_id, external_id, assigned_to, status, results_finalized_at, results_reopened_at")
     .eq("id", input.documentId)
     .eq("account_id", ctx.accountId)
     .maybeSingle();
@@ -1150,6 +1152,14 @@ export async function refreshInventoryDocumentResults(input: {
   const allowed = Boolean(canViewDocuments) || (Boolean(canFill) && document.assigned_to === ctx.user.id);
   if (!allowed) {
     return { processed: false, resultsHasLineAmounts: false, error: "Недостаточно прав" };
+  }
+
+  // Импорт заменяет построчные итоги тем, что QR отдаёт СЕЙЧАС. На залоченных
+  // итогах это молча перезаписывает утверждённые числа — так и потерялись итоги
+  // акта СВ340. Легальный путь — сначала переоткрыть итоги.
+  const refreshLockReason = getInventoryResultRefreshLockReason(document);
+  if (refreshLockReason) {
+    return { processed: false, resultsHasLineAmounts: false, error: refreshLockReason };
   }
 
   const connection = await getConnection(ctx.accountId);
@@ -1185,6 +1195,18 @@ export async function refreshInventoryDocumentResults(input: {
       document: documentWithRows,
       status: qrDocument.processed ? "processed" : undefined,
     });
+
+    // Quick Resto ответил без позиций — данные акта мы намеренно не тронули.
+    // Раньше это молча удаляло все строки; теперь говорим об этом вслух, иначе
+    // пользователь решит, что «обновилось» и цифры актуальны.
+    if (syncResult.skippedEmptyPayload) {
+      return {
+        processed: Boolean(qrDocument.processed),
+        resultsHasLineAmounts: false,
+        error:
+          "Quick Resto не вернул позиции акта — данные оставлены без изменений. Попробуйте ещё раз через минуту.",
+      };
+    }
 
     revalidatePath("/documents/inventory");
     revalidatePath(`/documents/inventory/${document.id}`);
@@ -2092,6 +2114,103 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    // Сверка перед проведением. Между тем моментом, когда проверяющий смотрел
+    // «Итоги», и нажатием «Подвести итоги» Quick Resto мог пересчитать
+    // расчётные остатки (правки в учёте за период до даты акта). Тогда
+    // утверждают одни числа, а проводятся другие — так и вышло с СВ340:
+    // на экране был итог +89,25 ₽, провелось +16 301,75 ₽.
+    // Поэтому: перечитываем строки, и если они разъехались — НЕ проводим,
+    // а показываем разницу и просим подтвердить ещё раз.
+    const readResultLines = async (): Promise<InventoryRecheckLine[]> => {
+      const { data } = await admin
+        .from<Array<{ external_item_id: string; difference_amount: number | null; difference_sum: number | null }>>(
+          "document_items",
+        )
+        .select("external_item_id, difference_amount, difference_sum")
+        .eq("account_id", ctx.accountId)
+        .eq("document_id", document.id);
+      return (data ?? []).map((row) => ({
+        externalItemId: row.external_item_id,
+        differenceAmount: row.difference_amount,
+        differenceSum: row.difference_sum,
+      }));
+    };
+
+    let recheckSkippedReason: string | null = null;
+    try {
+      const linesBefore = await readResultLines();
+      const freshItems = await listBackOfficeInventoryItemsWithSession({
+        connection,
+        admin,
+        documentExternalId: externalIdNum,
+      });
+      if (freshItems.length === 0) {
+        recheckSkippedReason = "Quick Resto не вернул позиции для сверки";
+      } else {
+        await refreshLocalInventoryDocumentFromPayload({
+          admin,
+          accountId: ctx.accountId,
+          documentId: document.id,
+          document: { ...qrDocBefore, effectedItems: freshItems },
+          // Статус не двигаем: сверка — это обновление данных, а не переход
+          // по статусной машине.
+          status: document.status,
+        });
+        const diff = compareResultLines(linesBefore, await readResultLines());
+        if (hasResultDrift(diff)) {
+          console.info("[finalize] данные QR разъехались, проведение отменено", {
+            documentId: document.id,
+            changed: diff.changedLines,
+            beforeTotal: diff.beforeTotal,
+            afterTotal: diff.afterTotal,
+          });
+          await writeInventoryResultEvent({
+            supabase: ctx.supabase,
+            admin,
+            accountId: ctx.accountId,
+            userId: ctx.user.id,
+            documentId: document.id,
+            eventType: "results_recheck_drift",
+            message: "Данные Quick Resto изменились перед проведением",
+            payload: {
+              changedLines: diff.changedLines,
+              addedLines: diff.addedLines,
+              removedLines: diff.removedLines,
+              beforeTotal: diff.beforeTotal,
+              afterTotal: diff.afterTotal,
+            },
+          });
+          revalidateInventoryResultPages(document.id);
+          return { error: describeResultDrift(diff) };
+        }
+      }
+    } catch (recheckError) {
+      // Сверка — защита, а не предусловие: если backoffice недоступен, не
+      // блокируем проведение, но оставляем след в журнале.
+      console.error("[finalize] сверка перед проведением не выполнена", {
+        documentId: document.id,
+        error: recheckError,
+      });
+      recheckSkippedReason = "Quick Resto недоступен для сверки";
+    }
+
+    // Снимок построчных итогов — ДО обращения к QR. «Расчёт» и «Разница» в
+    // строках приходят из QR и пересчитываются им по движениям товара, поэтому
+    // фиксируем ровно то, что утвердил проверяющий (миграция 221). Если снимок
+    // не снялся — выходим, не проведя акт: лучше ничего не делать, чем провести
+    // и остаться без зафиксированных итогов.
+    const { error: snapshotError } = await admin.rpc("freeze_inventory_result_snapshot", {
+      p_account_id: ctx.accountId,
+      p_document_id: document.id,
+    });
+    if (snapshotError) {
+      console.error("[finalize] snapshot failed", {
+        documentId: document.id,
+        error: snapshotError,
+      });
+      return { error: "Не удалось зафиксировать итоги акта. Попробуйте ещё раз." };
+    }
+
     try {
       await processBackOfficeInventoryDocumentWithSession({
         connection,
@@ -2116,8 +2235,9 @@ export async function finalizeInventoryResults(input: {
     // Постусловие: убеждаемся, что QR реально провёл акт. /action на удалённом /
     // изменённом акте может тихо вернуть 200 ничего не сделав — тогда локально
     // НЕ помечаем проведённым, иначе разъедемся с QR (источник правды).
+    let qrDocAfter: QuickRestoInventoryDocument2 | null = null;
     try {
-      const qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+      qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
       if (!qrDocAfter.processed) {
         console.error("[finalize] QR не отметил акт проведённым после process", {
           documentId: document.id,
@@ -2140,13 +2260,27 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    const finalizedAt = new Date().toISOString();
+    // Суммы акта (колонка «Сумма итогов» в списке) Quick Resto заполняет
+    // ТОЛЬКО у проведённого акта: до проведения public-payload отдаёт нули,
+    // а мы читали акт именно до. Поэтому по всем актам в списке стояло 0
+    // (прод: СВ340 — 0 против 16 301,75 ₽ в QR). Берём их из ответа, которым
+    // только что подтвердили проведение; если QR не прислал числа, оставляем
+    // прежние значения, а не затираем нулями.
+    const qrShortfallSum = num(qrDocAfter?.shortfallSum);
+    const qrSurplusSum = num(qrDocAfter?.surplusSum);
     const { error } = await admin
       .from("documents")
       .update({
         status: "processed",
         processed: true,
-        results_finalized_at: new Date().toISOString(),
+        ...(qrShortfallSum !== null ? { shortfall_sum: qrShortfallSum } : {}),
+        ...(qrSurplusSum !== null ? { surplus_sum: qrSurplusSum } : {}),
+        results_finalized_at: finalizedAt,
         results_finalized_by: ctx.user.id,
+        // Включает снимок строк (finalized_* выше) — с этого момента страница
+        // итогов показывает зафиксированные числа, а не живые из Quick Resto.
+        results_snapshot_at: finalizedAt,
         // Сбрасываем reopened-метки: если это была повторная финализация после
         // reopen, акт должен снова залочиться (isLocked на странице итогов
         // считает реопен-флаг → editable). Без сброса UI остался бы editable.
@@ -2166,8 +2300,10 @@ export async function finalizeInventoryResults(input: {
       userId: ctx.user.id,
       documentId: document.id,
       eventType: "results_finalized",
-      message: "Подвел итоги акта",
-      payload: { documentId: document.id },
+      message: recheckSkippedReason
+        ? `Подвел итоги акта (без сверки с Quick Resto: ${recheckSkippedReason})`
+        : "Подвел итоги акта",
+      payload: { documentId: document.id, recheckSkipped: recheckSkippedReason },
     });
 
     // Уведомляем исполнителя, что его акт принят.

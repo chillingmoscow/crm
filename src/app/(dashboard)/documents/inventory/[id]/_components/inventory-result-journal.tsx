@@ -30,6 +30,8 @@ function eventTypeLabel(eventType: string) {
     results_finalized: "Итоги подведены",
     results_reopened: "Редактирование",
     results_refreshed: "Обновление",
+    results_recheck_drift: "Данные QR изменились",
+    resort_recalculated: "Пересорт пересчитан",
     suggestion_applied: "Подсказка принята",
     suggestion_dismissed: "Подсказка скрыта",
     // recount mechanic (PR3):

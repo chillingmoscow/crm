@@ -9,8 +9,13 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
+import { calculateResortAllocation } from "@/lib/inventory/results";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
-import { getInventoryResultAdjustLockReason } from "@/lib/inventory/act-status";
+import {
+  getInventoryResultAdjustLockReason,
+  resolveStatusAfterImport,
+} from "@/lib/inventory/act-status";
+import { resolveLineResult, resolveSubmittedAmount } from "@/lib/inventory/sync-amounts";
 import {
   listInventoryItemsBackOffice,
   loginQuickRestoBackOffice,
@@ -750,6 +755,190 @@ export async function saveSnapshot(input: {
   );
 }
 
+
+/**
+ * Пересчёт активных пересортов после импорта строк из Quick Resto.
+ *
+ * `inventory_result_resort_items` хранит суммы, посчитанные в МОМЕНТ создания
+ * пересорта (source_* и remaining_*), а управленческий итог берёт именно их
+ * (calculateManagementTotals). Импорт же перезаписывает difference_* по
+ * строкам — и пересорт продолжал зачитывать вчерашние объёмы: строка на экране
+ * показывала недостачу, а в «К списанию» по ней стоял ноль.
+ *
+ * Поэтому после каждого импорта пересчитываем аллокацию по свежим значениям:
+ *  - объёмы сошлись по-прежнему → обновляем суммы пересорта;
+ *  - пересорт больше не складывается (одна из строк исчезла, или не осталось
+ *    пары недостача+излишек) → аннулируем его и пишем в журнал, чтобы
+ *    проверяющий увидел и пересобрал вручную.
+ */
+async function recalculateActiveResorts(input: {
+  admin: LooseDb;
+  accountId: string;
+  documentId: string;
+}): Promise<{ recalculated: number; voided: number }> {
+  const { data: resortsRaw } = await input.admin
+    .from<Array<{ id: string; group_id: string | null; measure_unit_key: string | null }>>(
+      "inventory_result_resorts",
+    )
+    .select("id, group_id, measure_unit_key")
+    .eq("account_id", input.accountId)
+    .eq("document_id", input.documentId)
+    .eq("status", "active");
+  const resorts = resortsRaw ?? [];
+  if (resorts.length === 0) return { recalculated: 0, voided: 0 };
+
+  const { data: resortItemsRaw } = await input.admin
+    .from<
+      Array<{
+        id: string;
+        resort_id: string;
+        document_item_id: string;
+        source_difference_amount: number | null;
+        source_difference_sum: number | null;
+      }>
+    >("inventory_result_resort_items")
+    .select("id, resort_id, document_item_id, source_difference_amount, source_difference_sum")
+    .eq("account_id", input.accountId)
+    .eq("document_id", input.documentId)
+    .in(
+      "resort_id",
+      resorts.map((resort) => resort.id),
+    );
+  const resortItems = resortItemsRaw ?? [];
+
+  const { data: currentItemsRaw } = await input.admin
+    .from<Array<{ id: string; difference_amount: number | null; difference_sum: number | null }>>(
+      "document_items",
+    )
+    .select("id, difference_amount, difference_sum")
+    .eq("account_id", input.accountId)
+    .eq("document_id", input.documentId);
+  const currentById = new Map((currentItemsRaw ?? []).map((row) => [row.id, row]));
+
+  let recalculated = 0;
+  let voided = 0;
+
+  const voidResort = async (resortId: string, reason: string) => {
+    await input.admin
+      .from("inventory_result_resorts")
+      .update({ status: "void", void_reason: reason, voided_at: new Date().toISOString() })
+      .eq("id", resortId)
+      .eq("account_id", input.accountId);
+    await input.admin.from("inventory_result_events").insert({
+      account_id: input.accountId,
+      document_id: input.documentId,
+      resort_id: resortId,
+      event_type: "resort_voided",
+      message: reason,
+      payload: { auto: true },
+      created_by: null,
+    });
+    voided += 1;
+  };
+
+  for (const resort of resorts) {
+    const rows = resortItems.filter((row) => row.resort_id === resort.id);
+    if (rows.length < 2) {
+      await voidResort(resort.id, "Пересорт отменён: часть позиций больше нет в акте");
+      continue;
+    }
+
+    const pairs = rows.map((row) => ({ row, current: currentById.get(row.document_item_id) ?? null }));
+    if (pairs.some((pair) => !pair.current)) {
+      await voidResort(resort.id, "Пересорт отменён: часть позиций больше нет в акте");
+      continue;
+    }
+
+    const changed = pairs.some(({ row, current }) => {
+      const amountChanged =
+        Math.abs((num(current?.difference_amount) ?? 0) - (row.source_difference_amount ?? 0)) > 0.000001;
+      const sumChanged = Math.abs((num(current?.difference_sum) ?? 0) - (row.source_difference_sum ?? 0)) > 0.005;
+      return amountChanged || sumChanged;
+    });
+    if (!changed) continue;
+
+    try {
+      const allocation = calculateResortAllocation(
+        pairs.map(({ row, current }) => ({
+          id: row.document_item_id,
+          // Группа и единица уже проверены при создании пересорта: подставляем
+          // общий ключ, чтобы валидация calculateResortAllocation прошла на
+          // тех же самых строках.
+          groupId: resort.group_id ?? "resort-group",
+          measureUnitKey: resort.measure_unit_key ?? "resort-unit",
+          differenceAmount: num(current?.difference_amount),
+          differenceSum: num(current?.difference_sum),
+        })),
+      );
+
+      const sourceShortfallSum = pairs
+        .map(({ current }) => num(current?.difference_sum) ?? 0)
+        .filter((value) => value < 0)
+        .reduce((total, value) => total + value, 0);
+      const sourceSurplusSum = pairs
+        .map(({ current }) => num(current?.difference_sum) ?? 0)
+        .filter((value) => value > 0)
+        .reduce((total, value) => total + value, 0);
+
+      await input.admin
+        .from("inventory_result_resorts")
+        .update({
+          offset_amount: allocation.offsetAmount,
+          residual_shortfall_sum: allocation.residualShortfallSum,
+          residual_surplus_sum: allocation.residualSurplusSum,
+          source_shortfall_sum: sourceShortfallSum,
+          source_surplus_sum: sourceSurplusSum,
+          cost_adjustment_sum: allocation.costAdjustmentSum,
+        })
+        .eq("id", resort.id)
+        .eq("account_id", input.accountId);
+
+      const rowByItemId = new Map(rows.map((row) => [row.document_item_id, row]));
+      for (const allocationItem of allocation.items) {
+        const row = rowByItemId.get(allocationItem.id);
+        if (!row) continue;
+        await input.admin
+          .from("inventory_result_resort_items")
+          .update({
+            role: allocationItem.role,
+            source_difference_amount: allocationItem.sourceDifferenceAmount,
+            source_difference_sum: allocationItem.sourceDifferenceSum,
+            offset_amount: allocationItem.offsetAmount,
+            remaining_difference_amount: allocationItem.remainingDifferenceAmount,
+            remaining_difference_sum: allocationItem.remainingDifferenceSum,
+          })
+          .eq("id", row.id)
+          .eq("account_id", input.accountId);
+      }
+
+      await input.admin.from("inventory_result_events").insert({
+        account_id: input.accountId,
+        document_id: input.documentId,
+        resort_id: resort.id,
+        event_type: "resort_recalculated",
+        message: "Пересорт пересчитан: данные Quick Resto изменились",
+        payload: {
+          auto: true,
+          offsetAmount: allocation.offsetAmount,
+          costAdjustmentSum: allocation.costAdjustmentSum,
+        },
+        created_by: null,
+      });
+      recalculated += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "пересорт больше не складывается";
+      await voidResort(resort.id, `Пересорт отменён: ${message}`);
+    }
+  }
+
+  if (recalculated > 0 || voided > 0) {
+    console.info(
+      `[recalculateActiveResorts] doc ${input.documentId}: пересчитано ${recalculated}, аннулировано ${voided}`,
+    );
+  }
+  return { recalculated, voided };
+}
+
 export async function syncDocumentItems(input: {
   admin: LooseDb;
   accountId: string;
@@ -759,6 +948,7 @@ export async function syncDocumentItems(input: {
   submittedAmounts?: Map<string, number | null>;
 }) {
   let resultsFound = false;
+  let preservedResultLines = 0;
   const { data: exclusionRulesRaw } = await input.admin
     .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
     .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
@@ -775,28 +965,51 @@ export async function syncDocumentItems(input: {
       .map((rule) => [rule.external_product_id as string, rule]),
   );
 
-  // Существующее состояние исключений по строкам акта. Нужно по двум причинам:
+  // Существующее состояние строк акта. Нужно по трём причинам:
   // 1) сохранить РУЧНЫЕ исключения (excluded_from_totals без exclusion-rule),
   //    чтобы sync их не сбрасывал;
   // 2) НЕ слать NULL в excluded_from_totals. supabase-js upsert при разнородном
   //    батче (одни строки задают колонку, другие — нет) подставляет остальным
   //    NULL, а не DEFAULT → NOT NULL violation в актах с исключёнными позициями.
   //    Поэтому 4 поля исключения задаём явно на КАЖДОЙ строке.
-  const { data: existingExclusionRows } = await input.admin
+  // 3) сохранить введённые исполнителем количества (submitted_amount) для строк,
+  //    которых нет в `submittedAmounts` текущего вызова. Раньше им писался NULL,
+  //    и «Обновить итоги из Quick Resto» (вызывает нас без submittedAmounts)
+  //    стирал введённые количества по всему акту — прод, СВ340, 300 строк.
+  const { data: existingItemRows } = await input.admin
     .from<
       Array<{
+        id: string;
         external_item_id: string;
+        submitted_amount: number | null;
+        calculated_amount: number | null;
+        difference_amount: number | null;
+        prime_cost: number | null;
+        difference_sum: number | null;
         excluded_from_totals: boolean | null;
         exclude_reason: string | null;
         excluded_by: string | null;
         excluded_at: string | null;
       }>
     >("document_items")
-    .select("external_item_id, excluded_from_totals, exclude_reason, excluded_by, excluded_at")
+    .select(
+      "id, external_item_id, submitted_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, excluded_by, excluded_at",
+    )
     .eq("document_id", input.documentId);
-  const existingExclusionByItemId = new Map(
-    (existingExclusionRows ?? []).map((row) => [row.external_item_id, row]),
+  const existingItemByItemId = new Map(
+    (existingItemRows ?? []).map((row) => [row.external_item_id, row]),
   );
+
+  // Строки в активном пересорте импорт не трогает правилами автоисключения.
+  // Ручные пути такой гард имеют (actions.ts: «Строку в активном пересорте
+  // нельзя исключить»), импорт — нет: правило, заведённое в другом акте,
+  // выбивало строку из итогов, при этом корректировка себестоимости пересорта
+  // продолжала вычитаться, и остаток недостачи просто пропадал.
+  const activeResortItemIds = await getActiveResortItemIds({
+    admin: input.admin,
+    accountId: input.accountId,
+    documentId: input.documentId,
+  });
 
   const rows = input.items.map((item, index) => {
     const productId = externalProductId(item);
@@ -806,14 +1019,30 @@ export async function syncDocumentItems(input: {
       (productId ? exclusionRuleByExternalProductId.get(productId) : null);
     const product = item.product ?? {};
     const result = extractLineResult(item);
-    if (result.hasResult) resultsFound = true;
     const itemExternalId = externalItemId(item, index);
 
-    // Поля исключения — явно на каждой строке (см. existingExclusionByItemId).
+    // Поля исключения — явно на каждой строке (см. existingItemByItemId).
     // Правило (если есть) приоритетнее; иначе сохраняем ручное исключение;
     // иначе дефолт (не исключено).
-    const existingExclusion = existingExclusionByItemId.get(itemExternalId);
-    const exclusion = exclusionRule
+    const existingItem = existingItemByItemId.get(itemExternalId);
+    const inActiveResort = existingItem ? activeResortItemIds.has(existingItem.id) : false;
+    // Пустой ответ QR не должен затирать уже посчитанные итоги (см.
+    // resolveLineResult): backoffice периодически отваливается, и импорт
+    // сваливается на public-payload без расчётных полей.
+    const lineResult = resolveLineResult({
+      incoming: result,
+      existing: existingItem
+        ? {
+            calculatedAmount: existingItem.calculated_amount,
+            differenceAmount: existingItem.difference_amount,
+            primeCost: existingItem.prime_cost,
+            differenceSum: existingItem.difference_sum,
+          }
+        : null,
+    });
+    if (result.hasResult || lineResult.preserved) resultsFound = true;
+    if (lineResult.preserved) preservedResultLines += 1;
+    const exclusion = exclusionRule && !inActiveResort
       ? {
           excluded_from_totals: true,
           exclude_reason: exclusionRule.reason,
@@ -821,10 +1050,10 @@ export async function syncDocumentItems(input: {
           excluded_at: exclusionRule.created_at,
         }
       : {
-          excluded_from_totals: existingExclusion?.excluded_from_totals ?? false,
-          exclude_reason: existingExclusion?.exclude_reason ?? null,
-          excluded_by: existingExclusion?.excluded_by ?? null,
-          excluded_at: existingExclusion?.excluded_at ?? null,
+          excluded_from_totals: existingItem?.excluded_from_totals ?? false,
+          exclude_reason: existingItem?.exclude_reason ?? null,
+          excluded_by: existingItem?.excluded_by ?? null,
+          excluded_at: existingItem?.excluded_at ?? null,
         };
 
     return {
@@ -842,15 +1071,20 @@ export async function syncDocumentItems(input: {
       measure_unit_id: typeof item.measureUnit?.id === "number" ? item.measureUnit.id : null,
       measure_unit_name: text(item.measureUnitName) ?? text(item.measureUnit?.name) ?? text(item.measureUnit?.title),
       actual_amount: num(item.actualAmount),
-      submitted_amount: input.submittedAmounts?.has(itemExternalId)
-        ? input.submittedAmounts.get(itemExternalId)
-        : null,
-      calculated_amount: result.calculatedAmount,
-      difference_amount: result.differenceAmount,
-      prime_cost: result.primeCost,
-      difference_sum: result.differenceSum,
+      submitted_amount: resolveSubmittedAmount({
+        externalItemId: itemExternalId,
+        submittedAmounts: input.submittedAmounts,
+        existingAmount: existingItem?.submitted_amount ?? null,
+      }),
+      calculated_amount: lineResult.values.calculatedAmount,
+      difference_amount: lineResult.values.differenceAmount,
+      prime_cost: lineResult.values.primeCost,
+      difference_sum: lineResult.values.differenceSum,
       sort_order: index,
       raw_payload: item,
+      // result_payload — диагностический сырец последнего ответа QR (NOT NULL
+      // default '{}'). Держим его строго по факту ответа: undefined в
+      // разнородном upsert-батче supabase-js превращается в NULL → падение.
       result_payload: result.hasResult ? item : {},
       ...exclusion,
     };
@@ -878,10 +1112,46 @@ export async function syncDocumentItems(input: {
         .in("external_item_id", staleExternalIds);
     }
   } else {
-    await input.admin.from("document_items").delete().eq("document_id", input.documentId);
+    // Пустой ответ Quick Resto — НЕ повод удалять акт по строкам. Backoffice
+    // на проде умеет отдавать 0 позиций по живому акту (акт CB303, см.
+    // диагностику в syncQuickRestoInventory), а public-payload у проведённого
+    // акта тоже бывает без items. Раньше здесь стоял безусловный DELETE: один
+    // клик «Обновить итоги» в такой момент сносил введённые количества,
+    // комментарии, исключения и каскадом — позиции пересортов.
+    // Удаляем только если строк не было и раньше (нечего терять).
+    const { data: existingRows } = await input.admin
+      .from<Array<{ id: string }>>("document_items")
+      .select("id")
+      .eq("document_id", input.documentId);
+    const existingCount = (existingRows ?? []).length;
+    if (existingCount > 0) {
+      console.warn(
+        `[syncDocumentItems] doc ${input.documentId}: Quick Resto вернул 0 позиций, в базе ${existingCount} — строки сохранены, импорт пропущен`,
+      );
+      return { count: 0, resultsFound: false, skippedEmptyPayload: true, preservedResultLines: 0 };
+    }
   }
 
-  return { count: rows.length, resultsFound };
+  // Пересорты считались по старым difference_* — приводим их к свежим данным.
+  // Сбой пересчёта не должен ронять импорт: строки уже сохранены, а пересорт
+  // в худшем случае останется со старыми суммами (как было до этой правки).
+  try {
+    await recalculateActiveResorts({
+      admin: input.admin,
+      accountId: input.accountId,
+      documentId: input.documentId,
+    });
+  } catch (error) {
+    console.error(`[syncDocumentItems] пересчёт пересортов не удался (doc ${input.documentId}):`, error);
+  }
+
+  if (preservedResultLines > 0) {
+    console.warn(
+      `[syncDocumentItems] doc ${input.documentId}: Quick Resto не прислал расчёты по ${preservedResultLines} строкам — оставили прежние значения`,
+    );
+  }
+
+  return { count: rows.length, resultsFound, skippedEmptyPayload: false, preservedResultLines };
 }
 
 export async function refreshLocalInventoryDocumentFromPayload(input: {
@@ -893,6 +1163,15 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
   submittedAmounts?: Map<string, number | null>;
 }) {
   const itemsPreview = inventoryDocumentItems(input.document);
+  // Текущий статус нужен, чтобы импорт не двигал акт по статусной машине
+  // (см. resolveStatusAfterImport): раньше он вышибал исполнителя из формы
+  // посреди пересчёта.
+  const { data: currentDoc } = await input.admin
+    .from<{ status: string }>("documents")
+    .select("status")
+    .eq("id", input.documentId)
+    .eq("account_id", input.accountId)
+    .maybeSingle();
   const productRows = await input.admin
     .from<InventoryProductLookup[]>("ingredients")
     .select("id, external_id, article, barcode")
@@ -910,11 +1189,18 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
   });
   const status =
     input.status ??
-    (input.document.processed
-      ? "processed"
-      : syncResult.resultsFound
-        ? "ready_for_review"
-        : "results_blocked");
+    resolveStatusAfterImport({
+      current: currentDoc?.status ?? "synced",
+      processed: Boolean(input.document.processed),
+      resultsFound: syncResult.resultsFound,
+    });
+
+  if (syncResult.skippedEmptyPayload) {
+    // Строки сохранены (см. syncDocumentItems), метаданные акта тоже не трогаем:
+    // на пустом ответе QR нам нечем их уточнить, а results_has_line_amounts=false
+    // спрятал бы уже посчитанные итоги.
+    return syncResult;
+  }
 
   const { error } = await input.admin
     .from("documents")

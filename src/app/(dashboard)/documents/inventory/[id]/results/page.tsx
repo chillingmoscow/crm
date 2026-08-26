@@ -9,6 +9,11 @@ import {
   buildHistorySuggestions,
   eventPayload,
 } from "@/lib/inventory/resort-suggestions";
+import { isInventoryResultLocked } from "@/lib/inventory/act-status";
+import {
+  applyResultSnapshot,
+  type InventoryResultSnapshotAmounts,
+} from "@/lib/inventory/results-snapshot";
 import {
   InventoryResultsTable,
   type InventoryDocumentResultItem,
@@ -31,6 +36,7 @@ type InventoryDocumentResultRow = {
   external_store_id: string | null;
   results_finalized_at: string | null;
   results_reopened_at: string | null;
+  results_snapshot_at: string | null;
   archived_at: string | null;
 };
 
@@ -114,7 +120,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, archived_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, archived_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -137,9 +143,18 @@ export default async function InventoryDocumentResultsPage({
   if (!canSeeResults) redirect("/documents/inventory");
   if (!canViewDocuments && !isAssignedExecutor) redirect("/documents/inventory");
 
+  // Залочен: финализирован ИЛИ проведён в QR и не разблокирован.
+  const isLocked = isInventoryResultLocked(document);
+  // Пока итоги залочены — показываем снимок, снятый при подведении итогов
+  // (миграция 221). «Расчёт» и «Разница» приходят из Quick Resto и там
+  // пересчитываются по движениям товара: без снимка утверждённые числа уехали
+  // бы вслед за QR. После переоткрытия итогов снова показываем живые значения —
+  // проверяющий сознательно вернулся к правке.
+  const resultsFrozen = isLocked && Boolean(document.results_snapshot_at);
+
   const { data: itemsRaw } = await admin
-    .from<InventoryDocumentResultItem[]>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
+    .from<Array<InventoryDocumentResultItem & InventoryResultSnapshotAmounts>>("document_items")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
     .order("product_name");
@@ -169,11 +184,14 @@ export default async function InventoryDocumentResultsPage({
   const groupById = new Map((groups ?? []).map((group) => [group.id, group.name]));
   const items = itemsBase.map((item) => {
     const groupId = item.ingredient_id ? productGroupById.get(item.ingredient_id) ?? null : null;
-    return {
-      ...item,
-      group_id: groupId,
-      group_name: groupId ? groupById.get(groupId) ?? null : null,
-    };
+    return applyResultSnapshot(
+      {
+        ...item,
+        group_id: groupId,
+        group_name: groupId ? groupById.get(groupId) ?? null : null,
+      },
+      resultsFrozen,
+    );
   });
 
   const [{ data: resortsRaw }, { data: resortItemsRaw }, { data: eventsRaw }, { data: exclusionRulesRaw }, { data: accountSettings }] = await Promise.all([
@@ -263,10 +281,6 @@ export default async function InventoryDocumentResultsPage({
       .map((event) => eventPayload(event.payload).key)
       .filter((key): key is string => typeof key === "string" && key.length > 0),
   );
-  // Залочен: финализирован ИЛИ проведён в QR и не разблокирован.
-  const isLocked =
-    Boolean(document.results_finalized_at) ||
-    (document.status === "processed" && document.results_reopened_at == null);
   // Подсказки пересорта имеют смысл только пока итоги можно менять (создать
   // пересорт). Для залоченного / проведённого / отправленного на пересчёт
   // акта пропускаем history-запросы И сетевой AI-вызов — это убирает
@@ -329,6 +343,7 @@ export default async function InventoryDocumentResultsPage({
           suggestions={suggestions}
           amountRoundingScale={amountRoundingScale}
           isFinalized={Boolean(document.results_finalized_at)}
+          resultsSnapshotAt={resultsFrozen ? document.results_snapshot_at : null}
           // Processed-акт read-only до явной разблокировки (в журнал).
           isLocked={isLocked}
           canComment={Boolean(canCommentResults)}

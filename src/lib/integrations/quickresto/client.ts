@@ -506,18 +506,23 @@ export async function listInventoryItemsBackOffice(input: {
 }) {
   const pageSize = Math.max(1, input.count ?? 150);
   const rows: QuickRestoInventoryItem2[] = [];
-  let total: number | null = null;
+  // Страховка от бесконечного цикла, если backoffice начнёт отдавать одну и ту
+  // же страницу: 200 страниц × 500 = 100 000 позиций, дальше любого реального акта.
+  const MAX_PAGES = 200;
 
-  for (let start = 0; ; start += pageSize) {
-    const page = await selectInventoryItemsBackOffice({
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const { rows: pageRows } = await selectInventoryItemsBackOffice({
       ...input,
-      start,
+      start: page * pageSize,
       count: pageSize,
     });
-    rows.push(...page.rows);
-    total = page.total;
-    if (page.rows.length < pageSize) break;
-    if (total !== null && rows.length >= total) break;
+    rows.push(...pageRows);
+    // Признак конца — неполная страница. По `total` останавливаться нельзя:
+    // для ответа в форме `{ds: [...]}` (и для голого массива) backOfficeSelectRows
+    // выводит total из длины ТЕКУЩЕЙ страницы, поэтому после первой полной
+    // страницы условие `rows.length >= total` срабатывало всегда — акт длиннее
+    // pageSize молча обрезался, а «лишние» строки затем удалялись как stale.
+    if (pageRows.length < pageSize) break;
   }
 
   return rows;

@@ -17,7 +17,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { asLooseDb } from "@/lib/supabase/loose";
+import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import {
   calculateManagementTotals,
   type InventoryResortAllocationItem,
@@ -55,6 +55,42 @@ export {
  * RLS режет видимость — пользователь без `inventory.view_all_venues`
  * видит только акты своего venue + назначенные ему.
  */
+
+/**
+ * Выборка всех строк по списку актов, с постраничным добиранием.
+ *
+ * PostgREST режет ответ по `max_rows` (в конфиге — 1000). Список из 25 актов по
+ * 300 позиций даёт 7 500 строк: без добора часть актов считалась по половине
+ * позиций, и «Сумма итогов» молча занижалась. Курсор двигаем на фактическое
+ * число полученных строк — это работает при любом серверном лимите.
+ */
+async function fetchAllByDocumentIds<T>(input: {
+  admin: LooseDb;
+  table: string;
+  columns: string;
+  documentIds: string[];
+}): Promise<T[]> {
+  const PAGE = 1000;
+  const HARD_CAP = 200_000;
+  const out: T[] = [];
+  let from = 0;
+
+  for (;;) {
+    const { data } = await input.admin
+      .from(input.table)
+      .select(input.columns)
+      .in("document_id", input.documentIds)
+      .order("id")
+      .range(from, from + PAGE - 1);
+    const chunk = (data ?? []) as T[];
+    out.push(...chunk);
+    if (chunk.length === 0 || out.length >= HARD_CAP) break;
+    from += chunk.length;
+  }
+
+  return out;
+}
+
 export async function listInventoryDocuments(
   opts: ListDocumentsOptions = {},
 ): Promise<ListDocumentsResult> {
@@ -92,18 +128,18 @@ export async function listInventoryDocuments(
       { data: resortItemRows },
       { data: docFlagRows },
     ] = await Promise.all([
-      admin
-        .from<
-          Array<{
-            document_id: string;
-            id: string;
-            difference_amount: number | null;
-            difference_sum: number | null;
-            excluded_from_totals: boolean | null;
-          }>
-        >("document_items")
-        .select("document_id, id, difference_amount, difference_sum, excluded_from_totals")
-        .in("document_id", documentIds),
+      fetchAllByDocumentIds<{
+        document_id: string;
+        id: string;
+        difference_amount: number | null;
+        difference_sum: number | null;
+        excluded_from_totals: boolean | null;
+      }>({
+        admin,
+        table: "document_items",
+        columns: "document_id, id, difference_amount, difference_sum, excluded_from_totals",
+        documentIds,
+      }).then((data) => ({ data })),
       admin
         .from<Array<{ id: string; document_id: string; cost_adjustment_sum: number | null }>>(
           "inventory_result_resorts",
@@ -111,24 +147,23 @@ export async function listInventoryDocuments(
         .select("id, document_id, cost_adjustment_sum")
         .in("document_id", documentIds)
         .eq("status", "active"),
-      admin
-        .from<
-          Array<{
-            document_id: string;
-            resort_id: string;
-            document_item_id: string;
-            role: "shortage" | "surplus";
-            source_difference_amount: number | null;
-            source_difference_sum: number | null;
-            offset_amount: number | null;
-            remaining_difference_amount: number | null;
-            remaining_difference_sum: number | null;
-          }>
-        >("inventory_result_resort_items")
-        .select(
+      fetchAllByDocumentIds<{
+        document_id: string;
+        resort_id: string;
+        document_item_id: string;
+        role: "shortage" | "surplus";
+        source_difference_amount: number | null;
+        source_difference_sum: number | null;
+        offset_amount: number | null;
+        remaining_difference_amount: number | null;
+        remaining_difference_sum: number | null;
+      }>({
+        admin,
+        table: "inventory_result_resort_items",
+        columns:
           "document_id, resort_id, document_item_id, role, source_difference_amount, source_difference_sum, offset_amount, remaining_difference_amount, remaining_difference_sum",
-        )
-        .in("document_id", documentIds),
+        documentIds,
+      }).then((data) => ({ data })),
       admin
         .from<Array<{ id: string; results_reopened_after_processed: boolean | null }>>("documents")
         .select("id, results_reopened_after_processed")

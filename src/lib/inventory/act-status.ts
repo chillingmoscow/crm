@@ -75,6 +75,66 @@ export function getInventoryResultAdjustLockReason(doc: InventoryActLockInput): 
 }
 
 /**
+ * Статус акта после импорта строк из Quick Resto.
+ *
+ * Импорт — это обновление ДАННЫХ, а не событие процесса, поэтому он не должен
+ * двигать акт по статусной машине. Раньше статус пересчитывался безусловно
+ * (`processed` → иначе `resultsFound ? ready_for_review : results_blocked`), и
+ * один клик «Обновить итоги» переводил акт с пересчёта или из работы
+ * исполнителя в «Готов к проверке»: исполнителю закрывалась форма посреди
+ * пересчёта, а с проверяющего снималась анти-подгонка.
+ *
+ * Правила:
+ *  - QR says processed → `processed` (это факт на стороне источника правды);
+ *  - акт ещё у исполнителя (synced / assigned / in_progress / recount_pending)
+ *    → статус не трогаем;
+ *  - акт уже на проверке (ready_for_review / results_blocked) → уточняем по
+ *    тому, вернул ли QR построчные расчёты.
+ */
+export function resolveStatusAfterImport(input: {
+  current: string;
+  processed: boolean;
+  resultsFound: boolean;
+}): string {
+  if (input.processed) return "processed";
+  if (
+    input.current === "synced" ||
+    input.current === "assigned" ||
+    input.current === "in_progress" ||
+    input.current === "recount_pending"
+  ) {
+    return input.current;
+  }
+  return input.resultsFound ? "ready_for_review" : "results_blocked";
+}
+
+/**
+ * Причина, по которой повторный импорт итогов из Quick Resto («Обновить итоги»)
+ * закрыт, либо null если импорт разрешён.
+ *
+ * Импорт перезаписывает построчные итоги значениями, которые QR отдаёт ПРЯМО
+ * СЕЙЧАС. «Расчётный остаток» в QR — не константа акта, а производная от
+ * движений товара: то же поле, прочитанное позже, даёт другое число (прод,
+ * акт СВ340: 0,2 кг в снимке от 24.08 против −0,4 кг сутки спустя). Поэтому на
+ * залоченных итогах импорт запрещён — иначе он молча заменяет то, что утвердил
+ * проверяющий. Легальный путь — сначала переоткрыть итоги
+ * (reopenInventoryResults), тогда правка видна в журнале и в метке
+ * «итоги правились после проведения».
+ */
+export function getInventoryResultRefreshLockReason(doc: InventoryActLockInput): string | null {
+  if (doc.status === "recount_pending") {
+    return "Акт отправлен исполнителю на пересчёт. Импорт из Quick Resto сейчас перезапишет строки и закроет исполнителю форму — дождитесь завершения пересчёта.";
+  }
+  if (doc.results_finalized_at) {
+    return "Итоги акта зафиксированы. Quick Resto пересчитывает расчётные остатки по движениям товара, поэтому повторный импорт заменит утверждённые числа. Переоткройте итоги, если импорт действительно нужен.";
+  }
+  if (doc.status === "processed" && doc.results_reopened_at == null) {
+    return "Акт проведён в Quick Resto. После проведения QR отдаёт уже пересчитанные остатки, и импорт заменит итоги акта. Разблокируйте акт, если импорт действительно нужен.";
+  }
+  return null;
+}
+
+/**
  * Статусы, в которых форма заполнения только для чтения: акт уже ушёл на
  * проверку / проведён / не синкнулся. В этих статусах исполнитель не должен
  * «дозаполнять» факт.

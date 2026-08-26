@@ -21,6 +21,10 @@ alter table public.documents
 comment on column public.documents.recount_of_document_id is
   'Для акта пересчёта — исходный акт, из которого вынесли позиции. NULL у обычных актов.';
 
+-- ON DELETE SET NULL (recount_of_document_id): у композитного FK по умолчанию
+-- зануляются ОБА столбца, а documents.account_id — NOT NULL, поэтому удаление
+-- исходного акта падало бы вместо отвязки дочернего. Указание конкретной
+-- колонки поддерживается с PostgreSQL 15 (прод — 15.8).
 do $$
 begin
   if not exists (
@@ -30,7 +34,7 @@ begin
       add constraint documents_recount_of_document_fkey
       foreign key (account_id, recount_of_document_id)
       references public.documents (account_id, id)
-      on delete set null;
+      on delete set null (recount_of_document_id);
   end if;
 end $$;
 
@@ -52,9 +56,11 @@ create table if not exists public.inventory_recount_moves (
   constraint inventory_recount_moves_document_fkey
     foreign key (account_id, document_id)
     references public.documents (account_id, id) on delete cascade,
+  -- Та же причина, что и у documents_recount_of_document_fkey: зануляем только
+  -- ссылку на акт пересчёта, account_id трогать нельзя (NOT NULL).
   constraint inventory_recount_moves_recount_document_fkey
     foreign key (account_id, recount_document_id)
-    references public.documents (account_id, id) on delete set null
+    references public.documents (account_id, id) on delete set null (recount_document_id)
 );
 
 comment on table public.inventory_recount_moves is

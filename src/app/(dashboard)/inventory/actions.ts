@@ -3022,9 +3022,26 @@ export async function splitDocumentForRecount(input: {
     const targetExternalId = recountExternalId as number;
     const targetLocalId = recountLocalId as string;
 
+    // Возобновление после частичного сбоя: строки, которые уже переехали,
+    // трогать нельзя — в дочернем акте они создались бы повторно, а удалять их
+    // из исходного уже нечего. Источник истины о переносе — inventory_recount_moves.
+    const { data: doneMoves } = await admin
+      .from<Array<{ external_item_id: string }>>("inventory_recount_moves")
+      .select("external_item_id")
+      .eq("account_id", ctx.accountId)
+      .eq("document_id", document.id)
+      .eq("recount_document_id", targetLocalId);
+    const alreadyMoved = new Set((doneMoves ?? []).map((row) => row.external_item_id));
+    const pending = flagged.filter((item) => !alreadyMoved.has(item.external_item_id));
+    if (pending.length === 0) {
+      return {
+        error: "Эти позиции уже вынесены в акт пересчёта — обновите страницу.",
+      };
+    }
+
     const moved: string[] = [];
     try {
-      for (const item of flagged) {
+      for (const item of pending) {
         const sample = item.raw_payload as QuickRestoInventoryItem2;
         // Сначала кладём позицию в акт пересчёта, потом убираем из исходного:
         // при сбое между шагами позиция максимум задвоится, а не пропадёт.
@@ -3062,6 +3079,17 @@ export async function splitDocumentForRecount(input: {
           ingredient_id: item.ingredient_id,
           moved_by: ctx.user.id,
         });
+
+        // Строки в Quick Resto больше нет — убираем её и локально, сразу после
+        // успешного переноса. Полагаться на последующий импорт нельзя: если
+        // вынесли ВСЕ позиции, backoffice вернёт пустой список, а защита от
+        // пустого ответа (syncDocumentItems) намеренно сохранит локальные
+        // строки — исходный акт продолжил бы показывать уехавшие позиции.
+        await admin
+          .from("document_items")
+          .delete()
+          .eq("id", item.id)
+          .eq("account_id", ctx.accountId);
         moved.push(item.id);
       }
     } catch (moveError) {
@@ -3098,21 +3126,8 @@ export async function splitDocumentForRecount(input: {
       };
     }
 
-    // Отметки пересчёта снимаем: строки уехали в другой акт.
-    if (moved.length > 0) {
-      await admin
-        .from("document_items")
-        .update({
-          needs_recount: false,
-          recount_auto_flagged: false,
-          recount_marked_by: null,
-          recount_marked_at: null,
-          recount_note: null,
-        })
-        .eq("document_id", document.id)
-        .eq("account_id", ctx.accountId)
-        .in("id", moved);
-    }
+    // Отметки пересчёта отдельно не снимаем: перенесённые строки удалены
+    // из акта целиком (см. цикл выше), снимать флаг уже не с чего.
 
     // Перечитываем оба акта — состояние после правок берём у источника правды.
     for (const target of [

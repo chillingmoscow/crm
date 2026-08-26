@@ -39,10 +39,27 @@ export function ImpersonatePicker({ targets, loadError, alreadyImpersonating }: 
   const handleStart = (target: ImpersonationTarget) => {
     setPendingId(target.userId);
     startTransition(async () => {
-      const result = await startImpersonation(target.userId);
-      // Успех уходит редиректом внутри action'а — сюда возвращаемся
-      // только с ошибкой.
-      if (result?.error) toast.error(result.error);
+      try {
+        const result = await startImpersonation(target.userId);
+        // Полная перезагрузка: сессия сменилась, Router Cache прошлой
+        // сессии надо сбросить.
+        if (result.next) {
+          window.location.assign(result.next);
+          return;
+        }
+        if (result.error) toast.error(result.error);
+      } catch {
+        // Неопределённый исход: ответ мог оборваться уже ПОСЛЕ того, как
+        // Set-Cookie дошли до браузера, то есть сессия уже сменилась, а мы
+        // об этом не узнали. Оставлять старый UI нельзя — в нём нет
+        // баннера, а сайдбар предлагает обычный выход, который отозвал бы
+        // сессии сотрудника на всех устройствах. Кто мы на самом деле,
+        // знает только сервер, поэтому уходим на перезагрузку и даём ему
+        // ответить. Тост тут не нужен: он бы всё равно не пережил
+        // перезагрузку, а перерисованный экран и так показывает правду —
+        // есть баннер или нет.
+        window.location.assign("/dashboard");
+      }
       setPendingId(null);
     });
   };

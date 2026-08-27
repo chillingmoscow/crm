@@ -237,6 +237,15 @@ type Props = {
 // хвостовые нули обрезаются). Деньги (Сумма/итоги) остаются на шкале аккаунта.
 const RESULT_QUANTITY_MAX_FRACTION = 3;
 
+// Две суммы в тайлах — РАЗНЫЕ величины, и раньше подписи это скрывали («По QR»
+// против «К списанию» читалось как «столько насчитал QR» / «столько спишем»).
+// На деле исключения из итогов и пересорты — управленческая надстройка: в
+// Quick Resto проводится полная разница по строкам, независимо от них.
+const QR_TILE_HINT =
+  "Полная разница по строкам — ровно она проводится в Quick Resto. Исключения из итогов и пересорты на неё не влияют.";
+const MANAGEMENT_TILE_HINT =
+  "Наша оценка: с учётом исключённых строк и пересортов. Остаётся внутри CRM, в Quick Resto не уходит.";
+
 function formatQuantity(
   value: number | null | undefined,
   measureUnitName: string | null | undefined,
@@ -295,6 +304,7 @@ export function InventoryResultsTable({
   const [deleteRuleReason, setDeleteRuleReason] = useState("");
   const [voidingResort, setVoidingResort] = useState<InventoryResultResortRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [confirmFinalize, setConfirmFinalize] = useState(false);
   const [isPending, startTransition] = useTransition();
   // ИИ-подсказки грузятся по кнопке (не блокируют открытие акта).
   const [aiSuggestions, setAiSuggestions] = useState<InventoryResortSuggestion[]>([]);
@@ -373,6 +383,12 @@ export function InventoryResultsTable({
       }),
     [activeResortItemByItemId, activeResorts, items],
   );
+  // Что реально уйдёт в проводку (полная разница по строкам) против нашей
+  // управленческой оценки. Обе цифры показываем в подтверждении финализации:
+  // проверяющий не должен узнавать о разнице уже после проведения.
+  const qrNetSum = totals.qrSurplusSum + totals.qrShortfallSum;
+  const managementNetSum = totals.managementSurplusSum + totals.managementShortfallSum;
+  const finalizeSumsDiffer = Math.abs(qrNetSum - managementNetSum) > 0.005;
   const mismatchCount = useMemo(
     () => items.filter((item) => isOpenDifference(item, activeResortItemByItemId.get(item.id))).length,
     [items, activeResortItemByItemId],
@@ -1096,13 +1112,17 @@ export function InventoryResultsTable({
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground">По QR</div>
+              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+                Уйдёт в Quick Resto
+              </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">К списанию</div>
+              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+                Управленческая оценка
+              </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementShortfallSum), "RUB", amountRoundingScale)}
               </div>
@@ -1121,13 +1141,17 @@ export function InventoryResultsTable({
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground">По QR</div>
+              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+                Уйдёт в Quick Resto
+              </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">К учету</div>
+              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+                Управленческая оценка
+              </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementSurplusSum), "RUB", amountRoundingScale)}
               </div>
@@ -1672,9 +1696,7 @@ export function InventoryResultsTable({
                       <Button
                         type="button"
                         disabled={isPending}
-                        onClick={() =>
-                          runAction(() => finalizeInventoryResults({ documentId }), "Итоги подведены")
-                        }
+                        onClick={() => setConfirmFinalize(true)}
                       >
                         <CheckCircle2 className="mr-2 h-4 w-4" />
                         Подвести итоги
@@ -1699,6 +1721,77 @@ export function InventoryResultsTable({
         amountRoundingScale={amountRoundingScale}
         onClose={() => setOverviewIngredient(null)}
       />
+
+      {/* Подтверждение проведения. Показываем сумму, которая реально уйдёт в
+          Quick Resto: исключения и пересорты её не уменьшают, а раньше тайл
+          «К списанию» читался как решение по деньгам. */}
+      <Dialog open={confirmFinalize} onOpenChange={(open) => !open && setConfirmFinalize(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Подвести итоги акта</DialogTitle>
+            <DialogDescription>
+              Акт будет проведён в Quick Resto, а итоги — зафиксированы.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="rounded-lg border p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Уйдёт в Quick Resto
+              </div>
+              <div className="mt-2 grid gap-1">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Недостача</span>
+                  <span className="font-medium text-red-700 dark:text-red-400">
+                    {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Излишек</span>
+                  <span className="font-medium text-green-700 dark:text-green-400">
+                    {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t pt-1">
+                  <span className="text-muted-foreground">Итого</span>
+                  <span className="font-semibold">
+                    {formatSignedMoney(qrNetSum, "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {finalizeSumsDiffer ? (
+              <p className="text-muted-foreground">
+                Управленческая оценка — {formatSignedMoney(managementNetSum, "RUB", amountRoundingScale)}.
+                Она учитывает исключённые строки и пересорты и остаётся внутри CRM:
+                в Quick Resto проводится полная разница по строкам.
+              </p>
+            ) : null}
+            <p className="text-muted-foreground">
+              После подведения итогов пересорты, комментарии и исключения будут
+              заблокированы до переоткрытия.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmFinalize(false)}>
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={isPending}
+              onClick={() =>
+                runAction(
+                  () => finalizeInventoryResults({ documentId }),
+                  "Итоги подведены",
+                  () => setConfirmFinalize(false),
+                )
+              }
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Подвести итоги
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(commentItem)} onOpenChange={(open) => !open && setCommentItem(null)}>
         <DialogContent>

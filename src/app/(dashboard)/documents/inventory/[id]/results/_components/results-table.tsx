@@ -81,7 +81,6 @@ import {
   ResultStatusPicker,
 } from "./results-table-controls";
 import {
-  formatAmount,
   formatMoney,
   formatSignedMoney,
   type AmountRoundingScale,
@@ -323,6 +322,20 @@ export function InventoryResultsTable({
     () => new Map(items.map((item) => [item.id, item.product_name])),
     [items],
   );
+  const itemUnitById = useMemo(
+    () => new Map(items.map((item) => [item.id, item.measure_unit_name])),
+    [items],
+  );
+  // Единица измерения пересорта — с любой его позиции: пересорт по построению
+  // сводит позиции ОДНОЙ единицы (calculateResortAllocation это проверяет).
+  const resortUnitByResortId = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const resortItem of resortItems) {
+      if (map.has(resortItem.resortId)) continue;
+      map.set(resortItem.resortId, itemUnitById.get(resortItem.documentItemId) ?? null);
+    }
+    return map;
+  }, [resortItems, itemUnitById]);
   const resortNamesByResortId = useMemo(() => {
     const map = new Map<string, { shortage: string[]; surplus: string[] }>();
     for (const resortItem of resortItems) {
@@ -1529,7 +1542,7 @@ export function InventoryResultsTable({
             {activeResorts.map((resort) => (
               <div key={resort.id} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-medium">{resort.group_name ?? "Группа"} · {formatAmount(resort.offset_amount, amountRoundingScale)} ед.</div>
+                  <div className="text-sm font-medium">{resort.group_name ?? "Группа"} · {formatQuantity(resort.offset_amount, resortUnitByResortId.get(resort.id))}</div>
                   {(() => {
                     const names = resortNamesByResortId.get(resort.id);
                     if (!names || (names.shortage.length === 0 && names.surplus.length === 0)) {

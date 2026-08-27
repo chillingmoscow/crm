@@ -2043,7 +2043,7 @@ export async function getAiResortSuggestions(input: {
 
 export async function finalizeInventoryResults(input: {
   documentId: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.finalize_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
@@ -2120,6 +2120,19 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    // Полусбойное состояние: в Quick Resto акт уже проведён, а локально
+    // финализация не доехала. Так бывает, когда /action отработал, а
+    // постусловное чтение упало по таймауту: экшен вернул ошибку и НЕ тронул
+    // documents. Повторное нажатие «Подвести итоги» не должно проводить
+    // проведённый акт — вместо этого дописываем локальное состояние.
+    //
+    // Сверку перед проведением в этом случае пропускаем сознательно: у
+    // проведённого акта Quick Resto отдаёт уже ПОСЛЕ-проведенческие расчётные
+    // остатки, сверка нашла бы «расхождение» с утверждёнными числами и
+    // заблокировала бы финализацию навсегда. Утверждённое — то, что лежит в
+    // строках сейчас; его и фиксируем.
+    const alreadyProcessedInQr = Boolean(qrDocBefore.processed);
+
     // Сверка перед проведением. Между тем моментом, когда проверяющий смотрел
     // «Итоги», и нажатием «Подвести итоги» Quick Resto мог пересчитать
     // расчётные остатки (правки в учёте за период до даты акта). Тогда
@@ -2142,62 +2155,67 @@ export async function finalizeInventoryResults(input: {
       }));
     };
 
-    let recheckSkippedReason: string | null = null;
-    try {
-      const linesBefore = await readResultLines();
-      const freshItems = await listBackOfficeInventoryItemsWithSession({
-        connection,
-        admin,
-        documentExternalId: externalIdNum,
-      });
-      if (freshItems.length === 0) {
-        recheckSkippedReason = "Quick Resto не вернул позиции для сверки";
-      } else {
-        await refreshLocalInventoryDocumentFromPayload({
+    let recheckSkippedReason: string | null = alreadyProcessedInQr
+      ? "акт уже проведён в Quick Resto"
+      : null;
+    // Проведённый акт не сверяем (см. alreadyProcessedInQr выше).
+    if (!alreadyProcessedInQr) {
+      try {
+        const linesBefore = await readResultLines();
+        const freshItems = await listBackOfficeInventoryItemsWithSession({
+          connection,
           admin,
-          accountId: ctx.accountId,
-          documentId: document.id,
-          document: { ...qrDocBefore, effectedItems: freshItems },
-          // Статус не двигаем: сверка — это обновление данных, а не переход
-          // по статусной машине.
-          status: document.status,
+          documentExternalId: externalIdNum,
         });
-        const diff = compareResultLines(linesBefore, await readResultLines());
-        if (hasResultDrift(diff)) {
-          console.info("[finalize] данные QR разъехались, проведение отменено", {
-            documentId: document.id,
-            changed: diff.changedLines,
-            beforeTotal: diff.beforeTotal,
-            afterTotal: diff.afterTotal,
-          });
-          await writeInventoryResultEvent({
-            supabase: ctx.supabase,
+        if (freshItems.length === 0) {
+          recheckSkippedReason = "Quick Resto не вернул позиции для сверки";
+        } else {
+          await refreshLocalInventoryDocumentFromPayload({
             admin,
             accountId: ctx.accountId,
-            userId: ctx.user.id,
             documentId: document.id,
-            eventType: "results_recheck_drift",
-            message: "Данные Quick Resto изменились перед проведением",
-            payload: {
-              changedLines: diff.changedLines,
-              addedLines: diff.addedLines,
-              removedLines: diff.removedLines,
+            document: { ...qrDocBefore, effectedItems: freshItems },
+            // Статус не двигаем: сверка — это обновление данных, а не переход
+            // по статусной машине.
+            status: document.status,
+          });
+          const diff = compareResultLines(linesBefore, await readResultLines());
+          if (hasResultDrift(diff)) {
+            console.info("[finalize] данные QR разъехались, проведение отменено", {
+              documentId: document.id,
+              changed: diff.changedLines,
               beforeTotal: diff.beforeTotal,
               afterTotal: diff.afterTotal,
-            },
-          });
-          revalidateInventoryResultPages(document.id);
-          return { error: describeResultDrift(diff) };
+            });
+            await writeInventoryResultEvent({
+              supabase: ctx.supabase,
+              admin,
+              accountId: ctx.accountId,
+              userId: ctx.user.id,
+              documentId: document.id,
+              eventType: "results_recheck_drift",
+              message: "Данные Quick Resto изменились перед проведением",
+              payload: {
+                changedLines: diff.changedLines,
+                addedLines: diff.addedLines,
+                removedLines: diff.removedLines,
+                beforeTotal: diff.beforeTotal,
+                afterTotal: diff.afterTotal,
+              },
+            });
+            revalidateInventoryResultPages(document.id);
+            return { error: describeResultDrift(diff) };
+          }
         }
+      } catch (recheckError) {
+        // Сверка — защита, а не предусловие: если backoffice недоступен, не
+        // блокируем проведение, но оставляем след в журнале.
+        console.error("[finalize] сверка перед проведением не выполнена", {
+          documentId: document.id,
+          error: recheckError,
+        });
+        recheckSkippedReason = "Quick Resto недоступен для сверки";
       }
-    } catch (recheckError) {
-      // Сверка — защита, а не предусловие: если backoffice недоступен, не
-      // блокируем проведение, но оставляем след в журнале.
-      console.error("[finalize] сверка перед проведением не выполнена", {
-        documentId: document.id,
-        error: recheckError,
-      });
-      recheckSkippedReason = "Quick Resto недоступен для сверки";
     }
 
     // Снимок построчных итогов — ДО обращения к QR. «Расчёт» и «Разница» в
@@ -2217,53 +2235,74 @@ export async function finalizeInventoryResults(input: {
       return { error: "Не удалось зафиксировать итоги акта. Попробуйте ещё раз." };
     }
 
-    try {
-      await processBackOfficeInventoryDocumentWithSession({
-        connection,
-        admin,
-        documentExternalId: externalIdNum,
-      });
-      console.info("[finalize] QR processed", {
+    // Снимок снят, а documents.results_snapshot_at выставится только в самом
+    // конце. Если дальше что-то упадёт, строки останутся помечены finalized_*,
+    // но страница продолжит показывать живые значения (акт не залочен) —
+    // состояние корректное, но должно быть видно в логах.
+    const logOrphanSnapshot = (reason: string) => {
+      console.warn("[finalize] снимок строк снят, но акт не зафиксирован", {
         documentId: document.id,
         externalId: externalIdNum,
+        reason,
       });
-    } catch (qrError) {
-      const message =
-        qrError instanceof Error ? qrError.message : "Quick Resto не ответил";
-      console.error("[finalize] QR process failed", {
-        documentId: document.id,
-        externalId: externalIdNum,
-        error: qrError,
-      });
-      return { error: `Не удалось провести акт в Quick Resto: ${message}` };
+    };
+
+    if (!alreadyProcessedInQr) {
+      try {
+        await processBackOfficeInventoryDocumentWithSession({
+          connection,
+          admin,
+          documentExternalId: externalIdNum,
+        });
+        console.info("[finalize] QR processed", {
+          documentId: document.id,
+          externalId: externalIdNum,
+        });
+      } catch (qrError) {
+        const message =
+          qrError instanceof Error ? qrError.message : "Quick Resto не ответил";
+        console.error("[finalize] QR process failed", {
+          documentId: document.id,
+          externalId: externalIdNum,
+          error: qrError,
+        });
+        logOrphanSnapshot("проведение в Quick Resto не удалось");
+        return { error: `Не удалось провести акт в Quick Resto: ${message}` };
+      }
     }
 
     // Постусловие: убеждаемся, что QR реально провёл акт. /action на удалённом /
     // изменённом акте может тихо вернуть 200 ничего не сделав — тогда локально
     // НЕ помечаем проведённым, иначе разъедемся с QR (источник правды).
-    let qrDocAfter: QuickRestoInventoryDocument2 | null = null;
-    try {
-      qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
-      if (!qrDocAfter.processed) {
-        console.error("[finalize] QR не отметил акт проведённым после process", {
+    let qrDocAfter: QuickRestoInventoryDocument2 | null = alreadyProcessedInQr
+      ? qrDocBefore
+      : null;
+    if (!alreadyProcessedInQr) {
+      try {
+        qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+        if (!qrDocAfter.processed) {
+          console.error("[finalize] QR не отметил акт проведённым после process", {
+            documentId: document.id,
+            externalId: externalIdNum,
+          });
+          logOrphanSnapshot("Quick Resto не отметил акт проведённым");
+          return {
+            error:
+              "Quick Resto не отметил акт проведённым. Возможно, акт удалён или изменён — обновите синхронизацию и попробуйте снова.",
+          };
+        }
+      } catch (verifyError) {
+        console.error("[finalize] QR re-read after process failed", {
           documentId: document.id,
           externalId: externalIdNum,
+          error: verifyError,
         });
+        logOrphanSnapshot("не удалось подтвердить проведение");
         return {
           error:
-            "Quick Resto не отметил акт проведённым. Возможно, акт удалён или изменён — обновите синхронизацию и попробуйте снова.",
+            "Не удалось подтвердить проведение акта в Quick Resto. Обновите синхронизацию и проверьте статус акта.",
         };
       }
-    } catch (verifyError) {
-      console.error("[finalize] QR re-read after process failed", {
-        documentId: document.id,
-        externalId: externalIdNum,
-        error: verifyError,
-      });
-      return {
-        error:
-          "Не удалось подтвердить проведение акта в Quick Resto. Обновите синхронизацию и проверьте статус акта.",
-      };
     }
 
     const finalizedAt = new Date().toISOString();
@@ -2306,10 +2345,16 @@ export async function finalizeInventoryResults(input: {
       userId: ctx.user.id,
       documentId: document.id,
       eventType: "results_finalized",
-      message: recheckSkippedReason
-        ? `Подвел итоги акта (без сверки с Quick Resto: ${recheckSkippedReason})`
-        : "Подвел итоги акта",
-      payload: { documentId: document.id, recheckSkipped: recheckSkippedReason },
+      message: alreadyProcessedInQr
+        ? "Зафиксировал итоги акта, уже проведённого в Quick Resto"
+        : recheckSkippedReason
+          ? `Подвел итоги акта (без сверки с Quick Resto: ${recheckSkippedReason})`
+          : "Подвел итоги акта",
+      payload: {
+        documentId: document.id,
+        recheckSkipped: recheckSkippedReason,
+        alreadyProcessedInQr,
+      },
     });
 
     // Уведомляем исполнителя, что его акт принят.
@@ -2325,7 +2370,15 @@ export async function finalizeInventoryResults(input: {
     });
 
     revalidateInventoryResultPages(document.id);
-    return { error: null };
+    return {
+      error: null,
+      ...(alreadyProcessedInQr
+        ? {
+            notice:
+              "Акт уже был проведён в Quick Resto — итоги зафиксированы локально, повторное проведение не потребовалось.",
+          }
+        : {}),
+    };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось финализировать итоги") };
   }

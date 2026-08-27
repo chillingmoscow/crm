@@ -532,7 +532,10 @@ export function InventoryResultsTable({
 
   const runAction = useCallback(
     (
-      action: () => Promise<{ error: string | null }>,
+      // notice — когда экшен отработал не совсем так, как ожидал пользователь,
+      // и это стоит сказать словами (например: акт уже был проведён в Quick
+      // Resto, повторное проведение не потребовалось).
+      action: () => Promise<{ error: string | null; notice?: string }>,
       success: string,
       onSuccess?: () => void,
     ) => {
@@ -542,7 +545,7 @@ export function InventoryResultsTable({
           toast.error(result.error);
           return;
         }
-        toast.success(success);
+        toast.success(result.notice ?? success);
         setSelectedIds(new Set());
         onSuccess?.();
       });

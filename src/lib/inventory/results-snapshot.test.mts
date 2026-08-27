@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyResortItemSnapshot,
+  applyResortSnapshot,
   applyResultSnapshot,
   hasResultSnapshot,
+  isInventoryResultFrozen,
+  resultLineTotals,
   type InventoryResultSnapshotRow,
 } from "./results-snapshot.ts";
 
@@ -108,4 +112,146 @@ test("hasResultSnapshot: смотрим на маркер, а не на знач
   assert.equal(hasResultSnapshot({ finalized_at: "2026-08-24T12:27:43Z" }), true);
   assert.equal(hasResultSnapshot({ finalized_difference_sum: 0 }), false);
   assert.equal(hasResultSnapshot({}), false);
+});
+
+// ── Пересорты и исключения в снимке (миграция 227) ──────────
+
+test("пересорт зафиксированного акта берётся из снимка, включая статус", () => {
+  // Пересорт свели на 2 кг, акт зафиксировали. Потом импорт пересчитал зачёт
+  // (0,5 кг), а триггер-инвариант аннулировал пересорт — утверждённый итог
+  // не должен поехать вслед за этим.
+  const out = applyResortSnapshot(
+    {
+      status: "voided",
+      offset_amount: 0.5,
+      residual_shortfall_sum: -50,
+      residual_surplus_sum: 0,
+      cost_adjustment_sum: 10,
+      finalized_at: "2026-08-24T12:27:43Z",
+      finalized_status: "active",
+      finalized_offset_amount: 2,
+      finalized_residual_shortfall_sum: 0,
+      finalized_residual_surplus_sum: 0,
+      finalized_cost_adjustment_sum: 120,
+    },
+    true,
+  );
+  assert.equal(out.status, "active");
+  assert.equal(out.offset_amount, 2);
+  assert.equal(out.cost_adjustment_sum, 120);
+});
+
+test("пересорт без снимка остаётся живым (создать его на залоченном акте нельзя)", () => {
+  const out = applyResortSnapshot(
+    {
+      status: "active",
+      offset_amount: 3,
+      residual_shortfall_sum: 0,
+      residual_surplus_sum: 0,
+      cost_adjustment_sum: 0,
+    },
+    true,
+  );
+  // Снимка нет — замораживать нечего, значения остаются живыми. Появиться на
+  // зафиксированном акте такой пересорт не может: создание пересорта закрыто
+  // замком итогов (getInventoryResultAdjustLockReason).
+  assert.equal(out.offset_amount, 3);
+  assert.equal(out.status, "active");
+  assert.equal(out.finalized_at, undefined);
+});
+
+test("незафиксированный акт: пересорт показывается живым", () => {
+  const row = {
+    status: "active",
+    offset_amount: 1,
+    residual_shortfall_sum: -10,
+    residual_surplus_sum: 0,
+    cost_adjustment_sum: 0,
+    finalized_at: "2026-08-24T12:27:43Z",
+    finalized_status: "voided",
+    finalized_offset_amount: 99,
+    finalized_residual_shortfall_sum: 0,
+    finalized_residual_surplus_sum: 0,
+    finalized_cost_adjustment_sum: 0,
+  };
+  const out = applyResortSnapshot(row, false);
+  assert.equal(out.status, "active");
+  assert.equal(out.offset_amount, 1);
+});
+
+test("позиция пересорта из снимка", () => {
+  const out = applyResortItemSnapshot(
+    {
+      source_difference_amount: -1,
+      source_difference_sum: -100,
+      offset_amount: 0.5,
+      remaining_difference_amount: -0.5,
+      remaining_difference_sum: -50,
+      finalized_at: "2026-08-24T12:27:43Z",
+      finalized_source_difference_amount: -2,
+      finalized_source_difference_sum: -200,
+      finalized_offset_amount: 2,
+      finalized_remaining_difference_amount: 0,
+      finalized_remaining_difference_sum: 0,
+    },
+    true,
+  );
+  assert.equal(out.offset_amount, 2);
+  assert.equal(out.remaining_difference_sum, 0);
+});
+
+test("resultLineTotals: исключение строки тоже из снимка", () => {
+  // Правило автоисключения удалили после подведения итогов: живой флаг снялся,
+  // но утверждённый итог считался без этой строки.
+  const totals = resultLineTotals(
+    {
+      difference_amount: -1,
+      difference_sum: -100,
+      excluded_from_totals: false,
+      finalized_at: "2026-08-24T12:27:43Z",
+      finalized_difference_amount: -1,
+      finalized_difference_sum: -100,
+      finalized_excluded_from_totals: true,
+    },
+    true,
+  );
+  assert.equal(totals.excluded, true);
+  assert.equal(totals.differenceSum, -100);
+});
+
+test("resultLineTotals: без снимка — живые значения", () => {
+  const totals = resultLineTotals(
+    {
+      difference_amount: -1,
+      difference_sum: -100,
+      excluded_from_totals: true,
+      finalized_at: null,
+      finalized_difference_sum: 0,
+      finalized_excluded_from_totals: false,
+    },
+    true,
+  );
+  assert.equal(totals.excluded, true);
+  assert.equal(totals.differenceSum, -100);
+});
+
+test("isInventoryResultFrozen: замок + снимок", () => {
+  const finalized = {
+    status: "processed",
+    results_finalized_at: "2026-08-24T12:27:43Z",
+    results_reopened_at: null,
+    results_snapshot_at: "2026-08-24T12:27:43Z",
+  };
+  assert.equal(isInventoryResultFrozen(finalized), true);
+  // Итоги переоткрыли — снова показываем живые значения.
+  assert.equal(
+    isInventoryResultFrozen({
+      ...finalized,
+      results_finalized_at: null,
+      results_reopened_at: "2026-08-25T09:00:00Z",
+    }),
+    false,
+  );
+  // Снимок не снялся — замораживать нечего.
+  assert.equal(isInventoryResultFrozen({ ...finalized, results_snapshot_at: null }), false);
 });

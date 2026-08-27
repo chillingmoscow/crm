@@ -153,6 +153,8 @@ export type InventoryDocumentResultItem = {
   /** Факт на момент последней отправки на пересчёт (снимок «было»).
       Не null → строка была на пересчёте (постоянная пометка). */
   recount_previous_amount: number | null;
+  /** Исключение из итогов на момент фиксации (миграция 227). */
+  finalized_excluded_from_totals?: boolean | null;
 };
 
 export type InventoryResultResortRow = {
@@ -169,6 +171,15 @@ export type InventoryResultResortRow = {
   suggestion_source: string | null;
   created_at: string;
   void_reason: string | null;
+  /** Снимок пересорта на момент подведения итогов (миграция 227). У
+      зафиксированного акта страница подставляет эти значения в поля выше —
+      см. applyResortSnapshot. */
+  finalized_at?: string | null;
+  finalized_status?: string | null;
+  finalized_offset_amount?: number | null;
+  finalized_residual_shortfall_sum?: number | null;
+  finalized_residual_surplus_sum?: number | null;
+  finalized_cost_adjustment_sum?: number | null;
 };
 
 export type InventoryResultResortItemRow = InventoryResortAllocationItem & {

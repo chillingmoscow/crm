@@ -37,6 +37,7 @@ type InventoryDocumentResultRow = {
   results_finalized_at: string | null;
   results_reopened_at: string | null;
   results_snapshot_at: string | null;
+  qr_unprocessed_at: string | null;
   invoice_date: string | null;
   archived_at: string | null;
 };
@@ -121,7 +122,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, invoice_date, archived_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, qr_unprocessed_at, invoice_date, archived_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -384,6 +385,7 @@ export default async function InventoryDocumentResultsPage({
           resultsSnapshotAt={resultsFrozen ? document.results_snapshot_at : null}
           documentInvoiceDate={document.invoice_date}
           recountSplits={recountSplits}
+          qrUnprocessedAt={document.qr_unprocessed_at}
           // Processed-акт read-only до явной разблокировки (в журнал).
           isLocked={isLocked}
           canComment={Boolean(canCommentResults)}

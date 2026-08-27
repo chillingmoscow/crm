@@ -358,17 +358,32 @@ export async function syncQuickRestoInventory(input?: {
     const storeId = externalStoreId ? storeByExternalId.get(externalStoreId) ?? null : null;
 
     const { data: existing } = await admin
-      .from<{ id: string; status: string }>("documents")
-      .select("id, status")
+      .from<{
+        id: string;
+        status: string;
+        results_finalized_at: string | null;
+        qr_unprocessed_at: string | null;
+      }>("documents")
+      .select("id, status, results_finalized_at, qr_unprocessed_at")
       .eq("account_id", ctx.accountId)
       .eq("external_id", String(document.id))
       .maybeSingle();
 
+    // Акт с зафиксированными итогами распровели в Quick Resto (штатная
+    // операция бухгалтера). Он снова выглядит непроведённым и свежим, поэтому
+    // доходит сюда. Молча откатывать его статус нельзя: у нас лежат
+    // утверждённые итоги и снимок строк. Фиксируем факт распроведения полем и
+    // событием — статус и данные итогов не трогаем (миграция 224).
+    const finalizedLocally = Boolean(existing?.results_finalized_at);
+    const unprocessedInQr = finalizedLocally && !document.processed;
+
     const nextStatus = document.processed
       ? "processed"
-      : existing?.status && existing.status !== "processed"
-        ? existing.status
-        : "synced";
+      : finalizedLocally
+        ? existing?.status ?? "processed"
+        : existing?.status && existing.status !== "processed"
+          ? existing.status
+          : "synced";
 
     // Items: для не-проведённого акта public-API (readInventoryDocument)
     // возвращает items БЕЗ расчётного остатка и разницы (calculated/
@@ -424,9 +439,19 @@ export async function syncQuickRestoInventory(input?: {
           processed: Boolean(document.processed),
           base_last_update_date: dateText(document.lastUpdateDate),
           last_qr_update_date: dateText(document.lastUpdateDate),
-          shortfall_sum: num(document.shortfallSum),
-          surplus_sum: num(document.surplusSum),
-          results_has_line_amounts: precheckHasResults,
+          // У распроведённого акта Quick Resto отдаёт нулевые суммы и может не
+          // вернуть построчные расчёты. Зафиксированные итоги этим перетирать
+          // нельзя — иначе таблица итогов просто спрячется.
+          ...(finalizedLocally
+            ? {}
+            : {
+                shortfall_sum: num(document.shortfallSum),
+                surplus_sum: num(document.surplusSum),
+                results_has_line_amounts: precheckHasResults,
+              }),
+          qr_unprocessed_at: unprocessedInQr
+            ? existing?.qr_unprocessed_at ?? syncedAt
+            : null,
           comment: text(document.comment),
           qr_payload: document,
           synced_at: syncedAt,
@@ -458,12 +483,27 @@ export async function syncQuickRestoInventory(input?: {
       });
       summary.items += result.count;
       if (!result.resultsFound) summary.resultsBlocked += 1;
-      if (result.resultsFound !== precheckHasResults) {
+      if (!finalizedLocally && result.resultsFound !== precheckHasResults) {
         await admin
           .from("documents")
           .update({ results_has_line_amounts: result.resultsFound })
           .eq("id", data.id);
       }
+    }
+
+    // Распроведение фиксируем один раз — на переходе. Иначе каждая
+    // синхронизация плодила бы одинаковые записи в журнале акта.
+    if (unprocessedInQr && !existing?.qr_unprocessed_at) {
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: data.id,
+        eventType: "qr_unprocessed",
+        message: "Акт распровели в Quick Resto",
+        payload: { externalId: String(document.id), detectedAt: syncedAt },
+      });
     }
 
     summary.documents += 1;
@@ -2324,6 +2364,10 @@ export async function finalizeInventoryResults(input: {
         ...(qrSurplusSum !== null ? { surplus_sum: qrSurplusSum } : {}),
         results_finalized_at: finalizedAt,
         results_finalized_by: ctx.user.id,
+        // Акт снова проведён — метка «распровели в Quick Resto» (миграция 224)
+        // больше не актуальна. Синхронизация её не снимет: она ходит только по
+        // НЕпроведённым актам.
+        qr_unprocessed_at: null,
         // Включает снимок строк (finalized_* выше) — с этого момента страница
         // итогов показывает зафиксированные числа, а не живые из Quick Resto.
         results_snapshot_at: finalizedAt,

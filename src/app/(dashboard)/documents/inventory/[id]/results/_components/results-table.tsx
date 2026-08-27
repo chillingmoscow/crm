@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -228,6 +229,8 @@ type Props = {
   canViewProducts: boolean;
   aiSuggestionsEnabled: boolean;
   documentStatus: string;
+  /** Акт с зафиксированными итогами распровели в Quick Resto (миграция 224). */
+  qrUnprocessedAt: string | null;
 };
 
 // Количество в Итогах показываем точнее, чем деньги: денежная шкала
@@ -286,6 +289,7 @@ export function InventoryResultsTable({
   canViewProducts,
   aiSuggestionsEnabled,
   documentStatus,
+  qrUnprocessedAt,
 }: Props) {
   const [showDifferences, setShowDifferences] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1111,6 +1115,25 @@ export function InventoryResultsTable({
       {/* Баннер «акт на пересчёте»: ревьюер вернул акт исполнителю и ждёт.
           Итоги read-only (анти-подгонка) — нельзя пересортировать, исключать
           или финализировать, пока пересчёт не завершён. */}
+      {/* Акт распровели в Quick Resto: наши итоги остались зафиксированными,
+          но источник правды больше не считает акт проведённым. Молча
+          откатывать статус нельзя — показываем это человеку. */}
+      {qrUnprocessedAt ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-500/5 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div className="min-w-0 text-sm">
+            <div className="font-medium text-amber-800 dark:text-amber-200">
+              Акт распровели в Quick Resto
+            </div>
+            <p className="mt-0.5 text-amber-800/90 dark:text-amber-300/90">
+              Итоги у нас остались зафиксированными — здесь по-прежнему снимок,
+              утверждённый при подведении итогов. Чтобы провести акт заново,
+              разблокируйте его и подведите итоги ещё раз.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {isRecountPending ? (
         <div className="flex items-start gap-3 rounded-lg border border-rose-300 bg-rose-500/5 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
           <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-rose-700 dark:text-rose-300" />

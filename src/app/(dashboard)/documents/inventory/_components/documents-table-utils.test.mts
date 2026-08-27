@@ -30,11 +30,21 @@ test("combineSort собирает режим из поля и направле�
   }
 });
 
-test("getDocHref: results-состояние + право → /results", () => {
-  const base = { id: "d1", processed: false, results_has_line_amounts: false, status: "assigned" };
-  assert.equal(getDocHref({ ...base, processed: true }, true), "/documents/inventory/d1/results");
-  assert.equal(getDocHref({ ...base, results_has_line_amounts: true }, true), "/documents/inventory/d1/results");
-  assert.equal(getDocHref({ ...base, status: "results_blocked" }, true), "/documents/inventory/d1/results");
+test("getDocHref: акт со сданными итогами + право → /results", () => {
+  const base = { id: "d1", processed: false, results_has_line_amounts: true, status: "assigned" };
+  for (const status of ["processed", "results_blocked", "ready_for_review", "recount_pending"] as const) {
+    assert.equal(getDocHref({ ...base, status }, true), "/documents/inventory/d1/results");
+  }
+});
+
+test("getDocHref: акт ещё не сдан → форма, даже если QR вернул построчные расчёты", () => {
+  // Quick Resto выставляет results_has_line_amounts и на нетронутом акте:
+  // разница там равна минус складскому остатку. Уводить на «Итоги» нельзя —
+  // там заглушка «Подсчёт ещё не завершён».
+  const base = { id: "d1", processed: false, results_has_line_amounts: true, status: "assigned" };
+  for (const status of ["synced", "assigned", "in_progress", "sync_error"] as const) {
+    assert.equal(getDocHref({ ...base, status }, true), "/documents/inventory/d1");
+  }
 });
 
 test("getDocHref: без права view_results → форма (fill-only не уносит на /results)", () => {

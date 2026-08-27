@@ -41,7 +41,11 @@ import { cn } from "@/lib/utils";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
-import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
+import {
+  getAssigneeLockReason,
+  getReviewerLockReason,
+  hasCountedResults,
+} from "@/lib/inventory/act-status";
 import {
   TableBulkBar,
   TableColumnManager,
@@ -323,7 +327,7 @@ export function DocumentsTable({
   const selectedNet = useMemo(() => {
     let net = 0;
     for (const row of selectedRowsList) {
-      if (!row.results_has_line_amounts) continue;
+      if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
       net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
     }
     return net;
@@ -518,7 +522,10 @@ export function DocumentsTable({
         // Одно число — нетто-расхождение (излишки − недостачи). Плюс →
         // зелёный (излишек), минус → красный (недостача), ноль — нейтрально.
         cell: (row: DocumentListRow) => {
-          if (!row.results_has_line_amounts) {
+          // Прочерк и у актов без построчных расчётов, и у тех, что ещё не
+          // сдали: у вторых Quick Resto отдаёт разницу, равную минус складскому
+          // остатку, и «0 ₽» читалось бы как «посчитано, расхождений нет».
+          if (!row.results_has_line_amounts || !hasCountedResults(row.status)) {
             return <span className="text-sm text-muted-foreground">—</span>;
           }
           const net = (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);

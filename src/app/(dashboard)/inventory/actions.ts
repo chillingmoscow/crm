@@ -3193,6 +3193,11 @@ export async function splitDocumentForRecount(input: {
         recountExternalId: targetExternalId,
         recountDate: input.recountDate,
         itemCount: moved.length,
+        // Названия кладём в payload: строки уже удалены из акта, и по id их
+        // потом не восстановить — журнал остался бы без имён позиций.
+        productNames: pending
+          .filter((item) => moved.includes(item.id))
+          .map((item) => item.product_name),
         note: input.note ?? null,
       },
     });
@@ -3204,7 +3209,13 @@ export async function splitDocumentForRecount(input: {
       documentId: targetLocalId,
       eventType: "recount_split",
       message: `Акт пересчёта по акту № ${document.document_number}`,
-      payload: { parentDocumentId: document.id, itemCount: moved.length },
+      payload: {
+        parentDocumentId: document.id,
+        itemCount: moved.length,
+        productNames: pending
+          .filter((item) => moved.includes(item.id))
+          .map((item) => item.product_name),
+      },
     });
 
     if (document.assigned_to) {

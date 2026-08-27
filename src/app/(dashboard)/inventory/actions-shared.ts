@@ -13,6 +13,7 @@ import { calculateResortAllocation } from "@/lib/inventory/results";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import {
   getInventoryResultAdjustLockReason,
+  hasCountedResults,
   resolveStatusAfterImport,
 } from "@/lib/inventory/act-status";
 import { resolveLineResult, resolveSubmittedAmount } from "@/lib/inventory/sync-amounts";
@@ -1300,6 +1301,15 @@ export async function getResultDocumentForAction(input: {
     throw new Error("Этот акт удалён в Quick Resto и недоступен для изменений.");
   }
   if (input.requireOpen) {
+    // До сдачи акта итогов не существует: разница из Quick Resto равна минус
+    // складскому остатку, потому что факт ещё нулевой. Любые действия по итогам
+    // (отметить на пересчёт, исключить, свести пересорт) в этот момент
+    // бессмысленны — гейтим их так же, как страницу итогов.
+    if (!hasCountedResults(document.status)) {
+      throw new Error(
+        "Подсчёт ещё не завершён — работать с итогами можно после того, как исполнитель сдаст акт.",
+      );
+    }
     // Инструменты ревьюера закрыты при пересчёте (анти-подгонка) /
     // финализации / проведении — единый источник предиката и текста.
     const lockReason = getInventoryResultAdjustLockReason(document);

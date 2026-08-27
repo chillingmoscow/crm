@@ -9,7 +9,7 @@ import {
   buildHistorySuggestions,
   eventPayload,
 } from "@/lib/inventory/resort-suggestions";
-import { isInventoryResultLocked } from "@/lib/inventory/act-status";
+import { hasCountedResults, isInventoryResultLocked } from "@/lib/inventory/act-status";
 import {
   applyResultSnapshot,
   type InventoryResultSnapshotAmounts,
@@ -349,7 +349,19 @@ export default async function InventoryDocumentResultsPage({
       {/* Шапка (back/табы/номер/статус/склад/позиции) — в shared layout.
           «Обновить итоги из QR» переехала в тулбар таблицы итогов
           (results-table → TableControls.secondaryActions). */}
-      {!document.results_has_line_amounts ? (
+      {!hasCountedResults(document.status) ? (
+        // До сдачи акта «разница» из Quick Resto — это минус весь складской
+        // остаток (факт ещё нулевой). Показывать её как итог нельзя: на проде
+        // такой акт рисовал недостачу 478 193,6 ₽ до начала подсчёта.
+        <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm">
+          <div className="mb-2 font-medium">Подсчёт ещё не завершён</div>
+          <p className="text-muted-foreground">
+            Итоги появятся, когда исполнитель заполнит акт и отправит его на проверку. Пока факт не
+            введён, Quick Resto считает разницу как «ноль минус расчётный остаток» — это не
+            расхождение, а просто складской остаток со знаком минус.
+          </p>
+        </div>
+      ) : !document.results_has_line_amounts ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <div className="mb-2 flex items-center gap-2 font-medium">
             <AlertTriangle className="h-4 w-4" />

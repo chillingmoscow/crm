@@ -224,10 +224,11 @@ import { Button } from "@/components/ui/button";
 `useSsrSafeTabsTriggerIds()` / `useSsrSafeTabsContentIds()`) из
 [`src/hooks/use-hydrated.ts`](../src/hooks/use-hydrated.ts) — атрибут не
 уходит в SSR-разметку и дорисовывается после гидратации. Спред должен идти
-**последним**, после `{...props}`. Уже закрыты: `Dialog`, `Sheet`,
-`AlertDialog`, `Popover`, `Select`, `Tabs`. Примитивы, которые отдают такой
-атрибут только в открытом состоянии (`DropdownMenu`, `Tooltip`), трогать не
-нужно.
+**до** `{...props}` — тогда явный `id` / `aria-controls` от вызывающего кода
+переживёт SSR, а не будет затёрт нашим `undefined`. Уже закрыты: `Dialog`,
+`Sheet`, `AlertDialog`, `Popover`, `Select`, `Tabs`. Примитивы, которые
+отдают такой атрибут только в открытом состоянии (`DropdownMenu`,
+`Tooltip`), трогать не нужно.
 
 ---
 

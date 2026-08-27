@@ -231,6 +231,10 @@ type Props = {
   documentStatus: string;
   /** Акт с зафиксированными итогами распровели в Quick Resto (миграция 224). */
   qrUnprocessedAt: string | null;
+  /** Суммы, которые сам Quick Resto записал в акт при проведении (миграция 225).
+      До проведения QR отдаёт нули, поэтому здесь null. */
+  qrShortfallSum: number | null;
+  qrSurplusSum: number | null;
 };
 
 // Количество в Итогах показываем точнее, чем деньги: денежная шкала
@@ -290,6 +294,8 @@ export function InventoryResultsTable({
   aiSuggestionsEnabled,
   documentStatus,
   qrUnprocessedAt,
+  qrShortfallSum,
+  qrSurplusSum,
 }: Props) {
   const [showDifferences, setShowDifferences] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -401,6 +407,7 @@ export function InventoryResultsTable({
   const qrNetSum = totals.qrSurplusSum + totals.qrShortfallSum;
   const managementNetSum = totals.managementSurplusSum + totals.managementShortfallSum;
   const finalizeSumsDiffer = Math.abs(qrNetSum - managementNetSum) > 0.005;
+  const hasQrDocumentSums = qrShortfallSum != null || qrSurplusSum != null;
   const mismatchCount = useMemo(
     () => items.filter((item) => isOpenDifference(item, activeResortItemByItemId.get(item.id))).length,
     [items, activeResortItemByItemId],
@@ -1202,6 +1209,23 @@ export function InventoryResultsTable({
           </div>
         </div>
       </div>
+
+      {/* Суммы, которые Quick Resto записал в акт при проведении. До проведения
+          QR отдаёт по документу нули, поэтому строка появляется только у
+          проведённого акта. Раньше эти числа сохранялись, но не доходили ни до
+          одного экрана: их перетирал управленческий итог. */}
+      {hasQrDocumentSums ? (
+        <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground sm:px-4">
+          <span className="font-medium text-foreground">Quick Resto при проведении:</span>{" "}
+          недостача {formatMoney(Math.abs(qrShortfallSum ?? 0), "RUB", amountRoundingScale)} · излишек{" "}
+          {formatMoney(Math.abs(qrSurplusSum ?? 0), "RUB", amountRoundingScale)} · итого{" "}
+          {formatSignedMoney(
+            Math.abs(qrSurplusSum ?? 0) - Math.abs(qrShortfallSum ?? 0),
+            "RUB",
+            amountRoundingScale,
+          )}
+        </div>
+      ) : null}
 
       {/* Журнал событий («Журнал решений») переехал в layout-табу «Журнал»
           (../history) — здесь была дублирующая внутренняя вкладка.

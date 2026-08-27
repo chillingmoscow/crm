@@ -86,6 +86,10 @@ export type DocumentListRow = {
   results_reopened_after_processed?: boolean;
   /** Не null → это акт пересчёта, вынесенный из другого акта (миграция 223). */
   recount_of_document_id?: string | null;
+  /** Суммы самого Quick Resto (миграция 225). Не из RPC — дозагружаются в
+      list-documents.ts. Заполнены только у проведённого акта. */
+  qr_shortfall_sum?: number | null;
+  qr_surplus_sum?: number | null;
 };
 
 export type ListDocumentsResult = {

@@ -445,8 +445,8 @@ export async function syncQuickRestoInventory(input?: {
           ...(finalizedLocally
             ? {}
             : {
-                shortfall_sum: num(document.shortfallSum),
-                surplus_sum: num(document.surplusSum),
+                qr_shortfall_sum: num(document.shortfallSum),
+                qr_surplus_sum: num(document.surplusSum),
                 results_has_line_amounts: precheckHasResults,
               }),
           qr_unprocessed_at: unprocessedInQr
@@ -2360,8 +2360,8 @@ export async function finalizeInventoryResults(input: {
       .update({
         status: "processed",
         processed: true,
-        ...(qrShortfallSum !== null ? { shortfall_sum: qrShortfallSum } : {}),
-        ...(qrSurplusSum !== null ? { surplus_sum: qrSurplusSum } : {}),
+        ...(qrShortfallSum !== null ? { qr_shortfall_sum: qrShortfallSum } : {}),
+        ...(qrSurplusSum !== null ? { qr_surplus_sum: qrSurplusSum } : {}),
         results_finalized_at: finalizedAt,
         results_finalized_by: ctx.user.id,
         // Акт снова проведён — метка «распровели в Quick Resto» (миграция 224)
@@ -3622,8 +3622,8 @@ export async function submitInventoryDocumentDraft(input: {
           processed: Boolean(fresh.processed),
           base_last_update_date: dateText(fresh.lastUpdateDate),
           last_qr_update_date: dateText(fresh.lastUpdateDate),
-          shortfall_sum: num(fresh.shortfallSum),
-          surplus_sum: num(fresh.surplusSum),
+          qr_shortfall_sum: num(fresh.shortfallSum),
+          qr_surplus_sum: num(fresh.surplusSum),
           results_has_line_amounts: precheckHasResults,
           qr_payload: fresh,
           synced_at: new Date().toISOString(),
@@ -3799,8 +3799,8 @@ export async function submitInventoryDocumentDraft(input: {
         processed: Boolean(reread.processed),
         base_last_update_date: dateText(reread.lastUpdateDate),
         last_qr_update_date: dateText(reread.lastUpdateDate),
-        shortfall_sum: num(reread.shortfallSum),
-        surplus_sum: num(reread.surplusSum),
+        qr_shortfall_sum: num(reread.shortfallSum),
+        qr_surplus_sum: num(reread.surplusSum),
         results_has_line_amounts: syncResult.resultsFound,
         qr_payload: rereadWithRows,
         submitted_at: new Date().toISOString(),

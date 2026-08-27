@@ -548,6 +548,39 @@ export function DocumentsTable({
         },
       },
       {
+        id: "qr_results",
+        label: "Сумма в QR",
+        size: 140,
+        // По умолчанию скрыта: это ДРУГАЯ метрика, чем «Итоги». Здесь —
+        // недостача/излишек так, как их посчитал сам Quick Resto при
+        // проведении акта (без наших исключений и пересортов). До проведения
+        // QR по документу отдаёт нули, поэтому там прочерк.
+        defaultVisible: false,
+        cell: (row: DocumentListRow) => {
+          if (row.qr_shortfall_sum == null && row.qr_surplus_sum == null) {
+            return <span className="text-sm text-muted-foreground">—</span>;
+          }
+          const net = Math.abs(row.qr_surplus_sum ?? 0) - Math.abs(row.qr_shortfall_sum ?? 0);
+          const sign = net > 0 ? "+" : net < 0 ? "−" : "";
+          return (
+            <span
+              className={cn(
+                "text-sm font-medium tabular-nums",
+                net > 0
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : net < 0
+                    ? "text-rose-600 dark:text-rose-400"
+                    : "text-muted-foreground",
+              )}
+              title="Сумма, которую записал в акт сам Quick Resto при проведении. Исключения из итогов и пересорты на неё не влияют."
+            >
+              {sign}
+              {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
+            </span>
+          );
+        },
+      },
+      {
         id: "assigned_to",
         label: "Исполнитель",
         size: 200,
@@ -622,7 +655,9 @@ export function DocumentsTable({
     () =>
       columnsConfig.map((column) => ({
         id: column.id,
-        defaultVisible: true,
+        // Колонка может приходить скрытой по умолчанию (например «Сумма в QR» —
+        // вспомогательная метрика, которая нужна не всем).
+        defaultVisible: ("defaultVisible" in column ? column.defaultVisible : undefined) ?? true,
         defaultSize: column.size,
       })),
     [columnsConfig],

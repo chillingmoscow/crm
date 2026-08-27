@@ -166,8 +166,16 @@ export async function listInventoryDocuments(
         documentIds,
       }).then((data) => ({ data })),
       admin
-        .from<Array<{ id: string; results_reopened_after_processed: boolean | null; recount_of_document_id: string | null }>>("documents")
-        .select("id, results_reopened_after_processed, recount_of_document_id")
+        .from<Array<{
+          id: string;
+          results_reopened_after_processed: boolean | null;
+          recount_of_document_id: string | null;
+          qr_shortfall_sum: number | null;
+          qr_surplus_sum: number | null;
+        }>>("documents")
+        .select(
+          "id, results_reopened_after_processed, recount_of_document_id, qr_shortfall_sum, qr_surplus_sum",
+        )
         .in("id", documentIds),
     ]);
 
@@ -180,6 +188,15 @@ export async function listInventoryDocuments(
       (docFlagRows ?? [])
         .filter((row) => row.recount_of_document_id)
         .map((row) => [row.id, row.recount_of_document_id as string]),
+    );
+    // Суммы самого Quick Resto — отдельной метрикой (миграция 225). В колонке
+    // «Итоги» по-прежнему управленческий итог; QR-сумма живёт в собственной
+    // (по умолчанию скрытой) колонке и в карточке акта.
+    const qrSumsByDoc = new Map(
+      (docFlagRows ?? []).map((row) => [
+        row.id,
+        { shortfall: row.qr_shortfall_sum, surplus: row.qr_surplus_sum },
+      ]),
     );
     const activeResortIds = new Set((resortRows ?? []).map((resort) => resort.id));
 
@@ -225,6 +242,9 @@ export async function listInventoryDocuments(
       // F6: метка «итоги правились после проведения» — независимо от наличия позиций.
       row.results_reopened_after_processed = reopenedAfterProcessedIds.has(row.id);
       row.recount_of_document_id = recountParentByDoc.get(row.id) ?? null;
+      const qrSums = qrSumsByDoc.get(row.id);
+      row.qr_shortfall_sum = qrSums?.shortfall ?? null;
+      row.qr_surplus_sum = qrSums?.surplus ?? null;
       // Пока акт не сдан, итогов нет: разница из QR равна минус складскому
       // остатку (факт нулевой), и в колонке «Итоги» это выглядело бы как
       // недостача на сотни тысяч по нетронутому акту.
@@ -233,8 +253,15 @@ export async function listInventoryDocuments(
         row.surplus_sum = 0;
         continue;
       }
+      // Управленческий итог считается по строкам. Нет строк — итог нулевой:
+      // оставлять хранимое значение нельзя, там раньше лежала сумма Quick Resto
+      // (другая метрика), и она читалась бы как управленческая.
       const items = itemsByDoc.get(row.id);
-      if (!items) continue;
+      if (!items) {
+        row.shortfall_sum = 0;
+        row.surplus_sum = 0;
+        continue;
+      }
       const totals = calculateManagementTotals({
         items,
         resortItems: resortItemsByDoc.get(row.id) ?? [],

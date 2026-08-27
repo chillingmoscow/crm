@@ -29,8 +29,8 @@ type InventoryDocumentResultRow = {
   document_number: string;
   assigned_to: string | null;
   results_has_line_amounts: boolean;
-  shortfall_sum: number | null;
-  surplus_sum: number | null;
+  qr_shortfall_sum: number | null;
+  qr_surplus_sum: number | null;
   status: string;
   store_id: string | null;
   external_store_id: string | null;
@@ -122,7 +122,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, qr_unprocessed_at, invoice_date, archived_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, qr_shortfall_sum, qr_surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, qr_unprocessed_at, invoice_date, archived_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -386,6 +386,8 @@ export default async function InventoryDocumentResultsPage({
           documentInvoiceDate={document.invoice_date}
           recountSplits={recountSplits}
           qrUnprocessedAt={document.qr_unprocessed_at}
+          qrShortfallSum={document.qr_shortfall_sum}
+          qrSurplusSum={document.qr_surplus_sum}
           // Processed-акт read-only до явной разблокировки (в журнал).
           isLocked={isLocked}
           canComment={Boolean(canCommentResults)}

@@ -51,6 +51,9 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  // Ошибку показываем прямо в диалоге, а не только тостом: тост исчезает, а
+  // диалог остаётся открытым — со стороны это выглядит как «кнопка не работает».
+  const [error, setError] = useState<string | null>(null);
 
   const today = todayIso();
   const actDay = isoDay(documentInvoiceDate);
@@ -66,12 +69,14 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
   );
 
   const submit = () => {
+    setError(null);
     startTransition(async () => {
       const result =
         mode === "inplace"
           ? await returnDocumentForRecount({ documentId })
           : await splitDocumentForRecount({ documentId, recountDate });
       if (result.error) {
+        setError(result.error);
         toast.error(result.error);
         return;
       }
@@ -86,7 +91,13 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setError(null);
+      }}
+    >
       <DialogTrigger asChild>
         <Button type="button" variant="outline" disabled={disabled || flaggedCount === 0}>
           <RotateCcw className="mr-2 h-4 w-4" />
@@ -105,7 +116,10 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
         <div className="space-y-3">
           <button
             type="button"
-            onClick={() => setMode("inplace")}
+            onClick={() => {
+              setMode("inplace");
+              setError(null);
+            }}
             className={cn(
               "w-full rounded-lg border p-3 text-left transition-colors",
               mode === "inplace" ? "border-primary bg-muted/40" : "border-border hover:bg-muted/30",
@@ -120,7 +134,10 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
 
           <button
             type="button"
-            onClick={() => setMode("split")}
+            onClick={() => {
+              setMode("split");
+              setError(null);
+            }}
             className={cn(
               "w-full rounded-lg border p-3 text-left transition-colors",
               mode === "split" ? "border-primary bg-muted/40" : "border-border hover:bg-muted/30",
@@ -154,6 +171,12 @@ export function RecountSplitDialog({ documentId, documentInvoiceDate, flaggedCou
             ) : null}
           </button>
         </div>
+
+        {error ? (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
 
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={isPending}>

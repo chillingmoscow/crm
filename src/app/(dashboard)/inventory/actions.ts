@@ -2870,6 +2870,12 @@ export async function splitDocumentForRecount(input: {
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
+  // Любой отказ логируем: сообщение уходит пользователю тостом, но в прод-логах
+  // без этого не остаётся ничего — по акту СВ343 причину пришлось искать по БД.
+  const fail = (error: string) => {
+    console.warn("[splitDocumentForRecount] отказ", { documentId: input.documentId, error });
+    return { error };
+  };
   try {
     const { data: document } = await admin
       .from<{
@@ -2893,27 +2899,26 @@ export async function splitDocumentForRecount(input: {
       .eq("account_id", ctx.accountId)
       .maybeSingle();
 
-    if (!document?.id) return { error: "Акт не найден" };
-    if (document.archived_at) return { error: "Акт удалён в Quick Resto." };
+    if (!document?.id) return fail("Акт не найден");
+    if (document.archived_at) return fail("Акт удалён в Quick Resto.");
     if (document.processed || document.results_finalized_at) {
-      return { error: "Акт уже проведён. Вынести позиции можно только до проведения." };
+      return fail("Акт уже проведён. Вынести позиции можно только до проведения.");
     }
     if (document.status !== "ready_for_review" && document.status !== "results_blocked") {
-      return {
-        error:
-          "Вынести позиции можно только у акта со статусом «Готов к проверке» или «Итоги требуют проверки».",
-      };
+      return fail(
+        "Вынести позиции можно только у акта со статусом «Готов к проверке» или «Итоги требуют проверки».",
+      );
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(input.recountDate)) {
-      return { error: "Некорректная дата пересчёта." };
+      return fail("Некорректная дата пересчёта.");
     }
     const externalStoreId = Number(document.external_store_id);
     if (!Number.isFinite(externalStoreId)) {
-      return { error: "У акта не определён склад Quick Resto." };
+      return fail("У акта не определён склад Quick Resto.");
     }
     const documentExternalId = Number(document.external_id);
     if (!Number.isFinite(documentExternalId)) {
-      return { error: "У акта некорректный ID Quick Resto." };
+      return fail("У акта некорректный ID Quick Resto.");
     }
 
     const { data: flaggedItems } = await admin
@@ -2932,12 +2937,12 @@ export async function splitDocumentForRecount(input: {
       .eq("account_id", ctx.accountId)
       .eq("needs_recount", true);
     const flagged = flaggedItems ?? [];
-    if (flagged.length === 0) return { error: "Отметьте хотя бы одну строку на пересчёт." };
+    if (flagged.length === 0) return fail("Отметьте хотя бы одну строку на пересчёт.");
     const withoutPayload = flagged.filter((item) => !item.raw_payload?.product);
     if (withoutPayload.length > 0) {
-      return {
-        error: `По ${withoutPayload.length} строкам нет данных Quick Resto — обновите итоги и повторите.`,
-      };
+      return fail(
+        `По ${withoutPayload.length} строкам нет данных Quick Resto — обновите итоги и повторите.`,
+      );
     }
 
     // Строку, сведённую в активный пересорт, выносить нельзя: она удаляется из
@@ -2955,13 +2960,11 @@ export async function splitDocumentForRecount(input: {
         .map((item) => item.product_name)
         .slice(0, 3)
         .join(", ");
-      return {
-        error: `Позиции в активном пересорте выносить нельзя — сначала отмените пересорт (${names}).`,
-      };
+      return fail(`Позиции в активном пересорте выносить нельзя — сначала отмените пересорт (${names}).`);
     }
 
     const connection = await getConnection(ctx.accountId);
-    if (!connection) return { error: "Активное подключение Quick Resto не найдено" };
+    if (!connection) return fail("Активное подключение Quick Resto не найдено");
     const basicAuthPassword = connectionPassword(connection);
     const qrAuth = {
       layerName: connection.login,
@@ -3002,7 +3005,7 @@ export async function splitDocumentForRecount(input: {
           }),
       });
       if (typeof createdDoc?.id !== "number") {
-        return { error: "Quick Resto не создал акт пересчёта. Попробуйте ещё раз." };
+        return fail("Quick Resto не создал акт пересчёта. Попробуйте ещё раз.");
       }
       recountExternalId = createdDoc.id;
 
@@ -3054,9 +3057,7 @@ export async function splitDocumentForRecount(input: {
     const alreadyMoved = new Set((doneMoves ?? []).map((row) => row.external_item_id));
     const pending = flagged.filter((item) => !alreadyMoved.has(item.external_item_id));
     if (pending.length === 0) {
-      return {
-        error: "Эти позиции уже вынесены в акт пересчёта — обновите страницу.",
-      };
+      return fail("Эти позиции уже вынесены в акт пересчёта — обновите страницу.");
     }
 
     const moved: string[] = [];
@@ -3236,6 +3237,10 @@ export async function splitDocumentForRecount(input: {
     revalidateInventoryResultPages(targetLocalId);
     return { error: null, recountDocumentId: targetLocalId };
   } catch (error) {
+    console.error("[splitDocumentForRecount] исключение", {
+      documentId: input.documentId,
+      error,
+    });
     return { error: actionErrorMessage(error, "Не удалось вынести позиции в акт пересчёта") };
   }
 }

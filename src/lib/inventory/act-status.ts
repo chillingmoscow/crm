@@ -75,6 +75,28 @@ export function getInventoryResultAdjustLockReason(doc: InventoryActLockInput): 
 }
 
 /**
+ * Есть ли у акта итоги подсчёта.
+ *
+ * Quick Resto считает разницу как «факт − расчётный остаток» и отдаёт её ВСЕГДА,
+ * даже когда акт ещё не считали: у незаполненного акта факт равен нулю, и
+ * разница получается равной минус всему складскому остатку. На проде это
+ * выглядело как недостача 478 193,6 ₽ по акту, к которому никто не притрагивался.
+ *
+ * Итоги существуют только после того, как исполнитель сдал акт: ready_for_review
+ * (в т.ч. вернувшись с пересчёта), results_blocked, recount_pending и processed.
+ * До сдачи (synced / assigned / in_progress) и при sync_error никаких итогов нет —
+ * ни на странице, ни в суммах списка.
+ */
+export function hasCountedResults(status: string): boolean {
+  return (
+    status === "ready_for_review" ||
+    status === "results_blocked" ||
+    status === "recount_pending" ||
+    status === "processed"
+  );
+}
+
+/**
  * Статус акта после импорта строк из Quick Resto.
  *
  * Импорт — это обновление ДАННЫХ, а не событие процесса, поэтому он не должен

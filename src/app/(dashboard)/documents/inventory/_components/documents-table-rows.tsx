@@ -1,5 +1,6 @@
 "use client";
 
+import { hasCountedResults } from "@/lib/inventory/act-status";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
@@ -381,7 +382,7 @@ export function MobileCard({
               <span className="text-muted-foreground">{doc.store_title}</span>
             ) : null}
             {(() => {
-              if (!doc.results_has_line_amounts) {
+              if (!doc.results_has_line_amounts || !hasCountedResults(doc.status)) {
                 return <span className="text-muted-foreground">—</span>;
               }
               const net = (doc.surplus_sum ?? 0) - (doc.shortfall_sum ?? 0);

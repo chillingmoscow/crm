@@ -6,6 +6,7 @@ import {
   getAssigneeLockReason,
   getInventoryResultAdjustLockReason,
   getInventoryResultRefreshLockReason,
+  hasCountedResults,
   resolveStatusAfterImport,
   getReviewerLockReason,
   isInventoryFormLocked,
@@ -233,5 +234,17 @@ test("статус после импорта: на проверке уточня
 test("статус после импорта: проведение в QR перебивает всё", () => {
   for (const current of ["recount_pending", "in_progress", "ready_for_review"] as const) {
     assert.equal(resolveStatusAfterImport({ current, processed: true, resultsFound: false }), "processed");
+  }
+});
+
+test("итоги есть только после сдачи акта", () => {
+  for (const status of ["ready_for_review", "results_blocked", "recount_pending", "processed"] as const) {
+    assert.equal(hasCountedResults(status), true);
+  }
+  // Пока акт у исполнителя, «разница» из QR — это минус весь складской остаток
+  // (факт нулевой), а не итог инвентаризации. Прод: СВ350 показывал −478 193,6 ₽
+  // по акту, который ещё не считали.
+  for (const status of ["synced", "assigned", "in_progress", "sync_error"] as const) {
+    assert.equal(hasCountedResults(status), false);
   }
 });

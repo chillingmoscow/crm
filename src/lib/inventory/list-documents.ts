@@ -18,6 +18,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
+import { hasCountedResults } from "@/lib/inventory/act-status";
 import {
   calculateManagementTotals,
   type InventoryResortAllocationItem,
@@ -224,6 +225,14 @@ export async function listInventoryDocuments(
       // F6: метка «итоги правились после проведения» — независимо от наличия позиций.
       row.results_reopened_after_processed = reopenedAfterProcessedIds.has(row.id);
       row.recount_of_document_id = recountParentByDoc.get(row.id) ?? null;
+      // Пока акт не сдан, итогов нет: разница из QR равна минус складскому
+      // остатку (факт нулевой), и в колонке «Итоги» это выглядело бы как
+      // недостача на сотни тысяч по нетронутому акту.
+      if (!hasCountedResults(row.status)) {
+        row.shortfall_sum = 0;
+        row.surplus_sum = 0;
+        continue;
+      }
       const items = itemsByDoc.get(row.id);
       if (!items) continue;
       const totals = calculateManagementTotals({

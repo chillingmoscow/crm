@@ -1201,6 +1201,28 @@ export function InventoryResultsTable({
         />
       </div>
 
+      {canSendToRecount && flaggedCount > 0 ? (
+        // Отметка строки — это только пометка; пересчёт запускает отдельная
+        // кнопка в футере, которую за длинной таблицей не видно. Без этой
+        // подсказки люди отмечали строки и ждали, что дальше произойдёт само.
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <div className="text-sm text-amber-900 dark:text-amber-200">
+            <span className="font-medium">
+              Отмечено на пересчёт: {flaggedCount}
+            </span>
+            {" — "}
+            пометка сама по себе ничего не запускает. Чтобы вернуть позиции исполнителю или вынести
+            их в отдельный акт с датой пересчёта, нажмите «Отправить на пересчёт».
+          </div>
+          <RecountSplitDialog
+            documentId={documentId}
+            documentInvoiceDate={documentInvoiceDate}
+            flaggedCount={flaggedCount}
+            disabled={adjustLocked || isPending}
+          />
+        </div>
+      ) : null}
+
       {recountSplits.length > 0 ? (
         <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-900 dark:text-blue-200">
           {recountSplits.map((split) => (
@@ -1858,7 +1880,7 @@ export function InventoryResultsTable({
                             itemIds: Array.from(selectedIds),
                             needsRecount: true,
                           }),
-                        "Отмечено на пересчёт",
+                        "Отмечено на пересчёт — теперь нажмите «Отправить на пересчёт»",
                       )
                     }
                   >

@@ -84,6 +84,8 @@ export type DocumentListRow = {
   /** F6: проведённый акт переоткрывали для правки итогов. Не из RPC —
       дозагружается в list-documents.ts (как управленческие тоталы). */
   results_reopened_after_processed?: boolean;
+  /** Не null → это акт пересчёта, вынесенный из другого акта (миграция 223). */
+  recount_of_document_id?: string | null;
 };
 
 export type ListDocumentsResult = {

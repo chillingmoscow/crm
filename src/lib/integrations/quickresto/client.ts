@@ -399,6 +399,256 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Класс документа инвентаризации, который QR возвращает в ответах и принимает
+ * при create. NB: он отличается от `INVENTORY_DOCUMENT_UPDATE_CLASS`
+ * (`…document.InventoryDocument2`) — при create второй вариант отвечает 400
+ * «entityNotFound». Проверено на проде 2026-08-26.
+ */
+const INVENTORY_DOCUMENT_CREATE_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.inventory.document.v2.InventoryDocument";
+
+const INVENTORY_ITEMS_OWNER_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.inventory.document.v2.InventoryDocument";
+
+/**
+ * Создать акт инвентаризации на заданную дату.
+ *
+ * Public API для этого не годится: `update` без objectId отвечает 400
+ * «Entity with id null does not exist». Работает только backoffice-эндпоинт
+ * `warehouse.inventory.document.v2/create`. Акт создаётся ПУСТЫМ — позиции
+ * добавляются отдельно (`createInventoryItemBackOffice`).
+ *
+ * Удаления акта в API нет (перебраны delete/remove/action) — при сбое на
+ * середине операции документ придётся убирать руками в Quick Resto. Поэтому
+ * вызывающий код обязан быть идемпотентным: запомнить id созданного акта и при
+ * повторе продолжать, а не создавать второй.
+ */
+export async function createInventoryDocumentBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  cookieHeader: string;
+  basicAuthLogin: string;
+  basicAuthPassword: string;
+  storeId: number;
+  /** Дата акта в миллисекундах. QR трактует её в таймзоне заведения. */
+  invoiceDate: number;
+  comment?: string | null;
+}) {
+  const authorization = `Basic ${Buffer.from(`${input.basicAuthLogin}:${input.basicAuthPassword}`).toString("base64")}`;
+  return callQuickRestoBackOfficeData<QuickRestoInventoryDocument2>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    cookieHeader: input.cookieHeader,
+    authorization,
+    path: "warehouse.inventory.document.v2/create",
+    query: {
+      regTime: Date.now(),
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: new Date().getTimezoneOffset(),
+    },
+    body: {
+      className: INVENTORY_DOCUMENT_CREATE_CLASS,
+      store: { id: input.storeId, className: STORE_CLASS },
+      invoiceDate: input.invoiceDate,
+      comment: input.comment ?? "",
+    },
+  });
+}
+
+/** Поля строки акта, которые принадлежат КОНКРЕТНОЙ строке, а не товару. */
+const INVENTORY_ITEM_ROW_FIELDS = [
+  "id",
+  "hash",
+  "version",
+  "seqNumber",
+  "_Level",
+  "_Locked",
+  "transient",
+  "historical",
+  "permanent",
+  "delta",
+  "differenceCost",
+  "amountAtStore",
+  "storeQuantity",
+  "storeQuantityKg",
+  "amountTotal",
+  "effectiveAmount",
+  "actualAmount",
+  "costPriceSum",
+  "costPriceSumKg",
+] as const;
+
+/**
+ * Добавить позицию в акт по образцу строки другого акта (raw_payload).
+ *
+ * Служебные поля исходной строки вычищаются: расчётный остаток, разницу и
+ * себестоимость Quick Resto посчитает сам — уже на дату нового акта. Ровно это
+ * и нужно акту пересчёта.
+ */
+export async function createInventoryItemBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  cookieHeader: string;
+  basicAuthLogin: string;
+  basicAuthPassword: string;
+  documentId: number;
+  /** Строка-образец: raw_payload позиции исходного акта. */
+  sample: QuickRestoInventoryItem2;
+  actualAmount?: number;
+}) {
+  const authorization = `Basic ${Buffer.from(`${input.basicAuthLogin}:${input.basicAuthPassword}`).toString("base64")}`;
+  const sample = cloneJson(input.sample) as Record<string, unknown>;
+  for (const field of INVENTORY_ITEM_ROW_FIELDS) delete sample[field];
+
+  return callQuickRestoBackOfficeData<QuickRestoInventoryItem2>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    cookieHeader: input.cookieHeader,
+    authorization,
+    path: "warehouse.inventory.items/create",
+    query: {
+      ownerContextId: input.documentId,
+      ownerContextClassName: INVENTORY_ITEMS_OWNER_CLASS,
+      regTime: Date.now(),
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: new Date().getTimezoneOffset(),
+    },
+    body: { ...sample, actualAmount: input.actualAmount ?? 0 },
+  });
+}
+
+/**
+ * Удалить позицию из акта и удалить сам акт.
+ *
+ * Обе операции — `DELETE` на `<module>/remove` **с телом** (полный объект) и с
+ * `regTime`. Именно так это делает интерфейс Quick Resto; без тела эндпоинт
+ * отвечает «Object doesn't exist», а POST — 405. Отдельного `/delete` нет.
+ */
+async function callQuickRestoBackOfficeRemove<T>(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  cookieHeader: string;
+  authorization: string;
+  path: string;
+  query: Record<string, string | number | null | undefined>;
+  body: unknown;
+}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(input.query)) {
+    if (value === null || value === undefined || value === "") continue;
+    params.set(key, String(value));
+  }
+  const origin = buildQuickRestoBackOfficeOrigin(input);
+  const url = `${origin}/platform/data/${input.path}?${params.toString()}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        Connection: "keep-alive",
+        "Content-Type": "application/json; charset=UTF-8",
+        Cookie: input.cookieHeader,
+        Origin: origin,
+        Referer: `${origin}/`,
+        Authorization: input.authorization,
+      },
+      body: JSON.stringify(input.body),
+      cache: "no-store",
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    (response.status >= 300 && response.status < 400)
+  ) {
+    throw new Error(`Quick Resto back-office auth failed (${response.status})`);
+  }
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(quickRestoErrorMessage(response.status, body));
+  }
+  const text = await response.text();
+  if (!text.trim()) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as T;
+  }
+}
+
+/** Удалить позицию из акта инвентаризации. */
+export async function removeInventoryItemBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  cookieHeader: string;
+  basicAuthLogin: string;
+  basicAuthPassword: string;
+  documentId: number;
+  /** Полный объект позиции — QR принимает его телом запроса. */
+  item: QuickRestoInventoryItem2;
+}) {
+  const authorization = `Basic ${Buffer.from(`${input.basicAuthLogin}:${input.basicAuthPassword}`).toString("base64")}`;
+  const rawHash = (input.item as Record<string, unknown>).hash;
+  return callQuickRestoBackOfficeRemove<unknown>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    cookieHeader: input.cookieHeader,
+    authorization,
+    path: "warehouse.inventory.items/remove",
+    query: {
+      ownerContextId: input.documentId,
+      ownerContextClassName: INVENTORY_ITEMS_OWNER_CLASS,
+      regTime: Date.now(),
+      hash: typeof rawHash === "string" || typeof rawHash === "number" ? rawHash : undefined,
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: -180,
+    },
+    body: input.item,
+  });
+}
+
+/** Удалить акт инвентаризации целиком (нужен для отката незавершённого переноса). */
+export async function removeInventoryDocumentBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  cookieHeader: string;
+  basicAuthLogin: string;
+  basicAuthPassword: string;
+  document: QuickRestoInventoryDocument2;
+}) {
+  const authorization = `Basic ${Buffer.from(`${input.basicAuthLogin}:${input.basicAuthPassword}`).toString("base64")}`;
+  return callQuickRestoBackOfficeRemove<unknown>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    cookieHeader: input.cookieHeader,
+    authorization,
+    path: "warehouse.inventory.document.v2/remove",
+    query: {
+      mode: "previous30Days",
+      regTime: Date.now(),
+      contextModule: "warehouse.inventory.items",
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: -180,
+    },
+    body: { ...input.document, className: INVENTORY_DOCUMENT_CREATE_CLASS },
+  });
+}
+
 export async function updateInventoryItemBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;

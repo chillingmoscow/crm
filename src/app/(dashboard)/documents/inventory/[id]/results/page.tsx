@@ -37,6 +37,7 @@ type InventoryDocumentResultRow = {
   results_finalized_at: string | null;
   results_reopened_at: string | null;
   results_snapshot_at: string | null;
+  invoice_date: string | null;
   archived_at: string | null;
 };
 
@@ -120,7 +121,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, archived_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, invoice_date, archived_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -193,6 +194,31 @@ export default async function InventoryDocumentResultsPage({
       resultsFrozen,
     );
   });
+
+  // Позиции, вынесенные в акты пересчёта (миграция 223): показываем плашкой,
+  // чтобы было видно, куда уехали строки и по какой дате их считают.
+  const { data: recountMovesRaw } = await admin
+    .from<Array<{ recount_document_id: string | null; product_name: string }>>("inventory_recount_moves")
+    .select("recount_document_id, product_name")
+    .eq("account_id", accountId)
+    .eq("document_id", document.id);
+  const recountChildIds = Array.from(
+    new Set((recountMovesRaw ?? []).map((row) => row.recount_document_id).filter((id): id is string => Boolean(id))),
+  );
+  const { data: recountChildrenRaw } = recountChildIds.length > 0
+    ? await admin
+        .from<Array<{ id: string; document_number: string; invoice_date: string | null; status: string }>>("documents")
+        .select("id, document_number, invoice_date, status")
+        .eq("account_id", accountId)
+        .in("id", recountChildIds)
+    : { data: [] };
+  const recountSplits = (recountChildrenRaw ?? []).map((child) => ({
+    documentId: child.id,
+    documentNumber: child.document_number,
+    invoiceDate: child.invoice_date,
+    status: child.status,
+    itemCount: (recountMovesRaw ?? []).filter((row) => row.recount_document_id === child.id).length,
+  }));
 
   const [{ data: resortsRaw }, { data: resortItemsRaw }, { data: eventsRaw }, { data: exclusionRulesRaw }, { data: accountSettings }] = await Promise.all([
     admin
@@ -344,6 +370,8 @@ export default async function InventoryDocumentResultsPage({
           amountRoundingScale={amountRoundingScale}
           isFinalized={Boolean(document.results_finalized_at)}
           resultsSnapshotAt={resultsFrozen ? document.results_snapshot_at : null}
+          documentInvoiceDate={document.invoice_date}
+          recountSplits={recountSplits}
           // Processed-акт read-only до явной разблокировки (в журнал).
           isLocked={isLocked}
           canComment={Boolean(canCommentResults)}

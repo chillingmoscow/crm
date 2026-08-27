@@ -188,6 +188,23 @@ helper `callQuickRestoBackOfficeData`, который добавляет `Origin
 - `className` в ответе — `…document.v2.InventoryDocument`, тогда как константа
   `INVENTORY_DOCUMENT_UPDATE_CLASS` в клиенте — `…document.InventoryDocument2`.
   При create/update это стоит проверять отдельно.
+### Операции над актом инвентаризации (backoffice)
+
+Проверено на проде 2026-08-26 (создан и удалён тестовый акт).
+
+| Операция | Путь | Метод | Особенности |
+| --- | --- | --- | --- |
+| Создать акт | `warehouse.inventory.document.v2/create` | POST | акт создаётся **пустым**; `className` = `…document.v2.InventoryDocument`; public API `update` без `objectId` отвечает 400 `entityNotFound` |
+| Добавить позицию | `warehouse.inventory.items/create` | POST | телом — объект-образец (raw_payload другой строки) без полей конкретной строки: `id`, `hash`, `version`, `seqNumber`, `delta`, `amountAtStore`, `actualAmount`, `costPriceSum` и т.п. Расчётный остаток QR посчитает сам, уже на дату этого акта |
+| Изменить факт | `warehouse.inventory.items/update` | POST | см. `updateInventoryItemBackOffice` |
+| Удалить позицию | `warehouse.inventory.items/remove` | **DELETE с телом** | обязательны `ownerContextId`, `regTime`, `hash` строки. Без тела — `Object doesn't exist`, POST — 405, `/delete` — 404 |
+| Удалить акт | `warehouse.inventory.document.v2/remove` | **DELETE с телом** | обязательны `regTime`, `contextModule=warehouse.inventory.items`. После удаления акт пропадает из `list`, но прямое чтение по id всё ещё отдаёт объект — ориентироваться надо на список |
+| Провести акт | `warehouse.inventory.document.v2/action` | POST | `{actionName:"process", ids:[id], data:{…}}`, нужен Basic поверх cookie |
+
+Ключевой нюанс: `remove` — это **DELETE с телом запроса**. Именно так делает
+интерфейс QR; ни POST, ни DELETE без тела не работают. Хелперы —
+`createInventoryDocumentBackOffice`, `createInventoryItemBackOffice`,
+`removeInventoryItemBackOffice`, `removeInventoryDocumentBackOffice`.
 
 ### Auth-retry
 

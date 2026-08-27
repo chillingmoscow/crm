@@ -12,6 +12,7 @@ type DocumentBasicsRow = {
   account_id: string;
   document_number: string;
   status: string;
+  recount_of_document_id: string | null;
   processed: boolean;
   results_has_line_amounts: boolean;
   assigned_to: string | null;
@@ -33,7 +34,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id",
     )
     .eq("id", id)
     .eq("account_id", accountId)
@@ -142,6 +143,19 @@ export default async function InventoryDocumentLayout({
     document.status === "results_blocked" ||
     document.status === "ready_for_review";
 
+  // Акт пересчёта помечаем в шапке ссылкой на исходный акт.
+  const { data: parentDoc } = document.recount_of_document_id
+    ? await asLooseDb(createAdminClient())
+        .from<{ id: string; document_number: string }>("documents")
+        .select("id, document_number")
+        .eq("id", document.recount_of_document_id)
+        .eq("account_id", document.account_id)
+        .maybeSingle()
+    : { data: null };
+  const recountParent = parentDoc?.id
+    ? { id: parentDoc.id, documentNumber: parentDoc.document_number }
+    : null;
+
   return (
     <div className="flex w-full flex-1 flex-col">
       <DocumentActHeader
@@ -158,6 +172,7 @@ export default async function InventoryDocumentLayout({
         canManage={Boolean(canManage)}
         resultsAvailable={resultsAvailable}
         reopenedAfterProcessed={document.results_reopened_after_processed}
+        recountParent={recountParent}
       />
       {children}
     </div>

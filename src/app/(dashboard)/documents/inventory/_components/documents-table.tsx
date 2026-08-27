@@ -478,6 +478,12 @@ export function DocumentsTable({
         cell: (row: DocumentListRow) => (
           <div className="flex items-center gap-1.5">
             <InventoryStatusBadge status={row.status} />
+            {row.recount_of_document_id ? (
+              // Акт пересчёта: позиции вынесены из другого акта на дату пересчёта.
+              <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/15 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                Пересчёт
+              </span>
+            ) : null}
             {row.results_reopened_after_processed ? (
               <span
                 className="text-amber-600 dark:text-amber-400"

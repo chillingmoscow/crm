@@ -6,10 +6,22 @@ import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { overlayClass } from "@/lib/overlay-classes"
+import { useSsrSafeAriaControls } from "@/hooks/use-hydrated"
 
 const Dialog = DialogPrimitive.Root
 
-const DialogTrigger = DialogPrimitive.Trigger
+/**
+ * `aria-controls` не уходит в SSR-разметку — атрибут дорисовывается
+ * после гидратации. Почему так — см. useSsrSafeAriaControls в
+ * `src/hooks/use-hydrated.ts`.
+ */
+const DialogTrigger = React.forwardRef<
+  React.ElementRef<typeof DialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Trigger>
+>((props, ref) => (
+  <DialogPrimitive.Trigger ref={ref} {...useSsrSafeAriaControls()} {...props} />
+))
+DialogTrigger.displayName = DialogPrimitive.Trigger.displayName
 
 const DialogPortal = DialogPrimitive.Portal
 

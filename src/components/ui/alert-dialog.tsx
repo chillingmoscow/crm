@@ -6,6 +6,7 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { overlayClass } from "@/lib/overlay-classes";
+import { useSsrSafeAriaControls } from "@/hooks/use-hydrated";
 
 /**
  * AlertDialog — confirmation primitive с правильной семантикой.
@@ -22,7 +23,19 @@ import { overlayClass } from "@/lib/overlay-classes";
  */
 
 const AlertDialog = AlertDialogPrimitive.Root;
-const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
+/**
+ * `aria-controls` не уходит в SSR-разметку — атрибут дорисовывается
+ * после гидратации. Почему так — см. useSsrSafeAriaControls в
+ * `src/hooks/use-hydrated.ts`.
+ */
+const AlertDialogTrigger = React.forwardRef<
+  React.ElementRef<typeof AlertDialogPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Trigger>
+>((props, ref) => (
+  <AlertDialogPrimitive.Trigger ref={ref} {...useSsrSafeAriaControls()} {...props} />
+));
+AlertDialogTrigger.displayName = AlertDialogPrimitive.Trigger.displayName;
+
 const AlertDialogPortal = AlertDialogPrimitive.Portal;
 
 const AlertDialogOverlay = React.forwardRef<

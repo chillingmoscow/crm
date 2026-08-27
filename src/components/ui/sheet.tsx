@@ -7,10 +7,22 @@ import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { overlayClass, overlayContentTiming } from "@/lib/overlay-classes"
+import { useSsrSafeAriaControls } from "@/hooks/use-hydrated"
 
 const Sheet = SheetPrimitive.Root
 
-const SheetTrigger = SheetPrimitive.Trigger
+/**
+ * `aria-controls` не уходит в SSR-разметку — атрибут дорисовывается
+ * после гидратации. Почему так — см. useSsrSafeAriaControls в
+ * `src/hooks/use-hydrated.ts`.
+ */
+const SheetTrigger = React.forwardRef<
+  React.ElementRef<typeof SheetPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof SheetPrimitive.Trigger>
+>((props, ref) => (
+  <SheetPrimitive.Trigger ref={ref} {...useSsrSafeAriaControls()} {...props} />
+))
+SheetTrigger.displayName = SheetPrimitive.Trigger.displayName
 
 const SheetClose = SheetPrimitive.Close
 

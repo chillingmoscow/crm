@@ -22,6 +22,7 @@ import {
   type InventoryRecheckLine,
 } from "@/lib/inventory/results-recheck";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
+import { pluralRu } from "@/lib/format/plural";
 import {
   createInventoryDocumentBackOffice,
   createInventoryItemBackOffice,
@@ -3596,23 +3597,49 @@ export async function submitInventoryDocumentDraft(input: {
       };
     }
 
+    type LocalItemRow = {
+      id: string;
+      external_item_id: string;
+      needs_recount: boolean | null;
+      recount_previous_amount: number | null;
+    };
     const localItemsResult = await admin
-      .from<Array<{ id: string; external_item_id: string }>>("document_items")
-      .select("id, external_item_id")
+      .from<LocalItemRow[]>("document_items")
+      .select("id, external_item_id, needs_recount, recount_previous_amount")
       .eq("document_id", document.id);
-    const localItems = (localItemsResult.data ?? []) as Array<{ id: string; external_item_id: string }>;
-    const externalByLocalId = new Map(localItems.map((item) => [item.id, item.external_item_id]));
+    const localItems = (localItemsResult.data ?? []) as LocalItemRow[];
+    const localItemById = new Map(localItems.map((item) => [item.id, item]));
+
+    // Пересчёт касается ТОЛЬКО отмеченных строк. Остальные исполнитель в этом
+    // режиме и не редактирует (форма их блокирует), поэтому отправлять их в
+    // Quick Resto незачем: на акте в 300 позиций это 300 запросов к backoffice
+    // вместо четырёх, и каждый — лишний шанс словить таймаут. Фильтруем на
+    // сервере, а не только в форме: клиент мог остаться на старой сборке.
+    const isRecountSubmit = document.status === "recount_pending";
+    const flaggedIds = new Set(
+      localItems.filter((item) => item.needs_recount).map((item) => item.id),
+    );
+    const submittedItems =
+      isRecountSubmit && flaggedIds.size > 0
+        ? input.items.filter((item) => flaggedIds.has(item.itemId))
+        : input.items;
+
     const nextAmounts = new Map<string, number>();
-    for (const item of input.items) {
-      const externalId = externalByLocalId.get(item.itemId);
-      if (!externalId) continue;
+    for (const item of submittedItems) {
+      const local = localItemById.get(item.itemId);
+      if (!local) continue;
       if (item.actualAmount === null || !Number.isFinite(item.actualAmount) || item.actualAmount < 0) {
         return { resultsHasLineAmounts: false, error: "Проверьте фактические значения: есть некорректное число." };
       }
-      nextAmounts.set(externalId, item.actualAmount);
+      nextAmounts.set(local.external_item_id, item.actualAmount);
     }
     if (nextAmounts.size === 0) {
-      return { resultsHasLineAmounts: false, error: "Заполните хотя бы одну позицию акта" };
+      return {
+        resultsHasLineAmounts: false,
+        error: isRecountSubmit && flaggedIds.size > 0
+          ? "Заполните пересчитанные значения по отмеченным строкам"
+          : "Заполните хотя бы одну позицию акта",
+      };
     }
 
     const freshItemsPreview = inventoryDocumentItems(fresh);
@@ -3691,7 +3718,7 @@ export async function submitInventoryDocumentDraft(input: {
     // тоже > threshold, флаг встанет автоматически. Делаем точечный UPDATE
     // без обновления columns-of-interest для триггера, чтобы не было
     // двойного срабатывания.
-    const submittedItemIds = input.items.map((item) => item.itemId);
+    const submittedItemIds = submittedItems.map((item) => item.itemId);
     if (submittedItemIds.length > 0) {
       await admin
         .from("document_items")
@@ -3743,7 +3770,18 @@ export async function submitInventoryDocumentDraft(input: {
 
     // Журнал: исполнитель завершил акт. Различаем первое заполнение и
     // завершение пересчёта по пред-статусу.
-    const wasRecount = document.status === "recount_pending";
+    const wasRecount = isRecountSubmit;
+    // Сколько отмеченных строк вернулись с тем же числом. Это законный исход
+    // («пересчитали, значение подтвердилось»), но проверяющий должен видеть
+    // его явно: раньше «было 3 → стало 3» ничем не отличалось от акта, где
+    // пересчёт не делали вовсе.
+    const unchangedItems = wasRecount
+      ? submittedItems.filter((item) => {
+          const local = localItemById.get(item.itemId);
+          if (!local || local.recount_previous_amount == null) return false;
+          return amountsEqual(local.recount_previous_amount, item.actualAmount ?? undefined);
+        })
+      : [];
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
       admin,
@@ -3752,11 +3790,22 @@ export async function submitInventoryDocumentDraft(input: {
       documentId: document.id,
       eventType: "submitted",
       message: wasRecount
-        ? "Завершил пересчёт"
+        ? unchangedItems.length > 0
+          ? `Завершил пересчёт (${unchangedItems.length} из ${submittedItems.length} ${pluralRu(unchangedItems.length, "позиция", "позиции", "позиций")} без изменений)`
+          : "Завершил пересчёт"
         : syncResult.resultsFound
           ? "Завершил заполнение акта"
           : "Завершил акт (итоги требуют проверки)",
-      payload: { resultsFound: syncResult.resultsFound, recount: wasRecount },
+      payload: {
+        resultsFound: syncResult.resultsFound,
+        recount: wasRecount,
+        ...(wasRecount
+          ? {
+              recountedItemIds: submittedItemIds,
+              unchangedItemIds: unchangedItems.map((item) => item.itemId),
+            }
+          : {}),
+      },
     });
 
     // Уведомляем проверяющего: акт готов к проверке. Одна точка покрывает

@@ -206,9 +206,16 @@ function toInputValue(value: number | null) {
 // заполненной». При проверке/пересчёте это даёт исполнителю/проверяющему
 // увидеть реально введённые числа (без округления, через String()).
 function editorInitialValue(
-  item: Pick<EditorItem, "submittedAmount" | "actualAmount">,
+  item: Pick<EditorItem, "submittedAmount" | "actualAmount" | "needsRecount">,
   prefillFromActual: boolean,
+  recountMode: boolean,
 ) {
+  // В режиме пересчёта отмеченные строки НЕ предзаполняем: их и вернули
+  // потому, что числу не поверили. С предзаполнением «Завершить пересчёт»
+  // проходило одним кликом по старым значениям, а в итогах это выглядело как
+  // «было 3 → стало 3» — неотличимо от честного пересчёта, при котором
+  // значение подтвердилось.
+  if (recountMode && item.needsRecount) return "";
   return toInputValue(item.submittedAmount ?? (prefillFromActual ? item.actualAmount : null));
 }
 
@@ -243,13 +250,16 @@ export function InventoryDocumentEditor({
   items: EditorItem[];
 }) {
   const router = useRouter();
+  // Акт вернули на пересчёт: отмеченные строки перезаполняются с нуля, и
+  // отправляются в Quick Resto тоже только они (см. submit).
+  const isRecountPending = document.status === "recount_pending";
   // Initial value поля — см. editorInitialValue: submittedAmount (подсчёт в
   // CRM), а QR-`actualAmount` как fallback только для проведённого акта.
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       items.map((item) => [
         item.id,
-        editorInitialValue(item, document.prefillFromActual),
+        editorInitialValue(item, document.prefillFromActual, isRecountPending),
       ])
     )
   );
@@ -267,7 +277,7 @@ export function InventoryDocumentEditor({
   // исполнитель сразу видит, что перепроверять (остальные в этом режиме
   // редактировать нельзя, см. disabled у поля ввода ниже).
   const [recountOnly, setRecountOnly] = useState(
-    () => document.status === "recount_pending" && items.some((it) => it.needsRecount),
+    () => isRecountPending && items.some((it) => it.needsRecount),
   );
   // После submit'а вызывается router.refresh(): props обновляются без
   // ремаунта. Если пересчёт сбросил все needsRecount-флаги — выключаем фильтр,
@@ -300,7 +310,7 @@ export function InventoryDocumentEditor({
     Object.fromEntries(
       items.map((item) => [
         item.id,
-        editorInitialValue(item, document.prefillFromActual),
+        editorInitialValue(item, document.prefillFromActual, isRecountPending),
       ])
     )
   );
@@ -508,7 +518,8 @@ export function InventoryDocumentEditor({
 
   useEffect(() => {
     const hasChanges = items.some(
-      (item) => values[item.id] !== editorInitialValue(item, document.prefillFromActual),
+      (item) =>
+        values[item.id] !== editorInitialValue(item, document.prefillFromActual, isRecountPending),
     );
     const handler = (event: BeforeUnloadEvent) => {
       if (!hasChanges) return;
@@ -517,7 +528,7 @@ export function InventoryDocumentEditor({
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [items, values, document.prefillFromActual]);
+  }, [items, values, document.prefillFromActual, isRecountPending]);
 
   // ── Controls state-derivatives ────────────────────────────
   const hasGroupFilter = Boolean(selectedGroupId);
@@ -536,6 +547,16 @@ export function InventoryDocumentEditor({
     [groups, selectedGroupId],
   );
 
+  // В режиме пересчёта исполнитель работает ТОЛЬКО с отмеченными строками:
+  // они же уходят в Quick Resto. Раньше submit пушил весь акт — на 300
+  // позициях это 300 запросов к backoffice вместо четырёх, и остальные строки
+  // без нужды перезаписывались теми же числами.
+  const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
+  const submittableItems =
+    isRecountPending && flaggedItemsCount > 0
+      ? items.filter((item) => item.needsRecount)
+      : items;
+
   const onClearAll = useCallback(() => {
     setSearchQuery("");
     setSearchOpen(false);
@@ -552,7 +573,7 @@ export function InventoryDocumentEditor({
     }
 
     startTransition(async () => {
-      const filledItems = items
+      const filledItems = submittableItems
         .map((item) => ({
           item,
           value: values[item.id] ?? "",
@@ -561,7 +582,11 @@ export function InventoryDocumentEditor({
         // разделителем («.»/«,») считается пустой, не уходит на сервер.
         .filter(({ value }) => parseAmount(value) !== null);
       if (filledItems.length === 0) {
-        toast.error("Заполните хотя бы одну позицию акта");
+        toast.error(
+          isRecountPending && flaggedItemsCount > 0
+            ? "Заполните пересчитанные значения по отмеченным строкам"
+            : "Заполните хотя бы одну позицию акта",
+        );
         return;
       }
 
@@ -588,20 +613,14 @@ export function InventoryDocumentEditor({
     });
   };
 
-  const isRecountPending = document.status === "recount_pending";
   // Форма только для чтения, когда акт ушёл на проверку / проведён /
   // финализирован (статусная машина — см. @/lib/inventory/act-status).
   // recount_pending сюда НЕ попадает: перерасчёт исполнителем легитимен.
   const formLocked = isInventoryFormLocked(document.status, false);
-  const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
-  // В режиме пересчёта исполнитель перезаполняет ТОЛЬКО отмеченные строки
-  // (остальные read-only). Поэтому прогресс и гейт «Завершить пересчёт»
-  // считаем по отмеченным позициям, а не по всем — иначе «4 из 54» и кнопку
-  // не нажать, хотя пересчитать нужно было только 4.
-  const countableItems =
-    isRecountPending && flaggedItemsCount > 0
-      ? items.filter((item) => item.needsRecount)
-      : items;
+  // Прогресс и гейт «Завершить пересчёт» считаем по тем же строкам, что
+  // уходят на сервер, — иначе «4 из 54» и кнопку не нажать, хотя пересчитать
+  // нужно было только 4.
+  const countableItems = submittableItems;
   // Прогресс заполнения — по live-значениям формы (черновик локальный, на
   // сервере его нет, поэтому считаем здесь). Показываем, пока акт заполняется.
   const filledCount = countableItems.filter((item) => parseAmount(values[item.id] ?? "") !== null).length;

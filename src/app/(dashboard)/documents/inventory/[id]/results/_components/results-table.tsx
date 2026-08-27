@@ -258,6 +258,14 @@ function formatQuantity(
   return `${formatted} ${measureUnitName ?? "ед."}`;
 }
 
+// Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,
+// значение подтвердилось»), но он должен читаться именно так: «было 3 → стало
+// 3» само по себе неотличимо от акта, где пересчёт не делали.
+function amountsMatch(left: number | null | undefined, right: number | null | undefined) {
+  if (typeof left !== "number" || typeof right !== "number") return false;
+  return Math.abs(left - right) < 0.000001;
+}
+
 export function InventoryResultsTable({
   documentId,
   items,
@@ -744,6 +752,8 @@ export function InventoryResultsTable({
         const flagged = Boolean(item.needs_recount);
         const auto = Boolean(item.recount_auto_flagged);
         const wasRecounted = item.recount_previous_amount != null;
+        const recountUnchanged =
+          wasRecounted && amountsMatch(item.recount_previous_amount, item.actual_amount);
         return (
           <div className="flex flex-col gap-1" data-row-interactive>
           <div className="flex items-center gap-2">
@@ -787,9 +797,16 @@ export function InventoryResultsTable({
             // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
             <span
               className="text-[11px] text-rose-700 dark:text-rose-300"
-              title="Строка была отправлена на пересчёт"
+              title={
+                recountUnchanged
+                  ? "Строку пересчитали — значение подтвердилось"
+                  : "Строка была отправлена на пересчёт"
+              }
             >
               было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(item.actual_amount, item.measure_unit_name)}
+              {recountUnchanged ? (
+                <span className="text-muted-foreground"> · не изменилось</span>
+              ) : null}
             </span>
           ) : null}
           </div>

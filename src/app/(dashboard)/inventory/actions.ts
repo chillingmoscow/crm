@@ -62,7 +62,9 @@ import {
   isDeletedQuickRestoRow,
   isQuickRestoClass,
   isRecentOpenInventoryDocument,
+  assertDocumentVisible,
   externalProductId,
+  filterVisibleDocumentIds,
   listBackOfficeInventoryItemsWithSession,
   loadResultItemsForAdjustment,
   normalizeReason,
@@ -774,6 +776,59 @@ async function notifyInventoryDocumentEvent(input: {
  * право inventory.manage_documents, гард на существование акта, best-effort
  * уведомление назначенному проверяющему.
  */
+/**
+ * Проведённый акт удалять нельзя: вместе со строкой documents каскадом уходят
+ * снимок утверждённых итогов, пересорты и журнал решений — то есть вся
+ * доказательная база по уже закрытой инвентаризации. Право
+ * inventory.manage_documents такого разрешения не подразумевает.
+ *
+ * Условие живёт в самом DELETE (см. deleteInventoryDocument), а не в
+ * предварительном SELECT: отдельная проверка «сначала прочитали, потом
+ * удалили» и открывала окно, в котором акт успевали провести между этими
+ * двумя шагами, и падала бы открытой при ошибке чтения (data=null читалось
+ * как «блокировать нечего»). Сколько строк реально удалено, DELETE сообщает
+ * сам — по нему и считаем пропущенные.
+ */
+const DELETE_BLOCKED_MESSAGE =
+  "Проведённый акт удалить нельзя — вместе с ним пропадут утверждённые итоги и журнал решений. Если акт больше не нужен, удалите его в Quick Resto: синхронизация уберёт его и здесь.";
+
+/**
+ * Назначать акт можно только сотруднику этого аккаунта.
+ *
+ * Без проверки любой uuid из платформы принимался как исполнитель или
+ * проверяющий: человек из чужого аккаунта получал уведомление со ссылкой на
+ * акт, а его имя вставало в карточку.
+ */
+async function assertAssignableUser(input: {
+  admin: LooseDb;
+  accountId: string;
+  userId: string | null;
+}) {
+  if (!input.userId) return; // снятие назначения
+  const { data: account } = await input.admin
+    .from<{ owner_id: string | null }>("accounts")
+    .select("owner_id")
+    .eq("id", input.accountId)
+    .maybeSingle();
+  if (account?.owner_id === input.userId) return;
+
+  const { data: venues } = await input.admin
+    .from<Array<{ id: string }>>("venues")
+    .select("id")
+    .eq("account_id", input.accountId);
+  const venueIds = (venues ?? []).map((venue) => venue.id);
+  if (venueIds.length > 0) {
+    const { data: membership } = await input.admin
+      .from<Array<{ user_id: string }>>("user_venue_roles")
+      .select("user_id")
+      .eq("user_id", input.userId)
+      .eq("status", "active")
+      .in("venue_id", venueIds);
+    if ((membership ?? []).length > 0) return;
+  }
+  throw new Error("Пользователь не найден в этом аккаунте");
+}
+
 export async function assignInventoryReviewer(input: {
   documentId: string;
   reviewerId: string | null;
@@ -783,6 +838,9 @@ export async function assignInventoryReviewer(input: {
     if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Не удалось определить контекст" };
 
     const admin = asLooseDb(createAdminClient());
+    // Акт чужого заведения недоступен, даже если знать его uuid.
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
+    await assertAssignableUser({ admin, accountId: ctx.accountId, userId: input.reviewerId });
 
     const { data: before, error: beforeError } = await admin
       .from<{
@@ -871,6 +929,9 @@ export async function assignInventoryDocument(input: {
     if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Не удалось определить контекст" };
 
     const admin = asLooseDb(createAdminClient());
+    // Акт чужого заведения недоступен, даже если знать его uuid.
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
+    await assertAssignableUser({ admin, accountId: ctx.accountId, userId: input.assignedTo });
 
     // Читаем предыдущее значение assigned_to + метаданные акта.
     // Codex P1 #383: если документа нет (id не существует или принадлежит
@@ -1001,6 +1062,13 @@ export async function bulkAssignInventoryDocuments(input: {
     if (ids.length === 0) return { updated: 0, skipped: 0, error: "Не выбрано ни одного акта" };
 
     const admin = asLooseDb(createAdminClient());
+    await assertAssignableUser({ admin, accountId: ctx.accountId, userId: input.userId });
+    // Массиву id с клиента не доверяем: работаем только с актами, которые
+    // пользователь реально видит (RLS documents_select).
+    const visible = await filterVisibleDocumentIds({ supabase: ctx.supabase, documentIds: ids });
+    const visibleIds = ids.filter((id) => visible.has(id));
+    if (visibleIds.length === 0) return { updated: 0, skipped: ids.length, error: "Акты не найдены" };
+
     const { data: docsRaw, error: readError } = await admin
       .from<
         Array<{
@@ -1014,7 +1082,7 @@ export async function bulkAssignInventoryDocuments(input: {
       >("documents")
       .select("id, status, assigned_to, reviewer_id, document_number, venue_id")
       .eq("account_id", ctx.accountId)
-      .in("id", ids);
+      .in("id", visibleIds);
     // Codex P1 #407: read-ошибку нельзя глотать — иначе ложный успех.
     if (readError) throw new Error(readError.message);
     const docs = docsRaw ?? [];
@@ -1138,12 +1206,20 @@ export async function deleteInventoryDocument(input: {
       return { error: ctx.error ?? "Не удалось определить контекст" };
     }
     const admin = asLooseDb(createAdminClient());
-    const { error } = await admin
-      .from("documents")
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
+
+    const { data: deleted, error } = await admin
+      .from<Array<{ id: string }>>("documents")
       .delete()
       .eq("id", input.documentId)
-      .eq("account_id", ctx.accountId);
+      .eq("account_id", ctx.accountId)
+      .neq("status", "processed")
+      .is("results_snapshot_at", null)
+      .select("id");
     if (error) return { error: error.message };
+    // Ноль удалённых строк при видимом акте = сработало условие: акт успели
+    // провести или зафиксировать.
+    if ((deleted ?? []).length === 0) return { error: DELETE_BLOCKED_MESSAGE };
     revalidatePath("/documents/inventory");
     return { error: null };
   } catch (e) {
@@ -1174,15 +1250,33 @@ export async function bulkDeleteInventoryDocuments(input: {
     if (ids.length === 0) return { deleted: 0, error: "Не выбрано ни одного акта" };
 
     const admin = asLooseDb(createAdminClient());
-    const { error } = await admin
-      .from("documents")
+    // Массиву id с клиента не доверяем: оставляем только те акты, которые
+    // пользователь реально видит (RLS documents_select).
+    const visible = await filterVisibleDocumentIds({ supabase: ctx.supabase, documentIds: ids });
+    const visibleIds = ids.filter((id) => visible.has(id));
+    if (visibleIds.length === 0) return { deleted: 0, error: "Акты не найдены" };
+
+    const { data: deletedRows, error } = await admin
+      .from<Array<{ id: string }>>("documents")
       .delete()
       .eq("account_id", ctx.accountId)
-      .in("id", ids);
+      .in("id", visibleIds)
+      .neq("status", "processed")
+      .is("results_snapshot_at", null)
+      .select("id");
     if (error) return { deleted: 0, error: error.message };
 
+    const deletedCount = (deletedRows ?? []).length;
+    if (deletedCount === 0) return { deleted: 0, error: DELETE_BLOCKED_MESSAGE };
+
     revalidatePath("/documents/inventory");
-    return { deleted: ids.length, error: null };
+    return {
+      deleted: deletedCount,
+      error:
+        deletedCount < visibleIds.length
+          ? `Пропущено проведённых актов: ${visibleIds.length - deletedCount}. ${DELETE_BLOCKED_MESSAGE}`
+          : null,
+    };
   } catch (e) {
     console.error("[bulkDeleteInventoryDocuments] unhandled error:", e);
     return {
@@ -1218,6 +1312,15 @@ export async function refreshInventoryDocumentResults(input: {
   }
 
   const admin = asLooseDb(createAdminClient());
+  try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
+  } catch (visibilityError) {
+    return {
+      processed: false,
+      resultsHasLineAmounts: false,
+      error: actionErrorMessage(visibilityError, "Акт не найден"),
+    };
+  }
   const { data: document } = await admin
     .from<{
       id: string;
@@ -1336,6 +1439,7 @@ export async function updateInventoryResultComment(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -1398,6 +1502,7 @@ export async function updateInventoryDocumentNote(input: {
 
   const admin = asLooseDb(createAdminClient());
   try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
       .from<{ id: string; assigned_to: string | null; reviewer_id: string | null; archived_at: string | null }>(
         "documents",
@@ -1447,6 +1552,7 @@ export async function setInventoryResultItemExcluded(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -1519,6 +1625,7 @@ export async function createInventoryResultExclusionRule(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -1623,6 +1730,7 @@ export async function deleteInventoryResultExclusionRule(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -1714,6 +1822,7 @@ export async function createInventoryResultResort(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -1927,6 +2036,7 @@ export async function voidInventoryResultResort(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -1988,6 +2098,7 @@ export async function dismissInventoryResortSuggestion(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -2032,6 +2143,7 @@ export async function getAiResortSuggestions(input: {
   try {
     await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -2143,6 +2255,7 @@ export async function finalizeInventoryResults(input: {
   try {
     const document = await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
     });
@@ -2503,6 +2616,7 @@ export async function reopenInventoryResults(input: {
     const reason = normalizeReason(input.reason, "Укажите причину переоткрытия итогов");
     const document = await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
     });
@@ -2572,6 +2686,7 @@ export async function setRecountFlag(input: {
     // прямой вызов server action).
     const document = await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -2631,6 +2746,7 @@ export async function bulkSetInventoryResultItemsExcluded(input: {
   try {
     const document = await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -2716,6 +2832,7 @@ export async function bulkSetRecountFlag(input: {
   try {
     const document = await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -2785,6 +2902,7 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
   try {
     const document = await getResultDocumentForAction({
       admin,
+      supabase: ctx.supabase,
       accountId: ctx.accountId,
       documentId: input.documentId,
       requireOpen: true,
@@ -2901,6 +3019,7 @@ export async function returnDocumentForRecount(input: {
 
   const admin = asLooseDb(createAdminClient());
   try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
       .from<{
         id: string;
@@ -3037,6 +3156,7 @@ export async function splitDocumentForRecount(input: {
     return { error };
   };
   try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
       .from<{
         id: string;
@@ -3452,6 +3572,18 @@ export async function updateInventoryStoreVenue(input: {
   if (ctx.error || !ctx.accountId) return { error: ctx.error };
 
   const admin = asLooseDb(createAdminClient());
+  // venueId приходит с клиента: без проверки склад (а за ним, через триггер
+  // миграции 194, и все его акты) уезжал в заведение чужого аккаунта.
+  if (input.venueId) {
+    const { data: venue } = await admin
+      .from<{ id: string }>("venues")
+      .select("id")
+      .eq("id", input.venueId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+    if (!venue?.id) return { error: "Заведение не найдено" };
+  }
+
   const { error } = await admin
     .from("stores")
     .update({ local_venue_id: input.venueId || null })
@@ -3606,6 +3738,7 @@ export async function markInventoryDraftStarted(input: {
 
   const admin = asLooseDb(createAdminClient());
   try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
       .from<{ id: string; status: string; assigned_to: string | null; archived_at: string | null }>("documents")
       .select("id, status, assigned_to, archived_at")
@@ -3665,6 +3798,14 @@ export async function submitInventoryDocumentDraft(input: {
   ]);
 
   const admin = asLooseDb(createAdminClient());
+  try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
+  } catch (visibilityError) {
+    return {
+      resultsHasLineAmounts: false,
+      error: actionErrorMessage(visibilityError, "Акт не найден"),
+    };
+  }
   const { data: document } = await admin
     .from<{
       id: string;

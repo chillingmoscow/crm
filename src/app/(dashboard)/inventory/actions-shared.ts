@@ -628,17 +628,27 @@ export async function getBackOfficeCookie(input: {
 }
 
 
+/** Пауза перед единственным повтором транзиентной ошибки backoffice. */
+const TRANSIENT_RETRY_DELAY_MS = 500;
+
 /**
- * Выполнить backoffice-операцию под сессией sheerly-bot с одним auth-ретраем.
+ * Выполнить backoffice-операцию под сессией sheerly-bot с одним ретраем.
  *
- * Тот же паттерн, что у listBackOfficeInventoryItemsWithSession: cookie
- * протухает и Spring ротирует remember-me, поэтому при auth-ошибке логинимся
- * заново и повторяем ровно один раз.
+ * Единственная точка ретрая для всего модуля: cookie протухает, Spring
+ * ротирует remember-me — на auth-ошибке логинимся заново и повторяем ровно
+ * один раз. Раньше этот же паттерн был написан четырьмя копиями (здесь, в
+ * чтении позиций, в проведении акта и инлайном в отправке акта), и копии уже
+ * разошлись поведением.
+ *
+ * `retryTransient` — дополнительный один ретрай НЕ-auth ошибки через паузу.
+ * Нужен чтению позиций: на проде backoffice периодически отдаёт по акту пустой
+ * ответ или обрывает соединение, и повтор помогает.
  */
 export async function withBackOfficeSession<T>(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;
   run: (cookieHeader: string) => Promise<T>;
+  retryTransient?: boolean;
 }): Promise<T> {
   const cookieHeader = await getBackOfficeCookie({
     connection: input.connection,
@@ -647,12 +657,16 @@ export async function withBackOfficeSession<T>(input: {
   try {
     return await input.run(cookieHeader);
   } catch (error) {
-    if (!isBackOfficeAuthError(error)) throw error;
-    const fresh = await refreshBackOfficeCookie({
-      connection: input.connection,
-      admin: input.admin,
-    });
-    return input.run(fresh);
+    if (isBackOfficeAuthError(error)) {
+      const fresh = await refreshBackOfficeCookie({
+        connection: input.connection,
+        admin: input.admin,
+      });
+      return input.run(fresh);
+    }
+    if (!input.retryTransient) throw error;
+    await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+    return input.run(cookieHeader);
   }
 }
 
@@ -661,43 +675,27 @@ export async function listBackOfficeInventoryItemsWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  let cookieHeader = await getBackOfficeCookie({
-    connection: input.connection,
-    admin: input.admin,
-  });
-
   // pageSize=500 — обходим возможный bug пагинации backoffice
   // (на проде CB303 = 0 items, при том что в QR backoffice 34 позиции;
   // вероятная гипотеза — первая страница вернула пусто но total>0,
   // и loop сразу exit'нул). Большой pageSize читает всё одним батчем.
-  const readRows = (cookie: string) =>
-    listInventoryItemsBackOffice({
-      layerName: input.connection.login,
-      baseUrl: input.connection.backoffice_base_url,
-      cookieHeader: cookie,
-      documentId: input.documentExternalId,
-      count: 500,
-    });
-
-  // На проде наблюдали: для одного из 10 актов backoffice items endpoint
-  // не вернул calculated/difference (вероятно временная network/timeout
-  // ошибка). Добавлен 1 ретрай через 500ms для не-auth ошибок —
-  // отсекает транзиентные сбои, auth-error retry с refresh-cookie
-  // оставлен отдельной веткой.
-  try {
-    return await readRows(cookieHeader);
-  } catch (error) {
-    if (isBackOfficeAuthError(error)) {
-      cookieHeader = await refreshBackOfficeCookie({
-        connection: input.connection,
-        admin: input.admin,
-      });
-      return readRows(cookieHeader);
-    }
-    // Транзиентная ошибка — ретрай раз через 500мс с тем же cookie.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    return readRows(cookieHeader);
-  }
+  //
+  // retryTransient: на проде для одного из 10 актов endpoint не вернул
+  // calculated/difference (похоже на сетевой таймаут) — один повтор это
+  // отсекает.
+  return withBackOfficeSession({
+    connection: input.connection,
+    admin: input.admin,
+    retryTransient: true,
+    run: (cookieHeader) =>
+      listInventoryItemsBackOffice({
+        layerName: input.connection.login,
+        baseUrl: input.connection.backoffice_base_url,
+        cookieHeader,
+        documentId: input.documentExternalId,
+        count: 500,
+      }),
+  });
 }
 
 /**
@@ -728,33 +726,19 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
     );
   }
 
-  let cookieHeader = await getBackOfficeCookie({
+  return withBackOfficeSession({
     connection: input.connection,
     admin: input.admin,
+    run: (cookieHeader) =>
+      processInventoryDocumentBackOffice({
+        layerName: input.connection.login,
+        baseUrl: input.connection.backoffice_base_url,
+        cookieHeader,
+        basicAuthLogin,
+        basicAuthPassword,
+        documentId: input.documentExternalId,
+      }),
   });
-
-  const call = (cookie: string) =>
-    processInventoryDocumentBackOffice({
-      layerName: input.connection.login,
-      baseUrl: input.connection.backoffice_base_url,
-      cookieHeader: cookie,
-      basicAuthLogin,
-      basicAuthPassword,
-      documentId: input.documentExternalId,
-    });
-
-  try {
-    return await call(cookieHeader);
-  } catch (error) {
-    if (isBackOfficeAuthError(error)) {
-      cookieHeader = await refreshBackOfficeCookie({
-        connection: input.connection,
-        admin: input.admin,
-      });
-      return call(cookieHeader);
-    }
-    throw error;
-  }
 }
 
 export async function upsertExternalLink(input: {
@@ -997,6 +981,13 @@ async function recalculateActiveResorts(input: {
   return { recalculated, voided };
 }
 
+/**
+ * Порог «ответ Quick Resto выглядит обрезанным»: столько строк должно
+ * пропасть, чтобы мы заподозрили сбой выгрузки, а не решение человека.
+ * Работает вместе с условием «больше половины акта» (см. syncDocumentItems).
+ */
+const STALE_DELETE_MIN_ROWS = 5;
+
 export async function syncDocumentItems(input: {
   admin: LooseDb;
   accountId: string;
@@ -1007,6 +998,7 @@ export async function syncDocumentItems(input: {
 }) {
   let resultsFound = false;
   let preservedResultLines = 0;
+  let skippedStaleDeletion = 0;
   const { data: exclusionRulesRaw } = await input.admin
     .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
     .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
@@ -1159,10 +1151,25 @@ export async function syncDocumentItems(input: {
       .from<Array<{ external_item_id: string }>>("document_items")
       .select("external_item_id")
       .eq("document_id", input.documentId);
+    const existingCount = (existingRows ?? []).length;
     const staleExternalIds = (existingRows ?? [])
       .map((row) => row.external_item_id)
       .filter((externalId) => !keepExternalIds.has(externalId));
-    if (staleExternalIds.length > 0) {
+    // Защита от ЧАСТИЧНОГО ответа Quick Resto. От полностью пустого мы уже
+    // защищены (ветка else ниже), но backoffice умеет отдавать и обрезанную
+    // страницу — тогда «пропавшие» строки удалялись бы вместе со снимком
+    // итогов (finalized_*) и половинами пересортов, каскадом и безвозвратно.
+    // Разовое удаление пары позиций — нормальная работа; исчезновение больше
+    // половины акта — почти наверняка сбой выгрузки, а не решение человека.
+    const looksTruncated =
+      staleExternalIds.length >= STALE_DELETE_MIN_ROWS &&
+      staleExternalIds.length > existingCount / 2;
+    if (looksTruncated) {
+      console.warn(
+        `[syncDocumentItems] doc ${input.documentId}: Quick Resto не вернул ${staleExternalIds.length} из ${existingCount} строк — удаление пропущено, строки сохранены`,
+      );
+      skippedStaleDeletion = staleExternalIds.length;
+    } else if (staleExternalIds.length > 0) {
       await input.admin
         .from("document_items")
         .delete()
@@ -1186,7 +1193,13 @@ export async function syncDocumentItems(input: {
       console.warn(
         `[syncDocumentItems] doc ${input.documentId}: Quick Resto вернул 0 позиций, в базе ${existingCount} — строки сохранены, импорт пропущен`,
       );
-      return { count: 0, resultsFound: false, skippedEmptyPayload: true, preservedResultLines: 0 };
+      return {
+        count: 0,
+        resultsFound: false,
+        skippedEmptyPayload: true,
+        preservedResultLines: 0,
+        skippedStaleDeletion: 0,
+      };
     }
   }
 
@@ -1209,7 +1222,13 @@ export async function syncDocumentItems(input: {
     );
   }
 
-  return { count: rows.length, resultsFound, skippedEmptyPayload: false, preservedResultLines };
+  return {
+    count: rows.length,
+    resultsFound,
+    skippedEmptyPayload: false,
+    preservedResultLines,
+    skippedStaleDeletion,
+  };
 }
 
 /**

@@ -328,6 +328,7 @@ export function DocumentsTable({
     let net = 0;
     for (const row of selectedRowsList) {
       if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
+      if (row.totals_unavailable) continue;
       net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
     }
     return net;
@@ -527,6 +528,15 @@ export function DocumentsTable({
           // остатку, и «0 ₽» читалось бы как «посчитано, расхождений нет».
           if (!row.results_has_line_amounts || !hasCountedResults(row.status)) {
             return <span className="text-sm text-muted-foreground">—</span>;
+          }
+          // Итоги не посчитались (см. listInventoryDocuments): показываем
+          // прочерк, а не 0 ₽ — иначе акт с расхождением выглядит сошедшимся.
+          if (row.totals_unavailable) {
+            return (
+              <span className="text-sm text-muted-foreground" title="Не удалось посчитать итоги — обновите страницу">
+                —
+              </span>
+            );
           }
           const net = (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
           const sign = net > 0 ? "+" : net < 0 ? "−" : "";
@@ -813,11 +823,16 @@ export function DocumentsTable({
           toast.error(result.error ?? "Синхронизация не выполнена");
           return;
         }
-        toast.success(
+        const base =
           scope === "documents"
             ? `Синхронизировано актов: ${result.summary.documents}`
-            : `Синхронизировано: позиций ${result.summary.products}, актов ${result.summary.documents}`,
-        );
+            : `Синхронизировано: позиций ${result.summary.products}, актов ${result.summary.documents}`;
+        // Сбойные акты не роняют проход, но и молчать о них нельзя.
+        if (result.summary.failedDocuments > 0) {
+          toast.warning(`${base}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
+        } else {
+          toast.success(base);
+        }
         router.refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Синхронизация не выполнена");

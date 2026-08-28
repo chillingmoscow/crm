@@ -131,6 +131,51 @@ export function resolveStatusAfterImport(input: {
 }
 
 /**
+ * Статус акта после ПОЛНОЙ синхронизации с Quick Resto.
+ *
+ * Отличие от resolveStatusAfterImport: там мы обновляем строки уже известного
+ * акта, здесь — принимаем выгрузку QR, в которой акта может ещё не быть.
+ *
+ * Правило одно: синхронизация двигает акт по жизненному циклу только ВПЕРЁД.
+ * `processed` — факт на стороне источника правды, его принимаем. Всё остальное
+ * (назначен, в работе, готов к проверке, на пересчёте) — наш собственный
+ * процесс, и данные QR не повод его отматывать.
+ *
+ * Прецедент: признак «акт проведён у нас» был завязан на results_finalized_at,
+ * а reopenInventoryResults его обнуляет, оставляя акт проведённым. Поэтому
+ * акт, который распровели в QR и переоткрыли у нас, откатывался в 'synced':
+ * страница итогов показывала «подсчёт не завершён», в списке вместо суммы
+ * стоял ноль, а форма снова открывалась исполнителю.
+ */
+export function resolveStatusAfterSync(input: {
+  processedInQr: boolean;
+  existingStatus: string | null | undefined;
+}): string {
+  if (input.processedInQr) return "processed";
+  return input.existingStatus ?? "synced";
+}
+
+/**
+ * Значение documents.qr_unprocessed_at (миграция 224) после синхронизации.
+ *
+ * Метка означает «акт проведён у нас, но в Quick Resto его распровели».
+ * Ставится один раз — на переходе, чтобы плашка и запись в журнале не
+ * дублировались на каждом проходе; снимается ТОЛЬКО когда QR снова отдал акт
+ * проведённым. Безусловное обнуление стирало метку на первом же проходе по
+ * любому непроведённому акту.
+ */
+export function resolveQrUnprocessedAt(input: {
+  processedInQr: boolean;
+  processedLocally: boolean;
+  existingValue: string | null | undefined;
+  now: string;
+}): string | null {
+  if (input.processedInQr) return null;
+  if (input.processedLocally) return input.existingValue ?? input.now;
+  return input.existingValue ?? null;
+}
+
+/**
  * Причина, по которой повторный импорт итогов из Quick Resto («Обновить итоги»)
  * закрыт, либо null если импорт разрешён.
  *

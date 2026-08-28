@@ -13,6 +13,8 @@ import {
   isInventoryResultAdjustLocked,
   isInventoryResultLocked,
   nextStatusAfterAssign,
+  resolveQrUnprocessedAt,
+  resolveStatusAfterSync,
   type InventoryActStatus,
 } from "./act-status.ts";
 
@@ -247,4 +249,90 @@ test("итоги есть только после сдачи акта", () => {
   for (const status of ["synced", "assigned", "in_progress", "sync_error"] as const) {
     assert.equal(hasCountedResults(status), false);
   }
+});
+
+// ── Синхронизация не отматывает жизненный цикл назад ────────
+
+test("resolveStatusAfterSync: QR отдал акт проведённым — принимаем", () => {
+  assert.equal(
+    resolveStatusAfterSync({ processedInQr: true, existingStatus: "in_progress" }),
+    "processed",
+  );
+});
+
+test("resolveStatusAfterSync: распроведение в QR не откатывает проведённый акт", () => {
+  // Регрессия: признак «проведён у нас» был завязан на results_finalized_at,
+  // который обнуляет reopenInventoryResults. Переоткрытый после распроведения
+  // акт откатывался в 'synced' — итоги пропадали с экрана, форма снова
+  // открывалась исполнителю.
+  assert.equal(
+    resolveStatusAfterSync({ processedInQr: false, existingStatus: "processed" }),
+    "processed",
+  );
+});
+
+test("resolveStatusAfterSync: статусы проверки и пересчёта тоже не сбрасываются", () => {
+  for (const status of ["ready_for_review", "results_blocked", "recount_pending", "in_progress", "assigned"]) {
+    assert.equal(resolveStatusAfterSync({ processedInQr: false, existingStatus: status }), status);
+  }
+});
+
+test("resolveStatusAfterSync: акта ещё нет локально — synced", () => {
+  assert.equal(resolveStatusAfterSync({ processedInQr: false, existingStatus: null }), "synced");
+  assert.equal(resolveStatusAfterSync({ processedInQr: false, existingStatus: undefined }), "synced");
+});
+
+test("resolveQrUnprocessedAt: метка ставится один раз и переживает следующие проходы", () => {
+  const first = resolveQrUnprocessedAt({
+    processedInQr: false,
+    processedLocally: true,
+    existingValue: null,
+    now: "2026-08-28T10:00:00Z",
+  });
+  assert.equal(first, "2026-08-28T10:00:00Z");
+  // Второй проход не переставляет время — иначе плашка и запись в журнале
+  // дублировались бы на каждой синхронизации.
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: false,
+      processedLocally: true,
+      existingValue: first,
+      now: "2026-08-28T11:00:00Z",
+    }),
+    first,
+  );
+});
+
+test("resolveQrUnprocessedAt: снимается только когда QR снова отдал акт проведённым", () => {
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: true,
+      processedLocally: true,
+      existingValue: "2026-08-28T10:00:00Z",
+      now: "2026-08-28T11:00:00Z",
+    }),
+    null,
+  );
+});
+
+test("resolveQrUnprocessedAt: обычный непроведённый акт метку не получает и не теряет", () => {
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: false,
+      processedLocally: false,
+      existingValue: null,
+      now: "2026-08-28T10:00:00Z",
+    }),
+    null,
+  );
+  // И чужую метку не затираем: раньше здесь стоял безусловный null.
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: false,
+      processedLocally: false,
+      existingValue: "2026-08-27T09:00:00Z",
+      now: "2026-08-28T10:00:00Z",
+    }),
+    "2026-08-27T09:00:00Z",
+  );
 });

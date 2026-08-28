@@ -12,8 +12,11 @@ import {
   getAssigneeLockReason,
   getInventoryResultRefreshLockReason,
   getReviewerLockReason,
+  hasCountedResults,
   isInventoryFormLocked,
   nextStatusAfterAssign,
+  resolveQrUnprocessedAt,
+  resolveStatusAfterSync,
 } from "@/lib/inventory/act-status";
 import {
   compareResultLines,
@@ -65,6 +68,7 @@ import {
   normalizeReason,
   num,
   quickRestoDocumentSums,
+  RESORT_STATUS,
   priceNum,
   processBackOfficeInventoryDocumentWithSession,
   productName,
@@ -119,6 +123,7 @@ export async function syncQuickRestoInventory(input?: {
     documents: 0,
     items: 0,
     resultsBlocked: 0,
+    failedDocuments: 0,
   };
 
   const groupByExternalId = new Map<string, string>();
@@ -354,178 +359,196 @@ export async function syncQuickRestoInventory(input?: {
 
   for (const documentListItem of documents) {
     if (typeof documentListItem.id !== "number") continue;
-    const document = await readInventoryDocument({ ...auth, objectId: documentListItem.id });
-    const externalStoreId = typeof document.store?.id === "number" ? String(document.store.id) : null;
-    const storeId = externalStoreId ? storeByExternalId.get(externalStoreId) ?? null : null;
-
-    const { data: existing } = await admin
-      .from<{
-        id: string;
-        status: string;
-        results_finalized_at: string | null;
-        qr_unprocessed_at: string | null;
-      }>("documents")
-      .select("id, status, results_finalized_at, qr_unprocessed_at")
-      .eq("account_id", ctx.accountId)
-      .eq("external_id", String(document.id))
-      .maybeSingle();
-
-    // Акт с зафиксированными итогами распровели в Quick Resto (штатная
-    // операция бухгалтера). Он снова выглядит непроведённым и свежим, поэтому
-    // доходит сюда. Молча откатывать его статус нельзя: у нас лежат
-    // утверждённые итоги и снимок строк. Фиксируем факт распроведения полем и
-    // событием — статус и данные итогов не трогаем (миграция 224).
-    const finalizedLocally = Boolean(existing?.results_finalized_at);
-    const unprocessedInQr = finalizedLocally && !document.processed;
-
-    const nextStatus = document.processed
-      ? "processed"
-      : finalizedLocally
-        ? existing?.status ?? "processed"
-        : existing?.status && existing.status !== "processed"
-          ? existing.status
-          : "synced";
-
-    // Items: для не-проведённого акта public-API (readInventoryDocument)
-    // возвращает items БЕЗ расчётного остатка и разницы (calculated/
-    // difference приходят NULL). QR это всё считает в backoffice и не
-    // сериализует в public payload. Решение — обходной запрос через
-    // backoffice-cookie sheerly-bot'а: /platform/data/warehouse.inventory.
-    // items/select?ownerContextId=... возвращает items с полным набором
-    // полей. Если backoffice недоступен (нет cookie / нет creds) —
-    // fallback на public-payload items (хотя бы actualAmount будет).
-    const { items: publicItems } = inventoryDocumentItems(document);
-    let items: typeof publicItems = publicItems;
+    // Один сбойный акт не должен ронять весь проход: до этой обёртки
+    // исключение на любом акте (недоступный backoffice, битый payload,
+    // конфликт записи) обрывало цикл, и все следующие акты оставались
+    // необновлёнными — молча, потому что экшен возвращал общую ошибку.
     try {
-      const boItems = await listBackOfficeInventoryItemsWithSession({
-        connection,
-        admin,
-        documentExternalId: document.id,
+      const document = await readInventoryDocument({ ...auth, objectId: documentListItem.id });
+      const externalStoreId = typeof document.store?.id === "number" ? String(document.store.id) : null;
+      const storeId = externalStoreId ? storeByExternalId.get(externalStoreId) ?? null : null;
+
+      const { data: existing } = await admin
+        .from<{
+          id: string;
+          status: string;
+          results_finalized_at: string | null;
+          qr_unprocessed_at: string | null;
+        }>("documents")
+        .select("id, status, results_finalized_at, qr_unprocessed_at")
+        .eq("account_id", ctx.accountId)
+        .eq("external_id", String(document.id))
+        .maybeSingle();
+
+      // Акт распровели в Quick Resto (штатная операция бухгалтера). Он снова
+      // выглядит непроведённым и свежим, поэтому доходит сюда. Молча откатывать
+      // его статус нельзя: у нас лежат утверждённые итоги и снимок строк.
+      // Фиксируем факт распроведения полем и событием (миграция 224).
+      //
+      // Признак «акт проведён у нас» — именно status, а не results_finalized_at:
+      // reopenInventoryResults обнуляет results_finalized_at, оставляя акт
+      // проведённым. Пока признак был завязан на results_finalized_at,
+      // переоткрытый акт после распроведения в QR откатывался в 'synced' — то
+      // есть ровно в том сценарии, ради которого писалась защита.
+      const processedLocally = existing?.status === "processed";
+      const finalizedLocally = Boolean(existing?.results_finalized_at);
+      const unprocessedInQr = processedLocally && !document.processed;
+
+      const nextStatus = resolveStatusAfterSync({
+        processedInQr: Boolean(document.processed),
+        existingStatus: existing?.status,
       });
-      // Diagnostic: видно в Coolify logs какой акт сколько вернул через
-      // backoffice. CB303 (qr id 9890) на проде стабильно возвращает 0
-      // — нужны логи чтобы понять specific.
-      console.info(
-        `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): public=${publicItems.length}, backoffice=${boItems.length}`,
-      );
-      if (boItems.length > 0) {
-        items = boItems as typeof publicItems;
-        // Сохраняем backoffice-items в qr_payload для дальнейшего
-        // использования (refresh-results / просмотр сырья).
-        // Заменяем effectedItems (если их не было — будут теперь).
-        (document as unknown as { effectedItems: typeof publicItems }).effectedItems = boItems as typeof publicItems;
-      } else {
-        console.warn(
-          `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): backoffice returned 0 items, falling back to public items (no calculated/difference)`,
+
+      // Items: для не-проведённого акта public-API (readInventoryDocument)
+      // возвращает items БЕЗ расчётного остатка и разницы (calculated/
+      // difference приходят NULL). QR это всё считает в backoffice и не
+      // сериализует в public payload. Решение — обходной запрос через
+      // backoffice-cookie sheerly-bot'а: /platform/data/warehouse.inventory.
+      // items/select?ownerContextId=... возвращает items с полным набором
+      // полей. Если backoffice недоступен (нет cookie / нет creds) —
+      // fallback на public-payload items (хотя бы actualAmount будет).
+      const { items: publicItems } = inventoryDocumentItems(document);
+      let items: typeof publicItems = publicItems;
+      try {
+        const boItems = await listBackOfficeInventoryItemsWithSession({
+          connection,
+          admin,
+          documentExternalId: document.id,
+        });
+        // Diagnostic: видно в Coolify logs какой акт сколько вернул через
+        // backoffice. CB303 (qr id 9890) на проде стабильно возвращает 0
+        // — нужны логи чтобы понять specific.
+        console.info(
+          `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): public=${publicItems.length}, backoffice=${boItems.length}`,
         );
+        if (boItems.length > 0) {
+          items = boItems as typeof publicItems;
+          // Сохраняем backoffice-items в qr_payload для дальнейшего
+          // использования (refresh-results / просмотр сырья).
+          // Заменяем effectedItems (если их не было — будут теперь).
+          (document as unknown as { effectedItems: typeof publicItems }).effectedItems = boItems as typeof publicItems;
+        } else {
+          console.warn(
+            `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): backoffice returned 0 items, falling back to public items (no calculated/difference)`,
+          );
+        }
+      } catch (e) {
+        // Backoffice не сработал — best-effort, идём с public items.
+        console.error(`[syncQuickRestoInventory] backoffice items fetch failed for doc ${document.id}:`, e);
       }
-    } catch (e) {
-      // Backoffice не сработал — best-effort, идём с public items.
-      console.error(`[syncQuickRestoInventory] backoffice items fetch failed for doc ${document.id}:`, e);
-    }
-    const precheckHasResults = items.some((item) => extractLineResult(item).hasResult);
+      const precheckHasResults = items.some((item) => extractLineResult(item).hasResult);
 
-    const { data, error } = await admin
-      .from<{ id: string }>("documents")
-      .upsert(
-        {
-          account_id: ctx.accountId,
-          external_id: String(document.id),
-          document_kind: "inventory",
-          document_number: inventoryDocumentNumber(document),
-          invoice_date: dateText(document.invoiceDate),
-          store_id: storeId,
-          external_store_id: externalStoreId,
-          status: nextStatus,
-          processed: Boolean(document.processed),
-          base_last_update_date: dateText(document.lastUpdateDate),
-          last_qr_update_date: dateText(document.lastUpdateDate),
-          // У распроведённого акта Quick Resto отдаёт нулевые суммы и может не
-          // вернуть построчные расчёты. Зафиксированные итоги этим перетирать
-          // нельзя — иначе таблица итогов просто спрячется.
-          ...(finalizedLocally
-            ? {}
-            : {
-                ...quickRestoDocumentSums(document),
-                results_has_line_amounts: precheckHasResults,
-              }),
-          qr_unprocessed_at: unprocessedInQr
-            ? existing?.qr_unprocessed_at ?? syncedAt
-            : null,
-          comment: text(document.comment),
-          qr_payload: document,
-          synced_at: syncedAt,
-          // Акт пришёл живым из выгрузки → снимаем системный авто-архив,
-          // если он стоял (акт удаляли в QR, потом восстановили).
-          archived_at: null,
-          archived_reason: null,
-        },
-        { onConflict: "account_id,external_id" }
-      )
-      .select("id")
-      .single();
-    if (error || !data?.id) throw new Error(error?.message ?? `Не удалось сохранить акт ${document.id}`);
+      const { data, error } = await admin
+        .from<{ id: string }>("documents")
+        .upsert(
+          {
+            account_id: ctx.accountId,
+            external_id: String(document.id),
+            document_kind: "inventory",
+            document_number: inventoryDocumentNumber(document),
+            invoice_date: dateText(document.invoiceDate),
+            store_id: storeId,
+            external_store_id: externalStoreId,
+            status: nextStatus,
+            processed: Boolean(document.processed),
+            base_last_update_date: dateText(document.lastUpdateDate),
+            last_qr_update_date: dateText(document.lastUpdateDate),
+            // У распроведённого акта Quick Resto отдаёт нулевые суммы и может не
+            // вернуть построчные расчёты. Зафиксированные итоги этим перетирать
+            // нельзя — иначе таблица итогов просто спрячется.
+            ...(finalizedLocally
+              ? {}
+              : {
+                  ...quickRestoDocumentSums(document),
+                  results_has_line_amounts: precheckHasResults,
+                }),
+            qr_unprocessed_at: resolveQrUnprocessedAt({
+              processedInQr: Boolean(document.processed),
+              processedLocally,
+              existingValue: existing?.qr_unprocessed_at,
+              now: syncedAt,
+            }),
+            comment: text(document.comment),
+            qr_payload: document,
+            synced_at: syncedAt,
+            // Акт пришёл живым из выгрузки → снимаем системный авто-архив,
+            // если он стоял (акт удаляли в QR, потом восстановили).
+            archived_at: null,
+            archived_reason: null,
+          },
+          { onConflict: "account_id,external_id" }
+        )
+        .select("id")
+        .single();
+      if (error || !data?.id) throw new Error(error?.message ?? `Не удалось сохранить акт ${document.id}`);
 
-    if (finalizedLocally) {
-      // Строки акта с зафиксированными итогами не трогаем вообще. Импорт не
-      // только перезаписывает значения — он ещё и УДАЛЯЕТ строки, которых нет
-      // в ответе Quick Resto, а вместе со строкой каскадом уходят её снимок
-      // (finalized_*) и позиции пересортов. То есть один импорт по акту,
-      // который распровели и из которого в QR убрали позицию, менял бы уже
-      // утверждённый итог. Нужны свежие данные — сначала переоткрыть итоги.
-      console.info(
-        `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): итоги зафиксированы — строки не импортируем`,
+      if (finalizedLocally) {
+        // Строки акта с зафиксированными итогами не трогаем вообще. Импорт не
+        // только перезаписывает значения — он ещё и УДАЛЯЕТ строки, которых нет
+        // в ответе Quick Resto, а вместе со строкой каскадом уходят её снимок
+        // (finalized_*) и позиции пересортов. То есть один импорт по акту,
+        // который распровели и из которого в QR убрали позицию, менял бы уже
+        // утверждённый итог. Нужны свежие данные — сначала переоткрыть итоги.
+        console.info(
+          `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): итоги зафиксированы — строки не импортируем`,
+        );
+      } else if (items.length > 0) {
+        // Подсчёт остатков в нашем флоу ведётся ТОЛЬКО в CRM (submitted_amount).
+        // Full-sync обновляет список позиций и метаданные акта, но НЕ должен
+        // перетирать уже введённые количества QR-нулями: для непроведённого акта
+        // QR присылает actualAmount=0 как дефолт. submittedAmounts не передаём —
+        // syncDocumentItems сам сохраняет уже введённые значения по строкам,
+        // которых нет в вызове (см. resolveSubmittedAmount). Отдельная
+        // предзагрузка здесь была лишним запросом на каждый акт.
+        const result = await syncDocumentItems({
+          admin,
+          accountId: ctx.accountId,
+          documentId: data.id,
+          items,
+          productByExternalId,
+        });
+        summary.items += result.count;
+        if (!result.resultsFound) summary.resultsBlocked += 1;
+        if (result.resultsFound !== precheckHasResults) {
+          await admin
+            .from("documents")
+            .update({ results_has_line_amounts: result.resultsFound })
+            .eq("id", data.id);
+        }
+      }
+
+      // Распроведение фиксируем один раз — на переходе. Иначе каждая
+      // синхронизация плодила бы одинаковые записи в журнале акта.
+      if (unprocessedInQr && !existing?.qr_unprocessed_at) {
+        await writeInventoryResultEvent({
+          supabase: ctx.supabase,
+          admin,
+          accountId: ctx.accountId,
+          userId: ctx.user.id,
+          documentId: data.id,
+          eventType: "qr_unprocessed",
+          message: "Акт распровели в Quick Resto",
+          payload: { externalId: String(document.id), detectedAt: syncedAt },
+        });
+      }
+
+      summary.documents += 1;
+      await upsertExternalLink({
+        admin,
+        accountId: ctx.accountId,
+        entityType: "inventory_document",
+        externalId: String(document.id),
+        localTable: "documents",
+        localId: data.id,
+      });
+      await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
+    } catch (documentError) {
+      summary.failedDocuments += 1;
+      console.error(
+        `[syncQuickRestoInventory] акт ${documentListItem.id} не обработан, продолжаем проход:`,
+        documentError,
       );
-    } else if (items.length > 0) {
-      // Подсчёт остатков в нашем флоу ведётся ТОЛЬКО в CRM (submitted_amount).
-      // Full-sync обновляет список позиций и метаданные акта, но НЕ должен
-      // перетирать уже введённые количества QR-нулями: для непроведённого акта
-      // QR присылает actualAmount=0 как дефолт. submittedAmounts не передаём —
-      // syncDocumentItems сам сохраняет уже введённые значения по строкам,
-      // которых нет в вызове (см. resolveSubmittedAmount). Отдельная
-      // предзагрузка здесь была лишним запросом на каждый акт.
-      const result = await syncDocumentItems({
-        admin,
-        accountId: ctx.accountId,
-        documentId: data.id,
-        items,
-        productByExternalId,
-      });
-      summary.items += result.count;
-      if (!result.resultsFound) summary.resultsBlocked += 1;
-      if (result.resultsFound !== precheckHasResults) {
-        await admin
-          .from("documents")
-          .update({ results_has_line_amounts: result.resultsFound })
-          .eq("id", data.id);
-      }
     }
-
-    // Распроведение фиксируем один раз — на переходе. Иначе каждая
-    // синхронизация плодила бы одинаковые записи в журнале акта.
-    if (unprocessedInQr && !existing?.qr_unprocessed_at) {
-      await writeInventoryResultEvent({
-        supabase: ctx.supabase,
-        admin,
-        accountId: ctx.accountId,
-        userId: ctx.user.id,
-        documentId: data.id,
-        eventType: "qr_unprocessed",
-        message: "Акт распровели в Quick Resto",
-        payload: { externalId: String(document.id), detectedAt: syncedAt },
-      });
-    }
-
-    summary.documents += 1;
-    await upsertExternalLink({
-      admin,
-      accountId: ctx.accountId,
-      entityType: "inventory_document",
-      externalId: String(document.id),
-      localTable: "documents",
-      localId: data.id,
-    });
-    await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "inventory_document", externalId: String(document.id), payload: document });
   }
 
   // Авто-архив актов, удалённых в Quick Resto. Сигнал — явный deleted-флаг в
@@ -1899,12 +1922,12 @@ export async function voidInventoryResultResort(input: {
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     if (!resort?.id) throw new Error("Пересорт не найден");
-    if (resort.status !== "active") throw new Error("Пересорт уже отменен");
+    if (resort.status !== RESORT_STATUS.active) throw new Error("Пересорт уже отменен");
 
     const { error } = await admin
       .from("inventory_result_resorts")
       .update({
-        status: "voided",
+        status: RESORT_STATUS.voided,
         voided_by: ctx.user.id,
         voided_at: new Date().toISOString(),
         void_reason: reason,
@@ -2112,6 +2135,17 @@ export async function finalizeInventoryResults(input: {
     // тихо проглатывалась бы как успех — акт оставался в editable-режиме
     // навсегда (Codex P2).
     if (document.results_finalized_at) return { error: null };
+    // Финализировать можно только сданный акт. До сдачи итогов не существует:
+    // факт нулевой, и разница из Quick Resto равна минус всему складскому
+    // остатку — проведение списало бы его целиком (прод-кейс на 478 193,6 ₽).
+    // Кнопки в UI нет (страница итогов гейтится тем же предикатом), но экшен
+    // вызываем напрямую, а это самое разрушительное действие модуля.
+    if (!hasCountedResults(document.status)) {
+      return {
+        error:
+          "Подсчёт ещё не завершён — подвести итоги можно после того, как исполнитель сдаст акт.",
+      };
+    }
     // Акт на пересчёте закрыть нельзя — сначала исполнитель должен завершить
     // пересчёт (статус вернётся в ready_for_review).
     if (document.status === "recount_pending") {

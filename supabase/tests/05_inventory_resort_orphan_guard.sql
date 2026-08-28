@@ -151,6 +151,36 @@ end;
 $$;
 
 -- ────────────────────────────────────────────────────────────
+-- 2b. Набор статусов пересорта закрыт: 'active' и 'voided'.
+--     Прикладной код аннулировал пересорт значением 'void' — UPDATE молча
+--     падал на этом CHECK, пересорт оставался активным и продолжал влиять на
+--     управленческий итог, а в журнал уходила запись «Пересорт отменён».
+--     Тест фиксирует границу, чтобы её не «починили» расширением констрейнта.
+-- ────────────────────────────────────────────────────────────
+do $$
+declare
+  v_rejected boolean := false;
+begin
+  begin
+    update public.inventory_result_resorts
+       set status = 'void'
+     where id = 'b6000000-0000-0000-0000-000000000001';
+  exception when check_violation then
+    v_rejected := true;
+  end;
+  perform public.test_assert(v_rejected, 'status = ''void'' must be rejected by the check constraint');
+
+  update public.inventory_result_resorts
+     set status = 'voided'
+   where id = 'b6000000-0000-0000-0000-000000000001';
+  perform public.test_assert(
+    (select status from public.inventory_result_resorts where id = 'b6000000-0000-0000-0000-000000000001') = 'voided',
+    'status = ''voided'' must be accepted'
+  );
+end;
+$$;
+
+-- ────────────────────────────────────────────────────────────
 -- 3. Удаление акта целиком (каскад) не падает и ничего не оставляет:
 --    триггер обязан различать каскад и точечное удаление позиции.
 -- ────────────────────────────────────────────────────────────

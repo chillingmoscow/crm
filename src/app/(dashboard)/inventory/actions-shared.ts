@@ -1184,6 +1184,30 @@ export async function syncDocumentItems(input: {
   return { count: rows.length, resultsFound, skippedEmptyPayload: false, preservedResultLines };
 }
 
+/**
+ * Суммы акта из Quick Resto для записи в documents (миграция 225).
+ *
+ * QR заполняет shortfallSum/surplusSum документа ТОЛЬКО у проведённого акта —
+ * у непроведённого он отдаёт нули. Записать эти нули нельзя: карточка акта
+ * показывает строку «Quick Resto при проведении: …» по наличию значения, и
+ * нетронутый акт рисовал бы итог проводки, которой не было. Поэтому у
+ * непроведённого акта явно пишем null (заодно снимая устаревшие значения,
+ * если акт распровели).
+ */
+export function quickRestoDocumentSums(document: {
+  processed?: boolean;
+  shortfallSum?: number;
+  surplusSum?: number;
+}): { qr_shortfall_sum: number | null; qr_surplus_sum: number | null } {
+  if (!document.processed) {
+    return { qr_shortfall_sum: null, qr_surplus_sum: null };
+  }
+  return {
+    qr_shortfall_sum: num(document.shortfallSum),
+    qr_surplus_sum: num(document.surplusSum),
+  };
+}
+
 export async function refreshLocalInventoryDocumentFromPayload(input: {
   admin: LooseDb;
   accountId: string;
@@ -1239,8 +1263,7 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
       processed: Boolean(input.document.processed),
       base_last_update_date: dateText(input.document.lastUpdateDate),
       last_qr_update_date: dateText(input.document.lastUpdateDate),
-      shortfall_sum: num(input.document.shortfallSum),
-      surplus_sum: num(input.document.surplusSum),
+      ...quickRestoDocumentSums(input.document),
       results_has_line_amounts: syncResult.resultsFound,
       qr_payload: input.document,
       synced_at: new Date().toISOString(),

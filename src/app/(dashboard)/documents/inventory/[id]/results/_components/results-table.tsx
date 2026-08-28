@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
@@ -81,7 +82,6 @@ import {
   ResultStatusPicker,
 } from "./results-table-controls";
 import {
-  formatAmount,
   formatMoney,
   formatSignedMoney,
   type AmountRoundingScale,
@@ -153,6 +153,8 @@ export type InventoryDocumentResultItem = {
   /** Факт на момент последней отправки на пересчёт (снимок «было»).
       Не null → строка была на пересчёте (постоянная пометка). */
   recount_previous_amount: number | null;
+  /** Исключение из итогов на момент фиксации (миграция 227). */
+  finalized_excluded_from_totals?: boolean | null;
 };
 
 export type InventoryResultResortRow = {
@@ -169,6 +171,15 @@ export type InventoryResultResortRow = {
   suggestion_source: string | null;
   created_at: string;
   void_reason: string | null;
+  /** Снимок пересорта на момент подведения итогов (миграция 227). У
+      зафиксированного акта страница подставляет эти значения в поля выше —
+      см. applyResortSnapshot. */
+  finalized_at?: string | null;
+  finalized_status?: string | null;
+  finalized_offset_amount?: number | null;
+  finalized_residual_shortfall_sum?: number | null;
+  finalized_residual_surplus_sum?: number | null;
+  finalized_cost_adjustment_sum?: number | null;
 };
 
 export type InventoryResultResortItemRow = InventoryResortAllocationItem & {
@@ -229,6 +240,12 @@ type Props = {
   canViewProducts: boolean;
   aiSuggestionsEnabled: boolean;
   documentStatus: string;
+  /** Акт с зафиксированными итогами распровели в Quick Resto (миграция 224). */
+  qrUnprocessedAt: string | null;
+  /** Суммы, которые сам Quick Resto записал в акт при проведении (миграция 225).
+      До проведения QR отдаёт нули, поэтому здесь null. */
+  qrShortfallSum: number | null;
+  qrSurplusSum: number | null;
 };
 
 // Количество в Итогах показываем точнее, чем деньги: денежная шкала
@@ -237,6 +254,15 @@ type Props = {
 // управленческой сумме. Поэтому количества — до 3 знаков (целые без «,0»,
 // хвостовые нули обрезаются). Деньги (Сумма/итоги) остаются на шкале аккаунта.
 const RESULT_QUANTITY_MAX_FRACTION = 3;
+
+// Две суммы в тайлах — РАЗНЫЕ величины, и раньше подписи это скрывали («По QR»
+// против «К списанию» читалось как «столько насчитал QR» / «столько спишем»).
+// На деле исключения из итогов и пересорты — управленческая надстройка: в
+// Quick Resto проводится полная разница по строкам, независимо от них.
+const QR_TILE_HINT =
+  "Полная разница по строкам — ровно она проводится в Quick Resto. Исключения из итогов и пересорты на неё не влияют.";
+const MANAGEMENT_TILE_HINT =
+  "Наша оценка: с учётом исключённых строк и пересортов. Остаётся внутри CRM, в Quick Resto не уходит.";
 
 function formatQuantity(
   value: number | null | undefined,
@@ -248,6 +274,14 @@ function formatQuantity(
     maximumFractionDigits: RESULT_QUANTITY_MAX_FRACTION,
   }).format(value);
   return `${formatted} ${measureUnitName ?? "ед."}`;
+}
+
+// Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,
+// значение подтвердилось»), но он должен читаться именно так: «было 3 → стало
+// 3» само по себе неотличимо от акта, где пересчёт не делали.
+function amountsMatch(left: number | null | undefined, right: number | null | undefined) {
+  if (typeof left !== "number" || typeof right !== "number") return false;
+  return Math.abs(left - right) < 0.000001;
 }
 
 export function InventoryResultsTable({
@@ -270,6 +304,9 @@ export function InventoryResultsTable({
   canViewProducts,
   aiSuggestionsEnabled,
   documentStatus,
+  qrUnprocessedAt,
+  qrShortfallSum,
+  qrSurplusSum,
 }: Props) {
   const [showDifferences, setShowDifferences] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -296,6 +333,7 @@ export function InventoryResultsTable({
   const [deleteRuleReason, setDeleteRuleReason] = useState("");
   const [voidingResort, setVoidingResort] = useState<InventoryResultResortRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [confirmFinalize, setConfirmFinalize] = useState(false);
   const [isPending, startTransition] = useTransition();
   // ИИ-подсказки грузятся по кнопке (не блокируют открытие акта).
   const [aiSuggestions, setAiSuggestions] = useState<InventoryResortSuggestion[]>([]);
@@ -323,6 +361,20 @@ export function InventoryResultsTable({
     () => new Map(items.map((item) => [item.id, item.product_name])),
     [items],
   );
+  const itemUnitById = useMemo(
+    () => new Map(items.map((item) => [item.id, item.measure_unit_name])),
+    [items],
+  );
+  // Единица измерения пересорта — с любой его позиции: пересорт по построению
+  // сводит позиции ОДНОЙ единицы (calculateResortAllocation это проверяет).
+  const resortUnitByResortId = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const resortItem of resortItems) {
+      if (map.has(resortItem.resortId)) continue;
+      map.set(resortItem.resortId, itemUnitById.get(resortItem.documentItemId) ?? null);
+    }
+    return map;
+  }, [resortItems, itemUnitById]);
   const resortNamesByResortId = useMemo(() => {
     const map = new Map<string, { shortage: string[]; surplus: string[] }>();
     for (const resortItem of resortItems) {
@@ -360,6 +412,13 @@ export function InventoryResultsTable({
       }),
     [activeResortItemByItemId, activeResorts, items],
   );
+  // Что реально уйдёт в проводку (полная разница по строкам) против нашей
+  // управленческой оценки. Обе цифры показываем в подтверждении финализации:
+  // проверяющий не должен узнавать о разнице уже после проведения.
+  const qrNetSum = totals.qrSurplusSum + totals.qrShortfallSum;
+  const managementNetSum = totals.managementSurplusSum + totals.managementShortfallSum;
+  const finalizeSumsDiffer = Math.abs(qrNetSum - managementNetSum) > 0.005;
+  const hasQrDocumentSums = qrShortfallSum != null || qrSurplusSum != null;
   const mismatchCount = useMemo(
     () => items.filter((item) => isOpenDifference(item, activeResortItemByItemId.get(item.id))).length,
     [items, activeResortItemByItemId],
@@ -503,7 +562,10 @@ export function InventoryResultsTable({
 
   const runAction = useCallback(
     (
-      action: () => Promise<{ error: string | null }>,
+      // notice — когда экшен отработал не совсем так, как ожидал пользователь,
+      // и это стоит сказать словами (например: акт уже был проведён в Quick
+      // Resto, повторное проведение не потребовалось).
+      action: () => Promise<{ error: string | null; notice?: string }>,
       success: string,
       onSuccess?: () => void,
     ) => {
@@ -513,7 +575,7 @@ export function InventoryResultsTable({
           toast.error(result.error);
           return;
         }
-        toast.success(success);
+        toast.success(result.notice ?? success);
         setSelectedIds(new Set());
         onSuccess?.();
       });
@@ -712,6 +774,8 @@ export function InventoryResultsTable({
         const flagged = Boolean(item.needs_recount);
         const auto = Boolean(item.recount_auto_flagged);
         const wasRecounted = item.recount_previous_amount != null;
+        const recountUnchanged =
+          wasRecounted && amountsMatch(item.recount_previous_amount, item.actual_amount);
         return (
           <div className="flex flex-col gap-1" data-row-interactive>
           <div className="flex items-center gap-2">
@@ -755,9 +819,16 @@ export function InventoryResultsTable({
             // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
             <span
               className="text-[11px] text-rose-700 dark:text-rose-300"
-              title="Строка была отправлена на пересчёт"
+              title={
+                recountUnchanged
+                  ? "Строку пересчитали — значение подтвердилось"
+                  : "Строка была отправлена на пересчёт"
+              }
             >
               было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(item.actual_amount, item.measure_unit_name)}
+              {recountUnchanged ? (
+                <span className="text-muted-foreground"> · не изменилось</span>
+              ) : null}
             </span>
           ) : null}
           </div>
@@ -1062,6 +1133,25 @@ export function InventoryResultsTable({
       {/* Баннер «акт на пересчёте»: ревьюер вернул акт исполнителю и ждёт.
           Итоги read-only (анти-подгонка) — нельзя пересортировать, исключать
           или финализировать, пока пересчёт не завершён. */}
+      {/* Акт распровели в Quick Resto: наши итоги остались зафиксированными,
+          но источник правды больше не считает акт проведённым. Молча
+          откатывать статус нельзя — показываем это человеку. */}
+      {qrUnprocessedAt ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-500/5 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div className="min-w-0 text-sm">
+            <div className="font-medium text-amber-800 dark:text-amber-200">
+              Акт распровели в Quick Resto
+            </div>
+            <p className="mt-0.5 text-amber-800/90 dark:text-amber-300/90">
+              Итоги у нас остались зафиксированными — здесь по-прежнему снимок,
+              утверждённый при подведении итогов. Чтобы провести акт заново,
+              разблокируйте его и подведите итоги ещё раз.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {isRecountPending ? (
         <div className="flex items-start gap-3 rounded-lg border border-rose-300 bg-rose-500/5 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
           <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-rose-700 dark:text-rose-300" />
@@ -1083,13 +1173,17 @@ export function InventoryResultsTable({
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground">По QR</div>
+              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+                Уйдёт в Quick Resto
+              </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">К списанию</div>
+              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+                Управленческая оценка
+              </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementShortfallSum), "RUB", amountRoundingScale)}
               </div>
@@ -1108,13 +1202,17 @@ export function InventoryResultsTable({
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground">По QR</div>
+              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+                Уйдёт в Quick Resto
+              </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">К учету</div>
+              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+                Управленческая оценка
+              </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementSurplusSum), "RUB", amountRoundingScale)}
               </div>
@@ -1122,6 +1220,23 @@ export function InventoryResultsTable({
           </div>
         </div>
       </div>
+
+      {/* Суммы, которые Quick Resto записал в акт при проведении. До проведения
+          QR отдаёт по документу нули, поэтому строка появляется только у
+          проведённого акта. Раньше эти числа сохранялись, но не доходили ни до
+          одного экрана: их перетирал управленческий итог. */}
+      {hasQrDocumentSums ? (
+        <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground sm:px-4">
+          <span className="font-medium text-foreground">Quick Resto при проведении:</span>{" "}
+          недостача {formatMoney(Math.abs(qrShortfallSum ?? 0), "RUB", amountRoundingScale)} · излишек{" "}
+          {formatMoney(Math.abs(qrSurplusSum ?? 0), "RUB", amountRoundingScale)} · итого{" "}
+          {formatSignedMoney(
+            Math.abs(qrSurplusSum ?? 0) - Math.abs(qrShortfallSum ?? 0),
+            "RUB",
+            amountRoundingScale,
+          )}
+        </div>
+      ) : null}
 
       {/* Журнал событий («Журнал решений») переехал в layout-табу «Журнал»
           (../history) — здесь была дублирующая внутренняя вкладка.
@@ -1529,7 +1644,7 @@ export function InventoryResultsTable({
             {activeResorts.map((resort) => (
               <div key={resort.id} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-medium">{resort.group_name ?? "Группа"} · {formatAmount(resort.offset_amount, amountRoundingScale)} ед.</div>
+                  <div className="text-sm font-medium">{resort.group_name ?? "Группа"} · {formatQuantity(resort.offset_amount, resortUnitByResortId.get(resort.id))}</div>
                   {(() => {
                     const names = resortNamesByResortId.get(resort.id);
                     if (!names || (names.shortage.length === 0 && names.surplus.length === 0)) {
@@ -1659,9 +1774,7 @@ export function InventoryResultsTable({
                       <Button
                         type="button"
                         disabled={isPending}
-                        onClick={() =>
-                          runAction(() => finalizeInventoryResults({ documentId }), "Итоги подведены")
-                        }
+                        onClick={() => setConfirmFinalize(true)}
                       >
                         <CheckCircle2 className="mr-2 h-4 w-4" />
                         Подвести итоги
@@ -1686,6 +1799,77 @@ export function InventoryResultsTable({
         amountRoundingScale={amountRoundingScale}
         onClose={() => setOverviewIngredient(null)}
       />
+
+      {/* Подтверждение проведения. Показываем сумму, которая реально уйдёт в
+          Quick Resto: исключения и пересорты её не уменьшают, а раньше тайл
+          «К списанию» читался как решение по деньгам. */}
+      <Dialog open={confirmFinalize} onOpenChange={(open) => !open && setConfirmFinalize(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Подвести итоги акта</DialogTitle>
+            <DialogDescription>
+              Акт будет проведён в Quick Resto, а итоги — зафиксированы.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="rounded-lg border p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Уйдёт в Quick Resto
+              </div>
+              <div className="mt-2 grid gap-1">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Недостача</span>
+                  <span className="font-medium text-red-700 dark:text-red-400">
+                    {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Излишек</span>
+                  <span className="font-medium text-green-700 dark:text-green-400">
+                    {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t pt-1">
+                  <span className="text-muted-foreground">Итого</span>
+                  <span className="font-semibold">
+                    {formatSignedMoney(qrNetSum, "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {finalizeSumsDiffer ? (
+              <p className="text-muted-foreground">
+                Управленческая оценка — {formatSignedMoney(managementNetSum, "RUB", amountRoundingScale)}.
+                Она учитывает исключённые строки и пересорты и остаётся внутри CRM:
+                в Quick Resto проводится полная разница по строкам.
+              </p>
+            ) : null}
+            <p className="text-muted-foreground">
+              После подведения итогов пересорты, комментарии и исключения будут
+              заблокированы до переоткрытия.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmFinalize(false)}>
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={isPending}
+              onClick={() =>
+                runAction(
+                  () => finalizeInventoryResults({ documentId }),
+                  "Итоги подведены",
+                  () => setConfirmFinalize(false),
+                )
+              }
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Подвести итоги
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(commentItem)} onOpenChange={(open) => !open && setCommentItem(null)}>
         <DialogContent>

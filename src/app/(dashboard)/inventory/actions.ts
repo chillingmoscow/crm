@@ -22,6 +22,7 @@ import {
   type InventoryRecheckLine,
 } from "@/lib/inventory/results-recheck";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
+import { pluralRu } from "@/lib/format/plural";
 import {
   createInventoryDocumentBackOffice,
   createInventoryItemBackOffice,
@@ -63,6 +64,7 @@ import {
   loadResultItemsForAdjustment,
   normalizeReason,
   num,
+  quickRestoDocumentSums,
   priceNum,
   processBackOfficeInventoryDocumentWithSession,
   productName,
@@ -357,17 +359,32 @@ export async function syncQuickRestoInventory(input?: {
     const storeId = externalStoreId ? storeByExternalId.get(externalStoreId) ?? null : null;
 
     const { data: existing } = await admin
-      .from<{ id: string; status: string }>("documents")
-      .select("id, status")
+      .from<{
+        id: string;
+        status: string;
+        results_finalized_at: string | null;
+        qr_unprocessed_at: string | null;
+      }>("documents")
+      .select("id, status, results_finalized_at, qr_unprocessed_at")
       .eq("account_id", ctx.accountId)
       .eq("external_id", String(document.id))
       .maybeSingle();
 
+    // Акт с зафиксированными итогами распровели в Quick Resto (штатная
+    // операция бухгалтера). Он снова выглядит непроведённым и свежим, поэтому
+    // доходит сюда. Молча откатывать его статус нельзя: у нас лежат
+    // утверждённые итоги и снимок строк. Фиксируем факт распроведения полем и
+    // событием — статус и данные итогов не трогаем (миграция 224).
+    const finalizedLocally = Boolean(existing?.results_finalized_at);
+    const unprocessedInQr = finalizedLocally && !document.processed;
+
     const nextStatus = document.processed
       ? "processed"
-      : existing?.status && existing.status !== "processed"
-        ? existing.status
-        : "synced";
+      : finalizedLocally
+        ? existing?.status ?? "processed"
+        : existing?.status && existing.status !== "processed"
+          ? existing.status
+          : "synced";
 
     // Items: для не-проведённого акта public-API (readInventoryDocument)
     // возвращает items БЕЗ расчётного остатка и разницы (calculated/
@@ -423,9 +440,18 @@ export async function syncQuickRestoInventory(input?: {
           processed: Boolean(document.processed),
           base_last_update_date: dateText(document.lastUpdateDate),
           last_qr_update_date: dateText(document.lastUpdateDate),
-          shortfall_sum: num(document.shortfallSum),
-          surplus_sum: num(document.surplusSum),
-          results_has_line_amounts: precheckHasResults,
+          // У распроведённого акта Quick Resto отдаёт нулевые суммы и может не
+          // вернуть построчные расчёты. Зафиксированные итоги этим перетирать
+          // нельзя — иначе таблица итогов просто спрячется.
+          ...(finalizedLocally
+            ? {}
+            : {
+                ...quickRestoDocumentSums(document),
+                results_has_line_amounts: precheckHasResults,
+              }),
+          qr_unprocessed_at: unprocessedInQr
+            ? existing?.qr_unprocessed_at ?? syncedAt
+            : null,
           comment: text(document.comment),
           qr_payload: document,
           synced_at: syncedAt,
@@ -440,7 +466,17 @@ export async function syncQuickRestoInventory(input?: {
       .single();
     if (error || !data?.id) throw new Error(error?.message ?? `Не удалось сохранить акт ${document.id}`);
 
-    if (items.length > 0) {
+    if (finalizedLocally) {
+      // Строки акта с зафиксированными итогами не трогаем вообще. Импорт не
+      // только перезаписывает значения — он ещё и УДАЛЯЕТ строки, которых нет
+      // в ответе Quick Resto, а вместе со строкой каскадом уходят её снимок
+      // (finalized_*) и позиции пересортов. То есть один импорт по акту,
+      // который распровели и из которого в QR убрали позицию, менял бы уже
+      // утверждённый итог. Нужны свежие данные — сначала переоткрыть итоги.
+      console.info(
+        `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): итоги зафиксированы — строки не импортируем`,
+      );
+    } else if (items.length > 0) {
       // Подсчёт остатков в нашем флоу ведётся ТОЛЬКО в CRM (submitted_amount).
       // Full-sync обновляет список позиций и метаданные акта, но НЕ должен
       // перетирать уже введённые количества QR-нулями: для непроведённого акта
@@ -463,6 +499,21 @@ export async function syncQuickRestoInventory(input?: {
           .update({ results_has_line_amounts: result.resultsFound })
           .eq("id", data.id);
       }
+    }
+
+    // Распроведение фиксируем один раз — на переходе. Иначе каждая
+    // синхронизация плодила бы одинаковые записи в журнале акта.
+    if (unprocessedInQr && !existing?.qr_unprocessed_at) {
+      await writeInventoryResultEvent({
+        supabase: ctx.supabase,
+        admin,
+        accountId: ctx.accountId,
+        userId: ctx.user.id,
+        documentId: data.id,
+        eventType: "qr_unprocessed",
+        message: "Акт распровели в Quick Resto",
+        payload: { externalId: String(document.id), detectedAt: syncedAt },
+      });
     }
 
     summary.documents += 1;
@@ -2043,7 +2094,7 @@ export async function getAiResortSuggestions(input: {
 
 export async function finalizeInventoryResults(input: {
   documentId: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.finalize_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
@@ -2120,6 +2171,19 @@ export async function finalizeInventoryResults(input: {
       };
     }
 
+    // Полусбойное состояние: в Quick Resto акт уже проведён, а локально
+    // финализация не доехала. Так бывает, когда /action отработал, а
+    // постусловное чтение упало по таймауту: экшен вернул ошибку и НЕ тронул
+    // documents. Повторное нажатие «Подвести итоги» не должно проводить
+    // проведённый акт — вместо этого дописываем локальное состояние.
+    //
+    // Сверку перед проведением в этом случае пропускаем сознательно: у
+    // проведённого акта Quick Resto отдаёт уже ПОСЛЕ-проведенческие расчётные
+    // остатки, сверка нашла бы «расхождение» с утверждёнными числами и
+    // заблокировала бы финализацию навсегда. Утверждённое — то, что лежит в
+    // строках сейчас; его и фиксируем.
+    const alreadyProcessedInQr = Boolean(qrDocBefore.processed);
+
     // Сверка перед проведением. Между тем моментом, когда проверяющий смотрел
     // «Итоги», и нажатием «Подвести итоги» Quick Resto мог пересчитать
     // расчётные остатки (правки в учёте за период до даты акта). Тогда
@@ -2142,62 +2206,67 @@ export async function finalizeInventoryResults(input: {
       }));
     };
 
-    let recheckSkippedReason: string | null = null;
-    try {
-      const linesBefore = await readResultLines();
-      const freshItems = await listBackOfficeInventoryItemsWithSession({
-        connection,
-        admin,
-        documentExternalId: externalIdNum,
-      });
-      if (freshItems.length === 0) {
-        recheckSkippedReason = "Quick Resto не вернул позиции для сверки";
-      } else {
-        await refreshLocalInventoryDocumentFromPayload({
+    let recheckSkippedReason: string | null = alreadyProcessedInQr
+      ? "акт уже проведён в Quick Resto"
+      : null;
+    // Проведённый акт не сверяем (см. alreadyProcessedInQr выше).
+    if (!alreadyProcessedInQr) {
+      try {
+        const linesBefore = await readResultLines();
+        const freshItems = await listBackOfficeInventoryItemsWithSession({
+          connection,
           admin,
-          accountId: ctx.accountId,
-          documentId: document.id,
-          document: { ...qrDocBefore, effectedItems: freshItems },
-          // Статус не двигаем: сверка — это обновление данных, а не переход
-          // по статусной машине.
-          status: document.status,
+          documentExternalId: externalIdNum,
         });
-        const diff = compareResultLines(linesBefore, await readResultLines());
-        if (hasResultDrift(diff)) {
-          console.info("[finalize] данные QR разъехались, проведение отменено", {
-            documentId: document.id,
-            changed: diff.changedLines,
-            beforeTotal: diff.beforeTotal,
-            afterTotal: diff.afterTotal,
-          });
-          await writeInventoryResultEvent({
-            supabase: ctx.supabase,
+        if (freshItems.length === 0) {
+          recheckSkippedReason = "Quick Resto не вернул позиции для сверки";
+        } else {
+          await refreshLocalInventoryDocumentFromPayload({
             admin,
             accountId: ctx.accountId,
-            userId: ctx.user.id,
             documentId: document.id,
-            eventType: "results_recheck_drift",
-            message: "Данные Quick Resto изменились перед проведением",
-            payload: {
-              changedLines: diff.changedLines,
-              addedLines: diff.addedLines,
-              removedLines: diff.removedLines,
+            document: { ...qrDocBefore, effectedItems: freshItems },
+            // Статус не двигаем: сверка — это обновление данных, а не переход
+            // по статусной машине.
+            status: document.status,
+          });
+          const diff = compareResultLines(linesBefore, await readResultLines());
+          if (hasResultDrift(diff)) {
+            console.info("[finalize] данные QR разъехались, проведение отменено", {
+              documentId: document.id,
+              changed: diff.changedLines,
               beforeTotal: diff.beforeTotal,
               afterTotal: diff.afterTotal,
-            },
-          });
-          revalidateInventoryResultPages(document.id);
-          return { error: describeResultDrift(diff) };
+            });
+            await writeInventoryResultEvent({
+              supabase: ctx.supabase,
+              admin,
+              accountId: ctx.accountId,
+              userId: ctx.user.id,
+              documentId: document.id,
+              eventType: "results_recheck_drift",
+              message: "Данные Quick Resto изменились перед проведением",
+              payload: {
+                changedLines: diff.changedLines,
+                addedLines: diff.addedLines,
+                removedLines: diff.removedLines,
+                beforeTotal: diff.beforeTotal,
+                afterTotal: diff.afterTotal,
+              },
+            });
+            revalidateInventoryResultPages(document.id);
+            return { error: describeResultDrift(diff) };
+          }
         }
+      } catch (recheckError) {
+        // Сверка — защита, а не предусловие: если backoffice недоступен, не
+        // блокируем проведение, но оставляем след в журнале.
+        console.error("[finalize] сверка перед проведением не выполнена", {
+          documentId: document.id,
+          error: recheckError,
+        });
+        recheckSkippedReason = "Quick Resto недоступен для сверки";
       }
-    } catch (recheckError) {
-      // Сверка — защита, а не предусловие: если backoffice недоступен, не
-      // блокируем проведение, но оставляем след в журнале.
-      console.error("[finalize] сверка перед проведением не выполнена", {
-        documentId: document.id,
-        error: recheckError,
-      });
-      recheckSkippedReason = "Quick Resto недоступен для сверки";
     }
 
     // Снимок построчных итогов — ДО обращения к QR. «Расчёт» и «Разница» в
@@ -2217,53 +2286,74 @@ export async function finalizeInventoryResults(input: {
       return { error: "Не удалось зафиксировать итоги акта. Попробуйте ещё раз." };
     }
 
-    try {
-      await processBackOfficeInventoryDocumentWithSession({
-        connection,
-        admin,
-        documentExternalId: externalIdNum,
-      });
-      console.info("[finalize] QR processed", {
+    // Снимок снят, а documents.results_snapshot_at выставится только в самом
+    // конце. Если дальше что-то упадёт, строки останутся помечены finalized_*,
+    // но страница продолжит показывать живые значения (акт не залочен) —
+    // состояние корректное, но должно быть видно в логах.
+    const logOrphanSnapshot = (reason: string) => {
+      console.warn("[finalize] снимок строк снят, но акт не зафиксирован", {
         documentId: document.id,
         externalId: externalIdNum,
+        reason,
       });
-    } catch (qrError) {
-      const message =
-        qrError instanceof Error ? qrError.message : "Quick Resto не ответил";
-      console.error("[finalize] QR process failed", {
-        documentId: document.id,
-        externalId: externalIdNum,
-        error: qrError,
-      });
-      return { error: `Не удалось провести акт в Quick Resto: ${message}` };
+    };
+
+    if (!alreadyProcessedInQr) {
+      try {
+        await processBackOfficeInventoryDocumentWithSession({
+          connection,
+          admin,
+          documentExternalId: externalIdNum,
+        });
+        console.info("[finalize] QR processed", {
+          documentId: document.id,
+          externalId: externalIdNum,
+        });
+      } catch (qrError) {
+        const message =
+          qrError instanceof Error ? qrError.message : "Quick Resto не ответил";
+        console.error("[finalize] QR process failed", {
+          documentId: document.id,
+          externalId: externalIdNum,
+          error: qrError,
+        });
+        logOrphanSnapshot("проведение в Quick Resto не удалось");
+        return { error: `Не удалось провести акт в Quick Resto: ${message}` };
+      }
     }
 
     // Постусловие: убеждаемся, что QR реально провёл акт. /action на удалённом /
     // изменённом акте может тихо вернуть 200 ничего не сделав — тогда локально
     // НЕ помечаем проведённым, иначе разъедемся с QR (источник правды).
-    let qrDocAfter: QuickRestoInventoryDocument2 | null = null;
-    try {
-      qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
-      if (!qrDocAfter.processed) {
-        console.error("[finalize] QR не отметил акт проведённым после process", {
+    let qrDocAfter: QuickRestoInventoryDocument2 | null = alreadyProcessedInQr
+      ? qrDocBefore
+      : null;
+    if (!alreadyProcessedInQr) {
+      try {
+        qrDocAfter = await readInventoryDocument({ ...apiAuth, objectId: externalIdNum });
+        if (!qrDocAfter.processed) {
+          console.error("[finalize] QR не отметил акт проведённым после process", {
+            documentId: document.id,
+            externalId: externalIdNum,
+          });
+          logOrphanSnapshot("Quick Resto не отметил акт проведённым");
+          return {
+            error:
+              "Quick Resto не отметил акт проведённым. Возможно, акт удалён или изменён — обновите синхронизацию и попробуйте снова.",
+          };
+        }
+      } catch (verifyError) {
+        console.error("[finalize] QR re-read after process failed", {
           documentId: document.id,
           externalId: externalIdNum,
+          error: verifyError,
         });
+        logOrphanSnapshot("не удалось подтвердить проведение");
         return {
           error:
-            "Quick Resto не отметил акт проведённым. Возможно, акт удалён или изменён — обновите синхронизацию и попробуйте снова.",
+            "Не удалось подтвердить проведение акта в Quick Resto. Обновите синхронизацию и проверьте статус акта.",
         };
       }
-    } catch (verifyError) {
-      console.error("[finalize] QR re-read after process failed", {
-        documentId: document.id,
-        externalId: externalIdNum,
-        error: verifyError,
-      });
-      return {
-        error:
-          "Не удалось подтвердить проведение акта в Quick Resto. Обновите синхронизацию и проверьте статус акта.",
-      };
     }
 
     const finalizedAt = new Date().toISOString();
@@ -2280,10 +2370,14 @@ export async function finalizeInventoryResults(input: {
       .update({
         status: "processed",
         processed: true,
-        ...(qrShortfallSum !== null ? { shortfall_sum: qrShortfallSum } : {}),
-        ...(qrSurplusSum !== null ? { surplus_sum: qrSurplusSum } : {}),
+        ...(qrShortfallSum !== null ? { qr_shortfall_sum: qrShortfallSum } : {}),
+        ...(qrSurplusSum !== null ? { qr_surplus_sum: qrSurplusSum } : {}),
         results_finalized_at: finalizedAt,
         results_finalized_by: ctx.user.id,
+        // Акт снова проведён — метка «распровели в Quick Resto» (миграция 224)
+        // больше не актуальна. Синхронизация её не снимет: она ходит только по
+        // НЕпроведённым актам.
+        qr_unprocessed_at: null,
         // Включает снимок строк (finalized_* выше) — с этого момента страница
         // итогов показывает зафиксированные числа, а не живые из Quick Resto.
         results_snapshot_at: finalizedAt,
@@ -2306,10 +2400,16 @@ export async function finalizeInventoryResults(input: {
       userId: ctx.user.id,
       documentId: document.id,
       eventType: "results_finalized",
-      message: recheckSkippedReason
-        ? `Подвел итоги акта (без сверки с Quick Resto: ${recheckSkippedReason})`
-        : "Подвел итоги акта",
-      payload: { documentId: document.id, recheckSkipped: recheckSkippedReason },
+      message: alreadyProcessedInQr
+        ? "Зафиксировал итоги акта, уже проведённого в Quick Resto"
+        : recheckSkippedReason
+          ? `Подвел итоги акта (без сверки с Quick Resto: ${recheckSkippedReason})`
+          : "Подвел итоги акта",
+      payload: {
+        documentId: document.id,
+        recheckSkipped: recheckSkippedReason,
+        alreadyProcessedInQr,
+      },
     });
 
     // Уведомляем исполнителя, что его акт принят.
@@ -2325,7 +2425,15 @@ export async function finalizeInventoryResults(input: {
     });
 
     revalidateInventoryResultPages(document.id);
-    return { error: null };
+    return {
+      error: null,
+      ...(alreadyProcessedInQr
+        ? {
+            notice:
+              "Акт уже был проведён в Quick Resto — итоги зафиксированы локально, повторное проведение не потребовалось.",
+          }
+        : {}),
+    };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось финализировать итоги") };
   }
@@ -3524,8 +3632,7 @@ export async function submitInventoryDocumentDraft(input: {
           processed: Boolean(fresh.processed),
           base_last_update_date: dateText(fresh.lastUpdateDate),
           last_qr_update_date: dateText(fresh.lastUpdateDate),
-          shortfall_sum: num(fresh.shortfallSum),
-          surplus_sum: num(fresh.surplusSum),
+          ...quickRestoDocumentSums(fresh),
           results_has_line_amounts: precheckHasResults,
           qr_payload: fresh,
           synced_at: new Date().toISOString(),
@@ -3543,23 +3650,58 @@ export async function submitInventoryDocumentDraft(input: {
       };
     }
 
+    type LocalItemRow = {
+      id: string;
+      external_item_id: string;
+      needs_recount: boolean | null;
+      recount_previous_amount: number | null;
+    };
     const localItemsResult = await admin
-      .from<Array<{ id: string; external_item_id: string }>>("document_items")
-      .select("id, external_item_id")
+      .from<LocalItemRow[]>("document_items")
+      .select("id, external_item_id, needs_recount, recount_previous_amount")
       .eq("document_id", document.id);
-    const localItems = (localItemsResult.data ?? []) as Array<{ id: string; external_item_id: string }>;
-    const externalByLocalId = new Map(localItems.map((item) => [item.id, item.external_item_id]));
+    const localItems = (localItemsResult.data ?? []) as LocalItemRow[];
+    const localItemById = new Map(localItems.map((item) => [item.id, item]));
+
+    // Пересчёт касается ТОЛЬКО отмеченных строк. Остальные исполнитель в этом
+    // режиме и не редактирует (форма их блокирует), поэтому отправлять их в
+    // Quick Resto незачем: на акте в 300 позиций это 300 запросов к backoffice
+    // вместо четырёх, и каждый — лишний шанс словить таймаут. Фильтруем на
+    // сервере, а не только в форме: клиент мог остаться на старой сборке.
+    //
+    // В границу круга берём не только текущие отметки, но и строки, которые
+    // когда-либо уходили на пересчёт (recount_previous_amount, миграция 218).
+    // Миграция 228 запрещает автомаркеру снимать пометки, пока акт на
+    // пересчёте, но на данных, записанных до неё, отметки могли уже исчезнуть —
+    // и без второго признака здесь открывался бы полный акт: ровно то, что
+    // этот фильтр и должен предотвращать.
+    const isRecountSubmit = document.status === "recount_pending";
+    const recountScopeIds = new Set(
+      localItems
+        .filter((item) => item.needs_recount || item.recount_previous_amount != null)
+        .map((item) => item.id),
+    );
+    const submittedItems =
+      isRecountSubmit && recountScopeIds.size > 0
+        ? input.items.filter((item) => recountScopeIds.has(item.itemId))
+        : input.items;
+
     const nextAmounts = new Map<string, number>();
-    for (const item of input.items) {
-      const externalId = externalByLocalId.get(item.itemId);
-      if (!externalId) continue;
+    for (const item of submittedItems) {
+      const local = localItemById.get(item.itemId);
+      if (!local) continue;
       if (item.actualAmount === null || !Number.isFinite(item.actualAmount) || item.actualAmount < 0) {
         return { resultsHasLineAmounts: false, error: "Проверьте фактические значения: есть некорректное число." };
       }
-      nextAmounts.set(externalId, item.actualAmount);
+      nextAmounts.set(local.external_item_id, item.actualAmount);
     }
     if (nextAmounts.size === 0) {
-      return { resultsHasLineAmounts: false, error: "Заполните хотя бы одну позицию акта" };
+      return {
+        resultsHasLineAmounts: false,
+        error: isRecountSubmit && recountScopeIds.size > 0
+          ? "Заполните пересчитанные значения по отмеченным строкам"
+          : "Заполните хотя бы одну позицию акта",
+      };
     }
 
     const freshItemsPreview = inventoryDocumentItems(fresh);
@@ -3638,7 +3780,7 @@ export async function submitInventoryDocumentDraft(input: {
     // тоже > threshold, флаг встанет автоматически. Делаем точечный UPDATE
     // без обновления columns-of-interest для триггера, чтобы не было
     // двойного срабатывания.
-    const submittedItemIds = input.items.map((item) => item.itemId);
+    const submittedItemIds = submittedItems.map((item) => item.itemId);
     if (submittedItemIds.length > 0) {
       await admin
         .from("document_items")
@@ -3675,8 +3817,7 @@ export async function submitInventoryDocumentDraft(input: {
         processed: Boolean(reread.processed),
         base_last_update_date: dateText(reread.lastUpdateDate),
         last_qr_update_date: dateText(reread.lastUpdateDate),
-        shortfall_sum: num(reread.shortfallSum),
-        surplus_sum: num(reread.surplusSum),
+        ...quickRestoDocumentSums(reread),
         results_has_line_amounts: syncResult.resultsFound,
         qr_payload: rereadWithRows,
         submitted_at: new Date().toISOString(),
@@ -3690,7 +3831,18 @@ export async function submitInventoryDocumentDraft(input: {
 
     // Журнал: исполнитель завершил акт. Различаем первое заполнение и
     // завершение пересчёта по пред-статусу.
-    const wasRecount = document.status === "recount_pending";
+    const wasRecount = isRecountSubmit;
+    // Сколько отмеченных строк вернулись с тем же числом. Это законный исход
+    // («пересчитали, значение подтвердилось»), но проверяющий должен видеть
+    // его явно: раньше «было 3 → стало 3» ничем не отличалось от акта, где
+    // пересчёт не делали вовсе.
+    const unchangedItems = wasRecount
+      ? submittedItems.filter((item) => {
+          const local = localItemById.get(item.itemId);
+          if (!local || local.recount_previous_amount == null) return false;
+          return amountsEqual(local.recount_previous_amount, item.actualAmount ?? undefined);
+        })
+      : [];
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
       admin,
@@ -3699,11 +3851,22 @@ export async function submitInventoryDocumentDraft(input: {
       documentId: document.id,
       eventType: "submitted",
       message: wasRecount
-        ? "Завершил пересчёт"
+        ? unchangedItems.length > 0
+          ? `Завершил пересчёт (${unchangedItems.length} из ${submittedItems.length} ${pluralRu(unchangedItems.length, "позиция", "позиции", "позиций")} без изменений)`
+          : "Завершил пересчёт"
         : syncResult.resultsFound
           ? "Завершил заполнение акта"
           : "Завершил акт (итоги требуют проверки)",
-      payload: { resultsFound: syncResult.resultsFound, recount: wasRecount },
+      payload: {
+        resultsFound: syncResult.resultsFound,
+        recount: wasRecount,
+        ...(wasRecount
+          ? {
+              recountedItemIds: submittedItemIds,
+              unchangedItemIds: unchangedItems.map((item) => item.itemId),
+            }
+          : {}),
+      },
     });
 
     // Уведомляем проверяющего: акт готов к проверке. Одна точка покрывает

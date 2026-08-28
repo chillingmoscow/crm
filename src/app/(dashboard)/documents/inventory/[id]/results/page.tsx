@@ -11,7 +11,10 @@ import {
 } from "@/lib/inventory/resort-suggestions";
 import { hasCountedResults, isInventoryResultLocked } from "@/lib/inventory/act-status";
 import {
+  applyResortItemSnapshot,
+  applyResortSnapshot,
   applyResultSnapshot,
+  isInventoryResultFrozen,
   type InventoryResultSnapshotAmounts,
 } from "@/lib/inventory/results-snapshot";
 import {
@@ -29,14 +32,15 @@ type InventoryDocumentResultRow = {
   document_number: string;
   assigned_to: string | null;
   results_has_line_amounts: boolean;
-  shortfall_sum: number | null;
-  surplus_sum: number | null;
+  qr_shortfall_sum: number | null;
+  qr_surplus_sum: number | null;
   status: string;
   store_id: string | null;
   external_store_id: string | null;
   results_finalized_at: string | null;
   results_reopened_at: string | null;
   results_snapshot_at: string | null;
+  qr_unprocessed_at: string | null;
   invoice_date: string | null;
   archived_at: string | null;
 };
@@ -121,7 +125,7 @@ export default async function InventoryDocumentResultsPage({
 
   const { data: document } = await admin
     .from<InventoryDocumentResultRow>("documents")
-    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, shortfall_sum, surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, invoice_date, archived_at")
+    .select("id, account_id, document_number, assigned_to, results_has_line_amounts, qr_shortfall_sum, qr_surplus_sum, status, store_id, external_store_id, results_finalized_at, results_reopened_at, results_snapshot_at, qr_unprocessed_at, invoice_date, archived_at")
     .eq("id", id)
     .eq("account_id", accountId)
     .maybeSingle();
@@ -151,11 +155,11 @@ export default async function InventoryDocumentResultsPage({
   // пересчитываются по движениям товара: без снимка утверждённые числа уехали
   // бы вслед за QR. После переоткрытия итогов снова показываем живые значения —
   // проверяющий сознательно вернулся к правке.
-  const resultsFrozen = isLocked && Boolean(document.results_snapshot_at);
+  const resultsFrozen = isInventoryResultFrozen(document);
 
   const { data: itemsRaw } = await admin
     .from<Array<InventoryDocumentResultItem & InventoryResultSnapshotAmounts>>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
     .order("product_name");
@@ -223,7 +227,7 @@ export default async function InventoryDocumentResultsPage({
   const [{ data: resortsRaw }, { data: resortItemsRaw }, { data: eventsRaw }, { data: exclusionRulesRaw }, { data: accountSettings }] = await Promise.all([
     admin
       .from<InventoryResultResortRow[]>("inventory_result_resorts")
-      .select("id, status, reason, group_name, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, suggestion_source, created_at, void_reason")
+      .select("id, status, reason, group_name, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, suggestion_source, created_at, void_reason, finalized_at, finalized_status, finalized_offset_amount, finalized_residual_shortfall_sum, finalized_residual_surplus_sum, finalized_cost_adjustment_sum")
       .eq("account_id", accountId)
       .eq("document_id", document.id)
       .order("created_at", { ascending: false }),
@@ -238,8 +242,14 @@ export default async function InventoryDocumentResultsPage({
         offset_amount: number | null;
         remaining_difference_amount: number | null;
         remaining_difference_sum: number | null;
+        finalized_at: string | null;
+        finalized_source_difference_amount: number | null;
+        finalized_source_difference_sum: number | null;
+        finalized_offset_amount: number | null;
+        finalized_remaining_difference_amount: number | null;
+        finalized_remaining_difference_sum: number | null;
       }>>("inventory_result_resort_items")
-      .select("id, resort_id, document_item_id, role, source_difference_amount, source_difference_sum, offset_amount, remaining_difference_amount, remaining_difference_sum")
+      .select("id, resort_id, document_item_id, role, source_difference_amount, source_difference_sum, offset_amount, remaining_difference_amount, remaining_difference_sum, finalized_at, finalized_source_difference_amount, finalized_source_difference_sum, finalized_offset_amount, finalized_remaining_difference_amount, finalized_remaining_difference_sum")
       .eq("account_id", accountId)
       .eq("document_id", document.id),
     admin
@@ -259,7 +269,10 @@ export default async function InventoryDocumentResultsPage({
       .eq("id", accountId)
       .maybeSingle(),
   ]);
-  const resorts = resortsRaw ?? [];
+  // Пересорты зафиксированного акта — из снимка (миграция 227): и суммы, и
+  // статус. Иначе управленческий итог смешивал бы замороженные строки с живым
+  // зачётом, который пересчитывается при каждом импорте.
+  const resorts = (resortsRaw ?? []).map((resort) => applyResortSnapshot(resort, resultsFrozen));
   const exclusionRuleByProductId = new Map(
     (exclusionRulesRaw ?? [])
       .filter((rule) => rule.ingredient_id)
@@ -281,7 +294,9 @@ export default async function InventoryDocumentResultsPage({
     };
   });
   const activeResortIds = new Set(resorts.filter((resort) => resort.status === "active").map((resort) => resort.id));
-  const resortItems = (resortItemsRaw ?? []).map((item): InventoryResultResortItemRow => ({
+  const resortItems = (resortItemsRaw ?? [])
+    .map((item) => applyResortItemSnapshot(item, resultsFrozen))
+    .map((item): InventoryResultResortItemRow => ({
     id: item.id,
     resortId: item.resort_id,
     documentItemId: item.document_item_id,
@@ -384,6 +399,9 @@ export default async function InventoryDocumentResultsPage({
           resultsSnapshotAt={resultsFrozen ? document.results_snapshot_at : null}
           documentInvoiceDate={document.invoice_date}
           recountSplits={recountSplits}
+          qrUnprocessedAt={document.qr_unprocessed_at}
+          qrShortfallSum={document.qr_shortfall_sum}
+          qrSurplusSum={document.qr_surplus_sum}
           // Processed-акт read-only до явной разблокировки (в журнал).
           isLocked={isLocked}
           canComment={Boolean(canCommentResults)}

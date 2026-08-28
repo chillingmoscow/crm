@@ -146,9 +146,51 @@ begin
 end;
 $$;
 
+-- ────────────────────────────────────────────────────────────
+-- 1b. Пока акт на пересчёте, автомаркер НЕ снимает пометку (миграция 228):
+--     синхронизация во время круга не должна уводить отметки из-под
+--     исполнителя. Поставить новую пометку при этом можно.
+-- ────────────────────────────────────────────────────────────
+do $$
+declare
+  v_needs boolean;
+  v_auto  boolean;
+begin
+  update public.documents set status = 'recount_pending'
+   where id = 'af000000-0000-0000-0000-000000000001';
+
+  -- Авто-отмеченная строка: расхождение ушло ниже порога — флаг остаётся.
+  insert into public.document_items (id, account_id, document_id, external_item_id, product_name, actual_amount, calculated_amount, difference_amount, difference_sum)
+  values ('a5000000-0000-0000-0000-0000000000b1', 'aa000000-0000-0000-0000-000000000001', 'af000000-0000-0000-0000-000000000001', 'rc-round', 'RC round', 10, 12, -2, -600)
+  returning needs_recount, recount_auto_flagged into v_needs, v_auto;
+  perform public.test_assert(v_needs and v_auto, 'setup: row must be auto-flagged before the round');
+
+  update public.document_items
+     set difference_sum = -100, difference_amount = -1, calculated_amount = 100
+   where id = 'a5000000-0000-0000-0000-0000000000b1'
+  returning needs_recount, recount_auto_flagged into v_needs, v_auto;
+  perform public.test_assert(v_needs and v_auto, 'auto-flag must SURVIVE while the document is on recount');
+
+  -- Новая строка с превышением порога всё ещё может быть помечена.
+  insert into public.document_items (id, account_id, document_id, external_item_id, product_name, actual_amount, calculated_amount, difference_amount, difference_sum)
+  values ('a5000000-0000-0000-0000-0000000000b2', 'aa000000-0000-0000-0000-000000000001', 'af000000-0000-0000-0000-000000000001', 'rc-round-new', 'RC round new', 10, 12, -2, -900)
+  returning needs_recount, recount_auto_flagged into v_needs, v_auto;
+  perform public.test_assert(v_needs and v_auto, 'auto-flag must still be settable during the round');
+
+  -- Вне пересчёта снятие работает как раньше.
+  update public.documents set status = 'assigned'
+   where id = 'af000000-0000-0000-0000-000000000001';
+  update public.document_items
+     set difference_sum = -50, difference_amount = -1, calculated_amount = 100
+   where id = 'a5000000-0000-0000-0000-0000000000b1'
+  returning needs_recount, recount_auto_flagged into v_needs, v_auto;
+  perform public.test_assert(not v_needs and not v_auto, 'auto-flag must clear again once the round is over');
+end;
+$$;
+
 -- Чистим recount-строки, чтобы не искажать счётчики RPC (matched_ingredients
 -- по поиску и т.п. не затронуты — у них нет product_name 'Zubrovka').
-delete from public.document_items where external_item_id in ('rc-sum','rc-ok','rc-pct','rc-null','rc-manual');
+delete from public.document_items where external_item_id in ('rc-sum','rc-ok','rc-pct','rc-null','rc-manual','rc-round','rc-round-new');
 
 -- ────────────────────────────────────────────────────────────
 -- 2. RPC list_inventory_documents — менеджер (security invoker → RLS).

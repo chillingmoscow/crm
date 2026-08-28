@@ -120,6 +120,8 @@ export type { StoreOption, VenueOption } from "./documents-table-utils";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SEARCH_DEBOUNCE_MS = 250;
+/** Окно склейки realtime-событий: синхронизация меняет акты пачкой. */
+const REALTIME_REFRESH_DELAY_MS = 400;
 const TABLE_ID = "documents.list";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -177,6 +179,11 @@ export function DocumentsTable({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   // Bulk-выделение (только для менеджера): назначить исполнителя/проверяющего.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // Актуальное выделение для ячеек-чекбоксов, чтобы не тащить selectedIds в
+  // зависимости columnsConfig. Присваивание во время рендера безопасно:
+  // значение читается ниже по тому же рендеру.
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const [bulkPending, startBulk] = useTransition();
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
@@ -236,17 +243,29 @@ export function DocumentsTable({
   }, [search]);
 
   // ── Realtime ───────────────────────────────────────────────
+  // Синхронизация обновляет акты пачкой: 20 актов = 20 событий подряд, и
+  // каждое дёргало router.refresh() — полный ре-рендер серверного дерева со
+  // всеми запросами списка. Коалесцируем всплеск в одно обновление.
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        router.refresh();
+      }, REALTIME_REFRESH_DELAY_MS);
+    };
     const channel = supabase
       .channel(`documents-${accountId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "documents", filter: `account_id=eq.${accountId}` },
-        () => router.refresh(),
+        scheduleRefresh,
       )
       .subscribe();
     return () => {
+      if (timer) clearTimeout(timer);
       void supabase.removeChannel(channel);
     };
   }, [accountId, router]);
@@ -429,7 +448,7 @@ export function DocumentsTable({
                 return (
                   <span data-row-interactive onClick={(e) => e.stopPropagation()}>
                     <Checkbox
-                      checked={selectedIds.has(row.id)}
+                      checked={selectedIdsRef.current.has(row.id)}
                       onCheckedChange={() =>
                         setSelectedIds((prev) => {
                           const next = new Set(prev);
@@ -666,7 +685,13 @@ export function DocumentsTable({
         ),
       },
     ],
-    [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff, selectedIds],
+    // selectedIds намеренно НЕ в зависимостях: чекбокс читает актуальное
+    // значение из ref во время рендера. Иначе каждый клик менял identity
+    // columnsConfig → stateColumns → defaults в useTableState, и эффект
+    // гидрации перечитывал localStorage и переставлял видимость, порядок и
+    // ширины колонок на каждый тап. В таблице итогов этот же приём уже
+    // применён (см. docs/mobile-web.md §8).
+    [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(

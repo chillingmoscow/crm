@@ -1,7 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  getCachedActiveAccountId,
+  getCachedPermissions,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { InventoryDocumentEditor } from "./_components/document-editor";
 
@@ -127,22 +131,18 @@ export default async function InventoryDocumentPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
   const admin = asLooseDb(createAdminClient());
 
-  const [
-    { data: accountId },
-    { data: canView },
-    { data: canFill },
-    {
-      data: { user },
-    },
-  ] = await Promise.all([
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-    supabase.auth.getUser(),
+  // Те же кэшированные вызовы, что и в layout над этой страницей: аккаунт,
+  // пользователь и список прав читаются один раз на весь рендер, а не
+  // повторно на каждом уровне дерева.
+  const [accountId, user, permissions] = await Promise.all([
+    getCachedActiveAccountId(),
+    getCachedUser(),
+    getCachedPermissions(),
   ]);
+  const canView = permissions.includes("inventory.view_documents");
+  const canFill = permissions.includes("inventory.fill_assigned_documents");
 
   if (!user) redirect("/login");
   if (!accountId || (!canView && !canFill)) redirect("/dashboard");

@@ -64,6 +64,7 @@ import {
   loadResultItemsForAdjustment,
   normalizeReason,
   num,
+  quickRestoDocumentSums,
   priceNum,
   processBackOfficeInventoryDocumentWithSession,
   productName,
@@ -445,8 +446,7 @@ export async function syncQuickRestoInventory(input?: {
           ...(finalizedLocally
             ? {}
             : {
-                qr_shortfall_sum: num(document.shortfallSum),
-                qr_surplus_sum: num(document.surplusSum),
+                ...quickRestoDocumentSums(document),
                 results_has_line_amounts: precheckHasResults,
               }),
           qr_unprocessed_at: unprocessedInQr
@@ -466,7 +466,17 @@ export async function syncQuickRestoInventory(input?: {
       .single();
     if (error || !data?.id) throw new Error(error?.message ?? `Не удалось сохранить акт ${document.id}`);
 
-    if (items.length > 0) {
+    if (finalizedLocally) {
+      // Строки акта с зафиксированными итогами не трогаем вообще. Импорт не
+      // только перезаписывает значения — он ещё и УДАЛЯЕТ строки, которых нет
+      // в ответе Quick Resto, а вместе со строкой каскадом уходят её снимок
+      // (finalized_*) и позиции пересортов. То есть один импорт по акту,
+      // который распровели и из которого в QR убрали позицию, менял бы уже
+      // утверждённый итог. Нужны свежие данные — сначала переоткрыть итоги.
+      console.info(
+        `[syncQuickRestoInventory] doc ${document.id} (${document.documentNumber ?? "?"}): итоги зафиксированы — строки не импортируем`,
+      );
+    } else if (items.length > 0) {
       // Подсчёт остатков в нашем флоу ведётся ТОЛЬКО в CRM (submitted_amount).
       // Full-sync обновляет список позиций и метаданные акта, но НЕ должен
       // перетирать уже введённые количества QR-нулями: для непроведённого акта
@@ -483,7 +493,7 @@ export async function syncQuickRestoInventory(input?: {
       });
       summary.items += result.count;
       if (!result.resultsFound) summary.resultsBlocked += 1;
-      if (!finalizedLocally && result.resultsFound !== precheckHasResults) {
+      if (result.resultsFound !== precheckHasResults) {
         await admin
           .from("documents")
           .update({ results_has_line_amounts: result.resultsFound })
@@ -3622,8 +3632,7 @@ export async function submitInventoryDocumentDraft(input: {
           processed: Boolean(fresh.processed),
           base_last_update_date: dateText(fresh.lastUpdateDate),
           last_qr_update_date: dateText(fresh.lastUpdateDate),
-          qr_shortfall_sum: num(fresh.shortfallSum),
-          qr_surplus_sum: num(fresh.surplusSum),
+          ...quickRestoDocumentSums(fresh),
           results_has_line_amounts: precheckHasResults,
           qr_payload: fresh,
           synced_at: new Date().toISOString(),
@@ -3659,13 +3668,22 @@ export async function submitInventoryDocumentDraft(input: {
     // Quick Resto незачем: на акте в 300 позиций это 300 запросов к backoffice
     // вместо четырёх, и каждый — лишний шанс словить таймаут. Фильтруем на
     // сервере, а не только в форме: клиент мог остаться на старой сборке.
+    //
+    // В границу круга берём не только текущие отметки, но и строки, которые
+    // когда-либо уходили на пересчёт (recount_previous_amount, миграция 218).
+    // Миграция 228 запрещает автомаркеру снимать пометки, пока акт на
+    // пересчёте, но на данных, записанных до неё, отметки могли уже исчезнуть —
+    // и без второго признака здесь открывался бы полный акт: ровно то, что
+    // этот фильтр и должен предотвращать.
     const isRecountSubmit = document.status === "recount_pending";
-    const flaggedIds = new Set(
-      localItems.filter((item) => item.needs_recount).map((item) => item.id),
+    const recountScopeIds = new Set(
+      localItems
+        .filter((item) => item.needs_recount || item.recount_previous_amount != null)
+        .map((item) => item.id),
     );
     const submittedItems =
-      isRecountSubmit && flaggedIds.size > 0
-        ? input.items.filter((item) => flaggedIds.has(item.itemId))
+      isRecountSubmit && recountScopeIds.size > 0
+        ? input.items.filter((item) => recountScopeIds.has(item.itemId))
         : input.items;
 
     const nextAmounts = new Map<string, number>();
@@ -3680,7 +3698,7 @@ export async function submitInventoryDocumentDraft(input: {
     if (nextAmounts.size === 0) {
       return {
         resultsHasLineAmounts: false,
-        error: isRecountSubmit && flaggedIds.size > 0
+        error: isRecountSubmit && recountScopeIds.size > 0
           ? "Заполните пересчитанные значения по отмеченным строкам"
           : "Заполните хотя бы одну позицию акта",
       };
@@ -3799,8 +3817,7 @@ export async function submitInventoryDocumentDraft(input: {
         processed: Boolean(reread.processed),
         base_last_update_date: dateText(reread.lastUpdateDate),
         last_qr_update_date: dateText(reread.lastUpdateDate),
-        qr_shortfall_sum: num(reread.shortfallSum),
-        qr_surplus_sum: num(reread.surplusSum),
+        ...quickRestoDocumentSums(reread),
         results_has_line_amounts: syncResult.resultsFound,
         qr_payload: rereadWithRows,
         submitted_at: new Date().toISOString(),

@@ -155,27 +155,30 @@ export async function listInventoryDocuments(
       // Без фильтра по status: у зафиксированного акта «активность» пересорта
       // берётся из снимка (finalized_status), а не из живого статуса — иначе
       // пересорт, аннулированный после подведения итогов, задним числом
-      // выпадал бы из утверждённого итога.
-      admin
-        .from<Array<{
-          id: string;
-          document_id: string;
-          status: string;
-          offset_amount: number | null;
-          residual_shortfall_sum: number | null;
-          residual_surplus_sum: number | null;
-          cost_adjustment_sum: number | null;
-          finalized_at: string | null;
-          finalized_status: string | null;
-          finalized_offset_amount: number | null;
-          finalized_residual_shortfall_sum: number | null;
-          finalized_residual_surplus_sum: number | null;
-          finalized_cost_adjustment_sum: number | null;
-        }>>("inventory_result_resorts")
-        .select(
+      // выпадал бы из утверждённого итога. Раз выборка перестала быть
+      // «только активные», она должна добираться постранично, как соседние:
+      // на 25 актах история пересортов легко перевалит за лимит ответа.
+      fetchAllByDocumentIds<{
+        id: string;
+        document_id: string;
+        status: string;
+        offset_amount: number | null;
+        residual_shortfall_sum: number | null;
+        residual_surplus_sum: number | null;
+        cost_adjustment_sum: number | null;
+        finalized_at: string | null;
+        finalized_status: string | null;
+        finalized_offset_amount: number | null;
+        finalized_residual_shortfall_sum: number | null;
+        finalized_residual_surplus_sum: number | null;
+        finalized_cost_adjustment_sum: number | null;
+      }>({
+        admin,
+        table: "inventory_result_resorts",
+        columns:
           "id, document_id, status, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, finalized_at, finalized_status, finalized_offset_amount, finalized_residual_shortfall_sum, finalized_residual_surplus_sum, finalized_cost_adjustment_sum",
-        )
-        .in("document_id", documentIds),
+        documentIds,
+      }).then((data) => ({ data })),
       fetchAllByDocumentIds<{
         document_id: string;
         resort_id: string;

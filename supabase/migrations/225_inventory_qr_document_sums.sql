@@ -27,11 +27,14 @@ comment on column public.documents.surplus_sum is
   'Управленческий излишек (с учётом исключённых строк и активных пересортов). Считается по строкам при чтении списка. Сумму самого Quick Resto смотри в qr_surplus_sum.';
 
 -- Бэкфилл: всё, что лежит в shortfall_sum / surplus_sum сейчас, пришло из
--- Quick Resto (других писателей у этих колонок не было).
+-- Quick Resto (других писателей у этих колонок не было). Только у проведённых
+-- актов: у непроведённого QR отдаёт нули, и перенести их значило бы нарисовать
+-- в карточке итог проводки, которой не было.
 update public.documents
    set qr_shortfall_sum = shortfall_sum,
        qr_surplus_sum   = surplus_sum
  where document_kind = 'inventory'
+   and processed
    and (shortfall_sum is not null or surplus_sum is not null)
    and qr_shortfall_sum is null
    and qr_surplus_sum is null;

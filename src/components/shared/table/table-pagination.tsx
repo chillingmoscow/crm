@@ -18,6 +18,14 @@ type TablePaginationProps = {
   hiddenCount?: number;
   pageSizeOptions?: number[];
   onPageChange: (pageIndex: number) => void;
+  /**
+   * Смена размера страницы. Обработчик ОБЯЗАН сам сбросить страницу на первую.
+   *
+   * Раньше компонент вызывал следом ещё и onPageChange(0) — «за компанию». Для
+   * таблиц с состоянием в URL это ломалось: оба обработчика строили новый URL
+   * из одного и того же снимка searchParams, и второй затирал первый — выбор
+   * «Строк: 50» молча откатывался на 25. Одно действие — один вызов.
+   */
   onPageSizeChange: (pageSize: number) => void;
 };
 
@@ -40,10 +48,7 @@ export function TablePagination({
         Строк:
         <Select
           value={String(pageSize)}
-          onValueChange={(value) => {
-            onPageSizeChange(Number(value));
-            onPageChange(0);
-          }}
+          onValueChange={(value) => onPageSizeChange(Number(value))}
         >
           <SelectTrigger className="mx-1 inline-flex h-8 w-auto px-2 align-middle">
             <SelectValue />

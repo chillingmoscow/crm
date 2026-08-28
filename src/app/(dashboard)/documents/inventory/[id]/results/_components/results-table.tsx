@@ -521,10 +521,26 @@ export function InventoryResultsTable({
     setRecountFilter("all");
     setSorts([]);
   };
+  // Массовые действия в итогах — это пометка на пересчёт и исключение из
+  // итогов; без соответствующих прав их панель не рендерится.
+  const canBulkAct = canAdjust || canRecount;
   const selectedItems = useMemo(
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds],
   );
+
+  // Фильтр или поиск скрыл строку — снимаем с неё выделение. Иначе массовое
+  // действие применялось к позициям, которых человек на экране не видит:
+  // «выбрать все» скоупится по видимым, а вот выделенное раньше оставалось.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(visibleItems.map((item) => item.id));
+      const next = new Set<string>();
+      for (const id of prev) if (visible.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleItems]);
 
   // Строки, которые вообще можно выбрать (тот же предикат, что в renderSelectCell):
   // не залочено редактирование, не исключено из итогов, нет активной пересортицы.
@@ -962,7 +978,12 @@ export function InventoryResultsTable({
 
   const columnsConfig = useMemo(
     () => [
-      { id: "select", label: "", size: 44, canHide: false, cell: renderSelectCell },
+      // Колонка выделения нужна только тем, кому доступны массовые действия:
+      // без прав человек мог отмечать строки, а bulk-панель не появлялась —
+      // выделение вело в никуда.
+      ...(canBulkAct
+        ? [{ id: "select", label: "", size: 44, canHide: false, cell: renderSelectCell }]
+        : []),
       {
         id: "name",
         label: "Позиция",
@@ -1001,7 +1022,7 @@ export function InventoryResultsTable({
       })),
       { id: "actions", label: "", size: 56, canHide: false, cell: renderActionsCell },
     ],
-    [canViewProducts, renderActionsCell, renderResultCell, renderSelectCell],
+    [canBulkAct, canViewProducts, renderActionsCell, renderResultCell, renderSelectCell],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -1631,9 +1652,7 @@ export function InventoryResultsTable({
           onPageChange={(pageIndex) =>
             tableState.setPagination((current) => ({ ...current, pageIndex }))
           }
-          onPageSizeChange={(pageSize) =>
-            tableState.setPagination((current) => ({ ...current, pageSize }))
-          }
+          onPageSizeChange={(pageSize) => tableState.setPagination({ pageIndex: 0, pageSize })}
         />
       ) : null}
 

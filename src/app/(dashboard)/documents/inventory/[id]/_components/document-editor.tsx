@@ -354,11 +354,17 @@ export function InventoryDocumentEditor({
       }
       // «Только на пересчёт» — лишь отмеченные строки.
       if (recountOnly && !item.needsRecount) return false;
-      // Fill-state фильтр — на live values, не snapshot: пользователь
-      // ожидает, что после ввода значения строка пропадает из «только
-      // пустые» (а не сохраняется до blur, как snapshot-сортировка).
+      // Fill-state фильтр — по snapshot, как и сортировка по заполненности.
+      //
+      // На live-значениях он съедал ввод: в режиме «Только пустые» первая же
+      // цифра делала строку заполненной, строка мгновенно выпадала из выборки,
+      // input размонтировался и терял фокус. Из «125» в акт уходило «1» — и
+      // расхождение по позиции возникало на ровном месте, а сама строка в
+      // «Только пустые» больше не показывалась. Snapshot обновляется на blur и
+      // при смене фильтра, поэтому строка покидает выборку после того, как
+      // исполнитель вышел из поля.
       if (fillState !== "all") {
-        const isFilled = (values[item.id] ?? "").trim() !== "";
+        const isFilled = (sortValuesSnapshot[item.id] ?? "").trim() !== "";
         if (fillState === "filled" && !isFilled) return false;
         if (fillState === "empty"  &&  isFilled) return false;
       }
@@ -396,18 +402,22 @@ export function InventoryDocumentEditor({
       }
       return (itemOrderById.get(left.id) ?? 0) - (itemOrderById.get(right.id) ?? 0);
     });
-  }, [fillState, itemOrderById, items, recountOnly, searchQuery, selectedGroupIds, sorts, sortValuesSnapshot, values]);
+    // values в зависимостях больше нет: и фильтр, и сортировка по
+    // заполненности читают snapshot. Заодно список из 300 строк перестал
+    // пересобираться на каждый введённый символ.
+  }, [fillState, itemOrderById, items, recountOnly, searchQuery, selectedGroupIds, sorts, sortValuesSnapshot]);
 
-  // При добавлении сорта по заполненности — обновить snapshot, чтобы первая
-  // сортировка отражала текущие values. На updateField/direction в уже
-  // активном пусто-сорте — тоже синхронизируем.
+  // Snapshot обслуживает и сортировку по заполненности, и фильтр «Только
+  // пустые/заполненные»: оба перестраивают список и не должны делать это на
+  // каждый введённый символ. При включении сортировки или смене фильтра
+  // синхронизируем snapshot с текущими значениями.
   useEffect(() => {
     const hasEmptySort = sorts.some((mode) => formSortToField(mode) === "empty");
-    if (hasEmptySort) {
+    if (hasEmptySort || fillState !== DEFAULT_FILL_STATE) {
       setSortValuesSnapshot({ ...values });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sorts]);
+  }, [sorts, fillState]);
 
   const draftKey = useMemo(
     () => `inventory:${document.id}`,
@@ -913,10 +923,13 @@ export function InventoryDocumentEditor({
                   setValues((prev) => ({ ...prev, [item.id]: next }));
                 }}
                 onBlur={() => {
-                  // Обновляем snapshot если активен сорт по заполненности —
-                  // перестановка строк случается ТОЛЬКО при потере фокуса,
-                  // не во время ввода.
-                  if (sorts.some((mode) => formSortToField(mode) === "empty")) {
+                  // Перестановка и скрытие строк случаются ТОЛЬКО при потере
+                  // фокуса, не во время ввода: и сортировка по заполненности,
+                  // и фильтр «Только пустые» читают snapshot.
+                  if (
+                    fillState !== DEFAULT_FILL_STATE ||
+                    sorts.some((mode) => formSortToField(mode) === "empty")
+                  ) {
                     setSortValuesSnapshot({ ...values });
                   }
                 }}

@@ -129,7 +129,7 @@ export function DocumentActHeader({
           value={activeTab}
           onValueChange={(value) => router.push(tabHref[value as Tab])}
         >
-          <TabsList className="justify-center">
+          <TabsList className="max-w-full justify-start overflow-x-auto sm:justify-center">
             <TabsTrigger value="overview">Основное</TabsTrigger>
             {canFill ? <TabsTrigger value="form">Форма</TabsTrigger> : null}
             {canViewResults ? (

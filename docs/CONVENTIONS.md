@@ -34,11 +34,17 @@
       select-политики и даёт advisor-хит `multiple_permissive_policies`.
       Прецедент — `ingredients` / `ingredient_groups` / `stores`, разделены
       миграцией 230.
-      Исключение — инвентаризация: там write-политики сняты целиком
-      (миграция 219), у `authenticated` отозваны write-гранты, и вся запись
-      идёт через server actions под `service_role`. Граница доступа в этом
-      случае — проверка в самом экшене (`assertDocumentVisible`), и она
-      обязана переиспользовать select-политику, а не дублировать её предикат.
+      Исключение — **только таблицы актов инвентаризации**: `documents`,
+      `document_items`, `inventory_result_resorts`,
+      `inventory_result_resort_items`, `inventory_result_exclusion_rules`,
+      `inventory_result_events` (миграция 219) и `inventory_recount_moves`
+      (миграция 223). Там write-политик нет вовсе, у `authenticated` отозваны
+      write-гранты, и вся запись идёт через server actions под `service_role`;
+      граница доступа — проверка в самом экшене (`assertDocumentVisible`), и
+      она обязана переиспользовать select-политику, а не дублировать её
+      предикат. На справочники того же модуля (`ingredients`,
+      `ingredient_groups`, `stores`) исключение **не** распространяется —
+      у них write-политики есть, см. миграцию 230.
 - [ ] Если venue-scoped — RLS пускает либо по `venue_id =
       get_active_venue_id()`, либо по специальному «view_all_venues»
       праву (finance-паттерн, миграция 042).

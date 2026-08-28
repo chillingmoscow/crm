@@ -11,13 +11,15 @@
 
 ## Фильтры
 
-Пять чипов под шапкой, активные подсвечены брендовым цветом.
+Шесть чипов под шапкой, активные подсвечены брендовым цветом.
 
 - **Заведение** — Все / Не распределённые / конкретное. Пользователь видит
   только заведения своего членства. Право `inventory.view_all_venues`
   расширяет список до всех заведений аккаунта.
 - **Статус** — мульти-выбор (Новый / Назначен / В работе / Готов к проверке /
   На пересчёте / Итоги требуют проверки / Проведен / Ошибка синхронизации).
+  Последний — служебный, на случай сбоя загрузки из Quick Resto; сейчас акты в
+  него не попадают, и фильтр по нему всегда пуст.
 - **Исполнитель** — Любой / На меня / Без назначения / конкретный
   сотрудник. Фильтр виден тем, у кого есть право управлять актами; линейный
   сотрудник его не видит — он и так видит только свои назначения.
@@ -57,8 +59,14 @@
   по выбранным актам одним числом: плюс зелёным, минус красным. Удобно быстро
   прикинуть итог по нескольким актам (например, выставить размер страницы 100,
   «выбрать все» и посмотреть сумму). Выделять можно **любые** акты, включая
-  проведённые — для подсчёта суммы это важно. Сумма акта берётся из Quick Resto
-  и появляется **после проведения**: у актов, которые ещё в работе, она нулевая.
+  проведённые.
+
+  Это **управленческий итог** — тот же, что в колонке «Итоги» и в карточке акта:
+  считается по строкам, с учётом исключённых позиций и сведённых пересортов.
+  Он доступен сразу, как только акт сдан, а не после проведения. У актов, по
+  которым подсчёт ещё не завершён, вклад нулевой — итогов у них пока нет.
+  Если хотя бы по одному выделенному акту итог посчитать не удалось, вместо
+  суммы показывается прочерк: частичной суммы не бывает.
 - **Исполнитель / Проверяющий** (назначить) и **Удалить** — доступны только
   когда **все** выделенные акты подходят (не проведены и без ошибки
   синхронизации). Если в выборке есть хотя бы один проведённый акт, этих кнопок
@@ -149,7 +157,7 @@
 
 ## Заполнение акта и итоги
 
-При открытии акта на табе **«Заполнение»**:
+При открытии акта на табе **«Форма»**:
 
 - Пока акт **не проведён** в Quick Resto, подсчёт ведётся здесь, в CRM. Форма
   открывается **пустой** — нули из Quick Resto (которые там стоят у ещё не
@@ -266,17 +274,19 @@
   всей выборке за период/склад). Агрегат по всему фильтру — в планах.
 - Сохранённые «виды» (именованные фильтры) и зонная inbox-сортировка — в
   бэклоге, пока не реализованы.
-- Автодетект больших расхождений и автоматическая отправка на пересчёт — в
-  плане, отдельный модуль контроля.
+- Автоматическая **отправка** акта на пересчёт — в плане. Сам автодетект
+  больших расхождений уже работает: пороги настраиваются у заведения, строки
+  помечаются автоматически, см. [Возврат на пересчёт](./recount.md#пороги-авто-маркера).
+  Автоматической остаётся только пометка — решение вернуть акт принимает человек.
 
 ## Где в коде
 
-- [`src/app/(dashboard)/documents/inventory/page.tsx`](../../src/app/(dashboard)/documents/inventory/page.tsx) — серверная страница
-- [`src/app/(dashboard)/documents/inventory/_components/documents-table.tsx`](../../src/app/(dashboard)/documents/inventory/_components/documents-table.tsx) — таблица
-- [`src/app/(dashboard)/documents/inventory/_components/assignee-select.tsx`](../../src/app/(dashboard)/documents/inventory/_components/assignee-select.tsx) — селектор/бейдж исполнителя (+ `PersonChip`)
-- [`src/app/(dashboard)/documents/inventory/_components/reviewer-select.tsx`](../../src/app/(dashboard)/documents/inventory/_components/reviewer-select.tsx) — селектор/бейдж проверяющего
-- [`src/lib/inventory/act-status.ts`](../../src/lib/inventory/act-status.ts) — правила статусов (замки формы/итогов/назначения)
-- [`src/lib/inventory/list-documents.ts`](../../src/lib/inventory/list-documents.ts) — серверный data-layer
+- [`src/app/(dashboard)/documents/inventory/page.tsx`](../../../src/app/%28dashboard%29/documents/inventory/page.tsx) — серверная страница
+- [`src/app/(dashboard)/documents/inventory/_components/documents-table.tsx`](../../../src/app/%28dashboard%29/documents/inventory/_components/documents-table.tsx) — таблица
+- [`src/app/(dashboard)/documents/inventory/_components/assignee-select.tsx`](../../../src/app/%28dashboard%29/documents/inventory/_components/assignee-select.tsx) — селектор/бейдж исполнителя (+ `PersonChip`)
+- [`src/app/(dashboard)/documents/inventory/_components/reviewer-select.tsx`](../../../src/app/%28dashboard%29/documents/inventory/_components/reviewer-select.tsx) — селектор/бейдж проверяющего
+- [`src/lib/inventory/act-status.ts`](../../../src/lib/inventory/act-status.ts) — правила статусов (замки формы/итогов/назначения)
+- [`src/lib/inventory/list-documents.ts`](../../../src/lib/inventory/list-documents.ts) — серверный data-layer
 - `supabase/migrations/207_list_inventory_documents_rpc.sql` — RPC списка/поиска
 - `supabase/migrations/208_documents_realtime.sql` — realtime-подписка
 - `supabase/migrations/212_inventory_status_sort_lifecycle.sql` — сортировка статуса по жизненному циклу

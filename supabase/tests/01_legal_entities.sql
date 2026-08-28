@@ -3,12 +3,19 @@
 --
 -- Run AFTER all migrations on a fresh local Supabase DB:
 --   pnpm db:reset
---   psql "$(supabase status --output env | grep DB_URL | cut -d= -f2-)" -f supabase/tests/01_legal_entities.sql
+--   docker exec -i supabase_db_crm psql -U postgres -d postgres -f - \
+--     < supabase/tests/01_legal_entities.sql
 --
 -- The script wraps everything in a single transaction and ROLLBACKs at
--- the end, so it never leaves test data behind. A failure raises an
--- exception; success prints a NOTICE.
+-- the end, so it never leaves test data behind.
+--
+-- ON_ERROR_STOP обязателен: без него psql после упавшего ассерта не
+-- останавливается, транзакция остаётся aborted до самого `rollback`, а
+-- финальный `select ... passed` выполняется уже вне её — и провалившийся
+-- прогон печатает «passed».
 -- ============================================================
+
+\set ON_ERROR_STOP on
 
 begin;
 
@@ -62,135 +69,136 @@ end;
 $$;
 
 -- ────────────────────────────────────────────────────────────
--- 2. Permissions catalogue: current module counts, no platform.* leftovers.
+-- 2. Permissions catalogue: заполнен, консистентен, без platform.*
+--
+--    Раньше здесь стояли точные счётчики («ровно 76 прав, из них 18
+--    finance»). Каждая миграция, добавляющая право, роняла первый же ассерт,
+--    а из-за ON_ERROR_STOP + одной транзакции весь остальной файл (а он про
+--    юрлица) не выполнялся вообще. Счётчик прав — не инвариант: каталог
+--    растёт вместе с фичами, и модули переименовываются (модуль inventory уже
+--    разъехался на inventory_documents / _products / _stores / _integration /
+--    _scope). Проверяем то, что должно выполняться всегда.
 -- ────────────────────────────────────────────────────────────
 do $$
 declare
-  v_total int;
-  v_platform int;
+  v_total     int;
+  v_platform  int;
+  v_dup_codes int;
+  v_broken    int;
 begin
   select count(*) into v_total from public.permissions;
-  perform public.test_assert(v_total = 76, 'expected 76 permissions, got ' || v_total);
+  perform public.test_assert(v_total > 0, 'permissions catalogue is empty');
 
+  -- Greenfield-wipe platform.* (миграция 034) — прав этого модуля быть не должно.
   select count(*) into v_platform from public.permissions where module = 'platform';
   perform public.test_assert(v_platform = 0, 'platform.* leftovers in permissions: ' || v_platform);
 
+  -- Код права — контракт: на него ссылаются has_permission, RLS и код
+  -- приложения. Дубликат кода означает, что два разных права выдаются одним
+  -- вызовом has_permission.
+  select count(*) into v_dup_codes
+    from (select code from public.permissions group by code having count(*) > 1) d;
+  perform public.test_assert(v_dup_codes = 0, 'duplicate permission codes: ' || v_dup_codes);
+
+  select count(*) into v_broken
+    from public.permissions
+   where code is null or btrim(code) = '' or module is null or btrim(module) = '';
+  perform public.test_assert(v_broken = 0, 'permissions with empty code/module: ' || v_broken);
+
+  -- Права этого этапа (2A) — на них опираются ассерты ниже по файлу.
   perform public.test_assert(
-    (select count(*) from public.permissions where module = 'people')   = 8,
-    'expected 8 people.* perms'
+    exists (select 1 from public.permissions where code = 'org.manage_legal_entities'),
+    'permission org.manage_legal_entities is missing'
   );
   perform public.test_assert(
-    (select count(*) from public.permissions where module = 'org')      = 9,
-    'expected 9 org.* perms'
-  );
-  perform public.test_assert(
-    (select count(*) from public.permissions where module = 'finance')  = 18,
-    'expected 18 finance.* perms'
-  );
-  perform public.test_assert(
-    (select count(*) from public.permissions where module = 'inventory') = 13,
-    'expected 13 inventory.* perms'
-  );
-  perform public.test_assert(
-    (select count(*) from public.permissions where module = 'kb') = 15,
-    'expected 15 kb.* perms'
-  );
-  perform public.test_assert(
-    (select count(*) from public.permissions where module = 'crm')      = 9,
-    'expected 9 crm.* perms'
-  );
-  perform public.test_assert(
-    (select count(*) from public.permissions where module = 'settings') = 4,
-    'expected 4 settings.* perms'
+    exists (select 1 from public.permissions where code = 'org.delete_legal_entity'),
+    'permission org.delete_legal_entity is missing'
   );
 end;
 $$;
 
 -- ────────────────────────────────────────────────────────────
--- 3. Accountant role exists with correct code, system role.
--- ────────────────────────────────────────────────────────────
-do $$
-begin
-  perform public.test_assert(
-    exists (
-      select 1 from public.roles
-      where code = 'accountant' and account_id is null
-    ),
-    'system role accountant is missing'
-  );
-end;
-$$;
-
--- ────────────────────────────────────────────────────────────
--- 4. role_permissions matrix sanity-checks per MERGE_PLAN §4.3.
+-- 3. Системная роль: единственная роль без заведения — owner.
+--
+--    Роли переехали с аккаунта на заведение (roles.venue_id вместо
+--    roles.account_id), а пресеты вроде «Бухгалтера» стали ролями заведения и
+--    заводятся через seed_default_venue_roles при создании venue — их
+--    проверяем ниже, после онбординга. Глобальной остаётся только owner: это
+--    же закреплено CHECK'ом roles_venue_or_owner_check.
 -- ────────────────────────────────────────────────────────────
 do $$
 declare
-  v_owner_grants int;
+  v_stray text;
 begin
-  -- Owner has all current perms.
-  select count(*) into v_owner_grants
-  from public.role_permissions rp
-  join public.roles r on r.id = rp.role_id
-  where r.code = 'owner' and r.account_id is null and rp.granted = true;
-  perform public.test_assert(v_owner_grants = 76,
-    'owner expected 76 grants, got ' || v_owner_grants);
-
-  -- Accountant has org.manage_legal_entities (key permission for the role).
   perform public.test_assert(
-    exists (
-      select 1 from public.role_permissions rp
-      join public.roles r       on r.id = rp.role_id
-      join public.permissions p on p.id = rp.permission_id
-      where r.code = 'accountant' and r.account_id is null
-        and p.code = 'org.manage_legal_entities'
+    exists (select 1 from public.roles where code = 'owner' and venue_id is null),
+    'system role owner is missing'
+  );
+
+  select string_agg(code, ', ') into v_stray
+    from public.roles where venue_id is null and code <> 'owner';
+  perform public.test_assert(v_stray is null,
+    'only owner may be a venue-less role, found: ' || coalesce(v_stray, ''));
+end;
+$$;
+
+-- ────────────────────────────────────────────────────────────
+-- 4. role_permissions: матрица прав системной роли (MERGE_PLAN §4.3).
+--
+--    «Owner has all current perms» раньше проверялось числом 76 — то есть
+--    ломалось от каждого нового права, хотя сама формулировка от количества
+--    не зависит. Сверяем с фактическим размером каталога и заодно показываем,
+--    какого именно права владельцу не хватает.
+-- ────────────────────────────────────────────────────────────
+do $$
+declare
+  v_missing text;
+begin
+  -- Владелец имеет ВСЕ права каталога.
+  select string_agg(p.code, ', ' order by p.code) into v_missing
+    from public.permissions p
+   where not exists (
+     select 1
+       from public.role_permissions rp
+       join public.roles r on r.id = rp.role_id
+      where r.code = 'owner'
+        and r.venue_id is null
+        and rp.permission_id = p.id
         and rp.granted = true
-    ),
-    'accountant should have org.manage_legal_entities'
-  );
+   );
+  perform public.test_assert(v_missing is null,
+    'owner must hold every permission, missing: ' || coalesce(v_missing, ''));
 
-  -- Waiter does NOT have finance permissions.
-  perform public.test_assert(
-    not exists (
-      select 1 from public.role_permissions rp
-      join public.roles r       on r.id = rp.role_id
-      join public.permissions p on p.id = rp.permission_id
-      where r.code = 'waiter' and r.account_id is null
-        and p.module = 'finance' and rp.granted = true
-    ),
-    'waiter should not have any finance permissions'
-  );
-
-  -- Hostess has crm.view_reservations.
-  perform public.test_assert(
-    exists (
-      select 1 from public.role_permissions rp
-      join public.roles r       on r.id = rp.role_id
-      join public.permissions p on p.id = rp.permission_id
-      where r.code = 'hostess' and r.account_id is null
-        and p.code = 'crm.view_reservations'
-        and rp.granted = true
-    ),
-    'hostess should have crm.view_reservations'
-  );
-
-  -- org.delete_legal_entity granted ONLY to owner.
+  -- org.delete_legal_entity выдано ТОЛЬКО владельцу — ни одной другой роли,
+  -- включая роли заведений (удаление юрлица не делегируется).
   perform public.test_assert(
     (select count(distinct r.code)
        from public.role_permissions rp
        join public.roles r       on r.id = rp.role_id
        join public.permissions p on p.id = rp.permission_id
-      where r.account_id is null
-        and p.code = 'org.delete_legal_entity'
+      where p.code = 'org.delete_legal_entity'
         and rp.granted = true
     ) = 1,
     'org.delete_legal_entity should be owner-only'
+  );
+  perform public.test_assert(
+    exists (
+      select 1
+        from public.role_permissions rp
+        join public.roles r       on r.id = rp.role_id
+        join public.permissions p on p.id = rp.permission_id
+       where r.code = 'owner' and r.venue_id is null
+         and p.code = 'org.delete_legal_entity'
+         and rp.granted = true
+    ),
+    'owner should have org.delete_legal_entity'
   );
 end;
 $$;
 
 -- ────────────────────────────────────────────────────────────
--- 5. complete_owner_onboarding creates legal_entity + links venue.
+-- 5. complete_owner_onboarding: юрлицо, привязка к заведению и роли
+--    заведения по умолчанию.
 -- ────────────────────────────────────────────────────────────
 -- Need an auth user; emulate by inserting into auth.users + profiles.
 insert into auth.users (
@@ -255,6 +263,56 @@ begin
   perform public.test_assert(v_venue_id is not null, 'venue was not created');
   perform public.test_assert(v_le_default = v_legal_entity_id,
     'venue.default_legal_entity_id is not linked to created legal_entity');
+
+  -- Роли заведения по умолчанию (seed_default_venue_roles, миграция 167).
+  -- Проверки матрицы прав, которые раньше стояли в секции 4 на глобальных
+  -- ролях: пресеты «Бухгалтер»/«Хостес»/«Официант» стали ролями заведения и
+  -- появляются вместе с ним.
+  perform public.test_assert(
+    exists (
+      select 1 from public.roles
+       where venue_id = v_venue_id and code = 'custom_accountant'
+    ),
+    'default venue roles were not seeded (custom_accountant is missing)'
+  );
+
+  -- Бухгалтер ведёт юрлица — ключевое право роли на этом этапе.
+  perform public.test_assert(
+    exists (
+      select 1 from public.role_permissions rp
+      join public.roles r       on r.id = rp.role_id
+      join public.permissions p on p.id = rp.permission_id
+      where r.venue_id = v_venue_id and r.code = 'custom_accountant'
+        and p.code = 'org.manage_legal_entities'
+        and rp.granted = true
+    ),
+    'accountant should have org.manage_legal_entities'
+  );
+
+  -- Официант не видит финансы.
+  perform public.test_assert(
+    not exists (
+      select 1 from public.role_permissions rp
+      join public.roles r       on r.id = rp.role_id
+      join public.permissions p on p.id = rp.permission_id
+      where r.venue_id = v_venue_id and r.code = 'custom_waiter'
+        and p.module = 'finance' and rp.granted = true
+    ),
+    'waiter should not have any finance permissions'
+  );
+
+  -- Хостес видит брони.
+  perform public.test_assert(
+    exists (
+      select 1 from public.role_permissions rp
+      join public.roles r       on r.id = rp.role_id
+      join public.permissions p on p.id = rp.permission_id
+      where r.venue_id = v_venue_id and r.code = 'custom_hostess'
+        and p.code = 'crm.view_reservations'
+        and rp.granted = true
+    ),
+    'hostess should have crm.view_reservations'
+  );
 end;
 $$;
 
@@ -440,10 +498,6 @@ $$;
 -- ────────────────────────────────────────────────────────────
 -- All done — print success and ROLLBACK so the DB stays clean.
 -- ────────────────────────────────────────────────────────────
-do $$
-begin
-  raise notice 'OK: stage 2A integration tests passed';
-end;
-$$;
-
 rollback;
+
+select '01_legal_entities.sql passed' as result;

@@ -324,15 +324,23 @@ export function DocumentsTable({
   );
 
   // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
-  const selectedNet = useMemo(() => {
+  // Если хотя бы по одному выделенному акту итог посчитать не удалось, суммы
+  // нет вовсе: частичная сумма выглядела бы как полная и противоречила бы
+  // прочерку в строке этого же акта.
+  const selectedTotals = useMemo(() => {
     let net = 0;
+    let unavailable = false;
     for (const row of selectedRowsList) {
       if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
-      if (row.totals_unavailable) continue;
+      if (row.totals_unavailable) {
+        unavailable = true;
+        continue;
+      }
       net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
     }
-    return net;
+    return { net, unavailable };
   }, [selectedRowsList]);
+  const selectedNet = selectedTotals.net;
 
   // Кнопка показывается, только если ДЕЙСТВИЕ применимо ко ВСЕМ выделенным
   // актам (иначе скрыта — никакого частичного применения):
@@ -1292,19 +1300,28 @@ export function DocumentsTable({
           onClear={clearSelection}
           floating
           summary={
-            <span
-              className={cn(
-                "whitespace-nowrap text-sm font-medium tabular-nums",
-                selectedNet > 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : selectedNet < 0
-                    ? "text-rose-600 dark:text-rose-400"
-                    : "text-muted-foreground",
-              )}
-            >
-              Итог: {selectedNet > 0 ? "+" : selectedNet < 0 ? "−" : ""}
-              {formatMoney(Math.abs(selectedNet), "RUB", amountRoundingScale)}
-            </span>
+            selectedTotals.unavailable ? (
+              <span
+                className="whitespace-nowrap text-sm font-medium text-muted-foreground"
+                title="По части выделенных актов итог посчитать не удалось — обновите страницу"
+              >
+                Итог: —
+              </span>
+            ) : (
+              <span
+                className={cn(
+                  "whitespace-nowrap text-sm font-medium tabular-nums",
+                  selectedNet > 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : selectedNet < 0
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-muted-foreground",
+                )}
+              >
+                Итог: {selectedNet > 0 ? "+" : selectedNet < 0 ? "−" : ""}
+                {formatMoney(Math.abs(selectedNet), "RUB", amountRoundingScale)}
+              </span>
+            )
           }
           actions={
             // Каждая кнопка показывается, только когда действие применимо ко

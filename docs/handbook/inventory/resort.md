@@ -69,12 +69,21 @@ costAdjustmentSum   = max(0, (shortageCostPerUnit - surplusCostPerUnit) × offse
 
 ## Что НЕ делает пересорт
 
-- **Не меняет QR-данные.** Оригинальные `shortfall_sum` / `surplus_sum`
-  документа остаются на месте, отчётность по QR не искажается.
-- **Не списывает физически.** Сами позиции в `document_items` остаются
-  как были — пересорт это **управленческое представление** разниц.
-- **Не отменяет себя автоматически.** Если ошибся — есть кнопка
-  «Отменить» с указанием причины (status = voided).
+- **Не меняет данные Quick Resto.** Суммы, которые считает сам Quick Resto,
+  пересорт не трогает: в проводку уходит полная разница по строкам. Пересорт —
+  наша управленческая надстройка, в Quick Resto о нём не знают.
+- **Не списывает физически.** Позиции акта остаются как были — пересорт это
+  **другой взгляд** на те же разницы, а не движение товара.
+- **Но иногда отменяется сам.** Есть два случая, когда система аннулирует
+  пересорт без вас, и оба видны в журнале акта:
+  - **позиция исчезла из акта** — например, её убрали в Quick Resto или вынесли
+    в акт пересчёта. Сводить стало нечего, пересорт закрывается;
+  - **свежие данные больше не складываются** — после обновления из Quick Resto
+    у пересорта пропала одна из сторон (осталась только недостача или только
+    излишек). Если же обе стороны на месте, но суммы изменились, пересорт не
+    отменяется, а **пересчитывается** по новым числам — это тоже видно в журнале.
+
+  Ручная отмена никуда не делась: кнопка «Отменить» с указанием причины.
 
 ## Кто может
 
@@ -105,8 +114,10 @@ costAdjustmentSum   = max(0, (shortageCostPerUnit - surplusCostPerUnit) × offse
 
 - Алгоритм: [`src/lib/inventory/results.ts`](../../../src/lib/inventory/results.ts)
   → `calculateResortAllocation`, `calculateManagementTotals`
-- Server actions: [`src/app/(dashboard)/inventory/actions.ts`](../../../src/app/(dashboard)/inventory/actions.ts)
+- Server actions: [`src/app/(dashboard)/inventory/actions.ts`](../../../src/app/%28dashboard%29/inventory/actions.ts)
   → `createInventoryResultResort`, `voidInventoryResultResort`
-- UI: [`src/app/(dashboard)/documents/inventory/[id]/results/_components/results-table.tsx`](../../../src/app/(dashboard)/documents/inventory/%5Bid%5D/results/_components/results-table.tsx)
+- UI: [`src/app/(dashboard)/documents/inventory/[id]/results/_components/results-table.tsx`](../../../src/app/%28dashboard%29/documents/inventory/%5Bid%5D/results/_components/results-table.tsx)
 - Тесты: [`src/lib/inventory/results.test.mjs`](../../../src/lib/inventory/results.test.mjs)
+  — NB: расширение `.mjs`, а команда проекта гоняет `*.test.mts`, то есть эти
+  тесты сейчас не запускаются
 - Миграция: `supabase/migrations/205_resort_cost_adjustment.sql`

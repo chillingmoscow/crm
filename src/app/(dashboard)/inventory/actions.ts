@@ -781,25 +781,16 @@ async function notifyInventoryDocumentEvent(input: {
  * снимок утверждённых итогов, пересорты и журнал решений — то есть вся
  * доказательная база по уже закрытой инвентаризации. Право
  * inventory.manage_documents такого разрешения не подразумевает.
+ *
+ * Условие живёт в самом DELETE (см. deleteInventoryDocument), а не в
+ * предварительном SELECT: отдельная проверка «сначала прочитали, потом
+ * удалили» и открывала окно, в котором акт успевали провести между этими
+ * двумя шагами, и падала бы открытой при ошибке чтения (data=null читалось
+ * как «блокировать нечего»). Сколько строк реально удалено, DELETE сообщает
+ * сам — по нему и считаем пропущенные.
  */
 const DELETE_BLOCKED_MESSAGE =
   "Проведённый акт удалить нельзя — вместе с ним пропадут утверждённые итоги и журнал решений. Если акт больше не нужен, удалите его в Quick Resto: синхронизация уберёт его и здесь.";
-
-async function getDocumentDeleteGuard(input: {
-  admin: LooseDb;
-  accountId: string;
-  documentIds: string[];
-}): Promise<{ blocked: string[] }> {
-  const { data } = await input.admin
-    .from<Array<{ id: string; status: string; results_snapshot_at: string | null }>>("documents")
-    .select("id, status, results_snapshot_at")
-    .eq("account_id", input.accountId)
-    .in("id", input.documentIds);
-  const blocked = (data ?? [])
-    .filter((row) => row.status === "processed" || row.results_snapshot_at != null)
-    .map((row) => row.id);
-  return { blocked };
-}
 
 /**
  * Назначать акт можно только сотруднику этого аккаунта.
@@ -1217,19 +1208,18 @@ export async function deleteInventoryDocument(input: {
     const admin = asLooseDb(createAdminClient());
     await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
 
-    const guard = await getDocumentDeleteGuard({
-      admin,
-      accountId: ctx.accountId,
-      documentIds: [input.documentId],
-    });
-    if (guard.blocked.length > 0) return { error: DELETE_BLOCKED_MESSAGE };
-
-    const { error } = await admin
-      .from("documents")
+    const { data: deleted, error } = await admin
+      .from<Array<{ id: string }>>("documents")
       .delete()
       .eq("id", input.documentId)
-      .eq("account_id", ctx.accountId);
+      .eq("account_id", ctx.accountId)
+      .neq("status", "processed")
+      .is("results_snapshot_at", null)
+      .select("id");
     if (error) return { error: error.message };
+    // Ноль удалённых строк при видимом акте = сработало условие: акт успели
+    // провести или зафиксировать.
+    if ((deleted ?? []).length === 0) return { error: DELETE_BLOCKED_MESSAGE };
     revalidatePath("/documents/inventory");
     return { error: null };
   } catch (e) {
@@ -1266,27 +1256,25 @@ export async function bulkDeleteInventoryDocuments(input: {
     const visibleIds = ids.filter((id) => visible.has(id));
     if (visibleIds.length === 0) return { deleted: 0, error: "Акты не найдены" };
 
-    const guard = await getDocumentDeleteGuard({
-      admin,
-      accountId: ctx.accountId,
-      documentIds: visibleIds,
-    });
-    const deletableIds = visibleIds.filter((id) => !guard.blocked.includes(id));
-    if (deletableIds.length === 0) return { deleted: 0, error: DELETE_BLOCKED_MESSAGE };
-
-    const { error } = await admin
-      .from("documents")
+    const { data: deletedRows, error } = await admin
+      .from<Array<{ id: string }>>("documents")
       .delete()
       .eq("account_id", ctx.accountId)
-      .in("id", deletableIds);
+      .in("id", visibleIds)
+      .neq("status", "processed")
+      .is("results_snapshot_at", null)
+      .select("id");
     if (error) return { deleted: 0, error: error.message };
+
+    const deletedCount = (deletedRows ?? []).length;
+    if (deletedCount === 0) return { deleted: 0, error: DELETE_BLOCKED_MESSAGE };
 
     revalidatePath("/documents/inventory");
     return {
-      deleted: deletableIds.length,
+      deleted: deletedCount,
       error:
-        deletableIds.length < visibleIds.length
-          ? `Пропущено проведённых актов: ${visibleIds.length - deletableIds.length}. ${DELETE_BLOCKED_MESSAGE}`
+        deletedCount < visibleIds.length
+          ? `Пропущено проведённых актов: ${visibleIds.length - deletedCount}. ${DELETE_BLOCKED_MESSAGE}`
           : null,
     };
   } catch (e) {
@@ -1324,6 +1312,15 @@ export async function refreshInventoryDocumentResults(input: {
   }
 
   const admin = asLooseDb(createAdminClient());
+  try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
+  } catch (visibilityError) {
+    return {
+      processed: false,
+      resultsHasLineAmounts: false,
+      error: actionErrorMessage(visibilityError, "Акт не найден"),
+    };
+  }
   const { data: document } = await admin
     .from<{
       id: string;
@@ -3022,6 +3019,7 @@ export async function returnDocumentForRecount(input: {
 
   const admin = asLooseDb(createAdminClient());
   try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
       .from<{
         id: string;
@@ -3158,6 +3156,7 @@ export async function splitDocumentForRecount(input: {
     return { error };
   };
   try {
+    await assertDocumentVisible({ supabase: ctx.supabase, documentId: input.documentId });
     const { data: document } = await admin
       .from<{
         id: string;

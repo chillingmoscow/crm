@@ -23,6 +23,7 @@ import {
 } from "@/lib/inventory/results-recheck";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
 import { pluralRu } from "@/lib/format/plural";
+import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
   createInventoryDocumentBackOffice,
   createInventoryItemBackOffice,
@@ -50,16 +51,15 @@ import {
   extractLineResult,
   getActiveContext,
   getActiveResortItemIds,
-  getBackOfficeCookie,
   getConnection,
   getResultDocumentForAction,
   groupName,
   inventoryDocumentItems,
   inventoryDocumentNumber,
-  isBackOfficeAuthError,
   isDeletedQuickRestoRow,
   isQuickRestoClass,
   isRecentOpenInventoryDocument,
+  externalProductId,
   listBackOfficeInventoryItemsWithSession,
   loadResultItemsForAdjustment,
   normalizeReason,
@@ -70,7 +70,6 @@ import {
   productName,
   quickRestoParentExternalId,
   readActualAmountsByExternalItemId,
-  refreshBackOfficeCookie,
   refreshLocalInventoryDocumentFromPayload,
   resolveDefaultVenueId,
   resolveResultItemGroup,
@@ -93,6 +92,14 @@ import {
 import { buildAiSuggestions, type AiSuggestionSourceItem } from "@/lib/inventory/resort-ai-suggestions";
 import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 
+
+/**
+ * Сколько построчных запросов к backoffice Quick Resto держим одновременно.
+ * Последовательный цикл упирался в latency (акт на 300 позиций — минуты),
+ * Promise.all по всему акту завалил бы и QR, и пул соединений. Держим
+ * умеренно: каждый воркер при протухшем cookie может пойти за новым.
+ */
+const QR_ITEM_CONCURRENCY = 5;
 
 export async function syncQuickRestoInventory(input?: {
   scope?: "documents" | "full";
@@ -1268,6 +1275,17 @@ export async function refreshInventoryDocumentResults(input: {
     revalidatePath("/documents/inventory");
     revalidatePath(`/documents/inventory/${document.id}`);
     revalidatePath(`/documents/inventory/${document.id}/results`);
+
+    // Ответ выглядел обрезанным: строки, которых в нём не было, мы НЕ удалили
+    // (иначе снесли бы снимок итогов и половины пересортов). Молчать нельзя —
+    // остальные строки обновились, и пользователь решит, что акт актуален.
+    if (syncResult.skippedStaleDeletion > 0) {
+      return {
+        processed: Boolean(qrDocument.processed),
+        resultsHasLineAmounts: syncResult.resultsFound,
+        error: `Quick Resto вернул неполный список позиций — не хватает ${syncResult.skippedStaleDeletion}. Строки акта сохранены, но данные могут быть неактуальны: повторите обновление через минуту.`,
+      };
+    }
 
     return {
       processed: Boolean(qrDocument.processed),
@@ -3168,38 +3186,76 @@ export async function splitDocumentForRecount(input: {
       return fail("Эти позиции уже вынесены в акт пересчёта — обновите страницу.");
     }
 
+    // Снимок обоих актов в Quick Resto ДО переноса. Нужен для повторного
+    // запуска после обрыва: след переноса (inventory_recount_moves) пишется
+    // только когда позиция уже уехала, поэтому окно «создали в дочернем, но не
+    // успели записать след» ничем не покрыто. Без этих двух множеств повтор
+    // создавал ВТОРУЮ такую же строку в акте пересчёта, а следом падал на
+    // удалении уже удалённой — и так на каждом повторе.
+    const productKey = (item: QuickRestoInventoryItem2) => externalProductId(item) ?? null;
+    const readProductKeys = async (documentId: number) => {
+      try {
+        const items = await listBackOfficeInventoryItemsWithSession({
+          connection,
+          admin,
+          documentExternalId: documentId,
+        });
+        return new Set(items.map(productKey).filter((key): key is string => Boolean(key)));
+      } catch {
+        // Состояние акта неизвестно — работаем как раньше: делаем оба шага и
+        // полагаемся на ошибку Quick Resto. Пропускать шаг «на всякий случай»
+        // здесь нельзя: это молча оставило бы позицию в исходном акте.
+        return null;
+      }
+    };
+    const [alreadyInChild, stillInSource] = await Promise.all([
+      readProductKeys(targetExternalId),
+      readProductKeys(documentExternalId),
+    ]);
+
     const moved: string[] = [];
     try {
       for (const item of pending) {
         const sample = item.raw_payload as QuickRestoInventoryItem2;
+        const key = productKey(sample);
         // Сначала кладём позицию в акт пересчёта, потом убираем из исходного:
         // при сбое между шагами позиция максимум задвоится, а не пропадёт.
-        await withBackOfficeSession({
-          connection,
-          admin,
-          run: (cookieHeader) =>
-            createInventoryItemBackOffice({
-              ...qrAuth,
-              cookieHeader,
-              documentId: targetExternalId,
-              sample,
-              actualAmount: 0,
-            }),
-        });
+        // Оба шага пропускаем, если Quick Resto уже в нужном состоянии, —
+        // так повтор после обрыва доводит перенос до конца, а не плодит дубли.
+        if (!key || !alreadyInChild || !alreadyInChild.has(key)) {
+          await withBackOfficeSession({
+            connection,
+            admin,
+            run: (cookieHeader) =>
+              createInventoryItemBackOffice({
+                ...qrAuth,
+                cookieHeader,
+                documentId: targetExternalId,
+                sample,
+                actualAmount: 0,
+              }),
+          });
+          if (key) alreadyInChild?.add(key);
+        }
 
-        await withBackOfficeSession({
-          connection,
-          admin,
-          run: (cookieHeader) =>
-            removeInventoryItemBackOffice({
-              ...qrAuth,
-              cookieHeader,
-              documentId: documentExternalId,
-              item: sample,
-            }),
-        });
+        if (!key || !stillInSource || stillInSource.has(key)) {
+          await withBackOfficeSession({
+            connection,
+            admin,
+            run: (cookieHeader) =>
+              removeInventoryItemBackOffice({
+                ...qrAuth,
+                cookieHeader,
+                documentId: documentExternalId,
+                item: sample,
+              }),
+          });
+          if (key) stillInSource?.delete(key);
+        }
 
-        await admin.from("inventory_recount_moves").insert({
+        // След переноса — раньше его ошибка проглатывалась, и позиция,
+        // фактически уехавшая, оставалась «неперенесённой» для повтора.
+        const { error: moveError } = await admin.from("inventory_recount_moves").insert({
           account_id: ctx.accountId,
           document_id: document.id,
           recount_document_id: targetLocalId,
@@ -3208,6 +3264,7 @@ export async function splitDocumentForRecount(input: {
           ingredient_id: item.ingredient_id,
           moved_by: ctx.user.id,
         });
+        if (moveError) throw new Error(`не удалось записать перенос позиции: ${moveError.message}`);
 
         // Строки в Quick Resto больше нет — убираем её и локально, сразу после
         // успешного переноса. Полагаться на последующий импорт нельзя: если
@@ -3724,26 +3781,41 @@ export async function submitInventoryDocumentDraft(input: {
       return { resultsHasLineAmounts: false, error: "У акта некорректный ID Quick Resto" };
     }
 
-    let cookieHeader = await getBackOfficeCookie({ connection, admin });
-    const sendBackOfficeRows = async (cookie: string) => {
-      for (const row of updateRows) {
-        await updateInventoryItemBackOffice({
-          layerName: connection.login,
-          baseUrl: connection.backoffice_base_url,
-          cookieHeader: cookie,
-          documentId: documentExternalId,
-          item: row.item,
-          actualAmount: row.actualAmount,
-        });
-      }
-    };
+    // Отправляем в Quick Resto ТОЛЬКО строки, значение которых реально
+    // меняется. Раньше уходил весь акт: на 300 позициях это 300
+    // последовательных запросов к backoffice (каждый с таймаутом 20 с) —
+    // 1–2 минуты в одном server action, и прокси успевал оборвать соединение,
+    // оставив значения применёнными наполовину. Строка, где QR уже держит
+    // нужное число, — это no-op, её достаточно проверить постусловием ниже.
+    const rowsToSend = updateRows.filter(
+      (row) => !amountsEqual(num(row.item.actualAmount), row.actualAmount),
+    );
+    const skippedUnchanged = updateRows.length - rowsToSend.length;
 
-    try {
-      await sendBackOfficeRows(cookieHeader);
-    } catch (error) {
-      if (!isBackOfficeAuthError(error)) throw error;
-      cookieHeader = await refreshBackOfficeCookie({ connection, admin });
-      await sendBackOfficeRows(cookieHeader);
+    // Параллелим пачками: последовательный цикл упирался в latency backoffice,
+    // а Promise.all по всему акту завалил бы и QR, и пул соединений.
+    // withBackOfficeSession даёт auth-ретрай на КАЖДУЮ строку отдельно —
+    // раньше протухший cookie перезапускал весь цикл с нуля, повторно
+    // отправляя уже применённые строки.
+    await runWithConcurrency(rowsToSend, QR_ITEM_CONCURRENCY, async (row) => {
+      await withBackOfficeSession({
+        connection,
+        admin,
+        run: (cookieHeader) =>
+          updateInventoryItemBackOffice({
+            layerName: connection.login,
+            baseUrl: connection.backoffice_base_url,
+            cookieHeader,
+            documentId: documentExternalId,
+            item: row.item,
+            actualAmount: row.actualAmount,
+          }),
+      });
+    });
+    if (skippedUnchanged > 0) {
+      console.info(
+        `[submitInventoryDocumentDraft] doc ${document.id}: отправлено ${rowsToSend.length} строк, пропущено без изменений ${skippedUnchanged}`,
+      );
     }
 
     const [reread, backOfficeItems] = await Promise.all([

@@ -28,9 +28,13 @@ export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
           toast.error(result.error ?? "Синхронизация не выполнена");
           return;
         }
-        toast.success(
-          `Синхронизировано: позиций ${result.summary.products}, складов ${result.summary.stores}, актов ${result.summary.documents}`,
-        );
+        const base = `Синхронизировано: позиций ${result.summary.products}, складов ${result.summary.stores}, актов ${result.summary.documents}`;
+        // Сбойные акты не роняют проход, но и молчать о них нельзя.
+        if (result.summary.failedDocuments > 0) {
+          toast.warning(`${base}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
+        } else {
+          toast.success(base);
+        }
         router.refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Синхронизация не выполнена");

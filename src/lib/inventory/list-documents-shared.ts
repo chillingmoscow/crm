@@ -90,6 +90,8 @@ export type DocumentListRow = {
       list-documents.ts. Заполнены только у проведённого акта. */
   qr_shortfall_sum?: number | null;
   qr_surplus_sum?: number | null;
+  /** Управленческий итог посчитать не удалось — показываем прочерк, а не 0 ₽. */
+  totals_unavailable?: boolean;
 };
 
 export type ListDocumentsResult = {

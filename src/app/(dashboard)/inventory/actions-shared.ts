@@ -54,6 +54,8 @@ export type InventorySyncSummary = {
   documents: number;
   items: number;
   resultsBlocked: number;
+  /** Акты, которые не удалось обработать: один сбойный акт не роняет проход. */
+  failedDocuments: number;
 };
 
 export type InventoryProductLookup = {
@@ -123,6 +125,17 @@ export type InventoryResultGroupRow = {
   id: string;
   name: string;
 };
+
+/**
+ * Статусы пересорта. Значения зафиксированы CHECK-констрейнтом
+ * `check (status in ('active','voided'))` (миграция 177) — держим их одной
+ * константой, чтобы три пути аннулирования (ручной экшен, авто-пересчёт,
+ * триггер БД) не разъезжались в литерале.
+ */
+export const RESORT_STATUS = {
+  active: "active",
+  voided: "voided",
+} as const;
 
 export const INVENTORY_DOCUMENT_ITEM_KEYS = [
   "effectedItems",
@@ -813,7 +826,7 @@ async function recalculateActiveResorts(input: {
     .select("id, group_id, measure_unit_key")
     .eq("account_id", input.accountId)
     .eq("document_id", input.documentId)
-    .eq("status", "active");
+    .eq("status", RESORT_STATUS.active);
   const resorts = resortsRaw ?? [];
   if (resorts.length === 0) return { recalculated: 0, voided: 0 };
 
@@ -849,11 +862,29 @@ async function recalculateActiveResorts(input: {
   let voided = 0;
 
   const voidResort = async (resortId: string, reason: string) => {
-    await input.admin
+    // Статус — только из RESORT_STATUS: раньше здесь стоял литерал "void",
+    // которого нет в CHECK-констрейнте (миграция 177 разрешает 'active' и
+    // 'voided'). UPDATE молча падал, пересорт оставался активным и продолжал
+    // участвовать в управленческом итоге со старыми суммами — а в журнал при
+    // этом уходила запись «Пересорт отменён». Ошибку теперь разбираем: без
+    // успешного перехода ни события, ни счётчика.
+    const { error } = await input.admin
       .from("inventory_result_resorts")
-      .update({ status: "void", void_reason: reason, voided_at: new Date().toISOString() })
+      .update({
+        status: RESORT_STATUS.voided,
+        void_reason: reason,
+        voided_at: new Date().toISOString(),
+      })
       .eq("id", resortId)
       .eq("account_id", input.accountId);
+    if (error) {
+      console.error("[recalculateActiveResorts] не удалось аннулировать пересорт", {
+        resortId,
+        documentId: input.documentId,
+        error,
+      });
+      return;
+    }
     await input.admin.from("inventory_result_events").insert({
       account_id: input.accountId,
       document_id: input.documentId,
@@ -868,16 +899,13 @@ async function recalculateActiveResorts(input: {
 
   for (const resort of resorts) {
     const rows = resortItems.filter((row) => row.resort_id === resort.id);
-    if (rows.length < 2) {
-      await voidResort(resort.id, "Пересорт отменён: часть позиций больше нет в акте");
-      continue;
-    }
-
+    // Пересорт, потерявший позицию, аннулирует триггер БД
+    // inventory_result_resort_items_orphan_guard (миграция 226) — прикладной
+    // копии этой же проверки здесь больше нет: две реализации одного инварианта
+    // ровно так и расходятся. Сюда доходят только пересорты, у которых пара
+    // на месте, но свежие данные Quick Resto перестали складываться.
     const pairs = rows.map((row) => ({ row, current: currentById.get(row.document_item_id) ?? null }));
-    if (pairs.some((pair) => !pair.current)) {
-      await voidResort(resort.id, "Пересорт отменён: часть позиций больше нет в акте");
-      continue;
-    }
+    if (rows.length < 2 || pairs.some((pair) => !pair.current)) continue;
 
     const changed = pairs.some(({ row, current }) => {
       const amountChanged =
@@ -1383,7 +1411,7 @@ export async function getActiveResortItemIds(input: {
     .select("id")
     .eq("account_id", input.accountId)
     .eq("document_id", input.documentId)
-    .eq("status", "active");
+    .eq("status", RESORT_STATUS.active);
   const resortIds = (activeResorts ?? []).map((row) => row.id);
   if (resortIds.length === 0) return new Set<string>();
 

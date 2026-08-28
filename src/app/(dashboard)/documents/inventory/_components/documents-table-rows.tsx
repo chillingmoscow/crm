@@ -382,7 +382,11 @@ export function MobileCard({
               <span className="text-muted-foreground">{doc.store_title}</span>
             ) : null}
             {(() => {
-              if (!doc.results_has_line_amounts || !hasCountedResults(doc.status)) {
+              if (
+                !doc.results_has_line_amounts ||
+                !hasCountedResults(doc.status) ||
+                doc.totals_unavailable
+              ) {
                 return <span className="text-muted-foreground">—</span>;
               }
               const net = (doc.surplus_sum ?? 0) - (doc.shortfall_sum ?? 0);

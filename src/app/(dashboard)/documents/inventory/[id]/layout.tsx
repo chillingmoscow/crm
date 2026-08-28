@@ -2,7 +2,12 @@ import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissions,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 
 import { DocumentActHeader } from "./_components/document-act-header";
@@ -74,29 +79,22 @@ export default async function InventoryDocumentLayout({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [
-    user,
-    accountId,
-    { data: canView },
-    { data: canFill },
-    { data: canViewResults },
-    { data: canManage },
-    { data: canViewAllVenues },
-    { data: canManageStores },
-    { data: canRecountDocuments },
-    { data: activeVenueId },
-  ] = await Promise.all([
+  // Права — одним кэшированным списком (list_my_permissions) вместо семи
+  // отдельных has_permission. Кэш живёт на весь RSC-рендер, поэтому вложенные
+  // страницы переиспользуют тот же вызов, а не делают свои.
+  const [user, accountId, permissions, { data: activeVenueId }] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_all_venues" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_stores" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
+    getCachedPermissions(),
     supabase.rpc("get_active_venue_id"),
   ]);
+  const canView = permissions.includes("inventory.view_documents");
+  const canFill = permissions.includes("inventory.fill_assigned_documents");
+  const canViewResults = permissions.includes("inventory.view_results");
+  const canManage = permissions.includes("inventory.manage_documents");
+  const canViewAllVenues = permissions.includes("inventory.view_all_venues");
+  const canManageStores = permissions.includes("inventory.manage_stores");
+  const canRecountDocuments = permissions.includes("inventory.recount_documents");
 
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");

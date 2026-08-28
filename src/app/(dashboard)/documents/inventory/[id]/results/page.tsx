@@ -2,7 +2,11 @@ import { notFound, redirect } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  getCachedActiveAccountId,
+  getCachedPermissions,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
@@ -87,38 +91,28 @@ export default async function InventoryDocumentResultsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
   const admin = asLooseDb(createAdminClient());
 
-  const [
-    { data: accountId },
-    { data: canViewResults },
-    { data: canViewDocuments },
-    { data: canCommentResults },
-    { data: canAdjustResults },
-    { data: canFinalizeResults },
-    { data: canRecountDocuments },
-    { data: canUseAiSuggestions },
-    { data: canViewProducts },
-    { data: canFillAssigned },
-    {
-      data: { user },
-    },
-    amountRoundingScale,
-  ] = await Promise.all([
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.comment_results" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.adjust_results" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.finalize_results" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.use_ai_suggestions" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_products" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-    supabase.auth.getUser(),
+  // Права берём одним списком (list_my_permissions), а не десятью отдельными
+  // has_permission: RPC кэширован на весь RSC-рендер, поэтому layout и эта
+  // страница делят один вызов. Раньше только на этой странице их было десять,
+  // и ещё семь — в layout над ней.
+  const [permissions, user, accountId, amountRoundingScale] = await Promise.all([
+    getCachedPermissions(),
+    getCachedUser(),
+    getCachedActiveAccountId(),
     getActiveAccountAmountRoundingScale(),
   ]);
+  const can = (code: string) => permissions.includes(code);
+  const canViewResults = can("inventory.view_results");
+  const canViewDocuments = can("inventory.view_documents");
+  const canCommentResults = can("inventory.comment_results");
+  const canAdjustResults = can("inventory.adjust_results");
+  const canFinalizeResults = can("inventory.finalize_results");
+  const canRecountDocuments = can("inventory.recount_documents");
+  const canUseAiSuggestions = can("inventory.use_ai_suggestions");
+  const canViewProducts = can("inventory.view_products");
+  const canFillAssigned = can("inventory.fill_assigned_documents");
 
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");
@@ -157,74 +151,37 @@ export default async function InventoryDocumentResultsPage({
   // проверяющий сознательно вернулся к правке.
   const resultsFrozen = isInventoryResultFrozen(document);
 
-  const { data: itemsRaw } = await admin
+  // Подсказки пересорта имеют смысл только пока итоги можно менять. Считаем
+  // это ДО запросов: от флага зависит, читать ли журнал акта (см. ниже).
+  const suggestionsEnabled =
+    canAdjustResults && !isLocked && document.status !== "recount_pending";
+
+  // Одна волна вместо шести последовательных: строки акта, след выноса на
+  // пересчёт, пересорты, правила автоисключения и настройки аккаунта друг от
+  // друга не зависят. Раньше страница выстраивала их в цепочку и ждала каждый
+  // ответ по очереди.
+  const [
+    { data: itemsRaw },
+    { data: recountMovesRaw },
+    { data: resortsRaw },
+    { data: resortItemsRaw },
+    { data: exclusionRulesRaw },
+    { data: accountSettings },
+    { data: eventsRaw },
+  ] = await Promise.all([
+    admin
     .from<Array<InventoryDocumentResultItem & InventoryResultSnapshotAmounts>>("document_items")
     .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
-    .order("product_name");
-
-  const itemsBase = itemsRaw ?? [];
-  const productIds = itemsBase
-    .map((item) => item.ingredient_id)
-    .filter((productId): productId is string => Boolean(productId));
-  const { data: products } = productIds.length > 0
-    ? await admin
-        .from<ProductGroupLookupRow[]>("ingredients")
-        .select("id, group_id")
-        .eq("account_id", accountId)
-        .in("id", productIds)
-    : { data: [] };
-  const productGroupById = new Map((products ?? []).map((product) => [product.id, product.group_id]));
-  const groupIds = Array.from(
-    new Set((products ?? []).map((product) => product.group_id).filter((groupId): groupId is string => Boolean(groupId)))
-  );
-  const { data: groups } = groupIds.length > 0
-    ? await admin
-        .from<GroupLookupRow[]>("ingredient_groups")
-        .select("id, name")
-        .eq("account_id", accountId)
-        .in("id", groupIds)
-    : { data: [] };
-  const groupById = new Map((groups ?? []).map((group) => [group.id, group.name]));
-  const items = itemsBase.map((item) => {
-    const groupId = item.ingredient_id ? productGroupById.get(item.ingredient_id) ?? null : null;
-    return applyResultSnapshot(
-      {
-        ...item,
-        group_id: groupId,
-        group_name: groupId ? groupById.get(groupId) ?? null : null,
-      },
-      resultsFrozen,
-    );
-  });
-
-  // Позиции, вынесенные в акты пересчёта (миграция 223): показываем плашкой,
-  // чтобы было видно, куда уехали строки и по какой дате их считают.
-  const { data: recountMovesRaw } = await admin
-    .from<Array<{ recount_document_id: string | null; product_name: string }>>("inventory_recount_moves")
-    .select("recount_document_id, product_name")
-    .eq("account_id", accountId)
-    .eq("document_id", document.id);
-  const recountChildIds = Array.from(
-    new Set((recountMovesRaw ?? []).map((row) => row.recount_document_id).filter((id): id is string => Boolean(id))),
-  );
-  const { data: recountChildrenRaw } = recountChildIds.length > 0
-    ? await admin
-        .from<Array<{ id: string; document_number: string; invoice_date: string | null; status: string }>>("documents")
-        .select("id, document_number, invoice_date, status")
-        .eq("account_id", accountId)
-        .in("id", recountChildIds)
-    : { data: [] };
-  const recountSplits = (recountChildrenRaw ?? []).map((child) => ({
-    documentId: child.id,
-    documentNumber: child.document_number,
-    invoiceDate: child.invoice_date,
-    status: child.status,
-    itemCount: (recountMovesRaw ?? []).filter((row) => row.recount_document_id === child.id).length,
-  }));
-
-  const [{ data: resortsRaw }, { data: resortItemsRaw }, { data: eventsRaw }, { data: exclusionRulesRaw }, { data: accountSettings }] = await Promise.all([
+    .order("product_name"),
+    // Позиции, вынесенные в акты пересчёта (миграция 223): показываем плашкой,
+    // чтобы было видно, куда уехали строки и по какой дате их считают.
+    admin
+      .from<Array<{ recount_document_id: string | null; product_name: string }>>("inventory_recount_moves")
+      .select("recount_document_id, product_name")
+      .eq("account_id", accountId)
+      .eq("document_id", document.id),
     admin
       .from<InventoryResultResortRow[]>("inventory_result_resorts")
       .select("id, status, reason, group_name, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, suggestion_source, created_at, void_reason, finalized_at, finalized_status, finalized_offset_amount, finalized_residual_shortfall_sum, finalized_residual_surplus_sum, finalized_cost_adjustment_sum")
@@ -253,12 +210,6 @@ export default async function InventoryDocumentResultsPage({
       .eq("account_id", accountId)
       .eq("document_id", document.id),
     admin
-      .from<InventoryResultEventRow[]>("inventory_result_events")
-      .select("id, event_type, message, created_at, created_by, payload")
-      .eq("account_id", accountId)
-      .eq("document_id", document.id)
-      .order("created_at", { ascending: false }),
-    admin
       .from<ExclusionRuleRow[]>("inventory_result_exclusion_rules")
       .select("id, ingredient_id, external_product_id, reason")
       .eq("account_id", accountId)
@@ -268,7 +219,73 @@ export default async function InventoryDocumentResultsPage({
       .select("inventory_ai_suggestions_enabled")
       .eq("id", accountId)
       .maybeSingle(),
+    // Журнал акта нужен ровно для одного: списка уже скрытых подсказок. Когда
+    // подсказок нет (акт залочен, проведён или на пересчёте), это была полная
+    // выборка событий вместе с payload-jsonb вхолостую.
+    suggestionsEnabled
+      ? admin
+          .from<InventoryResultEventRow[]>("inventory_result_events")
+          .select("id, event_type, message, created_at, created_by, payload")
+          .eq("account_id", accountId)
+          .eq("document_id", document.id)
+          .order("created_at", { ascending: false })
+      : Promise.resolve({ data: [] as InventoryResultEventRow[] }),
   ]);
+
+  const itemsBase = itemsRaw ?? [];
+  const productIds = itemsBase
+    .map((item) => item.ingredient_id)
+    .filter((productId): productId is string => Boolean(productId));
+  const recountChildIds = Array.from(
+    new Set((recountMovesRaw ?? []).map((row) => row.recount_document_id).filter((id): id is string => Boolean(id))),
+  );
+  // Вторая волна: обе выборки зависят от первой, но не друг от друга.
+  const [{ data: products }, { data: recountChildrenRaw }] = await Promise.all([
+    productIds.length > 0
+      ? admin
+          .from<ProductGroupLookupRow[]>("ingredients")
+          .select("id, group_id")
+          .eq("account_id", accountId)
+          .in("id", productIds)
+      : Promise.resolve({ data: [] as ProductGroupLookupRow[] }),
+    recountChildIds.length > 0
+      ? admin
+          .from<Array<{ id: string; document_number: string; invoice_date: string | null; status: string }>>("documents")
+          .select("id, document_number, invoice_date, status")
+          .eq("account_id", accountId)
+          .in("id", recountChildIds)
+      : Promise.resolve({ data: [] as Array<{ id: string; document_number: string; invoice_date: string | null; status: string }> }),
+  ]);
+  const productGroupById = new Map((products ?? []).map((product) => [product.id, product.group_id]));
+  const groupIds = Array.from(
+    new Set((products ?? []).map((product) => product.group_id).filter((groupId): groupId is string => Boolean(groupId)))
+  );
+  const { data: groups } = groupIds.length > 0
+    ? await admin
+        .from<GroupLookupRow[]>("ingredient_groups")
+        .select("id, name")
+        .eq("account_id", accountId)
+        .in("id", groupIds)
+    : { data: [] };
+  const groupById = new Map((groups ?? []).map((group) => [group.id, group.name]));
+  const recountSplits = (recountChildrenRaw ?? []).map((child) => ({
+    documentId: child.id,
+    documentNumber: child.document_number,
+    invoiceDate: child.invoice_date,
+    status: child.status,
+    itemCount: (recountMovesRaw ?? []).filter((row) => row.recount_document_id === child.id).length,
+  }));
+  const items = itemsBase.map((item) => {
+    const groupId = item.ingredient_id ? productGroupById.get(item.ingredient_id) ?? null : null;
+    return applyResultSnapshot(
+      {
+        ...item,
+        group_id: groupId,
+        group_name: groupId ? groupById.get(groupId) ?? null : null,
+      },
+      resultsFrozen,
+    );
+  });
   // Пересорты зафиксированного акта — из снимка (миграция 227): и суммы, и
   // статус. Иначе управленческий итог смешивал бы замороженные строки с живым
   // зачётом, который пересчитывается при каждом импорте.
@@ -322,13 +339,10 @@ export default async function InventoryDocumentResultsPage({
       .map((event) => eventPayload(event.payload).key)
       .filter((key): key is string => typeof key === "string" && key.length > 0),
   );
-  // Подсказки пересорта имеют смысл только пока итоги можно менять (создать
-  // пересорт). Для залоченного / проведённого / отправленного на пересчёт
-  // акта пропускаем history-запросы И сетевой AI-вызов — это убирает
+  // suggestionsEnabled вычислен выше, до запросов: от него зависит ещё и то,
+  // читаем ли журнал акта. Для залоченного / проведённого / отправленного на
+  // пересчёт акта пропускаем history-запросы И сетевой AI-вызов — это убирает
   // блокирующий DeepSeek-запрос из рендера read-only страницы итогов.
-  const suggestionsEnabled =
-    Boolean(canAdjustResults) && !isLocked && document.status !== "recount_pending";
-
   let suggestions: InventoryResortSuggestion[] = [];
   if (suggestionsEnabled) {
     const { data: historyResortsRaw } = await admin

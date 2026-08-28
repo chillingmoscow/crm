@@ -202,6 +202,94 @@ begin
 end;
 $$;
 
+-- ────────────────────────────────────────────────────────────
+-- 4. Тенантные композитные FK (миграция 230): связать сущности
+--    разных аккаунтов нельзя — это ловит БД, а не приложение.
+-- ────────────────────────────────────────────────────────────
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password,
+  email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+  created_at, updated_at
+)
+values ('00000000-0000-0000-0000-000000000000'::uuid, 'bc000000-0000-0000-0000-000000000002'::uuid, 'authenticated', 'authenticated', 'inv05-other@test.local', crypt('password', gen_salt('bf')), now(), '{}'::jsonb, '{}'::jsonb, now(), now())
+on conflict (id) do nothing;
+
+insert into public.accounts (id, name, owner_id)
+values ('ba000000-0000-0000-0000-000000000002', 'Inv05 Other Account', 'bc000000-0000-0000-0000-000000000002')
+on conflict (id) do nothing;
+
+insert into public.venues (id, account_id, name, type)
+values ('bb000000-0000-0000-0000-000000000002', 'ba000000-0000-0000-0000-000000000002', 'Inv05 Other Venue', 'restaurant')
+on conflict (id) do nothing;
+
+insert into public.ingredient_groups (id, account_id, external_id, name)
+values ('be000000-0000-0000-0000-000000000002', 'ba000000-0000-0000-0000-000000000002', 'g05-other', 'Other group');
+
+insert into public.ingredients (id, account_id, external_id, name)
+values
+  ('be100000-0000-0000-0000-000000000002', 'ba000000-0000-0000-0000-000000000002', 'p05-other', 'Other ingredient'),
+  ('be100000-0000-0000-0000-000000000001', 'ba000000-0000-0000-0000-000000000001', 'p05-own',   'Own ingredient');
+
+do $$
+declare
+  v_caught boolean;
+begin
+  -- Акт первого аккаунта нельзя привязать к заведению второго.
+  v_caught := false;
+  begin
+    update public.documents set venue_id = 'bb000000-0000-0000-0000-000000000002'
+     where id = 'bf000000-0000-0000-0000-000000000001';
+  exception when foreign_key_violation then v_caught := true;
+  end;
+  perform public.test_assert(v_caught, 'documents.venue_id must reject a venue from another account');
+
+  -- Склад первого аккаунта нельзя привязать к заведению второго.
+  v_caught := false;
+  begin
+    update public.stores set local_venue_id = 'bb000000-0000-0000-0000-000000000002'
+     where id = 'bd000000-0000-0000-0000-000000000001';
+  exception when foreign_key_violation then v_caught := true;
+  end;
+  perform public.test_assert(v_caught, 'stores.local_venue_id must reject a venue from another account');
+
+  -- Строку акта нельзя связать с ингредиентом чужого аккаунта.
+  v_caught := false;
+  begin
+    update public.document_items set ingredient_id = 'be100000-0000-0000-0000-000000000002'
+     where id = 'b5000000-0000-0000-0000-000000000002';
+  exception when foreign_key_violation then v_caught := true;
+  end;
+  perform public.test_assert(v_caught, 'document_items.ingredient_id must reject an ingredient from another account');
+
+  -- Ингредиент нельзя положить в группу чужого аккаунта.
+  v_caught := false;
+  begin
+    update public.ingredients set group_id = 'be000000-0000-0000-0000-000000000002'
+     where id = 'be100000-0000-0000-0000-000000000001';
+  exception when foreign_key_violation then v_caught := true;
+  end;
+  perform public.test_assert(v_caught, 'ingredients.group_id must reject a group from another account');
+
+  -- Контроль: своя группа в своём аккаунте по-прежнему связывается.
+  update public.ingredients set group_id = 'be000000-0000-0000-0000-000000000002'
+   where id = 'be100000-0000-0000-0000-000000000002';
+  perform public.test_assert(
+    (select group_id from public.ingredients where id = 'be100000-0000-0000-0000-000000000002')
+      = 'be000000-0000-0000-0000-000000000002',
+    'same-account group link must still work'
+  );
+
+  -- След выноса на пересчёт: раньше FK на ingredient_id не было вовсе.
+  v_caught := false;
+  begin
+    insert into public.inventory_recount_moves (account_id, document_id, external_item_id, product_name, ingredient_id)
+    values ('ba000000-0000-0000-0000-000000000001', 'bf000000-0000-0000-0000-000000000001', 'x1', 'X', 'be100000-0000-0000-0000-000000000002');
+  exception when foreign_key_violation then v_caught := true;
+  end;
+  perform public.test_assert(v_caught, 'inventory_recount_moves.ingredient_id must reject an ingredient from another account');
+end;
+$$;
+
 rollback;
 
 select '05_inventory_resort_orphan_guard.sql passed' as result;

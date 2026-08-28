@@ -29,6 +29,16 @@
   - [ ] Индекс `(account_id, venue_id)` для cascade-delete и venue-фильтра.
 - [ ] RLS select-policy по `account_id = get_active_account_id()`.
 - [ ] RLS write-policy: тот же tenant-предикат + `has_permission(...)`.
+      Объявлять её как `FOR INSERT/UPDATE/DELETE`, **не** `FOR ALL`: `FOR ALL`
+      покрывает и SELECT, то есть молча расширяет видимость в обход
+      select-политики и даёт advisor-хит `multiple_permissive_policies`.
+      Прецедент — `ingredients` / `ingredient_groups` / `stores`, разделены
+      миграцией 230.
+      Исключение — инвентаризация: там write-политики сняты целиком
+      (миграция 219), у `authenticated` отозваны write-гранты, и вся запись
+      идёт через server actions под `service_role`. Граница доступа в этом
+      случае — проверка в самом экшене (`assertDocumentVisible`), и она
+      обязана переиспользовать select-политику, а не дублировать её предикат.
 - [ ] Если venue-scoped — RLS пускает либо по `venue_id =
       get_active_venue_id()`, либо по специальному «view_all_venues»
       праву (finance-паттерн, миграция 042).

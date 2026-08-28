@@ -25,49 +25,33 @@
 -- Поэтому выдача прав теперь идемпотентна (on conflict … do update set
 -- granted = true): пересечение с триггером — норма, а не ошибка.
 --
--- Тело функции — 1-в-1 из миграции 167, изменены только вставки ролей
+-- Тело преcета — 1-в-1 из миграции 167, изменены только вставки ролей
 -- (убран account_id), выдача прав (on conflict) и search_path приведён к
--- конвенции. CREATE OR REPLACE сбрасывает гранты и комментарий, поэтому они
+-- конвенции. Сама функция при этом разделена надвое: seed_default_venue_roles
+-- (проверки вызывающего, её и зовёт приложение) и seed_default_venue_roles_impl
+-- (сам преcет). Разделение нужно бэкфиллу в конце файла: в миграции нет
+-- auth.uid(), а копировать список ролей и прав второй раз нельзя — расхождение
+-- копий этот баг и породило.
+--
+-- CREATE OR REPLACE сбрасывает гранты и комментарий, поэтому они
 -- перевыставляются ниже.
 
-create or replace function public.seed_default_venue_roles(p_venue_id uuid)
+-- Сам преcет. Без проверок вызывающего: их делает публичная обёртка ниже, а
+-- бэкфилл в конце миграции вызывает impl напрямую (в миграции нет auth.uid()).
+-- Так набор ролей и прав описан ровно в одном месте: именно расхождение копий
+-- и породило этот баг.
+create or replace function public.seed_default_venue_roles_impl(p_venue_id uuid)
 returns void
 language plpgsql security definer
 set search_path = public, pg_catalog
 as $$
 declare
-  v_account_id    uuid;
   v_manager_id    uuid;
   v_admin_id      uuid;
   v_accountant_id uuid;
   v_hostess_id    uuid;
   v_waiter_id     uuid;
 begin
-  -- Auth guard. Codex P1 на #300: без проверки любой authenticated
-  -- юзер может seed-нуть роли в чужой venue, зная UUID.
-  if auth.uid() is null then
-    raise exception 'Not authenticated';
-  end if;
-
-  -- Venue + его account.
-  select account_id into v_account_id
-    from public.venues where id = p_venue_id;
-  if v_account_id is null then
-    raise exception 'Venue not found';
-  end if;
-
-  -- Caller должен быть active member любого venue этого аккаунта.
-  if not exists (
-    select 1
-    from public.user_venue_roles uvr
-    join public.venues v on v.id = uvr.venue_id
-    where uvr.user_id = auth.uid()
-      and uvr.status = 'active'
-      and v.account_id = v_account_id
-  ) then
-    raise exception 'Caller is not a member of this account';
-  end if;
-
   -- Guard: если в venue уже есть кастомные роли — пропускаем.
   if exists (
     select 1 from public.roles where venue_id = p_venue_id
@@ -198,11 +182,90 @@ begin
 end;
 $$;
 
+-- impl зовут только обёртка (она security definer, то есть владелец функции) и
+-- бэкфилл ниже. Наружу не отдаём: без проверок вызывающего это дыра — любой
+-- authenticated мог бы засеять роли в чужое заведение, зная его UUID.
+revoke all on function public.seed_default_venue_roles_impl(uuid) from public;
+revoke all on function public.seed_default_venue_roles_impl(uuid) from anon, authenticated;
+
+comment on function public.seed_default_venue_roles_impl(uuid) is
+  'Преcет из 5 кастомных ролей (Управляющий, Администратор, Бухгалтер, Хостес, '
+  'Официант) с дефолтными правами в указанном заведении. Идемпотентна. '
+  'Без проверок вызывающего — вызывать только через seed_default_venue_roles.';
+
+-- Публичная обёртка: проверки вызывающего остались ровно те же, что были в
+-- миграции 167.
+create or replace function public.seed_default_venue_roles(p_venue_id uuid)
+returns void
+language plpgsql security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  v_account_id uuid;
+begin
+  -- Auth guard. Codex P1 на #300: без проверки любой authenticated
+  -- юзер может seed-нуть роли в чужой venue, зная UUID.
+  if auth.uid() is null then
+    raise exception 'Not authenticated';
+  end if;
+
+  -- Venue + его account.
+  select account_id into v_account_id
+    from public.venues where id = p_venue_id;
+  if v_account_id is null then
+    raise exception 'Venue not found';
+  end if;
+
+  -- Caller должен быть active member любого venue этого аккаунта.
+  if not exists (
+    select 1
+    from public.user_venue_roles uvr
+    join public.venues v on v.id = uvr.venue_id
+    where uvr.user_id = auth.uid()
+      and uvr.status = 'active'
+      and v.account_id = v_account_id
+  ) then
+    raise exception 'Caller is not a member of this account';
+  end if;
+
+  perform public.seed_default_venue_roles_impl(p_venue_id);
+end;
+$$;
+
 revoke all on function public.seed_default_venue_roles(uuid) from public;
 grant execute on function public.seed_default_venue_roles(uuid) to service_role, authenticated;
 
 comment on function public.seed_default_venue_roles(uuid) is
   'Создаёт 5 preset кастомных ролей (Менеджер, Админ, Бухгалтер, Хостес, '
   'Официант) с дефолтными правами в указанном venue. Идемпотентна. '
-  'Используется в stage B при создании venue. Преcет идентичен '
-  'seed_default_account_roles из миграции 138.';
+  'Проверяет вызывающего и делегирует seed_default_venue_roles_impl.';
+
+-- Бэкфилл: заведения, созданные пока функция была сломана. createVenue ошибку
+-- сидинга проглатывал (логировал и шёл дальше), поэтому такие заведения живут
+-- без ролей по умолчанию — и сама починка функции их не вылечит, RPC зовут
+-- только при создании заведения.
+--
+-- Условие «у заведения НЕТ НИ ОДНОЙ роли» намеренно строгое: заведение, где
+-- роли пересоздали или заархивировали вручную, строки в roles сохраняет и под
+-- бэкфилл не попадёт — чужие решения не перетираем. Архивные заведения
+-- пропускаем: заводить в них роли незачем.
+do $$
+declare
+  v_venue_id uuid;
+  v_seeded   int := 0;
+begin
+  for v_venue_id in
+    select v.id
+      from public.venues v
+     where v.archived_at is null
+       and not exists (select 1 from public.roles r where r.venue_id = v.id)
+  loop
+    perform public.seed_default_venue_roles_impl(v_venue_id);
+    v_seeded := v_seeded + 1;
+  end loop;
+
+  if v_seeded > 0 then
+    raise notice 'seed_default_venue_roles backfill: % venue(s) seeded', v_seeded;
+  end if;
+end;
+$$;

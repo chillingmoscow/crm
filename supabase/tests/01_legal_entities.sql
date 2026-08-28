@@ -3,12 +3,19 @@
 --
 -- Run AFTER all migrations on a fresh local Supabase DB:
 --   pnpm db:reset
---   psql "$(supabase status --output env | grep DB_URL | cut -d= -f2-)" -f supabase/tests/01_legal_entities.sql
+--   docker exec -i supabase_db_crm psql -U postgres -d postgres -f - \
+--     < supabase/tests/01_legal_entities.sql
 --
 -- The script wraps everything in a single transaction and ROLLBACKs at
--- the end, so it never leaves test data behind. A failure raises an
--- exception; success prints a NOTICE.
+-- the end, so it never leaves test data behind.
+--
+-- ON_ERROR_STOP обязателен: без него psql после упавшего ассерта не
+-- останавливается, транзакция остаётся aborted до самого `rollback`, а
+-- финальный `select ... passed` выполняется уже вне её — и провалившийся
+-- прогон печатает «passed».
 -- ============================================================
+
+\set ON_ERROR_STOP on
 
 begin;
 

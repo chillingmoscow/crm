@@ -1348,12 +1348,56 @@ export function resultItemMeasureKey(item: InventoryResultItemRow) {
   return `name:${item.measure_unit_name ?? ""}`;
 }
 
+/**
+ * Виден ли акт пользователю — проверяем ЕГО клиентом, под RLS.
+ *
+ * Все мутации модуля идут под service_role (admin-клиент), который RLS
+ * обходит: миграция 219 сознательно отозвала write-гранты у authenticated.
+ * Значит, единственная граница доступа — проверка в самом экшене, а её не
+ * было: зная uuid, менеджер одного заведения правил, возвращал на пересчёт и
+ * проводил акты чужого заведения того же аккаунта.
+ *
+ * Проверку не дублируем предикатом в коде, а переиспользуем политику
+ * documents_select (миграция 210): она уже описывает и активное заведение, и
+ * исключения для исполнителя и проверяющего. Не видишь акт — не действуешь.
+ */
+export async function assertDocumentVisible(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  documentId: string;
+}) {
+  const { data } = await asLooseDb(input.supabase)
+    .from<{ id: string }>("documents")
+    .select("id")
+    .eq("id", input.documentId)
+    .maybeSingle();
+  if (!data?.id) throw new Error("Акт не найден");
+}
+
+/**
+ * Отфильтровать список актов до тех, что пользователь реально видит.
+ * Массовый аналог assertDocumentVisible — одним запросом под RLS, чтобы
+ * bulk-экшены не доверяли массиву id с клиента.
+ */
+export async function filterVisibleDocumentIds(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  documentIds: string[];
+}): Promise<Set<string>> {
+  if (input.documentIds.length === 0) return new Set();
+  const { data } = await asLooseDb(input.supabase)
+    .from<Array<{ id: string }>>("documents")
+    .select("id")
+    .in("id", input.documentIds);
+  return new Set((data ?? []).map((row) => row.id));
+}
+
 export async function getResultDocumentForAction(input: {
   admin: LooseDb;
+  supabase: Awaited<ReturnType<typeof createClient>>;
   accountId: string;
   documentId: string;
   requireOpen?: boolean;
 }) {
+  await assertDocumentVisible({ supabase: input.supabase, documentId: input.documentId });
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
     .select(

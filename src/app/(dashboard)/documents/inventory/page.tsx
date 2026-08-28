@@ -157,13 +157,21 @@ export default async function InventoryDocumentsPage({
   });
 
   // venues + stores для фильтров через RLS-клиент. staff — справочник имён
-  // (id → ФИО) нужен ВСЕМ зрителям, не только тем, кто может назначать:
-  // иначе read-only пользователь видит «—» вместо исполнителя/проверяющего,
-  // и переход на страницу сотрудника из завершённого акта недоступен.
+  // (id → ФИО): нужен ВСЕМ зрителям, иначе read-only пользователь видит «—»
+  // вместо исполнителя/проверяющего. Но полный список сотрудников аккаунта
+  // нужен только тому, кто назначает: остальным отдаём имена ровно тех людей,
+  // что уже стоят в видимых актах.
+  const referencedStaffIds = Array.from(
+    new Set(
+      result.rows
+        .flatMap((row) => [row.assigned_to, row.reviewer_id])
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
   const [{ data: venuesForFilter }, { data: storesForFilter }, staff] = await Promise.all([
     asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name").order("name"),
     asLooseDb(supabase).from<StoreOption[]>("stores").select("id, title").eq("account_id", accountId).order("title"),
-    loadStaff(accountId as string),
+    loadStaff(accountId as string, canManage ? undefined : referencedStaffIds),
   ]);
 
   return (
@@ -189,7 +197,20 @@ export default async function InventoryDocumentsPage({
 
 // ─── Staff loader ────────────────────────────────────────────────────────────
 
-async function loadStaff(accountId: string): Promise<AssigneeOption[]> {
+/**
+ * Справочник «id → ФИО» для колонок «Исполнитель» и «Проверяющий».
+ *
+ * `restrictToIds` — режим для тех, кто назначать не может: отдаём имена ТОЛЬКО
+ * тех людей, что уже стоят в видимых актах. Полный список сотрудников аккаунта
+ * такому пользователю не нужен, а раньше страница отдавала его целиком —
+ * без права people.view_staff и без venue-скоупа, то есть любой, кто дошёл до
+ * списка актов, получал кадровый справочник всего аккаунта.
+ */
+async function loadStaff(
+  accountId: string,
+  restrictToIds?: string[],
+): Promise<AssigneeOption[]> {
+  if (restrictToIds && restrictToIds.length === 0) return [];
   const admin = asLooseDb(createAdminClient());
 
   const [{ data: venuesRaw }, { data: accountRow }] = await Promise.all([
@@ -224,8 +245,9 @@ async function loadStaff(accountId: string): Promise<AssigneeOption[]> {
   }
 
   const staffById = new Map<string, AssigneeOption>();
+  const allowed = restrictToIds ? new Set(restrictToIds) : null;
   const ownerId = accountRow?.owner_id ?? null;
-  if (ownerId) {
+  if (ownerId && (!allowed || allowed.has(ownerId))) {
     const { data: ownerProfile } = await admin
       .from<ProfileRow>("profiles")
       .select("first_name, last_name")
@@ -238,6 +260,7 @@ async function loadStaff(accountId: string): Promise<AssigneeOption[]> {
   }
 
   for (const row of memberships ?? []) {
+    if (allowed && !allowed.has(row.user_id)) continue;
     if (!staffById.has(row.user_id)) {
       staffById.set(row.user_id, { id: row.user_id, name: staffName(row) });
     }

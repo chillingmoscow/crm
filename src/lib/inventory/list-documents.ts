@@ -246,6 +246,11 @@ export async function listInventoryDocuments(
           { shortfall: row.qr_shortfall_sum, surplus: row.qr_surplus_sum },
         ]),
       );
+      // Дата фиксации итогов — чтобы список не предлагал удалить акт, который
+      // серверный экшен удалить не даст (снимок переживает распроведение).
+      const snapshotAtByDoc = new Map(
+        (docFlagRows ?? []).map((row) => [row.id, row.results_snapshot_at]),
+      );
       // Акты, по которым показываем СНИМОК итогов, а не живые значения: итоги
       // залочены и снимок снят (миграции 221/227). Для них и строки, и пересорты,
       // и исключения берутся из зафиксированного состояния — иначе в одном итоге
@@ -314,6 +319,7 @@ export async function listInventoryDocuments(
         const qrSums = qrSumsByDoc.get(row.id);
         row.qr_shortfall_sum = qrSums?.shortfall ?? null;
         row.qr_surplus_sum = qrSums?.surplus ?? null;
+        row.results_snapshot_at = snapshotAtByDoc.get(row.id) ?? null;
         // Пока акт не сдан, итогов нет: разница из QR равна минус складскому
         // остатку (факт нулевой), и в колонке «Итоги» это выглядело бы как
         // недостача на сотни тысяч по нетронутому акту.

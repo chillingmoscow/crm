@@ -18,6 +18,7 @@ import {
   Ban,
   Check,
   CheckCircle2,
+  ChevronRight,
   Loader2,
   Lock,
   MessageSquare,
@@ -660,6 +661,11 @@ export function InventoryResultsTable({
     );
   };
 
+  // Какое обоснование раскрыто. Одно за раз: карточка-«очередь» должна
+  // оставаться сканируемой.
+  const [openReasonKey, setOpenReasonKey] = useState<string | null>(null);
+  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+
   // История (props) + ИИ (по кнопке), дедуп по ключу.
   const displayedSuggestions = useMemo(() => {
     const byKey = new Map<string, InventoryResortSuggestion>();
@@ -754,39 +760,50 @@ export function InventoryResultsTable({
         return (
           <div className="flex flex-col gap-1" data-row-interactive>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={flagged}
-              disabled={!canRecount || adjustLocked || isPending}
-              onClick={() =>
-                runAction(
-                  () => setRecountFlag({ documentId, itemId: item.id, needsRecount: !flagged }),
-                  flagged ? "Пометка пересчёта снята" : "Строка отмечена на пересчёт",
-                )
-              }
-              className={cn(
-                "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
-                flagged
-                  ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
-                  : "border-border bg-muted/40 hover:bg-muted",
-                !canRecount || adjustLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-              )}
-              title={
-                flagged
+            <Tooltip delayDuration={450}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={flagged}
+                  aria-label={
+                    flagged ? "Снять пометку пересчёта" : "Отправить строку на пересчёт"
+                  }
+                  disabled={!canRecount || adjustLocked || isPending}
+                  onClick={() =>
+                    runAction(
+                      () => setRecountFlag({ documentId, itemId: item.id, needsRecount: !flagged }),
+                      flagged ? "Пометка пересчёта снята" : "Строка отмечена на пересчёт",
+                    )
+                  }
+                  className={cn(
+                    "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
+                    flagged
+                      ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
+                      : "border-border bg-muted/40 hover:bg-muted",
+                    !canRecount || adjustLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-4 w-4 rounded-full bg-background shadow transition-transform",
+                      flagged ? "translate-x-5" : "translate-x-1",
+                    )}
+                  />
+                </button>
+              </TooltipTrigger>
+              {/* Наша подсказка вместо нативного title: тот рисуется средствами
+                  ОС, выглядит инородно и появляется с секундной задержкой. Текст
+                  тоже переписан — «threshold заведения» ничего не объясняло
+                  человеку, который этот порог задаёт в карточке заведения. */}
+              <TooltipContent sideOffset={6} className="max-w-[260px]">
+                {flagged
                   ? auto
-                    ? "Автоматически отмечено по threshold заведения. Кликните, чтобы снять."
-                    : "Ручная пометка. Кликните, чтобы снять."
-                  : "Кликните, чтобы отметить строку на пересчёт."
-              }
-            >
-              <span
-                className={cn(
-                  "h-4 w-4 rounded-full bg-background shadow transition-transform",
-                  flagged ? "translate-x-5" : "translate-x-1",
-                )}
-              />
-            </button>
+                    ? "Отмечено автоматически: расхождение больше порога, заданного для заведения. Нажмите, чтобы снять."
+                    : "Отметил проверяющий. Нажмите, чтобы снять."
+                  : "Нажмите, чтобы отправить строку на пересчёт."}
+              </TooltipContent>
+            </Tooltip>
             {flagged && auto ? <span className="text-[11px] text-muted-foreground">Авто</span> : null}
           </div>
           {wasRecounted ? (
@@ -1449,33 +1466,105 @@ export function InventoryResultsTable({
           {aiSuggestionsEnabled ? <Badge variant="outline">AI</Badge> : <Badge variant="secondary">История</Badge>}
         </div>
         {displayedSuggestions.length > 0 ? (
-        <div className="grid gap-2">
-            {displayedSuggestions.map((suggestion) => (
-              <div key={suggestion.key} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-medium">{suggestion.title}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {suggestion.source === "ai" ? "AI" : "История"} · {suggestion.reason} · уверенность {Math.round(suggestion.confidence * 100)}%
-                  </div>
-                </div>
-                {canAdjust ? (
-                  <div className="flex gap-2">
-                    <Button type="button" size="sm" variant="outline" disabled={adjustLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
-                      Скрыть
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={adjustLocked || isPending}
-                      onClick={() => createResort(suggestion.itemIds, suggestion.reason, suggestion.source, suggestion.confidence)}
+        <div className="grid gap-1.5">
+            {displayedSuggestions.map((suggestion) => {
+              // Строка фактов вместо прозы: числа, ради которых предложение и
+              // читают, вынесены отдельными полями. Считаем по itemIds из уже
+              // загруженных строк акта — обе ветки (история и ИИ) отдают
+              // только текстовое обоснование, а цифры лежат здесь.
+              const parts = suggestion.itemIds
+                .map((id) => itemById.get(id))
+                .filter((row): row is InventoryDocumentResultItem => Boolean(row));
+              const surplus = parts.filter((row) => (row.difference_amount ?? 0) > 0);
+              const shortage = parts.filter((row) => (row.difference_amount ?? 0) < 0);
+              const groupName = parts.find((row) => row.group_name)?.group_name ?? null;
+              const percent = Math.round(suggestion.confidence * 100);
+              const reasonOpen = openReasonKey === suggestion.key;
+              return (
+                <div key={suggestion.key} className="flex gap-3 rounded-md border p-3">
+                  {/* Уверенность — слева и шкалой: её сравнивают между
+                      предложениями, а взглядом по левому краю это делается
+                      за один проход. Раньше процент стоял в конце длинной
+                      серой строки, разной длины у каждой карточки. */}
+                  <div className="flex w-14 shrink-0 flex-col gap-1 pt-0.5">
+                    <div
+                      className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                      role="meter"
+                      aria-valuenow={percent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label="Уверенность предложения"
                     >
-                      Применить
-                    </Button>
+                      <div className="h-full rounded-full bg-brand" style={{ width: `${percent}%` }} />
+                    </div>
+                    <span className="text-xs font-medium tabular-nums">{percent}%</span>
+                    <span className="text-[11px] leading-tight text-muted-foreground">
+                      {suggestion.source === "ai" ? "ИИ" : "История"}
+                    </span>
                   </div>
-                ) : null}
-              </div>
-            ))}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">{suggestion.title}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      {surplus.map((row) => (
+                        <span key={`s-${row.id}`} className={cn("tabular-nums", signedAmountClass(row.difference_amount))}>
+                          +{formatQuantity(Math.abs(Number(row.difference_amount ?? 0)), row.measure_unit_name)}
+                        </span>
+                      ))}
+                      {surplus.length > 0 && shortage.length > 0 ? (
+                        <span className="text-muted-foreground">·</span>
+                      ) : null}
+                      {shortage.map((row) => (
+                        <span key={`d-${row.id}`} className={cn("tabular-nums", signedAmountClass(row.difference_amount))}>
+                          {formatQuantity(row.difference_amount, row.measure_unit_name)}
+                        </span>
+                      ))}
+                      {groupName ? (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-muted-foreground">{groupName}</span>
+                        </>
+                      ) : null}
+                    </div>
+                    {/* Обоснование сворачиваем: у истории это одна строка, у ИИ
+                        — три, и в развёрнутом виде оно распирало карточку так,
+                        что список предложений переставал читаться списком. */}
+                    <button
+                      type="button"
+                      onClick={() => setOpenReasonKey(reasonOpen ? null : suggestion.key)}
+                      aria-expanded={reasonOpen}
+                      className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      <ChevronRight className={cn("h-3 w-3 transition-transform", reasonOpen && "rotate-90")} />
+                      Почему
+                    </button>
+                    {reasonOpen ? (
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{suggestion.reason}</p>
+                    ) : null}
+                  </div>
+
+                  {canAdjust ? (
+                    <div className="flex shrink-0 items-start gap-2">
+                      <Button type="button" size="sm" variant="ghost" disabled={adjustLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
+                        Скрыть
+                      </Button>
+                      {/* Иерархия действий без заливки: предложений бывает до
+                          восьми, и восемь brand-кнопок подряд превращаются в
+                          стену. outline против ghost её задаёт достаточно. */}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={adjustLocked || isPending}
+                        onClick={() => createResort(suggestion.itemIds, suggestion.reason, suggestion.source, suggestion.confidence)}
+                      >
+                        Применить
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
         </div>
         ) : (
           // Карточка рендерится при aiLoading и пустом списке — показываем

@@ -88,6 +88,9 @@ export type DocumentListRow = {
   /** F6: проведённый акт переоткрывали для правки итогов. Не из RPC —
       дозагружается в list-documents.ts (как управленческие тоталы). */
   results_reopened_after_processed?: boolean;
+  /** Дата фиксации итогов. Не из RPC — дозагружается в list-documents.ts.
+      Нужна, чтобы не предлагать удаление акта, который удалить нельзя. */
+  results_snapshot_at?: string | null;
   /** Не null → это акт пересчёта, вынесенный из другого акта (миграция 223). */
   recount_of_document_id?: string | null;
   /** Суммы самого Quick Resto (миграция 225). Не из RPC — дозагружаются в

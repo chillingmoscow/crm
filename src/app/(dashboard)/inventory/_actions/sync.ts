@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { resolveQrUnprocessedAt, resolveStatusAfterSync } from "@/lib/inventory/act-status";
+import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import {
   listDishes,
   listIngredientTreeItems,
@@ -304,7 +305,14 @@ export async function syncQuickRestoInventory(input?: {
             title: storeTitle(store),
             store_code: text(store.storeCode),
             description: text(store.description),
-            local_venue_id: existingStore?.local_venue_id ?? defaultVenueId,
+            // Привязку к заведению ставим только новому складу: у
+            // существующего ключа в payload нет вовсе, и колонка не попадает
+            // в DO UPDATE SET. Так переживает синхронизацию ручное
+            // «Не привязан» из справочника складов.
+            ...storeVenueBindingPatch({
+              storeExists: Boolean(existingStore?.id),
+              defaultVenueId,
+            }),
             raw_payload: store,
             synced_at: syncedAt,
           },

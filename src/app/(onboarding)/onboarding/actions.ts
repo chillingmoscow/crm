@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { resolveDefaultVenueId } from "@/lib/inventory/default-venue";
+import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import {
   asObject,
   groupName,
@@ -782,7 +783,11 @@ async function syncQuickRestoInventoryCatalog(params: {
             title: storeTitle(store),
             store_code: text(store.storeCode),
             description: text(store.description),
-            local_venue_id: existingStore?.local_venue_id ?? defaultVenueId,
+            // См. боевую синхронизацию: колонку трогаем только у нового склада.
+            ...storeVenueBindingPatch({
+              storeExists: Boolean(existingStore?.id),
+              defaultVenueId,
+            }),
             raw_payload: store,
             synced_at: syncedAt,
           },

@@ -19,6 +19,7 @@ type StoreRow = {
 type VenueRow = {
   id: string;
   name: string;
+  archived_at: string | null;
 };
 
 export function StoresClient({
@@ -32,6 +33,21 @@ export function StoresClient({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // Архивное заведение выбрать нельзя: резолвер привязки его тоже обходит
+  // (src/lib/inventory/default-venue.ts), и предлагать то, что автоматика
+  // считает нерабочим, — значит вести пользователя в тупик.
+  const activeVenues = venues.filter((venue) => !venue.archived_at);
+  const venueById = new Map(venues.map((venue) => [venue.id, venue]));
+
+  // Но если склад УЖЕ привязан к архивному, показываем его в списке этого
+  // склада: убрать вариант молча — значит показать «Не привязан» там, где
+  // привязка есть.
+  const optionsFor = (currentVenueId: string | null) => {
+    const current = currentVenueId ? venueById.get(currentVenueId) : null;
+    if (!current || !current.archived_at) return activeVenues;
+    return [...activeVenues, current];
+  };
 
   const updateVenue = (storeId: string, venueId: string) => {
     startTransition(async () => {
@@ -78,9 +94,10 @@ export function StoresClient({
                 onChange={(event) => updateVenue(store.id, event.target.value)}
               >
                 <option value="">Не привязан</option>
-                {venues.map((venue) => (
+                {optionsFor(store.local_venue_id).map((venue) => (
                   <option key={venue.id} value={venue.id}>
                     {venue.name}
+                    {venue.archived_at ? " (в архиве)" : ""}
                   </option>
                 ))}
               </select>

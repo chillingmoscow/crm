@@ -44,7 +44,6 @@ export const DOCUMENT_STATUSES = [
   "recount_pending",
   "processed",
   "results_blocked",
-  "sync_error",
 ] as const;
 
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];

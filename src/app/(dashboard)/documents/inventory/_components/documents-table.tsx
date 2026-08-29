@@ -367,7 +367,7 @@ export function DocumentsTable({
   // Кнопка показывается, только если ДЕЙСТВИЕ применимо ко ВСЕМ выделенным
   // актам (иначе скрыта — никакого частичного применения):
   //  - «Исполнитель» — строже: лочится уже на проверке/пересчёте отдан;
-  //  - «Проверяющий» / «Удалить» — лишь на проведённых / sync_error.
+  //  - «Проверяющий» / «Удалить» — лишь на проведённых.
   const canBulkAssignee =
     selectedRowsList.length > 0 &&
     selectedRowsList.every((row) => getAssigneeLockReason(row.status) === null);

@@ -26,8 +26,8 @@ export type AssigneeOption = {
  * Inline-выбор ответственного в строке акта.
  * - Если можно менять (lockReason=null): назначен → бейдж с инициалами +
  *   ФИО, click раскрывает Select. Не назначен → ghost-кнопка «Назначить».
- * - Если менять нельзя (lockReason передан, статусы `processed` /
- *   `sync_error` — см. documents-table.tsx → getAssignLockReason): бейдж
+ * - Если менять нельзя (lockReason передан, статус `processed` — см.
+ *   documents-table.tsx → getAssignLockReason): бейдж
  *   становится ссылкой на страницу сотрудника (`?from=inventory`, чтобы
  *   хлебная крошка вернула в список актов).
  */

@@ -512,10 +512,10 @@ begin
      v_account, 'qr-doc-5', 'ИНВ-0005',
      now() - interval '3 days', v_store, 'assigned', v_owner,
      'Контроль остатков мяса перед поставкой'),
-    -- Ошибка синхронизации (демонстрация bad-state badge).
+    -- Итоги требуют проверки (демонстрация bad-state badge).
     ('55555555-5555-0000-0000-000000000006'::uuid,
      v_account, 'qr-doc-6', 'ИНВ-0006',
-     now() - interval '7 days', v_store, 'sync_error', null,
+     now() - interval '7 days', v_store, 'results_blocked', v_owner,
      null),
     -- Длинный акт (20 позиций) с итогами — для проверки sticky-шапки/скролла.
     ('55555555-5555-0000-0000-000000000007'::uuid,
@@ -543,7 +543,7 @@ begin
     -- ИНВ-0005: назначен, ещё не считали → факт NULL.
     (v_account, '55555555-5555-0000-0000-000000000005'::uuid, 'd5-1', v_p_beef, 'Говядина (вырезка)', null, 18.0, null),
     (v_account, '55555555-5555-0000-0000-000000000005'::uuid, 'd5-2', v_p_chk,  'Куриное филе',       null, 27.4, null),
-    -- ИНВ-0006: sync_error, не считали → факт NULL.
+    -- ИНВ-0006: результаты без построчных сумм → факт NULL.
     (v_account, '55555555-5555-0000-0000-000000000006'::uuid, 'd6-1', v_p_milk, 'Молоко 3.2%',        null, 56.0, null)
   on conflict (document_id, external_item_id) do nothing;
 

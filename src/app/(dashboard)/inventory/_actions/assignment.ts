@@ -104,7 +104,7 @@ export async function assignInventoryReviewer(input: {
     }
     if (!before) return { error: "Акт не найден" };
 
-    // Инвариант: проверяющего нельзя менять у проведённого / sync_error акта.
+    // Инвариант: проверяющего нельзя менять у проведённого акта.
     const reviewerLock = getReviewerLockReason(before.status);
     if (reviewerLock) return { error: reviewerLock };
 
@@ -333,7 +333,7 @@ export async function bulkAssignInventoryDocuments(input: {
     const docs = docsRaw ?? [];
     // Пропускаем залоченные по статусу для соответствующей роли (исполнитель
     // строже: лок уже на ready_for_review/results_blocked; проверяющий — лишь
-    // на processed/sync_error) и no-op'ы, где значение уже стоит — чтобы не
+    // на processed) и no-op'ы, где значение уже стоит — чтобы не
     // плодить лог/уведомления на пустом месте (как single-action).
     const eligible = docs.filter((d) => {
       const lock =

@@ -1,6 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 
-import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+import {
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { getDeleteLockReason } from "@/lib/inventory/act-status";
 
 import { getCachedInventoryDocumentBasics } from "../layout";
@@ -12,13 +16,12 @@ export default async function InventoryDocumentDangerPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const [user, accountId, { data: canManage }] = await Promise.all([
+  const [user, accountId, can] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+    getCachedPermissionChecker(),
   ]);
+  const canManage = can("inventory.manage_documents");
 
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");

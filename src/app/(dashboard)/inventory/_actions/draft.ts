@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { isInventoryFormLocked } from "@/lib/inventory/act-status";
 import { pluralRu } from "@/lib/format/plural";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
@@ -60,10 +61,9 @@ export async function markInventoryDraftStarted(input: {
   // может тот, кто реально заполняет акт — менеджер или назначенный
   // исполнитель с правом «Заполнять назначенные акты». Иначе любой
   // авторизованный пользователь мог бы дёрнуть action напрямую.
-  const [{ data: canManage }, { data: canFill }] = await Promise.all([
-    ctx.supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-    ctx.supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-  ]);
+  const can = await getCachedPermissionChecker();
+  const canManage = can("inventory.manage_documents");
+  const canFill = can("inventory.fill_assigned_documents");
 
   const admin = asLooseDb(createAdminClient());
   try {
@@ -80,7 +80,7 @@ export async function markInventoryDraftStarted(input: {
     if (!document?.id) return { error: null };
     if (document.archived_at) return { error: null };
     if (document.assigned_to !== ctx.user.id) return { error: null };
-    const allowed = Boolean(canManage) || Boolean(canFill);
+    const allowed = canManage || canFill;
     if (!allowed) return { error: null };
     if (document.status !== "assigned" && document.status !== "synced") return { error: null };
 
@@ -121,10 +121,9 @@ export async function submitInventoryDocumentDraft(input: {
     return { resultsHasLineAmounts: false, error: ctx.error };
   }
 
-  const [{ data: canManage }, { data: canFill }] = await Promise.all([
-    ctx.supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-    ctx.supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-  ]);
+  const can = await getCachedPermissionChecker();
+  const canManage = can("inventory.manage_documents");
+  const canFill = can("inventory.fill_assigned_documents");
 
   const admin = asLooseDb(createAdminClient());
   try {
@@ -162,7 +161,7 @@ export async function submitInventoryDocumentDraft(input: {
   if (document.archived_at) {
     return { resultsHasLineAmounts: false, error: "Этот акт удалён в Quick Resto и недоступен." };
   }
-  const allowed = Boolean(canManage) || (Boolean(canFill) && document.assigned_to === ctx.user.id);
+  const allowed = canManage || (canFill && document.assigned_to === ctx.user.id);
   if (!allowed) return { resultsHasLineAmounts: false, error: "Недостаточно прав" };
   if (document.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };
   // Заполнение закрыто, когда акт уже ушёл на проверку / финализирован /

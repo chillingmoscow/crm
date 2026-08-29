@@ -36,7 +36,6 @@ const MATRIX: Array<{
   // Пересчёт: форма снова открыта исполнителю, итоги закрыты для ревьюера.
   { status: "recount_pending", formLocked: false, adjustLocked: true },
   { status: "processed", formLocked: true, adjustLocked: true },
-  { status: "sync_error", formLocked: true, adjustLocked: false },
 ];
 
 for (const row of MATRIX) {
@@ -137,7 +136,6 @@ const ASSIGNEE_LOCK: Array<{ status: InventoryActStatus; locked: boolean }> = [
   { status: "ready_for_review", locked: true },
   { status: "results_blocked", locked: true },
   { status: "processed", locked: true },
-  { status: "sync_error", locked: true },
 ];
 
 for (const row of ASSIGNEE_LOCK) {
@@ -153,7 +151,7 @@ test("замок исполнителя совпадает с замком фо�
 });
 
 // Замок проверяющего: менять можно вплоть до проведения; лок только на
-// processed / sync_error.
+// processed.
 const REVIEWER_LOCK: Array<{ status: InventoryActStatus; locked: boolean }> = [
   { status: "synced", locked: false },
   { status: "assigned", locked: false },
@@ -162,7 +160,6 @@ const REVIEWER_LOCK: Array<{ status: InventoryActStatus; locked: boolean }> = [
   { status: "ready_for_review", locked: false },
   { status: "results_blocked", locked: false },
   { status: "processed", locked: true },
-  { status: "sync_error", locked: true },
 ];
 
 for (const row of REVIEWER_LOCK) {
@@ -246,7 +243,7 @@ test("итоги есть только после сдачи акта", () => {
   // Пока акт у исполнителя, «разница» из QR — это минус весь складской остаток
   // (факт нулевой), а не итог инвентаризации. Прод: СВ350 показывал −478 193,6 ₽
   // по акту, который ещё не считали.
-  for (const status of ["synced", "assigned", "in_progress", "sync_error"] as const) {
+  for (const status of ["synced", "assigned", "in_progress"] as const) {
     assert.equal(hasCountedResults(status), false);
   }
 });

@@ -12,7 +12,7 @@
  * Жизненный цикл (см. docs/handbook/inventory/statuses.md):
  *   synced → assigned → in_progress → ready_for_review | results_blocked
  *     → recount_pending → ready_for_review (петля пересчёта)
- *   Боковое: sync_error. Накладки-замки: results_finalized_at (финализация),
+ *   Накладки-замки: results_finalized_at (финализация),
  *   processed + results_reopened_at (проведён в QR / разблокирован).
  */
 
@@ -23,8 +23,7 @@ export type InventoryActStatus =
   | "ready_for_review"
   | "recount_pending"
   | "processed"
-  | "results_blocked"
-  | "sync_error";
+  | "results_blocked";
 
 /** Минимум полей акта, достаточный для вычисления замков итогов. */
 export type InventoryActLockInput = {
@@ -84,7 +83,7 @@ export function getInventoryResultAdjustLockReason(doc: InventoryActLockInput): 
  *
  * Итоги существуют только после того, как исполнитель сдал акт: ready_for_review
  * (в т.ч. вернувшись с пересчёта), results_blocked, recount_pending и processed.
- * До сдачи (synced / assigned / in_progress) и при sync_error никаких итогов нет —
+ * До сдачи (synced / assigned / in_progress) никаких итогов нет —
  * ни на странице, ни в суммах списка.
  */
 export function hasCountedResults(status: string): boolean {
@@ -210,7 +209,6 @@ export const FORM_LOCKED_STATUSES: readonly string[] = [
   "ready_for_review",
   "results_blocked",
   "processed",
-  "sync_error",
 ];
 
 /**
@@ -227,15 +225,13 @@ export function isInventoryFormLocked(status: string, finalized: boolean): boole
  * тот, кто заполняет/пересчитывает, поэтому менять его можно ровно тогда,
  * когда форма редактируема (synced / assigned / in_progress / recount_pending).
  * Как только акт ушёл на проверку (ready_for_review / results_blocked) или
- * проведён / sync_error — менять нельзя: счёт уже сделан конкретным человеком,
+ * проведён — менять нельзя: счёт уже сделан конкретным человеком,
  * подмена ломает атрибуцию. Чтобы передать другому — «Отправить на пересчёт»
  * (акт → recount_pending, исполнитель снова доступен).
  * Возвращает причину блокировки (для tooltip) или null, если менять можно.
  */
 export function getAssigneeLockReason(status: string): string | null {
   if (status === "processed") return "Акт проведён — исполнителя менять нельзя";
-  if (status === "sync_error")
-    return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
   if (status === "ready_for_review" || status === "results_blocked")
     return "Акт на проверке — исполнителя менять нельзя. Чтобы передать другому, отправьте акт на пересчёт";
   return null;
@@ -261,12 +257,10 @@ export function nextStatusAfterAssign(currentStatus: string, assignedTo: string 
 /**
  * Можно ли менять ПРОВЕРЯЮЩЕГО акта. Проверяющего назначают/меняют вплоть до
  * проведения акта: его можно задать заранее и переназначить во время проверки
- * итогов. Заблокировано только когда акт проведён / sync_error.
+ * итогов. Заблокировано только когда акт проведён.
  * Возвращает причину блокировки (для tooltip) или null.
  */
 export function getReviewerLockReason(status: string): string | null {
   if (status === "processed") return "Акт проведён — проверяющего менять нельзя";
-  if (status === "sync_error")
-    return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
   return null;
 }

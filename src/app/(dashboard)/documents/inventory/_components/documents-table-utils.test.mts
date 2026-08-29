@@ -42,7 +42,7 @@ test("getDocHref: акт ещё не сдан → форма, даже если 
   // разница там равна минус складскому остатку. Уводить на «Итоги» нельзя —
   // там заглушка «Подсчёт ещё не завершён».
   const base = { id: "d1", processed: false, results_has_line_amounts: true, status: "assigned" };
-  for (const status of ["synced", "assigned", "in_progress", "sync_error"] as const) {
+  for (const status of ["synced", "assigned", "in_progress"] as const) {
     assert.equal(getDocHref({ ...base, status }, true), "/documents/inventory/d1");
   }
 });

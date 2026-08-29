@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { VenueDetailPage } from "./_components/venue-detail-page";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { listAuditEvents } from "@/lib/audit/list";
@@ -77,12 +80,12 @@ export default async function VenueDetailServerPage({
 
   // Журнал. Префетч первой страницы, если у юзера есть org.view_audit.
   // + Permission на hard-delete + impact-счётчики для danger zone.
-  const [{ data: canViewAudit }, { data: canHardDelete }, archiveImpact] =
-    await Promise.all([
-      supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
-      supabase.rpc("has_permission", { permission_code: "org.delete_venue" }),
-      getVenueArchiveImpact(venueId),
-    ]);
+  const [can, archiveImpact] = await Promise.all([
+    getCachedPermissionChecker(),
+    getVenueArchiveImpact(venueId),
+  ]);
+  const canViewAudit = can("org.view_audit");
+  const canHardDelete = can("org.delete_venue");
 
   const auditResult = canViewAudit
     ? await listAuditEvents({ entityType: "venue", entityId: venueId })

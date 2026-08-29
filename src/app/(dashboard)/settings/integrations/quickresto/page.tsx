@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { QuickRestoIntegrationFlow } from "./_components/quickresto-integration-flow";
 import { NomenclatureProbeButton } from "./_components/nomenclature-probe-button";
 
@@ -27,10 +31,11 @@ export default async function QuickRestoIntegrationPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: accountId }, { data: allowed }] = await Promise.all([
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("has_permission", { permission_code: "settings.manage_integrations" }),
+  const [accountId, can] = await Promise.all([
+    getCachedActiveAccountId(),
+    getCachedPermissionChecker(),
   ]);
+  const allowed = can("settings.manage_integrations");
 
   if (!accountId || !allowed) redirect("/dashboard");
 

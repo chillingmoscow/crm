@@ -2,7 +2,10 @@
 
 import { randomUUID } from "node:crypto";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
 import { revalidatePath } from "next/cache";
@@ -529,8 +532,8 @@ export async function setImportedStaffEmailAndInvite(data: {
     return { error: "Укажите корректный email", invitation: null };
   }
 
-  const [{ data: canManage }, { data: targetMembership }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "people.invite_staff" }),
+  const [can, { data: targetMembership }] = await Promise.all([
+    getCachedPermissionChecker(),
     supabase
       .from("user_venue_roles")
       .select("id")
@@ -540,6 +543,7 @@ export async function setImportedStaffEmailAndInvite(data: {
       .eq("status", "active")
       .maybeSingle(),
   ]);
+  const canManage = can("people.invite_staff");
 
   if (!canManage || !targetMembership) {
     return { error: "Недостаточно прав для отправки приглашения", invitation: null };
@@ -686,8 +690,8 @@ export async function inviteImportedStaffByCurrentEmail(data: {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Не авторизован", invitation: null };
 
-  const [{ data: canManage }, { data: targetMembership }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "people.invite_staff" }),
+  const [can, { data: targetMembership }] = await Promise.all([
+    getCachedPermissionChecker(),
     supabase
       .from("user_venue_roles")
       .select("id")
@@ -697,6 +701,7 @@ export async function inviteImportedStaffByCurrentEmail(data: {
       .eq("status", "active")
       .maybeSingle(),
   ]);
+  const canManage = can("people.invite_staff");
 
   if (!canManage || !targetMembership) {
     return { error: "Недостаточно прав для отправки приглашения", invitation: null };

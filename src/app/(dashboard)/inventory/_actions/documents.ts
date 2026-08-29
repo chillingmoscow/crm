@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import {
   actionErrorMessage,
   assertDocumentVisible,
@@ -156,14 +157,11 @@ export async function updateInventoryDocumentNote(input: {
     if (!document?.id) throw new Error("Акт не найден");
     if (document.archived_at) throw new Error("Этот акт удалён в Quick Resto и недоступен для изменений.");
 
-    const [{ data: canManage }, { data: canRecount }] = await Promise.all([
-      ctx.supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-      ctx.supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
-    ]);
+    const can = await getCachedPermissionChecker();
     const canEdit =
-      Boolean(canManage) ||
+      can("inventory.manage_documents") ||
       document.assigned_to === ctx.user.id ||
-      (document.reviewer_id === ctx.user.id && Boolean(canRecount));
+      (document.reviewer_id === ctx.user.id && can("inventory.recount_documents"));
     if (!canEdit) throw new Error("Недостаточно прав для редактирования комментария");
 
     const note = text(input.note);

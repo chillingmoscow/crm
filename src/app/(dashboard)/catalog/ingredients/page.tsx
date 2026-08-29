@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 import { PackageSearch } from "lucide-react";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
@@ -84,14 +88,15 @@ export default async function InventoryProductsPage({
   const supabase = await createClient();
   const db = asLooseDb(supabase);
 
-  const [{ data: canView }, { data: canManage }, { data: canSync }, { data: accountId }, { data: activeVenueId }, amountRoundingScale] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "inventory.view_products" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_products" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
-    supabase.rpc("get_active_account_id"),
+  const [can, accountId, { data: activeVenueId }, amountRoundingScale] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
     supabase.rpc("get_active_venue_id"),
     getActiveAccountAmountRoundingScale(),
   ]);
+  const canView = can("inventory.view_products");
+  const canManage = can("inventory.manage_products");
+  const canSync = can("inventory.sync_quickresto");
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
 
@@ -217,7 +222,7 @@ export default async function InventoryProductsPage({
             Дерево групп и ингредиентов Quick Resto с локальными фото для инвентаризации.
           </p>
         </div>
-        <InventorySyncButton canSync={Boolean(canSync)} lastSyncedAt={lastSyncedAt} />
+        <InventorySyncButton canSync={canSync} lastSyncedAt={lastSyncedAt} />
       </div>
 
       {multiVenue ? (
@@ -238,7 +243,7 @@ export default async function InventoryProductsPage({
       <InventoryCatalogTree
         groups={catalogGroups}
         products={catalogProducts}
-        canManage={Boolean(canManage)}
+        canManage={canManage}
         amountRoundingScale={amountRoundingScale}
       />
     </div>

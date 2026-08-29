@@ -7,7 +7,12 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { calculateResortAllocation } from "@/lib/inventory/results";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
@@ -259,13 +264,11 @@ export function actionErrorMessage(error: unknown, fallback: string) {
 
 export async function getActiveContext(permission?: string | string[]) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
   if (!user) return { supabase, user: null, accountId: null, venueId: null, error: "Не авторизован" };
 
-  const { data: accountId, error: accountError } = await supabase.rpc("get_active_account_id");
-  if (accountError || !accountId) {
+  const accountId = await getCachedActiveAccountId();
+  if (!accountId) {
     return { supabase, user, accountId: null, venueId: null, error: "Не удалось определить активный аккаунт" };
   }
 
@@ -276,24 +279,25 @@ export async function getActiveContext(permission?: string | string[]) {
   // специфичное право (adjust/finalize/recount/comment). См. аудит прав F2/F3.
   if (permission) {
     const codes = Array.isArray(permission) ? permission : [permission];
-    for (const code of codes) {
-      const { data: allowed } = await supabase.rpc("has_permission", { permission_code: code });
-      if (!allowed) {
-        return {
-          supabase,
-          user,
-          accountId: accountId as string,
-          venueId: (venueId as string | null) ?? null,
-          error: "Недостаточно прав",
-        };
-      }
+    // Раньше здесь был цикл с отдельным rpc("has_permission") на каждый код —
+    // то есть последовательные round-trip'ы ради двух булевых значений. Теперь
+    // весь набор прав приезжает один раз (см. getCachedPermissionChecker).
+    const can = await getCachedPermissionChecker();
+    if (codes.some((code) => !can(code))) {
+      return {
+        supabase,
+        user,
+        accountId,
+        venueId: (venueId as string | null) ?? null,
+        error: "Недостаточно прав",
+      };
     }
   }
 
   return {
     supabase,
     user,
-    accountId: accountId as string,
+    accountId,
     venueId: (venueId as string | null) ?? null,
     error: null,
   };

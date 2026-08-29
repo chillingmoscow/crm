@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedActiveAccountId, getCachedPermissionChecker } from "@/lib/supabase/server";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
   getIngredientDetail,
@@ -17,15 +17,13 @@ export default async function IngredientDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const [{ data: canView }, { data: canManage }, { data: accountId }, amountRoundingScale] =
-    await Promise.all([
-      supabase.rpc("has_permission", { permission_code: "inventory.view_products" }),
-      supabase.rpc("has_permission", { permission_code: "inventory.manage_products" }),
-      supabase.rpc("get_active_account_id"),
-      getActiveAccountAmountRoundingScale(),
-    ]);
+  const [can, accountId, amountRoundingScale] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
+    getActiveAccountAmountRoundingScale(),
+  ]);
+  const canView = can("inventory.view_products");
+  const canManage = can("inventory.manage_products");
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
 
@@ -46,7 +44,7 @@ export default async function IngredientDetailPage({
       usage={usage}
       journal={journal}
       counterparties={counterparties}
-      canManage={Boolean(canManage)}
+      canManage={canManage}
       amountRoundingScale={amountRoundingScale}
     />
   );

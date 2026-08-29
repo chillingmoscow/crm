@@ -4,6 +4,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import {
   calculateResortAllocation,
   type InventoryResortAllocationItem
@@ -356,9 +357,7 @@ export async function getAiResortSuggestions(input: {
       requireOpen: true,
     });
 
-    const { data: canUseAi } = await ctx.supabase.rpc("has_permission", {
-      permission_code: "inventory.use_ai_suggestions",
-    });
+    const canUseAi = (await getCachedPermissionChecker())("inventory.use_ai_suggestions");
     const { data: account } = await admin
       .from<{ inventory_ai_suggestions_enabled: boolean | null }>("accounts")
       .select("inventory_ai_suggestions_enabled")

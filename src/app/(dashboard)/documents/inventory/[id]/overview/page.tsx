@@ -1,7 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+import {
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 
 import { getCachedStoreTitle } from "../layout";
@@ -41,14 +45,13 @@ export default async function InventoryDocumentOverviewPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const [user, accountId, { data: canManage }, { data: canRecount }] = await Promise.all([
+  const [user, accountId, can] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
+    getCachedPermissionChecker(),
   ]);
+  const canManage = can("inventory.manage_documents");
+  const canRecount = can("inventory.recount_documents");
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");
 

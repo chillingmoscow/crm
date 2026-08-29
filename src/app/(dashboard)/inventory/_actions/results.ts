@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { getInventoryResultRefreshLockReason, hasCountedResults } from "@/lib/inventory/act-status";
 import {
   compareResultLines,
@@ -50,11 +51,10 @@ export async function refreshInventoryDocumentResults(input: {
     return { processed: false, resultsHasLineAmounts: false, error: ctx.error };
   }
 
-  const [{ data: canViewResults }, { data: canViewDocuments }, { data: canFill }] = await Promise.all([
-    ctx.supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
-    ctx.supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-    ctx.supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-  ]);
+  const can = await getCachedPermissionChecker();
+  const canViewResults = can("inventory.view_results");
+  const canViewDocuments = can("inventory.view_documents");
+  const canFill = can("inventory.fill_assigned_documents");
   if (!canViewResults) {
     return { processed: false, resultsHasLineAmounts: false, error: "Недостаточно прав" };
   }
@@ -87,7 +87,7 @@ export async function refreshInventoryDocumentResults(input: {
   if (!document?.id) {
     return { processed: false, resultsHasLineAmounts: false, error: "Акт не найден" };
   }
-  const allowed = Boolean(canViewDocuments) || (Boolean(canFill) && document.assigned_to === ctx.user.id);
+  const allowed = canViewDocuments || (canFill && document.assigned_to === ctx.user.id);
   if (!allowed) {
     return { processed: false, resultsHasLineAmounts: false, error: "Недостаточно прав" };
   }

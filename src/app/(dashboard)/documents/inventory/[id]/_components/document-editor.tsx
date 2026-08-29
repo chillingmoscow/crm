@@ -41,10 +41,7 @@ import {
 } from "@/components/ui/tooltip";
 import { TableControls, TableControlPin } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
-import {
-  markInventoryDraftStarted,
-  submitInventoryDocumentDraft,
-} from "@/app/(dashboard)/inventory/actions";
+import { markInventoryDraftStarted, submitInventoryDocumentDraft } from "@/app/(dashboard)/inventory/_actions/draft";
 import { isInventoryFormLocked } from "@/lib/inventory/act-status";
 
 type EditorDocument = {

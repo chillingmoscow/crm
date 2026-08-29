@@ -6,7 +6,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { syncQuickRestoInventory } from "../actions";
+import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 
 type Props = {
   canSync: boolean;

@@ -43,7 +43,7 @@ import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge
 import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
 import { cn } from "@/lib/utils";
-import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/actions";
+import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/_actions/documents";
 import type { DocumentListRow } from "@/lib/inventory/list-documents-shared";
 
 import {

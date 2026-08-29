@@ -58,11 +58,9 @@ import {
   type ManagedTableColumn,
   type TableStateColumn,
 } from "@/components/shared/table";
-import {
-  bulkAssignInventoryDocuments,
-  bulkDeleteInventoryDocuments,
-  syncQuickRestoInventory,
-} from "@/app/(dashboard)/inventory/actions";
+import { bulkAssignInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/assignment";
+import { bulkDeleteInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/documents";
+import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 import {

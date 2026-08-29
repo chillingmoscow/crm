@@ -742,6 +742,74 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   });
 }
 
+/**
+ * Размер пачки для батч-записи каталога.
+ *
+ * Синхронизация писала по строке за запрос: на каталоге в 3000 ингредиентов это
+ * 9000 round-trip'ов (сам ингредиент + ссылка + снимок), то есть минуты работы
+ * и столько же занятых соединений пула. Пишем пачками; размер выбран с оглядкой
+ * на то, что в каждой строке лежит raw_payload — целый JSON позиции из Quick
+ * Resto, и слать их десятками тысяч одним запросом не стоит.
+ */
+const CATALOG_BATCH_SIZE = 200;
+
+/** Разрезать массив на пачки по CATALOG_BATCH_SIZE. */
+export function catalogChunks<T>(rows: T[], size = CATALOG_BATCH_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks;
+}
+
+/** Батч-версия upsertExternalLink: одна запись на пачку вместо одной на строку. */
+export async function upsertExternalLinks(input: {
+  admin: LooseDb;
+  accountId: string;
+  entityType: string;
+  localTable: string;
+  rows: Array<{ externalId: string; localId: string }>;
+}) {
+  for (const chunk of catalogChunks(input.rows)) {
+    const { error } = await input.admin.from("external_entity_links").upsert(
+      chunk.map((row) => ({
+        account_id: input.accountId,
+        provider: "quickresto",
+        entity_type: input.entityType,
+        external_id: row.externalId,
+        local_table: input.localTable,
+        local_id: row.localId,
+      })),
+      { onConflict: "account_id,provider,entity_type,external_id" },
+    );
+    if (error) throw new Error(error.message);
+  }
+}
+
+/** Батч-версия saveSnapshot. */
+export async function saveSnapshots(input: {
+  admin: LooseDb;
+  accountId: string;
+  entityType: string;
+  rows: Array<{ externalId: string; payload: unknown }>;
+}) {
+  const fetchedAt = new Date().toISOString();
+  for (const chunk of catalogChunks(input.rows)) {
+    const { error } = await input.admin.from("integration_external_snapshots").upsert(
+      chunk.map((row) => ({
+        account_id: input.accountId,
+        provider: "quickresto",
+        entity_type: input.entityType,
+        external_id: row.externalId,
+        payload: row.payload,
+        fetched_at: fetchedAt,
+      })),
+      { onConflict: "account_id,provider,entity_type,external_id" },
+    );
+    if (error) throw new Error(error.message);
+  }
+}
+
 export async function upsertExternalLink(input: {
   admin: LooseDb;
   accountId: string;
@@ -1499,6 +1567,49 @@ export async function writeInventoryResultEvent(input: {
     p_entity_type: "inventory_document",
     p_entity_id: input.documentId,
     p_details: payload as never,
+  });
+}
+
+/**
+ * Батч-запись событий журнала для массовых действий.
+ *
+ * writeInternalResultEvent на строку давал два round-trip'а на позицию (запись
+ * в журнал + log_audit), то есть 600 запросов на акт в 300 позиций. Здесь
+ * журнальные записи уходят одним insert'ом, а в аудит пишется ОДНА строка на всё
+ * действие — он и так документного уровня (entity = inventory_document), и
+ * триста одинаковых записей про один акт были чистым шумом.
+ */
+export async function writeInventoryResultEvents(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  admin: LooseDb;
+  accountId: string;
+  userId: string;
+  documentId: string;
+  eventType: string;
+  events: Array<{ documentItemId?: string | null; resortId?: string | null; message: string; payload?: Record<string, unknown> }>;
+  auditPayload?: Record<string, unknown>;
+}) {
+  if (input.events.length === 0) return;
+  for (const chunk of catalogChunks(input.events)) {
+    const { error } = await input.admin.from("inventory_result_events").insert(
+      chunk.map((event) => ({
+        account_id: input.accountId,
+        document_id: input.documentId,
+        document_item_id: event.documentItemId ?? null,
+        resort_id: event.resortId ?? null,
+        event_type: input.eventType,
+        message: event.message,
+        payload: event.payload ?? {},
+        created_by: input.userId,
+      })),
+    );
+    if (error) throw new Error(error.message);
+  }
+  await input.supabase.rpc("log_audit", {
+    p_action_code: `inventory.${input.eventType}`,
+    p_entity_type: "inventory_document",
+    p_entity_id: input.documentId,
+    p_details: (input.auditPayload ?? { bulk: true, count: input.events.length }) as never,
   });
 }
 

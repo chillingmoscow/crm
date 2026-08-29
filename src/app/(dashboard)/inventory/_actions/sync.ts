@@ -290,12 +290,23 @@ export async function syncQuickRestoInventory(input?: {
 
     for (const store of stores) {
       if (typeof store.id !== "number") continue;
-      const { data: existingStore } = await admin
-        .from<{ id: string; local_venue_id: string | null }>("stores")
-        .select("id, local_venue_id")
+      // Спрашиваем ровно одно: есть ли уже такой склад. От ответа зависит,
+      // трогаем ли привязку к заведению.
+      //
+      // Ошибку чтения разбираем обязательно: клиент отдаёт сбой как
+      // { data: null, error }, без исключения, и «не смогли прочитать» было бы
+      // неотличимо от «склада нет». Тогда существующий склад приняли бы за
+      // новый и переписали бы привязку — ровно тот баг, который здесь чинится,
+      // только через отказ чтения.
+      const { data: existingStore, error: existingStoreError } = await admin
+        .from<{ id: string }>("stores")
+        .select("id")
         .eq("account_id", ctx.accountId)
         .eq("external_id", String(store.id))
         .maybeSingle();
+      if (existingStoreError) {
+        throw new Error(`Не удалось прочитать склад ${store.id}: ${existingStoreError.message}`);
+      }
       const { data, error } = await admin
         .from<{ id: string }>("stores")
         .upsert(

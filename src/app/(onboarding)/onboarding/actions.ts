@@ -766,13 +766,21 @@ async function syncQuickRestoInventoryCatalog(params: {
     for (const store of stores) {
       if (typeof store.id !== "number") continue;
 
-      const { data: existing } = await params.adminDb
+      // Нужен только факт существования склада — от него зависит, трогаем ли
+      // привязку. Ошибку чтения разбираем: { data: null, error } без
+      // исключения сделал бы существующий склад «новым», и синхронизация
+      // переписала бы ручную привязку.
+      const { data: existing, error: existingError } = await params.adminDb
         .from("stores")
-        .select("id, local_venue_id")
+        .select("id")
         .eq("account_id", params.accountId)
         .eq("external_id", String(store.id))
         .maybeSingle();
-      const existingStore = existing as { id?: string; local_venue_id?: string | null } | null;
+      if (existingError) {
+        params.summary.errors.push(`Store ${store.id}: ${existingError.message}`);
+        continue;
+      }
+      const existingStore = existing as { id?: string } | null;
 
       const { data: row, error } = await params.adminDb
         .from("stores")

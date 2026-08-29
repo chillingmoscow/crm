@@ -46,6 +46,7 @@ type ActorRow = {
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 2000;
 
+
 export default async function InventoryDocumentHistoryPage({
   params,
   searchParams,
@@ -79,17 +80,34 @@ export default async function InventoryDocumentHistoryPage({
   // RLS-проверку доступа к акту делает layout (canSeeAct). Здесь читаем
   // события через admin (как и остальной inventory-flow).
   const admin = asLooseDb(createAdminClient());
-  // Просим на одну запись больше лимита: так узнаём, есть ли ещё, не платя за
-  // отдельный count.
-  const { data: eventsRaw } = await admin
-    .from<EventRow[]>("inventory_result_events")
-    .select("id, event_type, message, created_at, created_by, document_item_id, payload")
-    .eq("account_id", accountId)
-    .eq("document_id", document.id)
-    .order("created_at", { ascending: false })
-    .limit(limit + 1);
+  // Читаем окнами, а не одним `limit`. PostgREST режет ответ на `max_rows`
+  // (локально 1000, supabase/config.toml), поэтому запрос на 2700 записей вернул
+  // бы 1000, `page.length > limit` оказалось бы ложью, ссылка «показать больше»
+  // исчезла бы — и события за тысячей стали бы недостижимы. Окно заведомо
+  // меньше любого разумного потолка.
+  //
+  // Сортировка с добивкой по id: у событий, записанных одной транзакцией,
+  // created_at совпадает, и без второго ключа порядок между окнами мог бы
+  // разъехаться — запись то повторилась бы, то потерялась.
+  const WINDOW = 500;
+  const page: EventRow[] = [];
+  for (let from = 0; page.length <= limit; from += WINDOW) {
+    const { data, error } = await admin
+      .from<EventRow[]>("inventory_result_events")
+      .select("id, event_type, message, created_at, created_by, document_item_id, payload")
+      .eq("account_id", accountId)
+      .eq("document_id", document.id)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + WINDOW - 1);
+    if (error) throw new Error(`Не удалось прочитать журнал акта: ${error.message}`);
+    const chunk = data ?? [];
+    page.push(...chunk);
+    if (chunk.length < WINDOW) break;
+  }
 
-  const page = eventsRaw ?? [];
+  // Просим на одну запись больше лимита: так узнаём, есть ли продолжение, не
+  // платя за отдельный count.
   const hasMore = page.length > limit;
   const events = hasMore ? page.slice(0, limit) : page;
   const actorIds = Array.from(
@@ -144,7 +162,13 @@ export default async function InventoryDocumentHistoryPage({
       <InventoryResultJournal
         events={eventsWithActors}
         itemNames={itemNameById}
-        moreHref={hasMore ? `/documents/inventory/${id}/history?limit=${limit * 3}` : null}
+                // На потолке ссылку прячем: limit*3 всё равно схлопнется обратно в
+        // MAX_LIMIT, и «показать больше» перестало бы что-либо менять.
+        moreHref={
+          hasMore && limit < MAX_LIMIT
+            ? `/documents/inventory/${id}/history?limit=${Math.min(MAX_LIMIT, limit * 3)}`
+            : null
+        }
       />
     </div>
   );

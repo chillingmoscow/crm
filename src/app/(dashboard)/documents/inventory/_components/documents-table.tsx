@@ -38,7 +38,11 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
+import {
+  formatSignedMoney,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 import {
@@ -57,6 +61,8 @@ import {
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
+  ResizableTableHead,
+  useMultiSort,
 } from "@/components/shared/table";
 import {
   bulkAssignInventoryDocuments,
@@ -81,14 +87,13 @@ import {
 } from "@/lib/inventory/list-documents-shared";
 import {
   COLUMN_TO_FIELD,
+  DOCUMENT_SORT_CODEC,
   SORT_FIELD_LABEL,
-  combineSort,
   formatDate,
   getDocHref,
   sortToDirection,
   sortToField,
   toIsoDate,
-  type SortField,
   type StoreOption,
   type VenueOption,
 } from "./documents-table-utils";
@@ -566,20 +571,14 @@ export function DocumentsTable({
             );
           }
           const net = (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
-          const sign = net > 0 ? "+" : net < 0 ? "−" : "";
           return (
             <span
               className={cn(
                 "text-sm font-medium tabular-nums",
-                net > 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : net < 0
-                    ? "text-rose-600 dark:text-rose-400"
-                    : "text-muted-foreground",
+              signedAmountClass(net),
               )}
             >
-              {sign}
-              {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
+              {formatSignedMoney(net, "RUB", amountRoundingScale)}
             </span>
           );
         },
@@ -598,21 +597,15 @@ export function DocumentsTable({
             return <span className="text-sm text-muted-foreground">—</span>;
           }
           const net = Math.abs(row.qr_surplus_sum ?? 0) - Math.abs(row.qr_shortfall_sum ?? 0);
-          const sign = net > 0 ? "+" : net < 0 ? "−" : "";
           return (
             <span
               className={cn(
                 "text-sm font-medium tabular-nums",
-                net > 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : net < 0
-                    ? "text-rose-600 dark:text-rose-400"
-                    : "text-muted-foreground",
+              signedAmountClass(net),
               )}
               title="Сумма, которую записал в акт сам Quick Resto при проведении. Исключения из итогов и пересорты на неё не влияют."
             >
-              {sign}
-              {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
+              {formatSignedMoney(net, "RUB", amountRoundingScale)}
             </span>
           );
         },
@@ -880,49 +873,12 @@ export function DocumentsTable({
   // Так у каждой колонки 3 состояния: пусто → ↑ → ↓ → пусто.
   // Для Date (дефолт сервера = date_desc) пустое состояние = «дефолт»:
   // URL чист, шапка без индикатора, сервер сам сортирует по дате desc.
-  const cycleSort = (field: SortField) => {
-    const index = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
-    if (index < 0) {
-      setSortKeys([...sortFromUrl, combineSort(field, "asc")]);
-      return;
-    }
-    const currentMode = sortFromUrl[index];
-    if (sortToDirection(currentMode) === "asc") {
-      const next = sortFromUrl.slice();
-      next[index] = combineSort(field, "desc");
-      setSortKeys(next);
-      return;
-    }
-    setSortKeys(sortFromUrl.filter((_, i) => i !== index));
-  };
-
-  const headerIndicator = (columnId: string) => {
-    const field = COLUMN_TO_FIELD[columnId];
-    if (!field) return null;
-    const idx = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
-    if (idx < 0) return null;
-    const dir = sortToDirection(sortFromUrl[idx]);
-    return (
-      <span className="inline-flex items-center gap-0.5">
-        {dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-        {sortFromUrl.length > 1 ? (
-          <span className="text-[10px] tabular-nums">{idx + 1}</span>
-        ) : null}
-      </span>
-    );
-  };
-
-  const sortableHeaderIds = useMemo(() => new Set(Object.keys(COLUMN_TO_FIELD)), []);
-
-  // aria-sort для сортируемых заголовков: ascending/descending для активной
-  // колонки, none — для сортируемой, но неотсортированной.
-  const headerAriaSort = (columnId: string): "ascending" | "descending" | "none" | undefined => {
-    const field = COLUMN_TO_FIELD[columnId];
-    if (!field) return undefined;
-    const idx = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
-    if (idx < 0) return "none";
-    return sortToDirection(sortFromUrl[idx]) === "asc" ? "ascending" : "descending";
-  };
+  const { cycleSort, headerIndicator, headerAriaSort, sortableColumnIds } = useMultiSort({
+    sorts: sortFromUrl,
+    onChange: setSortKeys,
+    columnToField: COLUMN_TO_FIELD,
+    codec: DOCUMENT_SORT_CODEC,
+  });
 
   const total = initial.total;
   const showingFrom = total === 0 ? 0 : (pageFromUrl - 1) * pageSizeFromUrl + 1;
@@ -1176,69 +1132,15 @@ export function DocumentsTable({
             suppressHydrationWarning
             className="w-full table-fixed"
           >
-            <colgroup>
-              {table.getVisibleLeafColumns().map((column) => (
-                <col
-                  key={column.id}
-                  // Проценты от ширины таблицы (нормализация) → колонки всегда
-                  // вписаны без горизонтального скролла; ресайз меняет доли.
-                  style={{ width: `${(column.getSize() / table.getTotalSize()) * 100}%` }}
-                />
-              ))}
-            </colgroup>
-            <thead className="group/header sticky top-0 z-20 bg-muted [&_th]:bg-muted text-xs font-medium tracking-wide text-muted-foreground">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id} className="h-11">
-                  {headerGroup.headers.map((header) => {
-                    const isActions = header.column.id === "actions";
-                    const isSortable = sortableHeaderIds.has(header.column.id);
-                    return (
-                      <th
-                        key={header.id}
-                        aria-sort={headerAriaSort(header.column.id)}
-                        className={cn(
-                          "relative border-b px-3 py-3",
-                          isActions ? "text-right" : "text-left",
-                        )}
-                      >
-                        {isActions ? null : isSortable ? (
-                          <button
-                            type="button"
-                            className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
-                            onClick={() => cycleSort(COLUMN_TO_FIELD[header.column.id])}
-                          >
-                            <span className="truncate">
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                            </span>
-                            {headerIndicator(header.column.id)}
-                          </button>
-                        ) : (
-                          <span className="truncate">
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                          </span>
-                        )}
-                        {header.column.getCanResize() && !isActions ? (
-                          <div
-                            onMouseDown={header.getResizeHandler()}
-                            onTouchStart={header.getResizeHandler()}
-                            className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
-                          >
-                            <span
-                              className={cn(
-                                "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
-                                "group-hover/header:opacity-80",
-                                "hover:w-1 hover:bg-brand hover:opacity-100",
-                                header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
-                              )}
-                            />
-                          </div>
-                        ) : null}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
+            <ResizableTableHead
+              table={table}
+              isControlColumn={(columnId) => columnId === "actions"}
+              isRightAligned={(columnId) => columnId === "actions"}
+              sortableColumnIds={sortableColumnIds}
+              onSort={(columnId) => cycleSort(COLUMN_TO_FIELD[columnId])}
+              headerIndicator={headerIndicator}
+              headerAriaSort={headerAriaSort}
+            />
             <tbody>
               {table.getRowModel().rows.length === 0 ? (
                 <tr>
@@ -1336,15 +1238,10 @@ export function DocumentsTable({
               <span
                 className={cn(
                   "whitespace-nowrap text-sm font-medium tabular-nums",
-                  selectedNet > 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : selectedNet < 0
-                      ? "text-rose-600 dark:text-rose-400"
-                      : "text-muted-foreground",
+              signedAmountClass(selectedNet),
                 )}
               >
-                Итог: {selectedNet > 0 ? "+" : selectedNet < 0 ? "−" : ""}
-                {formatMoney(Math.abs(selectedNet), "RUB", amountRoundingScale)}
+                Итог: {formatSignedMoney(selectedNet, "RUB", amountRoundingScale)}
               </span>
             )
           }

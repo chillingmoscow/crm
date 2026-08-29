@@ -70,8 +70,11 @@
 4. **Пастельные tint'ы (`#dbeafe`, `#FEE2E2`) в dark не работают.** Замена:
    полупрозрачный brand (`bg-brand/20` ≈ `#3b82f633`) или dark-saturated
    (`#1e3a8a`).
-5. **Семантические income/expense пары** (когда понадобятся):
-   green `#16a34a` → `#22c55e`, red `#dc2626` → `#f87171`. Минимум AA-контраст.
+5. **Семантические income/expense пары**: green `#16a34a` → `#22c55e`,
+   red `#dc2626` → `#f87171`. Минимум AA-контраст. Классы отдаёт
+   `signedAmountClass` (`src/lib/format/amount.ts`) — единственный источник
+   для знаковых сумм (транзакции, итоги акта, список актов). Emerald/rose из
+   палитры — про аватары и бейджи, не про суммы.
 6. **Тени слабее.** Низкая непрозрачность (`#000000_26%`) + чуть больший блюр.
    Граница карточек должна быть видна через `border` (`#ffffff1a`).
 
@@ -200,6 +203,8 @@ import { Button } from "@/components/ui/button";
 | `<TableControlPin>` | `src/components/shared/table/table-control-pin.tsx` | **Единственный** валидный «пин» под list-таблицами (фильтр/сортировка/поиск). Pill 32px, `rounded-full`. Active = `bg-brand/10 text-brand` + закрывающий ×. Inactive = `bg-muted/60 text-muted-foreground` + chevron. **Не копируй стили вручную — переиспользуй компонент**, иначе расходится визуал между разделами. |
 | `<TablePageHeader>` / `<TableControls>` / `<TablePagination>` | `src/components/shared/table/*.tsx` | Слоты для list-страницы. Кнопка фильтров `active`-подсветка должна включаться **только когда выбран хотя бы один фильтр** (открытое состояние pin-row — отдельный visual-bit, не подсветка кнопки). |
 | `<TableBulkBar>` | `src/components/shared/table/table-bulk-bar.tsx` | Панель массовых действий по выделению. Floating-вариант — **фиксированной ширины** (`w-[calc(100%-2rem)]` до `max-w-3xl`), чтобы не «прыгал» при появлении/исчезновении кнопок. Слева крестик ✕ (снять выбор) рядом со счётчиком «Выбрано N», опциональный слот `summary` (например, сумма по выделению), `actions` — кнопки справа. Отдельной кнопки «Снять выбор» нет — только ✕. |
+| `<ResizableTableHead>` | `src/components/shared/table/table-head.tsx` | `<colgroup>` + `<thead>` списочной таблицы на TanStack: доли ширины (проценты от `getTotalSize()`, не пиксели — колонки всегда вписаны без горизонтального скролла), липкая шапка, сортировка по клику, ручка ресайза. Сам `<table>` остаётся у вызывающего: у разных списков свои `className` и `min-width`. **Не копируй каркас** — он уже был скопирован в две таблицы и начал расходиться. |
+| `useMultiSort` | `src/components/shared/table/use-multi-sort.tsx` | Мультисортировка: цикл клика по заголовку asc → desc → выключено, новое поле в конец, номерок приоритета у стрелки, `aria-sort`. Режимы (`date_desc`, `empty_first`, …) у каждой таблицы свои — передаются кодеком `SortCodec`. |
 | `<InventoryStatusBadge>` | `src/components/shared/inventory-status-badge.tsx` | Шаблон цветовой палитры status-бейджа с dark-вариантами (см. ниже §Dark-bdarz badges). В узком столбце усекается многоточием (`max-w-full overflow-hidden` + внутренний `truncate`), сохраняя форму чипа. Если для другого модуля нужен похожий бейдж — копируй структуру файла, а не выдумывай палитру с нуля. |
 
 И базовые shadcn-примитивы: `Button`, `Input`, `Label`, `Textarea`, `Select`,
@@ -458,6 +463,8 @@ entity-detail / form-страниц. Используется страницам
   запрещён даже если фактически активен только один sort — он расходится
   визуально с list-страницами. Прецедент: round-3 PR #398, пришлось
   переделывать.
+
+  Механика цикла и индикатора — в `useMultiSort` (`src/components/shared/table/use-multi-sort.tsx`), заново не писать.
 
   **Сорт хранится массивом** combined field+direction значений
   (`name_asc`, `group_desc`, …). Дефолт = пустой массив. Порядок элементов

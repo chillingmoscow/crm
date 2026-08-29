@@ -1699,3 +1699,39 @@ export function revalidateInventoryResultPages(documentId: string) {
   revalidatePath(`/documents/inventory/${documentId}`);
   revalidatePath(`/documents/inventory/${documentId}/results`);
 }
+
+/**
+ * Best-effort уведомление по событию акта инвентаризации. Зеркалит паттерн
+ * assignInventoryDocument: ошибка не валит основной flow. Не шлёт самому
+ * себе и при пустом получателе (например, reviewer_id ещё не задан).
+ */
+export async function notifyInventoryDocumentEvent(input: {
+  admin: LooseDb;
+  recipientId: string | null;
+  actorId: string | null;
+  venueId: string | null;
+  documentId: string;
+  type: string;
+  title: string;
+  body: string;
+}): Promise<void> {
+  if (!input.recipientId) return;
+  if (input.recipientId === input.actorId) return;
+  try {
+    const { error } = await input.admin.from("notifications").insert({
+      user_id: input.recipientId,
+      venue_id: input.venueId,
+      type: input.type,
+      category: "inventory",
+      title: input.title,
+      body: input.body,
+      link: `/documents/inventory/${input.documentId}`,
+      actor_user_id: input.actorId,
+      entity_type: "inventory_document",
+      entity_id: input.documentId,
+    });
+    if (error) console.error(`[inventory notify ${input.type}] insert error:`, error);
+  } catch (e) {
+    console.error(`[inventory notify ${input.type}] threw:`, e);
+  }
+}

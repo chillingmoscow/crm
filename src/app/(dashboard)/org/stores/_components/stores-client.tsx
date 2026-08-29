@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { updateInventoryStoreVenue } from "@/app/(dashboard)/inventory/actions";
+import { updateInventoryStoreVenue } from "@/app/(dashboard)/inventory/_actions/documents";
 
 type StoreRow = {
   id: string;

@@ -13,7 +13,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { assignInventoryDocument } from "@/app/(dashboard)/inventory/actions";
+import { assignInventoryDocument } from "@/app/(dashboard)/inventory/_actions/assignment";
 
 const UNASSIGNED_VALUE = "__unassigned__";
 

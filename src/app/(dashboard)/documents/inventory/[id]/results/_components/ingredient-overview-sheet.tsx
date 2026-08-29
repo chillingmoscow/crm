@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
-import { getInventoryIngredientOverview } from "@/app/(dashboard)/inventory/actions";
+import { getInventoryIngredientOverview } from "@/app/(dashboard)/inventory/_actions/catalog";
 import type { IngredientDetail } from "@/lib/inventory/ingredients";
 
 /**

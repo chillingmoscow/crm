@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { updateInventoryDocumentNote } from "@/app/(dashboard)/inventory/actions";
+import { updateInventoryDocumentNote } from "@/app/(dashboard)/inventory/_actions/documents";
 
 type Props = {
   documentId: string;

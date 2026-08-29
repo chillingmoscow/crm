@@ -16,7 +16,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/actions";
+import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/_actions/documents";
 
 /**
  * Содержимое таба «Опасная зона» страницы акта. Сейчас здесь

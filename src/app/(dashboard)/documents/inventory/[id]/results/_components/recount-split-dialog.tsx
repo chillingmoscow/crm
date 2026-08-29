@@ -19,10 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { pluralRu } from "@/lib/format/plural";
-import {
-  returnDocumentForRecount,
-  splitDocumentForRecount,
-} from "@/app/(dashboard)/inventory/actions";
+import { returnDocumentForRecount, splitDocumentForRecount } from "@/app/(dashboard)/inventory/_actions/recount";
 import { defaultRecountMode, isoDay, recountGapDays } from "@/lib/inventory/recount-split";
 
 type Props = {

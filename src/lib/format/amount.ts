@@ -65,3 +65,20 @@ export function formatSignedMoney(
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
   return `${sign}${formatMoney(Math.abs(value), currency, scale)}`;
 }
+
+/**
+ * Цвет знаковой суммы: излишек зелёный, недостача красная, ноль нейтральный.
+ *
+ * Семантическая пара income/expense из дизайн-системы (§Dark mode, п.5):
+ * green `#16a34a` → `#22c55e`, red `#dc2626` → `#f87171`. Тот же класс уже
+ * стоит на суммах транзакций в финансах — чтобы «плюс» на двух экранах не был
+ * двух разных зелёных.
+ *
+ * Emerald/rose из палитры — про аватары и бейджи, не про суммы.
+ */
+export function signedAmountClass(value: number | null | undefined): string {
+  const amount = Number(value ?? 0);
+  if (amount > 0) return "text-green-700 dark:text-green-400";
+  if (amount < 0) return "text-red-700 dark:text-red-400";
+  return "text-muted-foreground";
+}

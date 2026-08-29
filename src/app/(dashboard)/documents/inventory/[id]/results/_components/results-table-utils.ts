@@ -65,6 +65,15 @@ export function combineResultSort(field: ResultSortField, direction: "asc" | "de
   return direction === "asc" ? "sum_asc" : "sum_desc";
 }
 
+// Три функции выше как один кодек для useMultiSort. Тип не аннотируем
+// намеренно: файл покрыт node:test, а раннер не резолвит alias из
+// tsconfig — импорт типа тут лишний, совместимость проверит вызов.
+export const RESULT_SORT_CODEC = {
+  toField: resultSortToField,
+  toDirection: resultSortToDirection,
+  combine: combineResultSort,
+};
+
 // size — числовой default-размер для TanStack columnSizing (px). Не строки:
 // раньше был `width: "minmax(180px,.7fr)"` → parseInt давал NaN → 120px и
 // «Комментарий» схлопывался (Codex P2 #401).
@@ -122,11 +131,4 @@ export function isOpenDifference(
     );
   }
   return hasDifference(item);
-}
-
-export function differenceClass(value: number | null | undefined) {
-  const numericValue = Number(value ?? 0);
-  if (numericValue < 0) return "text-red-700 dark:text-red-400";
-  if (numericValue > 0) return "text-green-700 dark:text-green-400";
-  return "text-muted-foreground";
 }

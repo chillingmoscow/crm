@@ -41,7 +41,11 @@ import {
 import { TableRowMenu } from "@/components/shared/table";
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
-import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
+import {
+  formatSignedMoney,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
 import { cn } from "@/lib/utils";
 import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/_actions/documents";
 import type { DocumentListRow } from "@/lib/inventory/list-documents-shared";
@@ -390,20 +394,14 @@ export function MobileCard({
                 return <span className="text-muted-foreground">—</span>;
               }
               const net = (doc.surplus_sum ?? 0) - (doc.shortfall_sum ?? 0);
-              const sign = net > 0 ? "+" : net < 0 ? "−" : "";
               return (
                 <span
                   className={cn(
                     "font-medium tabular-nums",
-                    net > 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : net < 0
-                        ? "text-rose-600 dark:text-rose-400"
-                        : "text-muted-foreground",
+              signedAmountClass(net),
                   )}
                 >
-                  {sign}
-                  {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
+                  {formatSignedMoney(net, "RUB", amountRoundingScale)}
                 </span>
               );
             })()}

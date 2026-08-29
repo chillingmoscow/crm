@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   combineResultSort,
-  differenceClass,
   hasDifference,
   isOpenDifference,
   resultSortToDirection,
@@ -72,11 +71,4 @@ test("isOpenDifference: исключённые и полностью покры�
   assert.equal(isOpenDifference({ difference_amount: -5, difference_sum: -500 }, undefined), true);
   // без разницы → не открытое
   assert.equal(isOpenDifference({ difference_amount: 0, difference_sum: 0 }, undefined), false);
-});
-
-test("differenceClass по знаку", () => {
-  assert.match(differenceClass(-1), /red/);
-  assert.match(differenceClass(1), /green/);
-  assert.equal(differenceClass(0), "text-muted-foreground");
-  assert.equal(differenceClass(null), "text-muted-foreground");
 });

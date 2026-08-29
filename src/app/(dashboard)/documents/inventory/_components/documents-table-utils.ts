@@ -43,6 +43,15 @@ export function combineSort(field: SortField, direction: "asc" | "desc"): Docume
   return direction === "asc" ? "number_asc" : "number_desc";
 }
 
+// Три функции выше как один кодек для useMultiSort. Тип не аннотируем
+// намеренно: файл покрыт node:test, а раннер не резолвит alias из
+// tsconfig — импорт типа тут лишний, совместимость проверит вызов.
+export const DOCUMENT_SORT_CODEC = {
+  toField: sortToField,
+  toDirection: sortToDirection,
+  combine: combineSort,
+};
+
 // canViewResults обязателен: пользователи с inventory.fill_assigned_documents,
 // но без inventory.view_results, не могут открыть /results — их редиректнёт
 // прочь. Поэтому для них всегда возвращаем форму, даже у проведённых актов.

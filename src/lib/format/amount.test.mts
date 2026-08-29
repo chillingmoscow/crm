@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatQuantityAmount } from "./amount.ts";
+import { formatQuantityAmount, signedAmountClass } from "./amount.ts";
 
 test("formatQuantityAmount: целые без дробной части (штуки)", () => {
   assert.equal(formatQuantityAmount(93, 1), "93");
@@ -32,4 +32,15 @@ test("formatQuantityAmount: невалидные значения → тире",
   assert.equal(formatQuantityAmount(null, 1), "—");
   assert.equal(formatQuantityAmount(undefined, 1), "—");
   assert.equal(formatQuantityAmount(Number.NaN, 1), "—");
+});
+
+test("signedAmountClass: одна палитра на списки актов, итоги и финансы", () => {
+  // Семантическая пара income/expense из дизайн-системы. Пин на точные классы,
+  // а не на /green/: список актов раньше красил излишек в emerald, итоги — в
+  // green, и один и тот же «плюс» был двух разных зелёных на соседних экранах.
+  assert.equal(signedAmountClass(1), "text-green-700 dark:text-green-400");
+  assert.equal(signedAmountClass(-1), "text-red-700 dark:text-red-400");
+  assert.equal(signedAmountClass(0), "text-muted-foreground");
+  assert.equal(signedAmountClass(null), "text-muted-foreground");
+  assert.equal(signedAmountClass(undefined), "text-muted-foreground");
 });

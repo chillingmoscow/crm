@@ -44,20 +44,18 @@ import {
 import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 import {
   COLUMN_TO_RESULT_FIELD,
+  RESULT_SORT_CODEC,
   RESULT_COLUMNS,
   RESULT_RECOUNT_LABEL,
   RESULT_SORT_FIELD_LABEL,
   RESULT_STATUS_LABEL,
   RESULTS_TABLE_ID,
-  combineResultSort,
-  differenceClass,
   hasDifference,
   isOpenDifference,
   resultSortToDirection,
   resultSortToField,
   type ResultColumnKey,
   type ResultRecountFilter,
-  type ResultSortField,
   type ResultSortMode,
   type ResultStatusFilter,
 } from "./results-table-utils";
@@ -72,6 +70,7 @@ import {
 import {
   formatMoney,
   formatSignedMoney,
+  signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
 import { pluralRu } from "@/lib/format/plural";
@@ -109,6 +108,8 @@ import {
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
+  ResizableTableHead,
+  useMultiSort,
 } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import { IngredientOverviewSheet } from "./ingredient-overview-sheet";
@@ -623,43 +624,12 @@ export function InventoryResultsTable({
     });
   };
 
-  const cycleSort = (field: ResultSortField) => {
-    const index = sorts.findIndex((mode) => resultSortToField(mode) === field);
-    if (index < 0) {
-      setSorts([...sorts, combineResultSort(field, "asc")]);
-      return;
-    }
-    if (resultSortToDirection(sorts[index]) === "asc") {
-      const next = sorts.slice();
-      next[index] = combineResultSort(field, "desc");
-      setSorts(next);
-      return;
-    }
-    setSorts(sorts.filter((_, i) => i !== index));
-  };
-
-  const headerIndicator = (columnId: string) => {
-    const field = COLUMN_TO_RESULT_FIELD[columnId];
-    if (!field) return null;
-    const idx = sorts.findIndex((mode) => resultSortToField(mode) === field);
-    if (idx < 0) return null;
-    const dir = resultSortToDirection(sorts[idx]);
-    return (
-      <span className="inline-flex items-center gap-0.5">
-        {dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-        {sorts.length > 1 ? <span className="text-[10px] tabular-nums">{idx + 1}</span> : null}
-      </span>
-    );
-  };
-
-  // aria-sort для сортируемых заголовков (ascending/descending/none).
-  const headerAriaSort = (columnId: string): "ascending" | "descending" | "none" | undefined => {
-    const field = COLUMN_TO_RESULT_FIELD[columnId];
-    if (!field) return undefined;
-    const idx = sorts.findIndex((mode) => resultSortToField(mode) === field);
-    if (idx < 0) return "none";
-    return resultSortToDirection(sorts[idx]) === "asc" ? "ascending" : "descending";
-  };
+  const { cycleSort, headerIndicator, headerAriaSort, sortableColumnIds } = useMultiSort({
+    sorts,
+    onChange: setSorts,
+    columnToField: COLUMN_TO_RESULT_FIELD,
+    codec: RESULT_SORT_CODEC,
+  });
 
   const createResort = (itemIds: string[], reason?: string, source: "manual" | "history" | "ai" = "manual", confidence?: number) => {
     runAction(
@@ -743,14 +713,14 @@ export function InventoryResultsTable({
       }
       if (key === "difference") {
         return (
-          <span className={differenceClass(item.difference_amount)}>
+          <span className={signedAmountClass(item.difference_amount)}>
             {formatQuantity(item.difference_amount, item.measure_unit_name)}
           </span>
         );
       }
       if (key === "management") {
         return (
-          <span className={differenceClass(managementSum)}>
+          <span className={signedAmountClass(managementSum)}>
             {formatSignedMoney(managementSum, "RUB", amountRoundingScale)}
           </span>
         );
@@ -1129,7 +1099,6 @@ export function InventoryResultsTable({
       return arrayMove(current, oldIndex, newIndex);
     });
   };
-  const sortableHeaderIds = useMemo(() => new Set(Object.keys(COLUMN_TO_RESULT_FIELD)), []);
 
   if (items.length === 0) {
     return (
@@ -1551,71 +1520,24 @@ export function InventoryResultsTable({
               className="w-full table-fixed md:!min-w-0"
               style={{ minWidth: `${table.getTotalSize()}px` }}
             >
-              <colgroup>
-                {table.getVisibleLeafColumns().map((column) => (
-                  <col
-                    key={column.id}
-                    style={{ width: `${(column.getSize() / table.getTotalSize()) * 100}%` }}
-                  />
-                ))}
-              </colgroup>
-              <thead className="group/header sticky top-0 z-20 bg-muted [&_th]:bg-muted text-xs font-medium tracking-wide text-muted-foreground">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id} className="h-11">
-                    {headerGroup.headers.map((header) => {
-                      const isControl = header.column.id === "select" || header.column.id === "actions";
-                      const isSortable = sortableHeaderIds.has(header.column.id);
-                      return (
-                        <th
-                          key={header.id}
-                          aria-sort={headerAriaSort(header.column.id)}
-                          className={cn("relative border-b px-3 py-3 text-left")}
-                        >
-                          {header.column.id === "select" ? (
-                            <Checkbox
-                              checked={selectAllState}
-                              disabled={selectableItems.length === 0}
-                              onCheckedChange={toggleSelectAll}
-                              aria-label="Выбрать все строки"
-                            />
-                          ) : isControl ? null : isSortable ? (
-                            <button
-                              type="button"
-                              className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
-                              onClick={() => cycleSort(COLUMN_TO_RESULT_FIELD[header.column.id])}
-                            >
-                              <span className="truncate">
-                                {flexRender(header.column.columnDef.header, header.getContext())}
-                              </span>
-                              {headerIndicator(header.column.id)}
-                            </button>
-                          ) : (
-                            <span className="truncate">
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                            </span>
-                          )}
-                          {header.column.getCanResize() && !isControl ? (
-                            <div
-                              onMouseDown={header.getResizeHandler()}
-                              onTouchStart={header.getResizeHandler()}
-                              className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
-                            >
-                              <span
-                                className={cn(
-                                  "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
-                                  "group-hover/header:opacity-80",
-                                  "hover:w-1 hover:bg-brand hover:opacity-100",
-                                  header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
-                                )}
-                              />
-                            </div>
-                          ) : null}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </thead>
+              <ResizableTableHead
+                table={table}
+                isControlColumn={(columnId) => columnId === "select" || columnId === "actions"}
+                sortableColumnIds={sortableColumnIds}
+                onSort={(columnId) => cycleSort(COLUMN_TO_RESULT_FIELD[columnId])}
+                headerIndicator={headerIndicator}
+                headerAriaSort={headerAriaSort}
+                renderControlHeader={(header) =>
+                  header.column.id === "select" ? (
+                    <Checkbox
+                      checked={selectAllState}
+                      disabled={selectableItems.length === 0}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Выбрать все строки"
+                    />
+                  ) : null
+                }
+              />
               <tbody>
                 {table.getRowModel().rows.map((row) => (
                   <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">

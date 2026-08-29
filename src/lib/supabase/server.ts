@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { cache } from "react";
 import type { Database } from "@/types/database";
+import { internalGlobalOptions } from "./internal-url";
 
 export async function createClient() {
   const cookieStore = await cookies();
@@ -10,6 +11,9 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      // Сетевой путь — по внутренней сети, адрес клиента остаётся публичным
+      // (иначе поедут подписанные ссылки на файлы). См. internal-url.ts.
+      global: internalGlobalOptions(),
       cookies: {
         getAll() {
           return cookieStore.getAll();

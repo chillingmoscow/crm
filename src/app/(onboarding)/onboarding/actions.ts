@@ -1638,20 +1638,6 @@ export async function runQuickRestoImport(data: {
 
   try {
     const password = decryptConnectionPassword(connection);
-    if (data.importStores || data.importIngredientGroups || data.importIngredients) {
-      await syncQuickRestoInventoryCatalog({
-        adminClient,
-        adminDb,
-        accountId: data.accountId,
-        userId: user.id,
-        login: connection.login,
-        password,
-        importStores: Boolean(data.importStores),
-        importIngredientGroups: Boolean(data.importIngredientGroups),
-        importIngredients: Boolean(data.importIngredients),
-        summary,
-      });
-    }
 
     const ownerRoleId = await getOwnerRoleId(supabase);
     if (!ownerRoleId) throw new Error("Не найдена системная роль owner");
@@ -1767,6 +1753,32 @@ export async function runQuickRestoImport(data: {
           summary.errors.push(`Venue ${venue.id}: ${ownerRoleError.message}`);
         }
       }
+    }
+
+    // Каталог импортируем ПОСЛЕ заведений, а не до: склады привязываются к
+    // заведению, и резолвер ищет его в том числе по ссылке в
+    // external_entity_links, которую заводит цикл выше. В режиме QuickResto
+    // визард создаёт аккаунт вообще без заведений (createAccountOnly), так что
+    // при старом порядке резолвер не имел ни одного кандидата и все склады
+    // приезжали в «Не распределённые».
+    //
+    // Плата за перестановку: если listTableSchemes не ответит, каталог тоже не
+    // приедет. Это осознанно — импорт каталога длинный, и начинать его ради
+    // складов, которым некуда привязаться, смысла нет. Прогон помечается
+    // failed, повтор идемпотентен.
+    if (data.importStores || data.importIngredientGroups || data.importIngredients) {
+      await syncQuickRestoInventoryCatalog({
+        adminClient,
+        adminDb,
+        accountId: data.accountId,
+        userId: user.id,
+        login: connection.login,
+        password,
+        importStores: Boolean(data.importStores),
+        importIngredientGroups: Boolean(data.importIngredientGroups),
+        importIngredients: Boolean(data.importIngredients),
+        summary,
+      });
     }
 
     if (data.importRoles && selectedRoleIdSet.size > 0) {

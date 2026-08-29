@@ -1,3 +1,4 @@
+import Link from "next/link";
 /* eslint-disable @next/next/no-img-element */
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -140,10 +141,13 @@ function eventItemNames(
 export function InventoryResultJournal({
   events,
   itemNames = {},
+  moreHref = null,
 }: {
   events: InventoryResultJournalEvent[];
   /** id строки акта → название позиции. */
   itemNames?: Record<string, string>;
+  /** Ссылка «показать больше», если journal обрезан лимитом. null — показано всё. */
+  moreHref?: string | null;
 }) {
   if (events.length === 0) {
     return (
@@ -200,6 +204,16 @@ export function InventoryResultJournal({
           </div>
         );
       })}
+      {moreHref ? (
+        <div className="pt-2 text-center">
+          <Link
+            href={moreHref}
+            className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Показать больше событий
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -24,7 +24,6 @@ import {
 import {
   InventoryResultsTable,
   type InventoryDocumentResultItem,
-  type InventoryResultEventRow,
   type InventoryResultResortItemRow,
   type InventoryResultResortRow,
   type InventoryResortSuggestion,
@@ -219,17 +218,18 @@ export default async function InventoryDocumentResultsPage({
       .select("inventory_ai_suggestions_enabled")
       .eq("id", accountId)
       .maybeSingle(),
-    // Журнал акта нужен ровно для одного: списка уже скрытых подсказок. Когда
-    // подсказок нет (акт залочен, проведён или на пересчёте), это была полная
-    // выборка событий вместе с payload-jsonb вхолостую.
+    // Журнал акта нужен ровно для одного: списка уже скрытых подсказок. Раньше
+    // ради него ехал весь журнал акта — все типы событий, шесть колонок,
+    // включая payload-jsonb, — и всё это выбрасывалось, кроме ключей событий
+    // suggestion_dismissed. Фильтруем и в типе события, и в колонках.
     suggestionsEnabled
       ? admin
-          .from<InventoryResultEventRow[]>("inventory_result_events")
-          .select("id, event_type, message, created_at, created_by, payload")
+          .from<Array<{ payload: unknown }>>("inventory_result_events")
+          .select("payload")
           .eq("account_id", accountId)
           .eq("document_id", document.id)
-          .order("created_at", { ascending: false })
-      : Promise.resolve({ data: [] as InventoryResultEventRow[] }),
+          .eq("event_type", "suggestion_dismissed")
+      : Promise.resolve({ data: [] as Array<{ payload: unknown }> }),
   ]);
 
   const itemsBase = itemsRaw ?? [];
@@ -337,11 +337,10 @@ export default async function InventoryDocumentResultsPage({
   );
   // events нужны только для dismissedSuggestionKeys (журнал переехал в
   // layout-табу «Журнал» — ../history).
-  const events = eventsRaw ?? [];
   const aiSuggestionsEnabled = Boolean(accountSettings?.inventory_ai_suggestions_enabled && canUseAiSuggestions);
+  // Фильтр по типу события теперь в запросе, здесь остаётся только достать ключ.
   const dismissedSuggestionKeys = new Set(
-    events
-      .filter((event) => event.event_type === "suggestion_dismissed")
+    (eventsRaw ?? [])
       .map((event) => eventPayload(event.payload).key)
       .filter((key): key is string => typeof key === "string" && key.length > 0),
   );
@@ -351,13 +350,18 @@ export default async function InventoryDocumentResultsPage({
   // блокирующий DeepSeek-запрос из рендера read-only страницы итогов.
   let suggestions: InventoryResortSuggestion[] = [];
   if (suggestionsEnabled) {
+    // Отсечка перенесена в запрос: раньше с базы ехали ВСЕ активные пересорты
+    // аккаунта за всё время, а сотня отбиралась уже в JS — вместе с отбросом
+    // пересортов текущего акта.
     const { data: historyResortsRaw } = await admin
       .from<HistoryResortRow[]>("inventory_result_resorts")
       .select("id, document_id, reason, created_at")
       .eq("account_id", accountId)
       .eq("status", "active")
-      .order("created_at", { ascending: false });
-    const historyResorts = (historyResortsRaw ?? []).filter((resort) => resort.document_id !== document.id).slice(0, 100);
+      .neq("document_id", document.id)
+      .order("created_at", { ascending: false })
+      .limit(100);
+    const historyResorts = historyResortsRaw ?? [];
     const { data: historyItemsRaw } = historyResorts.length > 0
       ? await admin
           .from<HistoryResortItemRow[]>("inventory_result_resort_items")

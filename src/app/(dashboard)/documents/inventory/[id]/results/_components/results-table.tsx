@@ -255,6 +255,60 @@ const QR_TILE_HINT =
 const MANAGEMENT_TILE_HINT =
   "Наша оценка: с учётом исключённых строк и пересортов. Остаётся внутри CRM, в Quick Resto не уходит.";
 
+/**
+ * Уверенность предложения пересорта — полукруглой шкалой.
+ *
+ * Дуга вместо полоски: значение читается по заполненности сектора, а число
+ * стоит внутри неё, а не отдельной строкой ниже. На карточке высотой в три
+ * строки это экономит вертикаль и даёт один якорь для взгляда вместо двух.
+ *
+ * Геометрия в единицах viewBox: полуокружность радиусом 16 от (4,20) до
+ * (36,20). Длина дуги = πr, ею же задаём dasharray/dashoffset — так процент
+ * отображается ровно долей дуги, без тригонометрии.
+ *
+ * Цвета — токенами (stroke-border / stroke-brand), поэтому тёмная тема
+ * получается сама. Дорожка именно border, а не muted: muted (240 5% 96%)
+ * почти неотличим от фона страницы (0 0% 98%), и незаполненная часть дуги
+ * пропадала — по шкале нельзя было понять, 70 это из 100 или из 80.
+ */
+function ConfidenceGauge({ percent }: { percent: number }) {
+  const value = Math.max(0, Math.min(100, Math.round(percent)));
+  const arcLength = Math.PI * 16;
+  const arc = "M 4 20 A 16 16 0 0 1 36 20";
+  return (
+    <svg
+      viewBox="0 0 40 22"
+      className="w-12 overflow-visible"
+      role="meter"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="Уверенность предложения"
+    >
+      <path d={arc} fill="none" strokeWidth="4" strokeLinecap="round" className="stroke-border" />
+      <path
+        d={arc}
+        fill="none"
+        strokeWidth="4"
+        strokeLinecap="round"
+        className="stroke-brand"
+        strokeDasharray={arcLength}
+        strokeDashoffset={arcLength * (1 - value / 100)}
+      />
+      <text
+        x="20"
+        y="20"
+        textAnchor="middle"
+        fontSize="10"
+        className="fill-foreground font-medium"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
+        {value}%
+      </text>
+    </svg>
+  );
+}
+
 function formatQuantity(
   value: number | null | undefined,
   measureUnitName: string | null | undefined,
@@ -1486,18 +1540,8 @@ export function InventoryResultsTable({
                       предложениями, а взглядом по левому краю это делается
                       за один проход. Раньше процент стоял в конце длинной
                       серой строки, разной длины у каждой карточки. */}
-                  <div className="flex w-14 shrink-0 flex-col gap-1 pt-0.5">
-                    <div
-                      className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-                      role="meter"
-                      aria-valuenow={percent}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label="Уверенность предложения"
-                    >
-                      <div className="h-full rounded-full bg-brand" style={{ width: `${percent}%` }} />
-                    </div>
-                    <span className="text-xs font-medium tabular-nums">{percent}%</span>
+                  <div className="flex w-12 shrink-0 flex-col items-center gap-0.5 pt-0.5">
+                    <ConfidenceGauge percent={percent} />
                     <span className="text-[11px] leading-tight text-muted-foreground">
                       {suggestion.source === "ai" ? "ИИ" : "История"}
                     </span>

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import {
   listBankAccountGroups,
@@ -11,12 +11,9 @@ import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import { AccountsList } from "./_components/accounts-list";
 
 export default async function BankAccountsPage() {
-  const supabase = await createClient();
-
-  const [{ data: canView }, { data: canManage }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "finance.view_bank_accounts" }),
-    supabase.rpc("has_permission", { permission_code: "finance.manage_bank_accounts" }),
-  ]);
+  const can = await getCachedPermissionChecker();
+  const canView = can("finance.view_bank_accounts");
+  const canManage = can("finance.manage_bank_accounts");
   if (!canView) redirect("/dashboard");
 
   // Honour the LegalEntitySwitcher cookie so users who have

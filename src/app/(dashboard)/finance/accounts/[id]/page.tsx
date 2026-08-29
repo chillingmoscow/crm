@@ -2,7 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
 import {
   getBankAccount,
@@ -31,19 +35,14 @@ export default async function BankAccountDetailPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [
-    { data: canView },
-    { data: canManage },
-    { data: canViewAudit },
-    { data: canHardDelete },
-    { data: activeAccountId },
-  ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "finance.view_bank_accounts" }),
-    supabase.rpc("has_permission", { permission_code: "finance.manage_bank_accounts" }),
-    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
-    supabase.rpc("has_permission", { permission_code: "finance.delete_bank_account" }),
-    supabase.rpc("get_active_account_id"),
+  const [can, activeAccountId] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
   ]);
+  const canView = can("finance.view_bank_accounts");
+  const canManage = can("finance.manage_bank_accounts");
+  const canViewAudit = can("org.view_audit");
+  const canHardDelete = can("finance.delete_bank_account");
   if (!canView) redirect("/dashboard");
 
   const { data: isOwner } = activeAccountId

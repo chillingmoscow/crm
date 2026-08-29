@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
 import { listBankAccounts, listBankAccountGroups } from "@/lib/finance/bank-accounts";
 import {
@@ -61,19 +61,11 @@ export default async function TransactionsServerPage({
   searchParams: Promise<SearchParams>;
 }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-
-  const [
-    { data: canView },
-    { data: canCreate },
-    { data: canDelete },
-    { data: canExport },
-  ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "finance.view_transactions" }),
-    supabase.rpc("has_permission", { permission_code: "finance.create_transaction" }),
-    supabase.rpc("has_permission", { permission_code: "finance.delete_transaction" }),
-    supabase.rpc("has_permission", { permission_code: "finance.export" }),
-  ]);
+  const can = await getCachedPermissionChecker();
+  const canView = can("finance.view_transactions");
+  const canCreate = can("finance.create_transaction");
+  const canDelete = can("finance.delete_transaction");
+  const canExport = can("finance.export");
 
   if (!canView) redirect("/dashboard");
 

@@ -146,6 +146,8 @@ export type InventoryDocumentResultItem = {
   group_id: string | null;
   group_name: string | null;
   exclusion_rule_id: string | null;
+  /** Строка исключена именно правилом, а не вручную (миграция 231). */
+  excluded_by_rule?: boolean;
   exclusion_rule_reason: string | null;
   needs_recount: boolean | null;
   recount_auto_flagged: boolean | null;
@@ -779,7 +781,7 @@ export function InventoryResultsTable({
               <div className="truncate text-xs font-medium">
                 {isExcluded ? "Не учитывать" : resortItem ? "Пересорт" : "Учитывать"}
               </div>
-              {item.exclusion_rule_id ? (
+              {item.excluded_by_rule ? (
                 <div className="text-[11px] text-muted-foreground">Авто</div>
               ) : null}
             </div>

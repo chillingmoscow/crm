@@ -16,6 +16,7 @@ import {
   hasCountedResults,
   resolveStatusAfterImport,
 } from "@/lib/inventory/act-status";
+import { resolveExclusionState } from "@/lib/inventory/exclusions";
 import { resolveLineResult, resolveSubmittedAmount } from "@/lib/inventory/sync-amounts";
 import {
   listInventoryItemsBackOffice,
@@ -1040,10 +1041,12 @@ export async function syncDocumentItems(input: {
         exclude_reason: string | null;
         excluded_by: string | null;
         excluded_at: string | null;
+        exclusion_rule_id: string | null;
+        exclusion_rule_dismissed_at: string | null;
       }>
     >("document_items")
     .select(
-      "id, external_item_id, submitted_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, excluded_by, excluded_at",
+      "id, external_item_id, submitted_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, excluded_by, excluded_at, exclusion_rule_id, exclusion_rule_dismissed_at",
     )
     .eq("document_id", input.documentId);
   const existingItemByItemId = new Map(
@@ -1092,19 +1095,22 @@ export async function syncDocumentItems(input: {
     });
     if (result.hasResult || lineResult.preserved) resultsFound = true;
     if (lineResult.preserved) preservedResultLines += 1;
-    const exclusion = exclusionRule && !inActiveResort
-      ? {
-          excluded_from_totals: true,
-          exclude_reason: exclusionRule.reason,
-          excluded_by: exclusionRule.created_by,
-          excluded_at: exclusionRule.created_at,
-        }
-      : {
-          excluded_from_totals: existingItem?.excluded_from_totals ?? false,
-          exclude_reason: existingItem?.exclude_reason ?? null,
-          excluded_by: existingItem?.excluded_by ?? null,
-          excluded_at: existingItem?.excluded_at ?? null,
-        };
+    // Правило автоисключения применяем, только если проверяющий не отменил его
+    // в этом акте (см. resolveExclusionState). Раньше правило перебивало ручное
+    // «Учитывать в этом акте» на ближайшем же импорте — молча, без записи в
+    // журнале.
+    const exclusion = resolveExclusionState({
+      rule: exclusionRule
+        ? {
+            id: exclusionRule.id,
+            reason: exclusionRule.reason,
+            created_by: exclusionRule.created_by,
+            created_at: exclusionRule.created_at,
+          }
+        : null,
+      inActiveResort,
+      existing: existingItem ?? null,
+    });
 
     return {
       account_id: input.accountId,
@@ -1388,6 +1394,39 @@ export async function filterVisibleDocumentIds(input: {
     .select("id")
     .in("id", input.documentIds);
   return new Set((data ?? []).map((row) => row.id));
+}
+
+/**
+ * Подобрать активное правило автоисключения под позицию — тем же способом,
+ * каким это делает импорт: сперва по ингредиенту, затем по внешнему id позиции.
+ *
+ * Нужен там, где решение принимает человек: «Учитывать в этом акте» обязано
+ * отменить ДЕЙСТВУЮЩЕЕ правило, а не только то, что записано в строке. Ручное
+ * исключение сбрасывает происхождение (за строку теперь отвечает человек),
+ * поэтому по одному лишь exclusion_rule_id действующее правило не найти —
+ * и импорт применил бы его заново.
+ */
+export async function loadActiveExclusionRuleMatcher(input: {
+  admin: LooseDb;
+  accountId: string;
+}): Promise<(item: { ingredient_id: string | null; external_product_id: string | null }) => InventoryExclusionRuleLookup | null> {
+  const { data } = await input.admin
+    .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
+    .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
+    .eq("account_id", input.accountId)
+    .eq("status", "active");
+  const rules = data ?? [];
+  const byIngredient = new Map(
+    rules.filter((rule) => rule.ingredient_id).map((rule) => [rule.ingredient_id as string, rule]),
+  );
+  const byExternalId = new Map(
+    rules
+      .filter((rule) => !rule.ingredient_id && rule.external_product_id)
+      .map((rule) => [rule.external_product_id as string, rule]),
+  );
+  return (item) =>
+    (item.ingredient_id ? byIngredient.get(item.ingredient_id) ?? null : null) ??
+    (item.external_product_id ? byExternalId.get(item.external_product_id) ?? null : null);
 }
 
 export async function getResultDocumentForAction(input: {

@@ -25,6 +25,7 @@ import {
   type InventoryRecheckLine,
 } from "@/lib/inventory/results-recheck";
 import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
+import { resolveManualExclusionState } from "@/lib/inventory/exclusions";
 import { pluralRu } from "@/lib/format/plural";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
@@ -66,6 +67,7 @@ import {
   externalProductId,
   filterVisibleDocumentIds,
   listBackOfficeInventoryItemsWithSession,
+  loadActiveExclusionRuleMatcher,
   loadResultItemsForAdjustment,
   normalizeReason,
   num,
@@ -1558,8 +1560,14 @@ export async function setInventoryResultItemExcluded(input: {
       requireOpen: true,
     });
     const { data: item } = await admin
-      .from<{ id: string; product_name: string }>("document_items")
-      .select("id, product_name")
+      .from<{
+        id: string;
+        product_name: string;
+        exclusion_rule_id: string | null;
+        ingredient_id: string | null;
+        external_product_id: string | null;
+      }>("document_items")
+      .select("id, product_name, exclusion_rule_id, ingredient_id, external_product_id")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
       .eq("account_id", ctx.accountId)
@@ -1578,16 +1586,30 @@ export async function setInventoryResultItemExcluded(input: {
       }
     }
 
+    // Ручное решение перебивает правило и держится: «Учитывать в этом акте» на
+    // строке, исключённой правилом, ставит отметку об отказе — импорт такую
+    // строку правилом больше не тронет (см. resolveExclusionState).
     const reason = input.excluded ? text(input.reason) : null;
     const now = new Date().toISOString();
+    // Отменяем ДЕЙСТВУЮЩЕЕ правило, а не только записанное в строке: ручное
+    // исключение сбрасывает происхождение, и по одному exclusion_rule_id
+    // правило было бы не найти — импорт применил бы его заново.
+    let dismissRuleId = item.exclusion_rule_id;
+    if (!input.excluded && !dismissRuleId) {
+      const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
+      dismissRuleId = matchRule(item)?.id ?? null;
+    }
     const { error } = await admin
       .from("document_items")
-      .update({
-        excluded_from_totals: input.excluded,
-        exclude_reason: reason,
-        excluded_by: input.excluded ? ctx.user.id : null,
-        excluded_at: input.excluded ? now : null,
-      })
+      .update(
+        resolveManualExclusionState({
+          excluded: input.excluded,
+          reason,
+          userId: ctx.user.id,
+          now,
+          currentRuleId: dismissRuleId,
+        }),
+      )
       .eq("id", item.id)
       .eq("account_id", ctx.accountId);
     if (error) throw new Error(error.message);
@@ -1689,6 +1711,8 @@ export async function createInventoryResultExclusionRule(input: {
         exclude_reason: reason,
         excluded_by: ctx.user.id,
         excluded_at: now,
+        exclusion_rule_id: rule.id,
+        exclusion_rule_dismissed_at: null,
       })
       .eq("id", item.id)
       .eq("account_id", ctx.accountId);
@@ -1772,17 +1796,34 @@ export async function deleteInventoryResultExclusionRule(input: {
       .eq("account_id", ctx.accountId);
     if (ruleError) throw new Error(ruleError.message);
 
-    const { error: itemError } = await admin
-      .from("document_items")
+    // Снимаем исключение со ВСЕХ строк, которые исключило это правило, а не
+    // только в открытом акте. Раньше в остальных актах позиция оставалась
+    // исключённой навсегда — и уже неотличимо от ручного решения, потому что
+    // правила, которое её исключило, больше нет.
+    const { data: clearedRows, error: itemError } = await admin
+      .from<Array<{ id: string; document_id: string }>>("document_items")
       .update({
         excluded_from_totals: false,
         exclude_reason: null,
         excluded_by: null,
         excluded_at: null,
+        exclusion_rule_id: null,
+        exclusion_rule_dismissed_at: null,
       })
-      .eq("id", item.id)
-      .eq("account_id", ctx.accountId);
+      .eq("account_id", ctx.accountId)
+      .eq("exclusion_rule_id", rule.id)
+      .select("id, document_id");
     if (itemError) throw new Error(itemError.message);
+    const clearedDocumentIds = Array.from(
+      new Set((clearedRows ?? []).map((row) => row.document_id)),
+    );
+
+    // Строку, исключённую ВРУЧНУЮ, удаление правила не трогает: её исключал
+    // человек, а не правило. Раньше здесь стоял безусловный UPDATE по текущей
+    // строке — он снимал и ручное решение тоже. Строки, которые исключило это
+    // правило, уже сняты запросом выше; легаси-строки без происхождения
+    // размечены бэкфиллом миграции 231.
+    const clearedCurrentItem = (clearedRows ?? []).some((row) => row.id === item.id);
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
@@ -1792,16 +1833,26 @@ export async function deleteInventoryResultExclusionRule(input: {
       documentId: input.documentId,
       documentItemId: item.id,
       eventType: "persistent_exclusion_disabled",
-      message: `Автоисключение позиции «${item.product_name}» удалено`,
+      message: !clearedCurrentItem
+        ? `Автоисключение позиции «${item.product_name}» удалено (в этом акте позиция исключена вручную и осталась исключённой)`
+        : clearedDocumentIds.length > 1
+          ? `Автоисключение позиции «${item.product_name}» удалено (позиция вернулась в итоги в ${clearedDocumentIds.length} актах)`
+          : `Автоисключение позиции «${item.product_name}» удалено`,
       payload: {
         itemId: item.id,
         productName: item.product_name,
         ruleId: rule.id,
         reason,
+        clearedDocumentIds,
       },
     });
 
-    revalidateInventoryResultPages(input.documentId);
+    // Правило действовало на весь аккаунт, поэтому обновляем страницы всех
+    // затронутых актов, а не только открытого.
+    for (const documentId of new Set([input.documentId, ...clearedDocumentIds])) {
+      revalidateInventoryResultPages(documentId);
+    }
+    revalidatePath("/documents/inventory");
     return { error: null };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось удалить автоисключение") };
@@ -2755,8 +2806,15 @@ export async function bulkSetInventoryResultItemsExcluded(input: {
     if (itemIds.length === 0) return { updated: 0, skipped: 0, error: "Не выбрано ни одной строки" };
 
     const { data: itemsRaw } = await admin
-      .from<Array<{ id: string; product_name: string; excluded_from_totals: boolean | null }>>("document_items")
-      .select("id, product_name, excluded_from_totals")
+      .from<Array<{
+        id: string;
+        product_name: string;
+        excluded_from_totals: boolean | null;
+        exclusion_rule_id: string | null;
+        ingredient_id: string | null;
+        external_product_id: string | null;
+      }>>("document_items")
+      .select("id, product_name, excluded_from_totals, exclusion_rule_id, ingredient_id, external_product_id")
       .eq("account_id", ctx.accountId)
       .eq("document_id", document.id)
       .in("id", itemIds);
@@ -2780,18 +2838,42 @@ export async function bulkSetInventoryResultItemsExcluded(input: {
 
     const reason = input.excluded ? text(input.reason) : null;
     const now = new Date().toISOString();
-    const { error } = await admin
-      .from("document_items")
-      .update({
-        excluded_from_totals: input.excluded,
-        exclude_reason: reason,
-        excluded_by: input.excluded ? ctx.user.id : null,
-        excluded_at: input.excluded ? now : null,
-      })
-      .eq("account_id", ctx.accountId)
-      .eq("document_id", document.id)
-      .in("id", eligible.map((item) => item.id));
-    if (error) throw new Error(error.message);
+    const applyUpdate = async (ids: string[], dismissedAt: string | null) => {
+      if (ids.length === 0) return;
+      const { error } = await admin
+        .from("document_items")
+        .update({
+          excluded_from_totals: input.excluded,
+          exclude_reason: reason,
+          excluded_by: input.excluded ? ctx.user.id : null,
+          excluded_at: input.excluded ? now : null,
+          exclusion_rule_id: null,
+          exclusion_rule_dismissed_at: dismissedAt,
+        })
+        .eq("account_id", ctx.accountId)
+        .eq("document_id", document.id)
+        .in("id", ids);
+      if (error) throw new Error(error.message);
+    };
+
+    if (input.excluded) {
+      // Ручное исключение перекрывает происхождение: строка исключена
+      // человеком, а не правилом.
+      await applyUpdate(eligible.map((item) => item.id), null);
+    } else {
+      // Возврат в итоги: строке, на которую действует правило, ставим отметку
+      // об отказе — иначе ближайший импорт применит правило заново. Смотрим не
+      // только на записанное происхождение: ручное исключение его сбрасывает,
+      // а правило на позицию при этом остаётся активным.
+      const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
+      const underRule = (item: (typeof eligible)[number]) =>
+        Boolean(item.exclusion_rule_id) || Boolean(matchRule(item));
+      await applyUpdate(eligible.filter(underRule).map((item) => item.id), now);
+      await applyUpdate(
+        eligible.filter((item) => !underRule(item)).map((item) => item.id),
+        null,
+      );
+    }
 
     for (const item of eligible) {
       await writeInventoryResultEvent({
@@ -2973,6 +3055,8 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
           exclude_reason: reason,
           excluded_by: ctx.user.id,
           excluded_at: now,
+          exclusion_rule_id: ruleId,
+          exclusion_rule_dismissed_at: null,
         })
         .eq("id", item.id)
         .eq("account_id", ctx.accountId);

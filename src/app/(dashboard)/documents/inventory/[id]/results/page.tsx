@@ -171,7 +171,7 @@ export default async function InventoryDocumentResultsPage({
   ] = await Promise.all([
     admin
     .from<Array<InventoryDocumentResultItem & InventoryResultSnapshotAmounts>>("document_items")
-    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
+    .select("id, ingredient_id, external_product_id, product_name, article, measure_unit_id, measure_unit_name, actual_amount, calculated_amount, difference_amount, prime_cost, difference_sum, finalized_at, finalized_actual_amount, finalized_calculated_amount, finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, finalized_excluded_from_totals, excluded_from_totals, exclude_reason, exclusion_rule_id, result_comment, needs_recount, recount_auto_flagged, recount_note, recount_previous_amount")
     .eq("account_id", accountId)
     .eq("document_id", document.id)
     .order("product_name"),
@@ -306,7 +306,13 @@ export default async function InventoryDocumentResultsPage({
       (item.external_product_id ? exclusionRuleByExternalProductId.get(item.external_product_id) : null);
     return {
       ...item,
+      // Правило, действующее на эту позицию: им гейтятся пункты меню
+      // «Исключать всегда» / «Удалить автоисключение».
       exclusion_rule_id: rule?.id ?? null,
+      // А это — исключена ли строка ИМЕННО правилом (миграция 231). Раньше
+      // подпись «Авто» показывалась по наличию правила, поэтому висела и на
+      // строке, которую проверяющий вернул в итоги вручную.
+      excluded_by_rule: Boolean(item.excluded_from_totals && item.exclusion_rule_id),
       exclusion_rule_reason: rule?.reason ?? null,
     };
   });

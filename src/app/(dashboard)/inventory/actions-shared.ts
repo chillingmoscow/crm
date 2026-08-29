@@ -1396,6 +1396,39 @@ export async function filterVisibleDocumentIds(input: {
   return new Set((data ?? []).map((row) => row.id));
 }
 
+/**
+ * Подобрать активное правило автоисключения под позицию — тем же способом,
+ * каким это делает импорт: сперва по ингредиенту, затем по внешнему id позиции.
+ *
+ * Нужен там, где решение принимает человек: «Учитывать в этом акте» обязано
+ * отменить ДЕЙСТВУЮЩЕЕ правило, а не только то, что записано в строке. Ручное
+ * исключение сбрасывает происхождение (за строку теперь отвечает человек),
+ * поэтому по одному лишь exclusion_rule_id действующее правило не найти —
+ * и импорт применил бы его заново.
+ */
+export async function loadActiveExclusionRuleMatcher(input: {
+  admin: LooseDb;
+  accountId: string;
+}): Promise<(item: { ingredient_id: string | null; external_product_id: string | null }) => InventoryExclusionRuleLookup | null> {
+  const { data } = await input.admin
+    .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
+    .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
+    .eq("account_id", input.accountId)
+    .eq("status", "active");
+  const rules = data ?? [];
+  const byIngredient = new Map(
+    rules.filter((rule) => rule.ingredient_id).map((rule) => [rule.ingredient_id as string, rule]),
+  );
+  const byExternalId = new Map(
+    rules
+      .filter((rule) => !rule.ingredient_id && rule.external_product_id)
+      .map((rule) => [rule.external_product_id as string, rule]),
+  );
+  return (item) =>
+    (item.ingredient_id ? byIngredient.get(item.ingredient_id) ?? null : null) ??
+    (item.external_product_id ? byExternalId.get(item.external_product_id) ?? null : null);
+}
+
 export async function getResultDocumentForAction(input: {
   admin: LooseDb;
   supabase: Awaited<ReturnType<typeof createClient>>;

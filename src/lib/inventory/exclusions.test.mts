@@ -117,3 +117,35 @@ test("пустая строка без правила и без истории �
   assert.equal(out.exclusion_rule_id, null);
   assert.equal(out.exclusion_rule_dismissed_at, null);
 });
+
+test("отказ от правила пишется и когда строку до этого исключили вручную", () => {
+  // Правило на позицию активно, но проверяющий сначала исключил строку сам —
+  // происхождение при этом сбрасывается (за строку отвечает человек). Если при
+  // возврате в итоги смотреть только на сохранённое происхождение, отказ не
+  // запишется и импорт применит правило заново. Поэтому вызывающий код
+  // подставляет ДЕЙСТВУЮЩЕЕ правило (loadActiveExclusionRuleMatcher).
+  const manuallyExcluded = resolveManualExclusionState({
+    excluded: true,
+    reason: "Не считали",
+    userId: "reviewer-1",
+    now: "2026-08-28T10:00:00Z",
+    currentRuleId: RULE.id,
+  });
+  assert.equal(manuallyExcluded.exclusion_rule_id, null);
+
+  const backToTotals = resolveManualExclusionState({
+    excluded: false,
+    reason: null,
+    userId: "reviewer-1",
+    now: "2026-08-28T12:00:00Z",
+    currentRuleId: RULE.id, // действующее правило, найденное матчером
+  });
+  assert.equal(backToTotals.exclusion_rule_dismissed_at, "2026-08-28T12:00:00Z");
+
+  const afterImport = resolveExclusionState({
+    rule: RULE,
+    inActiveResort: false,
+    existing: backToTotals,
+  });
+  assert.equal(afterImport.excluded_from_totals, false);
+});

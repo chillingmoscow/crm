@@ -23,6 +23,16 @@ comment on column public.document_items.exclusion_rule_id is
 comment on column public.document_items.exclusion_rule_dismissed_at is
   'Проверяющий вернул строку в итоги («Учитывать в этом акте»), несмотря на активное правило. Импорт такую строку правилом больше не трогает — решение человека сильнее автоматики.';
 
+-- Композитный FK требует НЕ-частичного уникального ключа ровно по своим
+-- колонкам в родителе. У inventory_result_exclusion_rules был только
+-- PRIMARY KEY (id): партиальные unique-индексы из миграции 192 для этой роли не
+-- годятся. Остальные таблицы модуля такой ключ получили ещё в 122 — эта его
+-- просто пропустила.
+alter table public.inventory_result_exclusion_rules
+  drop constraint if exists inventory_result_exclusion_rules_account_id_id_key;
+alter table public.inventory_result_exclusion_rules
+  add constraint inventory_result_exclusion_rules_account_id_id_key unique (account_id, id);
+
 -- Ссылка тенантная, по конвенции: (account_id, rule_id) → (account_id, id).
 -- ON DELETE SET NULL по колонке — account_id NOT NULL (см. миграции 223, 230).
 do $$

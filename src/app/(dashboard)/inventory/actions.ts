@@ -231,12 +231,18 @@ export async function syncQuickRestoInventory(input?: {
     // Второй проход: расставляем родителей, когда локальные id уже известны.
     // Группируем по родителю — обновлений столько, сколько различных родителей
     // (обычно единицы), а не по одному на каждую группу.
+    // Идём по groupRows, а не по исходному groups: там уже сделан дедуп и
+    // оставлена последняя версия группы. По сырому массиву один и тот же
+    // локальный id попадал бы сразу в несколько бакетов, и итоговый родитель
+    // зависел бы от порядка бакетов, а не от последнего дубля — то есть мог
+    // разойтись с parent_external_id и raw_payload, записанными upsert'ом.
     const groupIdsByParent = new Map<string | null, string[]>();
-    for (const group of groups) {
-      const localId = groupByExternalId.get(String(group.id));
+    for (const row of groupRows) {
+      const localId = groupByExternalId.get(row.external_id);
       if (!localId) continue;
-      const parentExternalId = quickRestoParentExternalId(group);
-      const parentId = parentExternalId ? groupByExternalId.get(parentExternalId) ?? null : null;
+      const parentId = row.parent_external_id
+        ? groupByExternalId.get(row.parent_external_id) ?? null
+        : null;
       const bucket = groupIdsByParent.get(parentId) ?? [];
       bucket.push(localId);
       groupIdsByParent.set(parentId, bucket);

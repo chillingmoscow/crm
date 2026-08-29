@@ -15,6 +15,7 @@ export type LooseQuery<T = unknown> = PromiseLike<LooseResult<T>> & {
   or: (filters: string) => LooseQuery<T>;
   order: (column: string, options?: Record<string, unknown>) => LooseQuery<T>;
   range: (from: number, to: number) => LooseQuery<T>;
+  limit: (count: number) => LooseQuery<T>;
   maybeSingle: () => Promise<LooseResult<T>>;
   single: () => Promise<LooseResult<T>>;
   insert: (values: unknown) => LooseQuery<T>;

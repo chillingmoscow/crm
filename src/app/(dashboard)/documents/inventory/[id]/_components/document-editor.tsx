@@ -93,11 +93,19 @@ type EditorGroup = {
   path: string;
 };
 
+/**
+ * Черновик в IndexedDB. Только то, что реально читается при восстановлении.
+ *
+ * Раньше сюда клался ещё и весь акт — `document` и все `items` вместе с
+ * подписанными ссылками на картинки. Это ~150-200 КБ структурированного клона,
+ * и записывались они заново при каждом срабатывании автосейва: при вводе
+ * «посмотрел на полку → ввёл число» паузы длиннее дебаунса, то есть на
+ * практике полная сериализация акта на каждую введённую позицию. Читались при
+ * этом всегда ровно два поля (см. восстановление ниже).
+ */
 type DraftPayload = {
   values: Record<string, string>;
   savedAt: string;
-  document: EditorDocument;
-  items: EditorItem[];
 };
 
 const DB_NAME = "sheerly-inventory-drafts";
@@ -499,12 +507,7 @@ export function InventoryDocumentEditor({
     if (!loaded) return;
     const timeout = window.setTimeout(() => {
       const nextSavedAt = new Date().toISOString();
-      void writeDraft(draftKey, {
-        values,
-        savedAt: nextSavedAt,
-        document,
-        items,
-      });
+      void writeDraft(draftKey, { values, savedAt: nextSavedAt });
       setSavedAt(nextSavedAt);
 
       // Мост assigned/synced → in_progress: первый непустой черновик
@@ -882,7 +885,16 @@ export function InventoryDocumentEditor({
                 className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`Открыть фото: ${item.productName}`}
               >
-                <img src={imageUrl} alt={item.productName} className="h-full w-full object-cover" />
+                <img
+                  src={imageUrl}
+                  alt={item.productName}
+                  // Акт бывает на 300 позиций, и без lazy браузер ставил в
+                  // очередь 300 запросов к storage сразу после прихода HTML —
+                  // форма «открывалась долго» уже после ответа сервера.
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover"
+                />
               </button>
             ) : (
               <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">

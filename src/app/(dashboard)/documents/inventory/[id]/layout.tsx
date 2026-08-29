@@ -26,6 +26,14 @@ type DocumentBasicsRow = {
   venue_id: string | null;
   results_reopened_after_processed: boolean;
   results_snapshot_at: string | null;
+  // Нужны форме заполнения: она читала ту же строку своим запросом только
+  // из-за этих пяти колонок. Одна строка, пять колонок — дешевле лишнего
+  // round-trip'а.
+  base_last_update_date: string | null;
+  synced_at: string | null;
+  last_returned_at: string | null;
+  recount_count: number | null;
+  archived_at: string | null;
 };
 
 type StoreTitleRow = { title: string };
@@ -40,7 +48,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id, results_snapshot_at",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id, results_snapshot_at, base_last_update_date, synced_at, last_returned_at, recount_count, archived_at",
     )
     .eq("id", id)
     .eq("account_id", accountId)

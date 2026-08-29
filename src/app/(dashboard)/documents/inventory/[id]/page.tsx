@@ -7,22 +7,8 @@ import {
   getCachedUser,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { getCachedInventoryDocumentBasics, getCachedStoreTitle } from "./layout";
 import { InventoryDocumentEditor } from "./_components/document-editor";
-
-type InventoryDocumentDetailRow = {
-  id: string;
-  account_id: string;
-  document_number: string;
-  store_id: string | null;
-  assigned_to: string | null;
-  status: string;
-  processed: boolean;
-  base_last_update_date: string | null;
-  synced_at: string | null;
-  last_returned_at: string | null;
-  recount_count: number | null;
-  archived_at: string | null;
-};
 
 type InventoryDocumentItemRow = {
   id: string;
@@ -36,10 +22,6 @@ type InventoryDocumentItemRow = {
   sort_order: number;
   needs_recount: boolean | null;
   recount_note: string | null;
-};
-
-type InventoryStoreTitleRow = {
-  title: string;
 };
 
 type InventoryProductImageRow = {
@@ -147,12 +129,9 @@ export default async function InventoryDocumentPage({
   if (!user) redirect("/login");
   if (!accountId || (!canView && !canFill)) redirect("/dashboard");
 
-  const { data: document } = await admin
-    .from<InventoryDocumentDetailRow>("documents")
-    .select("id, account_id, document_number, store_id, assigned_to, status, processed, base_last_update_date, synced_at, last_returned_at, recount_count, archived_at")
-    .eq("id", id)
-    .eq("account_id", accountId)
-    .maybeSingle();
+  // Ту же строку акта уже прочитал layout и положил в React.cache — свой
+  // запрос здесь был вторым чтением одной записи за рендер.
+  const document = await getCachedInventoryDocumentBasics(id, accountId);
 
   if (!document) notFound();
   // Акт удалён в Quick Resto (авто-архив) — скрыт из списка; закрываем и прямой
@@ -161,9 +140,10 @@ export default async function InventoryDocumentPage({
   if (!canView && document.assigned_to !== user.id) redirect("/documents/inventory");
 
   const [{ data: store }, { data: itemsRaw }, { data: groupsRaw }] = await Promise.all([
+    // Название склада тоже уже в кэше layout'а.
     document.store_id
-      ? admin.from<InventoryStoreTitleRow>("stores").select("title").eq("id", document.store_id).maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+      ? getCachedStoreTitle(document.store_id).then((title) => ({ data: title ? { title } : null }))
+      : Promise.resolve({ data: null }),
     admin
       .from<InventoryDocumentItemRow[]>("document_items")
       .select("id, ingredient_id, product_name, article, barcode, measure_unit_name, actual_amount, submitted_amount, sort_order, needs_recount, recount_note")

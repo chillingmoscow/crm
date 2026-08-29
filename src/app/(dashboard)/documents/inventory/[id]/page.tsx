@@ -107,6 +107,22 @@ function groupsUsedByDocument(
   return orderedGroups.filter(({ group }) => allowed.has(group.id));
 }
 
+/**
+ * Сколько живут подписанные ссылки на фото позиций акта.
+ *
+ * Час не годится с тех пор, как картинки грузятся лениво: акт на 300 позиций
+ * считают на складе, прокручивая список часами, и нижние строки запрашивают
+ * свои фото сильно позже открытия формы. Раньше это скрывалось тем, что все
+ * 300 картинок запрашивались сразу и попадали в кэш браузера, пока ссылки были
+ * свежими; с loading="lazy" такая страховка исчезла, и у длинной смены фото
+ * ниже по списку просто не открывались бы.
+ *
+ * Двенадцать часов покрывают смену целиком. Плата — ссылка-предъявитель живёт
+ * дольше; для внутренних фото номенклатуры, которые и так видны только
+ * авторизованному сотруднику, это приемлемо.
+ */
+const ACT_IMAGE_SIGNED_URL_TTL_SECONDS = 12 * 60 * 60;
+
 export default async function InventoryDocumentPage({
   params,
 }: {
@@ -198,7 +214,7 @@ export default async function InventoryDocumentPage({
       // Реальный клиент: у loose-обёртки нет типа createSignedUrls.
       const { data: signedList } = await createAdminClient().storage
         .from("account-attachments")
-        .createSignedUrls(allPaths, 60 * 60);
+        .createSignedUrls(allPaths, ACT_IMAGE_SIGNED_URL_TTL_SECONDS);
       for (const entry of signedList ?? []) {
         if (entry.path && entry.signedUrl) signedByPath.set(entry.path, entry.signedUrl);
       }

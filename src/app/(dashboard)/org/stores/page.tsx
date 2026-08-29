@@ -18,6 +18,7 @@ type StoreRow = {
 type VenueRow = {
   id: string;
   name: string;
+  archived_at: string | null;
 };
 
 export default async function InventoryStoresPage() {
@@ -49,7 +50,10 @@ export default async function InventoryStoresPage() {
       .order("title"),
     supabase
       .from("venues")
-      .select("id, name")
+      // archived_at нужен клиенту: архивные заведения не предлагаем к выбору,
+      // но показываем то, к которому склад уже привязан, — иначе список
+      // молча показал бы «Не привязан» там, где привязка есть.
+      .select("id, name, archived_at")
       .eq("account_id", accountId)
       .order("name"),
   ]);

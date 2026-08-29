@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { resolveQrUnprocessedAt, resolveStatusAfterSync } from "@/lib/inventory/act-status";
+import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import {
   listDishes,
   listIngredientTreeItems,
@@ -289,12 +290,23 @@ export async function syncQuickRestoInventory(input?: {
 
     for (const store of stores) {
       if (typeof store.id !== "number") continue;
-      const { data: existingStore } = await admin
-        .from<{ id: string; local_venue_id: string | null }>("stores")
-        .select("id, local_venue_id")
+      // Спрашиваем ровно одно: есть ли уже такой склад. От ответа зависит,
+      // трогаем ли привязку к заведению.
+      //
+      // Ошибку чтения разбираем обязательно: клиент отдаёт сбой как
+      // { data: null, error }, без исключения, и «не смогли прочитать» было бы
+      // неотличимо от «склада нет». Тогда существующий склад приняли бы за
+      // новый и переписали бы привязку — ровно тот баг, который здесь чинится,
+      // только через отказ чтения.
+      const { data: existingStore, error: existingStoreError } = await admin
+        .from<{ id: string }>("stores")
+        .select("id")
         .eq("account_id", ctx.accountId)
         .eq("external_id", String(store.id))
         .maybeSingle();
+      if (existingStoreError) {
+        throw new Error(`Не удалось прочитать склад ${store.id}: ${existingStoreError.message}`);
+      }
       const { data, error } = await admin
         .from<{ id: string }>("stores")
         .upsert(
@@ -304,7 +316,14 @@ export async function syncQuickRestoInventory(input?: {
             title: storeTitle(store),
             store_code: text(store.storeCode),
             description: text(store.description),
-            local_venue_id: existingStore?.local_venue_id ?? defaultVenueId,
+            // Привязку к заведению ставим только новому складу: у
+            // существующего ключа в payload нет вовсе, и колонка не попадает
+            // в DO UPDATE SET. Так переживает синхронизацию ручное
+            // «Не привязан» из справочника складов.
+            ...storeVenueBindingPatch({
+              storeExists: Boolean(existingStore?.id),
+              defaultVenueId,
+            }),
             raw_payload: store,
             synced_at: syncedAt,
           },

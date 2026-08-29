@@ -19,6 +19,7 @@ type StoreRow = {
 type VenueRow = {
   id: string;
   name: string;
+  archived_at: string | null;
 };
 
 export function StoresClient({
@@ -32,6 +33,37 @@ export function StoresClient({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+
+  // Архивное заведение выбрать нельзя: резолвер привязки его тоже обходит
+  // (src/lib/inventory/default-venue.ts), и предлагать то, что автоматика
+  // считает нерабочим, — значит вести пользователя в тупик.
+  const activeVenues = venues.filter((venue) => !venue.archived_at);
+  const venueById = new Map(venues.map((venue) => [venue.id, venue]));
+
+  /**
+   * Опции для конкретного склада. Текущая привязка обязана быть среди них,
+   * иначе нативный <select> со значением, которого нет в списке, выберет
+   * первую опцию — «Не привязан» — и покажет, что склад не привязан, хотя он
+   * привязан.
+   *
+   * Два случая, когда текущего заведения нет в общем списке:
+   *  - оно архивное (мы сами их отфильтровали) — показываем с пометкой;
+   *  - его не видно пользователю. Списки приходят из политик РАЗНОЙ ширины:
+   *    склады видны целиком по inventory.manage_stores (миграция 230), а
+   *    заведения — только те, где у человека активная роль (миграция 198).
+   *    Управляющий одной точки штатно видит склад, привязанный к соседней.
+   *    Имени такого заведения у нас нет, поэтому показываем нейтральную
+   *    подпись — но показываем, чтобы не соврать про привязку.
+   */
+  const optionsFor = (currentVenueId: string | null) => {
+    if (!currentVenueId) return activeVenues;
+    const current = venueById.get(currentVenueId);
+    if (!current) {
+      return [...activeVenues, { id: currentVenueId, name: "Другое заведение (нет доступа)", archived_at: null }];
+    }
+    if (!current.archived_at) return activeVenues;
+    return [...activeVenues, current];
+  };
 
   const updateVenue = (storeId: string, venueId: string) => {
     startTransition(async () => {
@@ -78,9 +110,10 @@ export function StoresClient({
                 onChange={(event) => updateVenue(store.id, event.target.value)}
               >
                 <option value="">Не привязан</option>
-                {venues.map((venue) => (
+                {optionsFor(store.local_venue_id).map((venue) => (
                   <option key={venue.id} value={venue.id}>
                     {venue.name}
+                    {venue.archived_at ? " (в архиве)" : ""}
                   </option>
                 ))}
               </select>

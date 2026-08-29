@@ -1,7 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -245,6 +245,113 @@ function sanitizeAmountInput(raw: string) {
   return cleaned.slice(0, firstSep + 1) + cleaned.slice(firstSep + 1).replace(/[.,]/g, "");
 }
 
+/**
+ * Строка позиции акта.
+ *
+ * Вынесена в отдельный memo-компонент не ради чистоты файла. `values` — один
+ * объект на всю форму, и `setValues` менял его identity на каждый введённый
+ * символ: перерисовывался весь список. На акте в триста позиций это порядка
+ * трёх тысяч узлов на реконсиляцию, триста вызовов `cn()` на обёртках строк и
+ * ещё триста внутри `Input` (там `tailwind-merge`) — и всё это на одно нажатие
+ * клавиши.
+ *
+ * Строка получает только своё значение и стабильные колбэки, поэтому
+ * перерисовывается ровно та, в которой печатают. Колбэки обязаны оставаться
+ * стабильными (см. `handleValueChange` и соседей) — иначе memo бесполезен.
+ */
+const ItemRow = memo(function ItemRow({
+  item,
+  value,
+  disabled,
+  needsRecount,
+  onValueChange,
+  onBlur,
+  onPreview,
+}: {
+  item: EditorItem;
+  value: string;
+  disabled: boolean;
+  needsRecount: boolean;
+  onValueChange: (itemId: string, next: string) => void;
+  onBlur: () => void;
+  onPreview: (url: string, name: string) => void;
+}) {
+  const isFilled = value.trim() !== "";
+  const imageUrl = item.imageUrl;
+  return (
+    <div
+      // Подсветка «на пересчёт» приоритетнее «заполненной»: строка, которую
+      // вернули, должна оставаться заметной и после того, как в неё ввели
+      // новое число.
+      className={cn(
+        "grid grid-cols-[64px_1fr_auto] items-center gap-3 rounded-lg border p-2 transition-colors",
+        needsRecount
+          ? "border-rose-300 bg-rose-500/5 dark:border-rose-500/40 dark:bg-rose-500/10"
+          : isFilled
+            ? "border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10"
+            : "border-border bg-background",
+      )}
+    >
+      {imageUrl ? (
+        <button
+          type="button"
+          onClick={() => onPreview(imageUrl, item.productName)}
+          className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Открыть фото: ${item.productName}`}
+        >
+          <img
+            src={imageUrl}
+            alt={item.productName}
+            // Акт бывает на 300 позиций, и без lazy браузер ставил в
+            // очередь 300 запросов к storage сразу после прихода HTML —
+            // форма «открывалась долго» уже после ответа сервера.
+            loading="lazy"
+            decoding="async"
+            className="h-full w-full object-cover"
+          />
+        </button>
+      ) : (
+        <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
+          <span className="text-xs text-muted-foreground">нет фото</span>
+        </div>
+      )}
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 break-words text-sm font-medium">{item.productName}</div>
+          {needsRecount ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+              <AlertTriangle className="h-3 w-3" />
+              Пересчёт
+            </span>
+          ) : null}
+        </div>
+        {item.groupPath ? (
+          <div className="mt-1 truncate text-xs text-muted-foreground">{item.groupPath}</div>
+        ) : null}
+        {needsRecount && item.recountNote ? (
+          <div className="mt-1 text-[11px] italic text-rose-700 dark:text-rose-300">
+            «{item.recountNote}»
+          </div>
+        ) : null}
+      </div>
+      <div className="flex items-center justify-end gap-1.5">
+        <Input
+          inputMode="decimal"
+          disabled={disabled}
+          value={value}
+          onChange={(event) => onValueChange(item.id, sanitizeAmountInput(event.target.value))}
+          onBlur={onBlur}
+          aria-label={`Факт: ${item.productName}`}
+          className="w-20 text-right"
+        />
+        {/* Фикс-слот единицы измерения — чтобы поля ввода были на одной
+            вертикали независимо от длины «шт»/«л»/«кг». */}
+        <span className="w-8 shrink-0 text-xs text-muted-foreground">{item.measureUnitName ?? ""}</span>
+      </div>
+    </div>
+  );
+});
+
 export function InventoryDocumentEditor({
   document,
   groups,
@@ -268,6 +375,13 @@ export function InventoryDocumentEditor({
       ])
     )
   );
+  // Последние значения для колбэков, которые не должны зависеть от `values`.
+  // Зависели бы — их identity менялась бы на каждый символ, memo строк
+  // обнулялся бы, и весь смысл выделения строки в компонент пропал бы.
+  const valuesRef = useRef(values);
+  useEffect(() => {
+    valuesRef.current = values;
+  }, [values]);
   const [loaded, setLoaded] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
@@ -527,18 +641,23 @@ export function InventoryDocumentEditor({
   }, [document, draftKey, items, loaded, values]);
 
   useEffect(() => {
-    const hasChanges = items.some(
-      (item) =>
-        values[item.id] !== editorInitialValue(item, document.prefillFromActual, isRecountPending),
-    );
     const handler = (event: BeforeUnloadEvent) => {
+      // Сверяем с начальными значениями в момент ухода со страницы. Раньше
+      // `values` был в зависимостях эффекта: каждое нажатие клавиши прогоняло
+      // `items.some(...)` по тремстам строкам и заново переподписывало
+      // слушатель окна.
+      const hasChanges = items.some(
+        (item) =>
+          valuesRef.current[item.id]
+            !== editorInitialValue(item, document.prefillFromActual, isRecountPending),
+      );
       if (!hasChanges) return;
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [items, values, document.prefillFromActual, isRecountPending]);
+  }, [items, document.prefillFromActual, isRecountPending]);
 
   // ── Controls state-derivatives ────────────────────────────
   const hasGroupFilter = Boolean(selectedGroupId);
@@ -561,11 +680,39 @@ export function InventoryDocumentEditor({
   // они же уходят в Quick Resto. Раньше submit пушил весь акт — на 300
   // позициях это 300 запросов к backoffice вместо четырёх, и остальные строки
   // без нужды перезаписывались теми же числами.
-  const flaggedItemsCount = items.filter((item) => item.needsRecount).length;
-  const submittableItems =
-    isRecountPending && flaggedItemsCount > 0
-      ? items.filter((item) => item.needsRecount)
-      : items;
+  const flaggedItemsCount = useMemo(
+    () => items.filter((item) => item.needsRecount).length,
+    [items],
+  );
+  const submittableItems = useMemo(
+    () =>
+      isRecountPending && flaggedItemsCount > 0
+        ? items.filter((item) => item.needsRecount)
+        : items,
+    [flaggedItemsCount, isRecountPending, items],
+  );
+
+  // Колбэки строки — стабильные, иначе memo не спасёт: новая identity
+  // обработчика меняет props у всех трёхсот строк разом.
+  const handleValueChange = useCallback((itemId: string, next: string) => {
+    setValues((prev) => ({ ...prev, [itemId]: next }));
+  }, []);
+
+  const handlePreviewImage = useCallback((url: string, name: string) => {
+    setPreviewImage({ url, name });
+  }, []);
+
+  // Перестановка и скрытие строк случаются ТОЛЬКО при потере фокуса, не во
+  // время ввода: и сортировка по заполненности, и фильтр «Только пустые»
+  // читают snapshot.
+  const handleValueBlur = useCallback(() => {
+    if (
+      fillState !== DEFAULT_FILL_STATE ||
+      sorts.some((mode) => formSortToField(mode) === "empty")
+    ) {
+      setSortValuesSnapshot({ ...valuesRef.current });
+    }
+  }, [fillState, sorts]);
 
   const onClearAll = useCallback(() => {
     setSearchQuery("");
@@ -633,7 +780,10 @@ export function InventoryDocumentEditor({
   const countableItems = submittableItems;
   // Прогресс заполнения — по live-значениям формы (черновик локальный, на
   // сервере его нет, поэтому считаем здесь). Показываем, пока акт заполняется.
-  const filledCount = countableItems.filter((item) => parseAmount(values[item.id] ?? "") !== null).length;
+  const filledCount = useMemo(
+    () => countableItems.filter((item) => parseAmount(values[item.id] ?? "") !== null).length,
+    [countableItems, values],
+  );
   const totalCount = countableItems.length;
   const progressPct = totalCount > 0 ? Math.round((filledCount / totalCount) * 100) : 0;
   // Завершать акт можно, только когда заполнены ВСЕ нужные строки (0 — тоже значение).
@@ -856,102 +1006,25 @@ export function InventoryDocumentEditor({
           <div className="rounded-lg border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
             По текущему поиску и группе позиций нет.
           </div>
-        ) : visibleItems.map((item) => {
-          const isFilled = (values[item.id] ?? "").trim() !== "";
-          // Подсветка/бейдж «Пересчёт» показываем ТОЛЬКО когда акт реально
-          // вернули на пересчёт (recount_pending) — тогда это «куда смотреть
-          // в первую очередь». На первом счёте (Новый/Назначен/В работе)
-          // авто-флаг needs_recount (триггер ставит его по расхождению с QR
-          // ещё до подсчёта) — шум, его не показываем. Приоритет над
-          // «заполненной» подсветкой сохраняем.
-          const needsRecount = isRecountPending && item.needsRecount;
-          const imageUrl = item.imageUrl;
-          return (
-          <div
+        ) : visibleItems.map((item) => (
+          <ItemRow
             key={item.id}
-            className={cn(
-              "grid grid-cols-[64px_1fr_auto] items-center gap-3 rounded-lg border p-2 transition-colors",
-              needsRecount
-                ? "border-rose-300 bg-rose-500/5 dark:border-rose-500/40 dark:bg-rose-500/10"
-                : isFilled
-                  ? "border-brand/30 bg-brand/5 dark:border-brand/40 dark:bg-brand/10"
-                  : "border-border bg-background",
-            )}
-          >
-            {imageUrl ? (
-              <button
-                type="button"
-                onClick={() => setPreviewImage({ url: imageUrl, name: item.productName })}
-                className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={`Открыть фото: ${item.productName}`}
-              >
-                <img
-                  src={imageUrl}
-                  alt={item.productName}
-                  // Акт бывает на 300 позиций, и без lazy браузер ставил в
-                  // очередь 300 запросов к storage сразу после прихода HTML —
-                  // форма «открывалась долго» уже после ответа сервера.
-                  loading="lazy"
-                  decoding="async"
-                  className="h-full w-full object-cover"
-                />
-              </button>
-            ) : (
-              <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-md border bg-muted">
-                <span className="text-xs text-muted-foreground">нет фото</span>
-              </div>
-            )}
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-0 break-words text-sm font-medium">{item.productName}</div>
-                {needsRecount ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
-                    <AlertTriangle className="h-3 w-3" />
-                    Пересчёт
-                  </span>
-                ) : null}
-              </div>
-              {item.groupPath ? (
-                <div className="mt-1 truncate text-xs text-muted-foreground">{item.groupPath}</div>
-              ) : null}
-              {needsRecount && item.recountNote ? (
-                <div className="mt-1 text-[11px] italic text-rose-700 dark:text-rose-300">
-                  «{item.recountNote}»
-                </div>
-              ) : null}
-            </div>
-            <div className="flex items-center justify-end gap-1.5">
-              <Input
-                inputMode="decimal"
-                // На пересчёте редактируем только отмеченные строки; остальные
-                // read-only (исполнитель не трогает то, что не просили считать).
-                disabled={formLocked || (isRecountPending && !item.needsRecount)}
-                value={values[item.id] ?? ""}
-                onChange={(event) => {
-                  const next = sanitizeAmountInput(event.target.value);
-                  setValues((prev) => ({ ...prev, [item.id]: next }));
-                }}
-                onBlur={() => {
-                  // Перестановка и скрытие строк случаются ТОЛЬКО при потере
-                  // фокуса, не во время ввода: и сортировка по заполненности,
-                  // и фильтр «Только пустые» читают snapshot.
-                  if (
-                    fillState !== DEFAULT_FILL_STATE ||
-                    sorts.some((mode) => formSortToField(mode) === "empty")
-                  ) {
-                    setSortValuesSnapshot({ ...values });
-                  }
-                }}
-                aria-label={`Факт: ${item.productName}`}
-                className="w-20 text-right"
-              />
-              {/* Фикс-слот единицы измерения — чтобы поля ввода были на одной
-                  вертикали независимо от длины «шт»/«л»/«кг». */}
-              <span className="w-8 shrink-0 text-xs text-muted-foreground">{item.measureUnitName ?? ""}</span>
-            </div>
-          </div>
-          );
-        })}
+            item={item}
+            value={values[item.id] ?? ""}
+            // На пересчёте редактируем только отмеченные строки; остальные
+            // read-only (исполнитель не трогает то, что не просили считать).
+            disabled={formLocked || (isRecountPending && !item.needsRecount)}
+            // Подсветку и бейдж «Пересчёт» показываем ТОЛЬКО когда акт реально
+            // вернули на пересчёт (recount_pending) — тогда это «куда смотреть
+            // в первую очередь». На первом счёте (Новый/Назначен/В работе)
+            // авто-флаг needs_recount (триггер ставит его по расхождению с QR
+            // ещё до подсчёта) — шум, его не показываем.
+            needsRecount={isRecountPending && item.needsRecount}
+            onValueChange={handleValueChange}
+            onBlur={handleValueBlur}
+            onPreview={handlePreviewImage}
+          />
+        ))}
       </div>
 
       {/* Submit-кнопка — паттерн detail-страницы из spec §«Entity detail page»:

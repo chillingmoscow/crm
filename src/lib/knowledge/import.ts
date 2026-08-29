@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import type { KbBlock } from "@/types/knowledge";
 
@@ -63,10 +66,9 @@ export async function importKbPageFromMarkdown(input: {
 
   const supabase = await createClient();
 
-  const [{ data: canImport }, { data: canCreate }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "kb.import_pages" }),
-    supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
-  ]);
+  const can = await getCachedPermissionChecker();
+  const canImport = can("kb.import_pages");
+  const canCreate = can("kb.create_pages");
   if (!canImport) {
     return { imported: null, error: "Нет права импортировать страницы" };
   }

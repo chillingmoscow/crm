@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import {
   kbPropertiesSchema,
   kbVersionRestoreSchema,
@@ -51,13 +54,9 @@ export type KbVersionDiffData = {
  * (просмотр/диф/restore версий) гейтим здесь, на server-action слое;
  * account-изоляция + `kb.view_pages` по-прежнему на RLS.
  */
-async function canViewVersionHistory(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<boolean> {
-  const { data } = await supabase.rpc("has_permission", {
-    permission_code: "kb.view_version_history",
-  });
-  return data === true;
+async function canViewVersionHistory(): Promise<boolean> {
+  const can = await getCachedPermissionChecker();
+  return can("kb.view_version_history");
 }
 
 const NO_VERSION_HISTORY = "Нет доступа к истории версий";
@@ -70,7 +69,7 @@ export async function listKbPageVersions(pageId: string): Promise<{
   error: string | null;
 }> {
   const supabase = await createClient();
-  if (!(await canViewVersionHistory(supabase)))
+  if (!(await canViewVersionHistory()))
     return { rows: [], error: NO_VERSION_HISTORY };
   const { data, error } = await supabase
     .from("kb_page_versions")
@@ -97,7 +96,7 @@ export async function getKbPageVersion(
   versionNumber: number
 ): Promise<{ row: KbPageVersionRow | null; error: string | null }> {
   const supabase = await createClient();
-  if (!(await canViewVersionHistory(supabase)))
+  if (!(await canViewVersionHistory()))
     return { row: null, error: NO_VERSION_HISTORY };
   const { data, error } = await supabase
     .from("kb_page_versions")
@@ -114,7 +113,7 @@ export async function getKbPageVersionDiffData(
   versionNumber: number,
 ): Promise<{ row: KbVersionDiffData | null; error: string | null }> {
   const supabase = await createClient();
-  if (!(await canViewVersionHistory(supabase)))
+  if (!(await canViewVersionHistory()))
     return { row: null, error: NO_VERSION_HISTORY };
   const [currentRes, previousRes] = await Promise.all([
     supabase
@@ -167,7 +166,7 @@ export async function restoreKbPageVersion(
   if (!parsed.success) return { error: parsed.error.message, new_version_number: null };
 
   const supabase = await createClient();
-  if (!(await canViewVersionHistory(supabase)))
+  if (!(await canViewVersionHistory()))
     return { error: NO_VERSION_HISTORY, new_version_number: null };
   const { data: version, error: vErr } = await supabase
     .from("kb_page_versions")

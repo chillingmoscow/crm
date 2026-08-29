@@ -1,6 +1,10 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { embedTexts } from "@/lib/ai/siliconflow-client";
 import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
 
@@ -69,10 +73,11 @@ export async function askKbAi(input: {
   const supabase = await createClient();
 
   // Двойной gate: kb.ask_ai permission + accounts.ai_enabled.
-  const [{ data: canAsk }, { data: accountId }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
-    supabase.rpc("get_active_account_id"),
+  const [can, accountId] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
   ]);
+  const canAsk = can("kb.ask_ai");
   if (!canAsk) {
     return { answer: null, sources: [], error: "Нет права задавать AI-вопросы" };
   }

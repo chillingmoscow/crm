@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 import { Trash2 } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { listDeletedKbPages } from "@/lib/knowledge/pages";
 import { EmptyState } from "@/components/ui/empty-state";
 import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
@@ -18,11 +21,10 @@ import type { TrashRow } from "@/app/(dashboard)/knowledge/trash/_components/tra
  * Hard-delete и автопурж по 30-дневному таймеру вне MVP.
  */
 export default async function KnowledgeTrashPage() {
+  const can = await getCachedPermissionChecker();
+  if (!can("kb.delete_pages")) redirect("/knowledge");
+
   const supabase = await createClient();
-  const { data: canDelete } = await supabase.rpc("has_permission", {
-    permission_code: "kb.delete_pages",
-  });
-  if (!canDelete) redirect("/knowledge");
 
   // listDeletedKbPages возвращает только soft-deleted строки —
   // RLS пропустит их только пользователю с kb.delete_pages.

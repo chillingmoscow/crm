@@ -1,6 +1,10 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { getDeepseekClient, DEEPSEEK_MODELS } from "@/lib/ai/deepseek-client";
 
 /** Поддерживаемые AI-команды.
@@ -101,10 +105,11 @@ export async function runKbAiCommand(input: {
   const supabase = await createClient();
 
   // Permission check + account-level kill-switch.
-  const [{ data: canUse }, { data: accountId }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "kb.use_ai" }),
-    supabase.rpc("get_active_account_id"),
+  const [can, accountId] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
   ]);
+  const canUse = can("kb.use_ai");
   if (!canUse) {
     return { result: null, error: "Нет права пользоваться AI-помощником" };
   }

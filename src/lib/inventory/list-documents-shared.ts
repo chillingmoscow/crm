@@ -72,14 +72,19 @@ export type DocumentListRow = {
   processed: boolean;
   assigned_to: string | null;
   reviewer_id: string | null;
-  shortfall_sum: number | null;
-  surplus_sum: number | null;
   results_has_line_amounts: boolean;
   store_id: string | null;
   store_title: string | null;
   venue_id: string | null;
   comment: string | null;
   matched_ingredients: string[] | null;
+  /** Управленческий итог по акту: недостача положительным модулем и излишек.
+      Не из RPC и не из базы — считаются по строкам в list-documents.ts.
+      Одноимённые колонки documents.shortfall_sum / surplus_sum удалены
+      миграцией 234: с 225 они всегда были NULL, и их значение здесь тут же
+      перетиралось вычисленным. */
+  shortfall_sum: number | null;
+  surplus_sum: number | null;
   /** F6: проведённый акт переоткрывали для правки итогов. Не из RPC —
       дозагружается в list-documents.ts (как управленческие тоталы). */
   results_reopened_after_processed?: boolean;
@@ -114,7 +119,9 @@ export type ListDocumentsOptions = {
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 200;
 
-type RpcRow = DocumentListRow & { total: number | string };
+type RpcRow = Omit<DocumentListRow, "shortfall_sum" | "surplus_sum"> & {
+  total: number | string;
+};
 
 export type NormalizedListOptions = {
   filters: ListDocumentsFilters;
@@ -162,8 +169,9 @@ export function parseRpcResponse(data: unknown): { rows: DocumentListRow[]; tota
     processed: row.processed,
     assigned_to: row.assigned_to,
     reviewer_id: row.reviewer_id,
-    shortfall_sum: row.shortfall_sum,
-    surplus_sum: row.surplus_sum,
+    // Заполняются в list-documents.ts по строкам акта; RPC их не отдаёт.
+    shortfall_sum: null,
+    surplus_sum: null,
     results_has_line_amounts: row.results_has_line_amounts,
     store_id: row.store_id,
     store_title: row.store_title,

@@ -1535,7 +1535,15 @@ export function InventoryResultsTable({
               const percent = Math.round(suggestion.confidence * 100);
               const reasonOpen = openReasonKey === suggestion.key;
               return (
-                <div key={suggestion.key} className="flex gap-3 rounded-md border p-3">
+                // На узком экране кнопки уезжают под карточку: шкала (48px) и
+                // обе кнопки не сжимаются, и на 375px заголовку оставалось
+                // несколько десятков пикселей. До переоформления карточка
+                // тоже раскладывалась в колонку до брейкпоинта sm.
+                <div
+                  key={suggestion.key}
+                  className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:gap-3"
+                >
+                  <div className="flex min-w-0 flex-1 gap-3">
                   {/* Уверенность — слева и шкалой: её сравнивают между
                       предложениями, а взглядом по левому краю это делается
                       за один проход. Раньше процент стоял в конце длинной
@@ -1587,8 +1595,10 @@ export function InventoryResultsTable({
                     ) : null}
                   </div>
 
+                  </div>
+
                   {canAdjust ? (
-                    <div className="flex shrink-0 items-start gap-2">
+                    <div className="flex shrink-0 gap-2 sm:items-start">
                       <Button type="button" size="sm" variant="ghost" disabled={adjustLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
                         Скрыть
                       </Button>

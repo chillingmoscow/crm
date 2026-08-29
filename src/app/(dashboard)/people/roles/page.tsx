@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { RolesClient } from "./_components/roles-client";
 
 export default async function RolesPage() {
@@ -21,10 +24,8 @@ const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder }
   // List view is gated on view_roles (owner/admin/manager).
   // Per-row edit affordances and mutations are still gated on
   // people.manage_roles via RLS on the roles/role_permissions tables.
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "people.view_roles",
-  });
-  if (!canView) redirect("/dashboard");
+  const can = await getCachedPermissionChecker();
+  if (!can("people.view_roles")) redirect("/dashboard");
 
   const [{ data: accountId }, { data: activeVenueId }] = await Promise.all([
     supabase.rpc("get_active_account_id"),

@@ -2,7 +2,10 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { LegalEntityForm } from "../_components/legal-entity-form";
 
@@ -13,10 +16,8 @@ export default async function NewLegalEntityPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "org.manage_legal_entities",
-  });
-  if (!canManage) redirect("/org/legal-entities");
+  const can = await getCachedPermissionChecker();
+  if (!can("org.manage_legal_entities")) redirect("/org/legal-entities");
 
   const dadataEnabled = isDadataConfigured();
 

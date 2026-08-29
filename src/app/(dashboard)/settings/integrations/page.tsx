@@ -2,7 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { PlugZap } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 
 export default async function IntegrationsPage({
   searchParams,
@@ -17,10 +21,11 @@ export default async function IntegrationsPage({
 
   if (!user) redirect("/login");
 
-  const [{ data: accountId }, { data: allowed }] = await Promise.all([
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("has_permission", { permission_code: "settings.manage_integrations" }),
+  const [accountId, can] = await Promise.all([
+    getCachedActiveAccountId(),
+    getCachedPermissionChecker(),
   ]);
+  const allowed = can("settings.manage_integrations");
 
   if (!accountId || !allowed) redirect("/dashboard");
 

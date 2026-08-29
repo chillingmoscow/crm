@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { loadAuditFeedPage } from "@/lib/audit/feed";
 import { listAccountStaff } from "@/lib/audit/search-staff";
 import { AuditPageClient } from "./_components/audit-page-client";
@@ -35,11 +35,9 @@ export default async function OrgAuditPage({
   }>;
 }) {
   const sp = await searchParams;
-  const supabase = await createClient();
-  const [{ data: canView }, { data: canRestoreKb }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
-    supabase.rpc("has_permission", { permission_code: "kb.delete_pages" }),
-  ]);
+  const can = await getCachedPermissionChecker();
+  const canView = can("org.view_audit");
+  const canRestoreKb = can("kb.delete_pages");
   if (!canView) redirect("/");
 
   const [{ events, hasMore, error }, staffOptions] = await Promise.all([

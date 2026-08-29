@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { StaffDetailPage } from "./_components/staff-detail-page";
 import { listAuditEvents } from "@/lib/audit/list";
@@ -77,10 +80,8 @@ export default async function StaffMemberPage({
   // правом people.view_staff — иначе её можно открыть по прямому URL. Свою
   // информацию пользователь смотрит в /profile, отдельный доступ к карточке
   // сотрудника без права не нужен.
-  const { data: canViewStaff } = await supabase.rpc("has_permission", {
-    permission_code: "people.view_staff",
-  });
-  if (!canViewStaff) redirect("/dashboard");
+  const can = await getCachedPermissionChecker();
+  if (!can("people.view_staff")) redirect("/dashboard");
 
   // Current user's role → canEdit
   const { data: uvr } = await supabase
@@ -190,9 +191,7 @@ export default async function StaffMemberPage({
 
   // Журнал + Активность. RLS на audit_logs фильтрует по org.view_audit;
   // canViewAudit нужен фронту, чтобы решить рендерить ли табы.
-  const { data: canViewAudit } = await supabase.rpc("has_permission", {
-    permission_code: "org.view_audit",
-  });
+  const canViewAudit = can("org.view_audit");
   const [auditResult, activityResult] = canViewAudit
     ? await Promise.all([
         listAuditEvents({ entityType: "staff", entityId: userId }),

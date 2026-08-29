@@ -97,7 +97,11 @@ async function fetchAllByDocumentIds<T>(input: {
     }
     const chunk = (data ?? []) as T[];
     out.push(...chunk);
-    if (chunk.length === 0 || out.length >= HARD_CAP) break;
+    // Короткая страница — значит данные кончились: лишний запрос за заведомо
+    // пустой страницей не делаем. Раньше выход был только по пустому ответу,
+    // и каждая из четырёх веток дозагрузки стоила на один round-trip больше,
+    // даже когда строк было меньше страницы.
+    if (chunk.length < PAGE || out.length >= HARD_CAP) break;
     from += chunk.length;
   }
 

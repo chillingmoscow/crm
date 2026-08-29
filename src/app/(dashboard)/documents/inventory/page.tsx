@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissions,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
@@ -118,29 +123,30 @@ export default async function InventoryDocumentsPage({
   const sp = await searchParams;
   const supabase = await createClient();
 
-  const [
-    { data: canView },
-    { data: canManage },
-    { data: canFill },
-    { data: canSync },
-    { data: canViewResults },
-    { data: canViewStaff },
-    { data: accountId },
-    { data: { user } },
-    amountRoundingScale,
-  ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
-    // Доступ к разделу «Сотрудники» → можно делать исполнителя/проверяющего
-    // кликабельной ссылкой на страницу сотрудника.
-    supabase.rpc("has_permission", { permission_code: "people.view_staff" }),
-    supabase.rpc("get_active_account_id"),
-    supabase.auth.getUser(),
+  // Права — одним списком (list_my_permissions), а не шестью отдельными
+  // has_permission. RPC кэширован на весь RSC-рендер, поэтому dashboard-layout
+  // и эта страница делят один вызов; пользователь и активный аккаунт — тоже
+  // из кэша layout'а.
+  //
+  // Перф-PR #517 перевёл на этот путь карточку акта и итоги, а список актов
+  // обошёл стороной: здесь оставались шесть has_permission, свой
+  // get_active_account_id и свой auth.getUser() — девять сетевых вызовов там,
+  // где нужно ноль. На self-hosted каждый стоит десятки миллисекунд.
+  const [permissions, user, accountId, amountRoundingScale] = await Promise.all([
+    getCachedPermissions(),
+    getCachedUser(),
+    getCachedActiveAccountId(),
     getActiveAccountAmountRoundingScale(),
   ]);
+  const can = (code: string) => permissions.includes(code);
+  const canView = can("inventory.view_documents");
+  const canManage = can("inventory.manage_documents");
+  const canFill = can("inventory.fill_assigned_documents");
+  const canSync = can("inventory.sync_quickresto");
+  const canViewResults = can("inventory.view_results");
+  // Доступ к разделу «Сотрудники» → можно делать исполнителя/проверяющего
+  // кликабельной ссылкой на страницу сотрудника.
+  const canViewStaff = can("people.view_staff");
 
   if (!accountId || !user) redirect("/login");
   if (!canView && !canFill) redirect("/dashboard");

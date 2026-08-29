@@ -416,8 +416,6 @@ export async function syncQuickRestoInventory(input?: {
         );
         if (boItems.length > 0) {
           items = boItems as typeof publicItems;
-          // Сохраняем backoffice-items в qr_payload для дальнейшего
-          // использования (refresh-results / просмотр сырья).
           // Заменяем effectedItems (если их не было — будут теперь).
           (document as unknown as { effectedItems: typeof publicItems }).effectedItems = boItems as typeof publicItems;
         } else {
@@ -462,7 +460,6 @@ export async function syncQuickRestoInventory(input?: {
               now: syncedAt,
             }),
             comment: text(document.comment),
-            qr_payload: document,
             synced_at: syncedAt,
             // Акт пришёл живым из выгрузки → снимаем системный авто-архив,
             // если он стоял (акт удаляли в QR, потом восстановили).

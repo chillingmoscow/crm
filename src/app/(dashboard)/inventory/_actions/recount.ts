@@ -470,7 +470,6 @@ export async function splitDocumentForRecount(input: {
             processed: false,
             results_has_line_amounts: false,
             comment: `Пересчёт по акту ${document.document_number}`,
-            qr_payload: createdDoc,
             synced_at: new Date().toISOString(),
             recount_of_document_id: document.id,
             assigned_to: document.assigned_to,

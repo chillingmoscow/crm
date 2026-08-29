@@ -11,7 +11,6 @@ import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import {
   readInventoryDocument,
   updateInventoryItemBackOffice,
-  type QuickRestoInventoryDocument2
 } from "@/lib/integrations/quickresto/client";
 import {
   type InventoryProductLookup,
@@ -196,7 +195,6 @@ export async function submitInventoryDocumentDraft(input: {
           last_qr_update_date: dateText(fresh.lastUpdateDate),
           ...quickRestoDocumentSums(fresh),
           results_has_line_amounts: precheckHasResults,
-          qr_payload: fresh,
           synced_at: new Date().toISOString(),
         })
         .eq("id", document.id)
@@ -381,11 +379,6 @@ export async function submitInventoryDocumentDraft(input: {
       productByExternalId,
       submittedAmounts: nextAmounts,
     });
-    const rereadWithRows: QuickRestoInventoryDocument2 = {
-      ...reread,
-      effectedItems: backOfficeItems,
-    };
-
     const nextStatus = syncResult.resultsFound ? "ready_for_review" : "results_blocked";
     const { error: updateLocalError } = await admin
       .from("documents")
@@ -396,9 +389,6 @@ export async function submitInventoryDocumentDraft(input: {
         last_qr_update_date: dateText(reread.lastUpdateDate),
         ...quickRestoDocumentSums(reread),
         results_has_line_amounts: syncResult.resultsFound,
-        qr_payload: rereadWithRows,
-        submitted_at: new Date().toISOString(),
-        submitted_by: ctx.user.id,
         synced_at: new Date().toISOString(),
       })
       .eq("id", document.id)

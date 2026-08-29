@@ -819,23 +819,12 @@ async function recalculateActiveResorts(input: {
         })),
       );
 
-      const sourceShortfallSum = pairs
-        .map(({ current }) => num(current?.difference_sum) ?? 0)
-        .filter((value) => value < 0)
-        .reduce((total, value) => total + value, 0);
-      const sourceSurplusSum = pairs
-        .map(({ current }) => num(current?.difference_sum) ?? 0)
-        .filter((value) => value > 0)
-        .reduce((total, value) => total + value, 0);
-
       await input.admin
         .from("inventory_result_resorts")
         .update({
           offset_amount: allocation.offsetAmount,
           residual_shortfall_sum: allocation.residualShortfallSum,
           residual_surplus_sum: allocation.residualSurplusSum,
-          source_shortfall_sum: sourceShortfallSum,
-          source_surplus_sum: sourceSurplusSum,
           cost_adjustment_sum: allocation.costAdjustmentSum,
         })
         .eq("id", resort.id)
@@ -1043,10 +1032,6 @@ export async function syncDocumentItems(input: {
       difference_sum: lineResult.values.differenceSum,
       sort_order: index,
       raw_payload: item,
-      // result_payload — диагностический сырец последнего ответа QR (NOT NULL
-      // default '{}'). Держим его строго по факту ответа: undefined в
-      // разнородном upsert-батче supabase-js превращается в NULL → падение.
-      result_payload: result.hasResult ? item : {},
       ...exclusion,
     };
   });
@@ -1223,7 +1208,6 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
       last_qr_update_date: dateText(input.document.lastUpdateDate),
       ...quickRestoDocumentSums(input.document),
       results_has_line_amounts: syncResult.resultsFound,
-      qr_payload: input.document,
       synced_at: new Date().toISOString(),
     })
     .eq("id", input.documentId)

@@ -456,14 +456,15 @@ begin
   -- Акт инвентаризации + позиции (для вкладки «Где используется»)
   -- assigned_to обязателен для processed-актов (workflow-инвариант:
   -- нельзя провести акт без явно указанного ответственного).
-  -- results_has_line_amounts=true + shortfall/surplus_sum нужны, чтобы
-  -- вкладка «Итоги» рендерила полную таблицу (см. results/page.tsx:474).
+  -- results_has_line_amounts=true нужен, чтобы вкладка «Итоги» рендерила
+  -- полную таблицу (см. results/page.tsx:474). Суммы акта не хранятся —
+  -- управленческий итог считается по строкам (миграция 234).
   insert into public.documents
     (id, account_id, external_id, document_number, invoice_date, store_id, status, assigned_to, processed,
-     results_has_line_amounts, shortfall_sum, surplus_sum)
+     results_has_line_amounts)
   values
     (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed', v_owner, true,
-     true, 667.00, 0)
+     true)
   on conflict (id) do nothing;
 
   -- Проведённый акт всегда прошёл проверку → у него есть проверяющий.
@@ -554,8 +555,6 @@ begin
   -- строки.
   update public.documents
      set results_has_line_amounts = true,
-         shortfall_sum = 1335.00,
-         surplus_sum = 0,
          -- Проверяющий (manager@test.com) ≠ исполнитель (owner) — для демо
          -- маршрутизации уведомлений «готов к проверке» ↔ «вернули на пересчёт».
          reviewer_id = 'bbbbbbbb-0000-0000-0000-000000000002'

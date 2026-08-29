@@ -47,6 +47,7 @@ import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-r
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
 import {
   getAssigneeLockReason,
+  getDeleteLockReason,
   getReviewerLockReason,
   hasCountedResults,
 } from "@/lib/inventory/act-status";
@@ -367,14 +368,26 @@ export function DocumentsTable({
   // Кнопка показывается, только если ДЕЙСТВИЕ применимо ко ВСЕМ выделенным
   // актам (иначе скрыта — никакого частичного применения):
   //  - «Исполнитель» — строже: лочится уже на проверке/пересчёте отдан;
-  //  - «Проверяющий» / «Удалить» — лишь на проведённых.
+  //  - «Проверяющий» — лишь на проведённых;
+  //  - «Удалить» — на проведённых И на актах с зафиксированными итогами.
   const canBulkAssignee =
     selectedRowsList.length > 0 &&
     selectedRowsList.every((row) => getAssigneeLockReason(row.status) === null);
   const canBulkReviewer =
     selectedRowsList.length > 0 &&
     selectedRowsList.every((row) => getReviewerLockReason(row.status) === null);
-  const canBulkDelete = canBulkReviewer;
+  // Раньше здесь стояло `= canBulkReviewer`: замки совпадали по статусу, но это
+  // совпадение, а не правило. Удаление шире — его блокирует ещё и снимок итогов,
+  // который переживает распроведение, так что у замков разные условия.
+  const canBulkDelete =
+    selectedRowsList.length > 0 &&
+    selectedRowsList.every(
+      (row) =>
+        getDeleteLockReason({
+          status: row.status,
+          resultsSnapshotAt: row.results_snapshot_at,
+        }) === null,
+    );
 
   const clearSelection = () => setSelectedIds(new Set());
 

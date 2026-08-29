@@ -260,6 +260,28 @@ export function nextStatusAfterAssign(currentStatus: string, assignedTo: string 
  * итогов. Заблокировано только когда акт проведён.
  * Возвращает причину блокировки (для tooltip) или null.
  */
+/**
+ * Можно ли УДАЛИТЬ акт. Повторяет условие серверного экшена
+ * deleteInventoryDocument, который удаляет строку только пока акт не
+ * проведён и у него нет снимка утверждённых итогов.
+ *
+ * Это ограничение по состоянию акта, а не по правам: `inventory.manage_documents`
+ * законно разрешает удалять черновики. Просто вместе с проведённым актом
+ * каскадом уходят снимок итогов, пересорты и журнал решений — вся
+ * доказательная база по закрытой инвентаризации.
+ *
+ * Снимок проверяем отдельно от статуса: распроведение возвращает акт в
+ * ready_for_review, но снимок остаётся, и удалять такой акт по-прежнему нельзя.
+ */
+export function getDeleteLockReason(input: {
+  status: string;
+  resultsSnapshotAt?: string | null;
+}): string | null {
+  if (input.status === "processed") return "Проведённый акт удалить нельзя";
+  if (input.resultsSnapshotAt) return "У акта есть утверждённые итоги — удалить нельзя";
+  return null;
+}
+
 export function getReviewerLockReason(status: string): string | null {
   if (status === "processed") return "Акт проведён — проверяющего менять нельзя";
   return null;

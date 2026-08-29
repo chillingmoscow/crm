@@ -40,7 +40,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TableRowMenu } from "@/components/shared/table";
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
-import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
+import {
+  getAssigneeLockReason,
+  getDeleteLockReason,
+  getReviewerLockReason,
+} from "@/lib/inventory/act-status";
 import {
   formatSignedMoney,
   signedAmountClass,
@@ -137,6 +141,10 @@ export function DesktopRowMenu({
   const router = useRouter();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const deleteLockReason = getDeleteLockReason({
+    status: doc.status,
+    resultsSnapshotAt: doc.results_snapshot_at,
+  });
 
   const actions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
@@ -150,7 +158,10 @@ export function DesktopRowMenu({
       icon: <ClipboardCheck className="h-4 w-4" />,
       onSelect: () => router.push(getDocHref(doc, canViewResults)),
     });
-    if (canManage) {
+    // Проведённый акт и акт с зафиксированными итогами удалить нельзя —
+    // серверный экшен всё равно откажет. Пункт меню, который заведомо
+    // закончится ошибкой, не показываем.
+    if (canManage && deleteLockReason === null) {
       items.push({
         label: "Удалить",
         icon: <Trash2 className="h-4 w-4" />,
@@ -160,7 +171,7 @@ export function DesktopRowMenu({
       });
     }
     return items;
-  }, [doc, router, canManage, canViewResults]);
+  }, [doc, router, canManage, canViewResults, deleteLockReason]);
 
   const runDelete = () => {
     startDelete(async () => {
@@ -280,6 +291,10 @@ export function MobileCard({
   const [reviewerSheetOpen, setReviewerSheetOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const deleteLockReason = getDeleteLockReason({
+    status: doc.status,
+    resultsSnapshotAt: doc.results_snapshot_at,
+  });
   // Подавляем «click-through» навигацию после закрытия меню действий: на тач-
   // устройствах тап по пункту меню закрывает его, и «призрачный» click падает
   // на кликабельную карточку → она уводила в акт вместо открытия панели.
@@ -331,16 +346,20 @@ export function MobileCard({
           separatorBefore: !canEditAssignee,
         });
       }
-      items.push({
-        label: "Удалить",
-        icon: <Trash2 className="h-4 w-4" />,
-        destructive: true,
-        separatorBefore: !canEditAssignee && !canEditReviewer,
-        onSelect: () => setConfirmDeleteOpen(true),
-      });
+      // См. мобильное меню: удаление недоступно у проведённых актов и у
+      // актов с зафиксированными итогами.
+      if (deleteLockReason === null) {
+        items.push({
+          label: "Удалить",
+          icon: <Trash2 className="h-4 w-4" />,
+          destructive: true,
+          separatorBefore: !canEditAssignee && !canEditReviewer,
+          onSelect: () => setConfirmDeleteOpen(true),
+        });
+      }
     }
     return items;
-  }, [doc, router, canManage, canViewResults]);
+  }, [doc, router, canManage, canViewResults, deleteLockReason]);
 
   return (
     <div

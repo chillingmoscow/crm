@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Loader2, Trash2 } from "lucide-react";
+import { Loader2, Lock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -27,9 +27,12 @@ import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/_actions/do
 export function DangerZone({
   documentId,
   documentNumber,
+  deleteLockReason,
 }: {
   documentId: string;
   documentNumber: string;
+  /** Причина, по которой удалять нельзя. null — можно. */
+  deleteLockReason: string | null;
 }) {
   const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -62,14 +65,24 @@ export function DangerZone({
           вернуться при следующей синхронизации — для безвозвратного удаления
           сделай то же самое в QR.
         </p>
-        <Button
-          variant="destructive"
-          className="mt-4"
-          onClick={() => setConfirmOpen(true)}
-        >
-          <Trash2 className="h-4 w-4" />
-          Удалить акт
-        </Button>
+        {deleteLockReason ? (
+          // Не прячем блок целиком, а объясняем: пользователь пришёл сюда за
+          // удалением и должен понять, почему его нет, а не решить, что
+          // страница сломалась.
+          <p className="mt-4 inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground">
+            <Lock className="h-4 w-4 shrink-0" />
+            {deleteLockReason}
+          </p>
+        ) : (
+          <Button
+            variant="destructive"
+            className="mt-4"
+            onClick={() => setConfirmOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+            Удалить акт
+          </Button>
+        )}
       </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

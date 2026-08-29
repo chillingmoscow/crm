@@ -25,6 +25,7 @@ type DocumentBasicsRow = {
   store_id: string | null;
   venue_id: string | null;
   results_reopened_after_processed: boolean;
+  results_snapshot_at: string | null;
 };
 
 type StoreTitleRow = { title: string };
@@ -39,7 +40,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id, results_snapshot_at",
     )
     .eq("id", id)
     .eq("account_id", accountId)

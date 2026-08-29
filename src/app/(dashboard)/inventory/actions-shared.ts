@@ -24,9 +24,6 @@ import {
   processInventoryDocumentBackOffice,
   type QuickRestoInventoryDocument2,
   type QuickRestoInventoryItem2,
-  type QuickRestoSingleCategory,
-  type QuickRestoSingleProduct,
-  type QuickRestoStore,
 } from "@/lib/integrations/quickresto/client";
 
 export type QuickRestoConnection = {
@@ -138,171 +135,55 @@ export const RESORT_STATUS = {
   voided: "voided",
 } as const;
 
-export const INVENTORY_DOCUMENT_ITEM_KEYS = [
-  "effectedItems",
-  "prefabricatedItems",
-  "disassembledItems",
-] as const;
+// Чистые нормализаторы payload'ов QR переехали в lib, чтобы их мог
+// переиспользовать онбординг. Реэкспорт — чтобы не трогать импорты экшенов.
+import {
+  INVENTORY_DOCUMENT_ITEM_KEYS,
+  asObject,
+  className,
+  dateMs,
+  dateText,
+  externalItemId,
+  externalProductId,
+  groupName,
+  inventoryDocumentItems,
+  inventoryDocumentNumber,
+  isDeletedQuickRestoRow,
+  isQuickRestoClass,
+  isRecentOpenInventoryDocument,
+  num,
+  priceNum,
+  productName,
+  quickRestoObjectId,
+  quickRestoParentExternalId,
+  sameDate,
+  storeTitle,
+  text,
+} from "@/lib/integrations/quickresto/normalize";
 
-export function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-export function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-export function num(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-// Принимает число или строку из формы (в т.ч. с запятой-разделителем).
-export function priceNum(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string") {
-    const normalized = value.trim().replace(",", ".");
-    if (normalized === "") return null;
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-export function className(value: unknown): string {
-  return text(asObject(value).className) ?? "";
-}
-
-export function isQuickRestoClass(value: unknown, suffix: "SingleCategory" | "SingleProduct") {
-  return className(value).endsWith(`.${suffix}`);
-}
-
-export function dateMs(value: unknown): number | null {
-  const raw =
-    typeof value === "number"
-      ? value
-      : typeof value === "string" && value.trim() && /^\d+$/.test(value.trim())
-        ? Number(value.trim())
-        : null;
-
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return raw > 1_000_000_000_000 ? raw : raw * 1000;
-  }
-
-  if (typeof value !== "string" || !value.trim()) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-export function dateText(value: unknown): string | null {
-  const parsed = dateMs(value);
-  return parsed === null ? null : new Date(parsed).toISOString();
-}
-
-export function isDeletedQuickRestoRow(value: unknown) {
-  const row = asObject(value);
-  return (
-    row.deleted === true ||
-    row.isDeleted === true ||
-    row.removed === true ||
-    row.deletedAt != null ||
-    row.deleteDate != null ||
-    row.removeDate != null
-  );
-}
-
-export function isRecentOpenInventoryDocument(doc: QuickRestoInventoryDocument2) {
-  if (doc.processed || isDeletedQuickRestoRow(doc)) return false;
-  const invoiceDate = dateText(doc.invoiceDate);
-  if (!invoiceDate) return false;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 7);
-  cutoff.setHours(0, 0, 0, 0);
-  return Date.parse(invoiceDate) >= cutoff.getTime();
-}
-
-export function sameDate(left: unknown, right: unknown) {
-  if (!left && !right) return true;
-  if (!left || !right) return false;
-  const leftMs = dateMs(left);
-  const rightMs = dateMs(right);
-  return leftMs !== null && rightMs !== null && leftMs === rightMs;
-}
-
-export function productName(product: QuickRestoSingleProduct | QuickRestoInventoryItem2["product"], fallback: string) {
-  return text(product?.name) ?? text(product?.itemTitle) ?? fallback;
-}
-
-export function groupName(group: QuickRestoSingleCategory) {
-  return text(group.name) ?? text(group.itemTitle) ?? `Группа #${group.id}`;
-}
-
-export function storeTitle(store: QuickRestoStore) {
-  return text(store.title) ?? `Склад #${store.id}`;
-}
-
-export function inventoryDocumentNumber(doc: QuickRestoInventoryDocument2) {
-  return text(doc.documentNumber) ?? `QR-${doc.id}`;
-}
-
-export function externalProductId(item: QuickRestoInventoryItem2): string | null {
-  const raw = asObject(item.product);
-  const id = raw.id;
-  return typeof id === "number" || typeof id === "string" ? String(id) : null;
-}
-
-export function quickRestoObjectId(value: unknown): string | null {
-  const row = asObject(value);
-  const id = row.id;
-  if (typeof id === "number" || typeof id === "string") return String(id);
-  return null;
-}
-
-export function quickRestoParentExternalId(item: unknown): string | null {
-  const row = asObject(item);
-  const selfId = quickRestoObjectId(row);
-  const directKeys = ["parentId", "parentItemId", "parentGroupId", "parentCategoryId"];
-  for (const key of directKeys) {
-    const value = row[key];
-    if (typeof value === "number" || typeof value === "string") {
-      const id = String(value);
-      if (id !== selfId) return id;
-    }
-  }
-
-  const nestedKeys = [
-    "parentItem",
-    "parent",
-    "parentGroup",
-    "parentCategory",
-    "group",
-    "category",
-    "singleCategory",
-    "productGroup",
-    "productCategory",
-  ];
-  for (const key of nestedKeys) {
-    const id = quickRestoObjectId(row[key]);
-    if (id && id !== selfId) return id;
-  }
-
-  return null;
-}
-
-export function externalItemId(item: QuickRestoInventoryItem2, index: number): string {
-  if (typeof item.id === "number" || typeof item.id === "string") return String(item.id);
-  const productId = externalProductId(item);
-  return productId ? `product:${productId}` : `row:${index}`;
-}
-
-export function inventoryDocumentItems(document: QuickRestoInventoryDocument2) {
-  for (const key of INVENTORY_DOCUMENT_ITEM_KEYS) {
-    const value = document[key];
-    if (Array.isArray(value) && value.length > 0) {
-      return { key, items: value as QuickRestoInventoryItem2[] };
-    }
-  }
-  return { key: "effectedItems" as const, items: [] as QuickRestoInventoryItem2[] };
-}
+export {
+  INVENTORY_DOCUMENT_ITEM_KEYS,
+  asObject,
+  className,
+  dateMs,
+  dateText,
+  externalItemId,
+  externalProductId,
+  groupName,
+  inventoryDocumentItems,
+  inventoryDocumentNumber,
+  isDeletedQuickRestoRow,
+  isQuickRestoClass,
+  isRecentOpenInventoryDocument,
+  num,
+  priceNum,
+  productName,
+  quickRestoObjectId,
+  quickRestoParentExternalId,
+  sameDate,
+  storeTitle,
+  text,
+};
 
 export function getNestedNumber(item: QuickRestoInventoryItem2, keys: string[]) {
   const row = asObject(item);
@@ -436,54 +317,10 @@ export async function getActiveContext(permission?: string | string[]) {
  *
  * 3. **Final fallback:** если venue в аккаунте ровно одно — оно.
  */
-export async function resolveDefaultVenueId(input: {
-  admin: LooseDb;
-  accountId: string;
-  activeVenueId: string | null;
-}) {
-  // 1. QR-импортированное venue (priority — основной кейс).
-  // В норме строка одна на (account, provider='quickresto', entity_type='venue').
-  // Codex P1 #378: нет FK external_entity_links.local_id → venues.id,
-  // поэтому возможен orphan (venue hard-удалён, link остался) или
-  // ссылка на архивный venue. Перед использованием проверяем что
-  // venue физически существует и live — иначе fallback ниже.
-  // Multi-cloud (issue #362) пока не реализован.
-  const { data: qrVenueLinks } = await input.admin
-    .from<Array<{ local_id: string }>>("external_entity_links")
-    .select("local_id")
-    .eq("account_id", input.accountId)
-    .eq("provider", "quickresto")
-    .eq("entity_type", "venue");
-  const qrVenueId = qrVenueLinks?.[0]?.local_id;
-  if (qrVenueId) {
-    const { data: qrVenue } = await input.admin
-      .from<{ id: string; archived_at: string | null }>("venues")
-      .select("id, archived_at")
-      .eq("id", qrVenueId)
-      .eq("account_id", input.accountId)
-      .maybeSingle();
-    if (qrVenue?.id && !qrVenue.archived_at) return qrVenue.id;
-    // orphan / archived — пропускаем, идём на fallback
-  }
+// Резолв venue для складов переехал в lib — им пользуется и онбординг.
+import { resolveDefaultVenueId } from "@/lib/inventory/default-venue";
 
-  // 2. Fallback: активный venue (legacy-поведение, защита от регресса)
-  if (input.activeVenueId) {
-    const { data: activeVenue } = await input.admin
-      .from<{ id: string }>("venues")
-      .select("id")
-      .eq("id", input.activeVenueId)
-      .eq("account_id", input.accountId)
-      .maybeSingle();
-    if (activeVenue?.id) return activeVenue.id;
-  }
-
-  // 3. Final fallback: единственное venue в аккаунте
-  const { data: venues } = await input.admin
-    .from<Array<{ id: string }>>("venues")
-    .select("id")
-    .eq("account_id", input.accountId);
-  return venues?.length === 1 ? venues[0].id : null;
-}
+export { resolveDefaultVenueId };
 
 export async function getConnection(accountId: string): Promise<QuickRestoConnection | null> {
   const admin = asLooseDb(createAdminClient());

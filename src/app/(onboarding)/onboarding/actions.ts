@@ -6,6 +6,17 @@ import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitat
 import type { Json, VenueType, WorkingHours } from "@/types/database";
 import { randomUUID } from "crypto";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
+import { asLooseDb } from "@/lib/supabase/loose";
+import { resolveDefaultVenueId } from "@/lib/inventory/default-venue";
+import {
+  asObject,
+  groupName,
+  isQuickRestoClass,
+  num,
+  productName,
+  storeTitle,
+  text,
+} from "@/lib/integrations/quickresto/normalize";
 import {
   loginQuickRestoBackOffice,
   listEmployees,
@@ -20,7 +31,6 @@ import {
   type QuickRestoRole,
   type QuickRestoSingleCategory,
   type QuickRestoSingleProduct,
-  type QuickRestoStore,
   type QuickRestoTableScheme,
 } from "@/lib/integrations/quickresto/client";
 
@@ -444,34 +454,6 @@ function toVenueAddress(venue: QuickRestoTableScheme): string {
   );
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function num(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function className(value: unknown): string {
-  return text(asRecord(value).className) ?? "";
-}
-
-function isQuickRestoClass(value: unknown, suffix: "SingleCategory" | "SingleProduct") {
-  return className(value).endsWith(`.${suffix}`);
-}
-
-function productName(product: QuickRestoSingleProduct | QuickRestoSingleCategory, fallback: string) {
-  return text(product.name) ?? text(product.itemTitle) ?? fallback;
-}
-
-function storeTitle(store: QuickRestoStore) {
-  return text(store.title) ?? `Склад #${store.id}`;
-}
-
 function buildImportedEmail(accountId: string, externalEmployeeId: number): string {
   const compactAccountId = accountId.replace(/-/g, "").slice(0, 12);
   return `quickresto+${compactAccountId}.${externalEmployeeId}@import.local`;
@@ -567,35 +549,6 @@ async function saveSnapshot(params: {
     );
 }
 
-async function resolveInventoryDefaultVenueId(params: {
-  adminClient: ReturnType<typeof createAdminClient>;
-  accountId: string;
-  userId: string;
-}) {
-  const { data: profile } = await params.adminClient
-    .from("profiles")
-    .select("active_venue_id")
-    .eq("id", params.userId)
-    .maybeSingle();
-
-  const activeVenueId = (profile as { active_venue_id?: string | null } | null)?.active_venue_id ?? null;
-  if (activeVenueId) {
-    const { data: activeVenue } = await params.adminClient
-      .from("venues")
-      .select("id")
-      .eq("id", activeVenueId)
-      .eq("account_id", params.accountId)
-      .maybeSingle();
-    if (activeVenue?.id) return activeVenue.id;
-  }
-
-  const { data: venues } = await params.adminClient
-    .from("venues")
-    .select("id")
-    .eq("account_id", params.accountId);
-  return venues?.length === 1 ? venues[0].id : null;
-}
-
 async function syncQuickRestoInventoryCatalog(params: {
   adminClient: ReturnType<typeof createAdminClient>;
   adminDb: LooseSupabaseClient;
@@ -610,10 +563,19 @@ async function syncQuickRestoInventoryCatalog(params: {
 }) {
   const auth = { layerName: params.login, login: params.login, password: params.password };
   const syncedAt = new Date().toISOString();
-  const defaultVenueId = await resolveInventoryDefaultVenueId({
-    adminClient: params.adminClient,
+  // Тот же резолвер, что и у боевой синхронизации: приоритет у venue,
+  // импортированного из QR, а активное venue пользователя — лишь запасной
+  // вариант. Своя двухшаговая версия тут пропускала первый шаг.
+  const { data: profileRow } = await params.adminClient
+    .from("profiles")
+    .select("active_venue_id")
+    .eq("id", params.userId)
+    .maybeSingle();
+  const defaultVenueId = await resolveDefaultVenueId({
+    admin: asLooseDb(params.adminClient),
     accountId: params.accountId,
-    userId: params.userId,
+    activeVenueId:
+      (profileRow as { active_venue_id?: string | null } | null)?.active_venue_id ?? null,
   });
 
   const storeItemsPromise =
@@ -667,7 +629,7 @@ async function syncQuickRestoInventoryCatalog(params: {
           {
             account_id: params.accountId,
             external_id: String(group.id),
-            name: productName(group, `Группа #${group.id}`),
+            name: groupName(group),
             item_title: text(group.itemTitle),
             parent_group_id: null,
             parent_external_id: parentExternalId,
@@ -1016,9 +978,9 @@ function normalizeQuickRestoTitle(value: string | null | undefined) {
 function quickRestoRoleRightShortNames(role: QuickRestoRole) {
   const names = new Set<string>();
   for (const rawLink of role.rightLinks ?? []) {
-    const link = asRecord(rawLink);
+    const link = asObject(rawLink);
     const direct = text(link.shortName);
-    const nested = text(asRecord(link.right).shortName);
+    const nested = text(asObject(link.right).shortName);
     if (direct) names.add(direct);
     if (nested) names.add(nested);
   }
@@ -1676,20 +1638,6 @@ export async function runQuickRestoImport(data: {
 
   try {
     const password = decryptConnectionPassword(connection);
-    if (data.importStores || data.importIngredientGroups || data.importIngredients) {
-      await syncQuickRestoInventoryCatalog({
-        adminClient,
-        adminDb,
-        accountId: data.accountId,
-        userId: user.id,
-        login: connection.login,
-        password,
-        importStores: Boolean(data.importStores),
-        importIngredientGroups: Boolean(data.importIngredientGroups),
-        importIngredients: Boolean(data.importIngredients),
-        summary,
-      });
-    }
 
     const ownerRoleId = await getOwnerRoleId(supabase);
     if (!ownerRoleId) throw new Error("Не найдена системная роль owner");
@@ -1805,6 +1753,32 @@ export async function runQuickRestoImport(data: {
           summary.errors.push(`Venue ${venue.id}: ${ownerRoleError.message}`);
         }
       }
+    }
+
+    // Каталог импортируем ПОСЛЕ заведений, а не до: склады привязываются к
+    // заведению, и резолвер ищет его в том числе по ссылке в
+    // external_entity_links, которую заводит цикл выше. В режиме QuickResto
+    // визард создаёт аккаунт вообще без заведений (createAccountOnly), так что
+    // при старом порядке резолвер не имел ни одного кандидата и все склады
+    // приезжали в «Не распределённые».
+    //
+    // Плата за перестановку: если listTableSchemes не ответит, каталог тоже не
+    // приедет. Это осознанно — импорт каталога длинный, и начинать его ради
+    // складов, которым некуда привязаться, смысла нет. Прогон помечается
+    // failed, повтор идемпотентен.
+    if (data.importStores || data.importIngredientGroups || data.importIngredients) {
+      await syncQuickRestoInventoryCatalog({
+        adminClient,
+        adminDb,
+        accountId: data.accountId,
+        userId: user.id,
+        login: connection.login,
+        password,
+        importStores: Boolean(data.importStores),
+        importIngredientGroups: Boolean(data.importIngredientGroups),
+        importIngredients: Boolean(data.importIngredients),
+        summary,
+      });
     }
 
     if (data.importRoles && selectedRoleIdSet.size > 0) {

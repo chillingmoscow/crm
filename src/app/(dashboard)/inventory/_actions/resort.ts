@@ -91,14 +91,6 @@ export async function createInventoryResultResort(input: {
       })),
     );
     const itemById = new Map(items.map((item) => [item.id, item]));
-    const sourceShortfallSum = items
-      .map((item) => num(item.difference_sum) ?? 0)
-      .filter((value) => value < 0)
-      .reduce((total, value) => total + value, 0);
-    const sourceSurplusSum = items
-      .map((item) => num(item.difference_sum) ?? 0)
-      .filter((value) => value > 0)
-      .reduce((total, value) => total + value, 0);
 
     const { data: resort, error: resortError } = await admin
       .from<{ id: string }>("inventory_result_resorts")
@@ -112,16 +104,11 @@ export async function createInventoryResultResort(input: {
         offset_amount: allocation.offsetAmount,
         residual_shortfall_sum: allocation.residualShortfallSum,
         residual_surplus_sum: allocation.residualSurplusSum,
-        source_shortfall_sum: sourceShortfallSum,
-        source_surplus_sum: sourceSurplusSum,
         // Корректировка себестоимости (миграция 205): если недостача
         // дороже излишка — управленческий убыток на разнице цен. См.
         // docs/handbook/inventory/resort.md.
         cost_adjustment_sum: allocation.costAdjustmentSum,
-        suggestion_source: input.suggestionSource ?? "manual",
-        suggestion_confidence: typeof input.suggestionConfidence === "number" ? input.suggestionConfidence : null,
         created_by: ctx.user.id,
-        metadata: { itemIds },
       })
       .select("id")
       .single();
@@ -144,7 +131,6 @@ export async function createInventoryResultResort(input: {
         offset_amount: allocationItem.offsetAmount,
         remaining_difference_amount: allocationItem.remainingDifferenceAmount,
         remaining_difference_sum: allocationItem.remainingDifferenceSum,
-        snapshot: item,
       };
     });
     const { error: itemsError } = await admin.from("inventory_result_resort_items").insert(resortRows);

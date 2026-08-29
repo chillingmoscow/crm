@@ -159,7 +159,6 @@ export type InventoryResultResortRow = {
   /** Корректировка себестоимости (миграция 205). Управленческий
       убыток на разнице цен покрытия пересорта. >= 0. */
   cost_adjustment_sum: number | null;
-  suggestion_source: string | null;
   created_at: string;
   void_reason: string | null;
   /** Снимок пересорта на момент подведения итогов (миграция 227). У

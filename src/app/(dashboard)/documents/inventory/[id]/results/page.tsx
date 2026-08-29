@@ -184,7 +184,7 @@ export default async function InventoryDocumentResultsPage({
       .eq("document_id", document.id),
     admin
       .from<InventoryResultResortRow[]>("inventory_result_resorts")
-      .select("id, status, reason, group_name, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, suggestion_source, created_at, void_reason, finalized_at, finalized_status, finalized_offset_amount, finalized_residual_shortfall_sum, finalized_residual_surplus_sum, finalized_cost_adjustment_sum")
+      .select("id, status, reason, group_name, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, created_at, void_reason, finalized_at, finalized_status, finalized_offset_amount, finalized_residual_shortfall_sum, finalized_residual_surplus_sum, finalized_cost_adjustment_sum")
       .eq("account_id", accountId)
       .eq("document_id", document.id)
       .order("created_at", { ascending: false }),

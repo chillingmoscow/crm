@@ -88,9 +88,13 @@ import {
   storeTitle,
   syncDocumentItems,
   text,
+  catalogChunks,
+  saveSnapshots,
   upsertExternalLink,
+  upsertExternalLinks,
   withBackOfficeSession,
   writeInventoryResultEvent,
+  writeInventoryResultEvents,
   type InventoryExclusionRuleLookup,
   type InventoryProductLookup,
   type InventoryResultItemRow,
@@ -172,103 +176,138 @@ export async function syncQuickRestoInventory(input?: {
     // ingredient_groups) и hard-удалял ингредиенты вопреки soft-archive
     // политике.
 
-    for (const group of groups) {
-      if (typeof group.id !== "number") continue;
-      const parentExternalId = quickRestoParentExternalId(group);
+    // Каталог пишем пачками. Раньше на каждую группу и каждый ингредиент
+    // уходило по три запроса (сама строка + ссылка + снимок): на каталоге в
+    // 3000 позиций это ~9000 round-trip'ов, минуты работы и столько же занятых
+    // соединений пула. Набор записываемых строк не изменился — изменилось
+    // только число запросов.
+    // Дедуп по external_id обязателен: PostgreSQL не даёт одному INSERT ... ON
+    // CONFLICT DO UPDATE задеть одну строку дважды, а построчная запись такие
+    // дубликаты в выгрузке просто перезаписывала. Оставляем последнюю версию.
+    const dedupeByExternalId = <T extends { external_id: string }>(rows: T[]): T[] =>
+      Array.from(new Map(rows.map((row) => [row.external_id, row])).values());
 
+    const groupRows = dedupeByExternalId(groups
+      .filter((group) => typeof group.id === "number")
+      .map((group) => ({
+        account_id: ctx.accountId,
+        external_id: String(group.id),
+        name: groupName(group),
+        item_title: text(group.itemTitle),
+        parent_group_id: null,
+        parent_external_id: quickRestoParentExternalId(group),
+        raw_payload: group,
+        synced_at: syncedAt,
+      })));
+    for (const chunk of catalogChunks(groupRows)) {
       const { data, error } = await admin
-        .from<{ id: string }>("ingredient_groups")
-        .upsert(
-          {
-            account_id: ctx.accountId,
-            external_id: String(group.id),
-            name: groupName(group),
-            item_title: text(group.itemTitle),
-            parent_group_id: null,
-            parent_external_id: parentExternalId,
-            raw_payload: group,
-            synced_at: syncedAt,
-          },
-          { onConflict: "account_id,external_id" }
-        )
-        .select("id")
-        .single();
-      if (error || !data?.id) throw new Error(error?.message ?? `Не удалось сохранить группу ${group.id}`);
-
-      groupByExternalId.set(String(group.id), data.id);
-      summary.groups += 1;
-      await upsertExternalLink({
-        admin,
-        accountId: ctx.accountId,
-        entityType: "ingredient_group",
-        externalId: String(group.id),
-        localTable: "ingredient_groups",
-        localId: data.id,
-      });
-      await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "ingredient_group", externalId: String(group.id), payload: group });
+        .from<Array<{ id: string; external_id: string }>>("ingredient_groups")
+        .upsert(chunk, { onConflict: "account_id,external_id" })
+        .select("id, external_id");
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) groupByExternalId.set(row.external_id, row.id);
     }
+    if (groupByExternalId.size < groupRows.length) {
+      throw new Error("Не удалось сохранить часть групп ингредиентов Quick Resto");
+    }
+    summary.groups += groupRows.length;
+    await upsertExternalLinks({
+      admin,
+      accountId: ctx.accountId,
+      entityType: "ingredient_group",
+      localTable: "ingredient_groups",
+      rows: groupRows.map((row) => ({
+        externalId: row.external_id,
+        localId: groupByExternalId.get(row.external_id) as string,
+      })),
+    });
+    await saveSnapshots({
+      admin,
+      accountId: ctx.accountId,
+      entityType: "ingredient_group",
+      rows: groupRows.map((row) => ({ externalId: row.external_id, payload: row.raw_payload })),
+    });
 
+    // Второй проход: расставляем родителей, когда локальные id уже известны.
+    // Группируем по родителю — обновлений столько, сколько различных родителей
+    // (обычно единицы), а не по одному на каждую группу.
+    const groupIdsByParent = new Map<string | null, string[]>();
     for (const group of groups) {
       const localId = groupByExternalId.get(String(group.id));
+      if (!localId) continue;
       const parentExternalId = quickRestoParentExternalId(group);
-      const parentId = parentExternalId ? groupByExternalId.get(parentExternalId) : null;
-      if (localId) {
-        await admin
+      const parentId = parentExternalId ? groupByExternalId.get(parentExternalId) ?? null : null;
+      const bucket = groupIdsByParent.get(parentId) ?? [];
+      bucket.push(localId);
+      groupIdsByParent.set(parentId, bucket);
+    }
+    for (const [parentId, ids] of groupIdsByParent) {
+      for (const chunk of catalogChunks(ids)) {
+        const { error } = await admin
           .from("ingredient_groups")
-          .update({ parent_group_id: parentId ?? null })
-          .eq("id", localId);
+          .update({ parent_group_id: parentId })
+          .eq("account_id", ctx.accountId)
+          .in("id", chunk);
+        if (error) throw new Error(error.message);
       }
     }
 
-    for (const product of products) {
-      if (typeof product.id !== "number") continue;
-      const parentExternalId = quickRestoParentExternalId(product);
-      const groupId = parentExternalId ? groupByExternalId.get(parentExternalId) ?? null : null;
-
+    const productRowsToWrite = dedupeByExternalId(products
+      .filter((product) => typeof product.id === "number")
+      .map((product) => {
+        const parentExternalId = quickRestoParentExternalId(product);
+        return {
+          account_id: ctx.accountId,
+          external_id: String(product.id),
+          kind: "ingredient",
+          external_version: typeof product.version === "number" ? product.version : null,
+          name: productName(product, `Ингредиент #${product.id}`),
+          item_title: text(product.itemTitle),
+          article: text(product.article),
+          barcode: text(product.barCode),
+          measure_unit_id: typeof product.measureUnit?.id === "number" ? product.measureUnit.id : null,
+          measure_unit_name: text(product.measureUnit?.name),
+          measure_unit_full_name: text(product.measureUnit?.fullName),
+          measure_unit_code: text(product.measureUnit?.code),
+          ratio: num(product.ratio),
+          group_id: parentExternalId ? groupByExternalId.get(parentExternalId) ?? null : null,
+          parent_external_id: parentExternalId,
+          tags: Array.isArray(product.storeItemTags) ? product.storeItemTags : [],
+          current_prime_cost: num(product.currentPrimeCost),
+          store_quantity_kg: num(product.storeQuantityKg),
+          stock_limit: num(product.limit),
+          raw_payload: product,
+          synced_at: syncedAt,
+        };
+      }));
+    for (const chunk of catalogChunks(productRowsToWrite)) {
       const { data, error } = await admin
-        .from<InventoryProductLookup>("ingredients")
-        .upsert(
-          {
-            account_id: ctx.accountId,
-            external_id: String(product.id),
-            kind: "ingredient",
-            external_version: typeof product.version === "number" ? product.version : null,
-            name: productName(product, `Ингредиент #${product.id}`),
-            item_title: text(product.itemTitle),
-            article: text(product.article),
-            barcode: text(product.barCode),
-            measure_unit_id: typeof product.measureUnit?.id === "number" ? product.measureUnit.id : null,
-            measure_unit_name: text(product.measureUnit?.name),
-            measure_unit_full_name: text(product.measureUnit?.fullName),
-            measure_unit_code: text(product.measureUnit?.code),
-            ratio: num(product.ratio),
-            group_id: groupId,
-            parent_external_id: parentExternalId,
-            tags: Array.isArray(product.storeItemTags) ? product.storeItemTags : [],
-            current_prime_cost: num(product.currentPrimeCost),
-            store_quantity_kg: num(product.storeQuantityKg),
-            stock_limit: num(product.limit),
-            raw_payload: product,
-            synced_at: syncedAt,
-          },
-          { onConflict: "account_id,external_id" }
-        )
-        .select("id, external_id, article, barcode")
-        .single();
-      if (error || !data?.id) throw new Error(error?.message ?? `Не удалось сохранить ингредиент ${product.id}`);
-
-      productByExternalId.set(String(product.id), data);
-      summary.products += 1;
-      await upsertExternalLink({
-        admin,
-        accountId: ctx.accountId,
-        entityType: "ingredient",
-        externalId: String(product.id),
-        localTable: "ingredients",
-        localId: data.id,
-      });
-      await saveSnapshot({ admin, accountId: ctx.accountId, entityType: "ingredient", externalId: String(product.id), payload: product });
+        .from<InventoryProductLookup[]>("ingredients")
+        .upsert(chunk, { onConflict: "account_id,external_id" })
+        .select("id, external_id, article, barcode");
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) productByExternalId.set(String(row.external_id), row);
     }
+    if (productByExternalId.size < productRowsToWrite.length) {
+      throw new Error("Не удалось сохранить часть ингредиентов Quick Resto");
+    }
+    summary.products += productRowsToWrite.length;
+    await upsertExternalLinks({
+      admin,
+      accountId: ctx.accountId,
+      entityType: "ingredient",
+      localTable: "ingredients",
+      rows: productRowsToWrite.map((row) => ({
+        externalId: row.external_id,
+        localId: (productByExternalId.get(row.external_id) as InventoryProductLookup).id,
+      })),
+    });
+    await saveSnapshots({
+      admin,
+      accountId: ctx.accountId,
+      entityType: "ingredient",
+      rows: productRowsToWrite.map((row) => ({ externalId: row.external_id, payload: row.raw_payload })),
+    });
 
     // Soft-archive ингредиентов, пропавших из QuickResto. Не удаляем:
     // сохраняем историю в актах, локальные поля, поставщиков, журнал.
@@ -2875,21 +2914,22 @@ export async function bulkSetInventoryResultItemsExcluded(input: {
       );
     }
 
-    for (const item of eligible) {
-      await writeInventoryResultEvent({
-        supabase: ctx.supabase,
-        admin,
-        accountId: ctx.accountId,
-        userId: ctx.user.id,
-        documentId: document.id,
+    await writeInventoryResultEvents({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: input.excluded ? "exclude_enabled" : "exclude_disabled",
+      events: eligible.map((item) => ({
         documentItemId: item.id,
-        eventType: input.excluded ? "exclude_enabled" : "exclude_disabled",
         message: input.excluded
           ? `Позиция «${item.product_name}» исключена из управленческих итогов`
           : `Позиция «${item.product_name}» возвращена в управленческие итоги`,
         payload: { itemId: item.id, productName: item.product_name, reason, bulk: true },
-      });
-    }
+      })),
+      auditPayload: { bulk: true, count: eligible.length, excluded: input.excluded },
+    });
 
     revalidateInventoryResultPages(document.id);
     return { updated: eligible.length, skipped, error: null };
@@ -2945,19 +2985,20 @@ export async function bulkSetRecountFlag(input: {
       .in("id", items.map((item) => item.id));
     if (error) throw new Error(error.message);
 
-    for (const item of items) {
-      await writeInventoryResultEvent({
-        supabase: ctx.supabase,
-        admin,
-        accountId: ctx.accountId,
-        userId: ctx.user.id,
-        documentId: document.id,
+    await writeInventoryResultEvents({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: input.needsRecount ? "recount_marked" : "recount_unmarked",
+      events: items.map((item) => ({
         documentItemId: item.id,
-        eventType: input.needsRecount ? "recount_marked" : "recount_unmarked",
         message: input.needsRecount ? "Отметил строку на пересчёт" : "Снял пометку пересчёта",
         payload: { itemId: item.id, bulk: true },
-      });
-    }
+      })),
+      auditPayload: { bulk: true, count: items.length, needsRecount: input.needsRecount },
+    });
 
     revalidateInventoryResultPages(document.id);
     return { updated: items.length, error: null };
@@ -3015,39 +3056,65 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
 
     const reason = text(input.reason);
     const now = new Date().toISOString();
-    let updated = 0;
-    for (const item of items) {
-      // Без QR-идентификатора правило создать нельзя; в активном пересорте — нельзя.
-      if ((!item.ingredient_id && !item.external_product_id) || inResort.has(item.id)) continue;
 
-      let ruleQuery = admin
-        .from<InventoryExclusionRuleLookup>("inventory_result_exclusion_rules")
-        .select("id")
-        .eq("account_id", ctx.accountId)
-        .eq("status", "active");
-      ruleQuery = item.ingredient_id
-        ? ruleQuery.eq("ingredient_id", item.ingredient_id)
-        : ruleQuery.eq("external_product_id", item.external_product_id);
-      const { data: existingRule } = await ruleQuery.maybeSingle();
+    // Раньше на каждую строку уходило до пяти запросов: поиск правила, его
+    // вставка, апдейт строки и два на журнал. На 300 позициях — 1500
+    // round-trip'ов, при том что правил всего единицы. Теперь: правила
+    // читаются одним запросом, недостающие вставляются одной пачкой, строки
+    // обновляются группами по правилу, журнал пишется батчем.
+    const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
+    const eligible = items.filter(
+      (item) => (item.ingredient_id || item.external_product_id) && !inResort.has(item.id),
+    );
 
-      let ruleId = existingRule?.id ?? null;
-      if (!ruleId) {
-        const { data: rule, error: ruleError } = await admin
-          .from<{ id: string }>("inventory_result_exclusion_rules")
-          .insert({
+    // Одно правило на позицию: строки одной позиции делят его.
+    const ruleKey = (item: (typeof eligible)[number]) =>
+      item.ingredient_id ? `ing:${item.ingredient_id}` : `ext:${item.external_product_id}`;
+    const ruleIdByKey = new Map<string, string>();
+    const missing: Array<{ key: string; item: (typeof eligible)[number] }> = [];
+    for (const item of eligible) {
+      const key = ruleKey(item);
+      if (ruleIdByKey.has(key)) continue;
+      const existing = matchRule(item);
+      if (existing) ruleIdByKey.set(key, existing.id);
+      else if (!missing.some((row) => row.key === key)) missing.push({ key, item });
+    }
+
+    if (missing.length > 0) {
+      const { data: createdRules, error: rulesError } = await admin
+        .from<Array<{ id: string; ingredient_id: string | null; external_product_id: string | null }>>(
+          "inventory_result_exclusion_rules",
+        )
+        .insert(
+          missing.map(({ item }) => ({
             account_id: ctx.accountId,
             ingredient_id: item.ingredient_id,
             external_product_id: item.external_product_id,
             product_name: item.product_name,
             reason,
             created_by: ctx.user.id,
-          })
-          .select("id")
-          .single();
-        if (ruleError || !rule?.id) throw new Error(ruleError?.message ?? "Не удалось создать правило автоисключения");
-        ruleId = rule.id;
+          })),
+        )
+        .select("id, ingredient_id, external_product_id");
+      if (rulesError) throw new Error(rulesError.message);
+      for (const rule of createdRules ?? []) {
+        const key = rule.ingredient_id ? `ing:${rule.ingredient_id}` : `ext:${rule.external_product_id}`;
+        ruleIdByKey.set(key, rule.id);
       }
+      if (missing.some(({ key }) => !ruleIdByKey.has(key))) {
+        throw new Error("Не удалось создать правило автоисключения");
+      }
+    }
 
+    const itemIdsByRule = new Map<string, string[]>();
+    for (const item of eligible) {
+      const ruleId = ruleIdByKey.get(ruleKey(item));
+      if (!ruleId) continue;
+      const bucket = itemIdsByRule.get(ruleId) ?? [];
+      bucket.push(item.id);
+      itemIdsByRule.set(ruleId, bucket);
+    }
+    for (const [ruleId, ids] of itemIdsByRule) {
       const { error: itemError } = await admin
         .from("document_items")
         .update({
@@ -3058,23 +3125,32 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
           exclusion_rule_id: ruleId,
           exclusion_rule_dismissed_at: null,
         })
-        .eq("id", item.id)
-        .eq("account_id", ctx.accountId);
+        .eq("account_id", ctx.accountId)
+        .in("id", ids);
       if (itemError) throw new Error(itemError.message);
-
-      await writeInventoryResultEvent({
-        supabase: ctx.supabase,
-        admin,
-        accountId: ctx.accountId,
-        userId: ctx.user.id,
-        documentId: document.id,
-        documentItemId: item.id,
-        eventType: "persistent_exclusion_enabled",
-        message: `Позиция «${item.product_name}» добавлена в автоисключения`,
-        payload: { itemId: item.id, productName: item.product_name, ruleId, reason, bulk: true },
-      });
-      updated += 1;
     }
+
+    await writeInventoryResultEvents({
+      supabase: ctx.supabase,
+      admin,
+      accountId: ctx.accountId,
+      userId: ctx.user.id,
+      documentId: document.id,
+      eventType: "persistent_exclusion_enabled",
+      events: eligible.map((item) => ({
+        documentItemId: item.id,
+        message: `Позиция «${item.product_name}» добавлена в автоисключения`,
+        payload: {
+          itemId: item.id,
+          productName: item.product_name,
+          ruleId: ruleIdByKey.get(ruleKey(item)) ?? null,
+          reason,
+          bulk: true,
+        },
+      })),
+      auditPayload: { bulk: true, count: eligible.length, reason },
+    });
+    const updated = eligible.length;
 
     revalidateInventoryResultPages(document.id);
     return { updated, skipped: itemIds.length - updated, error: null };

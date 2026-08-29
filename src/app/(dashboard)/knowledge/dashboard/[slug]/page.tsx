@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, ChevronLeft } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { getKbPageBySlug } from "@/lib/knowledge/pages";
@@ -40,11 +40,8 @@ export default async function KbDashboardPageDrilldown({
     ? (p as KbAnalyticsPeriod)
     : "week";
 
-  const supabase = await createClient();
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "kb.view_analytics",
-  });
-  if (!canView) redirect("/knowledge");
+  const can = await getCachedPermissionChecker();
+  if (!can("kb.view_analytics")) redirect("/knowledge");
 
   const { row: page, error: pageError } = await getKbPageBySlug(slug);
   if (pageError || !page) notFound();

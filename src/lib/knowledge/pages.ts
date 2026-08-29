@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { extractBacklinks } from "@/lib/knowledge/backlinks";
 import { extractMentionedUserIds } from "@/lib/knowledge/mention-extract";
 import { blocksToMarkdown, escapeMdTitle } from "@/lib/knowledge/blocks-to-markdown";
@@ -261,10 +264,7 @@ export async function exportKbPageAsMarkdown(id: string): Promise<{
   filename: string | null;
   error: string | null;
 }> {
-  const supabase = await createClient();
-  const { data: canExport } = await supabase.rpc("has_permission", {
-    permission_code: "kb.export_pages",
-  });
+  const canExport = (await getCachedPermissionChecker())("kb.export_pages");
   if (!canExport) {
     return {
       markdown: null,

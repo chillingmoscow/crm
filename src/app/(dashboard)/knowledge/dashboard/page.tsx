@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { PageHeaderActions } from "@/components/shared/page-header-actions";
 import { KbStatCard } from "@/components/knowledge/kb-stat-card";
 import { KbSectionHeader } from "@/app/(dashboard)/knowledge/_components/kb-section-header";
@@ -78,17 +82,13 @@ export default async function KbDashboardPage({
     : PERIOD_LABEL[period];
 
   const supabase = await createClient();
-  const [
-    { data: canAnalytics },
-    { data: canAudit },
-    { data: canAskAi },
-    { data: dashAccountId },
-  ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "kb.view_analytics" }),
-    supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
-    supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
-    supabase.rpc("get_active_account_id"),
+  const [can, dashAccountId] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
   ]);
+  const canAnalytics = can("kb.view_analytics");
+  const canAudit = can("org.view_audit");
+  const canAskAi = can("kb.ask_ai");
   if (!canAnalytics && !canAudit) redirect("/knowledge");
 
   // Кнопка «Переиндексировать для ИИ» — только тем, кто может

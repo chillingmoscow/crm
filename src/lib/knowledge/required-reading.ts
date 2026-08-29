@@ -2,7 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 
 export interface KbReadStatus {
   /** Помечена ли страница как обязательная к прочтению. */
@@ -194,9 +197,7 @@ export async function setKbPageRequiredReading(input: {
 }): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "kb.manage_required_reading",
-  });
+  const canManage = (await getCachedPermissionChecker())("kb.manage_required_reading");
   if (!canManage) {
     return { error: "Нет права управлять обязательным прочтением" };
   }

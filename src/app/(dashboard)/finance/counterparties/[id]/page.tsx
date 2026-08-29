@@ -2,7 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import {
   getCounterparty,
   listCounterpartyGroups,
@@ -36,21 +40,15 @@ export default async function CounterpartyDetailPage({
   // RLS (finance.upload_attachments for INSERT, finance.delete_attachments
   // for DELETE) — gating the upload button on manage_counterparties alone
   // would let those buttons show and then fail at click.
-  const [
-    { data: canView },
-    { data: canManage },
-    { data: canUploadAttachments },
-    { data: canDeleteAttachments },
-    { data: canHardDelete },
-    { data: activeAccountId },
-  ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "finance.view_counterparties" }),
-    supabase.rpc("has_permission", { permission_code: "finance.manage_counterparties" }),
-    supabase.rpc("has_permission", { permission_code: "finance.upload_attachments" }),
-    supabase.rpc("has_permission", { permission_code: "finance.delete_attachments" }),
-    supabase.rpc("has_permission", { permission_code: "finance.delete_counterparty" }),
-    supabase.rpc("get_active_account_id"),
+  const [can, activeAccountId] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
   ]);
+  const canView = can("finance.view_counterparties");
+  const canManage = can("finance.manage_counterparties");
+  const canUploadAttachments = can("finance.upload_attachments");
+  const canDeleteAttachments = can("finance.delete_attachments");
+  const canHardDelete = can("finance.delete_counterparty");
   if (!canView) redirect("/dashboard");
 
   // canArchive — owner-check для гейта DangerZone (archive/restore/delete

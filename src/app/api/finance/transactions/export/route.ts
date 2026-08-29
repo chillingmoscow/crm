@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
 import { listBankAccounts } from "@/lib/finance/bank-accounts";
 import { listFinanceCategories } from "@/lib/finance/categories";
@@ -57,18 +60,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Не авторизован" }, { status: 401 });
   }
 
-  const { data: canExport } = await supabase.rpc("has_permission", {
-    permission_code: "finance.export",
-  });
-  if (!canExport) {
+  const can = await getCachedPermissionChecker();
+  if (!can("finance.export")) {
     return NextResponse.json({ error: "Недостаточно прав" }, { status: 403 });
   }
-  const { data: canSeeDeleted } = await supabase.rpc("has_permission", {
-    permission_code: "finance.delete_transaction",
-  });
+  const canSeeDeleted = can("finance.delete_transaction");
 
   const sp = new URL(request.url).searchParams;
-  const filters = parseFilters(sp, !!canSeeDeleted);
+  const filters = parseFilters(sp, canSeeDeleted);
 
   // Honour the LegalEntitySwitcher cookie like the list page does.
   const cookieLegalEntityId = await getActiveFinanceLegalEntityId();

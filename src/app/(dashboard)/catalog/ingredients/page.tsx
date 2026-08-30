@@ -133,6 +133,11 @@ export default async function InventoryProductsPage({
       .from<GroupRow[]>("ingredient_groups")
       .select("id, external_id, name, parent_group_id, primary_image_file_id")
       .eq("account_id", accountId)
+      // Как и позиции ниже — только ингредиентные категории. Без этого
+      // фильтра шесть десятков категорий блюд и полуфабрикатов протекли бы
+      // в дерево ингредиентов пустыми папками сразу после того, как синк
+      // научился их импортировать.
+      .eq("kind", "ingredient")
       .order("name"),
     db
       .from<ProductRow[]>("ingredients")

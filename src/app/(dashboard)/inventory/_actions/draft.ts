@@ -16,6 +16,7 @@ import {
 import {
   type InventoryProductLookup,
   actionErrorMessage,
+  catalogKey,
   amountsEqual,
   assertDocumentVisible,
   connectionPassword,
@@ -341,10 +342,13 @@ export async function submitInventoryDocumentDraft(input: {
 
     const productRows = await admin
       .from<InventoryProductLookup[]>("ingredients")
-      .select("id, external_id, article, barcode")
+      .select("id, external_id, article, barcode, kind")
       .eq("account_id", ctx.accountId);
     const productByExternalId = new Map(
-      ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [String(row.external_id), row])
+      ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [
+        catalogKey(row.kind ?? "ingredient", String(row.external_id)),
+        row,
+      ])
     );
 
     // Recount cleanup: сбрасываем recount-флаги (и авто-, и ручные) на

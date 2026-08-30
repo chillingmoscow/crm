@@ -597,11 +597,15 @@ async function syncQuickRestoInventoryCatalog(params: {
     .map((product) => (typeof product.id === "number" ? String(product.id) : null))
     .filter((id): id is string => Boolean(id));
 
+  // Оба удаления ограничены видом «ингредиент»: с составным ключом один и тот
+  // же внешний идентификатор может принадлежать блюду или полуфабрикату, и
+  // выборка по голому external_id задела бы чужую номенклатуру.
   if (params.importIngredients && groupExternalIds.length > 0) {
     await params.adminDb
       .from("ingredients")
       .delete()
       .eq("account_id", params.accountId)
+      .eq("kind", "ingredient")
       .in("external_id", groupExternalIds);
   }
   if (params.importIngredientGroups && productExternalIds.length > 0) {
@@ -609,6 +613,7 @@ async function syncQuickRestoInventoryCatalog(params: {
       .from("ingredient_groups")
       .delete()
       .eq("account_id", params.accountId)
+      .eq("kind", "ingredient")
       .in("external_id", productExternalIds);
   }
 
@@ -636,8 +641,12 @@ async function syncQuickRestoInventoryCatalog(params: {
             parent_external_id: parentExternalId,
             raw_payload: group,
             synced_at: syncedAt,
+            kind: "ingredient",
           },
-          { onConflict: "account_id,external_id" }
+          // Ключ каталога — тройка с видом (миграция 239). Без kind в цели
+          // PostgreSQL не находит подходящее ограничение и онбординг падает
+          // на первом же импорте.
+          { onConflict: "account_id,kind,external_id" }
         )
         .select("id")
         .single();
@@ -730,7 +739,7 @@ async function syncQuickRestoInventoryCatalog(params: {
             raw_payload: product,
             synced_at: syncedAt,
           },
-          { onConflict: "account_id,external_id" }
+          { onConflict: "account_id,kind,external_id" }
         )
         .select("id")
         .single();

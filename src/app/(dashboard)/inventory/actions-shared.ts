@@ -59,11 +59,15 @@ export type InventorySyncSummary = {
   resultsBlocked: number;
   /** Акты, которые не удалось обработать: один сбойный акт не роняет проход. */
   failedDocuments: number;
+  /** Строки актов, которым синк восстановил связь с каталогом (см. relink). */
+  relinked: number;
 };
 
 export type InventoryProductLookup = {
   id: string;
   external_id?: string;
+  /** Вид номенклатуры: позиции разных видов могут делить один внешний id. */
+  kind?: string;
   article?: string | null;
   barcode?: string | null;
 };
@@ -145,6 +149,7 @@ export const RESORT_STATUS = {
 import {
   INVENTORY_DOCUMENT_ITEM_KEYS,
   asObject,
+  catalogKey,
   className,
   dateMs,
   dateText,
@@ -156,6 +161,7 @@ import {
   isDeletedQuickRestoRow,
   isQuickRestoClass,
   isRecentOpenInventoryDocument,
+  nomenclatureKind,
   num,
   priceNum,
   productName,
@@ -169,6 +175,7 @@ import {
 export {
   INVENTORY_DOCUMENT_ITEM_KEYS,
   asObject,
+  catalogKey,
   className,
   dateMs,
   dateText,
@@ -180,6 +187,7 @@ export {
   isDeletedQuickRestoRow,
   isQuickRestoClass,
   isRecentOpenInventoryDocument,
+  nomenclatureKind,
   num,
   priceNum,
   productName,
@@ -964,7 +972,12 @@ export async function syncDocumentItems(input: {
 
   const rows = input.items.map((item, index) => {
     const productId = externalProductId(item);
-    const localProduct = productId ? input.productByExternalId.get(productId) : null;
+    // Ключ — пара «вид + id»: в Quick Resto идентификаторы уникальны только
+    // внутри класса, и по голому id строка акта на блюдо однажды связалась бы
+    // с ингредиентом, у которого тот же номер.
+    const localProduct = productId
+      ? input.productByExternalId.get(catalogKey(nomenclatureKind(item), productId)) ?? null
+      : null;
     const exclusionRule =
       (localProduct?.id ? exclusionRuleByProductId.get(localProduct.id) : null) ??
       (productId ? exclusionRuleByExternalProductId.get(productId) : null);
@@ -1175,10 +1188,13 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
     .maybeSingle();
   const productRows = await input.admin
     .from<InventoryProductLookup[]>("ingredients")
-    .select("id, external_id, article, barcode")
+    .select("id, external_id, article, barcode, kind")
     .eq("account_id", input.accountId);
   const productByExternalId = new Map(
-    ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [String(row.external_id), row])
+    ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [
+      catalogKey(row.kind ?? "ingredient", String(row.external_id)),
+      row,
+    ])
   );
   const syncResult = await syncDocumentItems({
     admin: input.admin,

@@ -47,7 +47,16 @@ export function className(value: unknown): string {
   return text(asObject(value).className) ?? "";
 }
 
-export function isQuickRestoClass(value: unknown, suffix: "SingleCategory" | "SingleProduct") {
+/** Суффиксы классов номенклатуры Quick Resto: категория и товар каждого вида. */
+export type QuickRestoClassSuffix =
+  | "SingleCategory"
+  | "SingleProduct"
+  | "DishCategory"
+  | "Dish"
+  | "SemiCategory"
+  | "SemiProduct";
+
+export function isQuickRestoClass(value: unknown, suffix: QuickRestoClassSuffix) {
   return className(value).endsWith(`.${suffix}`);
 }
 
@@ -123,6 +132,38 @@ export function externalProductId(item: QuickRestoInventoryItem2): string | null
   const raw = asObject(item.product);
   const id = raw.id;
   return typeof id === "number" || typeof id === "string" ? String(id) : null;
+}
+
+/** Вид номенклатуры в нашем каталоге. Совпадает с enum nomenclature_kind_enum. */
+export type NomenclatureKind = "ingredient" | "dish" | "semi_finished" | "product";
+
+/**
+ * Какой номенклатуре принадлежит позиция акта.
+ *
+ * Нужно, потому что идентификаторы в Quick Resto уникальны только внутри
+ * класса: блюдо и ингредиент могут иметь один и тот же числовой id. Искать
+ * позицию в каталоге по голому id значит однажды связать строку акта не с той
+ * номенклатурой, поэтому ключ везде — пара «вид + id».
+ *
+ * Основной признак — `productDtype` (SingleProduct / Dish / SemiProduct);
+ * запасной — суффикс класса самого продукта, на случай выгрузок без dtype.
+ */
+export function nomenclatureKind(item: QuickRestoInventoryItem2): NomenclatureKind {
+  const row = asObject(item);
+  const dtype = text(row.productDtype);
+  if (dtype === "Dish") return "dish";
+  if (dtype === "SemiProduct") return "semi_finished";
+  if (dtype === "SingleProduct") return "ingredient";
+
+  const className = text(asObject(row.product).className) ?? "";
+  if (className.endsWith(".Dish")) return "dish";
+  if (className.endsWith(".SemiProduct")) return "semi_finished";
+  return "ingredient";
+}
+
+/** Ключ каталога: вид плюс внешний идентификатор. */
+export function catalogKey(kind: NomenclatureKind | string, externalId: string): string {
+  return `${kind}:${externalId}`;
 }
 
 export function quickRestoObjectId(value: unknown): string | null {

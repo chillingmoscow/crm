@@ -765,7 +765,10 @@ export async function syncQuickRestoInventory(input?: {
 
   revalidatePath("/documents/inventory");
   if (scope === "full") {
+    // Синк тянет все три вида номенклатуры — обновляем все три раздела.
     revalidatePath("/catalog/ingredients");
+    revalidatePath("/catalog/dishes");
+    revalidatePath("/catalog/semi-products");
     revalidatePath("/org/stores");
   }
   return { summary, error: null };

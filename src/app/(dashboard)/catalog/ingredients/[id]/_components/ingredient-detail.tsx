@@ -47,7 +47,7 @@ import type {
   IngredientUsage,
 } from "@/lib/inventory/ingredients";
 import { addIngredientSupplier, removeIngredientSupplier, updateIngredientDescription, updateIngredientSupplier } from "@/app/(dashboard)/inventory/_actions/catalog";
-import { ProductImageUpload } from "../../_components/product-image-upload";
+import { ProductImageUpload } from "../../../_components/product-image-upload";
 
 type Props = {
   ingredient: IngredientDetailModel;

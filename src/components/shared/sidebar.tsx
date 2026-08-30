@@ -24,7 +24,9 @@ import {
   LifeBuoy,
   LogOut,
   Moon,
+  FlaskConical,
   PackageSearch,
+  UtensilsCrossed,
   ScrollText,
   Settings,
   Shield,
@@ -138,8 +140,8 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Номенклатура — справочник сущностей. Сейчас только ингредиенты;
-    // позже Блюда/Товары/Полуфабрикаты (Этап 3 разведения доменов).
+    // Номенклатура — справочник сущностей. Три раздела соответствуют видам
+    // номенклатуры Quick Resto; товары появятся позже.
     label: "Номенклатура",
     icon: PackageSearch,
     items: [
@@ -147,6 +149,20 @@ const NAV_SECTIONS: NavSection[] = [
         title: "Ингредиенты",
         href: "/catalog/ingredients",
         icon: PackageSearch,
+        permission: "inventory.view_products",
+        roles: ["owner", "admin", "manager"],
+      },
+      {
+        title: "Блюда",
+        href: "/catalog/dishes",
+        icon: UtensilsCrossed,
+        permission: "inventory.view_products",
+        roles: ["owner", "admin", "manager"],
+      },
+      {
+        title: "Полуфабрикаты",
+        href: "/catalog/semi-products",
+        icon: FlaskConical,
         permission: "inventory.view_products",
         roles: ["owner", "admin", "manager"],
       },

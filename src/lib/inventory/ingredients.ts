@@ -100,6 +100,7 @@ async function signImageUrl(accountId: string, fileId: string | null): Promise<s
 export async function getIngredientDetail(
   accountId: string,
   ingredientId: string,
+  kind: string = "ingredient",
 ): Promise<IngredientDetail | null> {
   const admin = asLooseDb(createAdminClient());
   const { data: product } = await admin
@@ -109,9 +110,9 @@ export async function getIngredientDetail(
     )
     .eq("account_id", accountId)
     .eq("id", ingredientId)
-    // Карточка ингредиента не должна открываться по id позиции другого
-    // типа (dish/product/semi_finished) — страница сделает redirect.
-    .eq("kind", "ingredient")
+    // Карточка одного раздела не должна открываться по id позиции другого:
+    // страница сделает redirect в свой список.
+    .eq("kind", kind)
     .maybeSingle();
   if (!product?.id) return null;
 

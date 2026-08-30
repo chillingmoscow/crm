@@ -35,7 +35,21 @@ type Props = {
   products: CatalogProduct[];
   canManage: boolean;
   amountRoundingScale: AmountRoundingScale;
+  /** Куда ведёт клик по позиции: у каждого раздела каталога свой путь. */
+  detailBasePath: string;
+  /** Как называть позиции в счётчике — «ингредиентов», «блюд», «полуфабрикатов». */
+  countNoun: { one: string; few: string; many: string };
 };
+
+/** Склонение существительного при числительном. */
+function plural(count: number, forms: { one: string; few: string; many: string }) {
+  const mod100 = count % 100;
+  if (mod100 >= 11 && mod100 <= 14) return forms.many;
+  const mod10 = count % 10;
+  if (mod10 === 1) return forms.one;
+  if (mod10 >= 2 && mod10 <= 4) return forms.few;
+  return forms.many;
+}
 
 type VisibleRow =
   | { type: "group"; group: CatalogGroup; depth: number; productCount: number }
@@ -54,6 +68,8 @@ export function InventoryCatalogTree({
   products,
   canManage,
   amountRoundingScale,
+  detailBasePath,
+  countNoun,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState("");
@@ -179,7 +195,7 @@ export function InventoryCatalogTree({
           />
         </div>
         <div className="text-sm text-muted-foreground">
-          {groups.length} групп · {products.length} ингредиентов
+          {groups.length} групп · {products.length} {plural(products.length, countNoun)}
         </div>
       </div>
 
@@ -261,7 +277,7 @@ export function InventoryCatalogTree({
                 </div>
                 <div className="min-w-0" style={{ paddingLeft: row.depth * 20 }}>
                   <Link
-                    href={`/catalog/ingredients/${row.product.id}`}
+                    href={`${detailBasePath}/${row.product.id}`}
                     className="flex min-w-0 items-center gap-2 hover:underline"
                   >
                     <Package className="h-4 w-4 shrink-0 text-muted-foreground" />

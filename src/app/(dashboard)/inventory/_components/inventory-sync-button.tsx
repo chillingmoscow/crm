@@ -29,11 +29,18 @@ export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
           return;
         }
         const base = `Синхронизировано: позиций ${result.summary.products}, складов ${result.summary.stores}, актов ${result.summary.documents}`;
+        // Восстановленные связи показываем, только когда они были: это редкое
+        // событие (позиция появилась в каталоге позже, чем импортировался акт),
+        // и в обычном прогоне лишняя цифра только зашумила бы сообщение.
+        const withRelinked =
+          result.summary.relinked > 0
+            ? `${base}. Восстановлено связей в актах: ${result.summary.relinked}`
+            : base;
         // Сбойные акты не роняют проход, но и молчать о них нельзя.
         if (result.summary.failedDocuments > 0) {
-          toast.warning(`${base}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
+          toast.warning(`${withRelinked}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
         } else {
-          toast.success(base);
+          toast.success(withRelinked);
         }
         router.refresh();
       } catch (error) {

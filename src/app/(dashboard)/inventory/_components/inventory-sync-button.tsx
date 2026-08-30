@@ -6,6 +6,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { LocalDateTime } from "@/components/shared/local-date-time";
 import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 
 type Props = {
@@ -62,8 +63,7 @@ export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
         </Button>
       ) : null}
       <span className="text-xs text-muted-foreground">
-        Последняя синхронизация:{" "}
-        {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString("ru-RU") : "—"}
+        Последняя синхронизация: <LocalDateTime value={lastSyncedAt} />
       </span>
     </div>
   );

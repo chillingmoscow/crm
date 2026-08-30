@@ -8,10 +8,11 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { resolveQrUnprocessedAt, resolveStatusAfterSync } from "@/lib/inventory/act-status";
 import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
 import {
-  listDishes,
+  listDishTreeItems,
   listIngredientTreeItems,
   listInventoryDocuments,
-  listSemiProducts,
+  listSemiProductTreeItems,
+  QUICK_RESTO_CATEGORY_CLASSES,
   listStores,
   readInventoryDocument,
   type QuickRestoInventoryDocument2,
@@ -637,18 +638,7 @@ export async function syncQuickRestoInventory(input?: {
  */
 export async function probeQuickRestoNomenclature(): Promise<{
   error: string | null;
-  result?: {
-    dishCount: number;
-    semiproductCount: number;
-    dishError: string | null;
-    semiproductError: string | null;
-    sampleDish: unknown;
-    sampleSemiproduct: unknown;
-    dishParentId: string | null;
-    semiproductParentId: string | null;
-    dishParentInGroups: boolean | null;
-    semiproductParentInGroups: boolean | null;
-  };
+  result?: unknown;
 }> {
   // Гейт совпадает со страницей настроек интеграций, где показана кнопка
   // (settings.manage_integrations), а не sync_quickresto — иначе роль с
@@ -664,60 +654,109 @@ export async function probeQuickRestoNomenclature(): Promise<{
     const auth = { layerName: connection.login, login: connection.login, password };
     const admin = asLooseDb(createAdminClient());
 
-    let dishes: unknown[] = [];
-    let semi: unknown[] = [];
-    let dishError: string | null = null;
-    let semiproductError: string | null = null;
-    try {
-      dishes = (await listDishes(auth)) as unknown[];
-    } catch (e) {
-      dishError = e instanceof Error ? e.message : String(e);
-    }
-    try {
-      semi = (await listSemiProducts(auth)) as unknown[];
-    } catch (e) {
-      semiproductError = e instanceof Error ? e.message : String(e);
+    const asRecord = (item: unknown): Record<string, unknown> =>
+      item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+
+    const summarize = async (
+      fetcher: () => Promise<unknown[]>,
+      categoryClass: string,
+    ) => {
+      let items: unknown[] = [];
+      let error: string | null = null;
+      try {
+        items = await fetcher();
+      } catch (e) {
+        error = e instanceof Error ? e.message : String(e);
+      }
+
+      const byClass: Record<string, number> = {};
+      for (const item of items) {
+        const cls = String(asRecord(item).className ?? "unknown");
+        byClass[cls] = (byClass[cls] ?? 0) + 1;
+      }
+
+      const isCategory = (item: unknown) => asRecord(item).className === categoryClass;
+      const product = items.find((item) => !isCategory(item));
+      const category = items.find(isCategory);
+
+      // У товара нас интересует только то, что нужно импорту: id, имя, ссылка
+      // на родителя и единица измерения. Целиком объект не тащим — у категорий
+      // в нём приезжает схема столов заведения на сотню килобайт.
+      const slim = (item: unknown) => {
+        const obj = asRecord(item);
+        const parentItem = asRecord(obj.parentItem);
+        return {
+          id: obj.id ?? null,
+          name: obj.name ?? obj.title ?? null,
+          className: obj.className ?? null,
+          parentId: obj.parentId ?? parentItem.id ?? null,
+          measureUnitId: asRecord(obj.measureUnit).id ?? null,
+          article: obj.article ?? null,
+        };
+      };
+
+      return {
+        error,
+        total: items.length,
+        byClass,
+        sampleProduct: product ? slim(product) : null,
+        sampleCategory: category ? slim(category) : null,
+        ids: new Set(
+          items
+            .filter((item) => !isCategory(item))
+            .map((item) => String(asRecord(item).id ?? ""))
+            .filter(Boolean),
+        ),
+      };
+    };
+
+    const [dish, semi] = await Promise.all([
+      summarize(
+        () => listDishTreeItems(auth) as Promise<unknown[]>,
+        QUICK_RESTO_CATEGORY_CLASSES.dish,
+      ),
+      summarize(
+        () => listSemiProductTreeItems(auth) as Promise<unknown[]>,
+        QUICK_RESTO_CATEGORY_CLASSES.semi_finished,
+      ),
+    ]);
+
+    // Главная проверка: покрывают ли найденные товары те строки актов, которые
+    // сейчас висят без привязки к каталогу. Если нет — импорт их не починит, и
+    // об этом лучше узнать до того, как он написан.
+    const { data: orphanRows } = await admin
+      .from<{ external_product_id: string | null; raw_payload: Record<string, unknown> | null }[]>(
+        "document_items",
+      )
+      .select("external_product_id, raw_payload")
+      .eq("account_id", ctx.accountId)
+      .is("ingredient_id", null);
+
+    const orphans = { Dish: new Set<string>(), SemiProduct: new Set<string>(), other: new Set<string>() };
+    for (const row of orphanRows ?? []) {
+      const dtype = String(asRecord(row.raw_payload).productDtype ?? "");
+      const id = row.external_product_id ? String(row.external_product_id) : null;
+      if (!id) continue;
+      if (dtype === "Dish") orphans.Dish.add(id);
+      else if (dtype === "SemiProduct") orphans.SemiProduct.add(id);
+      else orphans.other.add(id);
     }
 
-    const parentIdOf = (item: unknown): string | null => {
-      const obj = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-      const parentItem =
-        obj.parentItem && typeof obj.parentItem === "object"
-          ? (obj.parentItem as Record<string, unknown>).id
-          : null;
-      const pid = obj.parentId ?? parentItem;
-      return pid != null ? String(pid) : null;
+    const coverage = (want: Set<string>, have: Set<string>) => {
+      const missing = Array.from(want).filter((id) => !have.has(id));
+      return { нужно: want.size, найдено: want.size - missing.length, нет: missing.slice(0, 10) };
     };
-    const groupExists = async (externalId: string | null): Promise<boolean | null> => {
-      if (!externalId) return null;
-      const { data } = await admin
-        .from<{ id: string }>("ingredient_groups")
-        .select("id")
-        .eq("account_id", ctx.accountId)
-        .eq("external_id", externalId)
-        .maybeSingle();
-      return Boolean(data?.id);
-    };
-
-    const dishParentId = parentIdOf(dishes[0]);
-    const semiproductParentId = parentIdOf(semi[0]);
 
     return {
       error: null,
       result: {
-        dishCount: dishes.length,
-        semiproductCount: semi.length,
-        dishError,
-        semiproductError,
-        sampleDish: dishes[0] ?? null,
-        sampleSemiproduct: semi[0] ?? null,
-        dishParentId,
-        semiproductParentId,
-        dishParentInGroups: await groupExists(dishParentId),
-        semiproductParentInGroups: await groupExists(semiproductParentId),
+        блюда: { ...dish, ids: undefined, покрытие: coverage(orphans.Dish, dish.ids) },
+        полуфабрикаты: { ...semi, ids: undefined, покрытие: coverage(orphans.SemiProduct, semi.ids) },
+        прочие_непривязанные: Array.from(orphans.other),
       },
     };
   } catch (error) {
     return { error: actionErrorMessage(error, "Проба номенклатуры не удалась") };
   }
 }
+

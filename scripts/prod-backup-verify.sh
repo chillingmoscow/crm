@@ -160,9 +160,28 @@ RESTORE_CODE=$?
 set -e
 RESTORE_ERRORS=$(grep -c '^pg_restore: error' "${WORKDIR}/restore.log" || true)
 log "pg_restore завершился с кодом ${RESTORE_CODE}, строк с ошибками: ${RESTORE_ERRORS:-0}"
-# Ожидаемый шум — объекты vault/pgsodium, которыми владеет сам образ.
-grep '^pg_restore: error' "${WORKDIR}/restore.log" | sed -E 's/.*ERROR:  //' | cut -c1-70 \
-  | sort -u | while read -r e; do log "  (ошибка восстановления) ${e}"; done
+
+# Ожидаемый шум — объекты vault/pgsodium, которыми владеет сам образ Supabase, и
+# попытка выставить log_min_messages без нужных прав. Всё остальное — повод
+# провалить проверку: иначе провал восстановления функций, триггеров, политик
+# или таблиц вне списка счётчиков прошёл бы незамеченным, а скрипт отчитался бы
+# об успехе.
+#
+# `|| true` не для красоты: при чистом восстановлении grep не найдёт ничего и
+# вернёт 1, а под set -e с pipefail это уронило бы проверку ровно в тот момент,
+# когда всё прошло идеально.
+EXPECTED_RE='permission denied for (table|sequence) (key|secrets|key_key_id_seq)|permission denied to set parameter "log_min_messages"|relation "decrypted_secrets" already exists'
+
+grep '^pg_restore: error' "${WORKDIR}/restore.log" 2>/dev/null | sed -E 's/.*ERROR:  //' \
+  | cut -c1-70 | sort -u | while read -r e; do log "  (ошибка восстановления) ${e}"; done || true
+
+UNEXPECTED=$(grep '^pg_restore: error' "${WORKDIR}/restore.log" 2>/dev/null \
+  | grep -Ev "$EXPECTED_RE" || true)
+if [ -n "$UNEXPECTED" ]; then
+  log "ОШИБКА: восстановление дало ошибки вне ожидаемого списка:"
+  printf '%s\n' "$UNEXPECTED" | head -10 | while read -r e; do log "  ${e}"; done || true
+  exit 1
+fi
 
 TABLES=$(docker exec "$CHECK_CONTAINER" psql -U postgres -d verify -X -q -t -A \
   -c "select count(*) from pg_tables where schemaname='public';")
@@ -170,12 +189,20 @@ log "таблиц в public: ${TABLES}"
 
 # ── 5. Главная проверка: те же ли данные ────────────────────────────────────
 MISMATCH=0
+COMPARED=0
 REPORT=""
 while IFS= read -r line; do
   case "$line" in rows.*) ;; *) continue;; esac
   table="${line#rows.}"; table="${table%%=*}"
   expected="${line#*=}"
-  [ "$expected" = "?" ] && continue
+  # «?» в метаданных быть не должно: скрипт бэкапа падает, если счётчик не
+  # посчитался. Если такое всё же приехало — это дефект, а не повод молча
+  # пропустить таблицу.
+  if [ "$expected" = "?" ]; then
+    log "ОШИБКА: в метаданных нет числа строк для ${table}"
+    exit 1
+  fi
+  COMPARED=$((COMPARED + 1))
   actual=$(docker exec "$CHECK_CONTAINER" psql -U postgres -d verify -X -q -t -A \
              -c "select count(*) from public.${table};" 2>/dev/null || echo "нет таблицы")
   if [ "$actual" != "$expected" ]; then
@@ -190,6 +217,11 @@ while IFS= read -r line; do
   fi
 done < "${WORKDIR}/meta"
 
+if [ "$COMPARED" -eq 0 ]; then
+  log "ОШИБКА: в метаданных не оказалось ни одного счётчика — сравнивать нечего"
+  exit 1
+fi
+
 if [ "$MISMATCH" -ne 0 ]; then
   log "ОШИБКА: расхождений ${MISMATCH}"
   exit 1
@@ -201,6 +233,7 @@ send_mail "CRM: бэкап проверен восстановлением" \
 
 Дамп: ${LATEST}
 Таблиц в public: ${TABLES}
+Сверено таблиц: ${COMPARED}
 Строк с ошибками при восстановлении: ${RESTORE_ERRORS:-0} — это объекты
 vault/pgsodium, которыми владеет сам образ Supabase; к данным отношения не
 имеют. Значимо совпадение строк ниже.

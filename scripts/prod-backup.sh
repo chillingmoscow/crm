@@ -76,9 +76,17 @@ send_mail() {
     || echo "[$(date -u -Iseconds)] не удалось отправить письмо" >> "$LOG"
 }
 
+SNAP_HOLDER=""
 FAILED=1
 finish() {
   local code=$?
+  # Сессия со снимком не должна пережить скрипт: открытая транзакция
+  # repeatable read держит vacuum.
+  if [ -n "$SNAP_HOLDER" ]; then
+    exec 9>&- 2>/dev/null || true
+    kill "$SNAP_HOLDER" 2>/dev/null || true
+  fi
+  docker exec "$POSTGRES_CONTAINER" sh -c "rm -f /tmp/crm-snap-*.txt" 2>/dev/null || true
   if [ "$FAILED" = "1" ]; then
     send_mail "CRM: бэкап базы НЕ СДЕЛАН" \
 "Ночной бэкап продовой базы завершился с ошибкой (код ${code}).
@@ -108,7 +116,50 @@ aws_cli_with_file() {
 
 log "старт, контейнер ${POSTGRES_CONTAINER}"
 
-# ── 1. Дамп ─────────────────────────────────────────────────────────────────
+# ── 1. Снимок, из которого берётся и дамп, и счётчики ───────────────────────
+#
+# Счётчики строк обязаны считаться из ТОГО ЖЕ снимка, что и дамп. Иначе на живой
+# базе любая запись между дампом и подсчётом сделает .meta несогласованным, и
+# еженедельная проверка объявит здоровый бэкап испорченным. Ложная тревога здесь
+# опаснее молчания: на неё перестают смотреть, а следом перестают смотреть и на
+# настоящую.
+#
+# Держим одну psql-сессию, кормим её через FIFO и не закрываем до конца работы.
+# Транзакция repeatable read внутри неё и есть тот снимок: pg_dump получает его
+# через --snapshot, а счётчики считаются позже в этой же транзакции, то есть по
+# определению по тем же данным.
+#
+# Вывод забираем через `\o файл` с последующим сбросом `\o`: psql пишет в файл
+# блоками, и без закрытия файла строка со снимком просто зависла бы в буфере.
+SNAP_ID_FILE="/tmp/crm-snap-id-$$.txt"
+COUNTS_FILE="/tmp/crm-snap-counts-$$.txt"
+FIFO="${WORKDIR}/snap.fifo"
+mkfifo "$FIFO"
+
+docker exec -i "$POSTGRES_CONTAINER" psql -U supabase_admin -d postgres -X -q -A -t \
+  < "$FIFO" > /dev/null 2>&1 &
+SNAP_HOLDER=$!
+exec 9>"$FIFO"
+
+printf 'begin isolation level repeatable read;\n\\o %s\nselect pg_export_snapshot();\n\\o\n' \
+  "$SNAP_ID_FILE" >&9
+
+SNAPSHOT_ID=""
+for _ in $(seq 1 100); do
+  # `|| true` обязателен: пока psql не создал файл, cat возвращает ненулевой
+  # код, а под set -e с pipefail это роняет присваивание вместе со скриптом —
+  # ровно на первой же итерации ожидания.
+  SNAPSHOT_ID=$(docker exec "$POSTGRES_CONTAINER" sh -c "cat ${SNAP_ID_FILE} 2>/dev/null" | tr -d '[:space:]' || true)
+  [ -n "$SNAPSHOT_ID" ] && break
+  sleep 0.2
+done
+if [ -z "$SNAPSHOT_ID" ]; then
+  log "ОШИБКА: не удалось экспортировать снимок"
+  exit 1
+fi
+log "снимок ${SNAPSHOT_ID}"
+
+# ── 2. Дамп ─────────────────────────────────────────────────────────────────
 #
 # Права и владельцев НЕ вырезаем (никаких --no-owner/--no-privileges): без
 # GRANT'ов для anon/authenticated восстановленная база отдаёт PostgREST
@@ -116,13 +167,13 @@ log "старт, контейнер ${POSTGRES_CONTAINER}"
 # миграции 047. Роли живут на уровне кластера и в pg_dump не попадают, поэтому
 # сохраняем их отдельным дампом.
 docker exec "$POSTGRES_CONTAINER" \
-  pg_dump -U supabase_admin --format=custom --compress=9 postgres > "$DUMP"
+  pg_dump -U supabase_admin --format=custom --compress=9 --snapshot="$SNAPSHOT_ID" postgres > "$DUMP"
 log "дамп готов: $(stat -c%s "$DUMP") байт"
 
 docker exec "$POSTGRES_CONTAINER" pg_dumpall -U supabase_admin --roles-only > "$ROLES"
 log "роли: $(stat -c%s "$ROLES") байт"
 
-# ── 2. Проверка до отправки ─────────────────────────────────────────────────
+# ── 3. Проверка до отправки ─────────────────────────────────────────────────
 SIZE=$(stat -c%s "$DUMP")
 if [ "$SIZE" -lt "$MIN_DUMP_BYTES" ]; then
   log "ОШИБКА: дамп подозрительно мал (${SIZE} < ${MIN_DUMP_BYTES})"
@@ -137,20 +188,42 @@ if [ "${ENTRIES:-0}" -lt 100 ]; then
 fi
 log "дамп читается, записей в оглавлении: ${ENTRIES}"
 
-# ── 3. Метаданные: сколько строк было на момент дампа ───────────────────────
+# ── 4. Метаданные: сколько строк было в том же снимке ───────────────────────
+#
+# Считаем в уже открытой транзакции — по тем же данным, что попали в дамп.
+# Если хоть один счётчик не посчитался, бэкап падает целиком: раньше сюда
+# писался «?», проверка такие строки пропускала, и при отказе всех счётчиков
+# она отчиталась бы об успехе, не сравнив ни одной таблицы.
+# `\o` открываем ОДИН раз на все запросы: каждый вызов `\o файл` обрезает файл,
+# поэтому при перенаправлении внутри цикла выживал бы только последний счётчик.
+printf '\\o %s\n' "$COUNTS_FILE" >&9
+for t in $COUNT_TABLES; do
+  printf "select 'rows.%s='||count(*) from public.%s;\n" "$t" "$t" >&9
+done
+printf '\\o\ncommit;\n\\q\n' >&9
+exec 9>&-
+wait "$SNAP_HOLDER" 2>/dev/null || true
+SNAP_HOLDER=""
+
+COUNTS=$(docker exec "$POSTGRES_CONTAINER" sh -c "cat ${COUNTS_FILE} 2>/dev/null" | grep '^rows\.' || true)
+# То же самое: без || выше пустой результат уронил бы скрипт.
+EXPECTED_COUNT=$(echo "$COUNT_TABLES" | wc -w)
+GOT_COUNT=$(printf '%s\n' "$COUNTS" | grep -c '^rows\.' || true)
+if [ "${GOT_COUNT:-0}" -ne "$EXPECTED_COUNT" ]; then
+  log "ОШИБКА: счётчиков ${GOT_COUNT} вместо ${EXPECTED_COUNT} — метаданные неполные"
+  exit 1
+fi
+
 {
   echo "date=${DATE}"
   echo "size=${SIZE}"
   echo "sha256=$(sha256sum "$DUMP" | cut -d' ' -f1)"
-  for t in $COUNT_TABLES; do
-    n=$(docker exec "$POSTGRES_CONTAINER" psql -U supabase_admin -d postgres -X -q -t -A \
-          -c "select count(*) from public.${t};" 2>/dev/null || echo "?")
-    echo "rows.${t}=${n}"
-  done
+  echo "snapshot=${SNAPSHOT_ID}"
+  printf '%s\n' "$COUNTS"
 } > "$META"
-log "метаданные: $(grep -c . "$META") строк"
+log "метаданные: ${GOT_COUNT} счётчиков из снимка"
 
-# ── 4. Отправка ─────────────────────────────────────────────────────────────
+# ── 5. Отправка ─────────────────────────────────────────────────────────────
 for f in "$DUMP" "$ROLES" "$META"; do
   name=$(basename "$f")
   aws_cli_with_file "${f}:/upload:ro" s3 cp /upload "s3://${BACKUP_BUCKET}/${BACKUP_PREFIX}/${name}" --only-show-errors
@@ -167,7 +240,7 @@ if [ "$REMOTE_SIZE" != "$SIZE" ]; then
 fi
 log "размер в хранилище совпал: ${REMOTE_SIZE}"
 
-# ── 5. Чистка старых ────────────────────────────────────────────────────────
+# ── 6. Чистка старых ────────────────────────────────────────────────────────
 #
 # Строго внутри своего префикса. В том же бакете лежат бэкапы соседнего
 # проекта, и удалять их — не наше дело.
@@ -184,7 +257,7 @@ aws_cli s3api list-objects-v2 --bucket "$BACKUP_BUCKET" --prefix "${BACKUP_PREFI
     aws_cli s3 rm "s3://${BACKUP_BUCKET}/${key}" --only-show-errors
   done
 
-# ── 6. Heartbeat ────────────────────────────────────────────────────────────
+# ── 7. Heartbeat ────────────────────────────────────────────────────────────
 mkdir -p "$STATE_DIR"
 date -u -Iseconds > "$HEARTBEAT"
 log "готово"

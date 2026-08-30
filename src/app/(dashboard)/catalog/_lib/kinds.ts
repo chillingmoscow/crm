@@ -25,6 +25,8 @@ export type CatalogKindConfig = {
   genitivePlural: string;
   /** Что показывать в счётчике списка: «114 групп · 1218 ингредиентов». */
   countNoun: { one: string; few: string; many: string };
+  /** Именительный падеж единственного числа — для текстов внутри карточки. */
+  itemNoun: string;
 };
 
 export const CATALOG_KINDS: Record<CatalogKind, CatalogKindConfig> = {
@@ -36,6 +38,7 @@ export const CATALOG_KINDS: Record<CatalogKind, CatalogKindConfig> = {
       "Дерево групп и ингредиентов Quick Resto с локальными фото для инвентаризации.",
     genitivePlural: "ингредиентов",
     countNoun: { one: "ингредиент", few: "ингредиента", many: "ингредиентов" },
+    itemNoun: "Ингредиент",
   },
   dish: {
     kind: "dish",
@@ -45,6 +48,7 @@ export const CATALOG_KINDS: Record<CatalogKind, CatalogKindConfig> = {
       "Дерево категорий и блюд Quick Resto. Блюда участвуют в актах инвентаризации и пересорте наравне с ингредиентами.",
     genitivePlural: "блюд",
     countNoun: { one: "блюдо", few: "блюда", many: "блюд" },
+    itemNoun: "Блюдо",
   },
   semi_finished: {
     kind: "semi_finished",
@@ -54,6 +58,7 @@ export const CATALOG_KINDS: Record<CatalogKind, CatalogKindConfig> = {
       "Дерево категорий и полуфабрикатов Quick Resto: премиксы, настойки, сиропы и заготовки.",
     genitivePlural: "полуфабрикатов",
     countNoun: { one: "полуфабрикат", few: "полуфабриката", many: "полуфабрикатов" },
+    itemNoun: "Полуфабрикат",
   },
 };
 

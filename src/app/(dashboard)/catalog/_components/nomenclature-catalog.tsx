@@ -42,11 +42,6 @@ type ProductRow = {
   raw_payload: Record<string, unknown> | null;
 };
 
-function isQuickRestoProduct(row: ProductRow) {
-  const className = typeof row.raw_payload?.className === "string" ? row.raw_payload.className : "";
-  return className ? className.endsWith(".SingleProduct") : true;
-}
-
 async function createSignedImageUrls(accountId: string, fileIds: string[]) {
   const uniqueIds = Array.from(new Set(fileIds.filter(Boolean)));
   const imageUrlByFileId = new Map<string, string>();
@@ -181,9 +176,14 @@ export async function NomenclatureCatalog({
     }
   }
 
+  // Фильтра по className здесь больше нет. Он появился, когда вид позиции в
+  // каталоге ничем не отличался и в дерево ингредиентов могли попасть чужие
+  // строки; теперь вид отбирается запросом выше и записывается синком по
+  // классу Quick Resto, так что проверка была бы дублем — а после появления
+  // разделов ещё и вредным: она пропускала только `.SingleProduct` и вычистила
+  // бы из блюд и полуфабрикатов вообще все позиции, оставив пустые категории.
   const productRows = (products ?? [])
     .filter((row) => !row.archived_at)
-    .filter(isQuickRestoProduct)
     .filter((row) => !venueIngredientIds || venueIngredientIds.has(row.id));
   const imageUrlByFileId = await createSignedImageUrls(
     accountId,

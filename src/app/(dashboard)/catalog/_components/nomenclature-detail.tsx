@@ -53,6 +53,11 @@ export async function NomenclatureDetail({
       counterparties={counterparties}
       canManage={canManage}
       amountRoundingScale={amountRoundingScale}
+      section={{
+        path: catalogPath(config),
+        title: config.title,
+        itemNoun: config.itemNoun,
+      }}
     />
   );
 }

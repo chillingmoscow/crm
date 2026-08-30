@@ -50,6 +50,28 @@ export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
 export type AssignedFilter = "any" | "none" | "me" | string;
 
+/**
+ * Отбор актов пересчёта.
+ *
+ * Акт пересчёта — дочерний, вынесенный из другого акта (`recount_of_document_id`).
+ * На складе, где пересчёты делают регулярно, они подмешиваются к обычным актам
+ * и мешают читать список: «only» оставляет только их, «exclude» — только
+ * обычные.
+ */
+export type RecountFilter = "any" | "only" | "exclude";
+
+export const RECOUNT_FILTERS = ["any", "only", "exclude"] as const satisfies readonly RecountFilter[];
+
+export const RECOUNT_FILTER_LABEL: Record<RecountFilter, string> = {
+  any: "Все акты",
+  only: "Только пересчёты",
+  exclude: "Без пересчётов",
+};
+
+export function isRecountFilter(value: unknown): value is RecountFilter {
+  return typeof value === "string" && (RECOUNT_FILTERS as readonly string[]).includes(value);
+}
+
 export type ListDocumentsFilters = {
   /** venue uuid as string, 'unassigned' sentinel, 'all', or undefined. */
   venue?: string;
@@ -62,6 +84,8 @@ export type ListDocumentsFilters = {
   date_from?: string;
   date_to?: string;
   q?: string;
+  /** 'any' (по умолчанию) | 'only' — только пересчёты | 'exclude' — без них. */
+  recount?: RecountFilter;
 };
 
 export type DocumentListRow = {
@@ -152,6 +176,9 @@ export function buildRpcArgs(opts: NormalizedListOptions): Record<string, unknow
     p_filter_date_from: filters.date_from ?? null,
     p_filter_date_to: filters.date_to ?? null,
     p_filter_q: filters.q ?? null,
+    // 'any' и отсутствие фильтра для RPC одно и то же — не гоняем лишнего.
+    p_filter_recount:
+      filters.recount && filters.recount !== "any" ? filters.recount : null,
     p_sort: sort,
     p_page: page,
     p_page_size: pageSize,

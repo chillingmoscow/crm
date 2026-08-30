@@ -15,6 +15,7 @@ import {
   DOCUMENT_SORT_MODES,
   DEFAULT_SORT,
   type DocumentSortMode,
+  isRecountFilter,
   type DocumentStatus,
   type ListDocumentsFilters,
 } from "@/lib/inventory/list-documents";
@@ -48,6 +49,7 @@ type SearchParams = {
   date_from?: string;
   date_to?: string;
   q?: string;
+  recount?: string;
   sort?: string;
   page?: string;
   size?: string;
@@ -88,6 +90,10 @@ function parseSearchParams(sp: SearchParams) {
 
   const q = sp.q?.trim() && sp.q.trim().length >= 2 ? sp.q.trim() : undefined;
 
+  // Значение из адреса проверяем: чужая ссылка с опечаткой не должна молча
+  // отфильтровать половину списка — неизвестное считаем как «все акты».
+  const recount = isRecountFilter(sp.recount) && sp.recount !== "any" ? sp.recount : undefined;
+
   const sortKeysRaw = parseCsv(sp.sort).filter(
     (s): s is DocumentSortMode => VALID_SORTS.has(s as DocumentSortMode),
   );
@@ -108,6 +114,7 @@ function parseSearchParams(sp: SearchParams) {
     date_from,
     date_to,
     q,
+    recount,
   };
 
   return { filters, sort, page, pageSize, datePreset: date_preset };

@@ -47,7 +47,7 @@ import type {
   IngredientUsage,
 } from "@/lib/inventory/ingredients";
 import { addIngredientSupplier, removeIngredientSupplier, updateIngredientDescription, updateIngredientSupplier } from "@/app/(dashboard)/inventory/_actions/catalog";
-import { ProductImageUpload } from "../../_components/product-image-upload";
+import { ProductImageUpload } from "../../../_components/product-image-upload";
 
 type Props = {
   ingredient: IngredientDetailModel;
@@ -57,6 +57,13 @@ type Props = {
   counterparties: CounterpartyOption[];
   canManage: boolean;
   amountRoundingScale: AmountRoundingScale;
+  /** Раздел каталога, из которого открыта карточка: путь возврата и названия. */
+  section: {
+    path: string;
+    title: string;
+    /** Именительный падеж единственного числа: «Ингредиент», «Блюдо». */
+    itemNoun: string;
+  };
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -85,6 +92,7 @@ export function IngredientDetail({
   counterparties,
   canManage,
   amountRoundingScale,
+  section,
 }: Props) {
   const router = useRouter();
   const [description, setDescription] = useState(ingredient.localDescription ?? "");
@@ -115,11 +123,11 @@ export function IngredientDetail({
     <div className="flex-1 flex flex-col">
       <PageBreadcrumb>
         <Link
-          href="/catalog/ingredients"
+          href={section.path}
           className="inline-flex items-center gap-1 px-2 py-1.5 rounded-md text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
-          Ингредиенты
+          {section.title}
         </Link>
       </PageBreadcrumb>
 
@@ -369,7 +377,7 @@ export function IngredientDetail({
                 <EmptyState
                   icon={ClipboardList}
                   title="Пока нет документов"
-                  description="Ингредиент ещё не встречается ни в одном акте инвентаризации. Он появится здесь после синхронизации актов с QuickResto."
+                  description={`${section.itemNoun} ещё не встречается ни в одном акте инвентаризации. Появится здесь после синхронизации актов с QuickResto.`}
                 />
               ) : (
                 <div className="overflow-hidden rounded-lg border">

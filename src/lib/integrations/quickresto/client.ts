@@ -183,6 +183,15 @@ const SEMIPRODUCT_CLASS =
   "ru.edgex.quickresto.modules.warehouse.nomenclature.semiproduct.SemiProduct";
 const SEMIPRODUCT_MODULE = "warehouse.nomenclature.semiproduct";
 
+// Классы категорий. Подтверждены пробой на живом подключении: плоский list по
+// модулю блюд вернул 12 объектов класса DishCategory, по модулю полуфабрикатов
+// — 4 объекта SemiCategory. То есть иерархия здесь ровно как у ингредиентов:
+// корень — категории, товары лежат ниже.
+const DISH_CATEGORY_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.nomenclature.dish.DishCategory";
+const SEMIPRODUCT_CATEGORY_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.nomenclature.semiproduct.SemiCategory";
+
 const STORE_CLASS = "ru.edgex.quickresto.modules.warehouse.store.Store";
 const STORE_MODULE = "warehouse.store";
 
@@ -1019,10 +1028,10 @@ export async function readIngredient(input: {
   });
 }
 
-// Блюда / полуфабрикаты — плоский list (root-уровень). Структура полей у них
-// параллельна SingleProduct (id, name, measureUnit, parentId), поэтому типизируем
-// тем же типом с index-signature. Для полного дерева с категориями — отдельный
-// фетчер на этапе реального синка (после подтверждения структуры пробой).
+// Блюда / полуфабрикаты — плоский list. ВНИМАНИЕ: он отдаёт не товары, а
+// корневые КАТЕГОРИИ (проба на живом подключении: 12 объектов DishCategory и
+// 4 объекта SemiCategory). Оставлены как есть — на них опирается диагностика.
+// Для содержимого нужен listNomenclatureTreeItems ниже.
 export async function listDishes(input: {
   layerName: string;
   login: string;
@@ -1048,6 +1057,77 @@ export async function listSemiProducts(input: {
     className: SEMIPRODUCT_CLASS,
   });
 }
+
+/**
+ * Полное дерево номенклатуры одного модуля: корневые элементы плюс всё
+ * вложенное.
+ *
+ * Тот же приём, что и в listIngredientTreeItems: плоский list отдаёт только
+ * корень, а фильтр `parentId neq 0` возвращает вложенный каталог вместе с
+ * категориями. Вынесено в общий фетчер, потому что для блюд и полуфабрикатов
+ * нужен ровно он же — модули устроены параллельно.
+ *
+ * Дедупликация по паре класс+id: один и тот же объект приходит и из корневого
+ * списка, и из вложенного, а id уникальны только внутри класса.
+ */
+async function listNomenclatureTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+  moduleName: string;
+  className: string;
+}) {
+  const { moduleName, className, ...auth } = input;
+  const [rootItems, nestedItems] = await Promise.all([
+    callQuickResto<QuickRestoStoreItem[]>({ ...auth, path: "list", moduleName, className }),
+    callQuickResto<QuickRestoStoreItem[]>({
+      ...auth,
+      path: "list",
+      moduleName,
+      className,
+      body: { filters: [{ field: "parentId", operation: "neq", value: "0" }] },
+    }),
+  ]);
+
+  const byClassAndId = new Map<string, QuickRestoStoreItem>();
+  for (const item of [...rootItems, ...nestedItems]) {
+    if (typeof item.id !== "number") continue;
+    const type = typeof item.className === "string" ? item.className : "unknown";
+    byClassAndId.set(`${type}:${item.id}`, item);
+  }
+  return Array.from(byClassAndId.values());
+}
+
+export async function listDishTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return listNomenclatureTreeItems({
+    ...input,
+    moduleName: DISH_MODULE,
+    className: DISH_CLASS,
+  });
+}
+
+export async function listSemiProductTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return listNomenclatureTreeItems({
+    ...input,
+    moduleName: SEMIPRODUCT_MODULE,
+    className: SEMIPRODUCT_CLASS,
+  });
+}
+
+/** Классы категорий — чтобы вызывающая сторона отличала категорию от товара. */
+export const QUICK_RESTO_CATEGORY_CLASSES = {
+  ingredient: SINGLE_CATEGORY_CLASS,
+  dish: DISH_CATEGORY_CLASS,
+  semi_finished: SEMIPRODUCT_CATEGORY_CLASS,
+} as const;
 
 export async function listStores(input: {
   layerName: string;

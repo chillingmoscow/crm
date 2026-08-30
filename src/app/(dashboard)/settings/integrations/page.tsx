@@ -1,80 +1,108 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { PlugZap } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { asLooseDb } from "@/lib/supabase/loose";
 import {
-  createClient,
   getCachedActiveAccountId,
   getCachedPermissionChecker,
+  getCachedUser,
 } from "@/lib/supabase/server";
+import {
+  QuickRestoConnectionCard,
+  type QuickRestoConnectionView,
+} from "./_components/quickresto-connection-card";
+
+type ConnectionRow = {
+  login: string | null;
+  status: string | null;
+  last_tested_at: string | null;
+  backoffice_login: string | null;
+  backoffice_cookie_fetched_at: string | null;
+  backoffice_last_tested_at: string | null;
+};
 
 export default async function IntegrationsPage({
   searchParams,
 }: {
   searchParams: Promise<{ quickresto?: string }>;
 }) {
-  const supabase = await createClient();
   const params = await searchParams;
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-
-  const [accountId, can] = await Promise.all([
+  const [user, accountId, can] = await Promise.all([
+    getCachedUser(),
     getCachedActiveAccountId(),
     getCachedPermissionChecker(),
   ]);
-  const allowed = can("settings.manage_integrations");
 
-  if (!accountId || !allowed) redirect("/dashboard");
+  if (!user) redirect("/login");
+  if (!accountId || !can("settings.manage_integrations")) redirect("/dashboard");
 
-  const admin = createAdminClient();
-  const { data: account } = await admin
-    .from("accounts")
-    .select("id, name")
-    .eq("id", accountId)
-    .maybeSingle();
+  const admin = asLooseDb(createAdminClient());
+
+  // Подключение и время последней синхронизации читаем вместе: до этого
+  // страница не знала о подключении вовсе и всегда предлагала «Запустить
+  // интеграцию», даже когда синхронизация давно работала (#368).
+  const [{ data: account }, { data: connection }, { data: lastSynced }] = await Promise.all([
+    admin
+      .from<{ id: string; name: string }>("accounts")
+      .select("id, name")
+      .eq("id", accountId)
+      .maybeSingle(),
+    admin
+      .from<ConnectionRow>("integration_connections")
+      .select(
+        "login, status, last_tested_at, backoffice_login, backoffice_cookie_fetched_at, backoffice_last_tested_at",
+      )
+      .eq("account_id", accountId)
+      .eq("provider", "quickresto")
+      .maybeSingle(),
+    admin
+      .from<Array<{ synced_at: string | null }>>("ingredients")
+      .select("synced_at")
+      .eq("account_id", accountId)
+      .order("synced_at", { ascending: false })
+      .range(0, 0),
+  ]);
 
   if (!account) {
     return (
-      <div className="p-6 md:p-8 w-full">
+      <div className="w-full p-6 md:p-8">
         <h1 className="text-2xl font-semibold">Интеграции</h1>
-        <p className="text-sm text-muted-foreground mt-2">Аккаунт не найден</p>
+        <p className="mt-2 text-sm text-muted-foreground">Аккаунт не найден</p>
       </div>
     );
   }
 
+  const connectionView: QuickRestoConnectionView | null = connection
+    ? {
+        login: connection.login,
+        status: connection.status,
+        lastTestedAt: connection.last_tested_at,
+        backofficeLastTestedAt: connection.backoffice_last_tested_at,
+        // «Настроен» — это логин плюс однажды полученная cookie-сессия:
+        // без неё акт не провести, даже если пароль сохранён.
+        backofficeConfigured: Boolean(
+          connection.backoffice_login && connection.backoffice_cookie_fetched_at,
+        ),
+      }
+    : null;
+
   return (
-    <div className="p-6 md:p-8 w-full">
+    <div className="w-full p-6 md:p-8">
       <h1 className="text-2xl font-semibold">Интеграции</h1>
-      <p className="text-sm text-muted-foreground mt-1">Подключайте внешние системы и повторяйте импорт данных</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Подключайте внешние системы и повторяйте импорт данных
+      </p>
 
       {params.quickresto === "done" ? (
-        <div className="mt-4 max-w-xl rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <div className="mt-4 max-w-xl rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/15 dark:text-green-300">
           Импорт Quick Resto завершён.
         </div>
       ) : null}
 
-      <div className="mt-6 rounded-xl border p-5 max-w-xl">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-            <PlugZap className="w-5 h-5 text-blue-600" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-base font-medium">Quick Resto</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Перезапустите мастер интеграции и выберите, какие заведения, должности и сотрудники импортировать.
-            </p>
-            <Link
-              href="/settings/integrations/quickresto"
-              className="inline-flex mt-4 h-9 items-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              Запустить интеграцию
-            </Link>
-          </div>
-        </div>
-      </div>
+      <QuickRestoConnectionCard
+        connection={connectionView}
+        canSync={can("inventory.sync_quickresto")}
+        lastSyncedAt={lastSynced?.[0]?.synced_at ?? null}
+      />
     </div>
   );
 }

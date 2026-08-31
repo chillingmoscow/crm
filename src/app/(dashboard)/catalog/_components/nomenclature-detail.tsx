@@ -7,9 +7,9 @@ import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
   getIngredientDetail,
   listAccountCounterparties,
+  listIngredientHistory,
   listIngredientJournal,
   listIngredientSuppliers,
-  listIngredientUsage,
 } from "@/lib/inventory/ingredients";
 import { IngredientDetail } from "../ingredients/[id]/_components/ingredient-detail";
 
@@ -37,9 +37,9 @@ export async function NomenclatureDetail({
   const ingredient = await getIngredientDetail(accountId as string, id, config.kind);
   if (!ingredient) redirect(catalogPath(config));
 
-  const [suppliers, usage, journal, counterparties] = await Promise.all([
+  const [suppliers, history, journal, counterparties] = await Promise.all([
     listIngredientSuppliers(accountId as string, id),
-    listIngredientUsage(accountId as string, id),
+    listIngredientHistory(accountId as string, id),
     listIngredientJournal(accountId as string, id),
     canManage ? listAccountCounterparties(accountId as string) : Promise.resolve([]),
   ]);
@@ -48,7 +48,7 @@ export async function NomenclatureDetail({
     <IngredientDetail
       ingredient={ingredient}
       suppliers={suppliers}
-      usage={usage}
+      history={history}
       journal={journal}
       counterparties={counterparties}
       canManage={canManage}

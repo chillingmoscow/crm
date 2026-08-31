@@ -2,6 +2,19 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import {
+  buildIngredientHistory,
+  frozenDocumentIds,
+  type IngredientHistoryEntry,
+  type IngredientHistoryItem,
+  type IngredientHistoryResort,
+} from "@/lib/inventory/ingredient-history-shared";
+import {
+  applyResortItemSnapshot,
+  applyResortSnapshot,
+  type InventoryResortItemSnapshotRow,
+  type InventoryResortSnapshotRow,
+} from "@/lib/inventory/results-snapshot";
 
 // Доменный слой ингредиента (Этап 1 разведения «Номенклатура»/«Документы»).
 // Inventory-домен в этом проекте работает через asLooseDb (нетипизированный
@@ -46,14 +59,10 @@ export type IngredientSupplier = {
   note: string | null;
 };
 
-export type IngredientUsage = {
-  documentId: string;
-  documentNumber: string;
-  invoiceDate: string | null;
-  status: string;
-  actualAmount: number | null;
-  calculatedAmount: number | null;
-};
+export type {
+  IngredientHistoryEntry,
+  IngredientHistoryResort,
+} from "@/lib/inventory/ingredient-history-shared";
 
 export type IngredientJournalEntry = {
   id: string;
@@ -233,44 +242,100 @@ export async function listIngredientSuppliers(
   });
 }
 
-type UsageItemRow = {
+type HistoryResortItemRow = InventoryResortItemSnapshotRow & {
+  resort_id: string;
   document_id: string;
-  actual_amount: number | null;
-  calculated_amount: number | null;
-  documents:
-    | { document_number: string; invoice_date: string | null; status: string }
-    | { document_number: string; invoice_date: string | null; status: string }[]
-    | null;
+  document_item_id: string;
 };
 
-export async function listIngredientUsage(
+/**
+ * История позиции по актам: где ушла в излишек, где в недостачу.
+ *
+ * Разницу берём фактическую — ту, что реально насчитали по строке. Управленческий
+ * итог (исключения и пересорты) её как раз прячет, а вопрос здесь ровно
+ * противоположный: где систематически путают позицию. Чтобы фактическое число не
+ * читалось как претензия, строка несёт пометки `excluded` и `resort` — их
+ * показывает карточка.
+ */
+export async function listIngredientHistory(
   accountId: string,
   ingredientId: string,
-): Promise<IngredientUsage[]> {
+): Promise<IngredientHistoryEntry[]> {
   const admin = asLooseDb(createAdminClient());
-  const { data } = await admin
-    .from<UsageItemRow[]>("document_items")
+  const { data: itemRows } = await admin
+    .from<IngredientHistoryItem[]>("document_items")
     .select(
-      // Два FK на documents (простой document_id + композитный tenant).
-      // Дизамбигуируем embed по имени простого FK-констрейнта (имя пока
-      // прежнее — ренейм констрейнтов в Pass 4.4), иначе PostgREST вернёт
-      // ambiguous-relationship.
-      "document_id, actual_amount, calculated_amount, documents!inventory_document_items_document_id_fkey(document_number, invoice_date, status)",
+      // Два FK на documents (простой document_id + композитный tenant), поэтому
+      // embed дизамбигуируется именем простого констрейнта. Имя обязано совпадать
+      // с текущим: до этого здесь стояло дореформенное
+      // `inventory_document_items_document_id_fkey`, переименованное миграцией 193,
+      // и PostgREST молча отдавал ошибку вместо строк — вкладка показывала
+      // «нет документов» для любой позиции.
+      "id, document_id, actual_amount, calculated_amount, measure_unit_name, " +
+        "difference_amount, difference_sum, excluded_from_totals, exclude_reason, " +
+        "finalized_at, finalized_difference_amount, finalized_difference_sum, finalized_excluded_from_totals, " +
+        "documents!document_items_document_id_fkey(document_number, invoice_date, status, results_finalized_at, results_reopened_at, results_snapshot_at)",
     )
     .eq("account_id", accountId)
     .eq("ingredient_id", ingredientId);
 
-  return (data ?? []).map((row) => {
-    const doc = oneRelation(row.documents);
-    return {
-      documentId: row.document_id,
-      documentNumber: doc?.document_number ?? "—",
-      invoiceDate: doc?.invoice_date ?? null,
-      status: doc?.status ?? "—",
-      actualAmount: row.actual_amount,
-      calculatedAmount: row.calculated_amount,
-    };
-  });
+  const items = itemRows ?? [];
+  if (items.length === 0) return [];
+
+  // Пересорт закрывает недостачу излишком по соседней позиции, и тогда
+  // фактический минус — не потеря. Связь идёт через строку акта: `ingredient_id`
+  // на позиции пересорта — денормализованная обратная ссылка, у старых строк её
+  // может не быть.
+  const itemIds = items.map((row) => row.id);
+  const { data: resortItemRows } = await admin
+    .from<HistoryResortItemRow[]>("inventory_result_resort_items")
+    .select(
+      "resort_id, document_id, document_item_id, offset_amount, source_difference_amount, source_difference_sum, " +
+        "remaining_difference_amount, remaining_difference_sum, " +
+        "finalized_at, finalized_offset_amount, finalized_source_difference_amount, finalized_source_difference_sum, " +
+        "finalized_remaining_difference_amount, finalized_remaining_difference_sum",
+    )
+    .eq("account_id", accountId)
+    .in("document_item_id", itemIds);
+
+  const frozenDocIds = frozenDocumentIds(items);
+
+  // Аннулированные пересорты в расчёт не идут, но у зафиксированного акта статус
+  // тоже берётся из снимка: пересорт, аннулированный после подведения итогов, из
+  // утверждённой картины задним числом не исчезает (миграция 227).
+  const resortItems = resortItemRows ?? [];
+  const activeResortIds = new Set<string>();
+  if (resortItems.length > 0) {
+    const { data: resortRows } = await admin
+      .from<Array<InventoryResortSnapshotRow & { id: string; document_id: string }>>(
+        "inventory_result_resorts",
+      )
+      .select(
+        "id, document_id, status, offset_amount, residual_shortfall_sum, residual_surplus_sum, cost_adjustment_sum, " +
+          "finalized_at, finalized_status, finalized_offset_amount, finalized_residual_shortfall_sum, " +
+          "finalized_residual_surplus_sum, finalized_cost_adjustment_sum",
+      )
+      .eq("account_id", accountId)
+      .in("id", [...new Set(resortItems.map((row) => row.resort_id))]);
+
+    for (const raw of resortRows ?? []) {
+      const resort = applyResortSnapshot(raw, frozenDocIds.has(raw.document_id));
+      if (resort.status === "active") activeResortIds.add(raw.id);
+    }
+  }
+
+  const resortByItemId = new Map<string, IngredientHistoryResort>();
+  for (const raw of resortItems) {
+    if (!activeResortIds.has(raw.resort_id)) continue;
+    const resortItem = applyResortItemSnapshot(raw, frozenDocIds.has(raw.document_id));
+    resortByItemId.set(raw.document_item_id, {
+      offsetAmount: Number(resortItem.offset_amount ?? 0),
+      remainingDifferenceAmount: Number(resortItem.remaining_difference_amount ?? 0),
+      remainingDifferenceSum: Number(resortItem.remaining_difference_sum ?? 0),
+    });
+  }
+
+  return buildIngredientHistory(items, resortByItemId, frozenDocIds);
 }
 
 type JournalRow = {

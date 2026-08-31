@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -11,9 +11,11 @@ import {
   Loader2,
   Package,
   Pencil,
+  Repeat2,
   ScrollText,
   Trash2,
   Truck,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,13 +40,26 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
-import { formatAmount, type AmountRoundingScale } from "@/lib/format/amount";
+import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
+import { cn } from "@/lib/utils";
+import {
+  formatAmount,
+  formatQuantityAmount,
+  formatSignedMoney,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
+import { pluralRu } from "@/lib/format/plural";
+import {
+  summarizeIngredientHistory,
+  type IngredientHistorySummary,
+} from "@/lib/inventory/ingredient-history-shared";
 import type {
   CounterpartyOption,
   IngredientDetail as IngredientDetailModel,
+  IngredientHistoryEntry,
   IngredientJournalEntry,
   IngredientSupplier,
-  IngredientUsage,
 } from "@/lib/inventory/ingredients";
 import { addIngredientSupplier, removeIngredientSupplier, updateIngredientDescription, updateIngredientSupplier } from "@/app/(dashboard)/inventory/_actions/catalog";
 import { ProductImageUpload } from "../../../_components/product-image-upload";
@@ -52,7 +67,7 @@ import { ProductImageUpload } from "../../../_components/product-image-upload";
 type Props = {
   ingredient: IngredientDetailModel;
   suppliers: IngredientSupplier[];
-  usage: IngredientUsage[];
+  history: IngredientHistoryEntry[];
   journal: IngredientJournalEntry[];
   counterparties: CounterpartyOption[];
   canManage: boolean;
@@ -84,10 +99,124 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function formatQuantity(
+  value: number | null | undefined,
+  measureUnitName: string | null,
+  scale: AmountRoundingScale,
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  return `${formatQuantityAmount(value, scale)} ${measureUnitName ?? "ед."}`;
+}
+
+/** Количество со знаком: тот же «−», что и у formatSignedMoney. */
+function formatSignedQuantity(
+  value: number | null | undefined,
+  measureUnitName: string | null,
+  scale: AmountRoundingScale,
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${formatQuantity(Math.abs(value), measureUnitName, scale)}`;
+}
+
+function acts(count: number): string {
+  return `${count} ${pluralRu(count, "акт", "акта", "актов")}`;
+}
+
+/**
+ * Одна строка над таблицей: сколько раз позиция уходила в плюс, сколько в минус.
+ * Разбивка считается только по сданным актам — у остальных разницы нет.
+ */
+function HistorySummaryLine({
+  summary,
+  amountRoundingScale,
+}: {
+  summary: IngredientHistorySummary;
+  amountRoundingScale: AmountRoundingScale;
+}) {
+  const pending =
+    summary.pendingActs > 0
+      ? `${acts(summary.pendingActs)} ещё ${pluralRu(summary.pendingActs, "не сдан", "не сданы", "не сданы")}`
+      : null;
+
+  if (summary.countedActs === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Итогов пока нет{pending ? `: ${pending}` : ""}.
+      </p>
+    );
+  }
+
+  const breakdown = [
+    summary.surplusActs > 0 ? `${summary.surplusActs} в плюс` : null,
+    summary.shortfallActs > 0 ? `${summary.shortfallActs} в минус` : null,
+    summary.evenActs > 0 ? `${summary.evenActs} ровно` : null,
+  ].filter(Boolean);
+
+  return (
+    <p className="text-sm text-muted-foreground">
+      {acts(summary.countedActs)} с итогами
+      {breakdown.length > 0 ? `: ${breakdown.join(", ")}` : ""} · итого{" "}
+      <span className={cn("font-medium tabular-nums", signedAmountClass(summary.netSum))}>
+        {formatSignedMoney(summary.netSum, "RUB", amountRoundingScale)}
+      </span>
+      {pending ? ` · ${pending}` : ""}
+    </p>
+  );
+}
+
+/**
+ * Почему фактическая разница строки могла не дойти до управленческого итога.
+ * Слова и иконки — те же, что в итогах акта, чтобы одно и то же состояние не
+ * называлось на двух экранах по-разному.
+ */
+function HistoryMarks({
+  item,
+  amountRoundingScale,
+}: {
+  item: IngredientHistoryEntry;
+  amountRoundingScale: AmountRoundingScale;
+}) {
+  if (item.excluded) {
+    return (
+      <IconTooltip
+        label="Строка не учитывается в итогах"
+        description={
+          item.excludeReason
+            ? `Причина: ${item.excludeReason}`
+            : "Ревьюер исключил строку из управленческих итогов акта."
+        }
+      >
+        <span className="inline-flex cursor-help items-center gap-1.5 text-xs text-red-700 dark:text-red-400">
+          <XCircle className="h-3.5 w-3.5 shrink-0" />
+          Не учитывать
+        </span>
+      </IconTooltip>
+    );
+  }
+
+  if (item.resort) {
+    const remaining = item.resort.remainingDifferenceAmount;
+    return (
+      <IconTooltip
+        label="Закрыто пересортом"
+        description={`Зачтено ${formatQuantity(item.resort.offsetAmount, item.measureUnitName, amountRoundingScale)}; после зачёта осталось ${formatSignedQuantity(remaining, item.measureUnitName, amountRoundingScale)} (${formatSignedMoney(item.resort.remainingDifferenceSum, "RUB", amountRoundingScale)}).`}
+      >
+        <span className="inline-flex cursor-help items-center gap-1.5 text-xs text-blue-700 dark:text-blue-300">
+          <Repeat2 className="h-3.5 w-3.5 shrink-0" />
+          Пересорт
+        </span>
+      </IconTooltip>
+    );
+  }
+
+  return <span className="text-xs text-muted-foreground">—</span>;
+}
+
 export function IngredientDetail({
   ingredient,
   suppliers,
-  usage,
+  history,
   journal,
   counterparties,
   canManage,
@@ -103,6 +232,7 @@ export function IngredientDetail({
 
   const dirty = (ingredient.localDescription ?? "") !== description;
   const isArchived = Boolean(ingredient.archivedAt);
+  const summary = useMemo(() => summarizeIngredientHistory(history), [history]);
 
   const saveDescription = () => {
     startSaveDescription(async () => {
@@ -199,7 +329,7 @@ export function IngredientDetail({
           <TabsList className="justify-center">
             <TabsTrigger value="overview">Обзор</TabsTrigger>
             <TabsTrigger value="suppliers">Поставщики</TabsTrigger>
-            <TabsTrigger value="usage">Где используется</TabsTrigger>
+            <TabsTrigger value="history">История</TabsTrigger>
             <TabsTrigger value="journal">Журнал</TabsTrigger>
             <TabsTrigger
               value="danger"
@@ -371,50 +501,132 @@ export function IngredientDetail({
             </div>
           </TabsContent>
 
-          <TabsContent value="usage">
-            <div className="mx-auto w-full max-w-[920px]">
-              {usage.length === 0 ? (
+          <TabsContent value="history">
+            <div className="mx-auto flex w-full max-w-[920px] flex-col gap-3">
+              {history.length === 0 ? (
                 <EmptyState
                   icon={ClipboardList}
-                  title="Пока нет документов"
+                  title="Пока нет истории"
                   description={`${section.itemNoun} ещё не встречается ни в одном акте инвентаризации. Появится здесь после синхронизации актов с QuickResto.`}
                 />
               ) : (
-                <div className="overflow-hidden rounded-lg border">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/40 text-xs text-muted-foreground">
-                      <tr>
-                        <th className="px-3 py-2 text-left">Документ</th>
-                        <th className="px-3 py-2 text-left">Дата</th>
-                        <th className="px-3 py-2 text-left">Статус</th>
-                        <th className="px-3 py-2 text-left">Факт</th>
-                        <th className="px-3 py-2 text-left">Расчёт</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {usage.map((item) => (
-                        <tr key={item.documentId} className="border-t">
-                          <td className="px-3 py-2">
-                            <Link
-                              href={`/documents/inventory/${item.documentId}`}
-                              className="text-foreground underline-offset-2 hover:underline"
-                            >
-                              {item.documentNumber}
-                            </Link>
-                          </td>
-                          <td className="px-3 py-2">
-                            {item.invoiceDate
-                              ? new Date(item.invoiceDate).toLocaleDateString("ru-RU")
-                              : "—"}
-                          </td>
-                          <td className="px-3 py-2">{item.status}</td>
-                          <td className="px-3 py-2">{item.actualAmount ?? "—"}</td>
-                          <td className="px-3 py-2">{item.calculatedAmount ?? "—"}</td>
+                <>
+                  <HistorySummaryLine
+                    summary={summary}
+                    amountRoundingScale={amountRoundingScale}
+                  />
+
+                  {/* min-w — чтобы восемь колонок не сминались на узком экране;
+                      горизонтальный скролл живёт внутри рамки, а не у страницы
+                      (docs/mobile-web.md). */}
+                  <div className="overflow-x-auto rounded-lg border">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead className="bg-muted/40 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Акт</th>
+                          <th className="px-3 py-2 text-left">Дата</th>
+                          <th className="px-3 py-2 text-left">Статус</th>
+                          <th className="px-3 py-2 text-right">Факт</th>
+                          <th className="px-3 py-2 text-right">Расчёт</th>
+                          <th className="px-3 py-2 text-right">Разница</th>
+                          <th className="px-3 py-2 text-right">Сумма</th>
+                          <th className="px-3 py-2 text-left">Пометки</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {history.map((item) => (
+                          <tr key={item.documentId} className="border-t">
+                            <td className="px-3 py-2">
+                              <Link
+                                href={
+                                  item.counted
+                                    ? `/documents/inventory/${item.documentId}/results`
+                                    : `/documents/inventory/${item.documentId}`
+                                }
+                                className="text-foreground underline-offset-2 hover:underline"
+                              >
+                                {item.documentNumber}
+                              </Link>
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              {item.invoiceDate
+                                ? new Date(item.invoiceDate).toLocaleDateString("ru-RU")
+                                : "—"}
+                            </td>
+                            <td className="px-3 py-2">
+                              <InventoryStatusBadge status={item.status} />
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
+                              {formatQuantity(
+                                item.actualAmount,
+                                item.measureUnitName,
+                                amountRoundingScale,
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-muted-foreground">
+                              {formatQuantity(
+                                item.calculatedAmount,
+                                item.measureUnitName,
+                                amountRoundingScale,
+                              )}
+                            </td>
+                            <td
+                              className={cn(
+                                "px-3 py-2 text-right tabular-nums whitespace-nowrap",
+                                item.counted
+                                  ? signedAmountClass(item.differenceAmount)
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {item.counted ? (
+                                formatSignedQuantity(
+                                  item.differenceAmount,
+                                  item.measureUnitName,
+                                  amountRoundingScale,
+                                )
+                              ) : (
+                                <IconTooltip
+                                  label="Акт ещё не сдан"
+                                  description="Пока исполнитель не сдал акт, разницы не существует: она появится вместе с итогами."
+                                >
+                                  <span className="cursor-help">—</span>
+                                </IconTooltip>
+                              )}
+                            </td>
+                            <td
+                              className={cn(
+                                "px-3 py-2 text-right tabular-nums whitespace-nowrap",
+                                item.counted
+                                  ? signedAmountClass(item.differenceSum)
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {item.counted
+                                ? formatSignedMoney(
+                                    item.differenceSum,
+                                    "RUB",
+                                    amountRoundingScale,
+                                  )
+                                : "—"}
+                            </td>
+                            <td className="px-3 py-2">
+                              <HistoryMarks
+                                item={item}
+                                amountRoundingScale={amountRoundingScale}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    Разница здесь фактическая — ровно та, что насчитали по акту.
+                    Исключения из итогов и пересорты её не меняют, но помечены в
+                    последней колонке.
+                  </p>
+                </>
               )}
             </div>
           </TabsContent>

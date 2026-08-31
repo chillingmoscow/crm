@@ -54,7 +54,10 @@ export {
   DEFAULT_PAGE_SIZE,
   DEFAULT_SORT,
   MAX_PAGE_SIZE,
+  RECOUNT_FILTERS,
+  RECOUNT_FILTER_LABEL,
   isDefaultSort,
+  isRecountFilter,
 } from "./list-documents-shared";
 
 /**

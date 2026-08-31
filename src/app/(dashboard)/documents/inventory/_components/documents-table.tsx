@@ -77,12 +77,13 @@ import {
 import { ReviewerSelect } from "./reviewer-select";
 import {
   DEFAULT_SORT,
-  isDefaultSort,
   type DocumentListRow,
   type DocumentSortMode,
   type DocumentStatus,
+  isDefaultSort,
   type ListDocumentsFilters,
   type ListDocumentsResult,
+  type RecountFilter,
 } from "@/lib/inventory/list-documents-shared";
 import {
   COLUMN_TO_FIELD,
@@ -115,6 +116,8 @@ import {
   assigneePinLabel,
   reviewerPinLabel,
   statusPinLabel,
+  RecountPicker,
+  recountPinLabel,
   storePinLabel,
   venuePinLabel,
 } from "./documents-table-filters";
@@ -808,6 +811,9 @@ export function DocumentsTable({
   const onReviewerChange = (next: string) =>
     updateUrl({ reviewer: next === "any" ? null : next }, { resetPage: true });
 
+  const onRecountChange = (next: RecountFilter) =>
+    updateUrl({ recount: next === "any" ? null : next }, { resetPage: true });
+
   const onStoreToggle = (storeId: string) => {
     const current = new Set(filtersFromUrl.store ?? []);
     if (current.has(storeId)) current.delete(storeId);
@@ -845,6 +851,7 @@ export function DocumentsTable({
     (filtersFromUrl.assigned && filtersFromUrl.assigned !== "any") ||
     (filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any") ||
     (filtersFromUrl.store && filtersFromUrl.store.length > 0) ||
+    (filtersFromUrl.recount && filtersFromUrl.recount !== "any") ||
     Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
 
   const hasSearch = Boolean(filtersFromUrl.q);
@@ -1002,7 +1009,7 @@ export function DocumentsTable({
 
           {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
 
-          {/* 2. Фильтры — порядок: Период, Статус, Исполнитель, Склад, Заведение */}
+          {/* 2. Фильтры — порядок: Период, Статус, Исполнитель, Склад, Пересчёты, Заведение */}
           {filtersVisible ? (
             <>
               <DateRangeFilter
@@ -1065,6 +1072,19 @@ export function DocumentsTable({
                 clearLabel="Сбросить склад"
               >
                 <StorePicker value={filtersFromUrl.store ?? []} stores={stores} onToggle={onStoreToggle} />
+              </TableControlPin>
+
+              <TableControlPin
+                active={Boolean(filtersFromUrl.recount) && filtersFromUrl.recount !== "any"}
+                label={recountPinLabel(filtersFromUrl.recount)}
+                onClear={
+                  filtersFromUrl.recount && filtersFromUrl.recount !== "any"
+                    ? () => onRecountChange("any")
+                    : undefined
+                }
+                clearLabel="Показывать все акты"
+              >
+                <RecountPicker value={filtersFromUrl.recount ?? "any"} onChange={onRecountChange} />
               </TableControlPin>
 
               <TableControlPin

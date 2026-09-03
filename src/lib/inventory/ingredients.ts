@@ -248,6 +248,34 @@ type HistoryResortItemRow = InventoryResortItemSnapshotRow & {
   document_item_id: string;
 };
 
+// Строка истории без итогов: «где встречается» и ничего больше.
+const HISTORY_BASE_COLUMNS =
+  "id, document_id, actual_amount, calculated_amount, measure_unit_name";
+
+// Итоги строки. Отдельным списком, потому что без права на итоги их вообще не
+// должно быть в ответе. Снимок берём целиком (факт и расчёт тоже), иначе у
+// зафиксированного акта утверждённая разница сойдётся с уже другими слагаемыми.
+const HISTORY_RESULT_COLUMNS =
+  "difference_amount, difference_sum, prime_cost, excluded_from_totals, exclude_reason, " +
+  "finalized_at, finalized_actual_amount, finalized_calculated_amount, " +
+  "finalized_difference_amount, finalized_difference_sum, finalized_prime_cost, " +
+  "finalized_excluded_from_totals";
+
+// Embed идёт последним элементом списка. Два FK на documents (простой
+// document_id + композитный tenant), поэтому дизамбигуируем по имени простого
+// констрейнта. Имя обязано совпадать с текущим: до этого здесь стояло
+// дореформенное `inventory_document_items_document_id_fkey`, переименованное
+// миграцией 193, и PostgREST молча отдавал ошибку вместо строк — вкладка
+// показывала «нет документов» для любой позиции.
+const HISTORY_DOCUMENT_EMBED =
+  "documents!document_items_document_id_fkey(document_number, invoice_date, status, results_finalized_at, results_reopened_at, results_snapshot_at)";
+
+function historyColumns(canViewResults: boolean): string {
+  return [HISTORY_BASE_COLUMNS, canViewResults ? HISTORY_RESULT_COLUMNS : null, HISTORY_DOCUMENT_EMBED]
+    .filter(Boolean)
+    .join(", ");
+}
+
 /**
  * История позиции по актам: где ушла в излишек, где в недостачу.
  *
@@ -256,31 +284,29 @@ type HistoryResortItemRow = InventoryResortItemSnapshotRow & {
  * противоположный: где систематически путают позицию. Чтобы фактическое число не
  * читалось как претензия, строка несёт пометки `excluded` и `resort` — их
  * показывает карточка.
+ *
+ * `canViewResults` — право `inventory.view_results`. Разница, суммы, исключения и
+ * пересорты закрыты именно им: страница итогов пускает по нему же, а читаем мы
+ * admin-клиентом в обход RLS, так что без явной проверки право `view_products`
+ * стало бы обходным путём к итогам.
  */
 export async function listIngredientHistory(
   accountId: string,
   ingredientId: string,
+  canViewResults: boolean,
 ): Promise<IngredientHistoryEntry[]> {
   const admin = asLooseDb(createAdminClient());
   const { data: itemRows } = await admin
     .from<IngredientHistoryItem[]>("document_items")
-    .select(
-      // Два FK на documents (простой document_id + композитный tenant), поэтому
-      // embed дизамбигуируется именем простого констрейнта. Имя обязано совпадать
-      // с текущим: до этого здесь стояло дореформенное
-      // `inventory_document_items_document_id_fkey`, переименованное миграцией 193,
-      // и PostgREST молча отдавал ошибку вместо строк — вкладка показывала
-      // «нет документов» для любой позиции.
-      "id, document_id, actual_amount, calculated_amount, measure_unit_name, " +
-        "difference_amount, difference_sum, excluded_from_totals, exclude_reason, " +
-        "finalized_at, finalized_difference_amount, finalized_difference_sum, finalized_excluded_from_totals, " +
-        "documents!document_items_document_id_fkey(document_number, invoice_date, status, results_finalized_at, results_reopened_at, results_snapshot_at)",
-    )
+    .select(historyColumns(canViewResults))
     .eq("account_id", accountId)
     .eq("ingredient_id", ingredientId);
 
   const items = itemRows ?? [];
   if (items.length === 0) return [];
+  if (!canViewResults) {
+    return buildIngredientHistory(items, new Map(), new Set(), false);
+  }
 
   // Пересорт закрывает недостачу излишком по соседней позиции, и тогда
   // фактический минус — не потеря. Связь идёт через строку акта: `ingredient_id`
@@ -335,7 +361,7 @@ export async function listIngredientHistory(
     });
   }
 
-  return buildIngredientHistory(items, resortByItemId, frozenDocIds);
+  return buildIngredientHistory(items, resortByItemId, frozenDocIds, true);
 }
 
 type JournalRow = {

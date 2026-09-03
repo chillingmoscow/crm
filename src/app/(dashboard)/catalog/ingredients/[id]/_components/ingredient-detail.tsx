@@ -71,6 +71,8 @@ type Props = {
   journal: IngredientJournalEntry[];
   counterparties: CounterpartyOption[];
   canManage: boolean;
+  /** Право `inventory.view_results`: без него в истории нет разниц и пометок. */
+  canViewResults: boolean;
   amountRoundingScale: AmountRoundingScale;
   /** Раздел каталога, из которого открыта карточка: путь возврата и названия. */
   section: {
@@ -134,15 +136,22 @@ function HistorySummaryLine({
   summary: IngredientHistorySummary;
   amountRoundingScale: AmountRoundingScale;
 }) {
-  const pending =
+  // «Ещё не сдан» и «сдан, но расчёта нет» — разные вещи, и вторую нельзя
+  // называть первой: у сданного акта Quick Resto мог не вернуть построчные
+  // расчёты, исполнитель тут ни при чём.
+  const tail = [
     summary.pendingActs > 0
       ? `${acts(summary.pendingActs)} ещё ${pluralRu(summary.pendingActs, "не сдан", "не сданы", "не сданы")}`
-      : null;
+      : null,
+    summary.actsWithoutAmounts > 0
+      ? `по ${acts(summary.actsWithoutAmounts)} нет расчёта`
+      : null,
+  ].filter(Boolean);
 
   if (summary.countedActs === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Итогов пока нет{pending ? `: ${pending}` : ""}.
+        Итогов пока нет{tail.length > 0 ? `: ${tail.join(", ")}` : ""}.
       </p>
     );
   }
@@ -160,8 +169,47 @@ function HistorySummaryLine({
       <span className={cn("font-medium tabular-nums", signedAmountClass(summary.netSum))}>
         {formatSignedMoney(summary.netSum, "RUB", amountRoundingScale)}
       </span>
-      {pending ? ` · ${pending}` : ""}
+      {tail.length > 0 ? ` · ${tail.join(" · ")}` : ""}
     </p>
+  );
+}
+
+/**
+ * Разница по строке — либо число, либо прочерк с объяснением, почему его нет.
+ * Причины две и путать их нельзя: акт ещё не сдан (разницы не существует) и акт
+ * сдан, но Quick Resto не вернул построчный расчёт.
+ */
+function HistoryDifference({
+  item,
+  amountRoundingScale,
+}: {
+  item: IngredientHistoryEntry;
+  amountRoundingScale: AmountRoundingScale;
+}) {
+  if (!item.counted) {
+    return (
+      <IconTooltip
+        label="Акт ещё не сдан"
+        description="Пока исполнитель не сдал акт, разницы не существует: она появится вместе с итогами."
+      >
+        <span className="cursor-help">—</span>
+      </IconTooltip>
+    );
+  }
+
+  if (item.differenceAmount == null) {
+    return (
+      <IconTooltip
+        label="Расчёта по строке нет"
+        description="Акт сдан, но Quick Resto не вернул по этой позиции построчный расчёт. Обновите итоги акта, если расчёт нужен."
+      >
+        <span className="cursor-help">—</span>
+      </IconTooltip>
+    );
+  }
+
+  return (
+    <>{formatSignedQuantity(item.differenceAmount, item.measureUnitName, amountRoundingScale)}</>
   );
 }
 
@@ -220,6 +268,7 @@ export function IngredientDetail({
   journal,
   counterparties,
   canManage,
+  canViewResults,
   amountRoundingScale,
   section,
 }: Props) {
@@ -511,16 +560,20 @@ export function IngredientDetail({
                 />
               ) : (
                 <>
-                  <HistorySummaryLine
-                    summary={summary}
-                    amountRoundingScale={amountRoundingScale}
-                  />
+                  {canViewResults ? (
+                    <HistorySummaryLine
+                      summary={summary}
+                      amountRoundingScale={amountRoundingScale}
+                    />
+                  ) : null}
 
-                  {/* min-w — чтобы восемь колонок не сминались на узком экране;
+                  {/* min-w — чтобы колонки не сминались на узком экране;
                       горизонтальный скролл живёт внутри рамки, а не у страницы
                       (docs/mobile-web.md). */}
                   <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full min-w-[760px] text-sm">
+                    <table
+                      className={cn("w-full text-sm", canViewResults && "min-w-[760px]")}
+                    >
                       <thead className="bg-muted/40 text-xs text-muted-foreground">
                         <tr>
                           <th className="px-3 py-2 text-left">Акт</th>
@@ -528,9 +581,13 @@ export function IngredientDetail({
                           <th className="px-3 py-2 text-left">Статус</th>
                           <th className="px-3 py-2 text-right">Факт</th>
                           <th className="px-3 py-2 text-right">Расчёт</th>
-                          <th className="px-3 py-2 text-right">Разница</th>
-                          <th className="px-3 py-2 text-right">Сумма</th>
-                          <th className="px-3 py-2 text-left">Пометки</th>
+                          {canViewResults ? (
+                            <>
+                              <th className="px-3 py-2 text-right">Разница</th>
+                              <th className="px-3 py-2 text-right">Сумма</th>
+                              <th className="px-3 py-2 text-left">Пометки</th>
+                            </>
+                          ) : null}
                         </tr>
                       </thead>
                       <tbody>
@@ -570,62 +627,58 @@ export function IngredientDetail({
                                 amountRoundingScale,
                               )}
                             </td>
-                            <td
-                              className={cn(
-                                "px-3 py-2 text-right tabular-nums whitespace-nowrap",
-                                item.counted
-                                  ? signedAmountClass(item.differenceAmount)
-                                  : "text-muted-foreground",
-                              )}
-                            >
-                              {item.counted ? (
-                                formatSignedQuantity(
-                                  item.differenceAmount,
-                                  item.measureUnitName,
-                                  amountRoundingScale,
-                                )
-                              ) : (
-                                <IconTooltip
-                                  label="Акт ещё не сдан"
-                                  description="Пока исполнитель не сдал акт, разницы не существует: она появится вместе с итогами."
+                            {canViewResults ? (
+                              <>
+                                <td
+                                  className={cn(
+                                    "px-3 py-2 text-right tabular-nums whitespace-nowrap",
+                                    item.counted
+                                      ? signedAmountClass(item.differenceAmount)
+                                      : "text-muted-foreground",
+                                  )}
                                 >
-                                  <span className="cursor-help">—</span>
-                                </IconTooltip>
-                              )}
-                            </td>
-                            <td
-                              className={cn(
-                                "px-3 py-2 text-right tabular-nums whitespace-nowrap",
-                                item.counted
-                                  ? signedAmountClass(item.differenceSum)
-                                  : "text-muted-foreground",
-                              )}
-                            >
-                              {item.counted
-                                ? formatSignedMoney(
-                                    item.differenceSum,
-                                    "RUB",
-                                    amountRoundingScale,
-                                  )
-                                : "—"}
-                            </td>
-                            <td className="px-3 py-2">
-                              <HistoryMarks
-                                item={item}
-                                amountRoundingScale={amountRoundingScale}
-                              />
-                            </td>
+                                  <HistoryDifference
+                                    item={item}
+                                    amountRoundingScale={amountRoundingScale}
+                                  />
+                                </td>
+                                <td
+                                  className={cn(
+                                    "px-3 py-2 text-right tabular-nums whitespace-nowrap",
+                                    item.counted
+                                      ? signedAmountClass(item.differenceSum)
+                                      : "text-muted-foreground",
+                                  )}
+                                >
+                                  {item.counted && item.differenceSum != null
+                                    ? formatSignedMoney(
+                                        item.differenceSum,
+                                        "RUB",
+                                        amountRoundingScale,
+                                      )
+                                    : "—"}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <HistoryMarks
+                                    item={item}
+                                    amountRoundingScale={amountRoundingScale}
+                                  />
+                                </td>
+                              </>
+                            ) : null}
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
 
-                  <p className="text-xs text-muted-foreground">
-                    Разница здесь фактическая — ровно та, что насчитали по акту.
-                    Исключения из итогов и пересорты её не меняют, но помечены в
-                    последней колонке.
-                  </p>
+                  {canViewResults ? (
+                    <p className="text-xs text-muted-foreground">
+                      Разница здесь фактическая — ровно та, что насчитали по акту.
+                      Исключения из итогов и пересорты её не меняют, но помечены в
+                      последней колонке.
+                    </p>
+                  ) : null}
                 </>
               )}
             </div>

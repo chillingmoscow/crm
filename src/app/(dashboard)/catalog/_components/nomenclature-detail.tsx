@@ -31,6 +31,9 @@ export async function NomenclatureDetail({
   ]);
   const canView = can("inventory.view_products");
   const canManage = can("inventory.manage_products");
+  // Итоги в истории закрыты своим правом — тем же, по которому пускает страница
+  // итогов акта. Без него вкладка показывает только «где встречается».
+  const canViewResults = can("inventory.view_results");
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
 
@@ -39,7 +42,7 @@ export async function NomenclatureDetail({
 
   const [suppliers, history, journal, counterparties] = await Promise.all([
     listIngredientSuppliers(accountId as string, id),
-    listIngredientHistory(accountId as string, id),
+    listIngredientHistory(accountId as string, id, canViewResults),
     listIngredientJournal(accountId as string, id),
     canManage ? listAccountCounterparties(accountId as string) : Promise.resolve([]),
   ]);
@@ -52,6 +55,7 @@ export async function NomenclatureDetail({
       journal={journal}
       counterparties={counterparties}
       canManage={canManage}
+      canViewResults={canViewResults}
       amountRoundingScale={amountRoundingScale}
       section={{
         path: catalogPath(config),

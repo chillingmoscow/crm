@@ -8,9 +8,9 @@
 
 import { hasCountedResults } from "./act-status.ts";
 import {
+  applyResultSnapshot,
   isInventoryResultFrozen,
-  resultLineTotals,
-  type InventoryResultLineTotalsRow,
+  type InventoryResultSnapshotRow,
 } from "./results-snapshot.ts";
 
 /** Поля акта, нужные строке истории. */
@@ -23,11 +23,9 @@ export type IngredientHistoryDocument = {
   results_snapshot_at: string | null;
 };
 
-export type IngredientHistoryItem = InventoryResultLineTotalsRow & {
+export type IngredientHistoryItem = InventoryResultSnapshotRow & {
   id: string;
   document_id: string;
-  actual_amount: number | null;
-  calculated_amount: number | null;
   measure_unit_name: string | null;
   exclude_reason: string | null;
   documents: IngredientHistoryDocument | IngredientHistoryDocument[] | null;
@@ -45,7 +43,7 @@ export type IngredientHistoryEntry = {
   documentNumber: string;
   invoiceDate: string | null;
   status: string;
-  /** Акт сдан и итоги есть. Иначе разницы не существует — см. ниже. */
+  /** Акт сдан, итоги по нему существуют. Иначе разницы нет — см. ниже. */
   counted: boolean;
   actualAmount: number | null;
   calculatedAmount: number | null;
@@ -89,11 +87,16 @@ export function frozenDocumentIds(items: readonly IngredientHistoryItem[]): Set<
  * Разница здесь фактическая — ровно то, что насчитали по строке. Пометки
  * `excluded` и `resort` объясняют, почему она могла не дойти до управленческого
  * итога, но самого числа не меняют.
+ *
+ * `withResults = false` — у пользователя нет права на итоги: строка отдаёт
+ * только «где встречается» (акт, дата, статус), а разница, суммы, исключения и
+ * пересорты не приезжают с сервера вовсе.
  */
 export function buildIngredientHistory(
   items: readonly IngredientHistoryItem[],
   resortByItemId: ReadonlyMap<string, IngredientHistoryResort>,
   frozenDocIds: ReadonlySet<string>,
+  withResults = true,
 ): IngredientHistoryEntry[] {
   const entries = items.map((item) => {
     const doc = oneRelation(item.documents);
@@ -102,21 +105,25 @@ export function buildIngredientHistory(
     // «факт − расчётный остаток» и отдаёт всегда, поэтому у нетронутого акта она
     // равна минус всему складскому остатку (см. hasCountedResults). Отдаём null,
     // чтобы такая строка не читалась как недостача и не попала в сводку.
-    const counted = hasCountedResults(status);
-    const totals = resultLineTotals(item, frozenDocIds.has(item.document_id));
+    const counted = withResults && hasCountedResults(status);
+    // Снимок применяем ко ВСЕЙ строке, а не только к разнице: у зафиксированного
+    // акта факт и расчёт обязаны быть теми же, из которых эта разница получилась.
+    // Иначе Quick Resto пересчитает остатки, живые факт с расчётом уедут, и в
+    // одной строке сойдутся утверждённая разница и уже другие слагаемые.
+    const resolved = applyResultSnapshot(item, frozenDocIds.has(item.document_id));
     return {
       documentId: item.document_id,
       documentNumber: doc?.document_number ?? "—",
       invoiceDate: doc?.invoice_date ?? null,
       status,
       counted,
-      actualAmount: item.actual_amount,
-      calculatedAmount: item.calculated_amount,
+      actualAmount: resolved.actual_amount,
+      calculatedAmount: resolved.calculated_amount,
       measureUnitName: item.measure_unit_name,
-      differenceAmount: counted ? totals.differenceAmount : null,
-      differenceSum: counted ? totals.differenceSum : null,
-      excluded: counted ? totals.excluded === true : false,
-      excludeReason: item.exclude_reason,
+      differenceAmount: counted ? resolved.difference_amount : null,
+      differenceSum: counted ? resolved.difference_sum : null,
+      excluded: counted ? resolved.excluded_from_totals === true : false,
+      excludeReason: counted ? item.exclude_reason : null,
       resort: counted ? (resortByItemId.get(item.id) ?? null) : null,
     };
   });
@@ -132,10 +139,12 @@ export function buildIngredientHistory(
 }
 
 export type IngredientHistorySummary = {
-  /** Акты с итогами: только они попадают в разбивку плюс/минус/ровно. */
+  /** Акты с посчитанной разницей: только они попадают в разбивку. */
   countedActs: number;
-  /** Акты без итогов — показываем отдельно, чтобы «6 актов» не спорило с «5». */
+  /** Акты без итогов — не сданы исполнителем. */
   pendingActs: number;
+  /** Акт сдан, но разницы по строке нет: Quick Resto не вернул расчёт. */
+  actsWithoutAmounts: number;
   surplusActs: number;
   shortfallActs: number;
   evenActs: number;
@@ -147,13 +156,21 @@ export type IngredientHistorySummary = {
  * Классифицируем по КОЛИЧЕСТВУ, а не по сумме: вопрос «когда плюсил, а когда
  * минусил» — про товар. Сумма зависит ещё и от себестоимости, которой у строки
  * может не быть вовсе, и тогда плюс по количеству дал бы ноль по деньгам.
+ *
+ * «Не сдан» и «сдан, но расчёта нет» — разные вещи, и путать их нельзя: у
+ * сданного акта (например `results_blocked`) Quick Resto мог не вернуть
+ * построчные расчёты, и назвать такой акт несданным значит соврать.
  */
 export function summarizeIngredientHistory(
-  rows: readonly Pick<IngredientHistoryEntry, "differenceAmount" | "differenceSum">[],
+  rows: readonly Pick<
+    IngredientHistoryEntry,
+    "counted" | "differenceAmount" | "differenceSum"
+  >[],
 ): IngredientHistorySummary {
   const summary: IngredientHistorySummary = {
     countedActs: 0,
     pendingActs: 0,
+    actsWithoutAmounts: 0,
     surplusActs: 0,
     shortfallActs: 0,
     evenActs: 0,
@@ -161,9 +178,14 @@ export function summarizeIngredientHistory(
   };
 
   for (const row of rows) {
+    if (!row.counted) {
+      summary.pendingActs += 1;
+      continue;
+    }
+
     const amount = row.differenceAmount;
     if (typeof amount !== "number" || !Number.isFinite(amount)) {
-      summary.pendingActs += 1;
+      summary.actsWithoutAmounts += 1;
       continue;
     }
 

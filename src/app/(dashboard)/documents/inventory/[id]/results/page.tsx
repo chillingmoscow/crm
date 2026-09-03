@@ -432,7 +432,7 @@ export default async function InventoryDocumentResultsPage({
           canAdjust={Boolean(canAdjustResults)}
           canFinalize={Boolean(canFinalizeResults)}
           canRecount={Boolean(canRecountDocuments)}
-          canRefreshResults={Boolean(canViewResults)}
+          canViewResults={Boolean(canViewResults)}
           canViewProducts={Boolean(canViewProducts)}
           aiSuggestionsEnabled={aiSuggestionsEnabled}
           documentStatus={document.status}

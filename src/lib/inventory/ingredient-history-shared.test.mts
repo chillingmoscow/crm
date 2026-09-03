@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildIngredientHistory,
   frozenDocumentIds,
+  previousActs,
   summarizeIngredientHistory,
   type IngredientHistoryItem,
 } from "./ingredient-history-shared.ts";
@@ -227,4 +228,33 @@ test("summarizeIngredientHistory: пустая история", () => {
     evenActs: 0,
     netSum: 0,
   });
+});
+
+test("previousActs: выбрасывает текущий акт и режет по лимиту", () => {
+  const entries = buildIngredientHistory(
+    ["d-a", "d-b", "d-c"].map((id, i) =>
+      item({
+        id: `i-${id}`,
+        document_id: id,
+        documents: doc({
+          document_number: `ИНВ-000${i + 1}`,
+          invoice_date: `2026-08-0${i + 1}T00:00:00Z`,
+        }),
+      }),
+    ),
+    NO_RESORTS,
+    new Set(),
+  );
+
+  // Свежие сверху: d-c, d-b, d-a.
+  assert.deepEqual(
+    previousActs(entries, "d-b").map((e) => e.documentId),
+    ["d-c", "d-a"],
+  );
+  assert.deepEqual(
+    previousActs(entries, "d-b", 1).map((e) => e.documentId),
+    ["d-c"],
+  );
+  // Позиция впервые встречается именно в этом акте.
+  assert.deepEqual(previousActs([entries[0]], entries[0].documentId), []);
 });

@@ -114,6 +114,8 @@ import {
 } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import { IngredientOverviewSheet } from "./ingredient-overview-sheet";
+import { IngredientHistoryHoverCard } from "./ingredient-history-hover-card";
+import type { IngredientHistoryEntry } from "@/lib/inventory/ingredients";
 import { RefreshResultsButton } from "./refresh-results-button";
 import { RecountSplitDialog } from "./recount-split-dialog";
 
@@ -222,10 +224,11 @@ type Props = {
   canAdjust: boolean;
   canFinalize: boolean;
   canRecount: boolean;
-  /** inventory.view_results — держатель права может «Обновить итоги»
-      (перечитать из QR). Назначенный исполнитель, просто смотрящий проведённый
-      акт, этого права не имеет → кнопка ему не показывается (read-only). */
-  canRefreshResults: boolean;
+  /** inventory.view_results. Даёт «Обновить итоги» (перечитать из QR) и историю
+      позиции по прошлым актам. Назначенный исполнитель, которого пускают на
+      проведённый акт в порядке исключения, права не имеет: ему и кнопка, и
+      история недоступны — исключение узкое и на один документ. */
+  canViewResults: boolean;
   /** inventory.view_products — нужно, чтобы открыть карточку ингредиента
       из «Итогов» (та же граница, что у каталога). */
   canViewProducts: boolean;
@@ -345,7 +348,7 @@ export function InventoryResultsTable({
   canAdjust,
   canFinalize,
   canRecount,
-  canRefreshResults,
+  canViewResults,
   canViewProducts,
   aiSuggestionsEnabled,
   documentStatus,
@@ -373,6 +376,9 @@ export function InventoryResultsTable({
   const [commentItem, setCommentItem] = useState<InventoryDocumentResultItem | null>(null);
   // Боковая панель «Обзор ингредиента» — открывается кликом по названию позиции.
   const [overviewIngredient, setOverviewIngredient] = useState<{ id: string; name: string } | null>(null);
+  // «Позиция → её прошлые акты». Живёт на всю таблицу: курсор гуляет по строкам
+  // туда-обратно, и без кэша каждый возврат стоил бы нового запроса.
+  const historyCache = useRef(new Map<string, IngredientHistoryEntry[]>());
   const [commentDraft, setCommentDraft] = useState("");
   const [deleteRuleItem, setDeleteRuleItem] = useState<InventoryDocumentResultItem | null>(null);
   const [deleteRuleReason, setDeleteRuleReason] = useState("");
@@ -1019,9 +1025,9 @@ export function InventoryResultsTable({
         label: "Позиция",
         size: 280,
         canHide: false,
-        cell: (item: InventoryDocumentResultItem) => (
-          <div className="min-w-0">
-            {canViewProducts && item.ingredient_id ? (
+        cell: (item: InventoryDocumentResultItem) => {
+          const name =
+            canViewProducts && item.ingredient_id ? (
               <button
                 type="button"
                 data-row-interactive
@@ -1036,12 +1042,32 @@ export function InventoryResultsTable({
               </button>
             ) : (
               <div className="truncate font-medium">{item.product_name}</div>
-            )}
-            <div className="mt-1 truncate text-xs text-muted-foreground">
-              {item.group_name ?? "Без группы"}
+            );
+
+          return (
+            <div className="min-w-0">
+              {/* История по прошлым актам — по наведению. Клик по названию
+                  по-прежнему открывает «Обзор»: наведение отвечает «что тут было
+                  раньше», клик — «что это за позиция». Позициям без связи с
+                  каталогом сравнивать не с чем. */}
+              {canViewResults && item.ingredient_id ? (
+                <IngredientHistoryHoverCard
+                  ingredientId={item.ingredient_id}
+                  documentId={documentId}
+                  amountRoundingScale={amountRoundingScale}
+                  cache={historyCache.current}
+                >
+                  {name}
+                </IngredientHistoryHoverCard>
+              ) : (
+                name
+              )}
+              <div className="mt-1 truncate text-xs text-muted-foreground">
+                {item.group_name ?? "Без группы"}
+              </div>
             </div>
-          </div>
-        ),
+          );
+        },
       },
       ...RESULT_COLUMNS.map((column) => ({
         id: column.key,
@@ -1052,7 +1078,16 @@ export function InventoryResultsTable({
       })),
       { id: "actions", label: "", size: 56, canHide: false, cell: renderActionsCell },
     ],
-    [canBulkAct, canViewProducts, renderActionsCell, renderResultCell, renderSelectCell],
+    [
+      amountRoundingScale,
+      canBulkAct,
+      canViewProducts,
+      canViewResults,
+      documentId,
+      renderActionsCell,
+      renderResultCell,
+      renderSelectCell,
+    ],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -1350,7 +1385,7 @@ export function InventoryResultsTable({
                   <TooltipContent sideOffset={6}>Подсказки пересорта (ИИ)</TooltipContent>
                 </Tooltip>
               ) : null}
-              {canRefreshResults && !isLocked ? (
+              {canViewResults && !isLocked ? (
                 <RefreshResultsButton documentId={documentId} />
               ) : null}
             </>

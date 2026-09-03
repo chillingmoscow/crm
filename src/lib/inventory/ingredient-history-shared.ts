@@ -138,6 +138,21 @@ export function buildIngredientHistory(
   });
 }
 
+/**
+ * Предыдущие акты по позиции: без текущего и не длиннее лимита.
+ *
+ * Текущий акт выбрасываем намеренно — в его итогах пользователь и так стоит,
+ * а вопрос при наведении другой: что с этой позицией было ДО. Сортировка уже
+ * сделана в buildIngredientHistory, поэтому режем с начала — свежие сверху.
+ */
+export function previousActs(
+  entries: readonly IngredientHistoryEntry[],
+  currentDocumentId: string,
+  limit = 6,
+): IngredientHistoryEntry[] {
+  return entries.filter((entry) => entry.documentId !== currentDocumentId).slice(0, limit);
+}
+
 export type IngredientHistorySummary = {
   /** Акты с посчитанной разницей: только они попадают в разбивку. */
   countedActs: number;

@@ -139,18 +139,30 @@ export function buildIngredientHistory(
 }
 
 /**
- * Предыдущие акты по позиции: без текущего и не длиннее лимита.
+ * Акты, предшествующие открытому: строго то, что было ДО, и не длиннее лимита.
  *
- * Текущий акт выбрасываем намеренно — в его итогах пользователь и так стоит,
- * а вопрос при наведении другой: что с этой позицией было ДО. Сортировка уже
- * сделана в buildIngredientHistory, поэтому режем с начала — свежие сверху.
+ * Просто выбросить текущий id мало. Открыв итоги СТАРОГО акта, пользователь
+ * увидел бы под заголовком «Прошлые акты» те, что прошли уже после него, — и
+ * они же съели бы лимит, вытеснив действительно предыдущие.
+ *
+ * Список уже отсортирован в buildIngredientHistory (свежие сверху, при равной
+ * дате — по номеру), поэтому «раньше» — это всё, что стоит ПОСЛЕ текущего акта.
+ * Так не приходится отдельно решать, что делать с актами той же даты: порядок
+ * один и тот же на обоих экранах.
  */
 export function previousActs(
   entries: readonly IngredientHistoryEntry[],
   currentDocumentId: string,
   limit = 6,
 ): IngredientHistoryEntry[] {
-  return entries.filter((entry) => entry.documentId !== currentDocumentId).slice(0, limit);
+  const current = entries.findIndex((entry) => entry.documentId === currentDocumentId);
+  const older =
+    current >= 0
+      ? entries.slice(current + 1)
+      : // Текущего акта в списке нет (строку удалили из него) — отдаём всё,
+        // что есть, кроме него самого.
+        entries.filter((entry) => entry.documentId !== currentDocumentId);
+  return older.slice(0, limit);
 }
 
 export type IngredientHistorySummary = {

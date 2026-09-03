@@ -216,7 +216,8 @@ export async function getInventoryIngredientOverview(input: {
  */
 export async function getInventoryIngredientHistory(input: {
   ingredientId: string;
-  excludeDocumentId?: string;
+  /** Открытый акт: отдаём то, что было ДО него. */
+  currentDocumentId?: string;
 }): Promise<{ data: IngredientHistoryEntry[]; error: string | null }> {
   const ctx = await getActiveContext("inventory.view_results");
   if (ctx.error || !ctx.accountId) return { data: [], error: ctx.error };
@@ -227,8 +228,8 @@ export async function getInventoryIngredientHistory(input: {
   try {
     const entries = await listIngredientHistory(ctx.accountId, ingredientId, true);
     return {
-      data: input.excludeDocumentId
-        ? previousActs(entries, input.excludeDocumentId)
+      data: input.currentDocumentId
+        ? previousActs(entries, input.currentDocumentId, HISTORY_HOVER_LIMIT)
         : entries.slice(0, HISTORY_HOVER_LIMIT),
       error: null,
     };

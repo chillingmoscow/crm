@@ -71,6 +71,7 @@ import {
 import {
   formatMoney,
   formatSignedMoney,
+  formatInventoryQuantity as formatQuantity,
   signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
@@ -242,13 +243,6 @@ type Props = {
   qrSurplusSum: number | null;
 };
 
-// Количество в Итогах показываем точнее, чем деньги: денежная шкала
-// (amountRoundingScale, по умолчанию десятые) скрывала бы сотые, введённые
-// исполнителем, — план и факт «сходились» визуально при ненулевой разнице в
-// управленческой сумме. Поэтому количества — до 3 знаков (целые без «,0»,
-// хвостовые нули обрезаются). Деньги (Сумма/итоги) остаются на шкале аккаунта.
-const RESULT_QUANTITY_MAX_FRACTION = 3;
-
 // Две суммы в тайлах — РАЗНЫЕ величины, и раньше подписи это скрывали («По QR»
 // против «К списанию» читалось как «столько насчитал QR» / «столько спишем»).
 // На деле исключения из итогов и пересорты — управленческая надстройка: в
@@ -310,18 +304,6 @@ function ConfidenceGauge({ percent }: { percent: number }) {
       </text>
     </svg>
   );
-}
-
-function formatQuantity(
-  value: number | null | undefined,
-  measureUnitName: string | null | undefined,
-) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  const formatted = new Intl.NumberFormat("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: RESULT_QUANTITY_MAX_FRACTION,
-  }).format(value);
-  return `${formatted} ${measureUnitName ?? "ед."}`;
 }
 
 // Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,

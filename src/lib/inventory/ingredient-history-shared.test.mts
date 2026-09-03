@@ -246,14 +246,26 @@ test("previousActs: выбрасывает текущий акт и режет �
     new Set(),
   );
 
-  // Свежие сверху: d-c, d-b, d-a.
+  // Свежие сверху: d-c, d-b, d-a. Открыв средний акт, видим ТОЛЬКО тот, что был
+  // до него: d-c прошёл позже и «прошлым» для d-b не является.
   assert.deepEqual(
     previousActs(entries, "d-b").map((e) => e.documentId),
-    ["d-c", "d-a"],
+    ["d-a"],
   );
   assert.deepEqual(
-    previousActs(entries, "d-b", 1).map((e) => e.documentId),
-    ["d-c"],
+    previousActs(entries, "d-c").map((e) => e.documentId),
+    ["d-b", "d-a"],
+  );
+  assert.deepEqual(
+    previousActs(entries, "d-c", 1).map((e) => e.documentId),
+    ["d-b"],
+  );
+  // Самый ранний акт: до него ничего не было.
+  assert.deepEqual(previousActs(entries, "d-a"), []);
+  // Текущего акта в списке нет (строку из него удалили) — отдаём остальные.
+  assert.deepEqual(
+    previousActs(entries, "d-zzz").map((e) => e.documentId),
+    ["d-c", "d-b", "d-a"],
   );
   // Позиция впервые встречается именно в этом акте.
   assert.deepEqual(previousActs([entries[0]], entries[0].documentId), []);

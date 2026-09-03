@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
 import {
-  formatQuantityAmount,
+  formatSignedInventoryQuantity,
   formatSignedMoney,
   signedAmountClass,
   type AmountRoundingScale,
@@ -29,7 +29,9 @@ import { getInventoryIngredientHistory } from "@/app/(dashboard)/inventory/_acti
  * откроет. Кэш живёт в родителе (таблице), поэтому переезд курсора туда-обратно
  * запросов не плодит.
  *
- * Текущий акт из списка исключён — пользователь и так стоит в его итогах.
+ * В списке только то, что было ДО открытого акта: сам он и всё, что прошло
+ * после него, отброшены — иначе в «прошлых актах» у старого документа оказались
+ * бы более поздние.
  */
 export function IngredientHistoryHoverCard({
   ingredientId,
@@ -56,22 +58,32 @@ export function IngredientHistoryHoverCard({
     const cached = cache.get(ingredientId);
     if (cached) {
       setEntries(cached);
+      setError(null);
       return;
     }
     requested.current = true;
+    // Ошибку снимаем на входе: иначе удачный повтор дорисовал бы список, но
+    // экран так и остался бы на прежнем сообщении об ошибке.
+    setError(null);
+    // Отказ промиса (сеть отвалилась) тоже обязан отпускать requested — иначе
+    // повтор невозможен и карточка навсегда залипает на спиннере.
     void getInventoryIngredientHistory({
       ingredientId,
-      excludeDocumentId: documentId,
-    }).then((res) => {
-      if (res.error) {
-        // Разрешаем повтор: отказ мог быть сетевым, а не по правам.
+      currentDocumentId: documentId,
+    })
+      .then((res) => {
+        if (res.error) {
+          requested.current = false;
+          setError(res.error);
+          return;
+        }
+        cache.set(ingredientId, res.data);
+        setEntries(res.data);
+      })
+      .catch(() => {
         requested.current = false;
-        setError(res.error);
-        return;
-      }
-      cache.set(ingredientId, res.data);
-      setEntries(res.data);
-    });
+        setError("Не удалось загрузить историю");
+      });
   };
 
   return (
@@ -160,7 +172,7 @@ function HistoryBody({
                 entry.counted ? signedAmountClass(entry.differenceAmount) : "text-muted-foreground",
               )}
             >
-              {formatDifference(entry, amountRoundingScale)}
+              {formatDifference(entry)}
             </span>
             <span className="w-4 shrink-0">
               {entry.excluded ? (
@@ -187,12 +199,7 @@ function HistoryBody({
   );
 }
 
-function formatDifference(
-  entry: IngredientHistoryEntry,
-  scale: AmountRoundingScale,
-): string {
+function formatDifference(entry: IngredientHistoryEntry): string {
   if (!entry.counted || entry.differenceAmount == null) return "—";
-  const sign = entry.differenceAmount > 0 ? "+" : entry.differenceAmount < 0 ? "−" : "";
-  const unit = entry.measureUnitName ?? "ед.";
-  return `${sign}${formatQuantityAmount(Math.abs(entry.differenceAmount), scale)} ${unit}`;
+  return formatSignedInventoryQuantity(entry.differenceAmount, entry.measureUnitName);
 }

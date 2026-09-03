@@ -7,9 +7,9 @@ import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
   getIngredientDetail,
   listAccountCounterparties,
+  listIngredientHistory,
   listIngredientJournal,
   listIngredientSuppliers,
-  listIngredientUsage,
 } from "@/lib/inventory/ingredients";
 import { IngredientDetail } from "../ingredients/[id]/_components/ingredient-detail";
 
@@ -31,15 +31,18 @@ export async function NomenclatureDetail({
   ]);
   const canView = can("inventory.view_products");
   const canManage = can("inventory.manage_products");
+  // Итоги в истории закрыты своим правом — тем же, по которому пускает страница
+  // итогов акта. Без него вкладка показывает только «где встречается».
+  const canViewResults = can("inventory.view_results");
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
 
   const ingredient = await getIngredientDetail(accountId as string, id, config.kind);
   if (!ingredient) redirect(catalogPath(config));
 
-  const [suppliers, usage, journal, counterparties] = await Promise.all([
+  const [suppliers, history, journal, counterparties] = await Promise.all([
     listIngredientSuppliers(accountId as string, id),
-    listIngredientUsage(accountId as string, id),
+    listIngredientHistory(accountId as string, id, canViewResults),
     listIngredientJournal(accountId as string, id),
     canManage ? listAccountCounterparties(accountId as string) : Promise.resolve([]),
   ]);
@@ -48,10 +51,11 @@ export async function NomenclatureDetail({
     <IngredientDetail
       ingredient={ingredient}
       suppliers={suppliers}
-      usage={usage}
+      history={history}
       journal={journal}
       counterparties={counterparties}
       canManage={canManage}
+      canViewResults={canViewResults}
       amountRoundingScale={amountRoundingScale}
       section={{
         path: catalogPath(config),

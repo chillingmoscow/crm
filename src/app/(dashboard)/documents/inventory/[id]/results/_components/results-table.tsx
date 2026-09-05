@@ -1017,8 +1017,9 @@ export function InventoryResultsTable({
                   e.stopPropagation();
                   setOverviewIngredient({ id: item.ingredient_id as string, name: item.product_name });
                 }}
+                // Без title: по наведению здесь открывается карточка истории, и
+                // системная подсказка налезала бы на неё поверх.
                 className="block max-w-full truncate text-left font-medium hover:text-brand hover:underline"
-                title="Открыть карточку ингредиента"
               >
                 {item.product_name}
               </button>

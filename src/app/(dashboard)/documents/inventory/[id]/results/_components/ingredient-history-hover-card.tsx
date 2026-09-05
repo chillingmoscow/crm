@@ -132,6 +132,8 @@ function HistoryBody({
   }
 
   const summary = summarizeIngredientHistory(entries);
+  const hasExcluded = entries.some((entry) => entry.excluded);
+  const hasResort = entries.some((entry) => entry.resort);
   const breakdown = [
     summary.surplusActs > 0 ? `${summary.surplusActs} в плюс` : null,
     summary.shortfallActs > 0 ? `${summary.shortfallActs} в минус` : null,
@@ -191,10 +193,24 @@ function HistoryBody({
         ))}
       </ul>
 
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        Разница фактическая. Значки: <XCircle className="inline h-3 w-3" /> — строка не
-        учитывалась в итогах, <Repeat2 className="inline h-3 w-3" /> — закрыта пересортом.
-      </p>
+      {/* Легенда по строкам, а не сплошным абзацем: значок и его расшифровка
+          должны читаться парой. Показываем только те значки, что реально есть в
+          списке — объяснять отсутствующий смысла нет. */}
+      <div className="space-y-1 border-t pt-2 text-[11px] leading-snug text-muted-foreground">
+        <p>Разница фактическая.</p>
+        {hasExcluded ? (
+          <p className="flex items-start gap-1.5">
+            <XCircle className="mt-px h-3 w-3 shrink-0 text-red-700 dark:text-red-400" />
+            строка не учитывалась в итогах
+          </p>
+        ) : null}
+        {hasResort ? (
+          <p className="flex items-start gap-1.5">
+            <Repeat2 className="mt-px h-3 w-3 shrink-0 text-blue-700 dark:text-blue-300" />
+            закрыта пересортом
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -44,7 +44,8 @@ import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge
 import { cn } from "@/lib/utils";
 import {
   formatAmount,
-  formatQuantityAmount,
+  formatInventoryQuantity,
+  formatSignedInventoryQuantity,
   formatSignedMoney,
   signedAmountClass,
   type AmountRoundingScale,
@@ -99,26 +100,6 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
       <span className="text-sm">{value ?? "—"}</span>
     </div>
   );
-}
-
-function formatQuantity(
-  value: number | null | undefined,
-  measureUnitName: string | null,
-  scale: AmountRoundingScale,
-): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  return `${formatQuantityAmount(value, scale)} ${measureUnitName ?? "ед."}`;
-}
-
-/** Количество со знаком: тот же «−», что и у formatSignedMoney. */
-function formatSignedQuantity(
-  value: number | null | undefined,
-  measureUnitName: string | null,
-  scale: AmountRoundingScale,
-): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
-  return `${sign}${formatQuantity(Math.abs(value), measureUnitName, scale)}`;
 }
 
 function acts(count: number): string {
@@ -179,13 +160,7 @@ function HistorySummaryLine({
  * Причины две и путать их нельзя: акт ещё не сдан (разницы не существует) и акт
  * сдан, но Quick Resto не вернул построчный расчёт.
  */
-function HistoryDifference({
-  item,
-  amountRoundingScale,
-}: {
-  item: IngredientHistoryEntry;
-  amountRoundingScale: AmountRoundingScale;
-}) {
+function HistoryDifference({ item }: { item: IngredientHistoryEntry }) {
   if (!item.counted) {
     return (
       <IconTooltip
@@ -209,7 +184,7 @@ function HistoryDifference({
   }
 
   return (
-    <>{formatSignedQuantity(item.differenceAmount, item.measureUnitName, amountRoundingScale)}</>
+    <>{formatSignedInventoryQuantity(item.differenceAmount, item.measureUnitName)}</>
   );
 }
 
@@ -248,7 +223,7 @@ function HistoryMarks({
     return (
       <IconTooltip
         label="Закрыто пересортом"
-        description={`Зачтено ${formatQuantity(item.resort.offsetAmount, item.measureUnitName, amountRoundingScale)}; после зачёта осталось ${formatSignedQuantity(remaining, item.measureUnitName, amountRoundingScale)} (${formatSignedMoney(item.resort.remainingDifferenceSum, "RUB", amountRoundingScale)}).`}
+        description={`Зачтено ${formatInventoryQuantity(item.resort.offsetAmount, item.measureUnitName)}; после зачёта осталось ${formatSignedInventoryQuantity(remaining, item.measureUnitName)} (${formatSignedMoney(item.resort.remainingDifferenceSum, "RUB", amountRoundingScale)}).`}
       >
         <span className="inline-flex cursor-help items-center gap-1.5 text-xs text-blue-700 dark:text-blue-300">
           <Repeat2 className="h-3.5 w-3.5 shrink-0" />
@@ -614,17 +589,15 @@ export function IngredientDetail({
                               <InventoryStatusBadge status={item.status} />
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap">
-                              {formatQuantity(
+                              {formatInventoryQuantity(
                                 item.actualAmount,
                                 item.measureUnitName,
-                                amountRoundingScale,
                               )}
                             </td>
                             <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-muted-foreground">
-                              {formatQuantity(
+                              {formatInventoryQuantity(
                                 item.calculatedAmount,
                                 item.measureUnitName,
-                                amountRoundingScale,
                               )}
                             </td>
                             {canViewResults ? (
@@ -637,10 +610,7 @@ export function IngredientDetail({
                                       : "text-muted-foreground",
                                   )}
                                 >
-                                  <HistoryDifference
-                                    item={item}
-                                    amountRoundingScale={amountRoundingScale}
-                                  />
+                                  <HistoryDifference item={item} />
                                 </td>
                                 <td
                                   className={cn(

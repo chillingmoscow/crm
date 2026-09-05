@@ -43,6 +43,37 @@ export function formatQuantityAmount(
   }).format(value);
 }
 
+/**
+ * Количество в складских документах показываем точнее, чем деньги: денежная
+ * шкала аккаунта (по умолчанию десятые) скрывала бы сотые, введённые
+ * исполнителем, — план и факт «сходились» бы визуально при ненулевой разнице.
+ * Поэтому количества всегда до 3 знаков, независимо от настройки округления.
+ */
+export const INVENTORY_QUANTITY_MAX_FRACTION = 3;
+
+/** Количество с единицей измерения: «13,505 л», «93 шт», «—» для пустого. */
+export function formatInventoryQuantity(
+  value: number | null | undefined,
+  measureUnitName: string | null | undefined,
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const formatted = new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: INVENTORY_QUANTITY_MAX_FRACTION,
+  }).format(value);
+  return `${formatted} ${measureUnitName ?? "ед."}`;
+}
+
+/** То же со знаком: тот же «−», что и у formatSignedMoney. */
+export function formatSignedInventoryQuantity(
+  value: number | null | undefined,
+  measureUnitName: string | null | undefined,
+): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${formatInventoryQuantity(Math.abs(value), measureUnitName)}`;
+}
+
 export function formatMoney(
   value: number | null | undefined,
   currency = "RUB",

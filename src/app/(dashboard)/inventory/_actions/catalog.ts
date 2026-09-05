@@ -5,7 +5,18 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
-import { getIngredientDetail, type IngredientDetail } from "@/lib/inventory/ingredients";
+import {
+  getIngredientDetail,
+  listIngredientHistory,
+  type IngredientDetail,
+} from "@/lib/inventory/ingredients";
+import {
+  previousActs,
+  type IngredientHistoryEntry,
+} from "@/lib/inventory/ingredient-history-shared";
+
+/** Сколько актов помещается в карточку при наведении, не превращая её в простыню. */
+const HISTORY_HOVER_LIMIT = 6;
 import {
   actionErrorMessage,
   buildStoragePath,
@@ -192,6 +203,38 @@ export async function getInventoryIngredientOverview(input: {
     return { data: data ?? null, error: null };
   } catch (error) {
     return { data: null, error: actionErrorMessage(error, "Не удалось загрузить ингредиент") };
+  }
+}
+
+/**
+ * История позиции по прошлым актам — для карточки при наведении в итогах акта.
+ *
+ * Право то же, что у самой страницы итогов: разницы и суммы по другим актам —
+ * это итоги, а не каталог. `view_products` здесь не годится (см. #551).
+ * Исполнитель, которого пускают на проведённый акт в порядке исключения, права
+ * не имеет и историю не увидит — исключение узкое и на один документ.
+ */
+export async function getInventoryIngredientHistory(input: {
+  ingredientId: string;
+  /** Открытый акт: отдаём то, что было ДО него. */
+  currentDocumentId?: string;
+}): Promise<{ data: IngredientHistoryEntry[]; error: string | null }> {
+  const ctx = await getActiveContext("inventory.view_results");
+  if (ctx.error || !ctx.accountId) return { data: [], error: ctx.error };
+
+  const ingredientId = text(input.ingredientId);
+  if (!ingredientId) return { data: [], error: "Не указана позиция" };
+
+  try {
+    const entries = await listIngredientHistory(ctx.accountId, ingredientId, true);
+    return {
+      data: input.currentDocumentId
+        ? previousActs(entries, input.currentDocumentId, HISTORY_HOVER_LIMIT)
+        : entries.slice(0, HISTORY_HOVER_LIMIT),
+      error: null,
+    };
+  } catch (error) {
+    return { data: [], error: actionErrorMessage(error, "Не удалось загрузить историю") };
   }
 }
 

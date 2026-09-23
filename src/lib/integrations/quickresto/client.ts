@@ -264,6 +264,37 @@ export function buildQuickRestoBackOfficeCookieHeader(setCookieHeaders: string[]
 const KEYCLOAK_AUTH_BASE = "https://id.quickresto.ru/realms/QR/protocol/openid-connect";
 const KEYCLOAK_CLIENT_ID = "qrbo-frontend";
 
+// Маршрут прода (Timeweb, СПб) → id.quickresto.ru периодически деградирует
+// (40–60% потерь, таймауты TCP-коннекта; диагноз — mtr/curl с прода). Это
+// pre-delivery сетевые сбои, их имеет смысл ретраить; HTTP-ответы (в т.ч.
+// 5xx), TLS-ошибки и наш собственный 20с-таймаут — нет.
+const QUICK_RESTO_RETRYABLE_NETWORK_CODES: ReadonlySet<string> = new Set([
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EPIPE",
+  "ETIMEDOUT",
+  "ECONNABORTED",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
+
+// Задержки между 1-й и 2-й, 2-й и 3-й попыткой (итого 3 попытки, ≤ ~34с при
+// undici connect-timeout 10с на попытку — укладывается в server-action лимит).
+const QUICK_RESTO_FETCH_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+
+function isRetryableQuickRestoNetworkError(error: unknown): boolean {
+  const code = (error as { cause?: { code?: string } })?.cause?.code;
+  return code !== undefined && QUICK_RESTO_RETRYABLE_NETWORK_CODES.has(code);
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 // Node кидает сырой TypeError("fetch failed") с cause (ENOTFOUND, ECONNREFUSED,
 // ECONNRESET, CERT_* …). Без раскрытия причины в UI непонятно, что сломалось —
 // DNS, TLS или файрвол. Прячем за сообщением с хостом и кодом.
@@ -283,25 +314,35 @@ function throwQuickRestoNetworkError(url: string, error: unknown): never {
   );
 }
 
-async function quickRestoFetch(url: string, init: RequestInit): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
-  try {
-    return await fetch(url, {
-      ...init,
-      cache: "no-store",
-      redirect: "manual",
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(
-        `Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`,
-      );
+// Только для KC-флоу входа (4 шага) и его рефреша: data-вызовы на
+// chilling/nx815 идут через callQuickRestoBackOfficeData и ретраятся
+// намеренно — часть POST/DELETE не идемпотентна, а сам маршрут здоров.
+export async function quickRestoFetch(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
+    try {
+      return await fetch(url, {
+        ...init,
+        cache: "no-store",
+        redirect: "manual",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`,
+        );
+      }
+      const delay = QUICK_RESTO_FETCH_RETRY_DELAYS_MS[attempt];
+      if (delay !== undefined && isRetryableQuickRestoNetworkError(error)) {
+        await sleep(delay);
+        continue;
+      }
+      throwQuickRestoNetworkError(url, error);
+    } finally {
+      clearTimeout(timeout);
     }
-    throwQuickRestoNetworkError(url, error);
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

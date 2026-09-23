@@ -400,20 +400,43 @@ export function isBackOfficeAuthError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return (
     message.includes("Quick Resto back-office auth failed") ||
-    message.includes("Неверный логин или пароль back-office") ||
-    // Spring Security remember-me ротирует токен на каждый запрос; если юзер
-    // параллельно ходил в QR backoffice браузером, наша сохранённая cookie
-    // становится «старой» и QR кидает 500 + CookieTheftException, инвалидируя
-    // всю серию. Лечится тем же путём: re-login (refreshBackOfficeCookie)
-    // создаёт новую серию → ретрай action'а проходит. Не реагируем на
-    // подстроку только в одном направлении — матчим несколько признаков.
-    message.includes("CookieTheftException") ||
-    message.includes("remember-me token") ||
-    /Invalid remember-me token \(Series\/token\) mismatch/i.test(message)
+    message.includes("Неверный логин или пароль back-office")
   );
 }
 
-export async function refreshBackOfficeCookie(input: {
+// Keycloak access_token живёт недолго (обычно минуты). В БД храним
+// зашифрованный JSON { authorization, expiresAt } в колонках
+// backoffice_cookie_* (историческое имя, миграция не нужна).
+const BACKOFFICE_AUTH_REFRESH_SKEW_MS = 60_000;
+
+type StoredBackOfficeAuth = {
+  authorization: string;
+  expiresAt: string | null;
+};
+
+function parseStoredBackOfficeAuth(raw: string): StoredBackOfficeAuth | null {
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredBackOfficeAuth>;
+    if (typeof parsed.authorization === "string" && parsed.authorization.startsWith("Bearer ")) {
+      return {
+        authorization: parsed.authorization,
+        expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : null,
+      };
+    }
+  } catch {
+    // legacy-строка (старая cookie без JSON) — инвалидируем рефрешем
+  }
+  return null;
+}
+
+function isBackOfficeAuthFresh(auth: StoredBackOfficeAuth) {
+  if (!auth.expiresAt) return true;
+  const expiresAtMs = Date.parse(auth.expiresAt);
+  if (!Number.isFinite(expiresAtMs)) return false;
+  return expiresAtMs - Date.now() > BACKOFFICE_AUTH_REFRESH_SKEW_MS;
+}
+
+export async function refreshBackOfficeAuth(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;
 }) {
@@ -440,41 +463,49 @@ export async function refreshBackOfficeCookie(input: {
     login: input.connection.backoffice_login?.trim() ?? "",
     password,
   });
-  const encryptedCookie = encryptSecret(session.cookieHeader);
+  const stored: StoredBackOfficeAuth = {
+    authorization: session.authorization,
+    expiresAt:
+      session.expiresInSeconds !== null
+        ? new Date(Date.now() + session.expiresInSeconds * 1000).toISOString()
+        : null,
+  };
+  const encryptedAuth = encryptSecret(JSON.stringify(stored));
   const now = new Date().toISOString();
 
   await input.admin
     .from("integration_connections")
     .update({
-      backoffice_cookie_encrypted: encryptedCookie.encrypted,
-      backoffice_cookie_iv: encryptedCookie.iv,
-      backoffice_cookie_tag: encryptedCookie.tag,
+      backoffice_cookie_encrypted: encryptedAuth.encrypted,
+      backoffice_cookie_iv: encryptedAuth.iv,
+      backoffice_cookie_tag: encryptedAuth.tag,
       backoffice_cookie_fetched_at: now,
       backoffice_last_tested_at: now,
       updated_at: now,
     })
     .eq("id", input.connection.id);
 
-  input.connection.backoffice_cookie_encrypted = encryptedCookie.encrypted;
-  input.connection.backoffice_cookie_iv = encryptedCookie.iv;
-  input.connection.backoffice_cookie_tag = encryptedCookie.tag;
+  input.connection.backoffice_cookie_encrypted = encryptedAuth.encrypted;
+  input.connection.backoffice_cookie_iv = encryptedAuth.iv;
+  input.connection.backoffice_cookie_tag = encryptedAuth.tag;
   input.connection.backoffice_cookie_fetched_at = now;
   input.connection.backoffice_last_tested_at = now;
 
-  return session.cookieHeader;
+  return stored.authorization;
 }
 
-export async function getBackOfficeCookie(input: {
+export async function getBackOfficeAuth(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;
 }) {
-  const cookie = decryptNullableSecret({
+  const raw = decryptNullableSecret({
     encrypted: input.connection.backoffice_cookie_encrypted,
     iv: input.connection.backoffice_cookie_iv,
     tag: input.connection.backoffice_cookie_tag,
   });
-  if (cookie) return cookie;
-  return refreshBackOfficeCookie(input);
+  const stored = raw ? parseStoredBackOfficeAuth(raw) : null;
+  if (stored && isBackOfficeAuthFresh(stored)) return stored.authorization;
+  return refreshBackOfficeAuth(input);
 }
 
 
@@ -497,18 +528,18 @@ const TRANSIENT_RETRY_DELAY_MS = 500;
 export async function withBackOfficeSession<T>(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;
-  run: (cookieHeader: string) => Promise<T>;
+  run: (authorization: string) => Promise<T>;
   retryTransient?: boolean;
 }): Promise<T> {
-  const cookieHeader = await getBackOfficeCookie({
+  const authorization = await getBackOfficeAuth({
     connection: input.connection,
     admin: input.admin,
   });
   try {
-    return await input.run(cookieHeader);
+    return await input.run(authorization);
   } catch (error) {
     if (isBackOfficeAuthError(error)) {
-      const fresh = await refreshBackOfficeCookie({
+      const fresh = await refreshBackOfficeAuth({
         connection: input.connection,
         admin: input.admin,
       });
@@ -516,7 +547,7 @@ export async function withBackOfficeSession<T>(input: {
     }
     if (!input.retryTransient) throw error;
     await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
-    return input.run(cookieHeader);
+    return input.run(authorization);
   }
 }
 
@@ -537,11 +568,11 @@ export async function listBackOfficeInventoryItemsWithSession(input: {
     connection: input.connection,
     admin: input.admin,
     retryTransient: true,
-    run: (cookieHeader) =>
+    run: (authorization) =>
       listInventoryItemsBackOffice({
         layerName: input.connection.login,
         baseUrl: input.connection.backoffice_base_url,
-        cookieHeader,
+        authorization,
         documentId: input.documentExternalId,
         count: 500,
       }),
@@ -551,7 +582,7 @@ export async function listBackOfficeInventoryItemsWithSession(input: {
 /**
  * Провести акт инвентаризации в Quick Resto (выставить processed=true и
  * двинуть остатки). Использует backoffice-action /warehouse.inventory.document.v2/action
- * (тот же, что нажимает юзер в QR backoffice). На 401/403 — рефреш cookie и retry.
+ * (тот же, что нажимает юзер в QR backoffice). На 401/403 — рефреш токена и retry.
  *
  * Бросает Error при сетевой ошибке / отказе QR. Caller ловит и не меняет
  * локальное состояние (QR — источник правды для status=processed).
@@ -561,31 +592,14 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  // Match Make-схему: /action требует И backoffice session cookie, И
-  // Authorization: Basic с API-creds (connection.login + password_*).
-  // На 401 — cookie протухла → wrapper рефрешит и ретраит.
-  const basicAuthLogin = input.connection.login.trim();
-  const basicAuthPassword = decryptSecret({
-    encrypted: input.connection.password_encrypted,
-    iv: input.connection.password_iv,
-    tag: input.connection.password_tag,
-  });
-  if (!basicAuthLogin || !basicAuthPassword) {
-    throw new Error(
-      "Не настроены API-учётные данные Quick Resto (нужны для Basic Auth на /action).",
-    );
-  }
-
   return withBackOfficeSession({
     connection: input.connection,
     admin: input.admin,
-    run: (cookieHeader) =>
+    run: (authorization) =>
       processInventoryDocumentBackOffice({
         layerName: input.connection.login,
         baseUrl: input.connection.backoffice_base_url,
-        cookieHeader,
-        basicAuthLogin,
-        basicAuthPassword,
+        authorization,
         documentId: input.documentExternalId,
       }),
   });

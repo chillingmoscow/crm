@@ -1408,7 +1408,14 @@ export async function saveQuickRestoBackOfficeCredentials(data: {
       password: data.password,
     });
     const encryptedPassword = encryptSecret(data.password);
-    const encryptedCookie = encryptSecret(session.cookieHeader);
+    const storedAuth = JSON.stringify({
+      authorization: session.authorization,
+      expiresAt:
+        session.expiresInSeconds !== null
+          ? new Date(Date.now() + session.expiresInSeconds * 1000).toISOString()
+          : null,
+    });
+    const encryptedSession = encryptSecret(storedAuth);
     const now = new Date().toISOString();
 
     const { error } = await asLooseClient(supabase)
@@ -1419,9 +1426,9 @@ export async function saveQuickRestoBackOfficeCredentials(data: {
         backoffice_password_encrypted: encryptedPassword.encrypted,
         backoffice_password_iv: encryptedPassword.iv,
         backoffice_password_tag: encryptedPassword.tag,
-        backoffice_cookie_encrypted: encryptedCookie.encrypted,
-        backoffice_cookie_iv: encryptedCookie.iv,
-        backoffice_cookie_tag: encryptedCookie.tag,
+        backoffice_cookie_encrypted: encryptedSession.encrypted,
+        backoffice_cookie_iv: encryptedSession.iv,
+        backoffice_cookie_tag: encryptedSession.tag,
         backoffice_cookie_fetched_at: now,
         backoffice_last_tested_at: now,
         updated_at: now,

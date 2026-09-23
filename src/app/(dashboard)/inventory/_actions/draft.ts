@@ -304,11 +304,11 @@ export async function submitInventoryDocumentDraft(input: {
       await withBackOfficeSession({
         connection,
         admin,
-        run: (cookieHeader) =>
+        run: (authorization) =>
           updateInventoryItemBackOffice({
             layerName: connection.login,
             baseUrl: connection.backoffice_base_url,
-            cookieHeader,
+            authorization,
             documentId: documentExternalId,
             item: row.item,
             actualAmount: row.actualAmount,

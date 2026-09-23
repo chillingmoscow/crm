@@ -415,8 +415,6 @@ export async function splitDocumentForRecount(input: {
     const qrAuth = {
       layerName: connection.login,
       baseUrl: connection.backoffice_base_url,
-      basicAuthLogin: connection.login,
-      basicAuthPassword,
     };
 
     // Идемпотентность: акт пересчёта мог быть создан предыдущей (упавшей)
@@ -441,10 +439,10 @@ export async function splitDocumentForRecount(input: {
       const createdDoc = await withBackOfficeSession({
         connection,
         admin,
-        run: (cookieHeader) =>
+        run: (authorization) =>
           createInventoryDocumentBackOffice({
             ...qrAuth,
-            cookieHeader,
+            authorization,
             storeId: externalStoreId,
             invoiceDate,
             comment: `Пересчёт по акту ${document.document_number}`,
@@ -545,10 +543,10 @@ export async function splitDocumentForRecount(input: {
           await withBackOfficeSession({
             connection,
             admin,
-            run: (cookieHeader) =>
+            run: (authorization) =>
               createInventoryItemBackOffice({
                 ...qrAuth,
-                cookieHeader,
+                authorization,
                 documentId: targetExternalId,
                 sample,
                 actualAmount: 0,
@@ -561,10 +559,10 @@ export async function splitDocumentForRecount(input: {
           await withBackOfficeSession({
             connection,
             admin,
-            run: (cookieHeader) =>
+            run: (authorization) =>
               removeInventoryItemBackOffice({
                 ...qrAuth,
-                cookieHeader,
+                authorization,
                 documentId: documentExternalId,
                 item: sample,
               }),
@@ -611,8 +609,8 @@ export async function splitDocumentForRecount(input: {
           await withBackOfficeSession({
             connection,
             admin,
-            run: (cookieHeader) =>
-              removeInventoryDocumentBackOffice({ ...qrAuth, cookieHeader, document: createdQrDoc }),
+            run: (authorization) =>
+              removeInventoryDocumentBackOffice({ ...qrAuth, authorization, document: createdQrDoc }),
           });
           await admin
             .from("documents")

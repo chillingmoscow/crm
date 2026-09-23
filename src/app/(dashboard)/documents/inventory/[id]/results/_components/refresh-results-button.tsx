@@ -6,7 +6,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { refreshInventoryDocumentResults } from "@/app/(dashboard)/inventory/actions";
+import { refreshInventoryDocumentResults } from "@/app/(dashboard)/inventory/_actions/results";
 
 export function RefreshResultsButton({ documentId }: { documentId: string }) {
   const router = useRouter();

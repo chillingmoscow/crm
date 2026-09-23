@@ -1,5 +1,6 @@
 "use client";
 
+import { hasCountedResults } from "@/lib/inventory/act-status";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
@@ -39,10 +40,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TableRowMenu } from "@/components/shared/table";
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
-import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
-import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
+import {
+  getAssigneeLockReason,
+  getDeleteLockReason,
+  getReviewerLockReason,
+} from "@/lib/inventory/act-status";
+import {
+  formatSignedMoney,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
 import { cn } from "@/lib/utils";
-import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/actions";
+import { deleteInventoryDocument } from "@/app/(dashboard)/inventory/_actions/documents";
 import type { DocumentListRow } from "@/lib/inventory/list-documents-shared";
 
 import {
@@ -132,6 +141,10 @@ export function DesktopRowMenu({
   const router = useRouter();
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const deleteLockReason = getDeleteLockReason({
+    status: doc.status,
+    resultsSnapshotAt: doc.results_snapshot_at,
+  });
 
   const actions = useMemo(() => {
     const items: { label: string; icon: React.ReactNode; onSelect: () => void; destructive?: boolean; separatorBefore?: boolean }[] = [];
@@ -145,7 +158,10 @@ export function DesktopRowMenu({
       icon: <ClipboardCheck className="h-4 w-4" />,
       onSelect: () => router.push(getDocHref(doc, canViewResults)),
     });
-    if (canManage) {
+    // Проведённый акт и акт с зафиксированными итогами удалить нельзя —
+    // серверный экшен всё равно откажет. Пункт меню, который заведомо
+    // закончится ошибкой, не показываем.
+    if (canManage && deleteLockReason === null) {
       items.push({
         label: "Удалить",
         icon: <Trash2 className="h-4 w-4" />,
@@ -155,7 +171,7 @@ export function DesktopRowMenu({
       });
     }
     return items;
-  }, [doc, router, canManage, canViewResults]);
+  }, [doc, router, canManage, canViewResults, deleteLockReason]);
 
   const runDelete = () => {
     startDelete(async () => {
@@ -275,6 +291,10 @@ export function MobileCard({
   const [reviewerSheetOpen, setReviewerSheetOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isDeleting, startDelete] = useTransition();
+  const deleteLockReason = getDeleteLockReason({
+    status: doc.status,
+    resultsSnapshotAt: doc.results_snapshot_at,
+  });
   // Подавляем «click-through» навигацию после закрытия меню действий: на тач-
   // устройствах тап по пункту меню закрывает его, и «призрачный» click падает
   // на кликабельную карточку → она уводила в акт вместо открытия панели.
@@ -326,16 +346,20 @@ export function MobileCard({
           separatorBefore: !canEditAssignee,
         });
       }
-      items.push({
-        label: "Удалить",
-        icon: <Trash2 className="h-4 w-4" />,
-        destructive: true,
-        separatorBefore: !canEditAssignee && !canEditReviewer,
-        onSelect: () => setConfirmDeleteOpen(true),
-      });
+      // См. мобильное меню: удаление недоступно у проведённых актов и у
+      // актов с зафиксированными итогами.
+      if (deleteLockReason === null) {
+        items.push({
+          label: "Удалить",
+          icon: <Trash2 className="h-4 w-4" />,
+          destructive: true,
+          separatorBefore: !canEditAssignee && !canEditReviewer,
+          onSelect: () => setConfirmDeleteOpen(true),
+        });
+      }
     }
     return items;
-  }, [doc, router, canManage, canViewResults]);
+  }, [doc, router, canManage, canViewResults, deleteLockReason]);
 
   return (
     <div
@@ -381,24 +405,22 @@ export function MobileCard({
               <span className="text-muted-foreground">{doc.store_title}</span>
             ) : null}
             {(() => {
-              if (!doc.results_has_line_amounts) {
+              if (
+                !doc.results_has_line_amounts ||
+                !hasCountedResults(doc.status) ||
+                doc.totals_unavailable
+              ) {
                 return <span className="text-muted-foreground">—</span>;
               }
               const net = (doc.surplus_sum ?? 0) - (doc.shortfall_sum ?? 0);
-              const sign = net > 0 ? "+" : net < 0 ? "−" : "";
               return (
                 <span
                   className={cn(
                     "font-medium tabular-nums",
-                    net > 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : net < 0
-                        ? "text-rose-600 dark:text-rose-400"
-                        : "text-muted-foreground",
+              signedAmountClass(net),
                   )}
                 >
-                  {sign}
-                  {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
+                  {formatSignedMoney(net, "RUB", amountRoundingScale)}
                 </span>
               );
             })()}

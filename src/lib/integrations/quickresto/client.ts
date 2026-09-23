@@ -183,6 +183,15 @@ const SEMIPRODUCT_CLASS =
   "ru.edgex.quickresto.modules.warehouse.nomenclature.semiproduct.SemiProduct";
 const SEMIPRODUCT_MODULE = "warehouse.nomenclature.semiproduct";
 
+// Классы категорий. Подтверждены пробой на живом подключении: плоский list по
+// модулю блюд вернул 12 объектов класса DishCategory, по модулю полуфабрикатов
+// — 4 объекта SemiCategory. То есть иерархия здесь ровно как у ингредиентов:
+// корень — категории, товары лежат ниже.
+const DISH_CATEGORY_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.nomenclature.dish.DishCategory";
+const SEMIPRODUCT_CATEGORY_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.nomenclature.semiproduct.SemiCategory";
+
 const STORE_CLASS = "ru.edgex.quickresto.modules.warehouse.store.Store";
 const STORE_MODULE = "warehouse.store";
 
@@ -507,6 +516,243 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/**
+ * Класс документа инвентаризации, который QR возвращает в ответах и принимает
+ * при create. NB: он отличается от `INVENTORY_DOCUMENT_UPDATE_CLASS`
+ * (`…document.InventoryDocument2`) — при create второй вариант отвечает 400
+ * «entityNotFound». Проверено на проде 2026-08-26.
+ */
+const INVENTORY_DOCUMENT_CREATE_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.inventory.document.v2.InventoryDocument";
+
+const INVENTORY_ITEMS_OWNER_CLASS =
+  "ru.edgex.quickresto.modules.warehouse.inventory.document.v2.InventoryDocument";
+
+/**
+ * Создать акт инвентаризации на заданную дату.
+ *
+ * Public API для этого не годится: `update` без objectId отвечает 400
+ * «Entity with id null does not exist». Работает только backoffice-эндпоинт
+ * `warehouse.inventory.document.v2/create`. Акт создаётся ПУСТЫМ — позиции
+ * добавляются отдельно (`createInventoryItemBackOffice`).
+ *
+ * Удаления акта в API нет (перебраны delete/remove/action) — при сбое на
+ * середине операции документ придётся убирать руками в Quick Resto. Поэтому
+ * вызывающий код обязан быть идемпотентным: запомнить id созданного акта и при
+ * повторе продолжать, а не создавать второй.
+ */
+export async function createInventoryDocumentBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  storeId: number;
+  /** Дата акта в миллисекундах. QR трактует её в таймзоне заведения. */
+  invoiceDate: number;
+  comment?: string | null;
+}) {
+  return callQuickRestoBackOfficeData<QuickRestoInventoryDocument2>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.document.v2/create",
+    query: {
+      regTime: Date.now(),
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: new Date().getTimezoneOffset(),
+    },
+    body: {
+      className: INVENTORY_DOCUMENT_CREATE_CLASS,
+      store: { id: input.storeId, className: STORE_CLASS },
+      invoiceDate: input.invoiceDate,
+      comment: input.comment ?? "",
+    },
+  });
+}
+
+/** Поля строки акта, которые принадлежат КОНКРЕТНОЙ строке, а не товару. */
+const INVENTORY_ITEM_ROW_FIELDS = [
+  "id",
+  "hash",
+  "version",
+  "seqNumber",
+  "_Level",
+  "_Locked",
+  "transient",
+  "historical",
+  "permanent",
+  "delta",
+  "differenceCost",
+  "amountAtStore",
+  "storeQuantity",
+  "storeQuantityKg",
+  "amountTotal",
+  "effectiveAmount",
+  "actualAmount",
+  "costPriceSum",
+  "costPriceSumKg",
+] as const;
+
+/**
+ * Добавить позицию в акт по образцу строки другого акта (raw_payload).
+ *
+ * Служебные поля исходной строки вычищаются: расчётный остаток, разницу и
+ * себестоимость Quick Resto посчитает сам — уже на дату нового акта. Ровно это
+ * и нужно акту пересчёта.
+ */
+export async function createInventoryItemBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  documentId: number;
+  /** Строка-образец: raw_payload позиции исходного акта. */
+  sample: QuickRestoInventoryItem2;
+  actualAmount?: number;
+}) {
+  const sample = cloneJson(input.sample) as Record<string, unknown>;
+  for (const field of INVENTORY_ITEM_ROW_FIELDS) delete sample[field];
+
+  return callQuickRestoBackOfficeData<QuickRestoInventoryItem2>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.items/create",
+    query: {
+      ownerContextId: input.documentId,
+      ownerContextClassName: INVENTORY_ITEMS_OWNER_CLASS,
+      regTime: Date.now(),
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: new Date().getTimezoneOffset(),
+    },
+    body: { ...sample, actualAmount: input.actualAmount ?? 0 },
+  });
+}
+
+/**
+ * Удалить позицию из акта и удалить сам акт.
+ *
+ * Обе операции — `DELETE` на `<module>/remove` **с телом** (полный объект) и с
+ * `regTime`. Именно так это делает интерфейс Quick Resto; без тела эндпоинт
+ * отвечает «Object doesn't exist», а POST — 405. Отдельного `/delete` нет.
+ */
+async function callQuickRestoBackOfficeRemove<T>(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  path: string;
+  query: Record<string, string | number | null | undefined>;
+  body: unknown;
+}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(input.query)) {
+    if (value === null || value === undefined || value === "") continue;
+    params.set(key, String(value));
+  }
+  const origin = buildQuickRestoBackOfficeOrigin(input);
+  const url = `${origin}/platform/data/${input.path}?${params.toString()}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        Connection: "keep-alive",
+        "Content-Type": "application/json; charset=UTF-8",
+        Origin: origin,
+        Referer: `${origin}/`,
+        Authorization: input.authorization,
+      },
+      body: JSON.stringify(input.body),
+      cache: "no-store",
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    (response.status >= 300 && response.status < 400)
+  ) {
+    throw new Error(`Quick Resto back-office auth failed (${response.status})`);
+  }
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(quickRestoErrorMessage(response.status, body));
+  }
+  const text = await response.text();
+  if (!text.trim()) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as T;
+  }
+}
+
+/** Удалить позицию из акта инвентаризации. */
+export async function removeInventoryItemBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  documentId: number;
+  /** Полный объект позиции — QR принимает его телом запроса. */
+  item: QuickRestoInventoryItem2;
+}) {
+  const rawHash = (input.item as Record<string, unknown>).hash;
+  return callQuickRestoBackOfficeRemove<unknown>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.items/remove",
+    query: {
+      ownerContextId: input.documentId,
+      ownerContextClassName: INVENTORY_ITEMS_OWNER_CLASS,
+      regTime: Date.now(),
+      hash: typeof rawHash === "string" || typeof rawHash === "number" ? rawHash : undefined,
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: -180,
+    },
+    body: input.item,
+  });
+}
+
+/** Удалить акт инвентаризации целиком (нужен для отката незавершённого переноса). */
+export async function removeInventoryDocumentBackOffice(input: {
+  layerName: string;
+  baseUrl?: string | null;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
+  document: QuickRestoInventoryDocument2;
+}) {
+  return callQuickRestoBackOfficeRemove<unknown>({
+    layerName: input.layerName,
+    baseUrl: input.baseUrl,
+    authorization: input.authorization,
+    path: "warehouse.inventory.document.v2/remove",
+    query: {
+      mode: "previous30Days",
+      regTime: Date.now(),
+      contextModule: "warehouse.inventory.items",
+      businessDayOffsetInMs: 32_400_000,
+      timeZone: -180,
+    },
+    body: { ...input.document, className: INVENTORY_DOCUMENT_CREATE_CLASS },
+  });
+}
+
 export async function updateInventoryItemBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
@@ -614,18 +860,23 @@ export async function listInventoryItemsBackOffice(input: {
 }) {
   const pageSize = Math.max(1, input.count ?? 150);
   const rows: QuickRestoInventoryItem2[] = [];
-  let total: number | null = null;
+  // Страховка от бесконечного цикла, если backoffice начнёт отдавать одну и ту
+  // же страницу: 200 страниц × 500 = 100 000 позиций, дальше любого реального акта.
+  const MAX_PAGES = 200;
 
-  for (let start = 0; ; start += pageSize) {
-    const page = await selectInventoryItemsBackOffice({
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const { rows: pageRows } = await selectInventoryItemsBackOffice({
       ...input,
-      start,
+      start: page * pageSize,
       count: pageSize,
     });
-    rows.push(...page.rows);
-    total = page.total;
-    if (page.rows.length < pageSize) break;
-    if (total !== null && rows.length >= total) break;
+    rows.push(...pageRows);
+    // Признак конца — неполная страница. По `total` останавливаться нельзя:
+    // для ответа в форме `{ds: [...]}` (и для голого массива) backOfficeSelectRows
+    // выводит total из длины ТЕКУЩЕЙ страницы, поэтому после первой полной
+    // страницы условие `rows.length >= total` срабатывало всегда — акт длиннее
+    // pageSize молча обрезался, а «лишние» строки затем удалялись как stale.
+    if (pageRows.length < pageSize) break;
   }
 
   return rows;
@@ -872,10 +1123,10 @@ export async function readIngredient(input: {
   });
 }
 
-// Блюда / полуфабрикаты — плоский list (root-уровень). Структура полей у них
-// параллельна SingleProduct (id, name, measureUnit, parentId), поэтому типизируем
-// тем же типом с index-signature. Для полного дерева с категориями — отдельный
-// фетчер на этапе реального синка (после подтверждения структуры пробой).
+// Блюда / полуфабрикаты — плоский list. ВНИМАНИЕ: он отдаёт не товары, а
+// корневые КАТЕГОРИИ (проба на живом подключении: 12 объектов DishCategory и
+// 4 объекта SemiCategory). Оставлены как есть — на них опирается диагностика.
+// Для содержимого нужен listNomenclatureTreeItems ниже.
 export async function listDishes(input: {
   layerName: string;
   login: string;
@@ -901,6 +1152,77 @@ export async function listSemiProducts(input: {
     className: SEMIPRODUCT_CLASS,
   });
 }
+
+/**
+ * Полное дерево номенклатуры одного модуля: корневые элементы плюс всё
+ * вложенное.
+ *
+ * Тот же приём, что и в listIngredientTreeItems: плоский list отдаёт только
+ * корень, а фильтр `parentId neq 0` возвращает вложенный каталог вместе с
+ * категориями. Вынесено в общий фетчер, потому что для блюд и полуфабрикатов
+ * нужен ровно он же — модули устроены параллельно.
+ *
+ * Дедупликация по паре класс+id: один и тот же объект приходит и из корневого
+ * списка, и из вложенного, а id уникальны только внутри класса.
+ */
+async function listNomenclatureTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+  moduleName: string;
+  className: string;
+}) {
+  const { moduleName, className, ...auth } = input;
+  const [rootItems, nestedItems] = await Promise.all([
+    callQuickResto<QuickRestoStoreItem[]>({ ...auth, path: "list", moduleName, className }),
+    callQuickResto<QuickRestoStoreItem[]>({
+      ...auth,
+      path: "list",
+      moduleName,
+      className,
+      body: { filters: [{ field: "parentId", operation: "neq", value: "0" }] },
+    }),
+  ]);
+
+  const byClassAndId = new Map<string, QuickRestoStoreItem>();
+  for (const item of [...rootItems, ...nestedItems]) {
+    if (typeof item.id !== "number") continue;
+    const type = typeof item.className === "string" ? item.className : "unknown";
+    byClassAndId.set(`${type}:${item.id}`, item);
+  }
+  return Array.from(byClassAndId.values());
+}
+
+export async function listDishTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return listNomenclatureTreeItems({
+    ...input,
+    moduleName: DISH_MODULE,
+    className: DISH_CLASS,
+  });
+}
+
+export async function listSemiProductTreeItems(input: {
+  layerName: string;
+  login: string;
+  password: string;
+}) {
+  return listNomenclatureTreeItems({
+    ...input,
+    moduleName: SEMIPRODUCT_MODULE,
+    className: SEMIPRODUCT_CLASS,
+  });
+}
+
+/** Классы категорий — чтобы вызывающая сторона отличала категорию от товара. */
+export const QUICK_RESTO_CATEGORY_CLASSES = {
+  ingredient: SINGLE_CATEGORY_CLASS,
+  dish: DISH_CATEGORY_CLASS,
+  semi_finished: SEMIPRODUCT_CATEGORY_CLASS,
+} as const;
 
 export async function listStores(input: {
   layerName: string;

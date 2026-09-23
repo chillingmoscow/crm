@@ -456,14 +456,15 @@ begin
   -- Акт инвентаризации + позиции (для вкладки «Где используется»)
   -- assigned_to обязателен для processed-актов (workflow-инвариант:
   -- нельзя провести акт без явно указанного ответственного).
-  -- results_has_line_amounts=true + shortfall/surplus_sum нужны, чтобы
-  -- вкладка «Итоги» рендерила полную таблицу (см. results/page.tsx:474).
+  -- results_has_line_amounts=true нужен, чтобы вкладка «Итоги» рендерила
+  -- полную таблицу (см. results/page.tsx:474). Суммы акта не хранятся —
+  -- управленческий итог считается по строкам (миграция 234).
   insert into public.documents
     (id, account_id, external_id, document_number, invoice_date, store_id, status, assigned_to, processed,
-     results_has_line_amounts, shortfall_sum, surplus_sum)
+     results_has_line_amounts)
   values
     (v_doc, v_account, 'qr-doc-1', 'ИНВ-0001', now() - interval '1 day', v_store, 'processed', v_owner, true,
-     true, 667.00, 0)
+     true)
   on conflict (id) do nothing;
 
   -- Проведённый акт всегда прошёл проверку → у него есть проверяющий.
@@ -512,10 +513,10 @@ begin
      v_account, 'qr-doc-5', 'ИНВ-0005',
      now() - interval '3 days', v_store, 'assigned', v_owner,
      'Контроль остатков мяса перед поставкой'),
-    -- Ошибка синхронизации (демонстрация bad-state badge).
+    -- Итоги требуют проверки (демонстрация bad-state badge).
     ('55555555-5555-0000-0000-000000000006'::uuid,
      v_account, 'qr-doc-6', 'ИНВ-0006',
-     now() - interval '7 days', v_store, 'sync_error', null,
+     now() - interval '7 days', v_store, 'results_blocked', v_owner,
      null),
     -- Длинный акт (20 позиций) с итогами — для проверки sticky-шапки/скролла.
     ('55555555-5555-0000-0000-000000000007'::uuid,
@@ -543,7 +544,7 @@ begin
     -- ИНВ-0005: назначен, ещё не считали → факт NULL.
     (v_account, '55555555-5555-0000-0000-000000000005'::uuid, 'd5-1', v_p_beef, 'Говядина (вырезка)', null, 18.0, null),
     (v_account, '55555555-5555-0000-0000-000000000005'::uuid, 'd5-2', v_p_chk,  'Куриное филе',       null, 27.4, null),
-    -- ИНВ-0006: sync_error, не считали → факт NULL.
+    -- ИНВ-0006: результаты без построчных сумм → факт NULL.
     (v_account, '55555555-5555-0000-0000-000000000006'::uuid, 'd6-1', v_p_milk, 'Молоко 3.2%',        null, 56.0, null)
   on conflict (document_id, external_item_id) do nothing;
 
@@ -554,8 +555,6 @@ begin
   -- строки.
   update public.documents
      set results_has_line_amounts = true,
-         shortfall_sum = 1335.00,
-         surplus_sum = 0,
          -- Проверяющий (manager@test.com) ≠ исполнитель (owner) — для демо
          -- маршрутизации уведомлений «готов к проверке» ↔ «вернули на пересчёт».
          reviewer_id = 'bbbbbbbb-0000-0000-0000-000000000002'

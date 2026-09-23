@@ -14,7 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { probeQuickRestoNomenclature } from "@/app/(dashboard)/inventory/actions";
+import { probeQuickRestoNomenclature } from "@/app/(dashboard)/inventory/_actions/sync";
 
 export function NomenclatureProbeButton() {
   const [pending, startTransition] = useTransition();

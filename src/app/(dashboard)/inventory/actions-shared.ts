@@ -7,19 +7,28 @@ import "server-only";
 import { revalidatePath } from "next/cache";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
+import { calculateResortAllocation } from "@/lib/inventory/results";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
-import { getInventoryResultAdjustLockReason } from "@/lib/inventory/act-status";
+import {
+  getInventoryResultAdjustLockReason,
+  hasCountedResults,
+  resolveStatusAfterImport,
+} from "@/lib/inventory/act-status";
+import { resolveExclusionState } from "@/lib/inventory/exclusions";
+import { resolveLineResult, resolveSubmittedAmount } from "@/lib/inventory/sync-amounts";
 import {
   listInventoryItemsBackOffice,
   loginQuickRestoBackOffice,
   processInventoryDocumentBackOffice,
   type QuickRestoInventoryDocument2,
   type QuickRestoInventoryItem2,
-  type QuickRestoSingleCategory,
-  type QuickRestoSingleProduct,
-  type QuickRestoStore,
 } from "@/lib/integrations/quickresto/client";
 
 export type QuickRestoConnection = {
@@ -48,11 +57,17 @@ export type InventorySyncSummary = {
   documents: number;
   items: number;
   resultsBlocked: number;
+  /** Акты, которые не удалось обработать: один сбойный акт не роняет проход. */
+  failedDocuments: number;
+  /** Строки актов, которым синк восстановил связь с каталогом (см. relink). */
+  relinked: number;
 };
 
 export type InventoryProductLookup = {
   id: string;
   external_id?: string;
+  /** Вид номенклатуры: позиции разных видов могут делить один внешний id. */
+  kind?: string;
   article?: string | null;
   barcode?: string | null;
 };
@@ -118,171 +133,70 @@ export type InventoryResultGroupRow = {
   name: string;
 };
 
-export const INVENTORY_DOCUMENT_ITEM_KEYS = [
-  "effectedItems",
-  "prefabricatedItems",
-  "disassembledItems",
-] as const;
+/**
+ * Статусы пересорта. Значения зафиксированы CHECK-констрейнтом
+ * `check (status in ('active','voided'))` (миграция 177) — держим их одной
+ * константой, чтобы три пути аннулирования (ручной экшен, авто-пересчёт,
+ * триггер БД) не разъезжались в литерале.
+ */
+export const RESORT_STATUS = {
+  active: "active",
+  voided: "voided",
+} as const;
 
-export function asObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
+// Чистые нормализаторы payload'ов QR переехали в lib, чтобы их мог
+// переиспользовать онбординг. Реэкспорт — чтобы не трогать импорты экшенов.
+import {
+  INVENTORY_DOCUMENT_ITEM_KEYS,
+  asObject,
+  catalogKey,
+  className,
+  dateMs,
+  dateText,
+  externalItemId,
+  externalProductId,
+  groupName,
+  inventoryDocumentItems,
+  inventoryDocumentNumber,
+  isDeletedQuickRestoRow,
+  isQuickRestoClass,
+  isRecentOpenInventoryDocument,
+  nomenclatureKind,
+  num,
+  priceNum,
+  productName,
+  quickRestoObjectId,
+  quickRestoParentExternalId,
+  sameDate,
+  storeTitle,
+  text,
+} from "@/lib/integrations/quickresto/normalize";
 
-export function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-export function num(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-// Принимает число или строку из формы (в т.ч. с запятой-разделителем).
-export function priceNum(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string") {
-    const normalized = value.trim().replace(",", ".");
-    if (normalized === "") return null;
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-export function className(value: unknown): string {
-  return text(asObject(value).className) ?? "";
-}
-
-export function isQuickRestoClass(value: unknown, suffix: "SingleCategory" | "SingleProduct") {
-  return className(value).endsWith(`.${suffix}`);
-}
-
-export function dateMs(value: unknown): number | null {
-  const raw =
-    typeof value === "number"
-      ? value
-      : typeof value === "string" && value.trim() && /^\d+$/.test(value.trim())
-        ? Number(value.trim())
-        : null;
-
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return raw > 1_000_000_000_000 ? raw : raw * 1000;
-  }
-
-  if (typeof value !== "string" || !value.trim()) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-export function dateText(value: unknown): string | null {
-  const parsed = dateMs(value);
-  return parsed === null ? null : new Date(parsed).toISOString();
-}
-
-export function isDeletedQuickRestoRow(value: unknown) {
-  const row = asObject(value);
-  return (
-    row.deleted === true ||
-    row.isDeleted === true ||
-    row.removed === true ||
-    row.deletedAt != null ||
-    row.deleteDate != null ||
-    row.removeDate != null
-  );
-}
-
-export function isRecentOpenInventoryDocument(doc: QuickRestoInventoryDocument2) {
-  if (doc.processed || isDeletedQuickRestoRow(doc)) return false;
-  const invoiceDate = dateText(doc.invoiceDate);
-  if (!invoiceDate) return false;
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 7);
-  cutoff.setHours(0, 0, 0, 0);
-  return Date.parse(invoiceDate) >= cutoff.getTime();
-}
-
-export function sameDate(left: unknown, right: unknown) {
-  if (!left && !right) return true;
-  if (!left || !right) return false;
-  const leftMs = dateMs(left);
-  const rightMs = dateMs(right);
-  return leftMs !== null && rightMs !== null && leftMs === rightMs;
-}
-
-export function productName(product: QuickRestoSingleProduct | QuickRestoInventoryItem2["product"], fallback: string) {
-  return text(product?.name) ?? text(product?.itemTitle) ?? fallback;
-}
-
-export function groupName(group: QuickRestoSingleCategory) {
-  return text(group.name) ?? text(group.itemTitle) ?? `Группа #${group.id}`;
-}
-
-export function storeTitle(store: QuickRestoStore) {
-  return text(store.title) ?? `Склад #${store.id}`;
-}
-
-export function inventoryDocumentNumber(doc: QuickRestoInventoryDocument2) {
-  return text(doc.documentNumber) ?? `QR-${doc.id}`;
-}
-
-export function externalProductId(item: QuickRestoInventoryItem2): string | null {
-  const raw = asObject(item.product);
-  const id = raw.id;
-  return typeof id === "number" || typeof id === "string" ? String(id) : null;
-}
-
-export function quickRestoObjectId(value: unknown): string | null {
-  const row = asObject(value);
-  const id = row.id;
-  if (typeof id === "number" || typeof id === "string") return String(id);
-  return null;
-}
-
-export function quickRestoParentExternalId(item: unknown): string | null {
-  const row = asObject(item);
-  const selfId = quickRestoObjectId(row);
-  const directKeys = ["parentId", "parentItemId", "parentGroupId", "parentCategoryId"];
-  for (const key of directKeys) {
-    const value = row[key];
-    if (typeof value === "number" || typeof value === "string") {
-      const id = String(value);
-      if (id !== selfId) return id;
-    }
-  }
-
-  const nestedKeys = [
-    "parentItem",
-    "parent",
-    "parentGroup",
-    "parentCategory",
-    "group",
-    "category",
-    "singleCategory",
-    "productGroup",
-    "productCategory",
-  ];
-  for (const key of nestedKeys) {
-    const id = quickRestoObjectId(row[key]);
-    if (id && id !== selfId) return id;
-  }
-
-  return null;
-}
-
-export function externalItemId(item: QuickRestoInventoryItem2, index: number): string {
-  if (typeof item.id === "number" || typeof item.id === "string") return String(item.id);
-  const productId = externalProductId(item);
-  return productId ? `product:${productId}` : `row:${index}`;
-}
-
-export function inventoryDocumentItems(document: QuickRestoInventoryDocument2) {
-  for (const key of INVENTORY_DOCUMENT_ITEM_KEYS) {
-    const value = document[key];
-    if (Array.isArray(value) && value.length > 0) {
-      return { key, items: value as QuickRestoInventoryItem2[] };
-    }
-  }
-  return { key: "effectedItems" as const, items: [] as QuickRestoInventoryItem2[] };
-}
+export {
+  INVENTORY_DOCUMENT_ITEM_KEYS,
+  asObject,
+  catalogKey,
+  className,
+  dateMs,
+  dateText,
+  externalItemId,
+  externalProductId,
+  groupName,
+  inventoryDocumentItems,
+  inventoryDocumentNumber,
+  isDeletedQuickRestoRow,
+  isQuickRestoClass,
+  isRecentOpenInventoryDocument,
+  nomenclatureKind,
+  num,
+  priceNum,
+  productName,
+  quickRestoObjectId,
+  quickRestoParentExternalId,
+  sameDate,
+  storeTitle,
+  text,
+};
 
 export function getNestedNumber(item: QuickRestoInventoryItem2, keys: string[]) {
   const row = asObject(item);
@@ -358,13 +272,11 @@ export function actionErrorMessage(error: unknown, fallback: string) {
 
 export async function getActiveContext(permission?: string | string[]) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCachedUser();
   if (!user) return { supabase, user: null, accountId: null, venueId: null, error: "Не авторизован" };
 
-  const { data: accountId, error: accountError } = await supabase.rpc("get_active_account_id");
-  if (accountError || !accountId) {
+  const accountId = await getCachedActiveAccountId();
+  if (!accountId) {
     return { supabase, user, accountId: null, venueId: null, error: "Не удалось определить активный аккаунт" };
   }
 
@@ -375,24 +287,25 @@ export async function getActiveContext(permission?: string | string[]) {
   // специфичное право (adjust/finalize/recount/comment). См. аудит прав F2/F3.
   if (permission) {
     const codes = Array.isArray(permission) ? permission : [permission];
-    for (const code of codes) {
-      const { data: allowed } = await supabase.rpc("has_permission", { permission_code: code });
-      if (!allowed) {
-        return {
-          supabase,
-          user,
-          accountId: accountId as string,
-          venueId: (venueId as string | null) ?? null,
-          error: "Недостаточно прав",
-        };
-      }
+    // Раньше здесь был цикл с отдельным rpc("has_permission") на каждый код —
+    // то есть последовательные round-trip'ы ради двух булевых значений. Теперь
+    // весь набор прав приезжает один раз (см. getCachedPermissionChecker).
+    const can = await getCachedPermissionChecker();
+    if (codes.some((code) => !can(code))) {
+      return {
+        supabase,
+        user,
+        accountId,
+        venueId: (venueId as string | null) ?? null,
+        error: "Недостаточно прав",
+      };
     }
   }
 
   return {
     supabase,
     user,
-    accountId: accountId as string,
+    accountId,
     venueId: (venueId as string | null) ?? null,
     error: null,
   };
@@ -416,54 +329,10 @@ export async function getActiveContext(permission?: string | string[]) {
  *
  * 3. **Final fallback:** если venue в аккаунте ровно одно — оно.
  */
-export async function resolveDefaultVenueId(input: {
-  admin: LooseDb;
-  accountId: string;
-  activeVenueId: string | null;
-}) {
-  // 1. QR-импортированное venue (priority — основной кейс).
-  // В норме строка одна на (account, provider='quickresto', entity_type='venue').
-  // Codex P1 #378: нет FK external_entity_links.local_id → venues.id,
-  // поэтому возможен orphan (venue hard-удалён, link остался) или
-  // ссылка на архивный venue. Перед использованием проверяем что
-  // venue физически существует и live — иначе fallback ниже.
-  // Multi-cloud (issue #362) пока не реализован.
-  const { data: qrVenueLinks } = await input.admin
-    .from<Array<{ local_id: string }>>("external_entity_links")
-    .select("local_id")
-    .eq("account_id", input.accountId)
-    .eq("provider", "quickresto")
-    .eq("entity_type", "venue");
-  const qrVenueId = qrVenueLinks?.[0]?.local_id;
-  if (qrVenueId) {
-    const { data: qrVenue } = await input.admin
-      .from<{ id: string; archived_at: string | null }>("venues")
-      .select("id, archived_at")
-      .eq("id", qrVenueId)
-      .eq("account_id", input.accountId)
-      .maybeSingle();
-    if (qrVenue?.id && !qrVenue.archived_at) return qrVenue.id;
-    // orphan / archived — пропускаем, идём на fallback
-  }
+// Резолв venue для складов переехал в lib — им пользуется и онбординг.
+import { resolveDefaultVenueId } from "@/lib/inventory/default-venue";
 
-  // 2. Fallback: активный venue (legacy-поведение, защита от регресса)
-  if (input.activeVenueId) {
-    const { data: activeVenue } = await input.admin
-      .from<{ id: string }>("venues")
-      .select("id")
-      .eq("id", input.activeVenueId)
-      .eq("account_id", input.accountId)
-      .maybeSingle();
-    if (activeVenue?.id) return activeVenue.id;
-  }
-
-  // 3. Final fallback: единственное venue в аккаунте
-  const { data: venues } = await input.admin
-    .from<Array<{ id: string }>>("venues")
-    .select("id")
-    .eq("account_id", input.accountId);
-  return venues?.length === 1 ? venues[0].id : null;
-}
+export { resolveDefaultVenueId };
 
 export async function getConnection(accountId: string): Promise<QuickRestoConnection | null> {
   const admin = asLooseDb(createAdminClient());
@@ -639,48 +508,75 @@ export async function getBackOfficeAuth(input: {
   return refreshBackOfficeAuth(input);
 }
 
+
+/** Пауза перед единственным повтором транзиентной ошибки backoffice. */
+const TRANSIENT_RETRY_DELAY_MS = 500;
+
+/**
+ * Выполнить backoffice-операцию под сессией sheerly-bot с одним ретраем.
+ *
+ * Единственная точка ретрая для всего модуля: cookie протухает, Spring
+ * ротирует remember-me — на auth-ошибке логинимся заново и повторяем ровно
+ * один раз. Раньше этот же паттерн был написан четырьмя копиями (здесь, в
+ * чтении позиций, в проведении акта и инлайном в отправке акта), и копии уже
+ * разошлись поведением.
+ *
+ * `retryTransient` — дополнительный один ретрай НЕ-auth ошибки через паузу.
+ * Нужен чтению позиций: на проде backoffice периодически отдаёт по акту пустой
+ * ответ или обрывает соединение, и повтор помогает.
+ */
+export async function withBackOfficeSession<T>(input: {
+  connection: QuickRestoConnection;
+  admin: LooseDb;
+  run: (authorization: string) => Promise<T>;
+  retryTransient?: boolean;
+}): Promise<T> {
+  const authorization = await getBackOfficeAuth({
+    connection: input.connection,
+    admin: input.admin,
+  });
+  try {
+    return await input.run(authorization);
+  } catch (error) {
+    if (isBackOfficeAuthError(error)) {
+      const fresh = await refreshBackOfficeAuth({
+        connection: input.connection,
+        admin: input.admin,
+      });
+      return input.run(fresh);
+    }
+    if (!input.retryTransient) throw error;
+    await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
+    return input.run(authorization);
+  }
+}
+
 export async function listBackOfficeInventoryItemsWithSession(input: {
   connection: QuickRestoConnection;
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  let authorization = await getBackOfficeAuth({
-    connection: input.connection,
-    admin: input.admin,
-  });
-
   // pageSize=500 — обходим возможный bug пагинации backoffice
   // (на проде CB303 = 0 items, при том что в QR backoffice 34 позиции;
   // вероятная гипотеза — первая страница вернула пусто но total>0,
   // и loop сразу exit'нул). Большой pageSize читает всё одним батчем.
-  const readRows = (sessionAuth: string) =>
-    listInventoryItemsBackOffice({
-      layerName: input.connection.login,
-      baseUrl: input.connection.backoffice_base_url,
-      authorization: sessionAuth,
-      documentId: input.documentExternalId,
-      count: 500,
-    });
-
-  // На проде наблюдали: для одного из 10 актов backoffice items endpoint
-  // не вернул calculated/difference (вероятно временная network/timeout
-  // ошибка). Добавлен 1 ретрай через 500ms для не-auth ошибок —
-  // отсекает транзиентные сбои, auth-error retry с refresh-токеном
-  // оставлен отдельной веткой.
-  try {
-    return await readRows(authorization);
-  } catch (error) {
-    if (isBackOfficeAuthError(error)) {
-      authorization = await refreshBackOfficeAuth({
-        connection: input.connection,
-        admin: input.admin,
-      });
-      return readRows(authorization);
-    }
-    // Транзиентная ошибка — ретрай раз через 500мс с тем же токеном.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    return readRows(authorization);
-  }
+  //
+  // retryTransient: на проде для одного из 10 актов endpoint не вернул
+  // calculated/difference (похоже на сетевой таймаут) — один повтор это
+  // отсекает.
+  return withBackOfficeSession({
+    connection: input.connection,
+    admin: input.admin,
+    retryTransient: true,
+    run: (authorization) =>
+      listInventoryItemsBackOffice({
+        layerName: input.connection.login,
+        baseUrl: input.connection.backoffice_base_url,
+        authorization,
+        documentId: input.documentExternalId,
+        count: 500,
+      }),
+  });
 }
 
 /**
@@ -696,30 +592,84 @@ export async function processBackOfficeInventoryDocumentWithSession(input: {
   admin: LooseDb;
   documentExternalId: number;
 }) {
-  let authorization = await getBackOfficeAuth({
+  return withBackOfficeSession({
     connection: input.connection,
     admin: input.admin,
+    run: (authorization) =>
+      processInventoryDocumentBackOffice({
+        layerName: input.connection.login,
+        baseUrl: input.connection.backoffice_base_url,
+        authorization,
+        documentId: input.documentExternalId,
+      }),
   });
+}
 
-  const call = (sessionAuth: string) =>
-    processInventoryDocumentBackOffice({
-      layerName: input.connection.login,
-      baseUrl: input.connection.backoffice_base_url,
-      authorization: sessionAuth,
-      documentId: input.documentExternalId,
-    });
+/**
+ * Размер пачки для батч-записи каталога.
+ *
+ * Синхронизация писала по строке за запрос: на каталоге в 3000 ингредиентов это
+ * 9000 round-trip'ов (сам ингредиент + ссылка + снимок), то есть минуты работы
+ * и столько же занятых соединений пула. Пишем пачками; размер выбран с оглядкой
+ * на то, что в каждой строке лежит raw_payload — целый JSON позиции из Quick
+ * Resto, и слать их десятками тысяч одним запросом не стоит.
+ */
+const CATALOG_BATCH_SIZE = 200;
 
-  try {
-    return await call(authorization);
-  } catch (error) {
-    if (isBackOfficeAuthError(error)) {
-      authorization = await refreshBackOfficeAuth({
-        connection: input.connection,
-        admin: input.admin,
-      });
-      return call(authorization);
-    }
-    throw error;
+/** Разрезать массив на пачки по CATALOG_BATCH_SIZE. */
+export function catalogChunks<T>(rows: T[], size = CATALOG_BATCH_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+  return chunks;
+}
+
+/** Батч-версия upsertExternalLink: одна запись на пачку вместо одной на строку. */
+export async function upsertExternalLinks(input: {
+  admin: LooseDb;
+  accountId: string;
+  entityType: string;
+  localTable: string;
+  rows: Array<{ externalId: string; localId: string }>;
+}) {
+  for (const chunk of catalogChunks(input.rows)) {
+    const { error } = await input.admin.from("external_entity_links").upsert(
+      chunk.map((row) => ({
+        account_id: input.accountId,
+        provider: "quickresto",
+        entity_type: input.entityType,
+        external_id: row.externalId,
+        local_table: input.localTable,
+        local_id: row.localId,
+      })),
+      { onConflict: "account_id,provider,entity_type,external_id" },
+    );
+    if (error) throw new Error(error.message);
+  }
+}
+
+/** Батч-версия saveSnapshot. */
+export async function saveSnapshots(input: {
+  admin: LooseDb;
+  accountId: string;
+  entityType: string;
+  rows: Array<{ externalId: string; payload: unknown }>;
+}) {
+  const fetchedAt = new Date().toISOString();
+  for (const chunk of catalogChunks(input.rows)) {
+    const { error } = await input.admin.from("integration_external_snapshots").upsert(
+      chunk.map((row) => ({
+        account_id: input.accountId,
+        provider: "quickresto",
+        entity_type: input.entityType,
+        external_id: row.externalId,
+        payload: row.payload,
+        fetched_at: fetchedAt,
+      })),
+      { onConflict: "account_id,provider,entity_type,external_id" },
+    );
+    if (error) throw new Error(error.message);
   }
 }
 
@@ -764,6 +714,201 @@ export async function saveSnapshot(input: {
   );
 }
 
+
+/**
+ * Пересчёт активных пересортов после импорта строк из Quick Resto.
+ *
+ * `inventory_result_resort_items` хранит суммы, посчитанные в МОМЕНТ создания
+ * пересорта (source_* и remaining_*), а управленческий итог берёт именно их
+ * (calculateManagementTotals). Импорт же перезаписывает difference_* по
+ * строкам — и пересорт продолжал зачитывать вчерашние объёмы: строка на экране
+ * показывала недостачу, а в «К списанию» по ней стоял ноль.
+ *
+ * Поэтому после каждого импорта пересчитываем аллокацию по свежим значениям:
+ *  - объёмы сошлись по-прежнему → обновляем суммы пересорта;
+ *  - пересорт больше не складывается (одна из строк исчезла, или не осталось
+ *    пары недостача+излишек) → аннулируем его и пишем в журнал, чтобы
+ *    проверяющий увидел и пересобрал вручную.
+ */
+async function recalculateActiveResorts(input: {
+  admin: LooseDb;
+  accountId: string;
+  documentId: string;
+}): Promise<{ recalculated: number; voided: number }> {
+  const { data: resortsRaw } = await input.admin
+    .from<Array<{ id: string; group_id: string | null; measure_unit_key: string | null }>>(
+      "inventory_result_resorts",
+    )
+    .select("id, group_id, measure_unit_key")
+    .eq("account_id", input.accountId)
+    .eq("document_id", input.documentId)
+    .eq("status", RESORT_STATUS.active);
+  const resorts = resortsRaw ?? [];
+  if (resorts.length === 0) return { recalculated: 0, voided: 0 };
+
+  const { data: resortItemsRaw } = await input.admin
+    .from<
+      Array<{
+        id: string;
+        resort_id: string;
+        document_item_id: string;
+        source_difference_amount: number | null;
+        source_difference_sum: number | null;
+      }>
+    >("inventory_result_resort_items")
+    .select("id, resort_id, document_item_id, source_difference_amount, source_difference_sum")
+    .eq("account_id", input.accountId)
+    .eq("document_id", input.documentId)
+    .in(
+      "resort_id",
+      resorts.map((resort) => resort.id),
+    );
+  const resortItems = resortItemsRaw ?? [];
+
+  const { data: currentItemsRaw } = await input.admin
+    .from<Array<{ id: string; difference_amount: number | null; difference_sum: number | null }>>(
+      "document_items",
+    )
+    .select("id, difference_amount, difference_sum")
+    .eq("account_id", input.accountId)
+    .eq("document_id", input.documentId);
+  const currentById = new Map((currentItemsRaw ?? []).map((row) => [row.id, row]));
+
+  let recalculated = 0;
+  let voided = 0;
+
+  const voidResort = async (resortId: string, reason: string) => {
+    // Статус — только из RESORT_STATUS: раньше здесь стоял литерал "void",
+    // которого нет в CHECK-констрейнте (миграция 177 разрешает 'active' и
+    // 'voided'). UPDATE молча падал, пересорт оставался активным и продолжал
+    // участвовать в управленческом итоге со старыми суммами — а в журнал при
+    // этом уходила запись «Пересорт отменён». Ошибку теперь разбираем: без
+    // успешного перехода ни события, ни счётчика.
+    const { error } = await input.admin
+      .from("inventory_result_resorts")
+      .update({
+        status: RESORT_STATUS.voided,
+        void_reason: reason,
+        voided_at: new Date().toISOString(),
+      })
+      .eq("id", resortId)
+      .eq("account_id", input.accountId);
+    if (error) {
+      console.error("[recalculateActiveResorts] не удалось аннулировать пересорт", {
+        resortId,
+        documentId: input.documentId,
+        error,
+      });
+      return;
+    }
+    await input.admin.from("inventory_result_events").insert({
+      account_id: input.accountId,
+      document_id: input.documentId,
+      resort_id: resortId,
+      event_type: "resort_voided",
+      message: reason,
+      payload: { auto: true },
+      created_by: null,
+    });
+    voided += 1;
+  };
+
+  for (const resort of resorts) {
+    const rows = resortItems.filter((row) => row.resort_id === resort.id);
+    // Пересорт, потерявший позицию, аннулирует триггер БД
+    // inventory_result_resort_items_orphan_guard (миграция 226) — прикладной
+    // копии этой же проверки здесь больше нет: две реализации одного инварианта
+    // ровно так и расходятся. Сюда доходят только пересорты, у которых пара
+    // на месте, но свежие данные Quick Resto перестали складываться.
+    const pairs = rows.map((row) => ({ row, current: currentById.get(row.document_item_id) ?? null }));
+    if (rows.length < 2 || pairs.some((pair) => !pair.current)) continue;
+
+    const changed = pairs.some(({ row, current }) => {
+      const amountChanged =
+        Math.abs((num(current?.difference_amount) ?? 0) - (row.source_difference_amount ?? 0)) > 0.000001;
+      const sumChanged = Math.abs((num(current?.difference_sum) ?? 0) - (row.source_difference_sum ?? 0)) > 0.005;
+      return amountChanged || sumChanged;
+    });
+    if (!changed) continue;
+
+    try {
+      const allocation = calculateResortAllocation(
+        pairs.map(({ row, current }) => ({
+          id: row.document_item_id,
+          // Группа и единица уже проверены при создании пересорта: подставляем
+          // общий ключ, чтобы валидация calculateResortAllocation прошла на
+          // тех же самых строках.
+          groupId: resort.group_id ?? "resort-group",
+          measureUnitKey: resort.measure_unit_key ?? "resort-unit",
+          differenceAmount: num(current?.difference_amount),
+          differenceSum: num(current?.difference_sum),
+        })),
+      );
+
+      await input.admin
+        .from("inventory_result_resorts")
+        .update({
+          offset_amount: allocation.offsetAmount,
+          residual_shortfall_sum: allocation.residualShortfallSum,
+          residual_surplus_sum: allocation.residualSurplusSum,
+          cost_adjustment_sum: allocation.costAdjustmentSum,
+        })
+        .eq("id", resort.id)
+        .eq("account_id", input.accountId);
+
+      const rowByItemId = new Map(rows.map((row) => [row.document_item_id, row]));
+      for (const allocationItem of allocation.items) {
+        const row = rowByItemId.get(allocationItem.id);
+        if (!row) continue;
+        await input.admin
+          .from("inventory_result_resort_items")
+          .update({
+            role: allocationItem.role,
+            source_difference_amount: allocationItem.sourceDifferenceAmount,
+            source_difference_sum: allocationItem.sourceDifferenceSum,
+            offset_amount: allocationItem.offsetAmount,
+            remaining_difference_amount: allocationItem.remainingDifferenceAmount,
+            remaining_difference_sum: allocationItem.remainingDifferenceSum,
+          })
+          .eq("id", row.id)
+          .eq("account_id", input.accountId);
+      }
+
+      await input.admin.from("inventory_result_events").insert({
+        account_id: input.accountId,
+        document_id: input.documentId,
+        resort_id: resort.id,
+        event_type: "resort_recalculated",
+        message: "Пересорт пересчитан: данные Quick Resto изменились",
+        payload: {
+          auto: true,
+          offsetAmount: allocation.offsetAmount,
+          costAdjustmentSum: allocation.costAdjustmentSum,
+        },
+        created_by: null,
+      });
+      recalculated += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "пересорт больше не складывается";
+      await voidResort(resort.id, `Пересорт отменён: ${message}`);
+    }
+  }
+
+  if (recalculated > 0 || voided > 0) {
+    console.info(
+      `[recalculateActiveResorts] doc ${input.documentId}: пересчитано ${recalculated}, аннулировано ${voided}`,
+    );
+  }
+  return { recalculated, voided };
+}
+
+/**
+ * Порог «ответ Quick Resto выглядит обрезанным»: столько строк должно
+ * пропасть, чтобы мы заподозрили сбой выгрузки, а не решение человека.
+ * Работает вместе с условием «больше половины акта» (см. syncDocumentItems).
+ */
+const STALE_DELETE_MIN_ROWS = 5;
+
 export async function syncDocumentItems(input: {
   admin: LooseDb;
   accountId: string;
@@ -773,6 +918,8 @@ export async function syncDocumentItems(input: {
   submittedAmounts?: Map<string, number | null>;
 }) {
   let resultsFound = false;
+  let preservedResultLines = 0;
+  let skippedStaleDeletion = 0;
   const { data: exclusionRulesRaw } = await input.admin
     .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
     .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
@@ -789,57 +936,106 @@ export async function syncDocumentItems(input: {
       .map((rule) => [rule.external_product_id as string, rule]),
   );
 
-  // Существующее состояние исключений по строкам акта. Нужно по двум причинам:
+  // Существующее состояние строк акта. Нужно по трём причинам:
   // 1) сохранить РУЧНЫЕ исключения (excluded_from_totals без exclusion-rule),
   //    чтобы sync их не сбрасывал;
   // 2) НЕ слать NULL в excluded_from_totals. supabase-js upsert при разнородном
   //    батче (одни строки задают колонку, другие — нет) подставляет остальным
   //    NULL, а не DEFAULT → NOT NULL violation в актах с исключёнными позициями.
   //    Поэтому 4 поля исключения задаём явно на КАЖДОЙ строке.
-  const { data: existingExclusionRows } = await input.admin
+  // 3) сохранить введённые исполнителем количества (submitted_amount) для строк,
+  //    которых нет в `submittedAmounts` текущего вызова. Раньше им писался NULL,
+  //    и «Обновить итоги из Quick Resto» (вызывает нас без submittedAmounts)
+  //    стирал введённые количества по всему акту — прод, СВ340, 300 строк.
+  const { data: existingItemRows } = await input.admin
     .from<
       Array<{
+        id: string;
         external_item_id: string;
+        submitted_amount: number | null;
+        calculated_amount: number | null;
+        difference_amount: number | null;
+        prime_cost: number | null;
+        difference_sum: number | null;
         excluded_from_totals: boolean | null;
         exclude_reason: string | null;
         excluded_by: string | null;
         excluded_at: string | null;
+        exclusion_rule_id: string | null;
+        exclusion_rule_dismissed_at: string | null;
       }>
     >("document_items")
-    .select("external_item_id, excluded_from_totals, exclude_reason, excluded_by, excluded_at")
+    .select(
+      "id, external_item_id, submitted_amount, calculated_amount, difference_amount, prime_cost, difference_sum, excluded_from_totals, exclude_reason, excluded_by, excluded_at, exclusion_rule_id, exclusion_rule_dismissed_at",
+    )
     .eq("document_id", input.documentId);
-  const existingExclusionByItemId = new Map(
-    (existingExclusionRows ?? []).map((row) => [row.external_item_id, row]),
+  const existingItemByItemId = new Map(
+    (existingItemRows ?? []).map((row) => [row.external_item_id, row]),
   );
+
+  // Строки в активном пересорте импорт не трогает правилами автоисключения.
+  // Ручные пути такой гард имеют (actions.ts: «Строку в активном пересорте
+  // нельзя исключить»), импорт — нет: правило, заведённое в другом акте,
+  // выбивало строку из итогов, при этом корректировка себестоимости пересорта
+  // продолжала вычитаться, и остаток недостачи просто пропадал.
+  const activeResortItemIds = await getActiveResortItemIds({
+    admin: input.admin,
+    accountId: input.accountId,
+    documentId: input.documentId,
+  });
 
   const rows = input.items.map((item, index) => {
     const productId = externalProductId(item);
-    const localProduct = productId ? input.productByExternalId.get(productId) : null;
+    // Ключ — пара «вид + id»: в Quick Resto идентификаторы уникальны только
+    // внутри класса, и по голому id строка акта на блюдо однажды связалась бы
+    // с ингредиентом, у которого тот же номер.
+    const localProduct = productId
+      ? input.productByExternalId.get(catalogKey(nomenclatureKind(item), productId)) ?? null
+      : null;
     const exclusionRule =
       (localProduct?.id ? exclusionRuleByProductId.get(localProduct.id) : null) ??
       (productId ? exclusionRuleByExternalProductId.get(productId) : null);
     const product = item.product ?? {};
     const result = extractLineResult(item);
-    if (result.hasResult) resultsFound = true;
     const itemExternalId = externalItemId(item, index);
 
-    // Поля исключения — явно на каждой строке (см. existingExclusionByItemId).
+    // Поля исключения — явно на каждой строке (см. existingItemByItemId).
     // Правило (если есть) приоритетнее; иначе сохраняем ручное исключение;
     // иначе дефолт (не исключено).
-    const existingExclusion = existingExclusionByItemId.get(itemExternalId);
-    const exclusion = exclusionRule
-      ? {
-          excluded_from_totals: true,
-          exclude_reason: exclusionRule.reason,
-          excluded_by: exclusionRule.created_by,
-          excluded_at: exclusionRule.created_at,
-        }
-      : {
-          excluded_from_totals: existingExclusion?.excluded_from_totals ?? false,
-          exclude_reason: existingExclusion?.exclude_reason ?? null,
-          excluded_by: existingExclusion?.excluded_by ?? null,
-          excluded_at: existingExclusion?.excluded_at ?? null,
-        };
+    const existingItem = existingItemByItemId.get(itemExternalId);
+    const inActiveResort = existingItem ? activeResortItemIds.has(existingItem.id) : false;
+    // Пустой ответ QR не должен затирать уже посчитанные итоги (см.
+    // resolveLineResult): backoffice периодически отваливается, и импорт
+    // сваливается на public-payload без расчётных полей.
+    const lineResult = resolveLineResult({
+      incoming: result,
+      existing: existingItem
+        ? {
+            calculatedAmount: existingItem.calculated_amount,
+            differenceAmount: existingItem.difference_amount,
+            primeCost: existingItem.prime_cost,
+            differenceSum: existingItem.difference_sum,
+          }
+        : null,
+    });
+    if (result.hasResult || lineResult.preserved) resultsFound = true;
+    if (lineResult.preserved) preservedResultLines += 1;
+    // Правило автоисключения применяем, только если проверяющий не отменил его
+    // в этом акте (см. resolveExclusionState). Раньше правило перебивало ручное
+    // «Учитывать в этом акте» на ближайшем же импорте — молча, без записи в
+    // журнале.
+    const exclusion = resolveExclusionState({
+      rule: exclusionRule
+        ? {
+            id: exclusionRule.id,
+            reason: exclusionRule.reason,
+            created_by: exclusionRule.created_by,
+            created_at: exclusionRule.created_at,
+          }
+        : null,
+      inActiveResort,
+      existing: existingItem ?? null,
+    });
 
     return {
       account_id: input.accountId,
@@ -856,16 +1052,17 @@ export async function syncDocumentItems(input: {
       measure_unit_id: typeof item.measureUnit?.id === "number" ? item.measureUnit.id : null,
       measure_unit_name: text(item.measureUnitName) ?? text(item.measureUnit?.name) ?? text(item.measureUnit?.title),
       actual_amount: num(item.actualAmount),
-      submitted_amount: input.submittedAmounts?.has(itemExternalId)
-        ? input.submittedAmounts.get(itemExternalId)
-        : null,
-      calculated_amount: result.calculatedAmount,
-      difference_amount: result.differenceAmount,
-      prime_cost: result.primeCost,
-      difference_sum: result.differenceSum,
+      submitted_amount: resolveSubmittedAmount({
+        externalItemId: itemExternalId,
+        submittedAmounts: input.submittedAmounts,
+        existingAmount: existingItem?.submitted_amount ?? null,
+      }),
+      calculated_amount: lineResult.values.calculatedAmount,
+      difference_amount: lineResult.values.differenceAmount,
+      prime_cost: lineResult.values.primeCost,
+      difference_sum: lineResult.values.differenceSum,
       sort_order: index,
       raw_payload: item,
-      result_payload: result.hasResult ? item : {},
       ...exclusion,
     };
   });
@@ -881,10 +1078,25 @@ export async function syncDocumentItems(input: {
       .from<Array<{ external_item_id: string }>>("document_items")
       .select("external_item_id")
       .eq("document_id", input.documentId);
+    const existingCount = (existingRows ?? []).length;
     const staleExternalIds = (existingRows ?? [])
       .map((row) => row.external_item_id)
       .filter((externalId) => !keepExternalIds.has(externalId));
-    if (staleExternalIds.length > 0) {
+    // Защита от ЧАСТИЧНОГО ответа Quick Resto. От полностью пустого мы уже
+    // защищены (ветка else ниже), но backoffice умеет отдавать и обрезанную
+    // страницу — тогда «пропавшие» строки удалялись бы вместе со снимком
+    // итогов (finalized_*) и половинами пересортов, каскадом и безвозвратно.
+    // Разовое удаление пары позиций — нормальная работа; исчезновение больше
+    // половины акта — почти наверняка сбой выгрузки, а не решение человека.
+    const looksTruncated =
+      staleExternalIds.length >= STALE_DELETE_MIN_ROWS &&
+      staleExternalIds.length > existingCount / 2;
+    if (looksTruncated) {
+      console.warn(
+        `[syncDocumentItems] doc ${input.documentId}: Quick Resto не вернул ${staleExternalIds.length} из ${existingCount} строк — удаление пропущено, строки сохранены`,
+      );
+      skippedStaleDeletion = staleExternalIds.length;
+    } else if (staleExternalIds.length > 0) {
       await input.admin
         .from("document_items")
         .delete()
@@ -892,10 +1104,82 @@ export async function syncDocumentItems(input: {
         .in("external_item_id", staleExternalIds);
     }
   } else {
-    await input.admin.from("document_items").delete().eq("document_id", input.documentId);
+    // Пустой ответ Quick Resto — НЕ повод удалять акт по строкам. Backoffice
+    // на проде умеет отдавать 0 позиций по живому акту (акт CB303, см.
+    // диагностику в syncQuickRestoInventory), а public-payload у проведённого
+    // акта тоже бывает без items. Раньше здесь стоял безусловный DELETE: один
+    // клик «Обновить итоги» в такой момент сносил введённые количества,
+    // комментарии, исключения и каскадом — позиции пересортов.
+    // Удаляем только если строк не было и раньше (нечего терять).
+    const { data: existingRows } = await input.admin
+      .from<Array<{ id: string }>>("document_items")
+      .select("id")
+      .eq("document_id", input.documentId);
+    const existingCount = (existingRows ?? []).length;
+    if (existingCount > 0) {
+      console.warn(
+        `[syncDocumentItems] doc ${input.documentId}: Quick Resto вернул 0 позиций, в базе ${existingCount} — строки сохранены, импорт пропущен`,
+      );
+      return {
+        count: 0,
+        resultsFound: false,
+        skippedEmptyPayload: true,
+        preservedResultLines: 0,
+        skippedStaleDeletion: 0,
+      };
+    }
   }
 
-  return { count: rows.length, resultsFound };
+  // Пересорты считались по старым difference_* — приводим их к свежим данным.
+  // Сбой пересчёта не должен ронять импорт: строки уже сохранены, а пересорт
+  // в худшем случае останется со старыми суммами (как было до этой правки).
+  try {
+    await recalculateActiveResorts({
+      admin: input.admin,
+      accountId: input.accountId,
+      documentId: input.documentId,
+    });
+  } catch (error) {
+    console.error(`[syncDocumentItems] пересчёт пересортов не удался (doc ${input.documentId}):`, error);
+  }
+
+  if (preservedResultLines > 0) {
+    console.warn(
+      `[syncDocumentItems] doc ${input.documentId}: Quick Resto не прислал расчёты по ${preservedResultLines} строкам — оставили прежние значения`,
+    );
+  }
+
+  return {
+    count: rows.length,
+    resultsFound,
+    skippedEmptyPayload: false,
+    preservedResultLines,
+    skippedStaleDeletion,
+  };
+}
+
+/**
+ * Суммы акта из Quick Resto для записи в documents (миграция 225).
+ *
+ * QR заполняет shortfallSum/surplusSum документа ТОЛЬКО у проведённого акта —
+ * у непроведённого он отдаёт нули. Записать эти нули нельзя: карточка акта
+ * показывает строку «Quick Resto при проведении: …» по наличию значения, и
+ * нетронутый акт рисовал бы итог проводки, которой не было. Поэтому у
+ * непроведённого акта явно пишем null (заодно снимая устаревшие значения,
+ * если акт распровели).
+ */
+export function quickRestoDocumentSums(document: {
+  processed?: boolean;
+  shortfallSum?: number;
+  surplusSum?: number;
+}): { qr_shortfall_sum: number | null; qr_surplus_sum: number | null } {
+  if (!document.processed) {
+    return { qr_shortfall_sum: null, qr_surplus_sum: null };
+  }
+  return {
+    qr_shortfall_sum: num(document.shortfallSum),
+    qr_surplus_sum: num(document.surplusSum),
+  };
 }
 
 export async function refreshLocalInventoryDocumentFromPayload(input: {
@@ -907,12 +1191,24 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
   submittedAmounts?: Map<string, number | null>;
 }) {
   const itemsPreview = inventoryDocumentItems(input.document);
+  // Текущий статус нужен, чтобы импорт не двигал акт по статусной машине
+  // (см. resolveStatusAfterImport): раньше он вышибал исполнителя из формы
+  // посреди пересчёта.
+  const { data: currentDoc } = await input.admin
+    .from<{ status: string }>("documents")
+    .select("status")
+    .eq("id", input.documentId)
+    .eq("account_id", input.accountId)
+    .maybeSingle();
   const productRows = await input.admin
     .from<InventoryProductLookup[]>("ingredients")
-    .select("id, external_id, article, barcode")
+    .select("id, external_id, article, barcode, kind")
     .eq("account_id", input.accountId);
   const productByExternalId = new Map(
-    ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [String(row.external_id), row])
+    ((productRows.data ?? []) as InventoryProductLookup[]).map((row) => [
+      catalogKey(row.kind ?? "ingredient", String(row.external_id)),
+      row,
+    ])
   );
   const syncResult = await syncDocumentItems({
     admin: input.admin,
@@ -924,11 +1220,18 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
   });
   const status =
     input.status ??
-    (input.document.processed
-      ? "processed"
-      : syncResult.resultsFound
-        ? "ready_for_review"
-        : "results_blocked");
+    resolveStatusAfterImport({
+      current: currentDoc?.status ?? "synced",
+      processed: Boolean(input.document.processed),
+      resultsFound: syncResult.resultsFound,
+    });
+
+  if (syncResult.skippedEmptyPayload) {
+    // Строки сохранены (см. syncDocumentItems), метаданные акта тоже не трогаем:
+    // на пустом ответе QR нам нечем их уточнить, а results_has_line_amounts=false
+    // спрятал бы уже посчитанные итоги.
+    return syncResult;
+  }
 
   const { error } = await input.admin
     .from("documents")
@@ -937,10 +1240,8 @@ export async function refreshLocalInventoryDocumentFromPayload(input: {
       processed: Boolean(input.document.processed),
       base_last_update_date: dateText(input.document.lastUpdateDate),
       last_qr_update_date: dateText(input.document.lastUpdateDate),
-      shortfall_sum: num(input.document.shortfallSum),
-      surplus_sum: num(input.document.surplusSum),
+      ...quickRestoDocumentSums(input.document),
       results_has_line_amounts: syncResult.resultsFound,
-      qr_payload: input.document,
       synced_at: new Date().toISOString(),
     })
     .eq("id", input.documentId)
@@ -976,12 +1277,89 @@ export function resultItemMeasureKey(item: InventoryResultItemRow) {
   return `name:${item.measure_unit_name ?? ""}`;
 }
 
+/**
+ * Виден ли акт пользователю — проверяем ЕГО клиентом, под RLS.
+ *
+ * Все мутации модуля идут под service_role (admin-клиент), который RLS
+ * обходит: миграция 219 сознательно отозвала write-гранты у authenticated.
+ * Значит, единственная граница доступа — проверка в самом экшене, а её не
+ * было: зная uuid, менеджер одного заведения правил, возвращал на пересчёт и
+ * проводил акты чужого заведения того же аккаунта.
+ *
+ * Проверку не дублируем предикатом в коде, а переиспользуем политику
+ * documents_select (миграция 210): она уже описывает и активное заведение, и
+ * исключения для исполнителя и проверяющего. Не видишь акт — не действуешь.
+ */
+export async function assertDocumentVisible(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  documentId: string;
+}) {
+  const { data } = await asLooseDb(input.supabase)
+    .from<{ id: string }>("documents")
+    .select("id")
+    .eq("id", input.documentId)
+    .maybeSingle();
+  if (!data?.id) throw new Error("Акт не найден");
+}
+
+/**
+ * Отфильтровать список актов до тех, что пользователь реально видит.
+ * Массовый аналог assertDocumentVisible — одним запросом под RLS, чтобы
+ * bulk-экшены не доверяли массиву id с клиента.
+ */
+export async function filterVisibleDocumentIds(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  documentIds: string[];
+}): Promise<Set<string>> {
+  if (input.documentIds.length === 0) return new Set();
+  const { data } = await asLooseDb(input.supabase)
+    .from<Array<{ id: string }>>("documents")
+    .select("id")
+    .in("id", input.documentIds);
+  return new Set((data ?? []).map((row) => row.id));
+}
+
+/**
+ * Подобрать активное правило автоисключения под позицию — тем же способом,
+ * каким это делает импорт: сперва по ингредиенту, затем по внешнему id позиции.
+ *
+ * Нужен там, где решение принимает человек: «Учитывать в этом акте» обязано
+ * отменить ДЕЙСТВУЮЩЕЕ правило, а не только то, что записано в строке. Ручное
+ * исключение сбрасывает происхождение (за строку теперь отвечает человек),
+ * поэтому по одному лишь exclusion_rule_id действующее правило не найти —
+ * и импорт применил бы его заново.
+ */
+export async function loadActiveExclusionRuleMatcher(input: {
+  admin: LooseDb;
+  accountId: string;
+}): Promise<(item: { ingredient_id: string | null; external_product_id: string | null }) => InventoryExclusionRuleLookup | null> {
+  const { data } = await input.admin
+    .from<InventoryExclusionRuleLookup[]>("inventory_result_exclusion_rules")
+    .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
+    .eq("account_id", input.accountId)
+    .eq("status", "active");
+  const rules = data ?? [];
+  const byIngredient = new Map(
+    rules.filter((rule) => rule.ingredient_id).map((rule) => [rule.ingredient_id as string, rule]),
+  );
+  const byExternalId = new Map(
+    rules
+      .filter((rule) => !rule.ingredient_id && rule.external_product_id)
+      .map((rule) => [rule.external_product_id as string, rule]),
+  );
+  return (item) =>
+    (item.ingredient_id ? byIngredient.get(item.ingredient_id) ?? null : null) ??
+    (item.external_product_id ? byExternalId.get(item.external_product_id) ?? null : null);
+}
+
 export async function getResultDocumentForAction(input: {
   admin: LooseDb;
+  supabase: Awaited<ReturnType<typeof createClient>>;
   accountId: string;
   documentId: string;
   requireOpen?: boolean;
 }) {
+  await assertDocumentVisible({ supabase: input.supabase, documentId: input.documentId });
   const { data: document } = await input.admin
     .from<InventoryResultDocumentRow>("documents")
     .select(
@@ -999,6 +1377,15 @@ export async function getResultDocumentForAction(input: {
     throw new Error("Этот акт удалён в Quick Resto и недоступен для изменений.");
   }
   if (input.requireOpen) {
+    // До сдачи акта итогов не существует: разница из Quick Resto равна минус
+    // складскому остатку, потому что факт ещё нулевой. Любые действия по итогам
+    // (отметить на пересчёт, исключить, свести пересорт) в этот момент
+    // бессмысленны — гейтим их так же, как страницу итогов.
+    if (!hasCountedResults(document.status)) {
+      throw new Error(
+        "Подсчёт ещё не завершён — работать с итогами можно после того, как исполнитель сдаст акт.",
+      );
+    }
     // Инструменты ревьюера закрыты при пересчёте (анти-подгонка) /
     // финализации / проведении — единый источник предиката и текста.
     const lockReason = getInventoryResultAdjustLockReason(document);
@@ -1038,6 +1425,49 @@ export async function writeInventoryResultEvent(input: {
   });
 }
 
+/**
+ * Батч-запись событий журнала для массовых действий.
+ *
+ * writeInternalResultEvent на строку давал два round-trip'а на позицию (запись
+ * в журнал + log_audit), то есть 600 запросов на акт в 300 позиций. Здесь
+ * журнальные записи уходят одним insert'ом, а в аудит пишется ОДНА строка на всё
+ * действие — он и так документного уровня (entity = inventory_document), и
+ * триста одинаковых записей про один акт были чистым шумом.
+ */
+export async function writeInventoryResultEvents(input: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  admin: LooseDb;
+  accountId: string;
+  userId: string;
+  documentId: string;
+  eventType: string;
+  events: Array<{ documentItemId?: string | null; resortId?: string | null; message: string; payload?: Record<string, unknown> }>;
+  auditPayload?: Record<string, unknown>;
+}) {
+  if (input.events.length === 0) return;
+  for (const chunk of catalogChunks(input.events)) {
+    const { error } = await input.admin.from("inventory_result_events").insert(
+      chunk.map((event) => ({
+        account_id: input.accountId,
+        document_id: input.documentId,
+        document_item_id: event.documentItemId ?? null,
+        resort_id: event.resortId ?? null,
+        event_type: input.eventType,
+        message: event.message,
+        payload: event.payload ?? {},
+        created_by: input.userId,
+      })),
+    );
+    if (error) throw new Error(error.message);
+  }
+  await input.supabase.rpc("log_audit", {
+    p_action_code: `inventory.${input.eventType}`,
+    p_entity_type: "inventory_document",
+    p_entity_id: input.documentId,
+    p_details: (input.auditPayload ?? { bulk: true, count: input.events.length }) as never,
+  });
+}
+
 export async function getActiveResortItemIds(input: {
   admin: LooseDb;
   accountId: string;
@@ -1049,7 +1479,7 @@ export async function getActiveResortItemIds(input: {
     .select("id")
     .eq("account_id", input.accountId)
     .eq("document_id", input.documentId)
-    .eq("status", "active");
+    .eq("status", RESORT_STATUS.active);
   const resortIds = (activeResorts ?? []).map((row) => row.id);
   if (resortIds.length === 0) return new Set<string>();
 
@@ -1123,4 +1553,40 @@ export function revalidateInventoryResultPages(documentId: string) {
   revalidatePath("/documents/inventory");
   revalidatePath(`/documents/inventory/${documentId}`);
   revalidatePath(`/documents/inventory/${documentId}/results`);
+}
+
+/**
+ * Best-effort уведомление по событию акта инвентаризации. Зеркалит паттерн
+ * assignInventoryDocument: ошибка не валит основной flow. Не шлёт самому
+ * себе и при пустом получателе (например, reviewer_id ещё не задан).
+ */
+export async function notifyInventoryDocumentEvent(input: {
+  admin: LooseDb;
+  recipientId: string | null;
+  actorId: string | null;
+  venueId: string | null;
+  documentId: string;
+  type: string;
+  title: string;
+  body: string;
+}): Promise<void> {
+  if (!input.recipientId) return;
+  if (input.recipientId === input.actorId) return;
+  try {
+    const { error } = await input.admin.from("notifications").insert({
+      user_id: input.recipientId,
+      venue_id: input.venueId,
+      type: input.type,
+      category: "inventory",
+      title: input.title,
+      body: input.body,
+      link: `/documents/inventory/${input.documentId}`,
+      actor_user_id: input.actorId,
+      entity_type: "inventory_document",
+      entity_id: input.documentId,
+    });
+    if (error) console.error(`[inventory notify ${input.type}] insert error:`, error);
+  } catch (e) {
+    console.error(`[inventory notify ${input.type}] threw:`, e);
+  }
 }

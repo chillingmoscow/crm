@@ -5,7 +5,11 @@ import { revalidatePath } from "next/cache";
 import { normalizeAmountRoundingScale } from "@/lib/format/amount";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 
 export async function updateGeneralSettings(formData: FormData) {
   const supabase = await createClient();
@@ -14,10 +18,11 @@ export async function updateGeneralSettings(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Не авторизован");
 
-  const [{ data: accountId }, { data: allowed }] = await Promise.all([
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("has_permission", { permission_code: "settings.manage_integrations" }),
+  const [accountId, can] = await Promise.all([
+    getCachedActiveAccountId(),
+    getCachedPermissionChecker(),
   ]);
+  const allowed = can("settings.manage_integrations");
   if (!accountId) throw new Error("Не удалось определить активный аккаунт");
   if (!allowed) throw new Error("Недостаточно прав");
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   type ColumnDef,
@@ -10,12 +11,14 @@ import {
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
   Ban,
   Check,
   CheckCircle2,
+  ChevronRight,
   Loader2,
   Lock,
   MessageSquare,
@@ -31,23 +34,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import {
-  bulkCreateInventoryResultExclusionRules,
-  bulkSetInventoryResultItemsExcluded,
-  bulkSetRecountFlag,
-  createInventoryResultExclusionRule,
-  createInventoryResultResort,
-  deleteInventoryResultExclusionRule,
-  dismissInventoryResortSuggestion,
-  finalizeInventoryResults,
-  getAiResortSuggestions,
-  reopenInventoryResults,
-  returnDocumentForRecount,
-  setInventoryResultItemExcluded,
-  setRecountFlag,
-  updateInventoryResultComment,
-  voidInventoryResultResort,
-} from "@/app/(dashboard)/inventory/actions";
+import { bulkCreateInventoryResultExclusionRules, bulkSetInventoryResultItemsExcluded, createInventoryResultExclusionRule, deleteInventoryResultExclusionRule, setInventoryResultItemExcluded } from "@/app/(dashboard)/inventory/_actions/exclusions";
+import { bulkSetRecountFlag, setRecountFlag } from "@/app/(dashboard)/inventory/_actions/recount";
+import { createInventoryResultResort, dismissInventoryResortSuggestion, getAiResortSuggestions, voidInventoryResultResort } from "@/app/(dashboard)/inventory/_actions/resort";
+import { finalizeInventoryResults, reopenInventoryResults, updateInventoryResultComment } from "@/app/(dashboard)/inventory/_actions/results";
 import {
   calculateManagementTotals,
   type InventoryResortAllocationItem,
@@ -55,20 +45,18 @@ import {
 import type { ResortSuggestion } from "@/lib/inventory/resort-suggestions";
 import {
   COLUMN_TO_RESULT_FIELD,
+  RESULT_SORT_CODEC,
   RESULT_COLUMNS,
   RESULT_RECOUNT_LABEL,
   RESULT_SORT_FIELD_LABEL,
   RESULT_STATUS_LABEL,
   RESULTS_TABLE_ID,
-  combineResultSort,
-  differenceClass,
   hasDifference,
   isOpenDifference,
   resultSortToDirection,
   resultSortToField,
   type ResultColumnKey,
   type ResultRecountFilter,
-  type ResultSortField,
   type ResultSortMode,
   type ResultStatusFilter,
 } from "./results-table-utils";
@@ -81,9 +69,10 @@ import {
   ResultStatusPicker,
 } from "./results-table-controls";
 import {
-  formatAmount,
   formatMoney,
   formatSignedMoney,
+  formatInventoryQuantity as formatQuantity,
+  signedAmountClass,
   type AmountRoundingScale,
 } from "@/lib/format/amount";
 import { pluralRu } from "@/lib/format/plural";
@@ -121,10 +110,15 @@ import {
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
+  ResizableTableHead,
+  useMultiSort,
 } from "@/components/shared/table";
 import { cn } from "@/lib/utils";
 import { IngredientOverviewSheet } from "./ingredient-overview-sheet";
+import { IngredientHistoryHoverCard } from "./ingredient-history-hover-card";
+import type { IngredientHistoryEntry } from "@/lib/inventory/ingredients";
 import { RefreshResultsButton } from "./refresh-results-button";
+import { RecountSplitDialog } from "./recount-split-dialog";
 
 export type InventoryDocumentResultItem = {
   id: string;
@@ -145,6 +139,8 @@ export type InventoryDocumentResultItem = {
   group_id: string | null;
   group_name: string | null;
   exclusion_rule_id: string | null;
+  /** Строка исключена именно правилом, а не вручную (миграция 231). */
+  excluded_by_rule?: boolean;
   exclusion_rule_reason: string | null;
   needs_recount: boolean | null;
   recount_auto_flagged: boolean | null;
@@ -152,6 +148,8 @@ export type InventoryDocumentResultItem = {
   /** Факт на момент последней отправки на пересчёт (снимок «было»).
       Не null → строка была на пересчёте (постоянная пометка). */
   recount_previous_amount: number | null;
+  /** Исключение из итогов на момент фиксации (миграция 227). */
+  finalized_excluded_from_totals?: boolean | null;
 };
 
 export type InventoryResultResortRow = {
@@ -165,9 +163,17 @@ export type InventoryResultResortRow = {
   /** Корректировка себестоимости (миграция 205). Управленческий
       убыток на разнице цен покрытия пересорта. >= 0. */
   cost_adjustment_sum: number | null;
-  suggestion_source: string | null;
   created_at: string;
   void_reason: string | null;
+  /** Снимок пересорта на момент подведения итогов (миграция 227). У
+      зафиксированного акта страница подставляет эти значения в поля выше —
+      см. applyResortSnapshot. */
+  finalized_at?: string | null;
+  finalized_status?: string | null;
+  finalized_offset_amount?: number | null;
+  finalized_residual_shortfall_sum?: number | null;
+  finalized_residual_surplus_sum?: number | null;
+  finalized_cost_adjustment_sum?: number | null;
 };
 
 export type InventoryResultResortItemRow = InventoryResortAllocationItem & {
@@ -200,40 +206,112 @@ type Props = {
   suggestions: InventoryResortSuggestion[];
   amountRoundingScale: AmountRoundingScale;
   isFinalized: boolean;
+  /** Когда сняли снимок построчных итогов (миграция 221). Не null → в таблице
+      зафиксированные числа, а не живые из Quick Resto. */
+  resultsSnapshotAt: string | null;
+  /** Дата акта (ISO) — для развилки «пересчёт сегодня / другим днём». */
+  documentInvoiceDate: string | null;
+  /** Акты пересчёта, в которые вынесены позиции этого акта. */
+  recountSplits: Array<{
+    documentId: string;
+    documentNumber: string;
+    invoiceDate: string | null;
+    status: string;
+    itemCount: number;
+  }>;
   /** Read-only: финализирован ИЛИ проведён в QR и не разблокирован. */
   isLocked: boolean;
   canComment: boolean;
   canAdjust: boolean;
   canFinalize: boolean;
   canRecount: boolean;
-  /** inventory.view_results — держатель права может «Обновить итоги»
-      (перечитать из QR). Назначенный исполнитель, просто смотрящий проведённый
-      акт, этого права не имеет → кнопка ему не показывается (read-only). */
-  canRefreshResults: boolean;
+  /** inventory.view_results. Даёт «Обновить итоги» (перечитать из QR) и историю
+      позиции по прошлым актам. Назначенный исполнитель, которого пускают на
+      проведённый акт в порядке исключения, права не имеет: ему и кнопка, и
+      история недоступны — исключение узкое и на один документ. */
+  canViewResults: boolean;
   /** inventory.view_products — нужно, чтобы открыть карточку ингредиента
       из «Итогов» (та же граница, что у каталога). */
   canViewProducts: boolean;
   aiSuggestionsEnabled: boolean;
   documentStatus: string;
+  /** Акт с зафиксированными итогами распровели в Quick Resto (миграция 224). */
+  qrUnprocessedAt: string | null;
+  /** Суммы, которые сам Quick Resto записал в акт при проведении (миграция 225).
+      До проведения QR отдаёт нули, поэтому здесь null. */
+  qrShortfallSum: number | null;
+  qrSurplusSum: number | null;
 };
 
-// Количество в Итогах показываем точнее, чем деньги: денежная шкала
-// (amountRoundingScale, по умолчанию десятые) скрывала бы сотые, введённые
-// исполнителем, — план и факт «сходились» визуально при ненулевой разнице в
-// управленческой сумме. Поэтому количества — до 3 знаков (целые без «,0»,
-// хвостовые нули обрезаются). Деньги (Сумма/итоги) остаются на шкале аккаунта.
-const RESULT_QUANTITY_MAX_FRACTION = 3;
+// Две суммы в тайлах — РАЗНЫЕ величины, и раньше подписи это скрывали («По QR»
+// против «К списанию» читалось как «столько насчитал QR» / «столько спишем»).
+// На деле исключения из итогов и пересорты — управленческая надстройка: в
+// Quick Resto проводится полная разница по строкам, независимо от них.
+const QR_TILE_HINT =
+  "Полная разница по строкам — ровно она проводится в Quick Resto. Исключения из итогов и пересорты на неё не влияют.";
+const MANAGEMENT_TILE_HINT =
+  "Наша оценка: с учётом исключённых строк и пересортов. Остаётся внутри CRM, в Quick Resto не уходит.";
 
-function formatQuantity(
-  value: number | null | undefined,
-  measureUnitName: string | null | undefined,
-) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "—";
-  const formatted = new Intl.NumberFormat("ru-RU", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: RESULT_QUANTITY_MAX_FRACTION,
-  }).format(value);
-  return `${formatted} ${measureUnitName ?? "ед."}`;
+/**
+ * Уверенность предложения пересорта — полукруглой шкалой.
+ *
+ * Дуга вместо полоски: значение читается по заполненности сектора, а число
+ * стоит внутри неё, а не отдельной строкой ниже. На карточке высотой в три
+ * строки это экономит вертикаль и даёт один якорь для взгляда вместо двух.
+ *
+ * Геометрия в единицах viewBox: полуокружность радиусом 16 от (4,20) до
+ * (36,20). Длина дуги = πr, ею же задаём dasharray/dashoffset — так процент
+ * отображается ровно долей дуги, без тригонометрии.
+ *
+ * Цвета — токенами (stroke-border / stroke-brand), поэтому тёмная тема
+ * получается сама. Дорожка именно border, а не muted: muted (240 5% 96%)
+ * почти неотличим от фона страницы (0 0% 98%), и незаполненная часть дуги
+ * пропадала — по шкале нельзя было понять, 70 это из 100 или из 80.
+ */
+function ConfidenceGauge({ percent }: { percent: number }) {
+  const value = Math.max(0, Math.min(100, Math.round(percent)));
+  const arcLength = Math.PI * 16;
+  const arc = "M 4 20 A 16 16 0 0 1 36 20";
+  return (
+    <svg
+      viewBox="0 0 40 22"
+      className="w-12 overflow-visible"
+      role="meter"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-label="Уверенность предложения"
+    >
+      <path d={arc} fill="none" strokeWidth="4" strokeLinecap="round" className="stroke-border" />
+      <path
+        d={arc}
+        fill="none"
+        strokeWidth="4"
+        strokeLinecap="round"
+        className="stroke-brand"
+        strokeDasharray={arcLength}
+        strokeDashoffset={arcLength * (1 - value / 100)}
+      />
+      <text
+        x="20"
+        y="20"
+        textAnchor="middle"
+        fontSize="10"
+        className="fill-foreground font-medium"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
+        {value}%
+      </text>
+    </svg>
+  );
+}
+
+// Пересчитанное значение совпало с прежним. Это законный исход («пересчитали,
+// значение подтвердилось»), но он должен читаться именно так: «было 3 → стало
+// 3» само по себе неотличимо от акта, где пересчёт не делали.
+function amountsMatch(left: number | null | undefined, right: number | null | undefined) {
+  if (typeof left !== "number" || typeof right !== "number") return false;
+  return Math.abs(left - right) < 0.000001;
 }
 
 export function InventoryResultsTable({
@@ -244,15 +322,21 @@ export function InventoryResultsTable({
   suggestions,
   amountRoundingScale,
   isFinalized,
+  resultsSnapshotAt,
+  documentInvoiceDate,
+  recountSplits,
   isLocked,
   canComment,
   canAdjust,
   canFinalize,
   canRecount,
-  canRefreshResults,
+  canViewResults,
   canViewProducts,
   aiSuggestionsEnabled,
   documentStatus,
+  qrUnprocessedAt,
+  qrShortfallSum,
+  qrSurplusSum,
 }: Props) {
   const [showDifferences, setShowDifferences] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -274,11 +358,15 @@ export function InventoryResultsTable({
   const [commentItem, setCommentItem] = useState<InventoryDocumentResultItem | null>(null);
   // Боковая панель «Обзор ингредиента» — открывается кликом по названию позиции.
   const [overviewIngredient, setOverviewIngredient] = useState<{ id: string; name: string } | null>(null);
+  // «Позиция → её прошлые акты». Живёт на всю таблицу: курсор гуляет по строкам
+  // туда-обратно, и без кэша каждый возврат стоил бы нового запроса.
+  const historyCache = useRef(new Map<string, IngredientHistoryEntry[]>());
   const [commentDraft, setCommentDraft] = useState("");
   const [deleteRuleItem, setDeleteRuleItem] = useState<InventoryDocumentResultItem | null>(null);
   const [deleteRuleReason, setDeleteRuleReason] = useState("");
   const [voidingResort, setVoidingResort] = useState<InventoryResultResortRow | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [confirmFinalize, setConfirmFinalize] = useState(false);
   const [isPending, startTransition] = useTransition();
   // ИИ-подсказки грузятся по кнопке (не блокируют открытие акта).
   const [aiSuggestions, setAiSuggestions] = useState<InventoryResortSuggestion[]>([]);
@@ -306,6 +394,20 @@ export function InventoryResultsTable({
     () => new Map(items.map((item) => [item.id, item.product_name])),
     [items],
   );
+  const itemUnitById = useMemo(
+    () => new Map(items.map((item) => [item.id, item.measure_unit_name])),
+    [items],
+  );
+  // Единица измерения пересорта — с любой его позиции: пересорт по построению
+  // сводит позиции ОДНОЙ единицы (calculateResortAllocation это проверяет).
+  const resortUnitByResortId = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const resortItem of resortItems) {
+      if (map.has(resortItem.resortId)) continue;
+      map.set(resortItem.resortId, itemUnitById.get(resortItem.documentItemId) ?? null);
+    }
+    return map;
+  }, [resortItems, itemUnitById]);
   const resortNamesByResortId = useMemo(() => {
     const map = new Map<string, { shortage: string[]; surplus: string[] }>();
     for (const resortItem of resortItems) {
@@ -343,6 +445,13 @@ export function InventoryResultsTable({
       }),
     [activeResortItemByItemId, activeResorts, items],
   );
+  // Что реально уйдёт в проводку (полная разница по строкам) против нашей
+  // управленческой оценки. Обе цифры показываем в подтверждении финализации:
+  // проверяющий не должен узнавать о разнице уже после проведения.
+  const qrNetSum = totals.qrSurplusSum + totals.qrShortfallSum;
+  const managementNetSum = totals.managementSurplusSum + totals.managementShortfallSum;
+  const finalizeSumsDiffer = Math.abs(qrNetSum - managementNetSum) > 0.005;
+  const hasQrDocumentSums = qrShortfallSum != null || qrSurplusSum != null;
   const mismatchCount = useMemo(
     () => items.filter((item) => isOpenDifference(item, activeResortItemByItemId.get(item.id))).length,
     [items, activeResortItemByItemId],
@@ -445,10 +554,26 @@ export function InventoryResultsTable({
     setRecountFilter("all");
     setSorts([]);
   };
+  // Массовые действия в итогах — это пометка на пересчёт и исключение из
+  // итогов; без соответствующих прав их панель не рендерится.
+  const canBulkAct = canAdjust || canRecount;
   const selectedItems = useMemo(
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds],
   );
+
+  // Фильтр или поиск скрыл строку — снимаем с неё выделение. Иначе массовое
+  // действие применялось к позициям, которых человек на экране не видит:
+  // «выбрать все» скоупится по видимым, а вот выделенное раньше оставалось.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(visibleItems.map((item) => item.id));
+      const next = new Set<string>();
+      for (const id of prev) if (visible.has(id)) next.add(id);
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleItems]);
 
   // Строки, которые вообще можно выбрать (тот же предикат, что в renderSelectCell):
   // не залочено редактирование, не исключено из итогов, нет активной пересортицы.
@@ -486,7 +611,10 @@ export function InventoryResultsTable({
 
   const runAction = useCallback(
     (
-      action: () => Promise<{ error: string | null }>,
+      // notice — когда экшен отработал не совсем так, как ожидал пользователь,
+      // и это стоит сказать словами (например: акт уже был проведён в Quick
+      // Resto, повторное проведение не потребовалось).
+      action: () => Promise<{ error: string | null; notice?: string }>,
       success: string,
       onSuccess?: () => void,
     ) => {
@@ -496,7 +624,7 @@ export function InventoryResultsTable({
           toast.error(result.error);
           return;
         }
-        toast.success(success);
+        toast.success(result.notice ?? success);
         setSelectedIds(new Set());
         onSuccess?.();
       });
@@ -538,43 +666,12 @@ export function InventoryResultsTable({
     });
   };
 
-  const cycleSort = (field: ResultSortField) => {
-    const index = sorts.findIndex((mode) => resultSortToField(mode) === field);
-    if (index < 0) {
-      setSorts([...sorts, combineResultSort(field, "asc")]);
-      return;
-    }
-    if (resultSortToDirection(sorts[index]) === "asc") {
-      const next = sorts.slice();
-      next[index] = combineResultSort(field, "desc");
-      setSorts(next);
-      return;
-    }
-    setSorts(sorts.filter((_, i) => i !== index));
-  };
-
-  const headerIndicator = (columnId: string) => {
-    const field = COLUMN_TO_RESULT_FIELD[columnId];
-    if (!field) return null;
-    const idx = sorts.findIndex((mode) => resultSortToField(mode) === field);
-    if (idx < 0) return null;
-    const dir = resultSortToDirection(sorts[idx]);
-    return (
-      <span className="inline-flex items-center gap-0.5">
-        {dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-        {sorts.length > 1 ? <span className="text-[10px] tabular-nums">{idx + 1}</span> : null}
-      </span>
-    );
-  };
-
-  // aria-sort для сортируемых заголовков (ascending/descending/none).
-  const headerAriaSort = (columnId: string): "ascending" | "descending" | "none" | undefined => {
-    const field = COLUMN_TO_RESULT_FIELD[columnId];
-    if (!field) return undefined;
-    const idx = sorts.findIndex((mode) => resultSortToField(mode) === field);
-    if (idx < 0) return "none";
-    return resultSortToDirection(sorts[idx]) === "asc" ? "ascending" : "descending";
-  };
+  const { cycleSort, headerIndicator, headerAriaSort, sortableColumnIds } = useMultiSort({
+    sorts,
+    onChange: setSorts,
+    columnToField: COLUMN_TO_RESULT_FIELD,
+    codec: RESULT_SORT_CODEC,
+  });
 
   const createResort = (itemIds: string[], reason?: string, source: "manual" | "history" | "ai" = "manual", confidence?: number) => {
     runAction(
@@ -605,6 +702,11 @@ export function InventoryResultsTable({
       () => setAiSuggestions((prev) => prev.filter((s) => s.key !== suggestion.key)),
     );
   };
+
+  // Какое обоснование раскрыто. Одно за раз: карточка-«очередь» должна
+  // оставаться сканируемой.
+  const [openReasonKey, setOpenReasonKey] = useState<string | null>(null);
+  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
 
   // История (props) + ИИ (по кнопке), дедуп по ключу.
   const displayedSuggestions = useMemo(() => {
@@ -658,14 +760,14 @@ export function InventoryResultsTable({
       }
       if (key === "difference") {
         return (
-          <span className={differenceClass(item.difference_amount)}>
+          <span className={signedAmountClass(item.difference_amount)}>
             {formatQuantity(item.difference_amount, item.measure_unit_name)}
           </span>
         );
       }
       if (key === "management") {
         return (
-          <span className={differenceClass(managementSum)}>
+          <span className={signedAmountClass(managementSum)}>
             {formatSignedMoney(managementSum, "RUB", amountRoundingScale)}
           </span>
         );
@@ -684,7 +786,7 @@ export function InventoryResultsTable({
               <div className="truncate text-xs font-medium">
                 {isExcluded ? "Не учитывать" : resortItem ? "Пересорт" : "Учитывать"}
               </div>
-              {item.exclusion_rule_id ? (
+              {item.excluded_by_rule ? (
                 <div className="text-[11px] text-muted-foreground">Авто</div>
               ) : null}
             </div>
@@ -695,42 +797,55 @@ export function InventoryResultsTable({
         const flagged = Boolean(item.needs_recount);
         const auto = Boolean(item.recount_auto_flagged);
         const wasRecounted = item.recount_previous_amount != null;
+        const recountUnchanged =
+          wasRecounted && amountsMatch(item.recount_previous_amount, item.actual_amount);
         return (
           <div className="flex flex-col gap-1" data-row-interactive>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={flagged}
-              disabled={!canRecount || adjustLocked || isPending}
-              onClick={() =>
-                runAction(
-                  () => setRecountFlag({ documentId, itemId: item.id, needsRecount: !flagged }),
-                  flagged ? "Пометка пересчёта снята" : "Строка отмечена на пересчёт",
-                )
-              }
-              className={cn(
-                "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
-                flagged
-                  ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
-                  : "border-border bg-muted/40 hover:bg-muted",
-                !canRecount || adjustLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-              )}
-              title={
-                flagged
+            <Tooltip delayDuration={450}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={flagged}
+                  aria-label={
+                    flagged ? "Снять пометку пересчёта" : "Отправить строку на пересчёт"
+                  }
+                  disabled={!canRecount || adjustLocked || isPending}
+                  onClick={() =>
+                    runAction(
+                      () => setRecountFlag({ documentId, itemId: item.id, needsRecount: !flagged }),
+                      flagged ? "Пометка пересчёта снята" : "Строка отмечена на пересчёт",
+                    )
+                  }
+                  className={cn(
+                    "inline-flex h-6 w-10 items-center rounded-full border transition-colors",
+                    flagged
+                      ? "border-rose-300 bg-rose-500/15 dark:border-rose-500/40 dark:bg-rose-500/20"
+                      : "border-border bg-muted/40 hover:bg-muted",
+                    !canRecount || adjustLocked ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "h-4 w-4 rounded-full bg-background shadow transition-transform",
+                      flagged ? "translate-x-5" : "translate-x-1",
+                    )}
+                  />
+                </button>
+              </TooltipTrigger>
+              {/* Наша подсказка вместо нативного title: тот рисуется средствами
+                  ОС, выглядит инородно и появляется с секундной задержкой. Текст
+                  тоже переписан — «threshold заведения» ничего не объясняло
+                  человеку, который этот порог задаёт в карточке заведения. */}
+              <TooltipContent sideOffset={6} className="max-w-[260px]">
+                {flagged
                   ? auto
-                    ? "Автоматически отмечено по threshold заведения. Кликните, чтобы снять."
-                    : "Ручная пометка. Кликните, чтобы снять."
-                  : "Кликните, чтобы отметить строку на пересчёт."
-              }
-            >
-              <span
-                className={cn(
-                  "h-4 w-4 rounded-full bg-background shadow transition-transform",
-                  flagged ? "translate-x-5" : "translate-x-1",
-                )}
-              />
-            </button>
+                    ? "Отмечено автоматически: расхождение больше порога, заданного для заведения. Нажмите, чтобы снять."
+                    : "Отметил проверяющий. Нажмите, чтобы снять."
+                  : "Нажмите, чтобы отправить строку на пересчёт."}
+              </TooltipContent>
+            </Tooltip>
             {flagged && auto ? <span className="text-[11px] text-muted-foreground">Авто</span> : null}
           </div>
           {wasRecounted ? (
@@ -738,9 +853,16 @@ export function InventoryResultsTable({
             // сравнил исходный факт с пересчитанным (см. recount_previous_amount).
             <span
               className="text-[11px] text-rose-700 dark:text-rose-300"
-              title="Строка была отправлена на пересчёт"
+              title={
+                recountUnchanged
+                  ? "Строку пересчитали — значение подтвердилось"
+                  : "Строка была отправлена на пересчёт"
+              }
             >
               было {formatQuantity(item.recount_previous_amount, item.measure_unit_name)} → {formatQuantity(item.actual_amount, item.measure_unit_name)}
+              {recountUnchanged ? (
+                <span className="text-muted-foreground"> · не изменилось</span>
+              ) : null}
             </span>
           ) : null}
           </div>
@@ -874,15 +996,20 @@ export function InventoryResultsTable({
 
   const columnsConfig = useMemo(
     () => [
-      { id: "select", label: "", size: 44, canHide: false, cell: renderSelectCell },
+      // Колонка выделения нужна только тем, кому доступны массовые действия:
+      // без прав человек мог отмечать строки, а bulk-панель не появлялась —
+      // выделение вело в никуда.
+      ...(canBulkAct
+        ? [{ id: "select", label: "", size: 44, canHide: false, cell: renderSelectCell }]
+        : []),
       {
         id: "name",
         label: "Позиция",
         size: 280,
         canHide: false,
-        cell: (item: InventoryDocumentResultItem) => (
-          <div className="min-w-0">
-            {canViewProducts && item.ingredient_id ? (
+        cell: (item: InventoryDocumentResultItem) => {
+          const name =
+            canViewProducts && item.ingredient_id ? (
               <button
                 type="button"
                 data-row-interactive
@@ -890,19 +1017,40 @@ export function InventoryResultsTable({
                   e.stopPropagation();
                   setOverviewIngredient({ id: item.ingredient_id as string, name: item.product_name });
                 }}
+                // Без title: по наведению здесь открывается карточка истории, и
+                // системная подсказка налезала бы на неё поверх.
                 className="block max-w-full truncate text-left font-medium hover:text-brand hover:underline"
-                title="Открыть карточку ингредиента"
               >
                 {item.product_name}
               </button>
             ) : (
               <div className="truncate font-medium">{item.product_name}</div>
-            )}
-            <div className="mt-1 truncate text-xs text-muted-foreground">
-              {item.group_name ?? "Без группы"}
+            );
+
+          return (
+            <div className="min-w-0">
+              {/* История по прошлым актам — по наведению. Клик по названию
+                  по-прежнему открывает «Обзор»: наведение отвечает «что тут было
+                  раньше», клик — «что это за позиция». Позициям без связи с
+                  каталогом сравнивать не с чем. */}
+              {canViewResults && item.ingredient_id ? (
+                <IngredientHistoryHoverCard
+                  ingredientId={item.ingredient_id}
+                  documentId={documentId}
+                  amountRoundingScale={amountRoundingScale}
+                  cache={historyCache.current}
+                >
+                  {name}
+                </IngredientHistoryHoverCard>
+              ) : (
+                name
+              )}
+              <div className="mt-1 truncate text-xs text-muted-foreground">
+                {item.group_name ?? "Без группы"}
+              </div>
             </div>
-          </div>
-        ),
+          );
+        },
       },
       ...RESULT_COLUMNS.map((column) => ({
         id: column.key,
@@ -913,7 +1061,16 @@ export function InventoryResultsTable({
       })),
       { id: "actions", label: "", size: 56, canHide: false, cell: renderActionsCell },
     ],
-    [canViewProducts, renderActionsCell, renderResultCell, renderSelectCell],
+    [
+      amountRoundingScale,
+      canBulkAct,
+      canViewProducts,
+      canViewResults,
+      documentId,
+      renderActionsCell,
+      renderResultCell,
+      renderSelectCell,
+    ],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
@@ -1030,7 +1187,6 @@ export function InventoryResultsTable({
       return arrayMove(current, oldIndex, newIndex);
     });
   };
-  const sortableHeaderIds = useMemo(() => new Set(Object.keys(COLUMN_TO_RESULT_FIELD)), []);
 
   if (items.length === 0) {
     return (
@@ -1045,6 +1201,25 @@ export function InventoryResultsTable({
       {/* Баннер «акт на пересчёте»: ревьюер вернул акт исполнителю и ждёт.
           Итоги read-only (анти-подгонка) — нельзя пересортировать, исключать
           или финализировать, пока пересчёт не завершён. */}
+      {/* Акт распровели в Quick Resto: наши итоги остались зафиксированными,
+          но источник правды больше не считает акт проведённым. Молча
+          откатывать статус нельзя — показываем это человеку. */}
+      {qrUnprocessedAt ? (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-500/5 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+          <div className="min-w-0 text-sm">
+            <div className="font-medium text-amber-800 dark:text-amber-200">
+              Акт распровели в Quick Resto
+            </div>
+            <p className="mt-0.5 text-amber-800/90 dark:text-amber-300/90">
+              Итоги у нас остались зафиксированными — здесь по-прежнему снимок,
+              утверждённый при подведении итогов. Чтобы провести акт заново,
+              разблокируйте его и подведите итоги ещё раз.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {isRecountPending ? (
         <div className="flex items-start gap-3 rounded-lg border border-rose-300 bg-rose-500/5 px-4 py-3 dark:border-rose-500/40 dark:bg-rose-500/10">
           <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-rose-700 dark:text-rose-300" />
@@ -1066,13 +1241,17 @@ export function InventoryResultsTable({
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Недостача</div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground">По QR</div>
+              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+                Уйдёт в Quick Resto
+              </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">К списанию</div>
+              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+                Управленческая оценка
+              </div>
               <div className="mt-1 text-xl font-semibold text-red-700 dark:text-red-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementShortfallSum), "RUB", amountRoundingScale)}
               </div>
@@ -1091,13 +1270,17 @@ export function InventoryResultsTable({
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div>
-              <div className="text-xs text-muted-foreground">По QR</div>
+              <div className="text-xs text-muted-foreground" title={QR_TILE_HINT}>
+                Уйдёт в Quick Resto
+              </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">К учету</div>
+              <div className="text-xs text-muted-foreground" title={MANAGEMENT_TILE_HINT}>
+                Управленческая оценка
+              </div>
               <div className="mt-1 text-xl font-semibold text-green-700 dark:text-green-400 sm:text-2xl">
                 {formatMoney(Math.abs(totals.managementSurplusSum), "RUB", amountRoundingScale)}
               </div>
@@ -1105,6 +1288,23 @@ export function InventoryResultsTable({
           </div>
         </div>
       </div>
+
+      {/* Суммы, которые Quick Resto записал в акт при проведении. До проведения
+          QR отдаёт по документу нули, поэтому строка появляется только у
+          проведённого акта. Раньше эти числа сохранялись, но не доходили ни до
+          одного экрана: их перетирал управленческий итог. */}
+      {hasQrDocumentSums ? (
+        <div className="rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground sm:px-4">
+          <span className="font-medium text-foreground">Quick Resto при проведении:</span>{" "}
+          недостача {formatMoney(Math.abs(qrShortfallSum ?? 0), "RUB", amountRoundingScale)} · излишек{" "}
+          {formatMoney(Math.abs(qrSurplusSum ?? 0), "RUB", amountRoundingScale)} · итого{" "}
+          {formatSignedMoney(
+            Math.abs(qrSurplusSum ?? 0) - Math.abs(qrShortfallSum ?? 0),
+            "RUB",
+            amountRoundingScale,
+          )}
+        </div>
+      ) : null}
 
       {/* Журнал событий («Журнал решений») переехал в layout-табу «Журнал»
           (../history) — здесь была дублирующая внутренняя вкладка.
@@ -1168,16 +1368,42 @@ export function InventoryResultsTable({
                   <TooltipContent sideOffset={6}>Подсказки пересорта (ИИ)</TooltipContent>
                 </Tooltip>
               ) : null}
-              {canRefreshResults ? <RefreshResultsButton documentId={documentId} /> : null}
+              {canViewResults && !isLocked ? (
+                <RefreshResultsButton documentId={documentId} />
+              ) : null}
             </>
           }
           summary={
             <>
               Показано {visibleItems.length} из {items.length}; расхождений {mismatchCount}
+              {resultsSnapshotAt ? (
+                <> · итоги зафиксированы {new Date(resultsSnapshotAt).toLocaleDateString("ru-RU")}</>
+              ) : null}
             </>
           }
         />
       </div>
+
+      {recountSplits.length > 0 ? (
+        <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-900 dark:text-blue-200">
+          {recountSplits.map((split) => (
+            <div key={split.documentId} className="flex flex-wrap items-center gap-1">
+              <span>
+                {split.itemCount} {pluralRu(split.itemCount, "позиция вынесена", "позиции вынесены", "позиций вынесено")} в
+              </span>
+              <Link href={`/documents/inventory/${split.documentId}/results`} className="font-medium underline underline-offset-2">
+                акт пересчёта № {split.documentNumber}
+              </Link>
+              {split.invoiceDate ? (
+                <span>от {new Date(split.invoiceDate).toLocaleDateString("ru-RU")}</span>
+              ) : null}
+              <span className="text-blue-900/70 dark:text-blue-200/70">
+                — расхождение по ним считается на дату пересчёта
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {/* Pin-row — порядок 1-в-1 с documents-table: Сортировка → divider →
           Расхождения · Группа · Статус → divider → Поиск → «Очистить все». */}
@@ -1312,33 +1538,105 @@ export function InventoryResultsTable({
           {aiSuggestionsEnabled ? <Badge variant="outline">AI</Badge> : <Badge variant="secondary">История</Badge>}
         </div>
         {displayedSuggestions.length > 0 ? (
-        <div className="grid gap-2">
-            {displayedSuggestions.map((suggestion) => (
-              <div key={suggestion.key} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-medium">{suggestion.title}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    {suggestion.source === "ai" ? "AI" : "История"} · {suggestion.reason} · уверенность {Math.round(suggestion.confidence * 100)}%
+        <div className="grid gap-1.5">
+            {displayedSuggestions.map((suggestion) => {
+              // Строка фактов вместо прозы: числа, ради которых предложение и
+              // читают, вынесены отдельными полями. Считаем по itemIds из уже
+              // загруженных строк акта — обе ветки (история и ИИ) отдают
+              // только текстовое обоснование, а цифры лежат здесь.
+              const parts = suggestion.itemIds
+                .map((id) => itemById.get(id))
+                .filter((row): row is InventoryDocumentResultItem => Boolean(row));
+              const surplus = parts.filter((row) => (row.difference_amount ?? 0) > 0);
+              const shortage = parts.filter((row) => (row.difference_amount ?? 0) < 0);
+              const groupName = parts.find((row) => row.group_name)?.group_name ?? null;
+              const percent = Math.round(suggestion.confidence * 100);
+              const reasonOpen = openReasonKey === suggestion.key;
+              return (
+                // На узком экране кнопки уезжают под карточку: шкала (48px) и
+                // обе кнопки не сжимаются, и на 375px заголовку оставалось
+                // несколько десятков пикселей. До переоформления карточка
+                // тоже раскладывалась в колонку до брейкпоинта sm.
+                <div
+                  key={suggestion.key}
+                  className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:gap-3"
+                >
+                  <div className="flex min-w-0 flex-1 gap-3">
+                  {/* Уверенность — слева и шкалой: её сравнивают между
+                      предложениями, а взглядом по левому краю это делается
+                      за один проход. Раньше процент стоял в конце длинной
+                      серой строки, разной длины у каждой карточки. */}
+                  <div className="flex w-12 shrink-0 flex-col items-center gap-0.5 pt-0.5">
+                    <ConfidenceGauge percent={percent} />
+                    <span className="text-[11px] leading-tight text-muted-foreground">
+                      {suggestion.source === "ai" ? "ИИ" : "История"}
+                    </span>
                   </div>
-                </div>
-                {canAdjust ? (
-                  <div className="flex gap-2">
-                    <Button type="button" size="sm" variant="outline" disabled={adjustLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
-                      Скрыть
-                    </Button>
-                    <Button
+
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">{suggestion.title}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      {surplus.map((row) => (
+                        <span key={`s-${row.id}`} className={cn("tabular-nums", signedAmountClass(row.difference_amount))}>
+                          +{formatQuantity(Math.abs(Number(row.difference_amount ?? 0)), row.measure_unit_name)}
+                        </span>
+                      ))}
+                      {surplus.length > 0 && shortage.length > 0 ? (
+                        <span className="text-muted-foreground">·</span>
+                      ) : null}
+                      {shortage.map((row) => (
+                        <span key={`d-${row.id}`} className={cn("tabular-nums", signedAmountClass(row.difference_amount))}>
+                          {formatQuantity(row.difference_amount, row.measure_unit_name)}
+                        </span>
+                      ))}
+                      {groupName ? (
+                        <>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="text-muted-foreground">{groupName}</span>
+                        </>
+                      ) : null}
+                    </div>
+                    {/* Обоснование сворачиваем: у истории это одна строка, у ИИ
+                        — три, и в развёрнутом виде оно распирало карточку так,
+                        что список предложений переставал читаться списком. */}
+                    <button
                       type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={adjustLocked || isPending}
-                      onClick={() => createResort(suggestion.itemIds, suggestion.reason, suggestion.source, suggestion.confidence)}
+                      onClick={() => setOpenReasonKey(reasonOpen ? null : suggestion.key)}
+                      aria-expanded={reasonOpen}
+                      className="mt-1.5 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                     >
-                      Применить
-                    </Button>
+                      <ChevronRight className={cn("h-3 w-3 transition-transform", reasonOpen && "rotate-90")} />
+                      Почему
+                    </button>
+                    {reasonOpen ? (
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{suggestion.reason}</p>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            ))}
+
+                  </div>
+
+                  {canAdjust ? (
+                    <div className="flex shrink-0 gap-2 sm:items-start">
+                      <Button type="button" size="sm" variant="ghost" disabled={adjustLocked || isPending} onClick={() => dismissSuggestion(suggestion)}>
+                        Скрыть
+                      </Button>
+                      {/* Иерархия действий без заливки: предложений бывает до
+                          восьми, и восемь brand-кнопок подряд превращаются в
+                          стену. outline против ghost её задаёт достаточно. */}
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={adjustLocked || isPending}
+                        onClick={() => createResort(suggestion.itemIds, suggestion.reason, suggestion.source, suggestion.confidence)}
+                      >
+                        Применить
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
         </div>
         ) : (
           // Карточка рендерится при aiLoading и пустом списке — показываем
@@ -1382,71 +1680,24 @@ export function InventoryResultsTable({
               className="w-full table-fixed md:!min-w-0"
               style={{ minWidth: `${table.getTotalSize()}px` }}
             >
-              <colgroup>
-                {table.getVisibleLeafColumns().map((column) => (
-                  <col
-                    key={column.id}
-                    style={{ width: `${(column.getSize() / table.getTotalSize()) * 100}%` }}
-                  />
-                ))}
-              </colgroup>
-              <thead className="group/header sticky top-0 z-20 bg-muted [&_th]:bg-muted text-xs font-medium tracking-wide text-muted-foreground">
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id} className="h-11">
-                    {headerGroup.headers.map((header) => {
-                      const isControl = header.column.id === "select" || header.column.id === "actions";
-                      const isSortable = sortableHeaderIds.has(header.column.id);
-                      return (
-                        <th
-                          key={header.id}
-                          aria-sort={headerAriaSort(header.column.id)}
-                          className={cn("relative border-b px-3 py-3 text-left")}
-                        >
-                          {header.column.id === "select" ? (
-                            <Checkbox
-                              checked={selectAllState}
-                              disabled={selectableItems.length === 0}
-                              onCheckedChange={toggleSelectAll}
-                              aria-label="Выбрать все строки"
-                            />
-                          ) : isControl ? null : isSortable ? (
-                            <button
-                              type="button"
-                              className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
-                              onClick={() => cycleSort(COLUMN_TO_RESULT_FIELD[header.column.id])}
-                            >
-                              <span className="truncate">
-                                {flexRender(header.column.columnDef.header, header.getContext())}
-                              </span>
-                              {headerIndicator(header.column.id)}
-                            </button>
-                          ) : (
-                            <span className="truncate">
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                            </span>
-                          )}
-                          {header.column.getCanResize() && !isControl ? (
-                            <div
-                              onMouseDown={header.getResizeHandler()}
-                              onTouchStart={header.getResizeHandler()}
-                              className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
-                            >
-                              <span
-                                className={cn(
-                                  "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
-                                  "group-hover/header:opacity-80",
-                                  "hover:w-1 hover:bg-brand hover:opacity-100",
-                                  header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
-                                )}
-                              />
-                            </div>
-                          ) : null}
-                        </th>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </thead>
+              <ResizableTableHead
+                table={table}
+                isControlColumn={(columnId) => columnId === "select" || columnId === "actions"}
+                sortableColumnIds={sortableColumnIds}
+                onSort={(columnId) => cycleSort(COLUMN_TO_RESULT_FIELD[columnId])}
+                headerIndicator={headerIndicator}
+                headerAriaSort={headerAriaSort}
+                renderControlHeader={(header) =>
+                  header.column.id === "select" ? (
+                    <Checkbox
+                      checked={selectAllState}
+                      disabled={selectableItems.length === 0}
+                      onCheckedChange={toggleSelectAll}
+                      aria-label="Выбрать все строки"
+                    />
+                  ) : null
+                }
+              />
               <tbody>
                 {table.getRowModel().rows.map((row) => (
                   <tr key={row.id} className="border-b last:border-b-0 hover:bg-muted/30">
@@ -1473,9 +1724,7 @@ export function InventoryResultsTable({
           onPageChange={(pageIndex) =>
             tableState.setPagination((current) => ({ ...current, pageIndex }))
           }
-          onPageSizeChange={(pageSize) =>
-            tableState.setPagination((current) => ({ ...current, pageSize }))
-          }
+          onPageSizeChange={(pageSize) => tableState.setPagination({ pageIndex: 0, pageSize })}
         />
       ) : null}
 
@@ -1486,7 +1735,7 @@ export function InventoryResultsTable({
             {activeResorts.map((resort) => (
               <div key={resort.id} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-sm font-medium">{resort.group_name ?? "Группа"} · {formatAmount(resort.offset_amount, amountRoundingScale)} ед.</div>
+                  <div className="text-sm font-medium">{resort.group_name ?? "Группа"} · {formatQuantity(resort.offset_amount, resortUnitByResortId.get(resort.id))}</div>
                   {(() => {
                     const names = resortNamesByResortId.get(resort.id);
                     if (!names || (names.shortage.length === 0 && names.surplus.length === 0)) {
@@ -1559,20 +1808,15 @@ export function InventoryResultsTable({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={adjustLocked || isPending || flaggedCount === 0}
-                      onClick={() =>
-                        runAction(
-                          () => returnDocumentForRecount({ documentId }),
-                          `Акт отправлен на пересчёт (${flaggedCount} ${pluralRu(flaggedCount, "строка", "строки", "строк")})`,
-                        )
-                      }
-                    >
-                      <RotateCcw className="mr-2 h-4 w-4" />
-                      Отправить на пересчёт{flaggedCount > 0 ? ` (${flaggedCount})` : ""}
-                    </Button>
+                    {/* Развилка «сегодня / другим днём»: расчётный остаток в QR
+                        привязан к дате акта, поэтому пересчёт другим днём должен
+                        уходить в отдельный акт (см. recount-split-dialog). */}
+                    <RecountSplitDialog
+                      documentId={documentId}
+                      documentInvoiceDate={documentInvoiceDate}
+                      flaggedCount={flaggedCount}
+                      disabled={adjustLocked || isPending}
+                    />
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -1621,9 +1865,7 @@ export function InventoryResultsTable({
                       <Button
                         type="button"
                         disabled={isPending}
-                        onClick={() =>
-                          runAction(() => finalizeInventoryResults({ documentId }), "Итоги подведены")
-                        }
+                        onClick={() => setConfirmFinalize(true)}
                       >
                         <CheckCircle2 className="mr-2 h-4 w-4" />
                         Подвести итоги
@@ -1648,6 +1890,77 @@ export function InventoryResultsTable({
         amountRoundingScale={amountRoundingScale}
         onClose={() => setOverviewIngredient(null)}
       />
+
+      {/* Подтверждение проведения. Показываем сумму, которая реально уйдёт в
+          Quick Resto: исключения и пересорты её не уменьшают, а раньше тайл
+          «К списанию» читался как решение по деньгам. */}
+      <Dialog open={confirmFinalize} onOpenChange={(open) => !open && setConfirmFinalize(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Подвести итоги акта</DialogTitle>
+            <DialogDescription>
+              Акт будет проведён в Quick Resto, а итоги — зафиксированы.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="rounded-lg border p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Уйдёт в Quick Resto
+              </div>
+              <div className="mt-2 grid gap-1">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Недостача</span>
+                  <span className="font-medium text-red-700 dark:text-red-400">
+                    {formatMoney(Math.abs(totals.qrShortfallSum), "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-muted-foreground">Излишек</span>
+                  <span className="font-medium text-green-700 dark:text-green-400">
+                    {formatMoney(Math.abs(totals.qrSurplusSum), "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 border-t pt-1">
+                  <span className="text-muted-foreground">Итого</span>
+                  <span className="font-semibold">
+                    {formatSignedMoney(qrNetSum, "RUB", amountRoundingScale)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {finalizeSumsDiffer ? (
+              <p className="text-muted-foreground">
+                Управленческая оценка — {formatSignedMoney(managementNetSum, "RUB", amountRoundingScale)}.
+                Она учитывает исключённые строки и пересорты и остаётся внутри CRM:
+                в Quick Resto проводится полная разница по строкам.
+              </p>
+            ) : null}
+            <p className="text-muted-foreground">
+              После подведения итогов пересорты, комментарии и исключения будут
+              заблокированы до переоткрытия.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmFinalize(false)}>
+              Отмена
+            </Button>
+            <Button
+              type="button"
+              disabled={isPending}
+              onClick={() =>
+                runAction(
+                  () => finalizeInventoryResults({ documentId }),
+                  "Итоги подведены",
+                  () => setConfirmFinalize(false),
+                )
+              }
+            >
+              <CheckCircle2 className="mr-2 h-4 w-4" />
+              Подвести итоги
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(commentItem)} onOpenChange={(open) => !open && setCommentItem(null)}>
         <DialogContent>

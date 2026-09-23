@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
-import { createClient, getCachedUser } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { listAuditEvents } from "@/lib/audit/list";
 import { getDepartment } from "../actions";
 import { DepartmentDetailPage } from "./_components/department-detail-page";
@@ -13,21 +17,15 @@ export default async function DepartmentDetailServerPage({
   const [user, supabase] = await Promise.all([getCachedUser(), createClient()]);
   if (!user) redirect("/login");
 
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "people.view_roles",
-  });
-  if (!canView) redirect("/dashboard");
+  const can = await getCachedPermissionChecker();
+  if (!can("people.view_roles")) redirect("/dashboard");
+  const canManage = can("people.manage_roles");
+  const canViewAudit = can("org.view_audit");
 
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "people.manage_roles",
-  });
-
-  const [{ data: activeVenueId }, { department, roles, heads }, { data: canViewAudit }] =
-    await Promise.all([
-      supabase.rpc("get_active_venue_id"),
-      getDepartment(id),
-      supabase.rpc("has_permission", { permission_code: "org.view_audit" }),
-    ]);
+  const [{ data: activeVenueId }, { department, roles, heads }] = await Promise.all([
+    supabase.rpc("get_active_venue_id"),
+    getDepartment(id),
+  ]);
 
   if (!department) redirect("/people/departments");
   if (department.venue_id !== ((activeVenueId as string | null) ?? null)) {

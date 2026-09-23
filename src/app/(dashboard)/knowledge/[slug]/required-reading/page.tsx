@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, CheckCircle2, Clock, BookCheck } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { KbPageIcon } from "@/components/knowledge/kb-page-icon";
 import { getKbPageBySlug } from "@/lib/knowledge/pages";
@@ -35,11 +35,8 @@ export default async function KbRequiredReadingAdminPage({
 }) {
   const { slug } = await params;
 
-  const supabase = await createClient();
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "kb.manage_required_reading",
-  });
-  if (!canManage) redirect(`/knowledge/${slug}`);
+  const can = await getCachedPermissionChecker();
+  if (!can("kb.manage_required_reading")) redirect(`/knowledge/${slug}`);
 
   const { row: page, error: pageError } = await getKbPageBySlug(slug);
   if (pageError || !page) notFound();

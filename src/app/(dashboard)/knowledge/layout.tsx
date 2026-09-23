@@ -73,7 +73,12 @@ export default async function KnowledgeLayout({
   return (
     <>
       <KbHotkeyListener />
-      <div className="flex w-full min-h-svh">
+      {/* min-h считаем за вычетом баннера режима просмотра: он живёт выше
+          по дереву и прибавляет свою высоту. С голым min-h-svh страница
+          становится выше экрана, окно начинает скроллиться, и вместе с ним
+          уезжает сам баннер. --impersonation-offset задаёт dashboard-layout,
+          вне режима просмотра он равен 0px. */}
+      <div className="flex w-full min-h-[calc(100svh_-_var(--impersonation-offset,0px))]">
         <KbSidebarShell
           initialHidden={sidebarHidden}
           sidebarInitialWidth={

@@ -151,6 +151,61 @@ Content-Type: application/json; charset=utf-8
 - `processInventoryDocumentBackOffice({ … authorization })` —
   прямой fetch с минимальными headers для state-changing `/action`.
 
+### Семантика полей акта инвентаризации
+
+Проверено на проде 2026-08-25/26 (акты СВ324, СВ338–СВ350).
+
+Строка акта (`warehouse.inventory.items/select`):
+
+| Поле QR | Смысл | Куда мапим |
+| --- | --- | --- |
+| `amountAtStore` (= `storeQuantity` = `storeQuantityKg`) | расчётный остаток | `calculated_amount` |
+| `actualAmount` | факт, введённый при подсчёте | `actual_amount` |
+| `amountTotal` | «общий фактический остаток» | — |
+| `delta` | факт − расчётный | `difference_amount` |
+| `differenceCost` | `delta × costPrice` | `difference_sum` |
+| `costPrice` | себестоимость | `prime_cost` |
+
+Отдельного `calculatedAmount` в payload **нет** — не искать.
+
+**Расчётный остаток привязан к дате акта (`invoiceDate`), а не к моменту чтения.**
+Продажи и поставки после даты акта его не двигают: акт СВ324 с пятидневным
+разрывом между подсчётом и пересчётом показал 297 из 305 позиций без
+расхождения. Меняется он только когда правят учёт за период **до** даты акта
+(документы задним числом, пересчёт остатков) — так у СВ340 уехали 6 позиций на
+16 212,50 ₽ уже после того, как мы прочитали акт. Практическое следствие: перед
+проведением строки нужно перечитывать и сверять (`finalizeInventoryResults`).
+
+Документ (`public API read`):
+
+- позиции с расчётным остатком и разницей отдаёт **только** backoffice
+  `items/select`. Массивы позиций public-payload (`effectedItems`,
+  `prefabricatedItems`, `disassembledItems`) на живых актах приходили пустыми,
+  но пустыми они бывают не всегда: `syncQuickRestoInventory` намеренно
+  сваливается на них, когда backoffice недоступен, и сохраняет оттуда хотя бы
+  id строк и `actualAmount`. Этот fallback рабочий — удалять его нельзя;
+- `shortfallSum` / `surplusSum` заполняются **только после проведения**, до него нули;
+- `className` в ответе — `…document.v2.InventoryDocument`, тогда как константа
+  `INVENTORY_DOCUMENT_UPDATE_CLASS` в клиенте — `…document.InventoryDocument2`.
+  При create/update это стоит проверять отдельно.
+### Операции над актом инвентаризации (backoffice)
+
+Проверено на проде 2026-08-26 (создан и удалён тестовый акт).
+
+| Операция | Путь | Метод | Особенности |
+| --- | --- | --- | --- |
+| Создать акт | `warehouse.inventory.document.v2/create` | POST | акт создаётся **пустым**; `className` = `…document.v2.InventoryDocument`; public API `update` без `objectId` отвечает 400 `entityNotFound` |
+| Добавить позицию | `warehouse.inventory.items/create` | POST | телом — объект-образец (raw_payload другой строки) без полей конкретной строки: `id`, `hash`, `version`, `seqNumber`, `delta`, `amountAtStore`, `actualAmount`, `costPriceSum` и т.п. Расчётный остаток QR посчитает сам, уже на дату этого акта |
+| Изменить факт | `warehouse.inventory.items/update` | POST | см. `updateInventoryItemBackOffice` |
+| Удалить позицию | `warehouse.inventory.items/remove` | **DELETE с телом** | обязательны `ownerContextId`, `regTime`, `hash` строки. Без тела — `Object doesn't exist`, POST — 405, `/delete` — 404 |
+| Удалить акт | `warehouse.inventory.document.v2/remove` | **DELETE с телом** | обязательны `regTime`, `contextModule=warehouse.inventory.items`. После удаления акт пропадает из `list`, но прямое чтение по id всё ещё отдаёт объект — ориентироваться надо на список |
+| Провести акт | `warehouse.inventory.document.v2/action` | POST | `{actionName:"process", ids:[id], data:{…}}`, нужен Basic поверх cookie |
+
+Ключевой нюанс: `remove` — это **DELETE с телом запроса**. Именно так делает
+интерфейс QR; ни POST, ни DELETE без тела не работают. Хелперы —
+`createInventoryDocumentBackOffice`, `createInventoryItemBackOffice`,
+`removeInventoryItemBackOffice`, `removeInventoryDocumentBackOffice`.
+
 ### Auth-retry
 
 Access_token живёт недолго (обычно минуты). Если токен протух или отозван:

@@ -6,7 +6,8 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { syncQuickRestoInventory } from "../actions";
+import { LocalDateTime } from "@/components/shared/local-date-time";
+import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 
 type Props = {
   canSync: boolean;
@@ -28,9 +29,20 @@ export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
           toast.error(result.error ?? "Синхронизация не выполнена");
           return;
         }
-        toast.success(
-          `Синхронизировано: позиций ${result.summary.products}, складов ${result.summary.stores}, актов ${result.summary.documents}`,
-        );
+        const base = `Синхронизировано: позиций ${result.summary.products}, складов ${result.summary.stores}, актов ${result.summary.documents}`;
+        // Восстановленные связи показываем, только когда они были: это редкое
+        // событие (позиция появилась в каталоге позже, чем импортировался акт),
+        // и в обычном прогоне лишняя цифра только зашумила бы сообщение.
+        const withRelinked =
+          result.summary.relinked > 0
+            ? `${base}. Восстановлено связей в актах: ${result.summary.relinked}`
+            : base;
+        // Сбойные акты не роняют проход, но и молчать о них нельзя.
+        if (result.summary.failedDocuments > 0) {
+          toast.warning(`${withRelinked}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
+        } else {
+          toast.success(withRelinked);
+        }
         router.refresh();
       } catch (error) {
         toast.error(error instanceof Error ? error.message : "Синхронизация не выполнена");
@@ -51,8 +63,7 @@ export function InventorySyncButton({ canSync, lastSyncedAt }: Props) {
         </Button>
       ) : null}
       <span className="text-xs text-muted-foreground">
-        Последняя синхронизация:{" "}
-        {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString("ru-RU") : "—"}
+        Последняя синхронизация: <LocalDateTime value={lastSyncedAt} />
       </span>
     </div>
   );

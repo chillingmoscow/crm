@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
 import { LegalEntitySwitcher } from "@/components/shared/legal-entity-switcher";
@@ -21,11 +21,8 @@ export default async function FinanceLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "finance.view_dashboard",
-  });
-  if (!canView) redirect("/dashboard");
+  const can = await getCachedPermissionChecker();
+  if (!can("finance.view_dashboard")) redirect("/dashboard");
 
   const [{ rows: legalEntities }, activeLegalEntityId] = await Promise.all([
     listLegalEntities(),

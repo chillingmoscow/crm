@@ -2,17 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { listLegalEntities, listAccountVenues } from "@/lib/org/legal-entities";
 import { listBankAccountGroups } from "@/lib/finance/bank-accounts";
 import { BankAccountForm } from "../_components/bank-account-form";
 
 export default async function NewBankAccountPage() {
-  const supabase = await createClient();
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "finance.manage_bank_accounts",
-  });
-  if (!canManage) redirect("/finance/accounts");
+  const can = await getCachedPermissionChecker();
+  if (!can("finance.manage_bank_accounts")) redirect("/finance/accounts");
 
   const [{ rows: legalEntities }, { rows: venues }, { rows: groups }] =
     await Promise.all([

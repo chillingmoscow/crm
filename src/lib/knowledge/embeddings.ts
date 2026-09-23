@@ -1,6 +1,10 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { embedTexts } from "@/lib/ai/siliconflow-client";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
 import { buildPageChunks } from "@/lib/knowledge/embeddings-chunk";
@@ -194,12 +198,12 @@ export async function reembedAllKbPages(): Promise<{
   const empty = { total: 0, embedded: 0, skipped: 0, failed: 0 };
   const supabase = await createClient();
 
-  const [{ data: canAsk }, { data: canWrite }, { data: accountId }] =
-    await Promise.all([
-      supabase.rpc("has_permission", { permission_code: "kb.ask_ai" }),
-      supabase.rpc("has_permission", { permission_code: "kb.create_pages" }),
-      supabase.rpc("get_active_account_id"),
-    ]);
+  const [can, accountId] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
+  ]);
+  const canAsk = can("kb.ask_ai");
+  const canWrite = can("kb.create_pages");
   if (!canAsk) {
     return { ...empty, error: "Нет права использовать AI" };
   }

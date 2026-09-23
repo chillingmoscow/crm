@@ -44,12 +44,33 @@ export const DOCUMENT_STATUSES = [
   "recount_pending",
   "processed",
   "results_blocked",
-  "sync_error",
 ] as const;
 
 export type DocumentStatus = (typeof DOCUMENT_STATUSES)[number];
 
 export type AssignedFilter = "any" | "none" | "me" | string;
+
+/**
+ * Отбор актов пересчёта.
+ *
+ * Акт пересчёта — дочерний, вынесенный из другого акта (`recount_of_document_id`).
+ * На складе, где пересчёты делают регулярно, они подмешиваются к обычным актам
+ * и мешают читать список: «only» оставляет только их, «exclude» — только
+ * обычные.
+ */
+export type RecountFilter = "any" | "only" | "exclude";
+
+export const RECOUNT_FILTERS = ["any", "only", "exclude"] as const satisfies readonly RecountFilter[];
+
+export const RECOUNT_FILTER_LABEL: Record<RecountFilter, string> = {
+  any: "Все акты",
+  only: "Только пересчёты",
+  exclude: "Без пересчётов",
+};
+
+export function isRecountFilter(value: unknown): value is RecountFilter {
+  return typeof value === "string" && (RECOUNT_FILTERS as readonly string[]).includes(value);
+}
 
 export type ListDocumentsFilters = {
   /** venue uuid as string, 'unassigned' sentinel, 'all', or undefined. */
@@ -63,6 +84,8 @@ export type ListDocumentsFilters = {
   date_from?: string;
   date_to?: string;
   q?: string;
+  /** 'any' (по умолчанию) | 'only' — только пересчёты | 'exclude' — без них. */
+  recount?: RecountFilter;
 };
 
 export type DocumentListRow = {
@@ -73,17 +96,33 @@ export type DocumentListRow = {
   processed: boolean;
   assigned_to: string | null;
   reviewer_id: string | null;
-  shortfall_sum: number | null;
-  surplus_sum: number | null;
   results_has_line_amounts: boolean;
   store_id: string | null;
   store_title: string | null;
   venue_id: string | null;
   comment: string | null;
   matched_ingredients: string[] | null;
+  /** Управленческий итог по акту: недостача положительным модулем и излишек.
+      Не из RPC и не из базы — считаются по строкам в list-documents.ts.
+      Одноимённые колонки documents.shortfall_sum / surplus_sum удалены
+      миграцией 234: с 225 они всегда были NULL, и их значение здесь тут же
+      перетиралось вычисленным. */
+  shortfall_sum: number | null;
+  surplus_sum: number | null;
   /** F6: проведённый акт переоткрывали для правки итогов. Не из RPC —
       дозагружается в list-documents.ts (как управленческие тоталы). */
   results_reopened_after_processed?: boolean;
+  /** Дата фиксации итогов. Не из RPC — дозагружается в list-documents.ts.
+      Нужна, чтобы не предлагать удаление акта, который удалить нельзя. */
+  results_snapshot_at?: string | null;
+  /** Не null → это акт пересчёта, вынесенный из другого акта (миграция 223). */
+  recount_of_document_id?: string | null;
+  /** Суммы самого Quick Resto (миграция 225). Не из RPC — дозагружаются в
+      list-documents.ts. Заполнены только у проведённого акта. */
+  qr_shortfall_sum?: number | null;
+  qr_surplus_sum?: number | null;
+  /** Управленческий итог посчитать не удалось — показываем прочерк, а не 0 ₽. */
+  totals_unavailable?: boolean;
 };
 
 export type ListDocumentsResult = {
@@ -107,7 +146,9 @@ export type ListDocumentsOptions = {
 export const DEFAULT_PAGE_SIZE = 25;
 export const MAX_PAGE_SIZE = 200;
 
-type RpcRow = DocumentListRow & { total: number | string };
+type RpcRow = Omit<DocumentListRow, "shortfall_sum" | "surplus_sum"> & {
+  total: number | string;
+};
 
 export type NormalizedListOptions = {
   filters: ListDocumentsFilters;
@@ -135,6 +176,9 @@ export function buildRpcArgs(opts: NormalizedListOptions): Record<string, unknow
     p_filter_date_from: filters.date_from ?? null,
     p_filter_date_to: filters.date_to ?? null,
     p_filter_q: filters.q ?? null,
+    // 'any' и отсутствие фильтра для RPC одно и то же — не гоняем лишнего.
+    p_filter_recount:
+      filters.recount && filters.recount !== "any" ? filters.recount : null,
     p_sort: sort,
     p_page: page,
     p_page_size: pageSize,
@@ -155,8 +199,9 @@ export function parseRpcResponse(data: unknown): { rows: DocumentListRow[]; tota
     processed: row.processed,
     assigned_to: row.assigned_to,
     reviewer_id: row.reviewer_id,
-    shortfall_sum: row.shortfall_sum,
-    surplus_sum: row.surplus_sum,
+    // Заполняются в list-documents.ts по строкам акта; RPC их не отдаёт.
+    shortfall_sum: null,
+    surplus_sum: null,
     results_has_line_amounts: row.results_has_line_amounts,
     store_id: row.store_id,
     store_title: row.store_title,

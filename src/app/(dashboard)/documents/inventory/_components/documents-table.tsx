@@ -38,10 +38,19 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { formatMoney, type AmountRoundingScale } from "@/lib/format/amount";
+import {
+  formatSignedMoney,
+  signedAmountClass,
+  type AmountRoundingScale,
+} from "@/lib/format/amount";
 import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
 import { InventoryStatusBadge } from "@/components/shared/inventory-status-badge";
-import { getAssigneeLockReason, getReviewerLockReason } from "@/lib/inventory/act-status";
+import {
+  getAssigneeLockReason,
+  getDeleteLockReason,
+  getReviewerLockReason,
+  hasCountedResults,
+} from "@/lib/inventory/act-status";
 import {
   TableBulkBar,
   TableColumnManager,
@@ -53,12 +62,12 @@ import {
   useTableState,
   type ManagedTableColumn,
   type TableStateColumn,
+  ResizableTableHead,
+  useMultiSort,
 } from "@/components/shared/table";
-import {
-  bulkAssignInventoryDocuments,
-  bulkDeleteInventoryDocuments,
-  syncQuickRestoInventory,
-} from "@/app/(dashboard)/inventory/actions";
+import { bulkAssignInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/assignment";
+import { bulkDeleteInventoryDocuments } from "@/app/(dashboard)/inventory/_actions/documents";
+import { syncQuickRestoInventory } from "@/app/(dashboard)/inventory/_actions/sync";
 import { createClient as createBrowserSupabaseClient } from "@/lib/supabase/client";
 
 import {
@@ -68,23 +77,23 @@ import {
 import { ReviewerSelect } from "./reviewer-select";
 import {
   DEFAULT_SORT,
-  isDefaultSort,
   type DocumentListRow,
   type DocumentSortMode,
   type DocumentStatus,
+  isDefaultSort,
   type ListDocumentsFilters,
   type ListDocumentsResult,
+  type RecountFilter,
 } from "@/lib/inventory/list-documents-shared";
 import {
   COLUMN_TO_FIELD,
+  DOCUMENT_SORT_CODEC,
   SORT_FIELD_LABEL,
-  combineSort,
   formatDate,
   getDocHref,
   sortToDirection,
   sortToField,
   toIsoDate,
-  type SortField,
   type StoreOption,
   type VenueOption,
 } from "./documents-table-utils";
@@ -107,6 +116,8 @@ import {
   assigneePinLabel,
   reviewerPinLabel,
   statusPinLabel,
+  RecountPicker,
+  recountPinLabel,
   storePinLabel,
   venuePinLabel,
 } from "./documents-table-filters";
@@ -116,6 +127,8 @@ export type { StoreOption, VenueOption } from "./documents-table-utils";
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const SEARCH_DEBOUNCE_MS = 250;
+/** Окно склейки realtime-событий: синхронизация меняет акты пачкой. */
+const REALTIME_REFRESH_DELAY_MS = 400;
 const TABLE_ID = "documents.list";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -173,6 +186,11 @@ export function DocumentsTable({
   const [focusedIndex, setFocusedIndex] = useState(-1);
   // Bulk-выделение (только для менеджера): назначить исполнителя/проверяющего.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // Актуальное выделение для ячеек-чекбоксов, чтобы не тащить selectedIds в
+  // зависимости columnsConfig. Присваивание во время рендера безопасно:
+  // значение читается ниже по тому же рендеру.
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const [bulkPending, startBulk] = useTransition();
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
@@ -232,17 +250,29 @@ export function DocumentsTable({
   }, [search]);
 
   // ── Realtime ───────────────────────────────────────────────
+  // Синхронизация обновляет акты пачкой: 20 актов = 20 событий подряд, и
+  // каждое дёргало router.refresh() — полный ре-рендер серверного дерева со
+  // всеми запросами списка. Коалесцируем всплеск в одно обновление.
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        router.refresh();
+      }, REALTIME_REFRESH_DELAY_MS);
+    };
     const channel = supabase
       .channel(`documents-${accountId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "documents", filter: `account_id=eq.${accountId}` },
-        () => router.refresh(),
+        scheduleRefresh,
       )
       .subscribe();
     return () => {
+      if (timer) clearTimeout(timer);
       void supabase.removeChannel(channel);
     };
   }, [accountId, router]);
@@ -320,26 +350,47 @@ export function DocumentsTable({
   );
 
   // Сумма итогов (нетто = излишки − недостачи) по выделенным строкам.
-  const selectedNet = useMemo(() => {
+  // Если хотя бы по одному выделенному акту итог посчитать не удалось, суммы
+  // нет вовсе: частичная сумма выглядела бы как полная и противоречила бы
+  // прочерку в строке этого же акта.
+  const selectedTotals = useMemo(() => {
     let net = 0;
+    let unavailable = false;
     for (const row of selectedRowsList) {
-      if (!row.results_has_line_amounts) continue;
+      if (!row.results_has_line_amounts || !hasCountedResults(row.status)) continue;
+      if (row.totals_unavailable) {
+        unavailable = true;
+        continue;
+      }
       net += (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
     }
-    return net;
+    return { net, unavailable };
   }, [selectedRowsList]);
+  const selectedNet = selectedTotals.net;
 
   // Кнопка показывается, только если ДЕЙСТВИЕ применимо ко ВСЕМ выделенным
   // актам (иначе скрыта — никакого частичного применения):
   //  - «Исполнитель» — строже: лочится уже на проверке/пересчёте отдан;
-  //  - «Проверяющий» / «Удалить» — лишь на проведённых / sync_error.
+  //  - «Проверяющий» — лишь на проведённых;
+  //  - «Удалить» — на проведённых И на актах с зафиксированными итогами.
   const canBulkAssignee =
     selectedRowsList.length > 0 &&
     selectedRowsList.every((row) => getAssigneeLockReason(row.status) === null);
   const canBulkReviewer =
     selectedRowsList.length > 0 &&
     selectedRowsList.every((row) => getReviewerLockReason(row.status) === null);
-  const canBulkDelete = canBulkReviewer;
+  // Раньше здесь стояло `= canBulkReviewer`: замки совпадали по статусу, но это
+  // совпадение, а не правило. Удаление шире — его блокирует ещё и снимок итогов,
+  // который переживает распроведение, так что у замков разные условия.
+  const canBulkDelete =
+    selectedRowsList.length > 0 &&
+    selectedRowsList.every(
+      (row) =>
+        getDeleteLockReason({
+          status: row.status,
+          resultsSnapshotAt: row.results_snapshot_at,
+        }) === null,
+    );
 
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -416,7 +467,7 @@ export function DocumentsTable({
                 return (
                   <span data-row-interactive onClick={(e) => e.stopPropagation()}>
                     <Checkbox
-                      checked={selectedIds.has(row.id)}
+                      checked={selectedIdsRef.current.has(row.id)}
                       onCheckedChange={() =>
                         setSelectedIds((prev) => {
                           const next = new Set(prev);
@@ -478,6 +529,12 @@ export function DocumentsTable({
         cell: (row: DocumentListRow) => (
           <div className="flex items-center gap-1.5">
             <InventoryStatusBadge status={row.status} />
+            {row.recount_of_document_id ? (
+              // Акт пересчёта: позиции вынесены из другого акта на дату пересчёта.
+              <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/15 px-1.5 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                Пересчёт
+              </span>
+            ) : null}
             {row.results_reopened_after_processed ? (
               <span
                 className="text-amber-600 dark:text-amber-400"
@@ -512,24 +569,57 @@ export function DocumentsTable({
         // Одно число — нетто-расхождение (излишки − недостачи). Плюс →
         // зелёный (излишек), минус → красный (недостача), ноль — нейтрально.
         cell: (row: DocumentListRow) => {
-          if (!row.results_has_line_amounts) {
+          // Прочерк и у актов без построчных расчётов, и у тех, что ещё не
+          // сдали: у вторых Quick Resto отдаёт разницу, равную минус складскому
+          // остатку, и «0 ₽» читалось бы как «посчитано, расхождений нет».
+          if (!row.results_has_line_amounts || !hasCountedResults(row.status)) {
             return <span className="text-sm text-muted-foreground">—</span>;
           }
+          // Итоги не посчитались (см. listInventoryDocuments): показываем
+          // прочерк, а не 0 ₽ — иначе акт с расхождением выглядит сошедшимся.
+          if (row.totals_unavailable) {
+            return (
+              <span className="text-sm text-muted-foreground" title="Не удалось посчитать итоги — обновите страницу">
+                —
+              </span>
+            );
+          }
           const net = (row.surplus_sum ?? 0) - (row.shortfall_sum ?? 0);
-          const sign = net > 0 ? "+" : net < 0 ? "−" : "";
           return (
             <span
               className={cn(
                 "text-sm font-medium tabular-nums",
-                net > 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : net < 0
-                    ? "text-rose-600 dark:text-rose-400"
-                    : "text-muted-foreground",
+              signedAmountClass(net),
               )}
             >
-              {sign}
-              {formatMoney(Math.abs(net), "RUB", amountRoundingScale)}
+              {formatSignedMoney(net, "RUB", amountRoundingScale)}
+            </span>
+          );
+        },
+      },
+      {
+        id: "qr_results",
+        label: "Сумма в QR",
+        size: 140,
+        // По умолчанию скрыта: это ДРУГАЯ метрика, чем «Итоги». Здесь —
+        // недостача/излишек так, как их посчитал сам Quick Resto при
+        // проведении акта (без наших исключений и пересортов). До проведения
+        // QR по документу отдаёт нули, поэтому там прочерк.
+        defaultVisible: false,
+        cell: (row: DocumentListRow) => {
+          if (row.qr_shortfall_sum == null && row.qr_surplus_sum == null) {
+            return <span className="text-sm text-muted-foreground">—</span>;
+          }
+          const net = Math.abs(row.qr_surplus_sum ?? 0) - Math.abs(row.qr_shortfall_sum ?? 0);
+          return (
+            <span
+              className={cn(
+                "text-sm font-medium tabular-nums",
+              signedAmountClass(net),
+              )}
+              title="Сумма, которую записал в акт сам Quick Resto при проведении. Исключения из итогов и пересорты на неё не влияют."
+            >
+              {formatSignedMoney(net, "RUB", amountRoundingScale)}
             </span>
           );
         },
@@ -602,14 +692,22 @@ export function DocumentsTable({
         ),
       },
     ],
-    [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff, selectedIds],
+    // selectedIds намеренно НЕ в зависимостях: чекбокс читает актуальное
+    // значение из ref во время рендера. Иначе каждый клик менял identity
+    // columnsConfig → stateColumns → defaults в useTableState, и эффект
+    // гидрации перечитывал localStorage и переставлял видимость, порядок и
+    // ширины колонок на каждый тап. В таблице итогов этот же приём уже
+    // применён (см. docs/mobile-web.md §8).
+    [amountRoundingScale, canManage, canViewResults, canViewStaff, searchActive, staff],
   );
 
   const stateColumns: TableStateColumn[] = useMemo(
     () =>
       columnsConfig.map((column) => ({
         id: column.id,
-        defaultVisible: true,
+        // Колонка может приходить скрытой по умолчанию (например «Сумма в QR» —
+        // вспомогательная метрика, которая нужна не всем).
+        defaultVisible: ("defaultVisible" in column ? column.defaultVisible : undefined) ?? true,
         defaultSize: column.size,
       })),
     [columnsConfig],
@@ -713,6 +811,9 @@ export function DocumentsTable({
   const onReviewerChange = (next: string) =>
     updateUrl({ reviewer: next === "any" ? null : next }, { resetPage: true });
 
+  const onRecountChange = (next: RecountFilter) =>
+    updateUrl({ recount: next === "any" ? null : next }, { resetPage: true });
+
   const onStoreToggle = (storeId: string) => {
     const current = new Set(filtersFromUrl.store ?? []);
     if (current.has(storeId)) current.delete(storeId);
@@ -750,6 +851,7 @@ export function DocumentsTable({
     (filtersFromUrl.assigned && filtersFromUrl.assigned !== "any") ||
     (filtersFromUrl.reviewer && filtersFromUrl.reviewer !== "any") ||
     (filtersFromUrl.store && filtersFromUrl.store.length > 0) ||
+    (filtersFromUrl.recount && filtersFromUrl.recount !== "any") ||
     Boolean(filtersFromUrl.date_from || filtersFromUrl.date_to);
 
   const hasSearch = Boolean(filtersFromUrl.q);
@@ -765,11 +867,16 @@ export function DocumentsTable({
           toast.error(result.error ?? "Синхронизация не выполнена");
           return;
         }
-        toast.success(
+        const base =
           scope === "documents"
             ? `Синхронизировано актов: ${result.summary.documents}`
-            : `Синхронизировано: позиций ${result.summary.products}, актов ${result.summary.documents}`,
-        );
+            : `Синхронизировано: позиций ${result.summary.products}, актов ${result.summary.documents}`;
+        // Сбойные акты не роняют проход, но и молчать о них нельзя.
+        if (result.summary.failedDocuments > 0) {
+          toast.warning(`${base}. Не удалось обработать актов: ${result.summary.failedDocuments}`);
+        } else {
+          toast.success(base);
+        }
         router.refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "Синхронизация не выполнена");
@@ -784,49 +891,12 @@ export function DocumentsTable({
   // Так у каждой колонки 3 состояния: пусто → ↑ → ↓ → пусто.
   // Для Date (дефолт сервера = date_desc) пустое состояние = «дефолт»:
   // URL чист, шапка без индикатора, сервер сам сортирует по дате desc.
-  const cycleSort = (field: SortField) => {
-    const index = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
-    if (index < 0) {
-      setSortKeys([...sortFromUrl, combineSort(field, "asc")]);
-      return;
-    }
-    const currentMode = sortFromUrl[index];
-    if (sortToDirection(currentMode) === "asc") {
-      const next = sortFromUrl.slice();
-      next[index] = combineSort(field, "desc");
-      setSortKeys(next);
-      return;
-    }
-    setSortKeys(sortFromUrl.filter((_, i) => i !== index));
-  };
-
-  const headerIndicator = (columnId: string) => {
-    const field = COLUMN_TO_FIELD[columnId];
-    if (!field) return null;
-    const idx = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
-    if (idx < 0) return null;
-    const dir = sortToDirection(sortFromUrl[idx]);
-    return (
-      <span className="inline-flex items-center gap-0.5">
-        {dir === "asc" ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-        {sortFromUrl.length > 1 ? (
-          <span className="text-[10px] tabular-nums">{idx + 1}</span>
-        ) : null}
-      </span>
-    );
-  };
-
-  const sortableHeaderIds = useMemo(() => new Set(Object.keys(COLUMN_TO_FIELD)), []);
-
-  // aria-sort для сортируемых заголовков: ascending/descending для активной
-  // колонки, none — для сортируемой, но неотсортированной.
-  const headerAriaSort = (columnId: string): "ascending" | "descending" | "none" | undefined => {
-    const field = COLUMN_TO_FIELD[columnId];
-    if (!field) return undefined;
-    const idx = sortFromUrl.findIndex((mode) => sortToField(mode) === field);
-    if (idx < 0) return "none";
-    return sortToDirection(sortFromUrl[idx]) === "asc" ? "ascending" : "descending";
-  };
+  const { cycleSort, headerIndicator, headerAriaSort, sortableColumnIds } = useMultiSort({
+    sorts: sortFromUrl,
+    onChange: setSortKeys,
+    columnToField: COLUMN_TO_FIELD,
+    codec: DOCUMENT_SORT_CODEC,
+  });
 
   const total = initial.total;
   const showingFrom = total === 0 ? 0 : (pageFromUrl - 1) * pageSizeFromUrl + 1;
@@ -939,7 +1009,7 @@ export function DocumentsTable({
 
           {hasSortActive && (filtersVisible || showSearchPin) ? <PinDivider /> : null}
 
-          {/* 2. Фильтры — порядок: Период, Статус, Исполнитель, Склад, Заведение */}
+          {/* 2. Фильтры — порядок: Период, Статус, Исполнитель, Склад, Пересчёты, Заведение */}
           {filtersVisible ? (
             <>
               <DateRangeFilter
@@ -1002,6 +1072,19 @@ export function DocumentsTable({
                 clearLabel="Сбросить склад"
               >
                 <StorePicker value={filtersFromUrl.store ?? []} stores={stores} onToggle={onStoreToggle} />
+              </TableControlPin>
+
+              <TableControlPin
+                active={Boolean(filtersFromUrl.recount) && filtersFromUrl.recount !== "any"}
+                label={recountPinLabel(filtersFromUrl.recount)}
+                onClear={
+                  filtersFromUrl.recount && filtersFromUrl.recount !== "any"
+                    ? () => onRecountChange("any")
+                    : undefined
+                }
+                clearLabel="Показывать все акты"
+              >
+                <RecountPicker value={filtersFromUrl.recount ?? "any"} onChange={onRecountChange} />
               </TableControlPin>
 
               <TableControlPin
@@ -1080,69 +1163,15 @@ export function DocumentsTable({
             suppressHydrationWarning
             className="w-full table-fixed"
           >
-            <colgroup>
-              {table.getVisibleLeafColumns().map((column) => (
-                <col
-                  key={column.id}
-                  // Проценты от ширины таблицы (нормализация) → колонки всегда
-                  // вписаны без горизонтального скролла; ресайз меняет доли.
-                  style={{ width: `${(column.getSize() / table.getTotalSize()) * 100}%` }}
-                />
-              ))}
-            </colgroup>
-            <thead className="group/header sticky top-0 z-20 bg-muted [&_th]:bg-muted text-xs font-medium tracking-wide text-muted-foreground">
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id} className="h-11">
-                  {headerGroup.headers.map((header) => {
-                    const isActions = header.column.id === "actions";
-                    const isSortable = sortableHeaderIds.has(header.column.id);
-                    return (
-                      <th
-                        key={header.id}
-                        aria-sort={headerAriaSort(header.column.id)}
-                        className={cn(
-                          "relative border-b px-3 py-3",
-                          isActions ? "text-right" : "text-left",
-                        )}
-                      >
-                        {isActions ? null : isSortable ? (
-                          <button
-                            type="button"
-                            className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
-                            onClick={() => cycleSort(COLUMN_TO_FIELD[header.column.id])}
-                          >
-                            <span className="truncate">
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                            </span>
-                            {headerIndicator(header.column.id)}
-                          </button>
-                        ) : (
-                          <span className="truncate">
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                          </span>
-                        )}
-                        {header.column.getCanResize() && !isActions ? (
-                          <div
-                            onMouseDown={header.getResizeHandler()}
-                            onTouchStart={header.getResizeHandler()}
-                            className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
-                          >
-                            <span
-                              className={cn(
-                                "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
-                                "group-hover/header:opacity-80",
-                                "hover:w-1 hover:bg-brand hover:opacity-100",
-                                header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
-                              )}
-                            />
-                          </div>
-                        ) : null}
-                      </th>
-                    );
-                  })}
-                </tr>
-              ))}
-            </thead>
+            <ResizableTableHead
+              table={table}
+              isControlColumn={(columnId) => columnId === "actions"}
+              isRightAligned={(columnId) => columnId === "actions"}
+              sortableColumnIds={sortableColumnIds}
+              onSort={(columnId) => cycleSort(COLUMN_TO_FIELD[columnId])}
+              headerIndicator={headerIndicator}
+              headerAriaSort={headerAriaSort}
+            />
             <tbody>
               {table.getRowModel().rows.length === 0 ? (
                 <tr>
@@ -1229,19 +1258,23 @@ export function DocumentsTable({
           onClear={clearSelection}
           floating
           summary={
-            <span
-              className={cn(
-                "whitespace-nowrap text-sm font-medium tabular-nums",
-                selectedNet > 0
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : selectedNet < 0
-                    ? "text-rose-600 dark:text-rose-400"
-                    : "text-muted-foreground",
-              )}
-            >
-              Итог: {selectedNet > 0 ? "+" : selectedNet < 0 ? "−" : ""}
-              {formatMoney(Math.abs(selectedNet), "RUB", amountRoundingScale)}
-            </span>
+            selectedTotals.unavailable ? (
+              <span
+                className="whitespace-nowrap text-sm font-medium text-muted-foreground"
+                title="По части выделенных актов итог посчитать не удалось — обновите страницу"
+              >
+                Итог: —
+              </span>
+            ) : (
+              <span
+                className={cn(
+                  "whitespace-nowrap text-sm font-medium tabular-nums",
+              signedAmountClass(selectedNet),
+                )}
+              >
+                Итог: {formatSignedMoney(selectedNet, "RUB", amountRoundingScale)}
+              </span>
+            )
           }
           actions={
             // Каждая кнопка показывается, только когда действие применимо ко

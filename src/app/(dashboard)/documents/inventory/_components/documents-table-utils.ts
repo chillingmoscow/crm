@@ -2,6 +2,9 @@
 // documents-table.tsx, чтобы переиспользовать в main-компоненте и в саб-частях
 // (documents-table-rows.tsx) и покрыть тестами.
 
+// Относительный путь, а не alias: файл покрыт node:test, а тест-раннер не
+// резолвит пути из tsconfig (та же причина, что в list-documents-shared.ts).
+import { hasCountedResults } from "../../../../../lib/inventory/act-status.ts";
 import type { DocumentListRow, DocumentSortMode } from "@/lib/inventory/list-documents-shared";
 
 export type VenueOption = { id: string; name: string };
@@ -40,6 +43,15 @@ export function combineSort(field: SortField, direction: "asc" | "desc"): Docume
   return direction === "asc" ? "number_asc" : "number_desc";
 }
 
+// Три функции выше как один кодек для useMultiSort. Тип не аннотируем
+// намеренно: файл покрыт node:test, а раннер не резолвит alias из
+// tsconfig — импорт типа тут лишний, совместимость проверит вызов.
+export const DOCUMENT_SORT_CODEC = {
+  toField: sortToField,
+  toDirection: sortToDirection,
+  combine: combineSort,
+};
+
 // canViewResults обязателен: пользователи с inventory.fill_assigned_documents,
 // но без inventory.view_results, не могут открыть /results — их редиректнёт
 // прочь. Поэтому для них всегда возвращаем форму, даже у проведённых актов.
@@ -48,8 +60,11 @@ export function getDocHref(
   doc: Pick<DocumentListRow, "id" | "processed" | "results_has_line_amounts" | "status">,
   canViewResults: boolean,
 ) {
-  const isResultsState =
-    doc.processed || doc.results_has_line_amounts || doc.status === "results_blocked";
+  // Итоги существуют только после сдачи акта: до этого «разница» из Quick Resto
+  // равна минус складскому остатку, и вести туда бессмысленно (там заглушка).
+  // results_has_line_amounts для этого не годится — QR выставляет его и на
+  // нетронутом акте.
+  const isResultsState = hasCountedResults(doc.status);
   if (isResultsState && canViewResults) {
     return `/documents/inventory/${doc.id}/results`;
   }

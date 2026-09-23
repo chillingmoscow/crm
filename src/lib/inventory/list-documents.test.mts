@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildRpcArgs,
+  isRecountFilter,
   normalizeListOptions,
   parseRpcResponse,
   DEFAULT_PAGE_SIZE,
@@ -54,9 +55,38 @@ test("buildRpcArgs: empty filters → all params null", () => {
   assert.equal(args.p_filter_date_from, null);
   assert.equal(args.p_filter_date_to, null);
   assert.equal(args.p_filter_q, null);
+  assert.equal(args.p_filter_recount, null);
   assert.deepEqual(args.p_sort, []);
   assert.equal(args.p_page, 1);
   assert.equal(args.p_page_size, 25);
+});
+
+test("buildRpcArgs: фильтр пересчётов — 'any' равносилен его отсутствию", () => {
+  // RPC трактует NULL как «без отбора», поэтому гонять 'any' по проводам не за
+  // чем: два разных представления одного и того же состояния разошлись бы при
+  // первой же правке условия в SQL.
+  assert.equal(buildRpcArgs(normalizeListOptions({ filters: { recount: "any" } })).p_filter_recount, null);
+  assert.equal(buildRpcArgs(normalizeListOptions({ filters: {} })).p_filter_recount, null);
+});
+
+test("buildRpcArgs: 'only' и 'exclude' пробрасываются как есть", () => {
+  assert.equal(
+    buildRpcArgs(normalizeListOptions({ filters: { recount: "only" } })).p_filter_recount,
+    "only",
+  );
+  assert.equal(
+    buildRpcArgs(normalizeListOptions({ filters: { recount: "exclude" } })).p_filter_recount,
+    "exclude",
+  );
+});
+
+test("isRecountFilter: принимает только известные значения", () => {
+  assert.equal(isRecountFilter("only"), true);
+  assert.equal(isRecountFilter("exclude"), true);
+  assert.equal(isRecountFilter("any"), true);
+  assert.equal(isRecountFilter("recount"), false);
+  assert.equal(isRecountFilter(""), false);
+  assert.equal(isRecountFilter(undefined), false);
 });
 
 test("buildRpcArgs: пустой массив (status/store) → null", () => {

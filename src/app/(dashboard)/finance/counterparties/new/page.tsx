@@ -2,17 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { listCounterpartyGroups } from "@/lib/finance/counterparties";
 import { isDadataConfigured } from "@/lib/dadata/client";
 import { CounterpartyForm } from "../_components/counterparty-form";
 
 export default async function NewCounterpartyPage() {
-  const supabase = await createClient();
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "finance.manage_counterparties",
-  });
-  if (!canManage) redirect("/finance/counterparties");
+  const can = await getCachedPermissionChecker();
+  if (!can("finance.manage_counterparties")) redirect("/finance/counterparties");
 
   const { rows: groups } = await listCounterpartyGroups();
   const dadataEnabled = isDadataConfigured();

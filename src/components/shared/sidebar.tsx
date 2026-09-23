@@ -6,33 +6,36 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
-  User,
+  ArrowLeftRight,
+  BookOpen,
+  Boxes,
   Building2,
-  Shield,
-  LogOut,
-  Settings,
   ChevronDown,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   ChevronsUpDown,
+  ClipboardList,
+  Eye,
   FileBadge2,
   Keyboard,
   Laptop,
   LayoutDashboard,
   LifeBuoy,
+  LogOut,
   Moon,
-  Sun,
+  FlaskConical,
+  PackageSearch,
+  UtensilsCrossed,
+  ScrollText,
+  Settings,
+  Shield,
   SlidersHorizontal,
+  Sun,
   Tags,
+  User,
   Users,
   Wallet,
-  ArrowLeftRight,
-  BookOpen,
-  Boxes,
-  ScrollText,
-  ClipboardList,
-  PackageSearch,
   Warehouse,
   type LucideIcon,
 } from "lucide-react";
@@ -51,6 +54,7 @@ import {
 } from "@/components/ui/popover";
 import { createClient } from "@/lib/supabase/client";
 import { unsubscribePushForSignOut } from "@/lib/push/client";
+import { stopImpersonation } from "@/lib/impersonation/actions";
 import { toast } from "sonner";
 import { VenueSwitcher } from "@/components/shared/venue-switcher";
 import { SupportReportDialog } from "@/components/shared/support-report-dialog";
@@ -136,8 +140,8 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Номенклатура — справочник сущностей. Сейчас только ингредиенты;
-    // позже Блюда/Товары/Полуфабрикаты (Этап 3 разведения доменов).
+    // Номенклатура — справочник сущностей. Три раздела соответствуют видам
+    // номенклатуры Quick Resto; товары появятся позже.
     label: "Номенклатура",
     icon: PackageSearch,
     items: [
@@ -145,6 +149,20 @@ const NAV_SECTIONS: NavSection[] = [
         title: "Ингредиенты",
         href: "/catalog/ingredients",
         icon: PackageSearch,
+        permission: "inventory.view_products",
+        roles: ["owner", "admin", "manager"],
+      },
+      {
+        title: "Блюда",
+        href: "/catalog/dishes",
+        icon: UtensilsCrossed,
+        permission: "inventory.view_products",
+        roles: ["owner", "admin", "manager"],
+      },
+      {
+        title: "Полуфабрикаты",
+        href: "/catalog/semi-products",
+        icon: FlaskConical,
         permission: "inventory.view_products",
         roles: ["owner", "admin", "manager"],
       },
@@ -219,6 +237,10 @@ interface AppSidebarProps {
    *  active) до того как hydration-effect поднимет module-store
    *  (Codex P2 на PR #129). */
   kbSidebarHidden?: boolean;
+  /** Идёт режим просмотра за другого пользователя. Пока он активен, выход
+   *  из аккаунта недоступен: из чужой сессии выходить нечем — сначала
+   *  нужно вернуться в свою. См. src/lib/impersonation. */
+  isImpersonating?: boolean;
 }
 
 export function AppSidebar(props: AppSidebarProps) {
@@ -272,6 +294,7 @@ function SidebarBody({
   userPermissions,
   staffAttentionCount = 0,
   kbSidebarHidden = false,
+  isImpersonating = false,
 }: AppSidebarProps) {
   // activeRoleName / accountName в SidebarBody не нужны — раньше
   // прокидывались в ProfileMenu для верхнего user-блока, который убран.
@@ -338,6 +361,37 @@ function SidebarBody({
   const [supportOpen, setSupportOpen] = useState(false);
 
   const handleSignOut = async () => {
+    // Из чужой шкуры выйти нельзя — только вернуться в свою. Иначе пришлось
+    // бы решать, чью сессию мы гасим и что делать с билетом, а это ровно
+    // тот узел, из которого росли баги. Здесь просто нет второй ветки:
+    // пункт меню меняет смысл, а не поведение выхода.
+    if (isImpersonating) {
+      // try/catch обязателен: это единственный выход из режима просмотра,
+      // и если действие упадёт по сети, кнопка просто молча ничего не
+      // сделает — человек решит, что она сломана, и останется в чужой
+      // шкуре.
+      try {
+        const result = await stopImpersonation();
+        if (result.next) {
+          window.location.assign(result.next);
+          return;
+        }
+        if (result.error) toast.error(result.error);
+      } catch {
+        // Неопределённый исход: ответ мог оборваться уже ПОСЛЕ того, как
+        // Set-Cookie дошли до браузера, то есть сессия уже сменилась, а мы
+        // об этом не узнали. Оставлять старый UI нельзя — в нём нет
+        // баннера, а сайдбар предлагает обычный выход, который отозвал бы
+        // сессии сотрудника на всех устройствах. Кто мы на самом деле,
+        // знает только сервер, поэтому уходим на перезагрузку и даём ему
+        // ответить. Тост тут не нужен: он бы всё равно не пережил
+        // перезагрузку, а перерисованный экран и так показывает правду —
+        // есть баннер или нет.
+        window.location.assign("/dashboard");
+      }
+      return;
+    }
+
     // Отписываем браузер от push ДО signOut (server action требует
     // сессии). На общем устройстве это не даёт следующему юзеру
     // получать push прежнего владельца.
@@ -492,6 +546,7 @@ function SidebarBody({
             </PopoverTrigger>
             <ProfileMenu
               onSignOut={handleSignOut}
+              isImpersonating={isImpersonating}
               onClose={() => setUserMenuOpen(false)}
               onOpenSupport={() => setSupportOpen(true)}
             />
@@ -525,6 +580,7 @@ function SidebarBody({
             </PopoverTrigger>
             <ProfileMenu
               onSignOut={handleSignOut}
+              isImpersonating={isImpersonating}
               onClose={() => setUserMenuOpen(false)}
               onOpenSupport={() => setSupportOpen(true)}
             />
@@ -703,6 +759,11 @@ function CollapsedSectionFlyout({
         <button
           type="button"
           aria-label={section.label}
+          // Тултип в collapsed-режиме — как у flat-ссылок и KbNavLink
+          // (GlobalTooltip ловит [data-tip]). На hover — подсказка,
+          // на click — открывается flyout (GlobalTooltip прячется на
+          // pointerdown, конфликта нет).
+          data-tip={section.label}
           className={cn(
             "relative flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
             (hasActiveChild || open) && "bg-sidebar-accent",
@@ -800,10 +861,12 @@ function ProfileMenu({
   onSignOut,
   onClose,
   onOpenSupport,
+  isImpersonating = false,
 }: {
   onSignOut: () => void;
   onClose: () => void;
   onOpenSupport: () => void;
+  isImpersonating?: boolean;
 }) {
   // Note: верхний user-блок (name + role · account + avatar) намеренно
   // убран — он дублировал trigger-кнопку в футере сайдбара (на которую
@@ -869,7 +932,9 @@ function ProfileMenu({
 
       <div className="h-px bg-border" />
 
-      {/* Logout */}
+      {/* Logout. В режиме просмотра за другого пользователя пункт меняет
+          смысл: выйти из чужой сессии нельзя, можно только вернуться в
+          свою — и уже оттуда выходить. Одна кнопка, один сценарий. */}
       <div className="px-1.5 pt-1.5 pb-2">
         <button
           type="button"
@@ -877,10 +942,19 @@ function ProfileMenu({
             onClose();
             onSignOut();
           }}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-semibold text-destructive hover:bg-destructive/5 transition-colors w-full text-left"
+          className={
+            "flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-semibold transition-colors w-full text-left " +
+            (isImpersonating
+              ? "text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-500/15"
+              : "text-destructive hover:bg-destructive/5")
+          }
         >
-          <LogOut className="w-3.5 h-3.5" />
-          Выйти из аккаунта
+          {isImpersonating ? (
+            <Eye className="w-3.5 h-3.5" />
+          ) : (
+            <LogOut className="w-3.5 h-3.5" />
+          )}
+          {isImpersonating ? "Вернуться к себе" : "Выйти из аккаунта"}
         </button>
       </div>
     </PopoverContent>

@@ -2794,6 +2794,8 @@ export type Database = {
         Row: {
           account_id: string
           address: string | null
+          archived_at: string | null
+          archived_by: string | null
           comment: string | null
           created_at: string
           currency: string
@@ -2810,6 +2812,8 @@ export type Database = {
         Insert: {
           account_id: string
           address?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           comment?: string | null
           created_at?: string
           currency?: string
@@ -2826,6 +2830,8 @@ export type Database = {
         Update: {
           account_id?: string
           address?: string | null
+          archived_at?: string | null
+          archived_by?: string | null
           comment?: string | null
           created_at?: string
           currency?: string

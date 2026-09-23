@@ -2,7 +2,12 @@ import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissions,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 
 import { DocumentActHeader } from "./_components/document-act-header";
@@ -12,6 +17,7 @@ type DocumentBasicsRow = {
   account_id: string;
   document_number: string;
   status: string;
+  recount_of_document_id: string | null;
   processed: boolean;
   results_has_line_amounts: boolean;
   assigned_to: string | null;
@@ -19,6 +25,15 @@ type DocumentBasicsRow = {
   store_id: string | null;
   venue_id: string | null;
   results_reopened_after_processed: boolean;
+  results_snapshot_at: string | null;
+  // Нужны форме заполнения: она читала ту же строку своим запросом только
+  // из-за этих пяти колонок. Одна строка, пять колонок — дешевле лишнего
+  // round-trip'а.
+  base_last_update_date: string | null;
+  synced_at: string | null;
+  last_returned_at: string | null;
+  recount_count: number | null;
+  archived_at: string | null;
 };
 
 type StoreTitleRow = { title: string };
@@ -33,7 +48,7 @@ export const getCachedInventoryDocumentBasics = cache(async (id: string, account
   const { data, error } = await admin
     .from<DocumentBasicsRow>("documents")
     .select(
-      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed",
+      "id, account_id, document_number, status, processed, results_has_line_amounts, assigned_to, reviewer_id, store_id, venue_id, results_reopened_after_processed, recount_of_document_id, results_snapshot_at, base_last_update_date, synced_at, last_returned_at, recount_count, archived_at",
     )
     .eq("id", id)
     .eq("account_id", accountId)
@@ -73,29 +88,22 @@ export default async function InventoryDocumentLayout({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [
-    user,
-    accountId,
-    { data: canView },
-    { data: canFill },
-    { data: canViewResults },
-    { data: canManage },
-    { data: canViewAllVenues },
-    { data: canManageStores },
-    { data: canRecountDocuments },
-    { data: activeVenueId },
-  ] = await Promise.all([
+  // Права — одним кэшированным списком (list_my_permissions) вместо семи
+  // отдельных has_permission. Кэш живёт на весь RSC-рендер, поэтому вложенные
+  // страницы переиспользуют тот же вызов, а не делают свои.
+  const [user, accountId, permissions, { data: activeVenueId }] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_all_venues" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_stores" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.recount_documents" }),
+    getCachedPermissions(),
     supabase.rpc("get_active_venue_id"),
   ]);
+  const canView = permissions.includes("inventory.view_documents");
+  const canFill = permissions.includes("inventory.fill_assigned_documents");
+  const canViewResults = permissions.includes("inventory.view_results");
+  const canManage = permissions.includes("inventory.manage_documents");
+  const canViewAllVenues = permissions.includes("inventory.view_all_venues");
+  const canManageStores = permissions.includes("inventory.manage_stores");
+  const canRecountDocuments = permissions.includes("inventory.recount_documents");
 
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");
@@ -142,6 +150,19 @@ export default async function InventoryDocumentLayout({
     document.status === "results_blocked" ||
     document.status === "ready_for_review";
 
+  // Акт пересчёта помечаем в шапке ссылкой на исходный акт.
+  const { data: parentDoc } = document.recount_of_document_id
+    ? await asLooseDb(createAdminClient())
+        .from<{ id: string; document_number: string }>("documents")
+        .select("id, document_number")
+        .eq("id", document.recount_of_document_id)
+        .eq("account_id", document.account_id)
+        .maybeSingle()
+    : { data: null };
+  const recountParent = parentDoc?.id
+    ? { id: parentDoc.id, documentNumber: parentDoc.document_number }
+    : null;
+
   return (
     <div className="flex w-full flex-1 flex-col">
       <DocumentActHeader
@@ -158,6 +179,7 @@ export default async function InventoryDocumentLayout({
         canManage={Boolean(canManage)}
         resultsAvailable={resultsAvailable}
         reopenedAfterProcessed={document.results_reopened_after_processed}
+        recountParent={recountParent}
       />
       {children}
     </div>

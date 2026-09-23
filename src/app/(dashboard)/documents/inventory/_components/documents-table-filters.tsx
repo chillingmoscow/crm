@@ -16,8 +16,11 @@ import { cn } from "@/lib/utils";
 import { INVENTORY_STATUS_LABEL } from "@/components/shared/inventory-status-badge";
 import {
   DOCUMENT_STATUSES,
+  RECOUNT_FILTERS,
+  RECOUNT_FILTER_LABEL,
   type DocumentSortMode,
   type DocumentStatus,
+  type RecountFilter,
 } from "@/lib/inventory/list-documents-shared";
 
 import type { AssigneeOption } from "./assignee-select";
@@ -66,6 +69,11 @@ export function reviewerPinLabel(reviewer: string | undefined, staff: AssigneeOp
   return staff.find((s) => s.id === reviewer)?.name ?? "Проверяющий";
 }
 
+export function recountPinLabel(recount: RecountFilter | undefined): string {
+  if (!recount || recount === "any") return "Пересчёты";
+  return RECOUNT_FILTER_LABEL[recount];
+}
+
 export function storePinLabel(store: string[] | undefined, stores: StoreOption[]): string {
   if (!store || store.length === 0) return "Склад";
   if (store.length === 1) return stores.find((s) => s.id === store[0])?.title ?? "Склад";
@@ -101,6 +109,38 @@ export function VenuePicker({
           )}
         >
           {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Отбор актов пересчёта: показывать все, только их или только обычные.
+ *
+ * Акт пересчёта вынесен из другого акта и помечен бейджем, но на складе, где
+ * пересчёты регулярны, они подмешиваются к обычным и мешают читать список.
+ */
+export function RecountPicker({
+  value,
+  onChange,
+}: {
+  value: RecountFilter;
+  onChange: (v: RecountFilter) => void;
+}) {
+  return (
+    <div className="space-y-0.5 p-1">
+      {RECOUNT_FILTERS.map((option) => (
+        <button
+          key={option}
+          type="button"
+          onClick={() => onChange(option)}
+          className={cn(
+            "block w-full rounded-sm px-3 py-2 text-left text-sm hover:bg-accent",
+            option === value ? "bg-accent" : null,
+          )}
+        >
+          {RECOUNT_FILTER_LABEL[option]}
         </button>
       ))}
     </div>

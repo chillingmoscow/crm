@@ -12,7 +12,7 @@
  * Жизненный цикл (см. docs/handbook/inventory/statuses.md):
  *   synced → assigned → in_progress → ready_for_review | results_blocked
  *     → recount_pending → ready_for_review (петля пересчёта)
- *   Боковое: sync_error. Накладки-замки: results_finalized_at (финализация),
+ *   Накладки-замки: results_finalized_at (финализация),
  *   processed + results_reopened_at (проведён в QR / разблокирован).
  */
 
@@ -23,8 +23,7 @@ export type InventoryActStatus =
   | "ready_for_review"
   | "recount_pending"
   | "processed"
-  | "results_blocked"
-  | "sync_error";
+  | "results_blocked";
 
 /** Минимум полей акта, достаточный для вычисления замков итогов. */
 export type InventoryActLockInput = {
@@ -75,6 +74,133 @@ export function getInventoryResultAdjustLockReason(doc: InventoryActLockInput): 
 }
 
 /**
+ * Есть ли у акта итоги подсчёта.
+ *
+ * Quick Resto считает разницу как «факт − расчётный остаток» и отдаёт её ВСЕГДА,
+ * даже когда акт ещё не считали: у незаполненного акта факт равен нулю, и
+ * разница получается равной минус всему складскому остатку. На проде это
+ * выглядело как недостача 478 193,6 ₽ по акту, к которому никто не притрагивался.
+ *
+ * Итоги существуют только после того, как исполнитель сдал акт: ready_for_review
+ * (в т.ч. вернувшись с пересчёта), results_blocked, recount_pending и processed.
+ * До сдачи (synced / assigned / in_progress) никаких итогов нет —
+ * ни на странице, ни в суммах списка.
+ */
+export function hasCountedResults(status: string): boolean {
+  return (
+    status === "ready_for_review" ||
+    status === "results_blocked" ||
+    status === "recount_pending" ||
+    status === "processed"
+  );
+}
+
+/**
+ * Статус акта после импорта строк из Quick Resto.
+ *
+ * Импорт — это обновление ДАННЫХ, а не событие процесса, поэтому он не должен
+ * двигать акт по статусной машине. Раньше статус пересчитывался безусловно
+ * (`processed` → иначе `resultsFound ? ready_for_review : results_blocked`), и
+ * один клик «Обновить итоги» переводил акт с пересчёта или из работы
+ * исполнителя в «Готов к проверке»: исполнителю закрывалась форма посреди
+ * пересчёта, а с проверяющего снималась анти-подгонка.
+ *
+ * Правила:
+ *  - QR says processed → `processed` (это факт на стороне источника правды);
+ *  - акт ещё у исполнителя (synced / assigned / in_progress / recount_pending)
+ *    → статус не трогаем;
+ *  - акт уже на проверке (ready_for_review / results_blocked) → уточняем по
+ *    тому, вернул ли QR построчные расчёты.
+ */
+export function resolveStatusAfterImport(input: {
+  current: string;
+  processed: boolean;
+  resultsFound: boolean;
+}): string {
+  if (input.processed) return "processed";
+  if (
+    input.current === "synced" ||
+    input.current === "assigned" ||
+    input.current === "in_progress" ||
+    input.current === "recount_pending"
+  ) {
+    return input.current;
+  }
+  return input.resultsFound ? "ready_for_review" : "results_blocked";
+}
+
+/**
+ * Статус акта после ПОЛНОЙ синхронизации с Quick Resto.
+ *
+ * Отличие от resolveStatusAfterImport: там мы обновляем строки уже известного
+ * акта, здесь — принимаем выгрузку QR, в которой акта может ещё не быть.
+ *
+ * Правило одно: синхронизация двигает акт по жизненному циклу только ВПЕРЁД.
+ * `processed` — факт на стороне источника правды, его принимаем. Всё остальное
+ * (назначен, в работе, готов к проверке, на пересчёте) — наш собственный
+ * процесс, и данные QR не повод его отматывать.
+ *
+ * Прецедент: признак «акт проведён у нас» был завязан на results_finalized_at,
+ * а reopenInventoryResults его обнуляет, оставляя акт проведённым. Поэтому
+ * акт, который распровели в QR и переоткрыли у нас, откатывался в 'synced':
+ * страница итогов показывала «подсчёт не завершён», в списке вместо суммы
+ * стоял ноль, а форма снова открывалась исполнителю.
+ */
+export function resolveStatusAfterSync(input: {
+  processedInQr: boolean;
+  existingStatus: string | null | undefined;
+}): string {
+  if (input.processedInQr) return "processed";
+  return input.existingStatus ?? "synced";
+}
+
+/**
+ * Значение documents.qr_unprocessed_at (миграция 224) после синхронизации.
+ *
+ * Метка означает «акт проведён у нас, но в Quick Resto его распровели».
+ * Ставится один раз — на переходе, чтобы плашка и запись в журнале не
+ * дублировались на каждом проходе; снимается ТОЛЬКО когда QR снова отдал акт
+ * проведённым. Безусловное обнуление стирало метку на первом же проходе по
+ * любому непроведённому акту.
+ */
+export function resolveQrUnprocessedAt(input: {
+  processedInQr: boolean;
+  processedLocally: boolean;
+  existingValue: string | null | undefined;
+  now: string;
+}): string | null {
+  if (input.processedInQr) return null;
+  if (input.processedLocally) return input.existingValue ?? input.now;
+  return input.existingValue ?? null;
+}
+
+/**
+ * Причина, по которой повторный импорт итогов из Quick Resto («Обновить итоги»)
+ * закрыт, либо null если импорт разрешён.
+ *
+ * Импорт перезаписывает построчные итоги значениями, которые QR отдаёт ПРЯМО
+ * СЕЙЧАС. «Расчётный остаток» в QR — не константа акта, а производная от
+ * движений товара: то же поле, прочитанное позже, даёт другое число (прод,
+ * акт СВ340: 0,2 кг в снимке от 24.08 против −0,4 кг сутки спустя). Поэтому на
+ * залоченных итогах импорт запрещён — иначе он молча заменяет то, что утвердил
+ * проверяющий. Легальный путь — сначала переоткрыть итоги
+ * (reopenInventoryResults), тогда правка видна в журнале и в метке
+ * «итоги правились после проведения».
+ */
+export function getInventoryResultRefreshLockReason(doc: InventoryActLockInput): string | null {
+  if (doc.status === "recount_pending") {
+    return "Акт отправлен исполнителю на пересчёт. Импорт из Quick Resto сейчас перезапишет строки и закроет исполнителю форму — дождитесь завершения пересчёта.";
+  }
+  if (doc.results_finalized_at) {
+    return "Итоги акта зафиксированы. Quick Resto пересчитывает расчётные остатки по движениям товара, поэтому повторный импорт заменит утверждённые числа. Переоткройте итоги, если импорт действительно нужен.";
+  }
+  if (doc.status === "processed" && doc.results_reopened_at == null) {
+    return "Акт проведён в Quick Resto. После проведения QR отдаёт уже пересчитанные остатки, и импорт заменит итоги акта. Разблокируйте акт, если импорт действительно нужен.";
+  }
+  return null;
+}
+
+/**
  * Статусы, в которых форма заполнения только для чтения: акт уже ушёл на
  * проверку / проведён / не синкнулся. В этих статусах исполнитель не должен
  * «дозаполнять» факт.
@@ -83,7 +209,6 @@ export const FORM_LOCKED_STATUSES: readonly string[] = [
   "ready_for_review",
   "results_blocked",
   "processed",
-  "sync_error",
 ];
 
 /**
@@ -100,15 +225,13 @@ export function isInventoryFormLocked(status: string, finalized: boolean): boole
  * тот, кто заполняет/пересчитывает, поэтому менять его можно ровно тогда,
  * когда форма редактируема (synced / assigned / in_progress / recount_pending).
  * Как только акт ушёл на проверку (ready_for_review / results_blocked) или
- * проведён / sync_error — менять нельзя: счёт уже сделан конкретным человеком,
+ * проведён — менять нельзя: счёт уже сделан конкретным человеком,
  * подмена ломает атрибуцию. Чтобы передать другому — «Отправить на пересчёт»
  * (акт → recount_pending, исполнитель снова доступен).
  * Возвращает причину блокировки (для tooltip) или null, если менять можно.
  */
 export function getAssigneeLockReason(status: string): string | null {
   if (status === "processed") return "Акт проведён — исполнителя менять нельзя";
-  if (status === "sync_error")
-    return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
   if (status === "ready_for_review" || status === "results_blocked")
     return "Акт на проверке — исполнителя менять нельзя. Чтобы передать другому, отправьте акт на пересчёт";
   return null;
@@ -134,12 +257,32 @@ export function nextStatusAfterAssign(currentStatus: string, assignedTo: string 
 /**
  * Можно ли менять ПРОВЕРЯЮЩЕГО акта. Проверяющего назначают/меняют вплоть до
  * проведения акта: его можно задать заранее и переназначить во время проверки
- * итогов. Заблокировано только когда акт проведён / sync_error.
+ * итогов. Заблокировано только когда акт проведён.
  * Возвращает причину блокировки (для tooltip) или null.
  */
+/**
+ * Можно ли УДАЛИТЬ акт. Повторяет условие серверного экшена
+ * deleteInventoryDocument, который удаляет строку только пока акт не
+ * проведён и у него нет снимка утверждённых итогов.
+ *
+ * Это ограничение по состоянию акта, а не по правам: `inventory.manage_documents`
+ * законно разрешает удалять черновики. Просто вместе с проведённым актом
+ * каскадом уходят снимок итогов, пересорты и журнал решений — вся
+ * доказательная база по закрытой инвентаризации.
+ *
+ * Снимок проверяем отдельно от статуса: распроведение возвращает акт в
+ * ready_for_review, но снимок остаётся, и удалять такой акт по-прежнему нельзя.
+ */
+export function getDeleteLockReason(input: {
+  status: string;
+  resultsSnapshotAt?: string | null;
+}): string | null {
+  if (input.status === "processed") return "Проведённый акт удалить нельзя";
+  if (input.resultsSnapshotAt) return "У акта есть утверждённые итоги — удалить нельзя";
+  return null;
+}
+
 export function getReviewerLockReason(status: string): string | null {
   if (status === "processed") return "Акт проведён — проверяющего менять нельзя";
-  if (status === "sync_error")
-    return "Ошибка синхронизации — сначала восстановите акт из Quick Resto";
   return null;
 }

@@ -3,7 +3,11 @@ import { SlidersHorizontal } from "lucide-react";
 
 import { AMOUNT_ROUNDING_OPTIONS, normalizeAmountRoundingScale } from "@/lib/format/amount";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { Button } from "@/components/ui/button";
 import { updateGeneralSettings } from "./actions";
 
@@ -13,18 +17,12 @@ type AccountSettingsRow = {
 };
 
 export default async function GeneralSettingsPage() {
-  const supabase = await createClient();
-  const [
-    {
-      data: { user },
-    },
-    { data: accountId },
-    { data: allowed },
-  ] = await Promise.all([
-    supabase.auth.getUser(),
-    supabase.rpc("get_active_account_id"),
-    supabase.rpc("has_permission", { permission_code: "settings.manage_integrations" }),
+  const [user, accountId, can] = await Promise.all([
+    getCachedUser(),
+    getCachedActiveAccountId(),
+    getCachedPermissionChecker(),
   ]);
+  const allowed = can("settings.manage_integrations");
 
   if (!user) redirect("/login");
   if (!accountId || !allowed) redirect("/dashboard");

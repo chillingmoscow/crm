@@ -4,10 +4,22 @@ import * as React from "react"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
 
 import { cn } from "@/lib/utils"
+import { useSsrSafeAriaControls } from "@/hooks/use-hydrated"
 
 const Popover = PopoverPrimitive.Root
 
-const PopoverTrigger = PopoverPrimitive.Trigger
+/**
+ * `aria-controls` не уходит в SSR-разметку — атрибут дорисовывается
+ * после гидратации. Почему так — см. useSsrSafeAriaControls в
+ * `src/hooks/use-hydrated.ts`.
+ */
+const PopoverTrigger = React.forwardRef<
+  React.ElementRef<typeof PopoverPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Trigger>
+>((props, ref) => (
+  <PopoverPrimitive.Trigger ref={ref} {...useSsrSafeAriaControls()} {...props} />
+))
+PopoverTrigger.displayName = PopoverPrimitive.Trigger.displayName
 
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,

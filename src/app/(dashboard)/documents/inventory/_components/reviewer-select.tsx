@@ -12,7 +12,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { assignInventoryReviewer } from "@/app/(dashboard)/inventory/actions";
+import { assignInventoryReviewer } from "@/app/(dashboard)/inventory/_actions/assignment";
 import {
   AssigneeAvatar,
   PersonChip,

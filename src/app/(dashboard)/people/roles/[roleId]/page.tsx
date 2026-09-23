@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { listAuditEvents } from "@/lib/audit/list";
 import { RoleDetailPage } from "./_components/role-detail-page";
 
@@ -25,10 +28,8 @@ export default async function RoleDetailServerPage({
   // Detail view is gated on view_roles. Edit operations on the page
   // (and underlying role_permissions / account_role_permissions writes)
   // are still gated on people.manage_roles via RLS.
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "people.view_roles",
-  });
-  if (!canView) redirect("/dashboard");
+  const can = await getCachedPermissionChecker();
+  if (!can("people.view_roles")) redirect("/dashboard");
 
   const [{ data: accountId }, { data: activeVenueId }] = await Promise.all([
     supabase.rpc("get_active_account_id"),
@@ -99,9 +100,7 @@ export default async function RoleDetailServerPage({
   // Журнал. Префетчим первую страницу для таба «Журнал», если у юзера
   // есть `org.view_audit`. Без него фетч пропускаем (RLS всё равно
   // выдаст пусто, экономим запрос).
-  const { data: canViewAudit } = await supabase.rpc("has_permission", {
-    permission_code: "org.view_audit",
-  });
+  const canViewAudit = can("org.view_audit");
   const auditResult = canViewAudit
     ? await listAuditEvents({ entityType: "role", entityId: roleId })
     : { events: [], hasMore: false, error: null };

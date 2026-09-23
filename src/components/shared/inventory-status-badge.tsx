@@ -16,7 +16,6 @@ export const INVENTORY_STATUS_LABEL: Record<string, string> = {
   recount_pending: "На пересчёте",
   processed: "Проведен",
   results_blocked: "Итоги требуют проверки",
-  sync_error: "Ошибка синхронизации",
 };
 
 // Dark-варианты по образцу staff-detail-page (см. memory
@@ -51,10 +50,6 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
     "text-emerald-700 dark:text-emerald-400 " +
     "border-emerald-200 dark:border-emerald-500/30",
   results_blocked:
-    "bg-rose-50 dark:bg-rose-500/15 " +
-    "text-rose-700 dark:text-rose-300 " +
-    "border-rose-200 dark:border-rose-500/30",
-  sync_error:
     "bg-rose-50 dark:bg-rose-500/15 " +
     "text-rose-700 dark:text-rose-300 " +
     "border-rose-200 dark:border-rose-500/30",

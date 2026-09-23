@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { generateKbSlug } from "@/lib/knowledge/slug";
 import { blocksToPlainText } from "@/lib/knowledge/plain-text";
 import { kbPropertiesSchema } from "@/lib/knowledge/schemas";
@@ -59,9 +62,7 @@ export async function createKbTemplate(input: {
 }): Promise<{ id: string | null; error: string | null }> {
   const supabase = await createClient();
 
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "kb.manage_templates",
-  });
+  const canManage = (await getCachedPermissionChecker())("kb.manage_templates");
   if (!canManage) {
     return { id: null, error: "Нет права управлять шаблонами" };
   }
@@ -127,9 +128,7 @@ export async function deleteKbTemplate(
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
 
-  const { data: canManage } = await supabase.rpc("has_permission", {
-    permission_code: "kb.manage_templates",
-  });
+  const canManage = (await getCachedPermissionChecker())("kb.manage_templates");
   if (!canManage) {
     return { error: "Нет права управлять шаблонами" };
   }

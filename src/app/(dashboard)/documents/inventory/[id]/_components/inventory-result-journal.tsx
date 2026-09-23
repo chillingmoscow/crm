@@ -1,3 +1,4 @@
+import Link from "next/link";
 /* eslint-disable @next/next/no-img-element */
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -10,6 +11,7 @@ export type InventoryResultJournalEvent = {
   message: string;
   created_at: string;
   created_by: string | null;
+  document_item_id?: string | null;
   payload?: unknown;
   actor?: {
     first_name: string | null;
@@ -30,6 +32,8 @@ function eventTypeLabel(eventType: string) {
     results_finalized: "Итоги подведены",
     results_reopened: "Редактирование",
     results_refreshed: "Обновление",
+    results_recheck_drift: "Данные QR изменились",
+    resort_recalculated: "Пересорт пересчитан",
     suggestion_applied: "Подсказка принята",
     suggestion_dismissed: "Подсказка скрыта",
     // recount mechanic (PR3):
@@ -105,10 +109,45 @@ function actorInitials(actor: InventoryResultJournalEvent["actor"], fallback: st
  * layout-табу «Журнал». Вынесен в отдельный компонент и переехал в
  * /documents/inventory/[id]/history (layout-табa «Журнал»).
  */
+/**
+ * Названия позиций, которых касается событие. Без них журнал писал «Отметил
+ * строку на пересчёт», не говоря какую, — по такой записи ничего не восстановить.
+ * Берём id из самого события (document_item_id) и из payload: одиночный itemId
+ * и пачки flaggedItemIds / itemIds. Для выноса в акт пересчёта названия лежат
+ * прямо в payload (productNames) — строки к тому моменту уже удалены из акта.
+ */
+function eventItemNames(
+  event: InventoryResultJournalEvent,
+  itemNames: Record<string, string>,
+): string[] {
+  const payload = (event.payload ?? {}) as Record<string, unknown>;
+  const fromPayloadNames = Array.isArray(payload.productNames)
+    ? payload.productNames.filter((value): value is string => typeof value === "string")
+    : [];
+  if (fromPayloadNames.length > 0) return fromPayloadNames;
+
+  const ids: string[] = [];
+  if (event.document_item_id) ids.push(event.document_item_id);
+  if (typeof payload.itemId === "string") ids.push(payload.itemId);
+  for (const key of ["flaggedItemIds", "itemIds"]) {
+    const value = payload[key];
+    if (Array.isArray(value)) ids.push(...value.filter((v): v is string => typeof v === "string"));
+  }
+  return Array.from(new Set(ids))
+    .map((id) => itemNames[id])
+    .filter((name): name is string => Boolean(name));
+}
+
 export function InventoryResultJournal({
   events,
+  itemNames = {},
+  moreHref = null,
 }: {
   events: InventoryResultJournalEvent[];
+  /** id строки акта → название позиции. */
+  itemNames?: Record<string, string>;
+  /** Ссылка «показать больше», если journal обрезан лимитом. null — показано всё. */
+  moreHref?: string | null;
 }) {
   if (events.length === 0) {
     return (
@@ -144,6 +183,18 @@ export function InventoryResultJournal({
                 </span>
               </div>
               <div className="mt-1 text-sm">{event.message}</div>
+              {(() => {
+                const names = eventItemNames(event, itemNames);
+                if (names.length === 0) return null;
+                const shown = names.slice(0, 5);
+                const rest = names.length - shown.length;
+                return (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {shown.join(", ")}
+                    {rest > 0 ? ` и ещё ${rest}` : ""}
+                  </div>
+                );
+              })()}
               {resortText ? (
                 <div className="mt-1 text-xs text-muted-foreground">Зачет: {resortText}</div>
               ) : null}
@@ -153,6 +204,16 @@ export function InventoryResultJournal({
           </div>
         );
       })}
+      {moreHref ? (
+        <div className="pt-2 text-center">
+          <Link
+            href={moreHref}
+            className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Показать больше событий
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

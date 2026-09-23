@@ -1,6 +1,11 @@
 import { notFound, redirect } from "next/navigation";
 
-import { createClient, getCachedActiveAccountId, getCachedUser } from "@/lib/supabase/server";
+import {
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+  getCachedUser,
+} from "@/lib/supabase/server";
+import { getDeleteLockReason } from "@/lib/inventory/act-status";
 
 import { getCachedInventoryDocumentBasics } from "../layout";
 import { DangerZone } from "./_components/danger-zone";
@@ -11,13 +16,12 @@ export default async function InventoryDocumentDangerPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const supabase = await createClient();
-
-  const [user, accountId, { data: canManage }] = await Promise.all([
+  const [user, accountId, can] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
+    getCachedPermissionChecker(),
   ]);
+  const canManage = can("inventory.manage_documents");
 
   if (!user) redirect("/login");
   if (!accountId) redirect("/dashboard");
@@ -28,7 +32,14 @@ export default async function InventoryDocumentDangerPage({
 
   return (
     <div className="w-full px-4 py-6 md:px-8">
-      <DangerZone documentId={document.id} documentNumber={document.document_number} />
+      <DangerZone
+        documentId={document.id}
+        documentNumber={document.document_number}
+        deleteLockReason={getDeleteLockReason({
+          status: String(document.status),
+          resultsSnapshotAt: document.results_snapshot_at,
+        })}
+      />
     </div>
   );
 }

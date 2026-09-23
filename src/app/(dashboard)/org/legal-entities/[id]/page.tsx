@@ -2,7 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import {
   getLegalEntity,
   getLegalEntityArchiveImpact,
@@ -29,10 +33,8 @@ export default async function LegalEntityDetailPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "org.view_legal_entities",
-  });
-  if (!canView) redirect("/dashboard");
+  const can = await getCachedPermissionChecker();
+  if (!can("org.view_legal_entities")) redirect("/dashboard");
 
   const { row, error } = await getLegalEntity(id);
   if (error || !row) redirect("/org/legal-entities");
@@ -47,33 +49,17 @@ export default async function LegalEntityDetailPage({
   // entities but without manage_venues (e.g. accountant per matrix)
   // would see actionable buttons and then hit RLS errors on click —
   // hide them instead.
-  const [
-    { data: canManage },
-    { data: canDelete },
-    { data: canManageVenues },
-    { data: canViewAudit },
-    { rows: venues },
-    { rows: legalEntities },
-    archiveImpact,
-    { data: activeAccountId },
-  ] = await Promise.all([
-    supabase.rpc("has_permission", {
-      permission_code: "org.manage_legal_entities",
-    }),
-    supabase.rpc("has_permission", {
-      permission_code: "org.delete_legal_entity",
-    }),
-    supabase.rpc("has_permission", {
-      permission_code: "org.manage_venues",
-    }),
-    supabase.rpc("has_permission", {
-      permission_code: "org.view_audit",
-    }),
-    listAccountVenues(),
-    listLegalEntities(),
-    getLegalEntityArchiveImpact(id),
-    supabase.rpc("get_active_account_id"),
-  ]);
+  const [{ rows: venues }, { rows: legalEntities }, archiveImpact, activeAccountId] =
+    await Promise.all([
+      listAccountVenues(),
+      listLegalEntities(),
+      getLegalEntityArchiveImpact(id),
+      getCachedActiveAccountId(),
+    ]);
+  const canManage = can("org.manage_legal_entities");
+  const canDelete = can("org.delete_legal_entity");
+  const canManageVenues = can("org.manage_venues");
+  const canViewAudit = can("org.view_audit");
 
   // Codex P2 #373: archive/restore/delete actions требуют owner-check
   // (assertLegalEntityOwner), а UI рендерил DangerZone по canManage →

@@ -24,7 +24,6 @@ export function InventoryActsHelp() {
           <StatusLi status="recount_pending" text="возвращён исполнителю на пересчёт: форма снова открыта, итоги заморожены, акт нельзя закрыть." />
           <StatusLi status="results_blocked" text="отправлен, но Quick Resto не вернул построчные итоги." />
           <StatusLi status="processed" text="проведён в Quick Resto (закрыт). Можно разблокировать с записью в журнал." />
-          <StatusLi status="sync_error" text="сбой синхронизации с Quick Resto." />
         </ul>
       </Section>
 

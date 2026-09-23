@@ -2,7 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Archive, Plus } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { Button } from "@/components/ui/button";
@@ -25,10 +28,8 @@ export default async function LegalEntitiesPage() {
 
   // Page guard: any account-member with org.view_legal_entities can see
   // the list. Mutations are gated separately by RLS.
-  const { data: canView } = await supabase.rpc("has_permission", {
-    permission_code: "org.view_legal_entities",
-  });
-  if (!canView) redirect("/dashboard");
+  const can = await getCachedPermissionChecker();
+  if (!can("org.view_legal_entities")) redirect("/dashboard");
 
   const { rows } = await listLegalEntities();
 

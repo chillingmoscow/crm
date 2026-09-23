@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { uploadInventoryProductImage } from "@/app/(dashboard)/inventory/actions";
+import { uploadInventoryProductImage } from "@/app/(dashboard)/inventory/_actions/catalog";
 
 type Props = {
   productId: string;

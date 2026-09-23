@@ -40,7 +40,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Route groups (`src/app/`)
 - `(auth)/` — публичные страницы login/register/forgot-password/verify-email/set-password (свой layout).
 - `(onboarding)/onboarding/` — флоу первого входа (создание аккаунта, инвайты), `actions.ts` рядом.
-- `(dashboard)/` — основное приложение под аутентификацией. Внутри модули: `crm/`, `finance/`, `knowledge/`, `notifications/`, `people/` (staff, roles), `org/` (account, venues), `settings/`, `profile/`, `dashboard/`. У каждого модуля свои server actions в `actions.ts`.
+- `(dashboard)/` — основное приложение под аутентификацией. Внутри модули: `crm/`, `finance/`, `knowledge/`, `notifications/`, `people/` (staff, roles), `org/` (account, venues), `settings/`, `profile/`, `dashboard/`. У каждого модуля свои server actions в `actions.ts`. Исключение — `inventory/`: экшены разложены по доменам в `inventory/_actions/<домен>.ts` (`sync`, `assignment`, `documents`, `results`, `exclusions`, `resort`, `recount`, `draft`, `catalog`), общие хелперы — в `inventory/actions-shared.ts`. Импортировать нужный домен напрямую; barrel-реэкспорта намеренно нет, чтобы не тянуть весь модуль в клиентский граф.
 - `api/` — только то, что не укладывается в server actions: `cron/auto-archive-notifications`, `dadata/{address,party}` (прокси к DaData), `finance/transactions`.
 - [`src/middleware.ts`](src/middleware.ts) — обновление сессии Supabase на каждом запросе через `updateSession` из [`src/lib/supabase/middleware.ts`](src/lib/supabase/middleware.ts). Исключены `/api`, статика, `*.html` (GoTrue читает HTML-шаблоны писем из `/public/email-templates/`).
 

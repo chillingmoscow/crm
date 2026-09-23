@@ -4,6 +4,10 @@ import * as React from "react"
 import * as TabsPrimitive from "@radix-ui/react-tabs"
 
 import { cn } from "@/lib/utils"
+import {
+  useSsrSafeTabsContentIds,
+  useSsrSafeTabsTriggerIds,
+} from "@/hooks/use-hydrated"
 
 const Tabs = TabsPrimitive.Root
 
@@ -23,6 +27,11 @@ const TabsList = React.forwardRef<
 ))
 TabsList.displayName = TabsPrimitive.List.displayName
 
+/**
+ * `id` и `aria-controls` не уходят в SSR-разметку — атрибуты
+ * дорисовываются после гидратации. Почему так — см.
+ * useSsrSafeTabsTriggerIds в `src/hooks/use-hydrated.ts`.
+ */
 const TabsTrigger = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
@@ -38,11 +47,13 @@ const TabsTrigger = React.forwardRef<
       "data-[state=active]:text-foreground data-[state=active]:border-foreground",
       className
     )}
+    {...useSsrSafeTabsTriggerIds()}
     {...props}
   />
 ))
 TabsTrigger.displayName = TabsPrimitive.Trigger.displayName
 
+/** Пара к TabsTrigger: `id` и `aria-labelledby` — тоже после гидратации. */
 const TabsContent = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
@@ -53,6 +64,7 @@ const TabsContent = React.forwardRef<
       "mt-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md",
       className
     )}
+    {...useSsrSafeTabsContentIds()}
     {...props}
   />
 ))

@@ -850,7 +850,10 @@ function LabDataTable<T extends LabBaseRow>({
         total={filteredData.length}
         hiddenCount={hiddenCount}
         onPageChange={(pageIndex) => table.setPageIndex(pageIndex)}
-        onPageSizeChange={(pageSize) => table.setPageSize(pageSize)}
+        onPageSizeChange={(pageSize) => {
+          table.setPageSize(pageSize);
+          table.setPageIndex(0);
+        }}
       />
 
       <TableBulkBar

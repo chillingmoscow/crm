@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { Warehouse } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { StoresClient } from "./_components/stores-client";
 import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
@@ -18,18 +22,20 @@ type StoreRow = {
 type VenueRow = {
   id: string;
   name: string;
+  archived_at: string | null;
 };
 
 export default async function InventoryStoresPage() {
   const supabase = await createClient();
   const db = asLooseDb(supabase);
 
-  const [{ data: canView }, { data: canManage }, { data: canSync }, { data: accountId }] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "inventory.view_stores" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_stores" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
-    supabase.rpc("get_active_account_id"),
+  const [can, accountId] = await Promise.all([
+    getCachedPermissionChecker(),
+    getCachedActiveAccountId(),
   ]);
+  const canView = can("inventory.view_stores");
+  const canManage = can("inventory.manage_stores");
+  const canSync = can("inventory.sync_quickresto");
   if (!canView) redirect("/dashboard");
   if (!accountId) redirect("/dashboard");
 
@@ -49,7 +55,10 @@ export default async function InventoryStoresPage() {
       .order("title"),
     supabase
       .from("venues")
-      .select("id, name")
+      // archived_at нужен клиенту: архивные заведения не предлагаем к выбору,
+      // но показываем то, к которому склад уже привязан, — иначе список
+      // молча показал бы «Не привязан» там, где привязка есть.
+      .select("id, name, archived_at")
       .eq("account_id", accountId)
       .order("name"),
   ]);

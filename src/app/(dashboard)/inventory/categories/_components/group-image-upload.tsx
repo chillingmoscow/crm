@@ -6,7 +6,7 @@ import { Camera, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { uploadInventoryProductGroupImage } from "../../actions";
+import { uploadInventoryProductGroupImage } from "@/app/(dashboard)/inventory/_actions/catalog";
 
 type Props = {
   groupId: string;

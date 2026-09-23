@@ -5,11 +5,16 @@ import {
   FORM_LOCKED_STATUSES,
   getAssigneeLockReason,
   getInventoryResultAdjustLockReason,
+  getInventoryResultRefreshLockReason,
+  hasCountedResults,
+  resolveStatusAfterImport,
   getReviewerLockReason,
   isInventoryFormLocked,
   isInventoryResultAdjustLocked,
   isInventoryResultLocked,
   nextStatusAfterAssign,
+  resolveQrUnprocessedAt,
+  resolveStatusAfterSync,
   type InventoryActStatus,
 } from "./act-status.ts";
 
@@ -31,7 +36,6 @@ const MATRIX: Array<{
   // Пересчёт: форма снова открыта исполнителю, итоги закрыты для ревьюера.
   { status: "recount_pending", formLocked: false, adjustLocked: true },
   { status: "processed", formLocked: true, adjustLocked: true },
-  { status: "sync_error", formLocked: true, adjustLocked: false },
 ];
 
 for (const row of MATRIX) {
@@ -132,7 +136,6 @@ const ASSIGNEE_LOCK: Array<{ status: InventoryActStatus; locked: boolean }> = [
   { status: "ready_for_review", locked: true },
   { status: "results_blocked", locked: true },
   { status: "processed", locked: true },
-  { status: "sync_error", locked: true },
 ];
 
 for (const row of ASSIGNEE_LOCK) {
@@ -148,7 +151,7 @@ test("замок исполнителя совпадает с замком фо�
 });
 
 // Замок проверяющего: менять можно вплоть до проведения; лок только на
-// processed / sync_error.
+// processed.
 const REVIEWER_LOCK: Array<{ status: InventoryActStatus; locked: boolean }> = [
   { status: "synced", locked: false },
   { status: "assigned", locked: false },
@@ -157,7 +160,6 @@ const REVIEWER_LOCK: Array<{ status: InventoryActStatus; locked: boolean }> = [
   { status: "ready_for_review", locked: false },
   { status: "results_blocked", locked: false },
   { status: "processed", locked: true },
-  { status: "sync_error", locked: true },
 ];
 
 for (const row of REVIEWER_LOCK) {
@@ -187,4 +189,147 @@ test("nextStatusAfterAssign: обычное назначение → assigned", 
   for (const s of ["synced", "assigned", "in_progress"] as const) {
     assert.equal(nextStatusAfterAssign(s, "user-1"), "assigned");
   }
+});
+
+test("refresh lock reason: импорт из QR закрыт ровно на залоченных итогах", () => {
+  for (const status of ["synced", "assigned", "in_progress", "ready_for_review", "results_blocked"] as const) {
+    assert.equal(getInventoryResultRefreshLockReason({ ...OPEN, status }), null);
+  }
+  // Пересчёт лочит и импорт: он перезаписал бы строки под руками исполнителя
+  // и вышиб бы его из формы (статус уехал бы в ready_for_review).
+  assert.match(getInventoryResultRefreshLockReason({ ...OPEN, status: "recount_pending" }) ?? "", /пересч/i);
+
+  assert.match(
+    getInventoryResultRefreshLockReason({ status: "ready_for_review", results_finalized_at: "2026-08-24T12:27:43Z", results_reopened_at: null }) ?? "",
+    /зафиксирован/i,
+  );
+  assert.match(getInventoryResultRefreshLockReason({ ...OPEN, status: "processed" }) ?? "", /проведён/i);
+});
+
+test("refresh lock reason: переоткрытые итоги снова можно импортировать", () => {
+  assert.equal(
+    getInventoryResultRefreshLockReason({
+      status: "processed",
+      results_finalized_at: null,
+      results_reopened_at: "2026-08-25T09:00:00Z",
+    }),
+    null,
+  );
+});
+
+test("статус после импорта: акт у исполнителя не двигаем", () => {
+  for (const current of ["synced", "assigned", "in_progress", "recount_pending"] as const) {
+    assert.equal(resolveStatusAfterImport({ current, processed: false, resultsFound: true }), current);
+    assert.equal(resolveStatusAfterImport({ current, processed: false, resultsFound: false }), current);
+  }
+});
+
+test("статус после импорта: на проверке уточняем по наличию расчётов", () => {
+  assert.equal(resolveStatusAfterImport({ current: "ready_for_review", processed: false, resultsFound: true }), "ready_for_review");
+  assert.equal(resolveStatusAfterImport({ current: "ready_for_review", processed: false, resultsFound: false }), "results_blocked");
+  assert.equal(resolveStatusAfterImport({ current: "results_blocked", processed: false, resultsFound: true }), "ready_for_review");
+});
+
+test("статус после импорта: проведение в QR перебивает всё", () => {
+  for (const current of ["recount_pending", "in_progress", "ready_for_review"] as const) {
+    assert.equal(resolveStatusAfterImport({ current, processed: true, resultsFound: false }), "processed");
+  }
+});
+
+test("итоги есть только после сдачи акта", () => {
+  for (const status of ["ready_for_review", "results_blocked", "recount_pending", "processed"] as const) {
+    assert.equal(hasCountedResults(status), true);
+  }
+  // Пока акт у исполнителя, «разница» из QR — это минус весь складской остаток
+  // (факт нулевой), а не итог инвентаризации. Прод: СВ350 показывал −478 193,6 ₽
+  // по акту, который ещё не считали.
+  for (const status of ["synced", "assigned", "in_progress"] as const) {
+    assert.equal(hasCountedResults(status), false);
+  }
+});
+
+// ── Синхронизация не отматывает жизненный цикл назад ────────
+
+test("resolveStatusAfterSync: QR отдал акт проведённым — принимаем", () => {
+  assert.equal(
+    resolveStatusAfterSync({ processedInQr: true, existingStatus: "in_progress" }),
+    "processed",
+  );
+});
+
+test("resolveStatusAfterSync: распроведение в QR не откатывает проведённый акт", () => {
+  // Регрессия: признак «проведён у нас» был завязан на results_finalized_at,
+  // который обнуляет reopenInventoryResults. Переоткрытый после распроведения
+  // акт откатывался в 'synced' — итоги пропадали с экрана, форма снова
+  // открывалась исполнителю.
+  assert.equal(
+    resolveStatusAfterSync({ processedInQr: false, existingStatus: "processed" }),
+    "processed",
+  );
+});
+
+test("resolveStatusAfterSync: статусы проверки и пересчёта тоже не сбрасываются", () => {
+  for (const status of ["ready_for_review", "results_blocked", "recount_pending", "in_progress", "assigned"]) {
+    assert.equal(resolveStatusAfterSync({ processedInQr: false, existingStatus: status }), status);
+  }
+});
+
+test("resolveStatusAfterSync: акта ещё нет локально — synced", () => {
+  assert.equal(resolveStatusAfterSync({ processedInQr: false, existingStatus: null }), "synced");
+  assert.equal(resolveStatusAfterSync({ processedInQr: false, existingStatus: undefined }), "synced");
+});
+
+test("resolveQrUnprocessedAt: метка ставится один раз и переживает следующие проходы", () => {
+  const first = resolveQrUnprocessedAt({
+    processedInQr: false,
+    processedLocally: true,
+    existingValue: null,
+    now: "2026-08-28T10:00:00Z",
+  });
+  assert.equal(first, "2026-08-28T10:00:00Z");
+  // Второй проход не переставляет время — иначе плашка и запись в журнале
+  // дублировались бы на каждой синхронизации.
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: false,
+      processedLocally: true,
+      existingValue: first,
+      now: "2026-08-28T11:00:00Z",
+    }),
+    first,
+  );
+});
+
+test("resolveQrUnprocessedAt: снимается только когда QR снова отдал акт проведённым", () => {
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: true,
+      processedLocally: true,
+      existingValue: "2026-08-28T10:00:00Z",
+      now: "2026-08-28T11:00:00Z",
+    }),
+    null,
+  );
+});
+
+test("resolveQrUnprocessedAt: обычный непроведённый акт метку не получает и не теряет", () => {
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: false,
+      processedLocally: false,
+      existingValue: null,
+      now: "2026-08-28T10:00:00Z",
+    }),
+    null,
+  );
+  // И чужую метку не затираем: раньше здесь стоял безусловный null.
+  assert.equal(
+    resolveQrUnprocessedAt({
+      processedInQr: false,
+      processedLocally: false,
+      existingValue: "2026-08-27T09:00:00Z",
+      now: "2026-08-28T10:00:00Z",
+    }),
+    "2026-08-27T09:00:00Z",
+  );
 });

@@ -12,6 +12,8 @@ import { PushPromptBanner } from "@/components/shared/push-prompt-banner";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
 import { HotkeysDialogProvider } from "@/components/shared/hotkeys-dialog";
 import { KbSearchProvider } from "@/app/(dashboard)/knowledge/_components/kb-search-dialog";
+import { ImpersonationBanner } from "@/components/shared/impersonation-banner";
+import { readActiveImpersonation } from "@/lib/impersonation/session";
 import { syncPendingInvitationsForUser } from "@/lib/people/invitations/sync-pending";
 
 export default async function DashboardLayout({
@@ -138,13 +140,36 @@ export default async function DashboardLayout({
   // flicker'а (Codex P2 на PR #129).
   const kbSidebarHidden = cookieStore.get("kb_sidebar_hidden")?.value === "true";
 
+  // Режим «смотрю за другого пользователя» (см. src/lib/impersonation).
+  // readActiveImpersonation сверяет билет и с пользователем, и с
+  // session_id: билет, переживший выход из аккаунта, до баннера не дойдёт.
+  const activeImpersonation = await readActiveImpersonation();
+
   return (
     // delayDuration=500 — задержка перед показом, чтобы tooltip не
     // выскакивал моментально при beit-курсорах и случайных проходах.
     // Должно совпадать с вложенным TooltipProvider в SidebarProvider
     // (components/ui/sidebar.tsx), иначе значение оттуда перекрывает это.
     <TooltipProvider delayDuration={500} skipDelayDuration={500}>
-    <SidebarProvider defaultOpen={sidebarDefaultOpen}>
+    <SidebarProvider
+      defaultOpen={sidebarDefaultOpen}
+      // Баннер режима просмотра — fixed, поэтому из потока он выпадает и
+      // накрыл бы верх сайдбара и контента. Освобождаем ему место отступом
+      // на всём враппере; box-border оставляет общую высоту равной экрану.
+      className={activeImpersonation ? "pt-[var(--impersonation-offset)]" : undefined}
+      style={
+        activeImpersonation
+          ? ({ "--impersonation-offset": "49px" } as React.CSSProperties)
+          : undefined
+      }
+    >
+      {activeImpersonation && (
+        <ImpersonationBanner
+          targetName={userName}
+          roleName={activeRoleName}
+          venueName={activeVenue?.venue_name ?? null}
+        />
+      )}
       <AppSidebar
         userName={userName}
         userEmail={user.email ?? ""}
@@ -157,6 +182,7 @@ export default async function DashboardLayout({
         userPermissions={userPermissions}
         staffAttentionCount={staffAttentionCount}
         kbSidebarHidden={kbSidebarHidden}
+        isImpersonating={Boolean(activeImpersonation)}
       />
       {/* min-w-0: SidebarInset и вложенный <main> — флекс-элементы с
           дефолтным min-width:auto. Без этого широкий потомок (напр. таблица
@@ -172,7 +198,7 @@ export default async function DashboardLayout({
             {/* Top bar: [trigger | breadcrumb] … [actions | bell].
                 На /knowledge скрывается — KB рендерит собственный topbar
                 (см. components/shared/dashboard-topbar.tsx). */}
-            <PushPromptBanner />
+            {!activeImpersonation && <PushPromptBanner />}
             <DashboardTopbar />
             <main className="flex min-w-0 flex-1 flex-col overflow-x-clip">{children}</main>
           </PageHeaderActionsProvider>

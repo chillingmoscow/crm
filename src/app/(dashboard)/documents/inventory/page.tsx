@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
+import {
+  createClient,
+  getCachedActiveAccountId,
+  getCachedPermissions,
+  getCachedUser,
+} from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { getActiveAccountAmountRoundingScale } from "@/lib/settings/account";
 import {
@@ -10,6 +15,7 @@ import {
   DOCUMENT_SORT_MODES,
   DEFAULT_SORT,
   type DocumentSortMode,
+  isRecountFilter,
   type DocumentStatus,
   type ListDocumentsFilters,
 } from "@/lib/inventory/list-documents";
@@ -43,6 +49,7 @@ type SearchParams = {
   date_from?: string;
   date_to?: string;
   q?: string;
+  recount?: string;
   sort?: string;
   page?: string;
   size?: string;
@@ -83,6 +90,10 @@ function parseSearchParams(sp: SearchParams) {
 
   const q = sp.q?.trim() && sp.q.trim().length >= 2 ? sp.q.trim() : undefined;
 
+  // Значение из адреса проверяем: чужая ссылка с опечаткой не должна молча
+  // отфильтровать половину списка — неизвестное считаем как «все акты».
+  const recount = isRecountFilter(sp.recount) && sp.recount !== "any" ? sp.recount : undefined;
+
   const sortKeysRaw = parseCsv(sp.sort).filter(
     (s): s is DocumentSortMode => VALID_SORTS.has(s as DocumentSortMode),
   );
@@ -103,6 +114,7 @@ function parseSearchParams(sp: SearchParams) {
     date_from,
     date_to,
     q,
+    recount,
   };
 
   return { filters, sort, page, pageSize, datePreset: date_preset };
@@ -118,29 +130,30 @@ export default async function InventoryDocumentsPage({
   const sp = await searchParams;
   const supabase = await createClient();
 
-  const [
-    { data: canView },
-    { data: canManage },
-    { data: canFill },
-    { data: canSync },
-    { data: canViewResults },
-    { data: canViewStaff },
-    { data: accountId },
-    { data: { user } },
-    amountRoundingScale,
-  ] = await Promise.all([
-    supabase.rpc("has_permission", { permission_code: "inventory.view_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.manage_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.fill_assigned_documents" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.sync_quickresto" }),
-    supabase.rpc("has_permission", { permission_code: "inventory.view_results" }),
-    // Доступ к разделу «Сотрудники» → можно делать исполнителя/проверяющего
-    // кликабельной ссылкой на страницу сотрудника.
-    supabase.rpc("has_permission", { permission_code: "people.view_staff" }),
-    supabase.rpc("get_active_account_id"),
-    supabase.auth.getUser(),
+  // Права — одним списком (list_my_permissions), а не шестью отдельными
+  // has_permission. RPC кэширован на весь RSC-рендер, поэтому dashboard-layout
+  // и эта страница делят один вызов; пользователь и активный аккаунт — тоже
+  // из кэша layout'а.
+  //
+  // Перф-PR #517 перевёл на этот путь карточку акта и итоги, а список актов
+  // обошёл стороной: здесь оставались шесть has_permission, свой
+  // get_active_account_id и свой auth.getUser() — девять сетевых вызовов там,
+  // где нужно ноль. На self-hosted каждый стоит десятки миллисекунд.
+  const [permissions, user, accountId, amountRoundingScale] = await Promise.all([
+    getCachedPermissions(),
+    getCachedUser(),
+    getCachedActiveAccountId(),
     getActiveAccountAmountRoundingScale(),
   ]);
+  const can = (code: string) => permissions.includes(code);
+  const canView = can("inventory.view_documents");
+  const canManage = can("inventory.manage_documents");
+  const canFill = can("inventory.fill_assigned_documents");
+  const canSync = can("inventory.sync_quickresto");
+  const canViewResults = can("inventory.view_results");
+  // Доступ к разделу «Сотрудники» → можно делать исполнителя/проверяющего
+  // кликабельной ссылкой на страницу сотрудника.
+  const canViewStaff = can("people.view_staff");
 
   if (!accountId || !user) redirect("/login");
   if (!canView && !canFill) redirect("/dashboard");
@@ -157,13 +170,21 @@ export default async function InventoryDocumentsPage({
   });
 
   // venues + stores для фильтров через RLS-клиент. staff — справочник имён
-  // (id → ФИО) нужен ВСЕМ зрителям, не только тем, кто может назначать:
-  // иначе read-only пользователь видит «—» вместо исполнителя/проверяющего,
-  // и переход на страницу сотрудника из завершённого акта недоступен.
+  // (id → ФИО): нужен ВСЕМ зрителям, иначе read-only пользователь видит «—»
+  // вместо исполнителя/проверяющего. Но полный список сотрудников аккаунта
+  // нужен только тому, кто назначает: остальным отдаём имена ровно тех людей,
+  // что уже стоят в видимых актах.
+  const referencedStaffIds = Array.from(
+    new Set(
+      result.rows
+        .flatMap((row) => [row.assigned_to, row.reviewer_id])
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
   const [{ data: venuesForFilter }, { data: storesForFilter }, staff] = await Promise.all([
     asLooseDb(supabase).from<VenueOption[]>("venues").select("id, name").order("name"),
     asLooseDb(supabase).from<StoreOption[]>("stores").select("id, title").eq("account_id", accountId).order("title"),
-    loadStaff(accountId as string),
+    loadStaff(accountId as string, canManage ? undefined : referencedStaffIds),
   ]);
 
   return (
@@ -189,7 +210,20 @@ export default async function InventoryDocumentsPage({
 
 // ─── Staff loader ────────────────────────────────────────────────────────────
 
-async function loadStaff(accountId: string): Promise<AssigneeOption[]> {
+/**
+ * Справочник «id → ФИО» для колонок «Исполнитель» и «Проверяющий».
+ *
+ * `restrictToIds` — режим для тех, кто назначать не может: отдаём имена ТОЛЬКО
+ * тех людей, что уже стоят в видимых актах. Полный список сотрудников аккаунта
+ * такому пользователю не нужен, а раньше страница отдавала его целиком —
+ * без права people.view_staff и без venue-скоупа, то есть любой, кто дошёл до
+ * списка актов, получал кадровый справочник всего аккаунта.
+ */
+async function loadStaff(
+  accountId: string,
+  restrictToIds?: string[],
+): Promise<AssigneeOption[]> {
+  if (restrictToIds && restrictToIds.length === 0) return [];
   const admin = asLooseDb(createAdminClient());
 
   const [{ data: venuesRaw }, { data: accountRow }] = await Promise.all([
@@ -224,8 +258,9 @@ async function loadStaff(accountId: string): Promise<AssigneeOption[]> {
   }
 
   const staffById = new Map<string, AssigneeOption>();
+  const allowed = restrictToIds ? new Set(restrictToIds) : null;
   const ownerId = accountRow?.owner_id ?? null;
-  if (ownerId) {
+  if (ownerId && (!allowed || allowed.has(ownerId))) {
     const { data: ownerProfile } = await admin
       .from<ProfileRow>("profiles")
       .select("first_name, last_name")
@@ -238,6 +273,7 @@ async function loadStaff(accountId: string): Promise<AssigneeOption[]> {
   }
 
   for (const row of memberships ?? []) {
+    if (allowed && !allowed.has(row.user_id)) continue;
     if (!staffById.has(row.user_id)) {
       staffById.set(row.user_id, { id: row.user_id, name: staffName(row) });
     }

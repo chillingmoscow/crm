@@ -264,6 +264,25 @@ export function buildQuickRestoBackOfficeCookieHeader(setCookieHeaders: string[]
 const KEYCLOAK_AUTH_BASE = "https://id.quickresto.ru/realms/QR/protocol/openid-connect";
 const KEYCLOAK_CLIENT_ID = "qrbo-frontend";
 
+// Node кидает сырой TypeError("fetch failed") с cause (ENOTFOUND, ECONNREFUSED,
+// ECONNRESET, CERT_* …). Без раскрытия причины в UI непонятно, что сломалось —
+// DNS, TLS или файрвол. Прячем за сообщением с хостом и кодом.
+function throwQuickRestoNetworkError(url: string, error: unknown): never {
+  const cause = (error as { cause?: { code?: string; message?: string } })?.cause;
+  const code = cause?.code;
+  const detail =
+    cause?.message || (error instanceof Error ? error.message : String(error));
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    // не-URL — оставляем как есть
+  }
+  throw new Error(
+    `Quick Resto: не удалось соединиться с ${host}${code ? ` (${code})` : ""}: ${detail}`,
+  );
+}
+
 async function quickRestoFetch(url: string, init: RequestInit): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
@@ -280,7 +299,7 @@ async function quickRestoFetch(url: string, init: RequestInit): Promise<Response
         `Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`,
       );
     }
-    throw error;
+    throwQuickRestoNetworkError(url, error);
   } finally {
     clearTimeout(timeout);
   }
@@ -485,7 +504,7 @@ async function callQuickRestoBackOfficeData<T>(input: {
     if (controller.signal.aborted) {
       throw new Error(`Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
     }
-    throw error;
+    throwQuickRestoNetworkError(url, error);
   } finally {
     clearTimeout(timeout);
   }
@@ -676,7 +695,7 @@ async function callQuickRestoBackOfficeRemove<T>(input: {
     if (controller.signal.aborted) {
       throw new Error(`Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
     }
-    throw error;
+    throwQuickRestoNetworkError(url, error);
   } finally {
     clearTimeout(timeout);
   }
@@ -928,7 +947,7 @@ async function callQuickResto<T>(input: {
     if (controller.signal.aborted) {
       throw new Error(`Quick Resto request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
     }
-    throw error;
+    throwQuickRestoNetworkError(url, error);
   } finally {
     clearTimeout(timeout);
   }
@@ -1343,7 +1362,7 @@ export async function processInventoryDocumentBackOffice(input: {
         `Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`,
       );
     }
-    throw error;
+    throwQuickRestoNetworkError(url, error);
   } finally {
     clearTimeout(timeoutId);
   }

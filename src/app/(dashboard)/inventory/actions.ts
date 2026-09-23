@@ -37,7 +37,7 @@ import {
   extractLineResult,
   getActiveContext,
   getActiveResortItemIds,
-  getBackOfficeCookie,
+  getBackOfficeAuth,
   getConnection,
   getResultDocumentForAction,
   groupName,
@@ -56,7 +56,7 @@ import {
   productName,
   quickRestoParentExternalId,
   readActualAmountsByExternalItemId,
-  refreshBackOfficeCookie,
+  refreshBackOfficeAuth,
   refreshLocalInventoryDocumentFromPayload,
   resolveDefaultVenueId,
   resolveResultItemGroup,
@@ -3037,13 +3037,13 @@ export async function submitInventoryDocumentDraft(input: {
       return { resultsHasLineAmounts: false, error: "У акта некорректный ID Quick Resto" };
     }
 
-    let cookieHeader = await getBackOfficeCookie({ connection, admin });
-    const sendBackOfficeRows = async (cookie: string) => {
+    let authorization = await getBackOfficeAuth({ connection, admin });
+    const sendBackOfficeRows = async (sessionAuth: string) => {
       for (const row of updateRows) {
         await updateInventoryItemBackOffice({
           layerName: connection.login,
           baseUrl: connection.backoffice_base_url,
-          cookieHeader: cookie,
+          authorization: sessionAuth,
           documentId: documentExternalId,
           item: row.item,
           actualAmount: row.actualAmount,
@@ -3052,11 +3052,11 @@ export async function submitInventoryDocumentDraft(input: {
     };
 
     try {
-      await sendBackOfficeRows(cookieHeader);
+      await sendBackOfficeRows(authorization);
     } catch (error) {
       if (!isBackOfficeAuthError(error)) throw error;
-      cookieHeader = await refreshBackOfficeCookie({ connection, admin });
-      await sendBackOfficeRows(cookieHeader);
+      authorization = await refreshBackOfficeAuth({ connection, admin });
+      await sendBackOfficeRows(authorization);
     }
 
     const [reread, backOfficeItems] = await Promise.all([

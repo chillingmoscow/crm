@@ -221,13 +221,6 @@ export function buildQuickRestoBackOfficeOrigin(input: {
   return `https://${raw}.quickresto.ru`;
 }
 
-function buildBackOfficeBaseUrl(input: {
-  layerName: string;
-  baseUrl?: string | null;
-}) {
-  return `${buildQuickRestoBackOfficeOrigin(input)}/platform`;
-}
-
 function splitCombinedSetCookieHeader(value: string) {
   return value.split(/,(?=\s*[A-Za-z0-9_-]+=)/g).map((part) => part.trim()).filter(Boolean);
 }
@@ -247,6 +240,8 @@ export function buildQuickRestoBackOfficeCookieHeader(setCookieHeaders: string[]
     .map((value) => String(value).split(";")[0]?.trim())
     .filter((value): value is string => Boolean(value && value.includes("=")));
 
+  // Merge по имени: более поздний Set-Cookie перезаписывает прежний
+  // (семантика map, как в n8n-флоу входа в Keycloak).
   const byName = new Map<string, string>();
   for (const pair of pairs) {
     const name = pair.split("=")[0]?.trim();
@@ -254,85 +249,201 @@ export function buildQuickRestoBackOfficeCookieHeader(setCookieHeaders: string[]
     byName.set(name, pair);
   }
 
-  return Array.from(byName.values())
-    .sort((a, b) => {
-      const aSession = a.startsWith("JSESSIONID=");
-      const bSession = b.startsWith("JSESSIONID=");
-      if (aSession === bSession) return 0;
-      return aSession ? -1 : 1;
-    })
-    .join("; ");
+  return Array.from(byName.values()).join("; ");
 }
 
+const KEYCLOAK_AUTH_BASE = "https://id.quickresto.ru/realms/QR/protocol/openid-connect";
+const KEYCLOAK_CLIENT_ID = "qrbo-frontend";
+
+async function quickRestoFetch(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      ...init,
+      cache: "no-store",
+      redirect: "manual",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(
+        `Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Keycloak отдаёт loginAction-URL в JSON-теле HTML-страницы, где слэши
+// экранированы (\"…\/…\") — вытаскиваем и декодируем, как в n8n-флоу.
+function extractKeycloakLoginAction(body: string): string | null {
+  const match = body.match(/"loginAction":\s*"([^"]+)"/);
+  if (!match) return null;
+  return match[1].replace(/\\\//g, "/");
+}
+
+// Аккумуляция cookies между шагами KC-флоу: более поздний Set-Cookie
+// перезаписывает cookie с тем же именем (map-семантика как в n8n).
+function mergeKeycloakCookieHeader(prev: string, setCookieHeaders: string[]) {
+  const prevPairs = prev
+    ? prev.split("; ").filter(Boolean).map((pair) => `${pair};`)
+    : [];
+  return buildQuickRestoBackOfficeCookieHeader([...prevPairs, ...setCookieHeaders]);
+}
+
+function keycloakQueryParam(url: string, key: string): string | null {
+  const query = url.split("?")[1] ?? "";
+  for (const pair of query.split("&")) {
+    const eq = pair.indexOf("=");
+    const name = decodeURIComponent(eq > -1 ? pair.slice(0, eq) : pair);
+    if (name === key) {
+      return eq > -1 ? decodeURIComponent(pair.slice(eq + 1).replace(/\+/g, " ")) : "";
+    }
+  }
+  return null;
+}
+
+/**
+ * Вход в Quick Resto back-office через Keycloak (после перехода QR со
+ * Spring-security на OIDC; см. n8n-флоу «QR / Login Keycloak»):
+ *
+ *   1. GET  /realms/QR/.../auth?client_id=qrbo-frontend&redirect_uri=…  → cookies + loginAction
+ *   2. POST loginAction  (identifier, identifierType=loginOrEmail)      → cookies + loginAction
+ *   3. POST loginAction  (password)                                     → Location с ?code=
+ *   4. POST /realms/QR/.../token (authorization_code)                   → access_token
+ *
+ * Возвращает Authorization-заголовок («Bearer …») и срок жизни токена.
+ */
 export async function loginQuickRestoBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
   login: string;
   password: string;
 }) {
-  const params = new URLSearchParams({
-    j_username: input.login,
-    j_password: input.password,
-    j_rememberme: "true",
+  const redirectUri = `${buildQuickRestoBackOfficeOrigin(input)}/`;
+
+  // Шаг 1: страница логина (ставит KC-cookies, отдаёт loginAction).
+  const authUrl =
+    `${KEYCLOAK_AUTH_BASE}/auth?${new URLSearchParams({
+      client_id: KEYCLOAK_CLIENT_ID,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "openid",
+      response_mode: "query",
+    }).toString()}`;
+  const authPage = await quickRestoFetch(authUrl, { method: "GET" });
+  if (authPage.status >= 400) {
+    const body = await authPage.text();
+    throw new Error(quickRestoErrorMessage(authPage.status, body));
+  }
+  let cookieHeader = buildQuickRestoBackOfficeCookieHeader(
+    getSetCookieHeaders(authPage.headers),
+  );
+  let loginAction = extractKeycloakLoginAction(await authPage.text());
+  if (!loginAction) {
+    throw new Error("Quick Resto (Keycloak): loginAction не найден на странице входа");
+  }
+
+  // Шаг 2: идентификатор (логин/email).
+  const identifierResponse = await quickRestoFetch(loginAction, {
+    method: "POST",
+    headers: {
+      Cookie: cookieHeader,
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    },
+    body: new URLSearchParams({
+      identifier: input.login,
+      identifierType: "loginOrEmail",
+    }).toString(),
   });
-  const url = `${buildBackOfficeBaseUrl(input)}/j_spring_security_check?${params.toString()}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
+  cookieHeader = mergeKeycloakCookieHeader(
+    cookieHeader,
+    getSetCookieHeaders(identifierResponse.headers),
+  );
+  const identifierBody = await identifierResponse.text();
+  loginAction = extractKeycloakLoginAction(identifierBody);
+  if (!loginAction) {
+    throw new Error(
+      `Quick Resto (Keycloak): не получен loginAction после ввода логина (статус ${identifierResponse.status}): ${identifierBody.slice(0, 200)}`,
+    );
+  }
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Connection: "keep-alive",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      },
-      redirect: "manual",
-      cache: "no-store",
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(`Quick Resto back-office login timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
+  // Шаг 3: пароль. Успех = redirect с ?code= в Location.
+  const passwordResponse = await quickRestoFetch(loginAction, {
+    method: "POST",
+    headers: {
+      Cookie: cookieHeader,
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    },
+    body: new URLSearchParams({ password: input.password }).toString(),
+  });
+  const location = passwordResponse.headers.get("location");
+  const code = location ? keycloakQueryParam(location, "code") : null;
+  if (!code) {
+    // KC при неверном пароле re-render-ит форму логина вместо redirect'а.
+    if (passwordResponse.status < 400 && !location) {
+      throw new Error("Неверный логин или пароль back-office пользователя Quick Resto");
     }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+    const body = await passwordResponse.text();
+    throw new Error(
+      `Quick Resto (Keycloak): не получен code после ввода пароля (статус ${passwordResponse.status}): ${body.slice(0, 200)}`,
+    );
   }
 
-  if (response.status === 401) {
-    throw new Error("Неверный логин или пароль back-office пользователя Quick Resto");
+  // Шаг 4: обмен code на access_token.
+  const tokenResponse = await quickRestoFetch(`${KEYCLOAK_AUTH_BASE}/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      client_id: KEYCLOAK_CLIENT_ID,
+    }).toString(),
+  });
+  const tokenText = await tokenResponse.text();
+  let tokenPayload: {
+    access_token?: string;
+    expires_in?: number | string;
+  } = {};
+  try {
+    tokenPayload = JSON.parse(tokenText) as typeof tokenPayload;
+  } catch {
+    // ошибка ниже с куском body
+  }
+  if (!tokenPayload.access_token) {
+    throw new Error(
+      `Quick Resto (Keycloak): token exchange не вернул access_token (статус ${tokenResponse.status}): ${tokenText.slice(0, 300)}`,
+    );
   }
 
-  if (response.status >= 400) {
-    const body = await response.text();
-    throw new Error(quickRestoErrorMessage(response.status, body));
-  }
-
-  const cookieHeader = buildQuickRestoBackOfficeCookieHeader(getSetCookieHeaders(response.headers));
-  if (!cookieHeader || !cookieHeader.includes("JSESSIONID=")) {
-    throw new Error("Quick Resto не вернул сессионные cookies для back-office пользователя");
-  }
+  const expiresIn =
+    typeof tokenPayload.expires_in === "number"
+      ? tokenPayload.expires_in
+      : typeof tokenPayload.expires_in === "string" && tokenPayload.expires_in.trim()
+        ? Number(tokenPayload.expires_in)
+        : null;
 
   return {
-    cookieHeader,
-    status: response.status,
+    authorization: `Bearer ${tokenPayload.access_token}`,
+    expiresInSeconds: Number.isFinite(expiresIn) ? expiresIn : null,
+    status: tokenResponse.status,
   };
 }
 
 async function callQuickRestoBackOfficeData<T>(input: {
   layerName: string;
   baseUrl?: string | null;
-  cookieHeader: string;
+  /** Authorization-заголовок сессии: «Bearer <access_token>» из Keycloak-флоу. */
+  authorization: string;
   path: string;
   query?: Record<string, string | number | null | undefined>;
   body?: unknown;
-  /** Опциональный заголовок Authorization (например, "Basic …"). Для
-   *  большинства backoffice-эндпоинтов достаточно cookie, но
-   *  /warehouse.inventory.document.v2/action (provesti акт) на проде требует
-   *  ИМЕННО Basic Auth — без него Spring возвращает 403 даже с валидной
-   *  cookie-сессией. Проверено через рабочий Make-сценарий пользователя. */
-  authorization?: string;
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(input.query ?? {})) {
@@ -352,12 +463,9 @@ async function callQuickRestoBackOfficeData<T>(input: {
         Accept: "application/json, text/plain, */*",
         Connection: "keep-alive",
         "Content-Type": "application/json; charset=UTF-8",
-        Cookie: input.cookieHeader,
+        Authorization: input.authorization,
         Origin: origin,
         Referer: `${origin}/`,
-        ...(input.authorization
-          ? { Authorization: input.authorization }
-          : {}),
       },
       body: input.body === undefined ? undefined : JSON.stringify(input.body),
       cache: "no-store",
@@ -402,7 +510,7 @@ function cloneJson<T>(value: T): T {
 export async function updateInventoryItemBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
-  cookieHeader: string;
+  authorization: string;
   documentId: number;
   item: QuickRestoInventoryItem2;
   actualAmount: number;
@@ -418,7 +526,7 @@ export async function updateInventoryItemBackOffice(input: {
   return callQuickRestoBackOfficeData<QuickRestoInventoryItem2>({
     layerName: input.layerName,
     baseUrl: input.baseUrl,
-    cookieHeader: input.cookieHeader,
+    authorization: input.authorization,
     path: "warehouse.inventory.items/update",
     query: {
       ownerContextId: input.documentId,
@@ -467,7 +575,7 @@ function backOfficeSelectRows<T>(response: QuickRestoBackOfficeSelectResponse<T>
 export async function selectInventoryItemsBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
-  cookieHeader: string;
+  authorization: string;
   documentId: number;
   start?: number;
   count?: number;
@@ -479,7 +587,7 @@ export async function selectInventoryItemsBackOffice(input: {
   >({
     layerName: input.layerName,
     baseUrl: input.baseUrl,
-    cookieHeader: input.cookieHeader,
+    authorization: input.authorization,
     path: "warehouse.inventory.items/select",
     query: {
       start: input.start ?? 0,
@@ -500,7 +608,7 @@ export async function selectInventoryItemsBackOffice(input: {
 export async function listInventoryItemsBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
-  cookieHeader: string;
+  authorization: string;
   documentId: number;
   count?: number;
 }) {
@@ -849,40 +957,36 @@ export async function readInventoryDocument(input: {
 }
 
 /**
- * Backoffice-action «провести акт». Контракт ровно как в работающем
- * Make-сценарии пользователя:
+ * Backoffice-action «провести акт».
  *
  *   POST {origin}/platform/data/warehouse.inventory.document.v2/action
  *        ?businessDayOffsetInMs=32400000&timeZone=0
- *   Headers (ровно 4, ничего лишнего):
- *     Authorization: Basic base64(login:password)   ← API-creds
- *     Cookie: <session>                              ← из backoffice-логина
+ *   Headers (минимальный набор, без Origin/Referer/Accept):
+ *     Authorization: Bearer <access_token>   ← Keycloak-сессия (флоу loginQuickRestoBackOffice)
  *     Connection: keep-alive
  *     Content-Type: application/json; charset=utf-8
  *
- * Spring у /action хочет ОБА: и сессионную cookie (auth identity), и
- * Authorization Basic (по-видимому, role/CSRF-like guard). Изолированный
- * curl-тест с одним Basic Auth (без cookie) → 401; с одной только cookie
- * (без Basic) → 403. Match Make: и то, и другое.
+ * Исторически (до перехода QR на Keycloak) Spring требовал здесь ОДНОВРЕМЕННО
+ * cookie-сессию и Authorization: Basic с API-creds. После OIDC-миграции
+ * идентичность даёт Bearer-токен; Basic в этот же заголовок не помещается
+ * (HTTP-заголовок Authorization один), поэтому шлём только Bearer. Если на
+ * живом вызове /action начнёт отдавать 401/403 — смотрим тело ответа и
+ * уточняем у Quick Resto, нужен ли ещё один фактор.
  *
- * Диагностика: при 401/403 логируем тело Spring (бывает «Access is denied»
+ * Диагностика: при 401/403 логируем тело (бывает «Access is denied»
  * или имя ожидаемой роли).
  */
 export async function processInventoryDocumentBackOffice(input: {
   layerName: string;
   baseUrl?: string | null;
-  cookieHeader: string;
-  /** API-логин для Basic Auth (обычно connection.login, напр. "nx815"). */
-  basicAuthLogin: string;
-  /** Расшифрованный API-пароль для Basic Auth. */
-  basicAuthPassword: string;
+  /** Authorization-заголовок сессии: «Bearer <access_token>». */
+  authorization: string;
   documentId: number;
 }) {
   const origin = buildQuickRestoBackOfficeOrigin(input);
   const url =
     `${origin}/platform/data/warehouse.inventory.document.v2/action` +
     `?businessDayOffsetInMs=32400000&timeZone=0`;
-  const basic = `Basic ${Buffer.from(`${input.basicAuthLogin}:${input.basicAuthPassword}`).toString("base64")}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
@@ -891,8 +995,7 @@ export async function processInventoryDocumentBackOffice(input: {
     response = await fetch(url, {
       method: "POST",
       headers: {
-        Authorization: basic,
-        Cookie: input.cookieHeader,
+        Authorization: input.authorization,
         Connection: "keep-alive",
         "Content-Type": "application/json; charset=utf-8",
       },
@@ -924,9 +1027,9 @@ export async function processInventoryDocumentBackOffice(input: {
   }
 
   if (response.status === 401 || response.status === 403) {
-    // 401 = cookie не дала auth (просрочена/невалидна) → wrapper рефрешит и ретраит.
+    // 401 = токен не дал auth (просрочен/невалидна) → wrapper рефрешит и ретраит.
     // 403 = auth ok, но user не имеет нужной роли → не лечится ретраем; пробрасываем
-    // сырой текст Spring'а, чтобы было видно «какой role не хватает».
+    // сырой текст, чтобы было видно «какой role не хватает».
     const body = await response.text();
     if (response.status === 401) {
       throw new Error(`Quick Resto back-office auth failed (401): ${body.slice(0, 400)}`);

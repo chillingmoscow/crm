@@ -41,7 +41,7 @@ import {
  * Сколько построчных запросов к backoffice Quick Resto держим одновременно.
  * Последовательный цикл упирался в latency (акт на 300 позиций — минуты),
  * Promise.all по всему акту завалил бы и QR, и пул соединений. Держим
- * умеренно: каждый воркер при протухшем cookie может пойти за новым.
+ * умеренно: каждый воркер при истёкшем токене может пойти за новым.
  */
 const QR_ITEM_CONCURRENCY = 5;
 
@@ -298,7 +298,7 @@ export async function submitInventoryDocumentDraft(input: {
     // Параллелим пачками: последовательный цикл упирался в latency backoffice,
     // а Promise.all по всему акту завалил бы и QR, и пул соединений.
     // withBackOfficeSession даёт auth-ретрай на КАЖДУЮ строку отдельно —
-    // раньше протухший cookie перезапускал весь цикл с нуля, повторно
+    // раньше истёкшая авторизация перезапускала весь цикл с нуля, повторно
     // отправляя уже применённые строки.
     await runWithConcurrency(rowsToSend, QR_ITEM_CONCURRENCY, async (row) => {
       await withBackOfficeSession({

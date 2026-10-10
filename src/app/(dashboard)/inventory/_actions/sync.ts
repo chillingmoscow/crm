@@ -564,9 +564,9 @@ export async function syncQuickRestoInventory(input?: {
       // возвращает items БЕЗ расчётного остатка и разницы (calculated/
       // difference приходят NULL). QR это всё считает в backoffice и не
       // сериализует в public payload. Решение — обходной запрос через
-      // backoffice-cookie sheerly-bot'а: /platform/data/warehouse.inventory.
+      // Bearer-токен sheerly-bot'а: /platform/data/warehouse.inventory.
       // items/select?ownerContextId=... возвращает items с полным набором
-      // полей. Если backoffice недоступен (нет cookie / нет creds) —
+      // полей. Если backoffice недоступен (нет токена / нет creds) —
       // fallback на public-payload items (хотя бы actualAmount будет).
       const { items: publicItems } = inventoryDocumentItems(document);
       let items: typeof publicItems = publicItems;
@@ -910,4 +910,3 @@ export async function probeQuickRestoNomenclature(): Promise<{
     return { error: actionErrorMessage(error, "Проба номенклатуры не удалась") };
   }
 }
-

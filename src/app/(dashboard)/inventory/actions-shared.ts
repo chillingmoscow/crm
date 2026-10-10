@@ -17,6 +17,13 @@ import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { calculateResortAllocation } from "@/lib/inventory/results";
 import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import {
+  isBackOfficeAuthError,
+  isBackOfficeAuthFresh,
+  isBackOfficePermissionError,
+  parseStoredBackOfficeAuth,
+  type StoredBackOfficeAuth,
+} from "@/lib/integrations/quickresto/auth-state";
+import {
   getInventoryResultAdjustLockReason,
   hasCountedResults,
   resolveStatusAfterImport,
@@ -396,45 +403,9 @@ export function hasBackOfficePassword(connection: QuickRestoConnection) {
   );
 }
 
-export function isBackOfficeAuthError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes("Quick Resto back-office auth failed") ||
-    message.includes("Неверный логин или пароль back-office")
-  );
-}
-
 // Keycloak access_token живёт недолго (обычно минуты). В БД храним
 // зашифрованный JSON { authorization, expiresAt } в колонках
 // backoffice_cookie_* (историческое имя, миграция не нужна).
-const BACKOFFICE_AUTH_REFRESH_SKEW_MS = 60_000;
-
-type StoredBackOfficeAuth = {
-  authorization: string;
-  expiresAt: string | null;
-};
-
-function parseStoredBackOfficeAuth(raw: string): StoredBackOfficeAuth | null {
-  try {
-    const parsed = JSON.parse(raw) as Partial<StoredBackOfficeAuth>;
-    if (typeof parsed.authorization === "string" && parsed.authorization.startsWith("Bearer ")) {
-      return {
-        authorization: parsed.authorization,
-        expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : null,
-      };
-    }
-  } catch {
-    // legacy-строка (старая cookie без JSON) — инвалидируем рефрешем
-  }
-  return null;
-}
-
-function isBackOfficeAuthFresh(auth: StoredBackOfficeAuth) {
-  if (!auth.expiresAt) return true;
-  const expiresAtMs = Date.parse(auth.expiresAt);
-  if (!Number.isFinite(expiresAtMs)) return false;
-  return expiresAtMs - Date.now() > BACKOFFICE_AUTH_REFRESH_SKEW_MS;
-}
 
 export async function refreshBackOfficeAuth(input: {
   connection: QuickRestoConnection;
@@ -473,7 +444,7 @@ export async function refreshBackOfficeAuth(input: {
   const encryptedAuth = encryptSecret(JSON.stringify(stored));
   const now = new Date().toISOString();
 
-  await input.admin
+  const { error: saveError } = await input.admin
     .from("integration_connections")
     .update({
       backoffice_cookie_encrypted: encryptedAuth.encrypted,
@@ -484,6 +455,9 @@ export async function refreshBackOfficeAuth(input: {
       updated_at: now,
     })
     .eq("id", input.connection.id);
+  if (saveError) {
+    throw new Error("Не удалось сохранить токен Quick Resto. Повторите попытку.");
+  }
 
   input.connection.backoffice_cookie_encrypted = encryptedAuth.encrypted;
   input.connection.backoffice_cookie_iv = encryptedAuth.iv;
@@ -515,8 +489,8 @@ const TRANSIENT_RETRY_DELAY_MS = 500;
 /**
  * Выполнить backoffice-операцию под сессией sheerly-bot с одним ретраем.
  *
- * Единственная точка ретрая для всего модуля: cookie протухает, Spring
- * ротирует remember-me — на auth-ошибке логинимся заново и повторяем ровно
+ * Единственная точка ретрая для всего модуля: access token может истечь —
+ * на 401/redirect логинимся заново и повторяем ровно
  * один раз. Раньше этот же паттерн был написан четырьмя копиями (здесь, в
  * чтении позиций, в проведении акта и инлайном в отправке акта), и копии уже
  * разошлись поведением.
@@ -545,7 +519,7 @@ export async function withBackOfficeSession<T>(input: {
       });
       return input.run(fresh);
     }
-    if (!input.retryTransient) throw error;
+    if (!input.retryTransient || isBackOfficePermissionError(error)) throw error;
     await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
     return input.run(authorization);
   }
@@ -582,7 +556,8 @@ export async function listBackOfficeInventoryItemsWithSession(input: {
 /**
  * Провести акт инвентаризации в Quick Resto (выставить processed=true и
  * двинуть остатки). Использует backoffice-action /warehouse.inventory.document.v2/action
- * (тот же, что нажимает юзер в QR backoffice). На 401/403 — рефреш токена и retry.
+ * (тот же, что нажимает юзер в QR backoffice). На 401 — рефреш токена и retry;
+ * 403 означает нехватку прав и сразу возвращается вызывающей стороне.
  *
  * Бросает Error при сетевой ошибке / отказе QR. Caller ловит и не меняет
  * локальное состояние (QR — источник правды для status=processed).

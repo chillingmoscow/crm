@@ -16,7 +16,7 @@ type ConnectionRow = {
   status: string | null;
   last_tested_at: string | null;
   backoffice_login: string | null;
-  backoffice_cookie_fetched_at: string | null;
+  backoffice_password_encrypted: string | null;
   backoffice_last_tested_at: string | null;
 };
 
@@ -49,7 +49,7 @@ export default async function IntegrationsPage({
     admin
       .from<ConnectionRow>("integration_connections")
       .select(
-        "login, status, last_tested_at, backoffice_login, backoffice_cookie_fetched_at, backoffice_last_tested_at",
+        "login, status, last_tested_at, backoffice_login, backoffice_password_encrypted, backoffice_last_tested_at",
       )
       .eq("account_id", accountId)
       .eq("provider", "quickresto")
@@ -77,10 +77,12 @@ export default async function IntegrationsPage({
         status: connection.status,
         lastTestedAt: connection.last_tested_at,
         backofficeLastTestedAt: connection.backoffice_last_tested_at,
-        // «Настроен» — это логин плюс однажды полученная cookie-сессия:
-        // без неё акт не провести, даже если пароль сохранён.
+        // «Настроен» — это сохранённые учётные данные и успешная проверка.
+        // Краткоживущий токен при необходимости будет получен заново.
         backofficeConfigured: Boolean(
-          connection.backoffice_login && connection.backoffice_cookie_fetched_at,
+          connection.backoffice_login &&
+          connection.backoffice_password_encrypted &&
+          connection.backoffice_last_tested_at,
         ),
       }
     : null;

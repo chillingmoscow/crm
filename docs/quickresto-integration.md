@@ -103,8 +103,8 @@ backoffice-слой (см. ниже).
 (историческое имя колонок, миграция не нужна) лежит зашифрованный JSON
 `{ authorization, expiresAt }`; `expiresAt` = now + `expires_in`. Перед
 использованием `getBackOfficeAuth` проверяет срок жизни (skew 60с) и при
-просрочке делает re-login. Legacy-строка без JSON (старая cookie) тоже
-инвалидируется рефрешем.
+просрочке делает re-login. Токен без известного срока действия и legacy-строка
+старой cookie тоже инвалидируются новым входом.
 
 > **Ретраи при сетевой деградации.** Маршрут прода → `id.quickresto.ru`
 > периодически деградирует (см. Граблики №6), поэтому все 4 шага KC-входа
@@ -139,8 +139,9 @@ Content-Type: application/json; charset=utf-8
 > cookie-сессию и `Authorization: Basic` с API-creds (без cookie → 403, без Basic → 401).
 > После OIDC-миграции идентичность даёт Bearer; Basic в тот же заголовок не
 > помещается (HTTP-заголовок `Authorization` один), поэтому шлём только Bearer.
-> Если /action на живых данных начнёт отдавать 401/403 — смотрим тело ответа и
-> уточняем у Quick Resto, нужен ли ещё один фактор.
+> Если `/action` отдаёт 401, повторяем вход; 403 означает недостаточные права
+> роли back-office пользователя. Тело ответа не показываем из-за риска раскрыть
+> данные сессии.
 
 ### Read-only backoffice endpoints
 
@@ -208,7 +209,7 @@ Content-Type: application/json; charset=utf-8
 | Изменить факт | `warehouse.inventory.items/update` | POST | см. `updateInventoryItemBackOffice` |
 | Удалить позицию | `warehouse.inventory.items/remove` | **DELETE с телом** | обязательны `ownerContextId`, `regTime`, `hash` строки. Без тела — `Object doesn't exist`, POST — 405, `/delete` — 404 |
 | Удалить акт | `warehouse.inventory.document.v2/remove` | **DELETE с телом** | обязательны `regTime`, `contextModule=warehouse.inventory.items`. После удаления акт пропадает из `list`, но прямое чтение по id всё ещё отдаёт объект — ориентироваться надо на список |
-| Провести акт | `warehouse.inventory.document.v2/action` | POST | `{actionName:"process", ids:[id], data:{…}}`, нужен Basic поверх cookie |
+| Провести акт | `warehouse.inventory.document.v2/action` | POST | `{actionName:"process", ids:[id], data:{…}}`, нужен Keycloak Bearer |
 
 Ключевой нюанс: `remove` — это **DELETE с телом запроса**. Именно так делает
 интерфейс QR; ни POST, ни DELETE без тела не работают. Хелперы —
@@ -219,8 +220,9 @@ Content-Type: application/json; charset=utf-8
 
 Access_token живёт недолго (обычно минуты). Если токен протух или отозван:
 
-- 401/403 → `isBackOfficeAuthError` детектит, wrapper рефрешит токен
-  (re-login) и ретраит вызов.
+- 401 или редирект на вход → `isBackOfficeAuthError` детектит, wrapper
+  обновляет токен и повторяет вызов один раз.
+- 403 → прав у back-office пользователя недостаточно; повторный вход не поможет.
 - Плюс proactive-refresh: `getBackOfficeAuth` перелогинивается за 60 секунд
   до `expiresAt`, не дожидаясь 401.
 
@@ -239,6 +241,19 @@ Wrappers `listBackOfficeInventoryItemsWithSession` и
 | [`src/app/(dashboard)/inventory/actions.ts`](../src/app/(dashboard)/inventory/actions.ts) | Server actions, использующие QR (sync, finalize и т.п.). |
 | [`src/app/(dashboard)/settings/integrations/quickresto/page.tsx`](../src/app/(dashboard)/settings/integrations/quickresto/page.tsx) | UI настройки интеграции (creds). |
 | [`src/app/(onboarding)/onboarding/actions.ts`](../src/app/(onboarding)/onboarding/actions.ts) | Онбординг — первичная настройка интеграции. |
+
+### Карта вызовов и авторизации CRM
+
+| Сценарий | API | Авторизация |
+| --- | --- | --- |
+| Проверка подключения, импорт заведений, должностей и сотрудников | `/platform/online/api` | API-логин и пароль, Basic |
+| Синхронизация номенклатуры, складов и актов; чтение акта перед отправкой и после проведения | `/platform/online/api` | API-логин и пароль, Basic |
+| Чтение и изменение строк акта, создание акта пересчёта, перенос позиций и проведение | `/platform/data` | Выделенный back-office пользователь, Keycloak Bearer |
+
+Переход n8n с cookie-сессии на Keycloak не доказывает отключение отдельного
+Basic-доступа `/platform/online/api`. Перед его заменой требуется контрольный
+запрос к действующему подключению. Без ответа API CRM сохраняет существующую
+схему публичного доступа.
 
 ---
 

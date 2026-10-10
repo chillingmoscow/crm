@@ -405,8 +405,7 @@ export async function loginQuickRestoBackOffice(input: {
     }).toString()}`;
   const authPage = await quickRestoFetch(authUrl, { method: "GET" });
   if (authPage.status >= 400) {
-    const body = await authPage.text();
-    throw new Error(quickRestoErrorMessage(authPage.status, body));
+    throw new Error(`Quick Resto (Keycloak): страница входа недоступна (${authPage.status})`);
   }
   let cookieHeader = buildQuickRestoBackOfficeCookieHeader(
     getSetCookieHeaders(authPage.headers),
@@ -432,11 +431,10 @@ export async function loginQuickRestoBackOffice(input: {
     cookieHeader,
     getSetCookieHeaders(identifierResponse.headers),
   );
-  const identifierBody = await identifierResponse.text();
-  loginAction = extractKeycloakLoginAction(identifierBody);
+  loginAction = extractKeycloakLoginAction(await identifierResponse.text());
   if (!loginAction) {
     throw new Error(
-      `Quick Resto (Keycloak): не получен loginAction после ввода логина (статус ${identifierResponse.status}): ${identifierBody.slice(0, 200)}`,
+      `Quick Resto (Keycloak): не получен loginAction после ввода логина (статус ${identifierResponse.status})`,
     );
   }
 
@@ -456,9 +454,8 @@ export async function loginQuickRestoBackOffice(input: {
     if (passwordResponse.status < 400 && !location) {
       throw new Error("Неверный логин или пароль back-office пользователя Quick Resto");
     }
-    const body = await passwordResponse.text();
     throw new Error(
-      `Quick Resto (Keycloak): не получен code после ввода пароля (статус ${passwordResponse.status}): ${body.slice(0, 200)}`,
+      `Quick Resto (Keycloak): не получен code после ввода пароля (статус ${passwordResponse.status})`,
     );
   }
 
@@ -475,6 +472,9 @@ export async function loginQuickRestoBackOffice(input: {
       client_id: KEYCLOAK_CLIENT_ID,
     }).toString(),
   });
+  if (!tokenResponse.ok) {
+    throw new Error(`Quick Resto (Keycloak): token exchange failed (${tokenResponse.status})`);
+  }
   const tokenText = await tokenResponse.text();
   let tokenPayload: {
     access_token?: string;
@@ -483,11 +483,11 @@ export async function loginQuickRestoBackOffice(input: {
   try {
     tokenPayload = JSON.parse(tokenText) as typeof tokenPayload;
   } catch {
-    // ошибка ниже с куском body
+    // Некорректный ответ не включаем в ошибку: в нём могут быть секреты.
   }
-  if (!tokenPayload.access_token) {
+  if (typeof tokenPayload.access_token !== "string" || !tokenPayload.access_token.trim()) {
     throw new Error(
-      `Quick Resto (Keycloak): token exchange не вернул access_token (статус ${tokenResponse.status}): ${tokenText.slice(0, 300)}`,
+      `Quick Resto (Keycloak): token exchange не вернул access_token (статус ${tokenResponse.status})`,
     );
   }
 
@@ -555,7 +555,7 @@ async function callQuickRestoBackOfficeData<T>(input: {
     response.status === 403 ||
     (response.status >= 300 && response.status < 400)
   ) {
-    throw new Error(`Quick Resto back-office auth failed (${response.status})`);
+    throwQuickRestoBackOfficeAuthError(response.status);
   }
 
   if (!response.ok) {
@@ -746,7 +746,7 @@ async function callQuickRestoBackOfficeRemove<T>(input: {
     response.status === 403 ||
     (response.status >= 300 && response.status < 400)
   ) {
-    throw new Error(`Quick Resto back-office auth failed (${response.status})`);
+    throwQuickRestoBackOfficeAuthError(response.status);
   }
   if (!response.ok) {
     const body = await response.text();
@@ -1018,6 +1018,16 @@ function quickRestoErrorMessage(status: number, body: string) {
     .trim();
   const summary = text ? `: ${text.slice(0, 500)}` : "";
   return `Quick Resto вернул ошибку ${status}${summary}`;
+}
+
+function throwQuickRestoBackOfficeAuthError(status: number): never {
+  if (status === 403) {
+    throw new Error(
+      "Quick Resto back-office access denied (403): проверьте права пользователя Sheerly Bot",
+    );
+  }
+  // Не включаем ответ сервера в ошибку: он может содержать параметры сессии.
+  throw new Error(`Quick Resto back-office auth failed (${status})`);
 }
 
 export async function listTableSchemes(input: {
@@ -1351,12 +1361,9 @@ export async function readInventoryDocument(input: {
  * Исторически (до перехода QR на Keycloak) Spring требовал здесь ОДНОВРЕМЕННО
  * cookie-сессию и Authorization: Basic с API-creds. После OIDC-миграции
  * идентичность даёт Bearer-токен; Basic в этот же заголовок не помещается
- * (HTTP-заголовок Authorization один), поэтому шлём только Bearer. Если на
- * живом вызове /action начнёт отдавать 401/403 — смотрим тело ответа и
- * уточняем у Quick Resto, нужен ли ещё один фактор.
- *
- * Диагностика: при 401/403 логируем тело (бывает «Access is denied»
- * или имя ожидаемой роли).
+ * (HTTP-заголовок Authorization один), поэтому шлём только Bearer.
+ * 401 означает истёкший токен и запускает повторный вход; 403 означает
+ * недостаточные права пользователя. Ответы auth-ошибок не включаем в логи.
  */
 export async function processInventoryDocumentBackOffice(input: {
   layerName: string;
@@ -1408,17 +1415,12 @@ export async function processInventoryDocumentBackOffice(input: {
     clearTimeout(timeoutId);
   }
 
-  if (response.status === 401 || response.status === 403) {
-    // 401 = токен не дал auth (просрочен/невалидна) → wrapper рефрешит и ретраит.
-    // 403 = auth ok, но user не имеет нужной роли → не лечится ретраем; пробрасываем
-    // сырой текст, чтобы было видно «какой role не хватает».
-    const body = await response.text();
-    if (response.status === 401) {
-      throw new Error(`Quick Resto back-office auth failed (401): ${body.slice(0, 400)}`);
-    }
-    throw new Error(
-      `Quick Resto /action — 403 (нет прав у backoffice-юзера). Spring: ${body.slice(0, 400) || "<empty body>"}`,
-    );
+  if (
+    response.status === 401 ||
+    response.status === 403 ||
+    (response.status >= 300 && response.status < 400)
+  ) {
+    throwQuickRestoBackOfficeAuthError(response.status);
   }
   if (!response.ok) {
     const body = await response.text();

@@ -64,7 +64,7 @@ export function StepQuickRestoBackOfficeCredentials({
         <h1 className="text-2xl font-semibold text-gray-900 mb-1">Доступ Sheerly Bot</h1>
         <p className="text-sm text-gray-500">
           Введите логин и пароль back-office пользователя Sheerly Bot. Мы проверим авторизацию и сохраним
-          сессионные cookies, чтобы работать со строками актов, которые Quick Resto не открывает через публичный API.
+          защищённый токен доступа, чтобы работать со строками актов, которые Quick Resto не открывает через публичный API.
         </p>
       </div>
 

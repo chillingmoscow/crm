@@ -9,7 +9,12 @@ begin
  if owner_id is null or waiter_id is null then raise exception 'Нужны локальные seed-пользователи';end if;
  perform set_config('request.jwt.claim.sub',owner_id::text,true);
  perform set_config('app.ctx_ready','0',true);
- venue:=public.get_active_venue_id();
+ -- Use the shared seed venue, independent of the owner's current UI selection.
+ select uv.venue_id into venue from public.user_venue_roles uv
+ where uv.user_id=waiter_id and uv.status='active' and exists(select 1 from public.user_venue_roles own where own.user_id=owner_id and own.venue_id=uv.venue_id and own.status='active') order by uv.venue_id limit 1;
+ if venue is null then raise exception 'Нужно общее заведение seed-пользователей';end if;
+ update public.profiles set active_venue_id=venue where id in (owner_id,waiter_id);
+ perform set_config('app.ctx_ready','0',true);
  body:=jsonb_build_object('name','Regression checklist','description','','kind','opening','duration',10,'priority','medium','department_id',null,'items',jsonb_build_array(jsonb_build_object('id',item_id,'title','Проверить','hint','','kind','check','required',true,'parent_id',null,'min',null,'max',null,'unit','','max_length',500)));
  checklist:=(public.schedule_command('checklist.create',body)->>'id')::uuid;
  perform public.schedule_command('checklist.publish',jsonb_build_object('id',checklist,'version',1));
@@ -44,6 +49,7 @@ begin
  perform set_config('app.schedule_test.own_shift',second_shift::text,true);
  perform set_config('app.schedule_test.hidden_shift',shift::text,true);
  perform set_config('request.jwt.claim.sub',waiter_id::text,true);
+ perform set_config('app.ctx_ready','0',true);
  begin perform public.schedule_command('shift.create',body);raise exception 'Создание без права разрешено';exception when others then if sqlerrm='Создание без права разрешено' then raise;end if;end;
  begin perform public.schedule_command('run.start',jsonb_build_object('shift_id',shift,'checklist_id',checklist));raise exception 'Начато чужое выполнение';exception when others then if sqlerrm='Начато чужое выполнение' then raise;end if;end;
  run:=(public.schedule_command('run.start',jsonb_build_object('shift_id',second_shift,'checklist_id',checklist))->>'id')::uuid;

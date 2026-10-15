@@ -1,12 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarIcon, X } from "lucide-react";
+import { CalendarIcon, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { ru } from "date-fns/locale/ru";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 export type DateRangeValue = { start: Date | null; end: Date | null };
@@ -15,6 +19,9 @@ type Props = {
   value: DateRangeValue;
   onChange: (next: DateRangeValue, presetLabel: string | null) => void;
   presetLabel: string | null;
+  monthOnly?: boolean;
+  minDate?: Date;
+  ariaLabel?: string;
 };
 
 type Preset = {
@@ -24,30 +31,70 @@ type Preset = {
 
 function buildPresets(): Preset[] {
   return [
-    { label: "Сегодня",          range: () => ({ start: today(),                      end: today() }) },
-    { label: "Вчера",            range: () => { const y = addDays(today(), -1); return { start: y, end: y }; } },
-    { label: "Текущая неделя",   range: () => weekRange(0) },
-    { label: "Текущий месяц",    range: () => monthRange(0) },
-    { label: "Текущий квартал",  range: () => quarterRange(0) },
-    { label: "Текущий год",      range: () => yearRange(0) },
-    { label: "Прошлая неделя",   range: () => weekRange(-1) },
-    { label: "Прошлый месяц",    range: () => monthRange(-1) },
-    { label: "Прошлый квартал",  range: () => quarterRange(-1) },
-    { label: "Прошлый год",      range: () => yearRange(-1) },
-    { label: "Все время",        range: () => ({ start: null, end: null }) },
+    { label: "Сегодня", range: () => ({ start: today(), end: today() }) },
+    {
+      label: "Вчера",
+      range: () => {
+        const y = addDays(today(), -1);
+        return { start: y, end: y };
+      },
+    },
+    { label: "Текущая неделя", range: () => weekRange(0) },
+    { label: "Текущий месяц", range: () => monthRange(0) },
+    { label: "Текущий квартал", range: () => quarterRange(0) },
+    { label: "Текущий год", range: () => yearRange(0) },
+    { label: "Прошлая неделя", range: () => weekRange(-1) },
+    { label: "Прошлый месяц", range: () => monthRange(-1) },
+    { label: "Прошлый квартал", range: () => quarterRange(-1) },
+    { label: "Прошлый год", range: () => yearRange(-1) },
+    { label: "Все время", range: () => ({ start: null, end: null }) },
   ];
 }
 
-export function DateRangeFilter({ value, onChange, presetLabel }: Props) {
+export function DateRangeFilter({
+  value,
+  onChange,
+  presetLabel,
+  monthOnly = false,
+  minDate,
+  ariaLabel,
+}: Props) {
   const [open, setOpen] = useState(false);
-  const presets = useMemo(buildPresets, []);
+  const [year, setYear] = useState(
+    value.start?.getFullYear() ?? new Date().getFullYear(),
+  );
+  const presets = useMemo(
+    () =>
+      monthOnly
+        ? buildPresets().filter((p) =>
+            ["Текущий месяц", "Прошлый месяц"].includes(p.label),
+          )
+        : buildPresets(),
+    [monthOnly],
+  );
+  const chooseMonth = (start: Date) => {
+    onChange(
+      { start, end: new Date(start.getFullYear(), start.getMonth() + 1, 0) },
+      null,
+    );
+    setOpen(false);
+  };
+  const disabledMonth = (date: Date) =>
+    !!minDate &&
+    date.getFullYear() * 12 + date.getMonth() <
+      minDate.getFullYear() * 12 + minDate.getMonth();
 
   const hasValue = value.start !== null || value.end !== null;
 
   const buttonText = (() => {
+    if (monthOnly && value.start)
+      return value.start
+        .toLocaleDateString("ru-RU", { month: "long", year: "numeric" })
+        .replace(/ г\.$/, "");
     if (presetLabel) return presetLabel;
     if (!hasValue) return "Период";
-    if (value.start && value.end) return `${ddmm(value.start)} – ${ddmm(value.end)}`;
+    if (value.start && value.end)
+      return `${ddmm(value.start)} – ${ddmm(value.end)}`;
     if (value.start) return `С ${ddmm(value.start)}`;
     return `До ${ddmm(value.end!)}`;
   })();
@@ -58,24 +105,33 @@ export function DateRangeFilter({ value, onChange, presetLabel }: Props) {
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next && monthOnly)
+          setYear(value.start?.getFullYear() ?? new Date().getFullYear());
+        setOpen(next);
+      }}
+    >
       <div className="relative inline-flex">
         <PopoverTrigger asChild>
           <Button
             variant="outline"
+            aria-label={ariaLabel}
             size="sm"
             className={cn(
-              "rounded-full h-8 pl-3 pr-8 font-normal text-sm",
+              "rounded-full h-8 pl-3 font-normal text-sm",
+              monthOnly ? "pr-3" : "pr-8",
               hasValue
                 ? "bg-brand/10 border-brand/20 text-brand hover:bg-brand/15 hover:text-brand"
-                : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted"
+                : "bg-muted/60 border-transparent text-muted-foreground hover:bg-muted",
             )}
           >
             <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
             <span className="truncate max-w-[180px]">{buttonText}</span>
           </Button>
         </PopoverTrigger>
-        {hasValue && (
+        {hasValue && !monthOnly && (
           <button
             type="button"
             onClick={clear}
@@ -90,7 +146,9 @@ export function DateRangeFilter({ value, onChange, presetLabel }: Props) {
       <PopoverContent align="start" className="w-auto p-3">
         <div className="flex flex-col gap-4">
           <div>
-            <p className="text-xs text-muted-foreground mb-1.5">Быстрый выбор:</p>
+            <p className="text-xs text-muted-foreground mb-1.5">
+              Быстрый выбор:
+            </p>
             {/* Шире, чем календарь (≈460px на --cell-size:2rem × 7 ячеек ×
              *  2 месяца + nav), не нужно — чипы переносятся в несколько
              *  строк сами. */}
@@ -101,15 +159,20 @@ export function DateRangeFilter({ value, onChange, presetLabel }: Props) {
                   <button
                     key={p.label}
                     type="button"
+                    disabled={
+                      monthOnly &&
+                      !!p.range().start &&
+                      disabledMonth(p.range().start!)
+                    }
                     onClick={() => {
                       onChange(p.range(), p.label);
                       setOpen(false);
                     }}
                     className={cn(
-                      "text-xs px-2.5 py-1 rounded-full border",
+                      "text-xs px-2.5 py-1 rounded-full border disabled:opacity-50 disabled:pointer-events-none",
                       isActive
                         ? "bg-brand text-brand-foreground border-brand"
-                        : "border-border hover:bg-accent"
+                        : "border-border hover:bg-accent",
                     )}
                   >
                     {p.label}
@@ -119,44 +182,97 @@ export function DateRangeFilter({ value, onChange, presetLabel }: Props) {
             </div>
           </div>
 
-          <div>
-            <p className="text-xs text-muted-foreground mb-1.5">Указать даты:</p>
-            {/* Подсветка диапазона: голубой fill на конце + полупрозрачный
-             *  brand на середине. Перебиваем дефолтный bg-primary из
-             *  CalendarDayButton через дескентант-селекторы. */}
-            <Calendar
-              locale={ru}
-              mode="range"
-              numberOfMonths={2}
-              selected={{
-                from: value.start ?? undefined,
-                to: value.end ?? undefined,
-              }}
-              onSelect={(r) => {
-                onChange(
-                  { start: r?.from ?? null, end: r?.to ?? null },
-                  null
-                );
-              }}
-              className={cn(
-                "p-0",
-                "[&_[data-range-start=true]]:bg-brand [&_[data-range-start=true]]:text-brand-foreground",
-                "[&_[data-range-end=true]]:bg-brand [&_[data-range-end=true]]:text-brand-foreground",
-                "[&_[data-range-middle=true]]:bg-brand/15 [&_[data-range-middle=true]]:text-foreground",
-                "[&_[data-selected-single=true]]:bg-brand [&_[data-selected-single=true]]:text-brand-foreground"
-              )}
-            />
-          </div>
+          {monthOnly ? (
+            <div className="w-72 space-y-3">
+              <div className="flex items-center justify-between">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Предыдущий год"
+                  disabled={!!minDate && year <= minDate.getFullYear()}
+                  onClick={() => setYear((y) => y - 1)}
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <span className="text-sm font-medium tabular-nums">{year}</span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Следующий год"
+                  onClick={() => setYear((y) => y + 1)}
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {Array.from({ length: 12 }, (_, index) => {
+                  const date = new Date(year, index, 1),
+                    selected =
+                      value.start?.getFullYear() === year &&
+                      value.start.getMonth() === index;
+                  return (
+                    <Button
+                      key={index}
+                      variant={selected ? "default" : "ghost"}
+                      className="h-9 px-2 text-sm font-normal capitalize"
+                      aria-pressed={selected}
+                      aria-label={date.toLocaleDateString("ru-RU", {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                      disabled={disabledMonth(date)}
+                      onClick={() => chooseMonth(date)}
+                    >
+                      {date.toLocaleDateString("ru-RU", { month: "long" })}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1.5">
+                  Указать даты:
+                </p>
+                {/* Подсветка диапазона: голубой fill на конце + полупрозрачный
+                 *  brand на середине. Перебиваем дефолтный bg-primary из
+                 *  CalendarDayButton через дескентант-селекторы. */}
+                <Calendar
+                  locale={ru}
+                  mode="range"
+                  numberOfMonths={2}
+                  selected={{
+                    from: value.start ?? undefined,
+                    to: value.end ?? undefined,
+                  }}
+                  onSelect={(r) => {
+                    onChange(
+                      { start: r?.from ?? null, end: r?.to ?? null },
+                      null,
+                    );
+                  }}
+                  className={cn(
+                    "p-0",
+                    "[&_[data-range-start=true]]:bg-brand [&_[data-range-start=true]]:text-brand-foreground",
+                    "[&_[data-range-end=true]]:bg-brand [&_[data-range-end=true]]:text-brand-foreground",
+                    "[&_[data-range-middle=true]]:bg-brand/15 [&_[data-range-middle=true]]:text-foreground",
+                    "[&_[data-selected-single=true]]:bg-brand [&_[data-selected-single=true]]:text-brand-foreground",
+                  )}
+                />
+              </div>
 
-          <div className="flex justify-end pt-2 border-t">
-            <Button
-              size="sm"
-              className="bg-brand hover:bg-brand/90"
-              onClick={() => setOpen(false)}
-            >
-              Применить
-            </Button>
-          </div>
+              <div className="flex justify-end pt-2 border-t">
+                <Button
+                  size="sm"
+                  className="bg-brand hover:bg-brand/90"
+                  onClick={() => setOpen(false)}
+                >
+                  Применить
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </PopoverContent>
     </Popover>

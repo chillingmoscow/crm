@@ -76,6 +76,12 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
   },
 
   // Staff
+  "staff.payroll_comment": {
+    category: "staff",
+    icon: MessageCircle,
+    iconColor: "text-brand",
+    verb: null,
+  },
   "staff.medical_book_expiring": {
     category: "staff",
     icon: HeartPulse,
@@ -134,13 +140,13 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
   },
 
   // Generic / system
-  "invite": {
+  invite: {
     category: "staff",
     icon: UserPlus,
     iconColor: "text-blue-500",
     verb: "пригласил(а) вас",
   },
-  "warning": {
+  warning: {
     category: "system",
     icon: AlertTriangle,
     iconColor: "text-amber-500",

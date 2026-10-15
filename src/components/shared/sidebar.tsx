@@ -35,6 +35,8 @@ import {
   Tags,
   User,
   Users,
+  CalendarDays,
+  ChartNoAxesCombined,
   Wallet,
   Warehouse,
   type LucideIcon,
@@ -60,6 +62,8 @@ import { VenueSwitcher } from "@/components/shared/venue-switcher";
 import { SupportReportDialog } from "@/components/shared/support-report-dialog";
 import { KbNavLink } from "@/app/(dashboard)/knowledge/_components/kb-nav-link";
 import { cn } from "@/lib/utils";
+import { useWorkspaceAppearance } from "@/components/shared/workspace-appearance";
+import appearance from "@/components/shared/workspace-appearance.module.css";
 
 type NavItem = {
   title: string;
@@ -108,20 +112,91 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Люди",
     icon: Users,
     items: [
-      { title: "Сотрудники",   href: "/people/staff",       icon: User,   permission: "people.view_staff" },
-      { title: "Должности",    href: "/people/roles",       icon: Shield, permission: "people.view_roles" },
-      { title: "Подразделения", href: "/people/departments", icon: Boxes,  permission: "people.view_roles" },
+      {
+        title: "Сотрудники",
+        href: "/people/staff",
+        icon: User,
+        permission: "people.view_staff",
+      },
+      { title: "Зарплата", href: "/people/payroll", icon: Wallet },
+      {
+        title: "Должности",
+        href: "/people/roles",
+        icon: Shield,
+        permission: "people.view_roles",
+      },
+      {
+        title: "Подразделения",
+        href: "/people/departments",
+        icon: Boxes,
+        permission: "people.view_roles",
+      },
+    ],
+  },
+  {
+    label: "График работы",
+    icon: CalendarDays,
+    items: [
+      {
+        title: "Расписание",
+        href: "/schedule",
+        icon: CalendarDays,
+        exact: true,
+      },
+      {
+        title: "Табель",
+        href: "/schedule/attendance",
+        icon: ClipboardList,
+        permission: "payroll.view",
+      },
+    ],
+  },
+  {
+    label: "Продажи",
+    icon: ChartNoAxesCombined,
+    items: [
+      {
+        title: "Смены",
+        href: "/sales/shifts",
+        icon: CalendarDays,
+        permission: "sales.view_shifts",
+      },
     ],
   },
   {
     label: "Организация",
     icon: Building2,
     items: [
-      { title: "Аккаунт",   href: "/org/account",        icon: Settings,   permission: "org.view_account" },
-      { title: "Юрлица",    href: "/org/legal-entities", icon: FileBadge2, permission: "org.view_legal_entities" },
-      { title: "Заведения", href: "/org/venues",         icon: Building2,  permission: "org.view_venues" },
-      { title: "Склады",    href: "/org/stores",   icon: Warehouse,  permission: "inventory.view_stores" },
-      { title: "Журнал",    href: "/org/audit",          icon: ScrollText, permission: "org.view_audit" },
+      {
+        title: "Аккаунт",
+        href: "/org/account",
+        icon: Settings,
+        permission: "org.view_account",
+      },
+      {
+        title: "Юрлица",
+        href: "/org/legal-entities",
+        icon: FileBadge2,
+        permission: "org.view_legal_entities",
+      },
+      {
+        title: "Заведения",
+        href: "/org/venues",
+        icon: Building2,
+        permission: "org.view_venues",
+      },
+      {
+        title: "Склады",
+        href: "/org/stores",
+        icon: Warehouse,
+        permission: "inventory.view_stores",
+      },
+      {
+        title: "Журнал",
+        href: "/org/audit",
+        icon: ScrollText,
+        permission: "org.view_audit",
+      },
     ],
   },
   {
@@ -132,11 +207,38 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       // exact: чтобы Дашборд не выделялся, когда мы на /finance/categories
       // или другой дочерней странице.
-      { title: "Дашборд",     href: "/finance",                icon: LayoutDashboard, exact: true, permission: "finance.view_dashboard" },
-      { title: "Транзакции",  href: "/finance/transactions",   icon: ArrowLeftRight,                permission: "finance.view_transactions" },
-      { title: "Счета",       href: "/finance/accounts",       icon: Wallet,                        permission: "finance.view_bank_accounts" },
-      { title: "Статьи",      href: "/finance/categories",     icon: Tags,                          permission: "finance.view_categories" },
-      { title: "Контрагенты", href: "/finance/counterparties", icon: Users,                         permission: "finance.view_counterparties" },
+      {
+        title: "Дашборд",
+        href: "/finance",
+        icon: LayoutDashboard,
+        exact: true,
+        permission: "finance.view_dashboard",
+      },
+
+      {
+        title: "Транзакции",
+        href: "/finance/transactions",
+        icon: ArrowLeftRight,
+        permission: "finance.view_transactions",
+      },
+      {
+        title: "Счета",
+        href: "/finance/accounts",
+        icon: Wallet,
+        permission: "finance.view_bank_accounts",
+      },
+      {
+        title: "Статьи",
+        href: "/finance/categories",
+        icon: Tags,
+        permission: "finance.view_categories",
+      },
+      {
+        title: "Контрагенты",
+        href: "/finance/counterparties",
+        icon: Users,
+        permission: "finance.view_counterparties",
+      },
     ],
   },
   {
@@ -178,7 +280,11 @@ const NAV_SECTIONS: NavSection[] = [
         title: "Акты инвентаризации",
         href: "/documents/inventory",
         icon: ClipboardList,
-        permissions: ["inventory.view_documents", "inventory.manage_documents", "inventory.fill_assigned_documents"],
+        permissions: [
+          "inventory.view_documents",
+          "inventory.manage_documents",
+          "inventory.fill_assigned_documents",
+        ],
         roles: ["owner", "admin", "manager", "hostess", "waiter"],
       },
     ],
@@ -197,8 +303,18 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Настройки",
     icon: Settings,
     items: [
-      { title: "Общее", href: "/settings/general", icon: SlidersHorizontal, permission: "settings.manage_integrations" },
-      { title: "Интеграции", href: "/settings/integrations", icon: Settings, permission: "settings.manage_integrations" },
+      {
+        title: "Общее",
+        href: "/settings/general",
+        icon: SlidersHorizontal,
+        permission: "settings.manage_integrations",
+      },
+      {
+        title: "Интеграции",
+        href: "/settings/integrations",
+        icon: Settings,
+        permission: "settings.manage_integrations",
+      },
     ],
   },
 ];
@@ -311,11 +427,16 @@ function SidebarBody({
   //  - legacy roles задан И activeRoleCode входит в roles, ИЛИ
   //  - ни permission, ни roles не заданы (показываем всем)
   const isItemVisible = (item: NavItem): boolean => {
-    const permissionCodes = item.permissions ?? (item.permission ? [item.permission] : []);
-    if (permissionCodes.length > 0 && permissionCodes.some((code) => userPermissionsSet.has(code))) {
+    const permissionCodes =
+      item.permissions ?? (item.permission ? [item.permission] : []);
+    if (
+      permissionCodes.length > 0 &&
+      permissionCodes.some((code) => userPermissionsSet.has(code))
+    ) {
       return true;
     }
-    if (item.roles) return !activeRoleCode || item.roles.includes(activeRoleCode);
+    if (item.roles)
+      return !activeRoleCode || item.roles.includes(activeRoleCode);
     if (permissionCodes.length > 0) return false;
     return true;
   };
@@ -329,12 +450,16 @@ function SidebarBody({
     if (section.items.some((i) => isItemVisible(i))) return true;
     if (section.href) {
       // flat-section без items и без permission — fallback на legacy roles
-      if (section.roles) return !activeRoleCode || section.roles.includes(activeRoleCode);
+      if (section.roles)
+        return !activeRoleCode || section.roles.includes(activeRoleCode);
       return true;
     }
     return false;
   };
-  const pathname = usePathname();
+  const modern = useWorkspaceAppearance();
+  const routePathname = usePathname();
+  const pathname =
+    routePathname === "/payroll-concept" ? "/people/payroll" : routePathname;
   const supabase = createClient();
   const { state, setOpenMobile, isMobile } = useSidebar();
   // collapsed (icon-only) — только на десктопе. На мобильном тот же
@@ -453,24 +578,31 @@ function SidebarBody({
 
   return (
     <>
-      <SidebarHeader className="p-2 group-data-[collapsible=icon]:p-3">
-        {collapsed ? (
-          // Brand label in icon mode (matches cYr2B `Brand` 40×40).
-          // Toggling lives in the hover pill on the right edge — see <TogglePill>.
-          <div
-            aria-hidden
-            className="flex aspect-square size-10 items-center justify-center rounded-[10px] bg-primary text-primary-foreground"
-          >
+      <SidebarHeader
+        className={cn(
+          "p-2 group-data-[collapsible=icon]:p-3",
+          modern && appearance.modernHeader,
+        )}
+      >
+        {modern ? (
+          <VenueSwitcher venues={venues} activeVenueId={activeVenueId} />
+        ) : collapsed ? (
+          <div aria-hidden className="flex aspect-square size-10 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
             <Building2 className="w-[18px] h-[18px]" />
           </div>
         ) : (
           <VenueSwitcher venues={venues} activeVenueId={activeVenueId} />
+        )}
+        {modern && !collapsed && (
+          <span className={appearance.navCaption}>Рабочее пространство</span>
         )}
       </SidebarHeader>
 
       <SidebarContent
         className={cn(
           "px-2 py-2 gap-3",
+          modern && appearance.modernNavigation,
+          modern && collapsed && appearance.iconNavigation,
           collapsed && "px-3 gap-1 items-center",
         )}
       >
@@ -528,19 +660,19 @@ function SidebarBody({
           из-за того что collapsed = только аватар без текста). Любое
           расхождение видно на стыке с KbTreeNav «Корзина» (тоже h-16),
           линии border-top перестают совпадать по горизонтали. */}
-      <SidebarFooter className="h-16 p-2 border-t border-sidebar-border flex items-center justify-stretch group-data-[collapsible=icon]:p-3 group-data-[collapsible=icon]:justify-center">
+      <SidebarFooter className={cn("h-16 p-2 border-t border-sidebar-border flex items-center justify-stretch group-data-[collapsible=icon]:p-3 group-data-[collapsible=icon]:justify-center", modern && appearance.modernFooter)}>
         {collapsed ? (
           <Popover open={userMenuOpen} onOpenChange={setUserMenuOpen}>
             <PopoverTrigger asChild>
               <button
                 type="button"
                 aria-label={userName}
-                className="size-8 rounded-full overflow-hidden shrink-0 mx-auto"
+                className={cn("size-8 rounded-full overflow-hidden shrink-0 mx-auto", modern && appearance.profileIconTrigger)}
               >
                 <UserAvatar
                   name={userName}
                   avatarUrl={userAvatarUrl}
-                  size={32}
+                  size={modern ? 40 : 32}
                 />
               </button>
             </PopoverTrigger>
@@ -556,7 +688,10 @@ function SidebarBody({
             <PopoverTrigger asChild>
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-sidebar-accent w-full data-[state=open]:bg-sidebar-accent"
+                className={cn(
+                  "flex items-center gap-2 rounded-lg p-2 text-left transition-colors hover:bg-sidebar-accent w-full data-[state=open]:bg-sidebar-accent",
+                  modern && appearance.profileTrigger,
+                )}
               >
                 <div className="size-8 rounded-full overflow-hidden shrink-0">
                   <UserAvatar
@@ -609,6 +744,7 @@ function FlatExpandedLink({
   return (
     <Link
       href={href}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
         // Match ExpandedSection trigger geometry so flat + nested
         // sections sit on the same baseline.
@@ -638,6 +774,7 @@ function FlatCollapsedLink({
     <Link
       href={href}
       aria-label={section.label}
+      aria-current={isActive ? "page" : undefined}
       data-tip={section.label}
       className={cn(
         "flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
@@ -678,10 +815,11 @@ function ExpandedSection({
 
   return (
     // Group · gap 4px between Trigger and Nested
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1" data-nav-section>
       <button
         type="button"
         onClick={onToggle}
+        aria-expanded={isOpen}
         className={cn(
           // Trigger: padding [8,10], gap 10, font 14/500, rounded 8
           "flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[14px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
@@ -700,7 +838,7 @@ function ExpandedSection({
       {isOpen && (
         // Nested: padding [6,0,6,18] — 6px vertical, 18px from left
         // (the 18px puts the guide line under the trigger's icon)
-        <div className="py-1.5 pl-[18px]">
+        <div data-nav-children className="py-1.5 pl-[18px]">
           {/* Items: 1px guide line + 8px left pad + 2px gap between items */}
           <div className="border-l border-sidebar-border pl-2 flex flex-col gap-0.5">
             {section.items.map((item) => {
@@ -711,10 +849,12 @@ function ExpandedSection({
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-current={isActive ? "page" : undefined}
                   className={cn(
                     // Sub-item: padding [7,10], gap 8, rounded 6, text 13/500
                     "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
-                    isActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+                    isActive &&
+                      "bg-sidebar-accent text-sidebar-accent-foreground",
                   )}
                 >
                   <span className="flex-1 truncate">{item.title}</span>
@@ -742,6 +882,7 @@ function CollapsedSectionFlyout({
   section: NavSection;
   pathname: string;
 }) {
+  const modern = useWorkspaceAppearance();
   const [open, setOpen] = useState(false);
   const SectionIcon = section.icon;
   const hasActiveChild = section.items.some((item) =>
@@ -764,6 +905,7 @@ function CollapsedSectionFlyout({
           // на click — открывается flyout (GlobalTooltip прячется на
           // pointerdown, конфликта нет).
           data-tip={section.label}
+          data-active={hasActiveChild || open}
           className={cn(
             "relative flex items-center justify-center size-10 rounded-lg text-sidebar-foreground transition-colors hover:bg-sidebar-accent",
             (hasActiveChild || open) && "bg-sidebar-accent",
@@ -782,7 +924,7 @@ function CollapsedSectionFlyout({
         side="right"
         align="start"
         sideOffset={12}
-        className="w-[200px] p-1.5 rounded-[10px]"
+        className={cn("w-[200px] p-1.5 rounded-[10px]", modern && appearance.navigationFlyout)}
       >
         <div className="px-2 py-1.5">
           <span className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
@@ -799,6 +941,7 @@ function CollapsedSectionFlyout({
               <Link
                 key={item.href}
                 href={item.href}
+                aria-current={isActive ? "page" : undefined}
                 onClick={() => setOpen(false)}
                 className={cn(
                   "flex items-center gap-2.5 rounded-md px-2 py-2.5 text-[13px] text-popover-foreground transition-colors hover:bg-accent",
@@ -832,6 +975,7 @@ function UserAvatar({
   avatarUrl: string | null;
   size?: number;
 }) {
+  const modern = useWorkspaceAppearance();
   const initial = name.charAt(0).toUpperCase() || "?";
   if (avatarUrl) {
     return (
@@ -846,7 +990,10 @@ function UserAvatar({
   }
   return (
     <span
-      className="w-full h-full flex items-center justify-center bg-violet-400 text-white font-bold"
+      className={cn(
+        "w-full h-full flex items-center justify-center font-bold",
+        modern ? appearance.profileAvatar : "bg-violet-400 text-white",
+      )}
       style={{ fontSize: Math.max(11, Math.round(size * 0.4)) }}
       aria-label={name}
     >
@@ -868,6 +1015,33 @@ function ProfileMenu({
   onOpenSupport: () => void;
   isImpersonating?: boolean;
 }) {
+  const modern = useWorkspaceAppearance();
+  if (modern) {
+    return (
+      <PopoverContent align="start" side="top" sideOffset={12} className={appearance.profileMenu}>
+        <Link href="/profile" onClick={onClose} className={appearance.profileSettings}>
+          <span className={appearance.profileSettingsIcon}><User size={18} /></span>
+          <span>Мой профиль<span>Личные данные и настройки</span></span>
+          <ChevronRight size={16} />
+        </Link>
+        <div className={appearance.profileTheme}><ThemeSwitcher /></div>
+        <div className={appearance.profileUtilities}>
+          <button type="button" onClick={() => { onClose(); onOpenSupport(); }}>
+            <LifeBuoy size={17} /><span>Поддержка</span><ChevronRight size={14} />
+          </button>
+          <button type="button" className="hide-on-coarse-pointer" onClick={() => {
+            onClose(); window.dispatchEvent(new CustomEvent("hotkeys:open"));
+          }}>
+            <Keyboard size={17} /><span>Горячие клавиши</span><kbd>⇧ ?</kbd>
+          </button>
+        </div>
+        <button type="button" className={appearance.profileSignout} onClick={() => { onClose(); onSignOut(); }}>
+          {isImpersonating ? <Eye size={16} /> : <LogOut size={16} />}
+          {isImpersonating ? "Вернуться к себе" : "Выйти из аккаунта"}
+        </button>
+      </PopoverContent>
+    );
+  }
   // Note: верхний user-блок (name + role · account + avatar) намеренно
   // убран — он дублировал trigger-кнопку в футере сайдбара (на которую
   // и навешан этот popover). См. фидбек 2026-05-13.
@@ -877,10 +1051,13 @@ function ProfileMenu({
       align="start"
       side="top"
       sideOffset={8}
-      className="w-[280px] p-0 rounded-xl overflow-hidden"
+      className={cn(
+        "w-[280px] p-0 rounded-xl overflow-hidden",
+        modern && appearance.profileMenu,
+      )}
     >
       {/* Theme switcher — Light / Dark / System */}
-      <div className="px-3 py-2.5">
+      <div className={cn("px-3 py-2.5", modern && appearance.profileTheme)}>
         <ThemeSwitcher />
       </div>
 
@@ -964,23 +1141,31 @@ function ProfileMenu({
 // ── Theme switcher (3-button toggle group) ─────────────────────
 
 function ThemeSwitcher() {
+  const modern = useWorkspaceAppearance();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   // Avoid hydration mismatch — next-themes resolves theme client-side
   useEffect(() => {
     setMounted(true);
   }, []);
-  const current = mounted ? theme ?? "system" : "system";
+  const current = mounted ? (theme ?? "system") : "system";
 
   const options = [
-    { value: "light",  icon: Sun,    label: "Светлая" },
-    { value: "dark",   icon: Moon,   label: "Тёмная" },
+    { value: "light", icon: Sun, label: "Светлая" },
+    { value: "dark", icon: Moon, label: "Тёмная" },
     { value: "system", icon: Laptop, label: "Системная" },
   ] as const;
 
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-[11px] font-medium text-muted-foreground">Тема</span>
+    <div
+      className={cn(
+        "flex items-center justify-between gap-2",
+        modern && appearance.themeSwitcher,
+      )}
+    >
+      <span className="text-[11px] font-medium text-muted-foreground">
+        {modern ? "Тема оформления" : "Тема"}
+      </span>
       <div className="flex items-center gap-px p-0.5 rounded-md bg-muted">
         {options.map(({ value, icon: Icon, label }) => {
           const active = current === value;
@@ -990,7 +1175,8 @@ function ThemeSwitcher() {
               type="button"
               onClick={() => applyTheme(value, setTheme)}
               aria-label={label}
-              data-tip={label}
+              aria-pressed={active}
+              data-tip={modern ? undefined : label}
               className={cn(
                 "flex items-center justify-center px-2 py-1 rounded-[5px] transition-colors",
                 active
@@ -999,6 +1185,7 @@ function ThemeSwitcher() {
               )}
             >
               <Icon className="w-3 h-3" />
+              {modern && <span>{label}</span>}
             </button>
           );
         })}

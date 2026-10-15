@@ -8,6 +8,8 @@ import type { AuditEvent } from "@/lib/audit/list";
 
 interface AuditEventRowProps {
   event: AuditEvent;
+  exactTime?: boolean;
+  timeZone?: string;
   /** Скрыть ссылку-сноску на сущность под строкой. Имя сотрудника
    *  всё равно зашито в headline (см. format.tsx) — флаг убирает только
    *  избыточный link под timestamp'ом, когда журнал рендерится на
@@ -22,8 +24,15 @@ export function AuditEventRow({
   event,
   hideEntity = false,
   canRestoreKb = false,
+  exactTime = false,
+  timeZone,
 }: AuditEventRowProps) {
-  const { icon: Icon, iconClass, headline, details } = describeAuditEvent(event);
+  const {
+    icon: Icon,
+    iconClass,
+    headline,
+    details,
+  } = describeAuditEvent(event);
 
   return (
     <li className="flex items-start gap-3 px-4 py-3 border-b last:border-b-0 hover:bg-accent/40 transition-colors">
@@ -44,8 +53,23 @@ export function AuditEventRow({
         </div>
         {details && <div className="pl-0.5">{details}</div>}
         <div className="text-[12px] text-muted-foreground flex items-center gap-2 flex-wrap">
-          <time dateTime={event.created_at} data-tip={event.created_at}>
-            {formatRelative(event.created_at)}
+          <time
+            dateTime={event.created_at}
+            title={new Date(event.created_at).toLocaleString("ru-RU", {
+              timeZone,
+            })}
+          >
+            {exactTime
+              ? new Date(event.created_at).toLocaleString("ru-RU", {
+                  timeZone,
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })
+              : formatRelative(event.created_at)}
           </time>
           {!hideEntity && (
             <EntityReference event={event} canRestoreKb={canRestoreKb} />
@@ -76,9 +100,7 @@ function EntityReference({
       //    только ветку ребёнка, оставив родителя в корзине (orphan;
       //    та же защита была в старом KbAuditEventRow / Codex #324).
       const cascadedRoot = event.details.cascaded_root as
-        | string
-        | null
-        | undefined;
+        string | null | undefined;
       const isCascadedChild =
         cascadedRoot != null && cascadedRoot !== event.entity_id;
       const isRootDelete =
@@ -98,11 +120,7 @@ function EntityReference({
           href={`/knowledge/${entity.slug}`}
           className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
         >
-          <KbPageIcon
-            icon={entity.icon}
-            color={entity.icon_color}
-            size={12}
-          />
+          <KbPageIcon icon={entity.icon} color={entity.icon_color} size={12} />
           <span className="truncate max-w-[200px]">
             {entity.title || "Без названия"}
           </span>

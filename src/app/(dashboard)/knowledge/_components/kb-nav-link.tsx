@@ -96,6 +96,7 @@ export function KbNavLink({
     return (
       <Link
         href="/knowledge"
+        aria-current={isOnKb ? "page" : undefined}
         aria-label="База знаний"
         data-tip="База знаний"
         onClick={handleClick}
@@ -116,6 +117,7 @@ export function KbNavLink({
   return (
     <Link
       href="/knowledge"
+      aria-current={isOnKb ? "page" : undefined}
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}

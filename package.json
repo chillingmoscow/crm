@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "sales:worker": "node scripts/sales-worker.mjs",
     "dev": "next dev --turbopack",
     "build": "NODE_OPTIONS='--max-old-space-size=4096' next build",
     "start": "next start",
@@ -12,7 +13,8 @@
     "db:reset": "supabase db reset",
     "db:status": "supabase status",
     "db:migrate": "supabase migration new",
-    "regen:types": "bash scripts/regen-types.sh"
+    "regen:types": "bash scripts/regen-types.sh",
+    "payroll:worker": "node scripts/payroll-worker.mjs"
   },
   "dependencies": {
     "@blocknote/core": "^0.49.0",

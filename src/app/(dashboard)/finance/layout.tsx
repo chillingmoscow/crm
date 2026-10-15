@@ -1,14 +1,13 @@
-import { redirect } from "next/navigation";
-
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { listLegalEntities } from "@/lib/org/legal-entities";
 import { getActiveFinanceLegalEntityId } from "@/lib/finance/active-legal-entity";
+import { FinanceSectionHeader } from "./section-header";
 import { LegalEntitySwitcher } from "@/components/shared/legal-entity-switcher";
 
 /**
- * Finance block shell. Gates the entire /finance/* tree on
- * `finance.view_dashboard` and renders the active-legal-entity
- * switcher in the header. The switcher hides itself when fewer
+ * Finance block shell. Pages enforce their own permissions; payroll
+ * also supports self access. Users with finance.view_dashboard see
+ * the active-legal-entity switcher in the header. The switcher hides itself when fewer
  * than 2 legal entities exist (nothing to switch).
  *
  * Note: the cookie scoping is *advisory* — RLS itself doesn't read
@@ -22,7 +21,9 @@ export default async function FinanceLayout({
   children: React.ReactNode;
 }) {
   const can = await getCachedPermissionChecker();
-  if (!can("finance.view_dashboard")) redirect("/dashboard");
+  // Payroll has its own team/self permission boundary. Other finance pages
+  // enforce their existing permissions before loading any data.
+  if (!can("finance.view_dashboard")) return <>{children}</>;
 
   const [{ rows: legalEntities }, activeLegalEntityId] = await Promise.all([
     listLegalEntities(),
@@ -31,13 +32,15 @@ export default async function FinanceLayout({
 
   return (
     <div className="flex flex-col w-full">
-      <div className="flex items-center justify-between gap-4 border-b px-6 py-3">
-        <h1 className="text-lg font-semibold">Финансы</h1>
-        <LegalEntitySwitcher
-          legalEntities={legalEntities}
-          activeLegalEntityId={activeLegalEntityId}
-        />
-      </div>
+      <FinanceSectionHeader>
+        <div className="flex items-center justify-between gap-4 border-b px-6 py-3">
+          <h1 className="text-lg font-semibold">Финансы</h1>
+          <LegalEntitySwitcher
+            legalEntities={legalEntities}
+            activeLegalEntityId={activeLegalEntityId}
+          />
+        </div>
+      </FinanceSectionHeader>
       <div className="flex-1">{children}</div>
     </div>
   );

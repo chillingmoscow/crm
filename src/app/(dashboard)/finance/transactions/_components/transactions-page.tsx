@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -51,7 +58,10 @@ import {
 import { cn } from "@/lib/utils";
 import type { AmountRoundingScale } from "@/lib/format/amount";
 import { EmptyState } from "@/components/ui/empty-state";
-import { softDeleteTransaction } from "@/lib/finance/transactions";
+import {
+  getTransaction,
+  softDeleteTransaction,
+} from "@/lib/finance/transactions";
 import type {
   BankAccountGroupRow,
   BankAccountRow,
@@ -62,13 +72,13 @@ import type {
   TransactionListFilters,
   TransactionRow,
 } from "@/types/finance";
-import type {
-  AccountVenueRow,
-  LegalEntityRow,
-} from "@/lib/org/legal-entities";
+import type { AccountVenueRow, LegalEntityRow } from "@/lib/org/legal-entities";
 
 import { AmountRangeFilter } from "./filters/amount-range-filter";
-import { DateRangeFilter, type DateRangeValue } from "@/components/shared/date-range-filter";
+import {
+  DateRangeFilter,
+  type DateRangeValue,
+} from "@/components/shared/date-range-filter";
 import {
   MultiSelectFilter,
   type MultiSelectGroup,
@@ -180,13 +190,14 @@ export function TransactionsPage({
 
   // Type
   const typeValue = (filtersFromUrl.type ?? "all") as
-    | "all"
-    | TransactionRow["type"];
+    "all" | TransactionRow["type"];
 
   // Date range + preset
   const dateRange: DateRangeValue = useMemo(
     () => ({
-      start: filtersFromUrl.date_from ? new Date(filtersFromUrl.date_from) : null,
+      start: filtersFromUrl.date_from
+        ? new Date(filtersFromUrl.date_from)
+        : null,
       end: filtersFromUrl.date_to ? new Date(filtersFromUrl.date_to) : null,
     }),
     [filtersFromUrl.date_from, filtersFromUrl.date_to],
@@ -201,7 +212,9 @@ export function TransactionsPage({
 
   const categoryIds = useMemo(() => {
     const real = normaliseToArray(filtersFromUrl.category_id);
-    return filtersFromUrl.category_include_none ? [NO_CATEGORY_ID, ...real] : real;
+    return filtersFromUrl.category_include_none
+      ? [NO_CATEGORY_ID, ...real]
+      : real;
   }, [filtersFromUrl.category_id, filtersFromUrl.category_include_none]);
 
   const counterpartyIds = useMemo(() => {
@@ -209,7 +222,10 @@ export function TransactionsPage({
     return filtersFromUrl.counterparty_include_none
       ? [NO_COUNTERPARTY_ID, ...real]
       : real;
-  }, [filtersFromUrl.counterparty_id, filtersFromUrl.counterparty_include_none]);
+  }, [
+    filtersFromUrl.counterparty_id,
+    filtersFromUrl.counterparty_include_none,
+  ]);
 
   const amountRange = useMemo(
     () => ({
@@ -279,7 +295,8 @@ export function TransactionsPage({
   }, [transactionIdsKey]);
 
   const allOnPageSelected =
-    transactions.length > 0 && transactions.every((tx) => selectedSet.has(tx.id));
+    transactions.length > 0 &&
+    transactions.every((tx) => selectedSet.has(tx.id));
   const someOnPageSelected = selected.length > 0 && !allOnPageSelected;
 
   const toggleAllOnPage = () => {
@@ -288,7 +305,9 @@ export function TransactionsPage({
   };
 
   const toggleOne = (id: string) => {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+    setSelected((s) =>
+      s.includes(id) ? s.filter((x) => x !== id) : [...s, id],
+    );
   };
 
   const allSelectedSameType = useMemo(() => {
@@ -348,7 +367,11 @@ export function TransactionsPage({
 
   const accountFilterItems: MultiSelectItem[] = useMemo(
     () =>
-      bankAccounts.map((b) => ({ id: b.id, name: b.name, groupId: b.group_id })),
+      bankAccounts.map((b) => ({
+        id: b.id,
+        name: b.name,
+        groupId: b.group_id,
+      })),
     [bankAccounts],
   );
   const accountFilterGroups: MultiSelectGroup[] = useMemo(
@@ -359,7 +382,11 @@ export function TransactionsPage({
   const categoryFilterItems: MultiSelectItem[] = useMemo(
     () => [
       { id: NO_CATEGORY_ID, name: "Без статьи", special: true },
-      ...categories.map((c) => ({ id: c.id, name: c.name, groupId: c.group_id })),
+      ...categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        groupId: c.group_id,
+      })),
     ],
     [categories],
   );
@@ -393,7 +420,10 @@ export function TransactionsPage({
     if (accountIds.length > 0) c++;
     if (categoryIds.length > 0) c++;
     if (counterpartyIds.length > 0) c++;
-    if (filtersFromUrl.amount_min !== undefined || filtersFromUrl.amount_max !== undefined)
+    if (
+      filtersFromUrl.amount_min !== undefined ||
+      filtersFromUrl.amount_max !== undefined
+    )
       c++;
     return c;
   }, [filtersFromUrl, accountIds, categoryIds, counterpartyIds]);
@@ -426,10 +456,39 @@ export function TransactionsPage({
   const [prefill, setPrefill] = useState<TransactionRow | null>(null);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
 
+  const linkedTransactionId = searchParams.get("id");
+  const openedTransactionId = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !linkedTransactionId ||
+      openedTransactionId.current === linkedTransactionId
+    )
+      return;
+    let active = true;
+    getTransaction(linkedTransactionId)
+      .then(({ row, error }) => {
+        if (!active) return;
+        openedTransactionId.current = linkedTransactionId;
+        if (error || !row) {
+          toast.error("Транзакция недоступна");
+          return;
+        }
+        setFormMode({ kind: "edit", transaction: row });
+      })
+      .catch(() => {
+        if (active) toast.error("Не удалось открыть транзакцию");
+      });
+    return () => {
+      active = false;
+    };
+  }, [linkedTransactionId]);
+
   const openCreate = (type: TransactionRow["type"]) => {
     setCreateMenuOpen(false);
     if (type === "transfer" && bankAccounts.length < 2) {
-      toast.error("Для создания перевода необходимо иметь как минимум два счёта");
+      toast.error(
+        "Для создания перевода необходимо иметь как минимум два счёта",
+      );
       return;
     }
     // No accounts at all → still open the form; bank-account picker has
@@ -462,10 +521,11 @@ export function TransactionsPage({
       (b) => b.legal_entity_id === activeLegalEntityIdFromCookie,
     );
   const cookieLEName = cookieFilterActive
-    ? legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)
+    ? (legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)
         ?.short_name ??
-      legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)?.name ??
-      null
+      legalEntities.find((le) => le.id === activeLegalEntityIdFromCookie)
+        ?.name ??
+      null)
     : null;
 
   // ─── Header subtitle (counter) ────────────────────────────────────────────
@@ -666,8 +726,8 @@ export function TransactionsPage({
       {cookieLEName && (
         <p className="text-xs text-muted-foreground mb-2">
           Активное юрлицо:{" "}
-          <span className="text-foreground font-medium">{cookieLEName}</span>{" "}
-          — переключатель в шапке.
+          <span className="text-foreground font-medium">{cookieLEName}</span> —
+          переключатель в шапке.
         </p>
       )}
 
@@ -725,7 +785,12 @@ export function TransactionsPage({
                         ])}
                       </span>
                       <span className="text-xs text-brand/80">
-                        на сумму {formatCurrency(selectedTotal, "RUB", amountRoundingScale)}
+                        на сумму{" "}
+                        {formatCurrency(
+                          selectedTotal,
+                          "RUB",
+                          amountRoundingScale,
+                        )}
                       </span>
                       <div className="ml-auto flex items-center gap-2 mr-2">
                         {selected.length === 1 && (
@@ -853,9 +918,7 @@ export function TransactionsPage({
             <Button
               size="sm"
               variant="outline"
-              onClick={() =>
-                updateUrl({ page: String(Math.max(1, page - 1)) })
-              }
+              onClick={() => updateUrl({ page: String(Math.max(1, page - 1)) })}
               disabled={page <= 1 || isPending}
             >
               <ChevronLeft className="h-4 w-4" />
@@ -893,7 +956,9 @@ export function TransactionsPage({
               <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-destructive/10 text-destructive">
                 <Trash2 className="h-4 w-4" />
               </span>
-              {selected.length > 1 ? "Удалить выбранные операции" : "Удалить операцию"}
+              {selected.length > 1
+                ? "Удалить выбранные операции"
+                : "Удалить операцию"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {selected.length > 1
@@ -902,7 +967,9 @@ export function TransactionsPage({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogCancel disabled={bulkDeleting}>
+              Отмена
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
@@ -933,7 +1000,8 @@ export function TransactionsPage({
           router.refresh();
         }}
         onTypeChange={(t) => {
-          if (formMode.kind === "create") setFormMode({ kind: "create", type: t });
+          if (formMode.kind === "create")
+            setFormMode({ kind: "create", type: t });
         }}
         legalEntities={legalEntities}
         bankAccounts={bankAccounts}
@@ -1078,9 +1146,9 @@ function TypeFilter({
   onChange: (v: "all" | TransactionRow["type"]) => void;
 }) {
   const options: { value: "all" | TransactionRow["type"]; label: string }[] = [
-    { value: "all",      label: "Все типы" },
-    { value: "income",   label: "Приход" },
-    { value: "expense",  label: "Расход" },
+    { value: "all", label: "Все типы" },
+    { value: "income", label: "Приход" },
+    { value: "expense", label: "Расход" },
     { value: "transfer", label: "Переводы" },
   ];
   const active = value !== "all";
@@ -1244,9 +1312,13 @@ function Row({
   amountRoundingScale: AmountRoundingScale;
 }) {
   const account = accountById.get(tx.bank_account_id);
-  const toAccount = tx.to_bank_account_id ? accountById.get(tx.to_bank_account_id) : null;
+  const toAccount = tx.to_bank_account_id
+    ? accountById.get(tx.to_bank_account_id)
+    : null;
   const category = tx.category_id ? categoryById.get(tx.category_id) : null;
-  const counterparty = tx.counterparty_id ? counterpartyById.get(tx.counterparty_id) : null;
+  const counterparty = tx.counterparty_id
+    ? counterpartyById.get(tx.counterparty_id)
+    : null;
 
   const amount = Number(tx.amount);
   const sign = tx.type === "income" ? "+" : tx.type === "expense" ? "−" : "";
@@ -1280,10 +1352,17 @@ function Row({
       <td className="px-3 align-middle whitespace-nowrap">
         <div className="flex items-center gap-1.5 text-sm">
           <span>{date}</span>
-          {time && <span className="text-muted-foreground text-xs">· {time}</span>}
+          {time && (
+            <span className="text-muted-foreground text-xs">· {time}</span>
+          )}
         </div>
       </td>
-      <td className={cn("px-3 align-middle font-medium tabular-nums", amountClass)}>
+      <td
+        className={cn(
+          "px-3 align-middle font-medium tabular-nums",
+          amountClass,
+        )}
+      >
         {sign}
         {formatCurrency(amount, tx.currency, amountRoundingScale)}
       </td>
@@ -1317,7 +1396,9 @@ function Row({
             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted shrink-0">
               <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
-            <span className="text-sm truncate max-w-[160px]">{counterparty.name}</span>
+            <span className="text-sm truncate max-w-[160px]">
+              {counterparty.name}
+            </span>
           </div>
         ) : (
           <span className="text-muted-foreground">—</span>
@@ -1326,14 +1407,21 @@ function Row({
       <td className="px-3 align-middle">
         {tx.type === "transfer" && toAccount ? (
           <div className="flex flex-col gap-0.5">
-          <AccountLine account={account} amountRoundingScale={amountRoundingScale} />
+            <AccountLine
+              account={account}
+              amountRoundingScale={amountRoundingScale}
+            />
             <div className="flex items-center gap-1 text-xs text-muted-foreground">
               <ArrowLeftRight className="h-3 w-3" />
               <span className="truncate">{toAccount.name}</span>
             </div>
           </div>
         ) : (
-          <AccountLine account={account} showBalance amountRoundingScale={amountRoundingScale} />
+          <AccountLine
+            account={account}
+            showBalance
+            amountRoundingScale={amountRoundingScale}
+          />
         )}
       </td>
     </tr>
@@ -1350,7 +1438,9 @@ function AccountLine({
   amountRoundingScale: AmountRoundingScale;
 }) {
   if (!account)
-    return <span className="text-muted-foreground text-sm">Неизвестный счёт</span>;
+    return (
+      <span className="text-muted-foreground text-sm">Неизвестный счёт</span>
+    );
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-1.5">
@@ -1359,7 +1449,11 @@ function AccountLine({
       </div>
       {showBalance && (
         <span className="text-xs text-muted-foreground tabular-nums pl-5">
-          {formatShortAmount(Number(account.balance), account.currency, amountRoundingScale)}
+          {formatShortAmount(
+            Number(account.balance),
+            account.currency,
+            amountRoundingScale,
+          )}
         </span>
       )}
     </div>
@@ -1397,7 +1491,8 @@ function pluralize(n: number, forms: [string, string, string]): string {
   const mod10 = n % 10;
   const mod100 = n % 100;
   if (mod10 === 1 && mod100 !== 11) return forms[0];
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return forms[1];
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20))
+    return forms[1];
   return forms[2];
 }
 

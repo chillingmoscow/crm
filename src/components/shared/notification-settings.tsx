@@ -1,5 +1,8 @@
 "use client";
 
+import { useWorkspaceAppearance } from "./workspace-appearance";
+import appearance from "./workspace-appearance.module.css";
+import { cn } from "@/lib/utils";
 import { Settings, Share } from "lucide-react";
 
 import {
@@ -19,6 +22,7 @@ const ICON_BTN =
  * Управление вынесено сюда из инлайн-строки списка. Push — per-device.
  */
 export function NotificationSettings() {
+  const modern = useWorkspaceAppearance();
   const {
     supported,
     configured,
@@ -43,7 +47,7 @@ export function NotificationSettings() {
           <Settings className="size-[18px]" />
         </PopoverTrigger>
       </IconTooltip>
-      <PopoverContent align="end" sideOffset={6} className="w-72 p-0">
+      <PopoverContent align="end" sideOffset={6} className={cn("w-72 p-0", modern && appearance.notificationSettings)}>
         <div className="border-b border-border/60 px-3 py-2.5">
           <div className="text-[13px] font-semibold">Push-уведомления</div>
         </div>

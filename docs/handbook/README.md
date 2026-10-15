@@ -26,9 +26,11 @@
 | [`crm/`](./crm/index.md) | CRM: клиенты, карточки, взаимодействия |
 | [`knowledge/`](./knowledge/index.md) | Внутренняя база знаний пользователя (BlockNote-страницы) |
 | [`finance/`](./finance/index.md) | Финансы: счета, категории, контрагенты, транзакции |
+| [`sales/`](./sales/index.md) | Продажи: финансовые смены и сверка с Glide |
 | [`inventory/`](./inventory/index.md) | Номенклатура (ингредиенты) и документы (акты инвентаризации) |
 | [`notifications/`](./notifications/index.md) | Уведомления |
 | [`people/`](./people/index.md) | Сотрудники |
+| [`schedule/`](./schedule/index.md) | График работы, смены, шаблоны и чек-листы |
 | [`org/`](./org/index.md) | Оргструктура |
 | [`settings/`](./settings/index.md) | Настройки (интеграции и т.д.) |
 | [`dashboard/`](./dashboard/index.md) | Главная |

@@ -505,19 +505,20 @@ export async function loginQuickRestoBackOffice(input: {
   };
 }
 
-async function callQuickRestoBackOfficeData<T>(input: {
+export async function callQuickRestoBackOfficeData<T>(input: {
   layerName: string;
   baseUrl?: string | null;
   /** Authorization-заголовок сессии: «Bearer <access_token>» из Keycloak-флоу. */
   authorization: string;
   path: string;
-  query?: Record<string, string | number | null | undefined>;
+  query?: Record<string, string | number | (string | number)[] | null | undefined>;
   body?: unknown;
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(input.query ?? {})) {
     if (value === null || value === undefined || value === "") continue;
-    params.set(key, String(value));
+    if (Array.isArray(value)) value.forEach(item => params.append(key,String(item)));
+    else params.set(key, String(value));
   }
   const origin = buildQuickRestoBackOfficeOrigin(input);
   const url = `${origin}/platform/data/${input.path}${params.size > 0 ? `?${params.toString()}` : ""}`;

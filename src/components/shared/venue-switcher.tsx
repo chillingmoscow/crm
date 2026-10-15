@@ -13,6 +13,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { switchVenue } from "@/app/(dashboard)/actions";
 import { VENUE_TYPES } from "@/lib/constants";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { useWorkspaceAppearance } from "./workspace-appearance";
+import appearance from "./workspace-appearance.module.css";
 
 type Venue = {
   venue_id: string;
@@ -78,6 +81,7 @@ function VenueTile({ venue, isActive }: { venue: Venue; isActive: boolean }) {
 }
 
 export function VenueSwitcher({ venues, activeVenueId }: Props) {
+  const modern = useWorkspaceAppearance();
   const [isOpen, setIsOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -90,7 +94,8 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
   const activeVenue = venues.find((v) => v.venue_id === activeVenueId) ?? null;
 
   const handleSwitch = (venueId: string) => {
-    if (venueId === activeVenueId || isPending) return;
+    if (isPending) return;
+    if (venueId === activeVenueId) { setIsOpen(false); return; }
     startTransition(async () => {
       const result = await switchVenue(venueId);
       if (result.error) {
@@ -111,10 +116,11 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
               size="lg"
               tooltip={activeVenue?.venue_name ?? "Заведение"}
               disabled={isPending}
-              className="data-[state=open]:bg-sidebar-accent"
+              aria-label={`Выбрать заведение: ${activeVenue?.venue_name ?? "Заведение"}`}
+              className={cn("data-[state=open]:bg-sidebar-accent", modern && appearance.venueTrigger, modern && collapsed && appearance.venueIconTrigger)}
             >
-              <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0">
-                <Building2 className="w-4 h-4" />
+              <div className={cn("flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0", modern && appearance.venueMonogram)}>
+                {modern ? (activeVenue?.venue_name.trim().charAt(0).toUpperCase() || <Building2 size={18} />) : <Building2 className="w-4 h-4" />}
               </div>
               <div className="flex flex-col min-w-0 flex-1 gap-0 text-left">
                 <span className="truncate text-[13px] font-bold leading-tight">
@@ -122,7 +128,7 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
                 </span>
                 {activeVenue?.role_name && (
                   <span className="truncate text-[11px] text-muted-foreground leading-tight">
-                    {venueSubtitle(activeVenue)}
+                    {modern ? activeVenue.role_name : venueSubtitle(activeVenue)}
                   </span>
                 )}
               </div>
@@ -133,12 +139,13 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
             align="start"
             side={collapsed ? "right" : "bottom"}
             sideOffset={8}
-            className="w-[min(18rem,calc(100vw-1.5rem))] rounded-[10px] p-1.5"
+            className={cn("w-[min(18rem,calc(100vw-1.5rem))] rounded-[10px] p-1.5", modern && appearance.venueMenu)}
           >
-            <div className="px-2 py-1.5">
-              <span className="text-[11px] font-semibold tracking-wider uppercase text-muted-foreground">
-                Ваши заведения
+            <div className={modern ? appearance.venueMenuHeading : "px-2 py-1.5"}>
+              <span className={modern ? undefined : "text-[11px] font-semibold tracking-wider uppercase text-muted-foreground"}>
+                {modern ? "Заведения" : "Ваши заведения"}
               </span>
+              {modern && <span>{venues.length}</span>}
             </div>
             <div className="flex flex-col">
               {venues.map((venue) => {
@@ -149,13 +156,14 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
                     type="button"
                     onClick={() => handleSwitch(venue.venue_id)}
                     disabled={isPending}
-                    className={`flex items-center gap-2.5 rounded-lg p-2 text-left transition-colors ${
+                    aria-pressed={isActive}
+                    className={cn(modern && appearance.venueOption, `flex items-center gap-2.5 rounded-lg p-2 text-left transition-colors ${
                       isActive
                         ? "bg-accent"
                         : "hover:bg-accent/60"
-                    } disabled:opacity-50`}
+                    } disabled:opacity-50`)}
                   >
-                    <VenueTile venue={venue} isActive={isActive} />
+                    {modern ? <span className={appearance.venueOptionIcon}>{venue.venue_name.trim().charAt(0).toUpperCase()}</span> : <VenueTile venue={venue} isActive={isActive} />}
                     <div className="flex flex-col min-w-0 flex-1">
                       <span className="truncate text-[13px] font-bold leading-tight">
                         {venue.venue_name}
@@ -165,7 +173,7 @@ export function VenueSwitcher({ venues, activeVenueId }: Props) {
                       </span>
                     </div>
                     {isActive && (
-                      <Check className="w-3.5 h-3.5 shrink-0 text-primary" />
+                      <span className={modern ? appearance.venueSelected : "text-primary"}><Check className="w-3.5 h-3.5 shrink-0" /></span>
                     )}
                   </button>
                 );

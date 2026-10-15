@@ -88,6 +88,14 @@ const FIELD_LABELS: Record<string, string> = {
   medical_book_date: "срок действия медкнижки",
   passport_photos: "фото паспорта",
   comment: "комментарий HR",
+  business_date: "дата начисления",
+  reason: "основание",
+  medium: "способ учёта",
+  approved: "учтено в расчёте",
+  delete_reason: "причина удаления",
+  external_state: "обработка бонусов",
+  employee_id: "сотрудник",
+  kind: "тип записи",
   // finance (общие)
   name: "название",
   type: "тип",
@@ -335,7 +343,61 @@ function ChangeLines({ details }: { details: Record<string, unknown> }) {
   );
 }
 
+function payrollAdjustmentSpec(verb: string, icon: LucideIcon): AuditEventSpec {
+  return {
+    icon,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => {
+      const label = e.action_code.endsWith(".photo_added") ? "к записи" : ({allowance: "надбавку за месяц", bonus: "премию", deduction: "штраф", warning: "предупреждение"} as Record<string, string>)[String(e.details.kind)] ?? "начисление";
+      const month = String(e.details.business_date ?? "").slice(0, 7);
+      return <>{verb} <Link className="font-medium hover:underline" href={`/people/payroll?entry=${e.entity_id}&month=${month}`}>
+        {label}</Link> · {String(e.details.employee_name ?? "Сотрудник")}</>;
+    },
+    buildDetails: (e) => <>
+      {e.details.amount != null && e.details.kind !== "warning" && <p className="text-xs text-muted-foreground">{String(e.details.business_date ?? "")} · {e.details.medium === "bonus" ? `${String(e.details.amount)} б.` : formatAmount(e.details.amount)}</p>}
+      {e.details.reason != null && <p className="text-xs text-muted-foreground">{String(e.details.reason)}</p>}
+      <ChangeLines details={e.details} />
+      {e.details.delete_reason != null && <p className="text-xs text-muted-foreground">Причина удаления: {String(e.details.delete_reason)}</p>}
+    </>,
+  };
+}
+
+function payrollTransferSpec(verb: string): AuditEventSpec {
+  return {
+    icon: ArrowLeftRight, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => <>{verb} <Link className="font-medium hover:underline" href={`/people/payroll?month=${String(e.details.from_month).slice(0,7)}&transfer=${e.entity_id}`}>перенос остатка</Link> · {String(e.details.employee_name ?? "Сотрудник")}</>,
+    buildDetails: (e) => {
+      const month = (value: unknown) => new Date(`${String(value)}T12:00:00Z`).toLocaleDateString("ru-RU", {month:"long",year:"numeric",timeZone:"UTC"});
+      return <div className="space-y-1 text-xs text-muted-foreground"><p>{formatAmount(e.details.amount)} · {month(e.details.from_month)} → {month(e.details.to_month)}</p><p>{String(e.details.reason ?? "")}</p></div>;
+    },
+  };
+}
+
 const SPECS: Record<string, AuditEventSpec> = {
+  "payroll.attendance_source.changed": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>изменил(а) источник факта работы · {String(e.details.employee_name)}</>,
+    buildDetails:e=><div className="text-xs text-muted-foreground"><p>{e.details.source==="schedule"?"Опубликованный график":"Quick Resto"} · с {String(e.details.valid_from)}</p><p>{String(e.details.reason??"")}</p></div>,
+  },
+  "payroll.position.assigned": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>назначил(а) должность «{String(e.details.role_name)}» · {String(e.details.employee_name)}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">Действует с {String(e.details.valid_from)}</p>,
+  },
+  "payroll.rule.created": {
+    icon: Pencil, iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>сохранил(а) условия оплаты · <Link className="font-medium hover:underline" href={`/people/roles/${String(e.details.role_id)}?tab=compensation`}>{String(e.details.role_name??"Должность")}</Link></>,
+    buildDetails:e=><div className="text-xs text-muted-foreground"><p>Действует с {String(e.details.valid_from)}</p><p>{String((e.details.after as Record<string,unknown>|undefined)?.change_reason??"")}</p></div>,
+  },
+  "payroll.transfer.created": payrollTransferSpec("оформил(а)"),
+  "payroll.transfer.cancelled": payrollTransferSpec("отменил(а)"),
+  "payroll.transfer.updated": payrollTransferSpec("изменил(а)"),
+  "payroll.adjustment.created": payrollAdjustmentSpec("добавил(а)", FilePlus2),
+  "payroll.adjustment.updated": payrollAdjustmentSpec("изменил(а)", Pencil),
+  "payroll.adjustment.deleted": payrollAdjustmentSpec("удалил(а)", Trash2),
+  "payroll.adjustment.restored": payrollAdjustmentSpec("восстановил(а)", RotateCcw),
+  "payroll.adjustment.commented": payrollAdjustmentSpec("прокомментировал(а)", FileEdit),
+  "payroll.adjustment.photo_added": payrollAdjustmentSpec("добавил(а) фото", FilePlus2),
   // ── staff ──────────────────────────────────────────────────
   "staff.hired": {
     icon: UserPlus,

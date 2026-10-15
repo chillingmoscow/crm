@@ -30,7 +30,7 @@ export function ResizableTableHead<TData>({
   isControlColumn: (columnId: string) => boolean;
   isRightAligned?: (columnId: string) => boolean;
   sortableColumnIds: Set<string>;
-  onSort: (columnId: string) => void;
+  onSort: (columnId: string, event: React.MouseEvent<HTMLButtonElement>) => void;
   headerIndicator: (columnId: string) => ReactNode;
   headerAriaSort: (columnId: string) => "ascending" | "descending" | "none" | undefined;
   /** Содержимое шапки служебной колонки. По умолчанию — пусто. */
@@ -67,13 +67,17 @@ export function ResizableTableHead<TData>({
                   ) : isSortable ? (
                     <button
                       type="button"
-                      className="flex max-w-full items-center gap-1 truncate hover:text-foreground"
-                      onClick={() => onSort(columnId)}
+                      className={cn(
+                        "flex max-w-full items-center gap-1 truncate hover:text-foreground",
+                        isRightAligned?.(columnId) && "ml-auto justify-end text-right",
+                      )}
+                      onClick={(event) => onSort(columnId, event)}
                     >
+                      {isRightAligned?.(columnId) && headerIndicator(columnId)}
                       <span className="truncate">
                         {flexRender(header.column.columnDef.header, header.getContext())}
                       </span>
-                      {headerIndicator(columnId)}
+                      {!isRightAligned?.(columnId) && headerIndicator(columnId)}
                     </button>
                   ) : (
                     <span className="truncate">

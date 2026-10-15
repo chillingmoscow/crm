@@ -93,7 +93,9 @@ type FormValues = z.infer<typeof schema>;
 
 type Role = { id: string; name: string; code: string };
 
-type TabKey = "main" | "documents" | "history" | "activity" | "danger";
+import {StaffPayPanel} from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+
+type TabKey = "pay" | "main" | "documents" | "history" | "activity" | "danger";
 
 interface Props {
   profile:        StaffProfile;
@@ -787,7 +789,7 @@ export function StaffDetailPage({
         >
           <TabsList className="justify-center">
             <TabsTrigger value="main">Основное</TabsTrigger>
-            <TabsTrigger value="documents">Документы</TabsTrigger>
+            <TabsTrigger value="documents">Документы</TabsTrigger><TabsTrigger value="pay">Оплата</TabsTrigger>
             {canViewAudit && (
               <>
                 <TabsTrigger value="history">Журнал</TabsTrigger>
@@ -1160,6 +1162,7 @@ export function StaffDetailPage({
           </TabsContent>
 
           {/* ── Документы ────────────────────────────────────── */}
+          <TabsContent value="pay"><StaffPayPanel userId={profile.id}/></TabsContent>
           <TabsContent value="documents">
             <form
               onSubmit={handleSubmit(onSave, onValidationError)}

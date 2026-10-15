@@ -1,4 +1,6 @@
 import Link from "next/link";
+import {redirect} from "next/navigation";
+import {getCachedPermissionChecker} from "@/lib/supabase/server";
 import {
   ArrowLeftRight,
   ArrowRight,
@@ -40,6 +42,7 @@ export default async function FinanceDashboardPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  const can=await getCachedPermissionChecker();if(!can("finance.view_dashboard"))redirect("/dashboard");
   const sp = await searchParams;
 
   // Default range: current month. Stops the page from looking empty

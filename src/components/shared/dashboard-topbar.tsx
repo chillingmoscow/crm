@@ -22,7 +22,7 @@ export function DashboardTopbar() {
   const pathname = usePathname();
   if (pathname?.startsWith("/knowledge")) return null;
   return (
-    <header className="flex h-14 items-center gap-2 px-6">
+    <header data-dashboard-topbar className="flex h-14 items-center gap-2 px-6">
       <SidebarTrigger className="md:hidden" />
       <PageHeaderBreadcrumbSlot />
       <div className="flex-1" />

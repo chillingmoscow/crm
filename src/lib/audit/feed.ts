@@ -62,6 +62,7 @@ export async function loadAuditFeedPage(params: AuditFeedParams): Promise<{
         ...search.counterpartyIds,
         ...search.venueIds,
         ...search.legalEntityIds,
+        ...search.payrollAdjustmentIds,
       ],
       actorIds: search.staffIds,
     });

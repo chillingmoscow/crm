@@ -34,6 +34,8 @@ interface EditDrawerProps {
   /** Footer slot — typically <Button variant="outline">Отмена</Button> + <Button>Сохранить</Button> */
   footer?: React.ReactNode;
   className?: string;
+  /** Focus the panel instead of auto-highlighting the first control. */
+  focusContentOnOpen?: boolean;
 }
 
 export function EditDrawer({
@@ -44,12 +46,23 @@ export function EditDrawer({
   children,
   footer,
   className,
+  focusContentOnOpen = false,
 }: EditDrawerProps) {
+  const contentRef = React.useRef<HTMLDivElement>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPrimitive.Portal>
         <SheetPrimitive.Overlay className={overlayClass} />
         <SheetPrimitive.Content
+          ref={contentRef}
+          onOpenAutoFocus={
+            focusContentOnOpen
+              ? (event) => {
+                  event.preventDefault();
+                  contentRef.current?.focus({ preventScroll: true });
+                }
+              : undefined
+          }
           className={cn(
             "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg transition",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",

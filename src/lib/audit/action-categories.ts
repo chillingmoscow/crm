@@ -40,8 +40,10 @@ const CATEGORY_SUFFIXES: Record<AuditActionCategory, string[]> = {
     ".permissions_changed",
     ".toggled",
     ".changed",
+    ".commented",
+    ".photo_added",
   ],
-  deleted: [".deleted", ".archived"],
+  deleted: [".deleted", ".archived", ".cancelled"],
   restored: [".restored"],
   moved: [".moved"],
 };

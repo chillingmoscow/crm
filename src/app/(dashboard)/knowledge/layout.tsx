@@ -101,7 +101,7 @@ export default async function KnowledgeLayout({
               было (breadcrumb + «Сохранено»), «Страницы» нет — есть боковое
               дерево. Слоты breadcrumb/actions — context-консьюмеры, безопасно
               рендерятся в двух местах (видно одно по брейкпоинту). */}
-          <header className="sticky top-0 z-30 flex h-14 items-center gap-2 px-4 md:px-6 bg-background/95 backdrop-blur">
+          <header data-dashboard-topbar className="sticky top-0 z-30 flex h-14 items-center gap-2 px-4 md:px-6 bg-background/95 backdrop-blur">
             <SidebarTrigger className="md:hidden" />
             {/* Mobile: «Страницы» в шапке */}
             <div className="md:hidden">

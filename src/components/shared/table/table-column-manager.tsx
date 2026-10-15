@@ -43,7 +43,7 @@ export function TableColumnManager({
   onReset,
 }: TableColumnManagerProps) {
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
@@ -56,10 +56,10 @@ export function TableColumnManager({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1 whitespace-nowrap text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          Столбцы таблицы
+        <div className="min-w-0 flex-1 whitespace-nowrap text-[13px] font-medium text-foreground">
+          Столбцы
         </div>
         {/* Подпись вместо иконки + Tooltip: Radix Popover автофокусит первый
             фокусируемый элемент, а Tooltip раскрывается по фокусу — из-за
@@ -69,7 +69,7 @@ export function TableColumnManager({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
+          className="h-8 shrink-0 gap-1.5 rounded-lg px-2 text-xs font-normal text-muted-foreground focus-visible:ring-1 focus-visible:ring-brand/40 focus-visible:ring-offset-0"
           onClick={onReset}
         >
           <RotateCcw className="h-3.5 w-3.5" />
@@ -79,7 +79,7 @@ export function TableColumnManager({
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={columns.map((column) => column.id)} strategy={verticalListSortingStrategy}>
-          <div className="space-y-1">
+          <div className="max-h-[min(400px,60dvh)] space-y-0.5 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
             {columns.map((column) => (
               <SortableColumnRow
                 key={column.id}
@@ -90,9 +90,6 @@ export function TableColumnManager({
           </div>
         </SortableContext>
       </DndContext>
-      <div className="text-xs text-muted-foreground">
-        Перетаскивайте строки, чтобы менять порядок колонок
-      </div>
     </div>
   );
 }
@@ -121,13 +118,13 @@ function SortableColumnRow({
         transition,
       }}
       className={[
-        "flex items-center gap-2 rounded-md border bg-background px-2 py-2 text-sm",
+        "flex min-h-10 items-center gap-2.5 rounded-lg px-2 text-[13px] transition-colors hover:bg-muted/60",
         isDragging ? "relative z-10 shadow-md" : "",
       ].join(" ")}
     >
       <button
         type="button"
-        className="cursor-grab text-muted-foreground active:cursor-grabbing"
+        className="flex size-7 touch-none items-center justify-center rounded-md text-muted-foreground/70 hover:bg-muted hover:text-foreground cursor-grab active:cursor-grabbing"
         aria-label={`Переместить ${column.label}`}
         {...attributes}
         {...listeners}
@@ -135,6 +132,7 @@ function SortableColumnRow({
         <GripVertical className="h-4 w-4" />
       </button>
       <Checkbox
+        className="size-4 rounded-[5px] border-border data-[state=checked]:border-brand data-[state=checked]:bg-brand"
         checked={column.visible}
         disabled={column.canHide === false}
         onCheckedChange={(checked) => onVisibilityChange(column.id, Boolean(checked))}

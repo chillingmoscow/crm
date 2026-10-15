@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/shared/sidebar";
+import { WorkspaceAppearance } from "@/components/shared/workspace-appearance";
 import { DashboardTopbar } from "@/components/shared/dashboard-topbar";
 import { PushPromptBanner } from "@/components/shared/push-prompt-banner";
 import { PageHeaderActionsProvider } from "@/components/shared/page-header-actions";
@@ -150,6 +151,7 @@ export default async function DashboardLayout({
     // выскакивал моментально при beit-курсорах и случайных проходах.
     // Должно совпадать с вложенным TooltipProvider в SidebarProvider
     // (components/ui/sidebar.tsx), иначе значение оттуда перекрывает это.
+    <WorkspaceAppearance>
     <TooltipProvider delayDuration={500} skipDelayDuration={500}>
     <SidebarProvider
       defaultOpen={sidebarDefaultOpen}
@@ -207,5 +209,6 @@ export default async function DashboardLayout({
       </SidebarInset>
     </SidebarProvider>
     </TooltipProvider>
+    </WorkspaceAppearance>
   );
 }

@@ -1,16 +1,9 @@
 "use client";
 
+import { TransactionHistory } from "@/components/audit/transaction-history";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  ArrowLeftRight,
-  CalendarPlus2,
-  Loader2,
-  Minus,
-  PenLine,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { ArrowLeftRight, Loader2, Minus, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -65,8 +58,11 @@ import { useRouter } from "next/navigation";
 
 import { CategoryFormSheet } from "./category-form-sheet";
 import { CounterpartyFormSheet } from "./counterparty-form-sheet";
-import { BankAccountFormSheet, type CreatedBankAccount } from "./bank-account-form-sheet";
-import { formatDateTime, todayIso } from "../_lib/utils";
+import {
+  BankAccountFormSheet,
+  type CreatedBankAccount,
+} from "./bank-account-form-sheet";
+import { todayIso } from "../_lib/utils";
 import type { AmountRoundingScale } from "@/lib/format/amount";
 
 export type FormMode =
@@ -132,6 +128,7 @@ export function TransactionFormSheet({
   const router = useRouter();
   const open = mode.kind !== "closed";
   const isEditing = mode.kind === "edit";
+  const editingTransactionId = mode.kind === "edit" ? mode.transaction.id : null;
 
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [saving, setSaving] = useState(false);
@@ -215,7 +212,11 @@ export function TransactionFormSheet({
     }
     setDirty(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode.kind, isEditing && (mode as { transaction?: TransactionRow }).transaction?.id, prefill?.id]);
+  }, [
+    mode.kind,
+    editingTransactionId,
+    prefill?.id,
+  ]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
@@ -235,7 +236,7 @@ export function TransactionFormSheet({
       counterparty_id: next === "transfer" ? null : f.counterparty_id,
       to_bank_account_id:
         next === "transfer" && !f.to_bank_account_id
-          ? bankAccounts.find((b) => b.id !== f.bank_account_id)?.id ?? ""
+          ? (bankAccounts.find((b) => b.id !== f.bank_account_id)?.id ?? "")
           : f.to_bank_account_id,
     }));
     setDirty(true);
@@ -249,7 +250,11 @@ export function TransactionFormSheet({
     }
     if (form.type === "transfer" && id === form.to_bank_account_id) {
       const other = bankAccounts.find((b) => b.id !== id)?.id ?? "";
-      setForm((f) => ({ ...f, bank_account_id: id, to_bank_account_id: other }));
+      setForm((f) => ({
+        ...f,
+        bank_account_id: id,
+        to_bank_account_id: other,
+      }));
       setDirty(true);
     } else {
       update("bank_account_id", id);
@@ -263,7 +268,11 @@ export function TransactionFormSheet({
     }
     if (id === form.bank_account_id) {
       const other = bankAccounts.find((b) => b.id !== id)?.id ?? "";
-      setForm((f) => ({ ...f, to_bank_account_id: id, bank_account_id: other }));
+      setForm((f) => ({
+        ...f,
+        to_bank_account_id: id,
+        bank_account_id: other,
+      }));
       setDirty(true);
     } else {
       update("to_bank_account_id", id);
@@ -287,7 +296,9 @@ export function TransactionFormSheet({
       return;
     }
 
-    const sourceAccount = bankAccounts.find((b) => b.id === form.bank_account_id);
+    const sourceAccount = bankAccounts.find(
+      (b) => b.id === form.bank_account_id,
+    );
     if (!sourceAccount) {
       toast.error("Выбранный счёт не найден");
       return;
@@ -389,14 +400,16 @@ export function TransactionFormSheet({
 
   const sourceLegalEntityId = useMemo(
     () =>
-      bankAccounts.find((b) => b.id === form.bank_account_id)?.legal_entity_id ?? null,
-    [bankAccounts, form.bank_account_id]
+      bankAccounts.find((b) => b.id === form.bank_account_id)
+        ?.legal_entity_id ?? null,
+    [bankAccounts, form.bank_account_id],
   );
 
   const sourceCurrency =
     bankAccounts.find((b) => b.id === form.bank_account_id)?.currency ?? "RUB";
   const targetCurrency =
-    bankAccounts.find((b) => b.id === form.to_bank_account_id)?.currency ?? null;
+    bankAccounts.find((b) => b.id === form.to_bank_account_id)?.currency ??
+    null;
 
   return (
     <>
@@ -482,41 +495,11 @@ export function TransactionFormSheet({
           />
         )}
 
-        {/* Audit history (edit only) */}
-        {isEditing && tx && (tx.created_at || tx.updated_at) && (
-          <div className="pt-2 mt-2 border-t">
-            <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
-              История изменений
-            </p>
-            <ul className="space-y-2">
-              {tx.created_at && (
-                <li className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
-                    <CalendarPlus2 className="h-4 w-4" />
-                  </div>
-                  <div className="text-sm">
-                    <div>Создано</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDateTime(tx.created_at)}
-                    </div>
-                  </div>
-                </li>
-              )}
-              {tx.updated_at && tx.updated_at !== tx.created_at && (
-                <li className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand/10 text-brand">
-                    <PenLine className="h-4 w-4" />
-                  </div>
-                  <div className="text-sm">
-                    <div>Изменено</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDateTime(tx.updated_at)}
-                    </div>
-                  </div>
-                </li>
-              )}
-            </ul>
-          </div>
+        {isEditing && tx && (
+          <section className="mt-2 space-y-3 border-t pt-5">
+            <h3 className="text-sm font-medium">История транзакции</h3>
+            <TransactionHistory key={tx.id} transactionId={tx.id} />
+          </section>
         )}
       </EditDrawer>
 
@@ -579,7 +562,8 @@ export function TransactionFormSheet({
               Удалить операцию
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Операция будет удалена из текущего журнала. Восстановить её можно из истории изменений.
+              Операция будет удалена из текущего журнала. Восстановить её можно
+              из истории изменений.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -617,10 +601,7 @@ export function TransactionFormSheet({
             >
               Не сохранять
             </Button>
-            <Button
-              autoFocus
-              onClick={() => setConfirmDiscard(false)}
-            >
+            <Button autoFocus onClick={() => setConfirmDiscard(false)}>
               Продолжить редактирование
             </Button>
           </DialogFooter>
@@ -663,7 +644,7 @@ function TypePill({
         className={cn(
           "h-7 w-fit gap-1.5 rounded-full border px-2.5 py-0 text-xs font-medium",
           colorClasses,
-          disabled && "opacity-60"
+          disabled && "opacity-60",
         )}
       >
         <Icon className="h-3.5 w-3.5" />
@@ -757,7 +738,10 @@ function IncomeExpenseFields({
         <div className="space-y-1.5">
           <Label className="flex items-center justify-between">
             Статья
-            <CreateLink onClick={onAddCategory} label="+ Создать новую статью" />
+            <CreateLink
+              onClick={onAddCategory}
+              label="+ Создать новую статью"
+            />
           </Label>
           <CategoryPicker
             categories={categories}
@@ -781,7 +765,10 @@ function IncomeExpenseFields({
       <div className="space-y-1.5">
         <Label className="flex items-center justify-between">
           Контрагент
-          <CreateLink onClick={onAddCounterparty} label="+ Создать контрагента" />
+          <CreateLink
+            onClick={onAddCounterparty}
+            label="+ Создать контрагента"
+          />
         </Label>
         <CounterpartyPicker
           counterparties={counterparties}
@@ -926,7 +913,13 @@ function TransferFields({
   );
 }
 
-function CreateLink({ onClick, label }: { onClick: () => void; label: string }) {
+function CreateLink({
+  onClick,
+  label,
+}: {
+  onClick: () => void;
+  label: string;
+}) {
   return (
     <button
       type="button"
@@ -942,7 +935,7 @@ function CreateLink({ onClick, label }: { onClick: () => void; label: string }) 
 
 function formFromTransaction(
   tx: TransactionRow,
-  type: TransactionRow["type"]
+  type: TransactionRow["type"],
 ): FormState {
   return {
     type,

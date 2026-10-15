@@ -1,0 +1,5 @@
+.tabs [role=tablist]{display:flex;justify-content:flex-start;gap:24px;height:auto;border-bottom:1px solid hsl(var(--border));border-radius:0;background:transparent;padding:0;overflow-x:auto}
+.tabs [role=tab]{padding:12px 0 14px;border-radius:0;border-bottom:2px solid transparent;background:transparent;box-shadow:none;font-size:13px;font-weight:450;white-space:nowrap}
+.tabs [role=tab][data-state=active]{color:hsl(var(--brand));border-bottom-color:hsl(var(--brand));font-weight:550}
+.tabs [role=tabpanel]{margin-top:22px}
+@media(max-width:639px){.tabs [role=tablist]{gap:22px}}

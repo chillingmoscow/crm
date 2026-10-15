@@ -1,5 +1,9 @@
 "use client";
 
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
+import { PageFrame } from "@/components/shared/page-frame";
+
+import { RoleCompensation } from "../../../payroll/_components/role-compensation";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -83,6 +87,7 @@ type RolePermission = {
 };
 
 type Props = {
+  initialCompensation?: boolean;
   role: Role;
   permissions: Permission[];
   rolePermissions: RolePermission[];
@@ -104,6 +109,7 @@ type TabKey = "main" | "permissions" | "compensation" | "history" | "danger";
 
 export function RoleDetailPage({
   role,
+  initialCompensation,
   permissions,
   rolePermissions: initialRolePerms,
   accountId,
@@ -117,7 +123,7 @@ export function RoleDetailPage({
   const router = useRouter();
   const [rolePermissions, setRolePerms] = useState(initialRolePerms);
   // «Основное» — first tab + default by design RbRH4.
-  const [activeTab, setActiveTab] = useState<TabKey>("main");
+  const [activeTab, setActiveTab] = useState<TabKey>(initialCompensation ? "compensation" : "main");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -364,7 +370,7 @@ export function RoleDetailPage({
       </PageHeaderActions>
 
       {/* Page body */}
-      <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
+      <PageFrame className="flex flex-col gap-6">
         {/* Header — без CTA. Save живёт в футере формы на табе «Основное»
             и появляется только когда есть что сохранять. Это убирает
             «висящую» disabled-кнопку и микро-shift при переключении табов. */}
@@ -393,7 +399,7 @@ export function RoleDetailPage({
           <div className="flex flex-col gap-1.5 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
               {/* h1 size matches design (yU4hW/RbRH4: 28px / -0.5 letter-spacing) */}
-              <h1 className="text-[28px] font-bold tracking-tight leading-tight">
+              <h1 className="text-[28px] font-[550] tracking-tight leading-tight">
                 {role.name}
               </h1>
               {role.venue_id === null && (
@@ -415,11 +421,11 @@ export function RoleDetailPage({
 
         {/* Tabs — «Основное» first per design RbRH4 */}
         <Tabs
+          className={tabStyle.tabs}
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as TabKey)}
         >
-          {/* Centered tabs per design D6IWjE (justify-content: center) */}
-          <TabsList className="justify-center">
+          <TabsList className="justify-start overflow-x-auto">
             <TabsTrigger value="main">Основное</TabsTrigger>
             <TabsTrigger value="permissions">Права доступа</TabsTrigger>
             <TabsTrigger value="compensation">Оплата труда</TabsTrigger>
@@ -576,14 +582,7 @@ export function RoleDetailPage({
 
           {/* ── Compensation (stub) ───────────────────────────── */}
           <TabsContent value="compensation">
-            <div className="rounded-lg border border-dashed p-16 text-center">
-              <p className="text-sm font-medium text-muted-foreground">
-                Оплата труда
-              </p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Раздел в разработке
-              </p>
-            </div>
+            {role.venue_id ? <RoleCompensation roleId={role.id}/> : <p className="py-8 text-sm text-muted-foreground">Условия оплаты задаются для должности конкретного заведения.</p>}
           </TabsContent>
 
           {/* ── Main (Основное) — centered form per design c0jKNc.
@@ -745,7 +744,7 @@ export function RoleDetailPage({
             </TabsContent>
           )}
         </Tabs>
-      </div>
+      </PageFrame>
 
       {/* Delete confirmation modal */}
       <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>

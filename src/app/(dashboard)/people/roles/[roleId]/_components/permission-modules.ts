@@ -1,5 +1,7 @@
 import {
   Users,
+  CalendarDays,
+  Clock as ClockIcon,
   CircleUserRound,
   Wallet,
   Building2,
@@ -27,6 +29,8 @@ export type ModuleKey =
   | "people"
   | "org"
   | "finance"
+  | "sales"
+  | "payroll"
   | "inventory_products"
   | "inventory_stores"
   | "inventory_documents"
@@ -42,6 +46,11 @@ export interface ModuleMeta {
 }
 
 export const MODULE_META: Record<string, ModuleMeta> = {
+  payroll: {label:"Зарплата",icon:Wallet},
+  sales:                { label: "Продажи: смены", icon: Wallet },
+  schedule_shifts:       { label: "График: смены", icon: CalendarDays },
+  schedule_templates:    { label: "График: шаблоны", icon: ClockIcon },
+  schedule_checklists:   { label: "График: чек-листы", icon: ClipboardList },
   people:                { label: "Люди",                          icon: Users },
   crm:                   { label: "CRM",                           icon: CircleUserRound },
   finance:               { label: "Финансы",                       icon: Wallet },
@@ -62,7 +71,12 @@ export function metaForModule(key: string): ModuleMeta {
 /** Стабильный порядок отображения групп на странице. */
 export const MODULE_ORDER: string[] = [
   "crm",
+  "sales",
+  "schedule_shifts",
+  "schedule_templates",
+  "schedule_checklists",
   "finance",
+  "payroll",
   "inventory_documents",
   "inventory_products",
   "inventory_stores",

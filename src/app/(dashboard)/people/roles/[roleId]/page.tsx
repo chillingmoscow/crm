@@ -8,10 +8,13 @@ import { RoleDetailPage } from "./_components/role-detail-page";
 
 export default async function RoleDetailServerPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ roleId: string }>;
+  searchParams: Promise<{tab?:string}>;
 }) {
   const { roleId } = await params;
+  const query = await searchParams;
   const supabase = await createClient();
   type LooseQueryBuilder = {
     select: (columns: string) => LooseQueryBuilder;
@@ -133,6 +136,7 @@ export default async function RoleDetailServerPage({
   return (
     <RoleDetailPage
       role={role}
+      initialCompensation={query.tab === "compensation"}
       permissions={permissionsResult.data ?? []}
       rolePermissions={rolePermsResult.data ?? []}
       accountId={accountId ?? null}

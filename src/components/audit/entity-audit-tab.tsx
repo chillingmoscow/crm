@@ -34,11 +34,14 @@ type ActorModeProps = {
 
 type CommonProps = {
   canView: boolean;
+  exactTime?: boolean;
+  timeZone?: string;
   initialEvents: AuditEvent[];
   initialHasMore: boolean;
 };
 
-export type EntityAuditTabProps = (EntityModeProps | ActorModeProps) & CommonProps;
+export type EntityAuditTabProps = (EntityModeProps | ActorModeProps) &
+  CommonProps;
 
 export function EntityAuditTab(props: EntityAuditTabProps) {
   const { canView, initialEvents, initialHasMore } = props;
@@ -95,7 +98,8 @@ export function EntityAuditTab(props: EntityAuditTabProps) {
   }
 
   if (events.length === 0) {
-    const emptyTitle = props.mode === "actor" ? "Активность пуста" : "Журнал пуст";
+    const emptyTitle =
+      props.mode === "actor" ? "Активность пуста" : "Журнал пуст";
     const emptyDesc =
       props.mode === "actor"
         ? "Здесь появятся действия, которые сотрудник совершит в системе: приёмы / увольнения, правки данных, изменения в базе знаний и т.д."
@@ -116,7 +120,13 @@ export function EntityAuditTab(props: EntityAuditTabProps) {
     <div className="mx-auto w-full max-w-[760px] flex flex-col gap-3">
       <ul className="flex flex-col rounded-md border bg-background overflow-hidden">
         {events.map((event) => (
-          <AuditEventRow key={event.id} event={event} hideEntity={hideEntity} />
+          <AuditEventRow
+            key={event.id}
+            event={event}
+            hideEntity={hideEntity}
+            exactTime={props.exactTime}
+            timeZone={props.timeZone}
+          />
         ))}
       </ul>
 

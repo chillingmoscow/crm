@@ -9,6 +9,7 @@ import {
   useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Archive, Bell, CheckCheck, ListFilter, X } from "lucide-react";
 
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -21,6 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useWorkspaceAppearance } from "@/components/shared/workspace-appearance";
+import appearance from "@/components/shared/workspace-appearance.module.css";
 import {
   archiveAllRead,
   archiveNotification,
@@ -63,7 +66,11 @@ const HDR_BTN =
  *     hover-действиями.
  *   • Realtime — INSERT'ы prepend'ятся в active-список.
  */
-export function NotificationBell() {
+export function NotificationBell({
+  mode = "popover",
+}: { mode?: "popover" | "inbox" } = {}) {
+  const isInbox = mode === "inbox";
+  const modern = useWorkspaceAppearance();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<View>("all");
@@ -166,7 +173,7 @@ export function NotificationBell() {
       await loadInitial("active");
 
       channel = supabase
-        .channel(`notifications:${user.id}`)
+        .channel(`notifications:${user.id}:${mode}`)
         .on(
           "postgres_changes",
           {
@@ -200,6 +207,20 @@ export function NotificationBell() {
             }
           },
         )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+            filter: `user_id=eq.${user.id}`,
+          },
+          () => {
+            if (cancelled) return;
+            void loadInitial("active");
+            setLoaded((prev) => ({ ...prev, archived: false }));
+          },
+        )
         .subscribe();
     })();
 
@@ -208,7 +229,7 @@ export function NotificationBell() {
       if (channel) void supabase.removeChannel(channel);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase]);
+  }, [supabase, mode]);
 
   // Lazy-load archive scope при первом переключении фильтра на «Архив».
   useEffect(() => {
@@ -219,7 +240,7 @@ export function NotificationBell() {
 
   // ── Outside click closes dropdown ───────────────────────────────
   useEffect(() => {
-    if (!open) return;
+    if (!open || isInbox) return;
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       // Игнорируем клики внутри Radix-порталов (dropdown «Фильтр»,
@@ -231,7 +252,7 @@ export function NotificationBell() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  }, [open, isInbox]);
 
   // ── Scroll → load more ──────────────────────────────────────────
   const onListScroll = useCallback(() => {
@@ -309,7 +330,9 @@ export function NotificationBell() {
   };
 
   const handleArchiveAllRead = () => {
-    const readIds = new Set(activeNotifs.filter((n) => n.read).map((n) => n.id));
+    const readIds = new Set(
+      activeNotifs.filter((n) => n.read).map((n) => n.id),
+    );
     setActiveNotifs((prev) => prev.filter((n) => !readIds.has(n.id)));
     startTransition(async () => {
       await archiveAllRead();
@@ -330,42 +353,73 @@ export function NotificationBell() {
         : "Нет уведомлений";
 
   return (
-    <div className="relative" ref={ref}>
-      <IconTooltip label="Уведомления">
-        <button
-          type="button"
-          aria-label="Уведомления"
-          onClick={() => setOpen((v) => !v)}
-          className="relative inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-        >
-          <Bell className="w-[18px] h-[18px]" />
-          {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground inline-flex items-center justify-center leading-none ring-2 ring-background">
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
-        </button>
-      </IconTooltip>
+    <div className={isInbox ? "min-w-0" : "relative"} ref={ref}>
+      {!isInbox && (
+        <IconTooltip label="Уведомления">
+          <button
+            type="button"
+            aria-label="Уведомления"
+            onClick={() => setOpen((v) => !v)}
+            className="relative inline-flex items-center justify-center size-9 rounded-lg bg-background text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <Bell className="w-[18px] h-[18px]" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-[10px] font-semibold text-destructive-foreground inline-flex items-center justify-center leading-none ring-2 ring-background">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </button>
+        </IconTooltip>
+      )}
 
-      {open && (
+      {(isInbox || open) && (
         <div
+          role="region"
+          aria-label="Список уведомлений"
           className={cn(
-            // Mobile: оверлей на весь экран поверх контента.
-            "fixed inset-0 z-50 flex flex-col bg-popover",
-            // Desktop (sm+): привязанный к колокольчику dropdown.
-            "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:h-auto sm:w-[400px] sm:overflow-hidden sm:rounded-[10px] sm:border sm:shadow-md",
+            isInbox
+              ? "flex min-h-[420px] max-h-[calc(100dvh-240px)] flex-col overflow-hidden rounded-xl border bg-background"
+              : cn(
+                  // Mobile: оверлей на весь экран поверх контента.
+                  "fixed inset-0 z-50 flex flex-col bg-popover",
+                  // Desktop (sm+): привязанный к колокольчику dropdown.
+                  "sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 sm:h-auto sm:w-[400px] sm:overflow-hidden sm:rounded-[10px] sm:border sm:shadow-md",
+                ),
+            modern &&
+              (isInbox
+                ? appearance.notificationsInbox
+                : appearance.notificationsPopover),
           )}
         >
           {/* Header: title + icon-actions */}
-          <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/60">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="font-semibold text-sm">Уведомления</span>
-              {unreadCount > 0 && (
-                <span className="text-[11px] font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
-                  {unreadCount}
+          <div
+            data-notification-toolbar
+            className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/60"
+          >
+            {modern && isInbox ? (
+              <NotificationViews
+                view={view}
+                setView={setView}
+                unreadCount={unreadCount}
+              />
+            ) : (
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="font-semibold text-sm">
+                  {isInbox
+                    ? view === "archived"
+                      ? "Архив"
+                      : view === "unread"
+                        ? "Непрочитанные"
+                        : "Входящие"
+                    : "Уведомления"}
                 </span>
-              )}
-            </div>
+                {unreadCount > 0 && (
+                  <span className="text-[11px] font-semibold bg-brand/10 text-brand rounded-full px-1.5 leading-5">
+                    {unreadCount}
+                  </span>
+                )}
+              </div>
+            )}
 
             <div className="flex items-center gap-0.5 shrink-0">
               {scope === "active" && unreadCount > 0 && (
@@ -393,50 +447,69 @@ export function NotificationBell() {
                 </IconTooltip>
               )}
 
-              <DropdownMenu>
-                <IconTooltip label="Фильтр">
-                  <DropdownMenuTrigger className={HDR_BTN} aria-label="Фильтр">
-                    <ListFilter className="size-[18px]" />
-                  </DropdownMenuTrigger>
-                </IconTooltip>
-                <DropdownMenuContent align="end" sideOffset={6}>
-                  <DropdownMenuLabel>Показывать</DropdownMenuLabel>
-                  <DropdownMenuRadioGroup
-                    value={view}
-                    onValueChange={(v) => setView(v as View)}
-                  >
-                    <DropdownMenuRadioItem value="all">
-                      Непрочитанные и прочитанные
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="unread">
-                      Только непрочитанные
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="archived">
-                      Архив
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {!modern && (
+                <DropdownMenu>
+                  <IconTooltip label="Фильтр">
+                    <DropdownMenuTrigger
+                      className={HDR_BTN}
+                      aria-label="Фильтр"
+                    >
+                      <ListFilter className="size-[18px]" />
+                    </DropdownMenuTrigger>
+                  </IconTooltip>
+                  <DropdownMenuContent align="end" sideOffset={6}>
+                    <DropdownMenuLabel>Показывать</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={view}
+                      onValueChange={(v) => setView(v as View)}
+                    >
+                      <DropdownMenuRadioItem value="all">
+                        Непрочитанные и прочитанные
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="unread">
+                        Только непрочитанные
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="archived">
+                        Архив
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
 
               <NotificationSettings />
 
               {/* Закрыть — только на мобильном. */}
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Закрыть уведомления"
-                className={cn(HDR_BTN, "sm:hidden")}
-              >
-                <X className="size-5" />
-              </button>
+              {!isInbox && (
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label="Закрыть уведомления"
+                  className={cn(HDR_BTN, "sm:hidden")}
+                >
+                  <X className="size-5" />
+                </button>
+              )}
             </div>
           </div>
 
+          {modern && !isInbox && (
+            <div className={appearance.popoverViews}>
+              <NotificationViews
+                view={view}
+                setView={setView}
+                unreadCount={unreadCount}
+              />
+            </div>
+          )}
           {/* List */}
           <div
             ref={listRef}
             onScroll={onListScroll}
-            className="flex-1 overflow-y-auto sm:max-h-[480px]"
+            className={cn(
+              "min-h-0 flex-1 overflow-y-auto",
+              !isInbox && "sm:max-h-[480px]",
+            )}
           >
             {!loaded[scope] && (
               <div className="px-4 py-8 text-center text-xs text-muted-foreground">
@@ -464,7 +537,9 @@ export function NotificationBell() {
                     onMarkRead={
                       scope === "active" ? handleMarkReadOne : undefined
                     }
-                    onArchive={scope === "active" ? handleArchiveOne : undefined}
+                    onArchive={
+                      scope === "active" ? handleArchiveOne : undefined
+                    }
                     onUnarchive={
                       scope === "archived" ? handleUnarchiveOne : undefined
                     }
@@ -480,6 +555,15 @@ export function NotificationBell() {
                 </div>
               )}
           </div>
+          {!isInbox && (
+            <Link
+              href="/notifications"
+              onClick={() => setOpen(false)}
+              className="border-t px-4 py-3 text-center text-sm font-medium text-brand hover:bg-muted/40"
+            >
+              Все уведомления →
+            </Link>
+          )}
         </div>
       )}
     </div>
@@ -507,20 +591,63 @@ function BucketSection({
 }) {
   return (
     <div>
-      <div className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 sticky top-0 z-[1]">
+      <div
+        data-notification-bucket
+        className="px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-muted/30 sticky top-0 z-[1]"
+      >
         {label}
       </div>
       {rows.map((n) => (
         <KbNotificationRow
           key={n.id}
           notification={n}
-          actor={n.actor_user_id ? actorsMap.get(n.actor_user_id) ?? null : null}
+          actor={
+            n.actor_user_id ? (actorsMap.get(n.actor_user_id) ?? null) : null
+          }
           onOpen={onOpen}
           onMarkRead={onMarkRead}
           onArchive={onArchive}
           onUnarchive={onUnarchive}
           inArchive={inArchive}
         />
+      ))}
+    </div>
+  );
+}
+
+function NotificationViews({
+  view,
+  setView,
+  unreadCount,
+}: {
+  view: View;
+  setView: (view: View) => void;
+  unreadCount: number;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Показать уведомления"
+      className={appearance.notificationViews}
+    >
+      {(
+        [
+          { id: "all", label: "Все" },
+          { id: "unread", label: "Непрочитанные" },
+          { id: "archived", label: "Архив" },
+        ] as const
+      ).map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          aria-pressed={view === item.id}
+          onClick={() => setView(item.id)}
+        >
+          {item.label}
+          {item.id === "unread" && unreadCount > 0 && (
+            <span>{unreadCount}</span>
+          )}
+        </button>
       ))}
     </div>
   );

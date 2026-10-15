@@ -1,0 +1,4 @@
+.frame { width: 100%; min-width: 0; max-width: 1580px; margin-inline: auto; padding: 38px 42px 20px; }
+@media (min-width: 1500px) { .frame { padding-top: 45px; } }
+@media (max-width: 1150px) { .frame { padding: 30px 26px 18px; } }
+@media (max-width: 480px) { .frame { padding: 27px 16px 18px; } }

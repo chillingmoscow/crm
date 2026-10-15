@@ -30,6 +30,10 @@ import { FloorPlanTab } from "./floor-plan-tab";
 import { VenueDangerZone } from "./venue-danger-zone";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
+import type { SalesConfiguration } from "@/lib/sales/types";
+import { SalesSettingsTab } from "./sales-settings-tab";
+
+import {PayrollSettings} from "@/app/(dashboard)/people/payroll/_components/payroll-settings";
 
 const INITIAL_WORKING_HOURS: WorkingHours = {
   mon: { open: "10:00", close: "22:00", closed: false },
@@ -90,7 +94,7 @@ export type LegalEntityOption = {
 };
 
 const BASE_TABS = ["Основное", "Карта залов"] as const;
-type Tab = "Основное" | "Карта залов" | "Журнал";
+type Tab = "Основное" | "Карта залов" | "Продажи" | "Оплата труда" | "Журнал";
 
 export function VenueDetailPage({
   venue,
@@ -102,6 +106,7 @@ export function VenueDetailPage({
   archiveImpact,
   initialAuditEvents,
   initialAuditHasMore,
+  salesConfiguration,
 }: {
   venue: Venue;
   importedFromQuickResto: boolean;
@@ -114,6 +119,7 @@ export function VenueDetailPage({
   archiveImpact: VenueArchiveImpact;
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
+  salesConfiguration: SalesConfiguration | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -121,9 +127,11 @@ export function VenueDetailPage({
     venue.working_hours ?? INITIAL_WORKING_HOURS
   );
   const [activeTab, setActiveTab] = useState<Tab>("Основное");
-  const TABS: Tab[] = canViewAudit
-    ? [...BASE_TABS, "Журнал"]
-    : [...BASE_TABS];
+  const TABS: Tab[] = [
+    ...BASE_TABS,
+    ...(salesConfiguration ? ["Продажи" as const,"Оплата труда" as const] : []),
+    ...(canViewAudit ? ["Журнал" as const] : []),
+  ];
 
   const { register, handleSubmit, setValue, watch, control, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -209,12 +217,12 @@ export function VenueDetailPage({
 
         {/* Tabs */}
         <div className="border-b mb-6">
-          <div className="flex">
+          <div className="flex overflow-x-auto">
             {TABS.map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab
                     ? "border-primary text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -454,7 +462,12 @@ export function VenueDetailPage({
         <FloorPlanTab venueId={venue.id} />
       )}
 
+      {activeTab === "Продажи" && salesConfiguration && (
+        <SalesSettingsTab initial={salesConfiguration} />
+      )}
+
       {/* ── Tab: Журнал ───────────────────────────────────────── */}
+      {activeTab === "Оплата труда" && <PayrollSettings venueId={venue.id}/>}
       {activeTab === "Журнал" && (
         <EntityAuditTab
           mode="entity"

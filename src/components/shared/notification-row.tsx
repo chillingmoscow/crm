@@ -67,6 +67,8 @@ export function KbNotificationRow({
 
   return (
     <div
+      data-notification-row
+      data-unread={!notification.read}
       className={cn(
         "group relative flex items-start gap-2.5 px-4 py-2.5",
         "border-b border-border/40 last:border-b-0",
@@ -89,7 +91,10 @@ export function KbNotificationRow({
       }}
     >
       {/* Avatar / type-icon. */}
-      <div className="shrink-0 size-7 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+      <div
+        data-notification-avatar
+        className="shrink-0 size-7 rounded-full bg-muted flex items-center justify-center overflow-hidden"
+      >
         {actor?.avatar_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -108,7 +113,10 @@ export function KbNotificationRow({
 
       <div className="flex-1 min-w-0 flex flex-col gap-1.5">
         {/* Title row: actor + verb + entity-chip. */}
-        <div className="text-sm leading-snug text-foreground">
+        <div
+          data-notification-title
+          className="text-sm leading-snug text-foreground"
+        >
           {useStructuredTitle ? (
             <>
               <span className="font-medium">{actor!.full_name}</span>{" "}
@@ -123,7 +131,10 @@ export function KbNotificationRow({
         {/* Body-snippet для system-emit'ов без actor'а (birthday /
             medical_book_expiring) — это и есть полезный текст. */}
         {!useStructuredTitle && notification.body && (
-          <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">
+          <p
+            data-notification-body
+            className="text-[13px] leading-snug text-muted-foreground line-clamp-3"
+          >
             {notification.body}
           </p>
         )}
@@ -218,7 +229,8 @@ function NotificationActions({
   onOpen: () => void;
 }) {
   const customActions =
-    (notification.payload as { actions?: Array<{ label: string }> })?.actions ?? [];
+    (notification.payload as { actions?: Array<{ label: string }> })?.actions ??
+    [];
 
   if (customActions.length === 0) return null;
 
@@ -302,4 +314,3 @@ function getInitials(name?: string | null): string {
   if (parts.length === 0) return "?";
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "?";
 }
-

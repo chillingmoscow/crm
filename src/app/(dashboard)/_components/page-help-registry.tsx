@@ -1,4 +1,8 @@
 import type { ComponentType } from "react";
+import { NotificationsHelp } from "@/app/(dashboard)/notifications/notifications-help";
+import { PayrollHelp } from "@/app/(dashboard)/people/payroll/_components/payroll-help";
+
+import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sales-shifts-help";
 
 import { InventoryActsHelp } from "@/app/(dashboard)/documents/inventory/_components/inventory-acts-help";
 
@@ -24,8 +28,20 @@ export type PageHelpEntry = {
 };
 
 export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
+  { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
   {
-    match: (p) => p === "/documents/inventory" || p.startsWith("/documents/inventory/"),
+    match: (p) => p === "/people/payroll" || p.startsWith("/people/payroll/"),
+    title: "Зарплата",
+    Content: PayrollHelp,
+  },
+  {
+    match: (p) => p === "/sales/shifts",
+    title: "Смены",
+    Content: SalesShiftsHelp,
+  },
+  {
+    match: (p) =>
+      p === "/documents/inventory" || p.startsWith("/documents/inventory/"),
     title: "Акты инвентаризации",
     Content: InventoryActsHelp,
   },

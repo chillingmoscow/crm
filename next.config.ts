@@ -6,6 +6,8 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54
 const supabaseHostname = new URL(supabaseUrl).hostname;
 
 const nextConfig: NextConfig = {
+  // Keep the development indicator clear of the sidebar profile control.
+  devIndicators: { position: "bottom-right" },
   // Standalone output: self-contained build в `.next/standalone`
   // (server.js + минимальный node_modules). Coolify в логе билда
   // умирал на `exporting layers` (exit 255 — OOM/disk killer

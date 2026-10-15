@@ -1,0 +1,381 @@
+.workspace {
+  display: contents;
+}
+.workspace [data-sidebar="sidebar"] {
+  background: hsl(var(--sidebar-background));
+  color: hsl(var(--foreground));
+}
+.workspace [data-sidebar="header"] {
+  padding: 20px 14px 16px;
+}
+.workspace [data-sidebar="content"] {
+  padding: 8px 14px;
+  gap: 10px;
+}
+.workspace [data-sidebar="content"] a,
+.workspace [data-sidebar="content"] button {
+  border-radius: 8px;
+}
+.workspace [data-sidebar="content"] a[aria-current="page"] {
+  background: hsl(var(--brand) / 0.1);
+  color: hsl(var(--brand));
+  font-weight: 600;
+}
+.workspace [data-sidebar="footer"] {
+  height: 80px;
+  padding: 12px;
+}
+.workspace [data-dashboard-topbar] {
+  height: 68px;
+  min-height: 68px;
+  flex-shrink: 0;
+  padding-inline: 36px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  gap: 12px;
+}
+.workspace [data-dashboard-topbar] > button,
+.workspace [data-dashboard-topbar] button[aria-label="Уведомления"] {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+}
+@media (max-width: 767px) {
+  .workspace [data-dashboard-topbar] {
+    height: 58px;
+    min-height: 58px;
+    padding-inline: 16px;
+    gap: 8px;
+  }
+}
+
+.workspace [data-collapsible="icon"] [data-sidebar="header"],
+.workspace [data-collapsible="icon"] [data-sidebar="content"] {
+  padding-inline: 12px;
+}
+
+/* Shared navigation, backed by the complete application menu. */
+.modernHeader {
+  gap: 0;
+  padding: 20px 14px 16px;
+}
+.navCaption {
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.15px;
+  color: hsl(var(--muted-foreground));
+}
+.modernNavigation {
+  padding: 8px 14px;
+  gap: 5px !important;
+}
+.modernNavigation [data-nav-section] > button {
+  min-height: 41px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: hsl(var(--muted-foreground));
+}
+.modernNavigation [data-nav-section] > button:hover {
+  color: hsl(var(--foreground));
+}
+.modernNavigation [data-nav-section] > button > svg {
+  width: 17px;
+  height: 17px;
+}
+.modernNavigation [data-nav-children] {
+  padding: 1px 0 6px 17px;
+}
+.modernNavigation [data-nav-children] > div {
+  border-left-color: hsl(var(--border) / 0.75);
+  padding-left: 9px;
+  gap: 3px;
+}
+.modernNavigation [data-nav-children] a {
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 450;
+}
+.modernNavigation > a {
+  min-height: 41px;
+  padding-inline: 12px;
+  font-size: 13px;
+}
+.workspace [data-sidebar="content"] .modernNavigation a[aria-current="page"],
+.modernNavigation a[aria-current="page"] {
+  background: hsl(var(--brand) / 0.1);
+  color: hsl(var(--brand));
+  font-weight: 600;
+}
+.modernFooter {
+  height: 80px;
+  padding: 12px;
+}
+.profileTrigger {
+  gap: 10px !important;
+  padding: 10px !important;
+  border: 1px solid transparent;
+}
+.profileTrigger[data-state="open"] {
+  border-color: hsl(var(--border));
+  background: hsl(var(--background)) !important;
+}
+.profileAvatar {
+  background: hsl(var(--brand) / 0.1);
+  color: hsl(var(--brand));
+  font-weight: 550;
+}
+
+/* Portaled controls receive their own classes, so their styling travels with them. */
+.profileMenu {
+  width: 310px;
+  max-width: calc(100vw - 24px);
+  padding: 10px;
+  border-radius: 20px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  box-shadow: 0 20px 60px -18px rgb(0 0 0 / 0.22), 0 4px 14px -7px rgb(0 0 0 / 0.12);
+}
+.profileSettings {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 550;
+}
+.profileSettings:hover { background: hsl(var(--muted) / 0.6); }
+.profileSettings > span:nth-child(2) { flex: 1; }
+.profileSettings > span > span { display: block; margin-top: 3px; color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 400; }
+.profileSettingsIcon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: hsl(var(--brand) / 0.1); color: hsl(var(--brand)); }
+.profileSettings > svg { color: hsl(var(--muted-foreground)); }
+.profileTheme { padding: 16px 12px; margin: 5px 0 8px; background: hsl(var(--muted) / 0.35); border-radius: 13px; }
+.profileUtilities { display: flex; flex-direction: column; gap: 3px; padding: 0 2px 10px; }
+.profileUtilities > button { align-items: center; gap: 11px; min-height: 41px; padding: 10px; border-radius: 10px; font-size: 12px; text-align: left; }
+.profileUtilities > button:first-child { display: flex; }
+.profileUtilities > button:hover { background: hsl(var(--muted) / 0.6); }
+.profileUtilities > button > span { flex: 1; }
+.profileUtilities svg { color: hsl(var(--muted-foreground)); }
+.profileUtilities kbd { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.profileSignout { display: flex; align-items: center; gap: 11px; width: 100%; padding: 13px 12px 7px; border-top: 1px solid hsl(var(--border)); color: hsl(var(--muted-foreground)); font-size: 12px; text-align: left; }
+.profileSignout:hover { color: hsl(var(--destructive)); }
+.workspace [data-sidebar="footer"] .profileIconTrigger { width: 40px; height: 40px; border-radius: 13px; padding: 3px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); }
+.profileIconTrigger > img, .profileIconTrigger > span { width: 32px !important; height: 32px !important; border-radius: 9px; }
+.profileIconTrigger[data-state="open"] { box-shadow: 0 0 0 3px hsl(var(--brand) / 0.1); }
+
+.venueTrigger { height: 64px; padding: 10px !important; gap: 10px; border: 1px solid hsl(var(--border)); border-radius: 13px !important; background: hsl(var(--background)); margin-bottom: 22px; }
+.venueTrigger:hover, .venueTrigger[data-state="open"] { background: hsl(var(--brand) / 0.04) !important; border-color: hsl(var(--brand) / 0.25); }
+.venueMonogram { width: 36px; height: 36px; border-radius: 11px; background: hsl(var(--brand) / 0.1); color: hsl(var(--brand)); font-size: 18px; font-weight: 650; }
+.workspace .venueIconTrigger { width: 40px !important; height: 40px !important; padding: 0 !important; margin-bottom: 2px; border-radius: 13px !important; }
+.venueIconTrigger > .venueMonogram { width: 38px; height: 38px; border-radius: 12px; }
+.venueIconTrigger > div:not(:first-child), .venueIconTrigger > svg { display: none; }
+.venueMenu { width: 304px; padding: 10px; border-radius: 18px; box-shadow: 0 20px 60px -18px rgb(0 0 0 / 0.22); }
+.venueMenuHeading { display: flex; align-items: center; justify-content: space-between; padding: 7px 9px 14px; font-size: 12px; font-weight: 550; }
+.venueMenuHeading > span:last-child { color: hsl(var(--muted-foreground)); font-size: 11px; font-weight: 400; }
+.venueMenu .venueOption { padding: 12px 10px; gap: 11px; border: 1px solid transparent; border-radius: 12px; margin-bottom: 3px; }
+.venueMenu .venueOption[aria-pressed="true"] { background: hsl(var(--brand) / 0.06); border-color: hsl(var(--brand) / 0.12); }
+.venueOptionIcon { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; border-radius: 11px; background: hsl(var(--muted)); font-weight: 600; color: hsl(var(--muted-foreground)); }
+.venueOption[aria-pressed="true"] .venueOptionIcon { background: hsl(var(--brand) / 0.12); color: hsl(var(--brand)); }
+.venueOption > div > span:last-child { margin-top: 5px; font-weight: 400; }
+.venueSelected { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: hsl(var(--brand)); color: white; }
+.workspace .iconNavigation { gap: 9px !important; padding-block: 12px; }
+.workspace .iconNavigation > a, .workspace .iconNavigation > button { width: 40px; height: 40px; min-height: 40px; padding: 0; border: 1px solid transparent; border-radius: 12px; color: hsl(var(--muted-foreground)); }
+.workspace .iconNavigation > a:hover, .workspace .iconNavigation > button:hover { background: hsl(var(--background)); border-color: hsl(var(--border)); color: hsl(var(--foreground)); }
+.workspace .iconNavigation > button[data-active="true"], .workspace .iconNavigation > a[aria-current="page"] { background: hsl(var(--brand)); color: white; border-color: hsl(var(--brand)); box-shadow: 0 4px 10px -4px hsl(var(--brand) / 0.4); }
+.navigationFlyout { width: 230px; padding: 9px; border-radius: 16px; box-shadow: 0 16px 45px -16px rgb(0 0 0 / 0.22); }
+.navigationFlyout > div:first-child { padding: 8px 10px 12px; }
+.navigationFlyout > div:first-child > span { font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.navigationFlyout a { padding: 11px; border-radius: 10px; font-size: 12px; gap: 12px; }
+.navigationFlyout a[aria-current="page"] { background: hsl(var(--brand) / 0.1); color: hsl(var(--brand)); }
+.themeSwitcher {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 10px;
+}
+.themeSwitcher > span {
+  font-size: 11px;
+}
+.themeSwitcher > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 9px;
+  padding: 3px;
+  gap: 2px;
+  background: hsl(var(--muted) / 0.65);
+}
+.themeSwitcher button {
+  gap: 5px;
+  min-height: 32px;
+  border-radius: 7px;
+  font-size: 11px;
+}
+.themeSwitcher button[aria-pressed="true"] {
+  color: hsl(var(--brand));
+  border-color: hsl(var(--border));
+}
+.themeSwitcher button > svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.notificationsPage > h1 {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -1.25px;
+  margin-bottom: 30px;
+}
+.notificationsInbox,
+.notificationsPopover {
+  border-radius: 16px;
+  border-color: hsl(var(--border));
+  background: hsl(var(--background));
+}
+.notificationsInbox {
+  min-height: 450px;
+}
+.notificationsPopover {
+  box-shadow:
+    0 20px 56px -20px rgb(0 0 0 / 0.16),
+    0 3px 12px -6px rgb(0 0 0 / 0.1);
+}
+.notificationsInbox [data-notification-toolbar],
+.notificationsPopover [data-notification-toolbar] {
+  padding: 16px 18px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.notificationsInbox [data-notification-toolbar] > div:last-child {
+  margin-left: auto;
+}
+.notificationsPopover
+  [data-notification-toolbar]
+  > div:first-child
+  > span:first-child {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+.notificationViews {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+.notificationViews > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 33px;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 450;
+  transition:
+    background 150ms,
+    color 150ms;
+}
+.notificationViews > button:hover {
+  background: hsl(var(--muted) / 0.5);
+  color: hsl(var(--foreground));
+}
+.notificationViews > button[aria-pressed="true"] {
+  background: hsl(var(--brand) / 0.08);
+  color: hsl(var(--brand));
+  font-weight: 550;
+}
+.notificationViews > button > span {
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 5px;
+  background: hsl(var(--brand) / 0.09);
+  color: hsl(var(--brand));
+  font-size: 10px;
+}
+.popoverViews {
+  padding: 10px 12px;
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+}
+.notificationsInbox [data-notification-bucket],
+.notificationsPopover [data-notification-bucket] {
+  padding: 13px 21px 8px;
+  font-size: 9px;
+  letter-spacing: 0.9px;
+  font-weight: 550;
+  background: hsl(var(--background));
+}
+.notificationsInbox [data-notification-row],
+.notificationsPopover [data-notification-row] {
+  gap: 12px;
+  margin: 3px 9px;
+  padding: 15px 12px;
+  border: 0;
+  border-radius: 11px;
+}
+.notificationsInbox [data-notification-row][data-unread="true"],
+.notificationsPopover [data-notification-row][data-unread="true"] {
+  background: hsl(var(--brand) / 0.035);
+}
+.notificationsInbox [data-notification-row]:hover,
+.notificationsPopover [data-notification-row]:hover {
+  background: hsl(var(--brand) / 0.065);
+}
+.notificationsInbox [data-notification-avatar],
+.notificationsPopover [data-notification-avatar] {
+  width: 35px;
+  height: 35px;
+  border-radius: 11px;
+  background: hsl(var(--brand) / 0.07);
+}
+.notificationsInbox [data-notification-title],
+.notificationsPopover [data-notification-title] {
+  line-height: 1.45;
+  font-size: 13px;
+}
+.notificationsInbox [data-notification-body],
+.notificationsPopover [data-notification-body] {
+  font-size: 12px;
+  line-height: 1.6;
+}
+@media (min-width: 640px) {
+  .notificationsPopover {
+    width: 440px;
+    max-width: calc(100vw - 32px);
+  }
+}
+@media (max-width: 639px) {
+  .notificationsPage > h1 {
+    font-size: 30px;
+  }
+  .notificationsPopover {
+    border-radius: 0;
+  }
+  .notificationsInbox [data-notification-toolbar] {
+    padding: 12px;
+  }
+}
+.modernNavigation > a {
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+.modernNavigation > a:hover {
+  color: hsl(var(--foreground));
+}
+
+/* Mobile navigation is portaled outside the dashboard wrapper. */
+@media (max-width: 767px) {
+  .modernHeader { padding-top: max(20px, env(safe-area-inset-top)); }
+  .modernFooter { height: auto; min-height: 80px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+.notificationSettings {
+  border-radius: 16px;
+  overflow: hidden;
+}

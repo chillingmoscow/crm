@@ -34,13 +34,14 @@ export async function searchAuditEntities(q: string): Promise<{
   counterpartyIds: string[];
   venueIds: string[];
   legalEntityIds: string[];
+  payrollAdjustmentIds: string[];
 }> {
   const term = q.trim();
   if (term.length === 0) {
     return {
       staffIds: [], kbPageIds: [], roleIds: [], invitationIds: [],
       transactionIds: [], bankAccountIds: [], financeCategoryIds: [],
-      counterpartyIds: [], venueIds: [], legalEntityIds: [],
+      counterpartyIds: [], venueIds: [], legalEntityIds: [], payrollAdjustmentIds: [],
     };
   }
 
@@ -51,7 +52,7 @@ export async function searchAuditEntities(q: string): Promise<{
   const [
     staffResult, kbResult, roleResult, invResult,
     bankResult, categoryResult, counterpartyResult, txResult,
-    venueResult, legalEntityResult,
+    venueResult, legalEntityResult, payrollResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -90,6 +91,10 @@ export async function searchAuditEntities(q: string): Promise<{
       .select("id")
       .or(`name.ilike.${pattern},short_name.ilike.${pattern},inn.ilike.${pattern}`)
       .limit(200),
+    supabase.from("audit_logs").select("entity_id")
+      .in("entity_type", ["payroll_adjustment", "payroll_transfer"])
+      .or(`details->>employee_name.ilike.${pattern},details->>reason.ilike.${pattern}`)
+      .limit(200),
   ]);
 
   return {
@@ -103,6 +108,7 @@ export async function searchAuditEntities(q: string): Promise<{
     transactionIds:     (txResult.data ?? []).map((r) => r.id as string),
     venueIds:           (venueResult.data ?? []).map((r) => r.id as string),
     legalEntityIds:     (legalEntityResult.data ?? []).map((r) => r.id as string),
+    payrollAdjustmentIds: [...new Set((payrollResult.data ?? []).flatMap((r) => r.entity_id ? [r.entity_id] : []))],
   };
 }
 

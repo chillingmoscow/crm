@@ -8,6 +8,7 @@ import { listLegalEntities } from "@/lib/org/legal-entities";
 import { listAuditEvents } from "@/lib/audit/list";
 import { getVenueArchiveImpact } from "../actions";
 import type { WorkingHours } from "@/types/database";
+import { loadSalesConfiguration } from "@/app/(dashboard)/sales/shifts/actions";
 
 type VenueDetail = {
   id: string;
@@ -109,6 +110,11 @@ export default async function VenueDetailServerPage({
       archiveImpact={archiveImpact}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
+      salesConfiguration={
+        can("sales.configure_shifts") && can("sales.view_shifts")
+          ? await loadSalesConfiguration(venueId)
+          : null
+      }
     />
   );
 }

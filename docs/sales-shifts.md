@@ -32,7 +32,7 @@
 
 ## Запуск
 
-1. Применить миграции `supabase/migrations/20261013114526_sales_shifts.sql` и `supabase/migrations/20261013132115_sales_sync_rate_limit.sql` к нужной базе. Production требует отдельного согласования.
+1. Применить миграции `supabase/migrations/242_sales_shifts.sql` и `supabase/migrations/243_sales_sync_rate_limit.sql` к нужной базе. Production требует отдельного согласования.
 2. В существующей интеграции Quick Resto настроить публичный доступ и бэк-офис. В карточке заведения, вкладка «Продажи», проверить правила и включить обновление. Здесь же запускается пересчёт периода до 366 дней.
 3. Настроить `CRON_SECRET` на сервере. Секрет нельзя помещать в `NEXT_PUBLIC_*`, файлы репозитория, URL или журнал.
 4. Запустить `npm run sales:worker` (Node >=20.12). Для локальной проверки адрес по умолчанию `http://localhost:3400`; другой задаётся `SALES_WORKER_ORIGIN`. Обработчик читает `.env.local` и вызывает защищённый POST `/api/cron/sales-shifts` с заголовком `X-Cron-Secret`.

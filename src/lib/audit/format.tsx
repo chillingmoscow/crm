@@ -35,6 +35,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
+import { auditFallbackHeadline, auditFieldValueLabel, auditFieldLabel, formatAuditDate as formatDate } from "./labels";
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
@@ -78,80 +79,7 @@ interface AuditEventSpec {
   buildDetails?: (event: AuditEvent) => ReactNode | null;
 }
 
-const FIELD_LABELS: Record<string, string> = {
-  // staff
-  phone: "телефон",
-  telegram_id: "телеграм",
-  birth_date: "дата рождения",
-  employment_date: "дата трудоустройства",
-  medical_book_number: "номер медкнижки",
-  medical_book_date: "срок действия медкнижки",
-  passport_photos: "фото паспорта",
-  comment: "комментарий HR",
-  business_date: "дата начисления",
-  reason: "основание",
-  medium: "способ учёта",
-  approved: "учтено в расчёте",
-  delete_reason: "причина удаления",
-  external_state: "обработка бонусов",
-  employee_id: "сотрудник",
-  kind: "тип записи",
-  // finance (общие)
-  name: "название",
-  type: "тип",
-  amount: "сумма",
-  currency: "валюта",
-  description: "описание",
-  date: "дата",
-  group_id: "группа",
-  is_active: "активность",
-  // finance.transaction
-  bank_account_id: "счёт",
-  to_bank_account_id: "счёт получатель",
-  to_legal_entity_id: "юрлицо получатель",
-  category_id: "статья",
-  counterparty_id: "контрагент",
-  // bank_account
-  bank_name: "банк",
-  bik: "БИК",
-  account_number: "номер счёта",
-  card_holder: "держатель карты",
-  card_number_last4: "последние 4 цифры карты",
-  // counterparty
-  legal_form: "правовая форма",
-  inn: "ИНН",
-  kpp: "КПП",
-  ogrn: "ОГРН",
-  contact_person: "контактное лицо",
-  email: "email",
-  address: "адрес",
-  // category
-  color: "цвет",
-  icon: "иконка",
-  // org / accounts / venues
-  logo_url: "логотип",
-  ai_enabled: "AI-ассистент",
-  // venues
-  default_legal_entity_id: "юрлицо по умолчанию",
-  // legal_entities
-  short_name: "сокращённое название",
-  okpo: "ОКПО",
-  okved: "ОКВЭД",
-  tax_system: "налоговая система",
-  vat_payer: "плательщик НДС",
-  legal_address: "юридический адрес",
-  actual_address: "фактический адрес",
-  postal_address: "почтовый адрес",
-  director_name: "ФИО директора",
-  director_position: "должность подписанта",
-  accountant_name: "ФИО бухгалтера",
-  signature_basis: "основание подписи",
-  website: "сайт",
-  default_bank_name: "банк по умолчанию",
-  default_bik: "БИК банка",
-  default_account_number: "номер счёта",
-  default_corr_account: "корр. счёт",
-};
+
 
 function formatAmount(value: unknown, currency: string = "RUB"): string {
   const num = typeof value === "number" ? value : Number(value);
@@ -271,23 +199,14 @@ function InvitationEmail({ event }: { event: AuditEvent }) {
   return <strong className="font-medium">{invitationEmailFromEvent(event)}</strong>;
 }
 
-function formatDate(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
 function formatFieldValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (
     field === "birth_date" ||
     field === "employment_date" ||
-    field === "medical_book_date"
+    field === "medical_book_date" ||
+    field === "business_date" ||
+    field === "deleted_at"
   ) {
     return formatDate(value);
   }
@@ -298,10 +217,13 @@ function formatFieldValue(field: string, value: unknown): string {
     return "—";
   }
   if (typeof value === "string") {
+    const label = auditFieldValueLabel(field, value);
+    if (label !== null) return label;
     // Длинный текст усекаем, чтобы строка не разрослась на полстраницы.
     if (value.length > 60) return value.slice(0, 60) + "…";
     return value;
   }
+  if (typeof value === "boolean") return value ? "Да" : "Нет";
   return String(value);
 }
 
@@ -331,7 +253,7 @@ function ChangeLines({ details }: { details: Record<string, unknown> }) {
     <ul className="text-[12px] text-muted-foreground flex flex-col gap-0.5">
       {changes.map((c, i) => (
         <li key={`${c.field}-${i}`} className="leading-snug">
-          <span className="text-foreground">{FIELD_LABELS[c.field] ?? c.field}:</span>{" "}
+          <span className="text-foreground">{auditFieldLabel(c.field)}:</span>{" "}
           <span className="line-through">{formatFieldValue(c.field, c.old)}</span>
           {" → "}
           <span className="font-medium text-foreground">
@@ -354,7 +276,7 @@ function payrollAdjustmentSpec(verb: string, icon: LucideIcon): AuditEventSpec {
         {label}</Link> · {String(e.details.employee_name ?? "Сотрудник")}</>;
     },
     buildDetails: (e) => <>
-      {e.details.amount != null && e.details.kind !== "warning" && <p className="text-xs text-muted-foreground">{String(e.details.business_date ?? "")} · {e.details.medium === "bonus" ? `${String(e.details.amount)} б.` : formatAmount(e.details.amount)}</p>}
+      {e.details.amount != null && e.details.kind !== "warning" && <p className="text-xs text-muted-foreground">{formatDate(e.details.business_date)} · {e.details.medium === "bonus" ? `${String(e.details.amount)} б.` : formatAmount(e.details.amount)}</p>}
       {e.details.reason != null && <p className="text-xs text-muted-foreground">{String(e.details.reason)}</p>}
       <ChangeLines details={e.details} />
       {e.details.delete_reason != null && <p className="text-xs text-muted-foreground">Причина удаления: {String(e.details.delete_reason)}</p>}
@@ -374,6 +296,43 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 }
 
 const SPECS: Record<string, AuditEventSpec> = {
+  "integration.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : ""}</>,
+    buildDetails: (e) => <>
+      {typeof e.details.backoffice_configured === "boolean" && <p className="text-xs text-muted-foreground">Доступ к бэк-офису: {e.details.backoffice_configured ? "настроен" : "не настроен"}</p>}
+      {typeof e.details.bonus_writes === "boolean" && <p className="text-xs text-muted-foreground">Бонусные списания: {e.details.bonus_writes ? "включены" : "выключены"}</p>}
+    </>,
+  },
+  "sales.settings.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) настройки продаж</>,
+  },
+  "payroll.data.imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) данные зарплаты</>,
+    buildDetails: (e) => {
+      const fields = [["employees", "Сотрудников"], ["shifts", "Смен"], ["accruals", "Начислений"], ["adjustments", "Премий и удержаний"]] as const;
+      const summary = fields.filter(([key]) => typeof e.details[key] === "number").map(([key, label]) => `${label}: ${e.details[key]}`);
+      return summary.length ? <p className="text-xs text-muted-foreground">{summary.join(" · ")}</p> : null;
+    },
+  },
+  "kb_thread.created": {
+    icon: FileEdit, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>добавил(а) обсуждение в базе знаний</>,
+  },
+  "kb_thread.resolved": {
+    icon: FileEdit, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>завершил(а) обсуждение в базе знаний</>,
+  },
+  "kb_thread.unresolved": {
+    icon: FileEdit, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>возобновил(а) обсуждение в базе знаний</>,
+  },
+  "kb_thread.deleted": {
+    icon: Trash2, iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: () => <>удалил(а) обсуждение в базе знаний</>,
+  },
   "payroll.history.imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) историю зарплаты из Fees</>,
@@ -1133,7 +1092,7 @@ export function describeAuditEvent(event: AuditEvent): {
       icon: Activity,
       iconClass: "text-muted-foreground bg-muted",
       headline: (
-        <span className="text-muted-foreground">{event.action_code}</span>
+        <span className="text-muted-foreground">{auditFallbackHeadline(event.action_code)}</span>
       ),
       details: null,
     };

@@ -1,3 +1,5 @@
+import { VENUE_TYPES } from "../constants";
+
 /** Display labels only; stored audit codes and original values stay unchanged. */
 const FIELD_VALUES: Record<string, Record<string, string>> = {
   medium: { bonus: "Бонусы", money: "Деньги", none: "Без начисления" },
@@ -12,6 +14,8 @@ const FIELD_VALUES: Record<string, Record<string, string>> = {
     allowance: "Надбавка за месяц", salary: "Зарплата", advance: "Аванс", tips: "Чаевые",
   },
   type: {
+    ...Object.fromEntries(VENUE_TYPES.map(({ value, label }) => [value, label])),
+    club: "Клуб", other: "Другое",
     income: "Доход", expense: "Расход", transfer: "Перевод",
     checking: "Расчётный счёт", debit_card: "Карта", cash: "Касса", fund: "Фонд", safe: "Сейф",
   },
@@ -24,7 +28,19 @@ const FIELD_VALUES: Record<string, Record<string, string>> = {
 
 export function auditFieldValueLabel(field: string, value: string): string | null {
   const values = FIELD_VALUES[field];
-  return values ? values[value] ?? "Неизвестное значение" : null;
+  return values?.[value] ?? null;
+}
+
+export function formatAuditDate(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0) return "—";
+  // SQL dates are calendar days, not instants. Never shift them to the viewer's zone.
+  const calendar = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (calendar) return `${calendar[3]}.${calendar[2]}.${calendar[1]}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("ru-RU", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+  });
 }
 
 const ACTIONS: Record<string, string> = {
@@ -49,4 +65,85 @@ export function auditFallbackHeadline(code: string): string {
   const action = ACTIONS[parts.at(-1) ?? ""] ?? "выполнил(а) действие";
   const section = SECTIONS[parts[0]];
   return section ? `${action} в разделе «${section}»` : `${action} в системе`;
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  // staff
+  phone: "телефон",
+  telegram_id: "телеграм",
+  birth_date: "дата рождения",
+  employment_date: "дата трудоустройства",
+  medical_book_number: "номер медкнижки",
+  medical_book_date: "срок действия медкнижки",
+  passport_photos: "фото паспорта",
+  comment: "комментарий HR",
+  business_date: "дата начисления",
+  reason: "основание",
+  medium: "способ учёта",
+  approved: "учтено в расчёте",
+  delete_reason: "причина удаления",
+  deleted_at: "дата удаления",
+  external_state: "обработка бонусов",
+  employee_id: "сотрудник",
+  kind: "тип записи",
+  // finance (общие)
+  name: "название",
+  type: "тип",
+  amount: "сумма",
+  currency: "валюта",
+  description: "описание",
+  date: "дата",
+  group_id: "группа",
+  is_active: "активность",
+  // finance.transaction
+  bank_account_id: "счёт",
+  to_bank_account_id: "счёт получатель",
+  to_legal_entity_id: "юрлицо получатель",
+  category_id: "статья",
+  counterparty_id: "контрагент",
+  // bank_account
+  bank_name: "банк",
+  bik: "БИК",
+  account_number: "номер счёта",
+  card_holder: "держатель карты",
+  card_number_last4: "последние 4 цифры карты",
+  // counterparty
+  legal_form: "правовая форма",
+  inn: "ИНН",
+  kpp: "КПП",
+  ogrn: "ОГРН",
+  contact_person: "контактное лицо",
+  email: "email",
+  address: "адрес",
+  // category
+  color: "цвет",
+  icon: "иконка",
+  // org / accounts / venues
+  logo_url: "логотип",
+  ai_enabled: "AI-ассистент",
+  // venues
+  timezone: "часовой пояс",
+  default_legal_entity_id: "юрлицо по умолчанию",
+  // legal_entities
+  short_name: "сокращённое название",
+  okpo: "ОКПО",
+  okved: "ОКВЭД",
+  tax_system: "налоговая система",
+  vat_payer: "плательщик НДС",
+  legal_address: "юридический адрес",
+  actual_address: "фактический адрес",
+  postal_address: "почтовый адрес",
+  director_name: "ФИО директора",
+  director_position: "должность подписанта",
+  accountant_name: "ФИО бухгалтера",
+  signature_basis: "основание подписи",
+  website: "сайт",
+  default_bank_name: "банк по умолчанию",
+  default_bik: "БИК банка",
+  default_account_number: "номер счёта",
+  default_corr_account: "корр. счёт",
+};
+
+export function auditFieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field;
 }

@@ -185,7 +185,7 @@ export function PayrollConcept({
     [data, monthStart],
   );
   const active = rows.filter(
-    (r) => r.shifts || r.earned || r.paid || r.opening,
+    (r) => r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips,
   );
   const total = rows.reduce((sum, r) => sum + r.earned, 0);
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
@@ -195,14 +195,14 @@ export function PayrollConcept({
     (p) => p.month === monthStart && p.state === "review",
   );
   const knownBalance =
-    !historyPending && rows.every((r) => r.employee.opening_confirmed);
+    !historyPending && active.every((r) => r.employee.opening_confirmed);
   const remaining = rows.reduce((sum, r) => sum + r.remaining, 0);
   const roles = [
     ...new Set(rows.map((r) => r.employee.role_name).filter(Boolean)),
   ].sort();
   const visible = rows.filter(
     (r) =>
-      (r.shifts || r.earned || r.paid || r.opening) &&
+      (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips) &&
       (!role || r.employee.role_name === role) &&
       `${r.employee.name} ${r.employee.role_name}`
         .toLowerCase()
@@ -212,7 +212,7 @@ export function PayrollConcept({
     () =>
       rows.filter(
         (r) =>
-          (r.shifts || r.earned || r.paid || r.opening) &&
+          (r.shifts || r.earned || r.paid || r.opening || r.transferredOut || r.tips) &&
           (!role || r.employee.role_name === role),
       ),
     [rows, role],

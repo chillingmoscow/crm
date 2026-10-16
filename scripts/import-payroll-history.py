@@ -441,7 +441,7 @@ def build(args, before, source, bank_source):
         assert dt.datetime.fromisoformat(occurred) < dt.datetime.fromisoformat(anchor)
         emit('transactions', dict(id=tx, **scoped, legal_entity_id=le, bank_account_id=bank_ids[bank_id], category_id=category,
                                  type='expense', amount=amount, currency='RUB', description='Выплата · ' + e['name'] + (' · ' + r['Комментарий'] if r.get('Комментарий') else ''),
-                                 date=occurred, source='import', source_external_id='fees:' + r['Row ID'], created_by=actor(r['Создание / Ответственный']), created_at=occurred))
+                                 date=occurred, source='import', balance_covered_by_import=True, source_external_id='fees:' + r['Row ID'], created_by=actor(r['Создание / Ответственный']), created_at=occurred))
         emit('audit_logs', dict(id=uid('payment-history:' + r['Row ID']), **scoped, legal_entity_id=le,
                                user_id=actor(r['Создание / Ответственный']), action_code='finance.transaction.created',
                                entity_type='transaction', entity_id=tx, created_at=occurred,

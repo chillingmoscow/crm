@@ -398,6 +398,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildDetails:e=><div className="text-xs text-muted-foreground"><p>Действует с {String(e.details.valid_from)}</p><p>{String((e.details.after as Record<string,unknown>|undefined)?.change_reason??"")}</p></div>,
   },
   "payroll.transfer.created": payrollTransferSpec("оформил(а)"),
+  "payroll.automation_settings.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) настройки медкнижек, формы и мотивации</>,
+    buildDetails: (e) => <p className="text-xs text-muted-foreground">Версия {String(e.details.version)} · <Link className="text-brand hover:underline" href={`/org/venues/${e.entity_id}/payroll`}>Настройки и история</Link></p>,
+  },
   "payroll.transfer.cancelled": payrollTransferSpec("отменил(а)"),
   "payroll.transfer.updated": payrollTransferSpec("изменил(а)"),
   "payroll.adjustment.created": payrollAdjustmentSpec("добавил(а)", FilePlus2),

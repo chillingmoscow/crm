@@ -40,6 +40,7 @@ const SECTION_OPTIONS: MultiSelectItem[] = [
   { id: "department", name: "Подразделения" },
   { id: "transaction", name: "Транзакции" },
   { id: "payroll_adjustment", name: "Начисления и удержания" },
+  { id: "payroll_automation_settings", name: "Настройки мотивации" },
   { id: "payroll_attendance_rule", name: "Учёт выходов" },
   { id: "payroll_position", name: "Назначения должностей" },
   { id: "payroll_rule", name: "Условия оплаты должностей" },

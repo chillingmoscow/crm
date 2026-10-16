@@ -114,4 +114,5 @@ alter policy payroll_audit_salary_access on public.audit_logs
 
 comment on column public.payroll_settings.historical_through is 'Последний день сохранённого исторического расчёта. Записи журнала редактируются с аудитом; фоновые источники его не заменяют.';
 comment on column public.bank_accounts.balance_anchor_at is 'Момент контрольного остатка при переносе. Более ранние операции остаются в истории без повторного влияния на текущий баланс.';
+notify pgrst,'reload schema';
 commit;

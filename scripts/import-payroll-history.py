@@ -119,7 +119,7 @@ class Database:
     def query(self, query):
         # Error details may contain personal data. Keep them in a server-only file.
         p = subprocess.run(['docker', 'exec', '-i', self.args.container, 'psql', '-X', '-qAt', '-v', 'ON_ERROR_STOP=1',
-                            '-U', 'postgres', '-d', self.args.database], input=query.encode(), capture_output=True)
+                            '-U', self.args.database_user, '-d', self.args.database], input=query.encode(), capture_output=True)
         if p.returncode:
             save(Path(self.args.directory) / ('error-' + self.args.database + '.log'), p.stderr.decode())
             raise RuntimeError('Database operation failed; inspect server-local error log')
@@ -558,6 +558,7 @@ def main():
     p.add_argument('--directory', required=True)
     p.add_argument('--database', required=True)
     p.add_argument('--container', required=True)
+    p.add_argument('--database-user', default='supabase_admin')
     p.add_argument('--account', required=True)
     p.add_argument('--venue', required=True)
     p.add_argument('--owner', required=True)

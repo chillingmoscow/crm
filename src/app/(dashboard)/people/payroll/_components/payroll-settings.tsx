@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { DisciplineSettings } from "./discipline-settings";
+import { AutomationSettings } from "./automation-settings";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
   return (
     <div className="space-y-6">
       <PayrollSetup data={data} onChange={reload} /><DisciplineSettings />
+      <AutomationSettings key={venueId} venueId={venueId} />
       <section className="rounded-xl border p-5"><h2 className="font-semibold">Оплата должностей</h2><div className="mt-4 flex flex-wrap gap-2">{(data.roles??[]).filter(r=>data.models.some(m=>m.role_id===r.id&&m.is_role_default&&!m.archived)).map(r=><Button key={r.id} variant="outline" size="sm" asChild><Link href={`/people/roles/${r.id}?tab=compensation`}>{r.name}</Link></Button>)}</div></section>
       <form
         className="space-y-4 rounded-xl border p-5"

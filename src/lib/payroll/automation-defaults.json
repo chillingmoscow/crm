@@ -1,0 +1,133 @@
+{
+  "medical": {
+    "reminders": true,
+    "reminder_after_hire_days": 3,
+    "reminder_before_expiry_days": 30,
+    "submission_fine": true,
+    "submission_after_hire_months": 1,
+    "submission_amount": 3000,
+    "expiry_fine": true,
+    "expiry_amount": 3000,
+    "expiry_frequency": "once_per_expiry_case",
+    "reimbursement": true,
+    "reimbursement_amount": 3000,
+    "reimbursement_after_exam_months": 3,
+    "reimbursement_requires_exam_after_hire": true
+  },
+  "uniform": {
+    "enabled": true,
+    "installments": 4,
+    "payment_days": [3, 18]
+  },
+  "tasks": {
+    "missing_enabled": true,
+    "missing_kind": "deduction",
+    "missing_amount": 200,
+    "extra_reward_enabled": true,
+    "extra_reward_medium": "bonus"
+  },
+  "gifts": {
+    "enabled": true,
+    "tenure_boundary_days": 90,
+    "holidays": [
+      {
+        "id": "b57adfd111c54f05a01943e818788f43",
+        "name": "День рождения",
+        "month_day": "",
+        "junior_amount": 3000,
+        "senior_amount": 7000,
+        "roles": ["Хостес", "Бармен", "Управляющий", "Официант", "Мастер"],
+        "gender": "all"
+      },
+      {
+        "id": "eb773d37e6264c2995e6fbe7caa434c0",
+        "name": "Новый год",
+        "month_day": "01-01",
+        "junior_amount": 1000,
+        "senior_amount": 3000,
+        "roles": ["Хостес", "Бармен", "Мастер", "Управляющий", "Официант"],
+        "gender": "all"
+      },
+      {
+        "id": "b63219d7a18f41379a83ec498007f6b4",
+        "name": "День бармена",
+        "month_day": "02-06",
+        "junior_amount": 1000,
+        "senior_amount": 2000,
+        "roles": ["Бармен"],
+        "gender": "all"
+      },
+      {
+        "id": "4d463fab73514711ba40f7c61375ce7e",
+        "name": "23 февраля",
+        "month_day": "02-23",
+        "junior_amount": 1000,
+        "senior_amount": 2000,
+        "roles": ["Хостес", "Бармен", "Мастер", "Управляющий", "Официант"],
+        "gender": "male"
+      },
+      {
+        "id": "b4c79bce5d2c4000926a15d9157acda3",
+        "name": "8 марта",
+        "month_day": "03-08",
+        "junior_amount": 1000,
+        "senior_amount": 2000,
+        "roles": ["Хостес", "Бармен", "Мастер", "Управляющий", "Официант"],
+        "gender": "female"
+      },
+      {
+        "id": "77b2c1afc252436a9ed48eac23204e5f",
+        "name": "День кальянного мастера",
+        "month_day": "07-01",
+        "junior_amount": 1000,
+        "senior_amount": 2000,
+        "roles": ["Мастер"],
+        "gender": "all"
+      }
+    ],
+    "tenure": [
+      {
+        "days": 60,
+        "amount": 0,
+        "discount_percent": 0,
+        "roles": ["Хостес", "Бармен", "Мастер", "Официант"]
+      },
+      {
+        "days": 120,
+        "amount": 0,
+        "discount_percent": 0,
+        "roles": ["Хостес", "Бармен", "Мастер", "Официант"]
+      },
+      {
+        "days": 180,
+        "amount": 0,
+        "discount_percent": 0,
+        "roles": ["Хостес", "Бармен", "Мастер", "Официант"]
+      },
+      {
+        "days": 270,
+        "amount": 3000,
+        "discount_percent": 0,
+        "roles": ["Хостес", "Бармен", "Мастер", "Официант"]
+      },
+      {
+        "days": 366,
+        "amount": 5000,
+        "discount_percent": 10,
+        "roles": ["Хостес", "Бармен", "Мастер", "Официант"]
+      },
+      {
+        "days": 550,
+        "amount": 7000,
+        "discount_percent": 15,
+        "roles": ["Хостес", "Бармен", "Мастер", "Официант"]
+      },
+      {
+        "days": 770,
+        "amount": 10000,
+        "discount_percent": 20,
+        "roles": ["Хостес", "Бармен", "Мастер", "Официант"]
+      }
+    ]
+  }
+}

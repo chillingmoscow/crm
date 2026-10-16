@@ -104,7 +104,7 @@ export function AccountsList({
   // raw currency. Mixed currencies are summed naively — RU MVP, all
   // accounts default to RUB.
   const visibleTotal = filtered
-    .filter((a) => !a.deleted_at)
+    .filter((a) => !a.deleted_at && !a.excluded_from_balance)
     .reduce((acc, a) => acc + Number(a.balance), 0);
 
   return (

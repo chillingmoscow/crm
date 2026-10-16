@@ -74,7 +74,7 @@ const groupLabels: Record<string, string> = {
   food: "Питание",
   bonus: "Премии",
   allowance: "Надбавка за месяц",
-  cleaner: "Доплата за клининг",
+  cleaner: "Премии",
 };
 
 function componentGroups(accruals: Accrual[]) {

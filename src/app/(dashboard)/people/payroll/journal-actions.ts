@@ -80,7 +80,8 @@ export async function commentPayrollEntry(
 export type PayrollEntryDetail = {
   comments: {
     id: string;
-    author_id: string;
+    author_id: string | null;
+    source_author_name?: string | null;
     body: string;
     created_at: string;
     author_name: string;
@@ -149,7 +150,7 @@ export async function loadPayrollEntry(
   return {
     comments: (comments.data ?? []).map((c) => ({
       ...c,
-      author_name: names.get(c.id) ?? "Сотрудник",
+      author_name: c.source_author_name ?? names.get(c.id) ?? "Сотрудник",
     })),
     history: entries,
     photos: await Promise.all(

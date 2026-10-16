@@ -47,7 +47,7 @@ export function AuditEventRow({
       <div className="flex-1 flex flex-col gap-1 min-w-0">
         <div className="text-sm leading-snug">
           <span className="font-medium text-foreground">
-            {event.actor?.name ?? "Система"}
+            {event.actor?.name ?? (typeof event.details.source_author === "string" ? event.details.source_author : "Система")}
           </span>{" "}
           <span className="text-foreground">{headline}</span>
         </div>
@@ -57,9 +57,12 @@ export function AuditEventRow({
             dateTime={event.created_at}
             title={new Date(event.created_at).toLocaleString("ru-RU", {
               timeZone,
+              ...(event.details.source_precision === "day" ? { dateStyle: "short" as const } : {}),
             })}
           >
-            {exactTime
+            {event.details.source_precision === "day"
+              ? new Date(event.created_at).toLocaleDateString("ru-RU", { timeZone })
+              : exactTime
               ? new Date(event.created_at).toLocaleString("ru-RU", {
                   timeZone,
                   day: "2-digit",

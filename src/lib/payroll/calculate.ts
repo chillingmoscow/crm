@@ -256,7 +256,7 @@ export function statementRows(
         tipPaid = round(paid(false, true));
       const bonuses = current
           .flatMap((a) => a.components)
-          .filter((c) => c.kind === "bonus")
+          .filter((c) => c.kind === "bonus" || c.kind === "cleaner")
           .reduce((s, c) => s + (c.amount ?? 0), 0),
         deductions = current
           .flatMap((a) => a.components)

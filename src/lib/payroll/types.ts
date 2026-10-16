@@ -175,6 +175,7 @@ export type Allocation = {
   settled_amount: number;
 };
 export type PaySettings = {
+  historical_through?: string | null;
   account_id: string;
   venue_id: string;
   starts_on: string;

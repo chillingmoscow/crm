@@ -374,6 +374,14 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 }
 
 const SPECS: Record<string, AuditEventSpec> = {
+  "payroll.history.imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) историю зарплаты из Fees</>,
+    buildDetails: (e) => {
+      const summary = e.details.summary as Record<string, unknown> | undefined;
+      return <p className="text-xs text-muted-foreground">{String(summary?.salary_days ?? 0)} дневных начислений · {String(summary?.payments ?? 0)} выплат · {String(summary?.transfers ?? 0)} переносов</p>;
+    },
+  },
   "payroll.attendance_source.changed": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
     buildHeadline:e=><>изменил(а) источник факта работы · {String(e.details.employee_name)}</>,

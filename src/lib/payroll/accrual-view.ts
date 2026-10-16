@@ -1,5 +1,5 @@
 import type { Accrual, Component, PayModel } from "./types";
-export const componentLabels: Record<string, string> = { base: "Выходы за смены", monthly: "Оклад", allowance: "Надбавка за месяц", percent: "Процент от продаж", extra: "Дополнительные продажи", experience: "Стаж", knowledge: "Знания", food: "Питание", bonus: "Премии", deduction: "Удержания", cleaner: "Клининг", correction: "Корректировки" };
+export const componentLabels: Record<string, string> = { base: "Выходы за смены", monthly: "Оклад", allowance: "Надбавка за месяц", percent: "Процент от продаж", extra: "Дополнительные продажи", experience: "Стаж", knowledge: "Знания", food: "Питание", bonus: "Премии", deduction: "Удержания", cleaner: "Премии", correction: "Корректировки" };
 /** Missing source amounts remain unknown; an absent component is a genuine zero. */
 export function componentAmount(components: Component[], kinds: string[]): number | null {
     const selected = components.filter(c => kinds.includes(c.kind));

@@ -37,6 +37,7 @@ export async function getBalanceByLegalEntity(): Promise<{
   const { data, error } = await supabase
     .from("bank_accounts")
     .select("legal_entity_id, balance")
+    .eq("excluded_from_balance", false)
     .is("deleted_at", null);
   if (error) return { rows: [], error: error.message };
 

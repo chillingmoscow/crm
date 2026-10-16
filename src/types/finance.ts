@@ -7,7 +7,7 @@ import type { Tables } from "./database";
 // ─── Row shapes (re-exports from generated database.ts) ─────────────────────
 
 export type BankAccountGroupRow      = Tables<"bank_account_groups">;
-export type BankAccountRow           = Tables<"bank_accounts">;
+export type BankAccountRow           = Tables<"bank_accounts"> & { excluded_from_balance?: boolean };
 export type FinanceCategoryGroupRow  = Tables<"finance_category_groups">;
 // Adapter: миграция 202 заменила is_active на archived_at + archived_by;
 // Database-типы ещё не регенерены. Берём базовый Tables-row и наслаиваем

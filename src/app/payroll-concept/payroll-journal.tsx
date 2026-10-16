@@ -493,6 +493,7 @@ export function PayrollJournal({
                       <time>
                         {new Date(h.created_at).toLocaleString("ru-RU", {
                           timeZone: data.timezone,
+                          ...(h.details.source_precision === "day" ? { dateStyle: "short" as const } : {}),
                         })}
                       </time>
                     </div>

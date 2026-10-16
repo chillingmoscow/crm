@@ -52,7 +52,7 @@ export async function queuePayroll(
   if (!settings || !settings.enabled)
     throw new Error("Включите обработку зарплаты в настройках заведения");
   for (const date of dates) {
-    if (date < settings.starts_on) continue;
+    if (date < settings.starts_on || (settings.historical_through && date <= settings.historical_through)) continue;
     const old = await admin
       .from<{ state: string }>("payroll_source_days")
       .select("state")
@@ -472,7 +472,7 @@ export async function processPayrollDay() {
       (e) =>
         e.active &&
         (!e.hired_on || e.hired_on <= date) &&
-        date === [`${date.slice(0, 7)}-01`, e.hired_on ?? ""].sort().at(-1),
+        date === [`${date.slice(0, 7)}-01`, e.hired_on ?? "", settings.historical_through ? addDays(settings.historical_through, 1) : ""].sort().at(-1),
     )) {
       const rule = selectRule(rules, e, date);
       const model = effectivePayModel(models.find((m) => m.id === e.model_id) ?? null,rule);

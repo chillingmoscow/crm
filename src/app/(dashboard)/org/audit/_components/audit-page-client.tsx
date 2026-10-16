@@ -45,6 +45,9 @@ const SECTION_OPTIONS: MultiSelectItem[] = [
   { id: "payroll_position", name: "Назначения должностей" },
   { id: "payroll_rule", name: "Условия оплаты должностей" },
   { id: "payroll_transfer", name: "Переносы зарплаты" },
+  { id: "payroll_import", name: "Импорт зарплаты" },
+  { id: "integration", name: "Интеграции" },
+  { id: "sales_settings", name: "Настройки продаж" },
   { id: "bank_account", name: "Счета" },
   { id: "finance_category", name: "Статьи" },
   { id: "counterparty", name: "Контрагенты" },
@@ -52,6 +55,7 @@ const SECTION_OPTIONS: MultiSelectItem[] = [
   { id: "legal_entity", name: "Юрлица" },
   { id: "account", name: "Аккаунт" },
   { id: "kb_page", name: "База знаний" },
+  { id: "kb_thread", name: "Обсуждения базы знаний" },
 ];
 
 const FILTERS_VISIBLE_STORAGE_KEY = "org-audit.filters-visible";

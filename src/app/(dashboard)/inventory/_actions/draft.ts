@@ -9,7 +9,9 @@ import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { isInventoryFormLocked } from "@/lib/inventory/act-status";
 import { pluralRu } from "@/lib/format/plural";
 import { runWithConcurrency } from "@/lib/run-with-concurrency";
+import type { InventorySubmissionResult } from "@/lib/inventory/submit-batches";
 import {
+  QuickRestoRateLimitError,
   readInventoryDocument,
   updateInventoryItemBackOffice,
 } from "@/lib/integrations/quickresto/client";
@@ -44,6 +46,8 @@ import {
  * умеренно: каждый воркер при истёкшем токене может пойти за новым.
  */
 const QR_ITEM_CONCURRENCY = 5;
+// Keep each browser request short even when the provider requires pacing.
+const QR_ITEM_BATCH_SIZE = 32;
 
 /**
  * Помечает, что исполнитель начал заполнять акт: переводит
@@ -115,8 +119,9 @@ export async function markInventoryDraftStarted(input: {
 export async function submitInventoryDocumentDraft(input: {
   documentId: string;
   baseLastUpdateDate: string | null;
+  supportsBatches?: boolean;
   items: Array<{ itemId: string; actualAmount: number | null }>;
-}): Promise<{ resultsHasLineAmounts: boolean; refreshDocument?: boolean; error: string | null }> {
+}): Promise<InventorySubmissionResult> {
   const ctx = await getActiveContext();
   if (ctx.error || !ctx.user || !ctx.accountId) {
     return { resultsHasLineAmounts: false, error: ctx.error };
@@ -184,7 +189,10 @@ export async function submitInventoryDocumentDraft(input: {
     const fresh = await readInventoryDocument({ ...auth, objectId: Number(document.external_id) });
 
     if (fresh.processed) return { resultsHasLineAmounts: false, error: "Акт уже проведен в Quick Resto" };
-    if (!sameDate(fresh.lastUpdateDate ?? null, input.baseLastUpdateDate ?? document.base_last_update_date ?? null)) {
+    const expectedVersion = input.supportsBatches
+      ? input.baseLastUpdateDate
+      : input.baseLastUpdateDate ?? document.base_last_update_date ?? null;
+    if (!sameDate(fresh.lastUpdateDate ?? null, expectedVersion)) {
       const freshItemsPreview = inventoryDocumentItems(fresh);
       const precheckHasResults = freshItemsPreview.items.some((item) => extractLineResult(item).hasResult);
       await admin
@@ -290,10 +298,13 @@ export async function submitInventoryDocumentDraft(input: {
     // 1–2 минуты в одном server action, и прокси успевал оборвать соединение,
     // оставив значения применёнными наполовину. Строка, где QR уже держит
     // нужное число, — это no-op, её достаточно проверить постусловием ниже.
-    const rowsToSend = updateRows.filter(
+    const changedRows = updateRows.filter(
       (row) => !amountsEqual(num(row.item.actualAmount), row.actualAmount),
     );
-    const skippedUnchanged = updateRows.length - rowsToSend.length;
+    // Older open clients do not understand continuation responses: never let
+    // them interpret a partially uploaded act as success and delete its draft.
+    const rowsToSend = input.supportsBatches ? changedRows.slice(0, QR_ITEM_BATCH_SIZE) : changedRows;
+    const skippedUnchanged = updateRows.length - changedRows.length;
 
     // Параллелим пачками: последовательный цикл упирался в latency backoffice,
     // а Promise.all по всему акту завалил бы и QR, и пул соединений.
@@ -319,6 +330,16 @@ export async function submitInventoryDocumentDraft(input: {
       console.info(
         `[submitInventoryDocumentDraft] doc ${document.id}: отправлено ${rowsToSend.length} строк, пропущено без изменений ${skippedUnchanged}`,
       );
+    }
+
+    if (changedRows.length > rowsToSend.length) {
+      const afterChunk = await readInventoryDocument({ ...auth, objectId: fresh.id });
+      return {
+        resultsHasLineAmounts: false,
+        pendingItems: changedRows.length - rowsToSend.length,
+        nextBaseLastUpdateDate: dateText(afterChunk.lastUpdateDate),
+        error: null,
+      };
     }
 
     const [reread, backOfficeItems] = await Promise.all([
@@ -462,7 +483,9 @@ export async function submitInventoryDocumentDraft(input: {
   } catch (error) {
     return {
       resultsHasLineAmounts: false,
-      error: actionErrorMessage(error, "Не удалось отправить акт в Quick Resto"),
+      error: error instanceof QuickRestoRateLimitError
+        ? "Quick Resto временно ограничил частоту запросов. Черновик сохранён на этом устройстве. Подождите и повторите отправку: уже принятые количества будут пропущены."
+        : actionErrorMessage(error, "Не удалось отправить акт в Quick Resto"),
     };
   }
 }

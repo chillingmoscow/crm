@@ -124,3 +124,19 @@ test("runWithConcurrency: concurrent workers really run in parallel", async () =
   deferreds.forEach((d) => d.resolve());
   await runPromise;
 });
+
+test("failed submission waits for in-flight writes before allowing a retry", async () => {
+  const write = deferred<void>();
+  let returned = false;
+  const result = runWithConcurrency([0, 1, 2], 2, async (item) => {
+    if (item === 0) { await write.promise; return; }
+    if (item === 1) throw new Error("rate limit");
+    assert.fail("must not start another item after the failure");
+  }).catch((error: Error) => { returned = true; return error; });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(returned, false);
+  write.resolve();
+  assert.equal((await result)?.message, "rate limit");
+  assert.equal(returned, true);
+});

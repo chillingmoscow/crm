@@ -10,7 +10,8 @@
  *  failure внутри supabase.rpc), общий `aborted`-флаг устанавливается
  *  немедленно. Остальные runner'ы завершают свой **текущий** item, но
  *  **больше не подхватывают** новые из очереди. Caller получает первую
- *  возникшую ошибку через rejected promise. Это совпадает с поведением
+ *  возникшую ошибку через rejected promise после завершения текущих workers.
+ *  После возврата caller'у фоновых записей не остаётся. Это совпадает с поведением
  *  serial `for await` — оригинальный код останавливался на первой
  *  failing record.
  *
@@ -27,6 +28,7 @@ export async function runWithConcurrency<T>(
   if (items.length === 0) return;
   let nextIndex = 0;
   let aborted = false;
+  let failure: { error: unknown } | undefined;
   const runners = Array.from(
     { length: Math.min(limit, items.length) },
     async () => {
@@ -37,10 +39,13 @@ export async function runWithConcurrency<T>(
           await worker(items[index]!);
         } catch (err) {
           aborted = true;
-          throw err;
+          failure ??= { error: err };
         }
       }
     },
   );
   await Promise.all(runners);
+  // Wait for already-started writes before returning an error to the caller.
+  // Otherwise a retry can overlap writes from the previous failed submission.
+  if (failure) throw failure.error;
 }

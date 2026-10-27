@@ -6,9 +6,58 @@ import {
   processInventoryDocumentBackOffice,
   quickRestoFetch,
   selectInventoryItemsBackOffice,
+  readInventoryDocument,
+  updateInventoryItemBackOffice,
+  callQuickRestoBackOfficeData,
+  QuickRestoRateLimitError,
 } from "./client.ts";
 
 const URL_UNDER_TEST = "https://id.quickresto.ru/realms/QR/protocol/openid-connect/auth";
+
+test("inventory item update retries a rejected 429 with the same absolute quantity", async (t) => {
+  const bodies: string[] = [];
+  t.mock.method(globalThis, "fetch", (_url: string, init: RequestInit) => {
+    bodies.push(String(init.body));
+    return Promise.resolve(bodies.length === 1
+      ? new Response("nginx", { status: 429, headers: { "Retry-After": "0" } })
+      : Response.json({ id: 42, actualAmount: 1.6 }));
+  });
+  const result = await updateInventoryItemBackOffice({
+    layerName: "rate-limit-item", authorization: "Bearer hidden", documentId: 7,
+    item: { id: 42, actualAmount: 0 }, actualAmount: 1.6,
+  });
+  assert.equal(result.actualAmount, 1.6);
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[0], bodies[1]);
+});
+
+test("public inventory read recovers from nginx 429", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", () => Promise.resolve(++calls === 1
+    ? new Response("nginx", { status: 429, headers: { "Retry-After": "0" } })
+    : Response.json({ id: 7, processed: false })));
+  assert.equal((await readInventoryDocument({
+    layerName: "rate-limit-public", login: "api", password: "hidden", objectId: 7,
+  })).id, 7);
+  assert.equal(calls, 2);
+});
+
+test("document creation is not replayed and hides the nginx response", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", () => {
+    calls += 1;
+    return Promise.resolve(new Response("Bearer leaked-token nginx", { status: 429 }));
+  });
+  await assert.rejects(() => callQuickRestoBackOfficeData({
+    layerName: "rate-limit-create", authorization: "Bearer hidden",
+    path: "warehouse.inventory.document.v2/create", body: { invoiceDate: 0 },
+  }), (error: Error) => {
+    assert.ok(error instanceof QuickRestoRateLimitError);
+    assert.doesNotMatch(error.message, /leaked-token|nginx/);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
 
 function networkTypeError(code: string, message = `connect ${code}`) {
   return new TypeError("fetch failed", { cause: { code, message } });

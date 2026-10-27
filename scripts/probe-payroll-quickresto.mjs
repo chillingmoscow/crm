@@ -14,6 +14,7 @@ const dir = await mkdtemp(join(tmpdir(), "sheerly-payroll-probe-"));
 try {
   const files = {
     client: "src/lib/integrations/quickresto/client.ts",
+    "request-queue": "src/lib/integrations/quickresto/request-queue.ts",
     crypto: "src/lib/integrations/crypto.ts",
     auth: "src/lib/integrations/quickresto/auth-state.ts",
   };
@@ -23,7 +24,7 @@ try {
         module: ts.ModuleKind.ES2022,
         target: ts.ScriptTarget.ES2022,
       },
-    }).outputText;
+    }).outputText.replaceAll("./request-queue.ts", "./request-queue.mjs");
     await writeFile(join(dir, `${name}.mjs`), code);
   }
   const mod = async (name) =>

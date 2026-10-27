@@ -1,3 +1,7 @@
+import { createQuickRestoRequestQueue } from "./request-queue.ts";
+
+export { QuickRestoRateLimitError } from "./request-queue.ts";
+
 export type QuickRestoTableScheme = {
   id: number;
   name?: string;
@@ -314,6 +318,34 @@ function throwQuickRestoNetworkError(url: string, error: unknown): never {
   );
 }
 
+const queueQuickRestoRequest = createQuickRestoRequestQueue();
+
+function fetchQuickRestoData(url: string, init: RequestInit) {
+  const method = init.method ?? "GET";
+  const inventoryUpdate = method === "POST" &&
+    new URL(url).pathname === "/platform/data/warehouse.inventory.items/update";
+  return queueQuickRestoRequest(url, async () => {
+    // The timeout belongs to the HTTP attempt, not time spent in the queue.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(`Quick Resto request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
+      }
+      throwQuickRestoNetworkError(url, error);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }, {
+    // Absolute item quantities can be retried after a rejected request. Do not
+    // replay creates, processing actions, ambiguous timeouts or network errors.
+    retryRateLimit: method === "GET" || inventoryUpdate,
+    intervalMs: inventoryUpdate ? 250 : 0,
+  });
+}
+
 // Только для KC-флоу входа (4 шага) и его рефреша: data-вызовы на
 // chilling/nx815 идут через callQuickRestoBackOfficeData и ретраятся
 // намеренно — часть POST/DELETE не идемпотентна, а сам маршрут здоров.
@@ -522,34 +554,20 @@ export async function callQuickRestoBackOfficeData<T>(input: {
   }
   const origin = buildQuickRestoBackOfficeOrigin(input);
   const url = `${origin}/platform/data/${input.path}${params.size > 0 ? `?${params.toString()}` : ""}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: input.body === undefined ? "GET" : "POST",
-      headers: {
-        Accept: "application/json, text/plain, */*",
-        Connection: "keep-alive",
-        "Content-Type": "application/json; charset=UTF-8",
-        Authorization: input.authorization,
-        Origin: origin,
-        Referer: `${origin}/`,
-      },
-      body: input.body === undefined ? undefined : JSON.stringify(input.body),
-      cache: "no-store",
-      redirect: "manual",
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(`Quick Resto back-office request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
-    }
-    throwQuickRestoNetworkError(url, error);
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await fetchQuickRestoData(url, {
+    method: input.body === undefined ? "GET" : "POST",
+    headers: {
+      Accept: "application/json, text/plain, */*",
+      Connection: "keep-alive",
+      "Content-Type": "application/json; charset=UTF-8",
+      Authorization: input.authorization,
+      Origin: origin,
+      Referer: `${origin}/`,
+    },
+    body: input.body === undefined ? undefined : JSON.stringify(input.body),
+    cache: "no-store",
+    redirect: "manual",
+  });
 
   if (
     response.status === 401 ||
@@ -973,26 +991,12 @@ async function callQuickResto<T>(input: {
     ...withAuthHeader(input.login, input.password),
     "Content-Type": "application/json",
   };
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
-
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method: input.path === "update" || input.body ? "POST" : "GET",
-      headers,
-      body: input.path === "update" || input.body ? JSON.stringify(input.body) : undefined,
-      cache: "no-store",
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (controller.signal.aborted) {
-      throw new Error(`Quick Resto request timed out after ${QUICK_RESTO_REQUEST_TIMEOUT_MS / 1000}s`);
-    }
-    throwQuickRestoNetworkError(url, error);
-  } finally {
-    clearTimeout(timeout);
-  }
+  const response = await fetchQuickRestoData(url, {
+    method: input.path === "update" || input.body ? "POST" : "GET",
+    headers,
+    body: input.path === "update" || input.body ? JSON.stringify(input.body) : undefined,
+    cache: "no-store",
+  });
 
   if (response.status === 401) {
     throw new Error("Quick Resto auth failed (401)");

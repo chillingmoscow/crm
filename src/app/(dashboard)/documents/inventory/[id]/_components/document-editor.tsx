@@ -1,6 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
+import { submitInventoryBatches } from "@/lib/inventory/submit-batches";
+
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -747,14 +749,14 @@ export function InventoryDocumentEditor({
         return;
       }
 
-      const result = await submitInventoryDocumentDraft({
+      const result = await submitInventoryBatches({
         documentId: document.id,
         baseLastUpdateDate: document.baseLastUpdateDate,
         items: filledItems.map(({ item, value }) => ({
           itemId: item.id,
           actualAmount: parseAmount(value),
         })),
-      });
+      }, submitInventoryDocumentDraft);
       if (result.error) {
         toast.error(result.error);
         if (result.refreshDocument) {

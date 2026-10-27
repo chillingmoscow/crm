@@ -34,6 +34,7 @@ import {
   listInventoryItemsBackOffice,
   loginQuickRestoBackOffice,
   processInventoryDocumentBackOffice,
+  QuickRestoRateLimitError,
   type QuickRestoInventoryDocument2,
   type QuickRestoInventoryItem2,
 } from "@/lib/integrations/quickresto/client";
@@ -519,7 +520,7 @@ export async function withBackOfficeSession<T>(input: {
       });
       return input.run(fresh);
     }
-    if (!input.retryTransient || isBackOfficePermissionError(error)) throw error;
+    if (!input.retryTransient || isBackOfficePermissionError(error) || error instanceof QuickRestoRateLimitError) throw error;
     await new Promise((resolve) => setTimeout(resolve, TRANSIENT_RETRY_DELAY_MS));
     return input.run(authorization);
   }

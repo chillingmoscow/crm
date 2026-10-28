@@ -156,6 +156,12 @@ const NAV_SECTIONS: NavSection[] = [
     icon: ChartNoAxesCombined,
     items: [
       {
+        title: "Статистика",
+        href: "/sales/statistics",
+        icon: ChartNoAxesCombined,
+        permission: "sales.view_shifts",
+      },
+      {
         title: "Смены",
         href: "/sales/shifts",
         icon: CalendarDays,

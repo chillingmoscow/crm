@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { SalesStatusBadge } from "./sales-status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageFrame } from "@/components/shared/page-frame";
 import {
   DateRangeFilter,
   type DateRangeValue,
@@ -82,22 +83,34 @@ const sortCodec = {
   combine: (field: string, direction: "asc" | "desc") =>
     `${field}:${direction}` as SortMode,
 };
-export function ShiftsClient({ initial }: { initial: SalesData }) {
+export function ShiftsClient({ initial, initialRange }: {
+  initial: SalesData;
+  initialRange?: { from: string; to: string };
+}) {
+  const rangeFrom = initialRange?.from;
+  const rangeTo = initialRange?.to;
   const [data, setData] = useState(initial);
   const st = useTableState({
     tableId: `sales-shifts.${initial.venueId}`,
     columns: stateColumns,
   });
-  const { setSorting, setPagination } = st;
+  const { setPagination } = st;
   const today = businessDate(
     new Date(),
     initial.timezone,
     initial.settings?.day_start_hour ?? 9,
   );
   const [range, setRange] = useState<DateRangeValue>({
-    start: null,
-    end: null,
+    start: initialRange ? new Date(`${initialRange.from}T12:00:00`) : null,
+    end: initialRange ? new Date(`${initialRange.to}T12:00:00`) : null,
   });
+  useEffect(() => {
+    setRange({
+      start: rangeFrom ? new Date(`${rangeFrom}T12:00:00`) : null,
+      end: rangeTo ? new Date(`${rangeTo}T12:00:00`) : null,
+    });
+    setPreset(null);
+  }, [rangeFrom, rangeTo]);
   const [preset, setPreset] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filter, setFilter] = useState("all");
@@ -115,9 +128,8 @@ export function ShiftsClient({ initial }: { initial: SalesData }) {
     setData(initial);
     setDrawer(null);
   }, [initial]);
-  useEffect(() => {
-    setSorting([{ id: "business_date", desc: true }]);
-  }, [initial.venueId, setSorting]);
+  // loadSales returns newest dates first. Do not install an implicit unique
+  // primary sort that would make every subsequent column look unresponsive.
   const refresh = useCallback(async () => {
     try {
       setData(await loadSales());
@@ -425,7 +437,7 @@ export function ShiftsClient({ initial }: { initial: SalesData }) {
     error: "С ошибками",
   };
   return (
-    <div className="space-y-5 px-4 pb-8 md:px-6" key={initial.venueId}>
+    <PageFrame className="space-y-5" key={initial.venueId}>
       <TablePageHeader title="Смены" />
       {!data.connected && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm">
@@ -776,6 +788,6 @@ export function ShiftsClient({ initial }: { initial: SalesData }) {
           }}
         />
       )}
-    </div>
+    </PageFrame>
   );
 }

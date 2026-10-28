@@ -24,6 +24,7 @@ try {
   );
   const baseEmployee = {
     id: "employee-1",
+    employmentId: "employment-1",
     active: true,
     hiredOn: "2026-01-01",
     birthday: "1990-10-28",
@@ -130,6 +131,56 @@ try {
     missing.decisions.filter((d) => d.rule === "medical_missing").length,
     1,
   );
+  const missingKey = missing.decisions.find(
+    (d) => d.rule === "medical_missing",
+  ).key;
+  const correctedHire = plan(
+    input({
+      businessDate: "2026-02-02",
+      employees: [
+        {
+          ...baseEmployee,
+          hiredOn: "2026-01-02",
+          medicalCase: null,
+          birthday: null,
+        },
+      ],
+      recordedKeys: [missingKey],
+    }),
+  );
+  assert.equal(
+    correctedHire.decisions.filter((d) => d.rule === "medical_missing").length,
+    0,
+  );
+  assert.equal(
+    correctedHire.recordedCandidates.find((d) => d.rule === "medical_missing")
+      .key,
+    missingKey,
+    "A corrected hire date cannot create a second absence-case fine",
+  );
+  const unknownEmployment = plan(
+    input({
+      businessDate: "2026-02-01",
+      employees: [
+        {
+          ...baseEmployee,
+          employmentId: null,
+          medicalCase: null,
+          birthday: null,
+        },
+      ],
+    }),
+  );
+  assert.equal(
+    unknownEmployment.decisions.filter((d) => d.rule === "medical_missing")
+      .length,
+    0,
+  );
+  assert(
+    unknownEmployment.blockers.some(
+      (b) => b.code === "medical_employment_unreconciled",
+    ),
+  );
   const reimbursementInput = input({
     businessDate: "2026-04-02",
     employees: [
@@ -210,6 +261,26 @@ try {
     "bonus",
     "A changed existing outcome must remain visible for reconciliation, never be reapplied",
   );
+  for (const outcome of [
+    { ...task, result: "completed", transferred: false },
+    { ...task, result: "completed", rewardAmount: null },
+    { ...task, result: "completed", rewardAmount: 0 },
+  ]) {
+    const uncharged = plan(
+      input({
+        tasks: [outcome],
+        recordedKeys: [finePlan.decisions.find((d) => d.rule === "task").key],
+      }),
+    );
+    assert.equal(
+      uncharged.decisions.filter((d) => d.rule === "task").length,
+      0,
+    );
+    assert(
+      uncharged.blockers.some((b) => b.code === "recorded_task_has_no_charge"),
+      "A corrected outcome with no new charge must not hide the previously recorded fine",
+    );
+  }
   const futureHire = plan(
     input({
       employees: [{ ...baseEmployee, hiredOn: "2026-11-01" }],

@@ -36,6 +36,8 @@ export type MedicalCase = {
 };
 export type AutomationEmployee = {
   id: string;
+  /** Stable employment episode ID, unchanged by a correction of hiredOn. */
+  employmentId: string | null;
   active: boolean;
   hiredOn: string | null;
   birthday: string | null;
@@ -185,6 +187,21 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
     message: string,
     sourceId?: string,
   ) => blockers.push({ employeeId, sourceId, code, message });
+  function decisionKey(
+    employeeId: string,
+    sourceId: string,
+    rule: AutomationDecision["rule"],
+    suffix: string,
+  ) {
+    return [
+      "payroll",
+      id(input.venueId),
+      id(employeeId),
+      rule,
+      id(sourceId),
+      suffix,
+    ].join(":");
+  }
   function emit(
     employeeId: string,
     sourceId: string,
@@ -195,14 +212,7 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
     amount: number,
     reason: string,
   ) {
-    const key = [
-      "payroll",
-      id(input.venueId),
-      id(employeeId),
-      rule,
-      id(sourceId),
-      suffix,
-    ].join(":");
+    const key = decisionKey(employeeId, sourceId, rule, suffix);
     if (!Number.isFinite(amount) || amount < 0 || amount > 1e9)
       throw new Error("Некорректная сумма правила");
     if (
@@ -263,6 +273,12 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
             "hire_date_missing",
             "Не указана дата приёма на работу",
           );
+        else if (!employee.employmentId)
+          block(
+            employee.id,
+            "medical_employment_unreconciled",
+            "Не сопоставлен период трудоустройства для случая отсутствующей медкнижки",
+          );
         else {
           if (
             medical.reminders &&
@@ -271,7 +287,7 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
           )
             emit(
               employee.id,
-              employee.hiredOn,
+              employee.employmentId,
               "medical_reminder",
               "missing",
               "notification",
@@ -286,7 +302,7 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
           )
             emit(
               employee.id,
-              employee.hiredOn,
+              employee.employmentId,
               "medical_missing",
               "once",
               "deduction",
@@ -444,7 +460,15 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
         continue;
       }
       if (!level.roles.includes(employee.giftRole)) continue;
-      const source = `${employee.hiredOn}:${level.days}`;
+      if (!employee.employmentId) {
+        block(
+          employee.id,
+          "gift_employment_unreconciled",
+          "Не сопоставлен период трудоустройства для подарка за стаж",
+        );
+        continue;
+      }
+      const source = `${id(employee.employmentId)}:${level.days}`;
       emit(
         employee.id,
         source,
@@ -558,6 +582,14 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
         config.tasks.extra_reward_medium,
         task.rewardAmount,
         `Выполнение перенесённой задачи «${task.title}»`,
+      );
+    const key = decisionKey(employee.id, source, "task", "result");
+    if (recorded.has(key) && !seenKeys.has(key))
+      block(
+        employee.id,
+        "recorded_task_has_no_charge",
+        "По текущему результату задачи начисления нет. Сверьте прежнюю запись; автоматическая отмена не выполнялась",
+        source,
       );
   }
   return { decisions: [...decisions.values()], recordedCandidates, blockers };

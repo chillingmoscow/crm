@@ -337,7 +337,7 @@ end $$;
 revoke all on function public.candidate_claim_job() from public,anon,authenticated;
 grant execute on function public.candidate_claim_job() to service_role;
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('candidate-files','candidate-files',false,10485760,array['image/jpeg','image/png','image/webp','image/avif','image/gif','application/pdf']) on conflict(id) do nothing;
-create policy candidate_files_read on storage.objects for select to authenticated using(bucket_id='candidate-files' and exists(select 1 from public.candidate_files f where f.storage_path=name and private.candidate_access(f.account_id,false)));
+create policy candidate_files_read on storage.objects for select to authenticated using(bucket_id='candidate-files' and exists(select 1 from public.candidate_files f where f.storage_path=storage.objects.name and private.candidate_access(f.account_id,false)));
 
 create function public.candidate_hiring_options() returns jsonb language sql stable security definer set search_path=public,pg_catalog as $$
  select case when private.candidate_access(public.get_active_account_id(),false) then jsonb_build_object(

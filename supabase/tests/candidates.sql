@@ -13,6 +13,13 @@ insert into public.role_permissions(role_id,permission_id,granted) select 'ce000
 insert into public.user_venue_roles(user_id,venue_id,role_id,status) values('ce000000-0000-4000-8000-000000000002','ce000000-0000-4000-8000-000000000020','ce000000-0000-4000-8000-000000000030','active');
 update public.profiles set active_venue_id='ce000000-0000-4000-8000-000000000020' where id in ('ce000000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000002');
 insert into public.candidates(id,account_id,full_name) values('ce000000-0000-4000-8000-000000000040','ce000000-0000-4000-8000-000000000010','Кандидат QA'),('ce000000-0000-4000-8000-000000000041','ce000000-0000-4000-8000-000000000011','Чужой кандидат QA');
+-- Display names differ from storage paths. Exercise the actual storage RLS policy.
+insert into public.candidate_files(account_id,candidate_id,name,storage_path,state) values
+('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000040','portrait.jpg','ce000000-0000-4000-8000-000000000010/qa/photo.jpg','ready'),
+('ce000000-0000-4000-8000-000000000011','ce000000-0000-4000-8000-000000000041','other.jpg','ce000000-0000-4000-8000-000000000011/qa/photo.jpg','ready');
+insert into storage.objects(bucket_id,name) values
+('candidate-files','ce000000-0000-4000-8000-000000000010/qa/photo.jpg'),
+('candidate-files','ce000000-0000-4000-8000-000000000011/qa/photo.jpg');
 insert into public.candidate_connections(id,account_id,secret_hash,enabled,form_id,created_by) values('ce000000-0000-4000-8000-000000000050','ce000000-0000-4000-8000-000000000010',repeat('a',64),true,'form123','ce000000-0000-4000-8000-000000000001');
 set local role service_role;
 select public.candidate_receive('ce000000-0000-4000-8000-000000000050','qa-event','{"full_name":"Повтор webhook","phone":"+79990000000","photos":[]}','{"formid":"form123"}');
@@ -32,6 +39,8 @@ do $$declare n int;begin
  perform public.candidate_command('comment','ce000000-0000-4000-8000-000000000040','{"body":"Комментарий QA","request_key":"ce000000-0000-4000-8000-000000000090"}');
  if (select count(*) from public.candidate_comments where candidate_id='ce000000-0000-4000-8000-000000000040')<>1 then raise exception 'Duplicate comment';end if;
  if not exists(select 1 from public.candidate_events where candidate_id='ce000000-0000-4000-8000-000000000040' and kind='commented') then raise exception 'Recruiter cannot read journal';end if;
+ if not exists(select 1 from storage.objects where bucket_id='candidate-files' and name='ce000000-0000-4000-8000-000000000010/qa/photo.jpg') then raise exception 'Recruiter cannot read candidate file';end if;
+ if exists(select 1 from storage.objects where bucket_id='candidate-files' and name='ce000000-0000-4000-8000-000000000011/qa/photo.jpg') then raise exception 'Cross-tenant file exposed';end if;
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000041','{"revision":1,"status":"rejected"}');raise exception 'Cross-tenant write permitted';exception when others then if SQLERRM='Cross-tenant write permitted' then raise;end if;end;
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"hired"}');raise exception 'Status bypass permitted';exception when others then if SQLERRM='Status bypass permitted' then raise;end if;end;
  begin perform public.candidate_command('archive','ce000000-0000-4000-8000-000000000040','{}');raise exception 'Recruiter archive permitted';exception when others then if SQLERRM='Recruiter archive permitted' then raise;end if;end;
@@ -79,7 +88,8 @@ select public.candidate_command('archive','ce000000-0000-4000-8000-000000000040'
 reset role;
 select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
 set local role authenticated;
-do $$begin if exists(select 1 from public.candidates where id='ce000000-0000-4000-8000-000000000040') or exists(select 1 from public.candidate_comments where candidate_id='ce000000-0000-4000-8000-000000000040') then raise exception 'Archived data exposed';end if;end $$;
+do $$begin if exists(select 1 from public.candidates where id='ce000000-0000-4000-8000-000000000040') or exists(select 1 from public.candidate_comments where candidate_id='ce000000-0000-4000-8000-000000000040') then raise exception 'Archived data exposed';end if;
+if exists(select 1 from storage.objects where bucket_id='candidate-files' and name='ce000000-0000-4000-8000-000000000010/qa/photo.jpg') then raise exception 'Archived file exposed';end if;end $$;
 reset role;
 rollback;
 \echo 'Candidates integration checks passed'

@@ -118,6 +118,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: User,
         permission: "people.view_staff",
       },
+      { title: "Кандидаты", href: "/people/candidates", icon: User, permissions: ["people.view_candidates", "people.manage_candidates", "people.hire_candidates"] },
       { title: "Зарплата", href: "/people/payroll", icon: Wallet },
       {
         title: "Должности",

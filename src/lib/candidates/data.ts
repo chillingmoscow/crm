@@ -1,0 +1,244 @@
+import "server-only";
+import {
+  createClient,
+  getCachedUser,
+  getCachedActiveAccountId,
+  getCachedPermissionChecker,
+} from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { asLooseDb } from "@/lib/supabase/loose";
+import type {
+  Candidate,
+  CandidateDetail,
+  CandidateFile,
+  CandidatePermissions,
+  Comment,
+  Appointment,
+  CandidateEvent,
+  HiringOptions,
+  ListFilters,
+} from "./types";
+import { uuid, normalizePhone } from "./schema";
+export async function candidateScope(manage = false) {
+  const [user, accountId, can, client] = await Promise.all([
+    getCachedUser(),
+    getCachedActiveAccountId(),
+    getCachedPermissionChecker(),
+    createClient(),
+  ]);
+  if (!user || !accountId) throw new Error("Войдите в аккаунт");
+  if (
+    manage
+      ? !can("people.manage_candidates")
+      : ![
+          "people.view_candidates",
+          "people.manage_candidates",
+          "people.hire_candidates",
+        ].some(can)
+  )
+    throw new Error("Нет доступа к кандидатам");
+  const owner = await client
+    .from("accounts")
+    .select("owner_id")
+    .eq("id", accountId)
+    .maybeSingle();
+  const permissions: CandidatePermissions = {
+    manage: can("people.manage_candidates"),
+    hire: can("people.hire_candidates"),
+    owner: owner.data?.owner_id === user.id,
+    integrations: can("settings.manage_integrations"),
+  };
+  return {
+    user,
+    accountId,
+    client,
+    db: asLooseDb(client),
+    admin: asLooseDb(createAdminClient()),
+    permissions,
+  };
+}
+function check<T>(r: { data: T | null; error: { message: string } | null }): T {
+  if (r.error) throw new Error(r.error.message);
+  return r.data as T;
+}
+export async function candidateOptions(): Promise<HiringOptions> {
+  const s = await candidateScope();
+  return check(await s.db.rpc("candidate_hiring_options", {})) as HiringOptions;
+}
+export async function candidateList(filters: ListFilters = {}) {
+  const s = await candidateScope();
+  if (filters.archive && !s.permissions.owner)
+    throw new Error("Архив доступен владельцу");
+  let query = s.db
+    .from<Candidate[]>("candidates")
+    .select("*", { count: "exact" })
+    .eq("account_id", s.accountId)
+    .order("submitted_at", { ascending: false })
+    .order("id", { ascending: false });
+  query = filters.archive
+    ? query.or("archived_at.not.is.null")
+    : query.is("archived_at", null);
+  const search = (filters.search ?? "")
+    .replace(/[,()%_*\\]/g, " ")
+    .trim()
+    .slice(0, 100);
+  if (search)
+    query = query.or(
+      `full_name.ilike.%${search}%,phone.ilike.%${search}%,desired_position.ilike.%${search}%${normalizePhone(search).length >= 3 ? ",phone_normalized.ilike.%" + normalizePhone(search) + "%" : ""}`,
+    );
+  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.position) query = query.eq("desired_position", filters.position);
+  if (filters.responsible)
+    query = query.eq("responsible_id", uuid.parse(filters.responsible));
+  // Business dates are interpreted in the account's recruiting timezone (Moscow for the initial Tilda form).
+  if (filters.from || filters.to) {
+    const from = filters.from ? `${filters.from}T00:00:00+03:00` : null;
+    const to = filters.to ? `${filters.to}T23:59:59.999+03:00` : null;
+    query = query.or(
+      [
+        from ? `submitted_at.gte.${from}` : null,
+        to ? `submitted_at.lte.${to}` : null,
+      ].filter(Boolean).length === 2
+        ? `and(submitted_at.gte.${from},submitted_at.lte.${to})`
+        : from
+          ? `submitted_at.gte.${from}`
+          : `submitted_at.lte.${to}`,
+    );
+  }
+  const page = Math.max(0, Math.min(filters.page ?? 0, 10000));
+  const result = await query.range(page * 100, page * 100 + 99);
+  const rows = check(result) ?? [];
+  const ids = rows.map((c) => c.id);
+  if (ids.length) {
+    const files = check(
+      await s.db
+        .from<CandidateFile[]>("candidate_files")
+        .select("candidate_id,storage_path")
+        .eq("state", "ready")
+        .in("candidate_id", ids),
+    ) as (CandidateFile & { candidate_id: string })[];
+    await Promise.all(
+      rows.map(async (c) => {
+        const f = files.find((f) => f.candidate_id === c.id);
+        if (f?.storage_path) {
+          const r = await s.client.storage
+            .from("candidate-files")
+            .createSignedUrl(f.storage_path, 1800);
+          c.photo_url = r.data?.signedUrl ?? null;
+        }
+      }),
+    );
+  }
+  return { rows, total: result.count ?? rows.length };
+}
+export async function candidateDetail(id: string): Promise<CandidateDetail> {
+  const s = await candidateScope();
+  uuid.parse(id);
+  const candidate = check(
+    await s.db
+      .from<Candidate>("candidates")
+      .select("*")
+      .eq("id", id)
+      .eq("account_id", s.accountId)
+      .single(),
+  );
+  if (candidate.archived_at && !s.permissions.owner)
+    throw new Error("Анкета в архиве");
+  const [comments, events, appointments, files, related, hire] =
+    await Promise.all([
+      s.db
+        .from<Comment[]>("candidate_comments")
+        .select("*")
+        .eq("candidate_id", id)
+        .eq("account_id", s.accountId)
+        .order("created_at"),
+      s.db
+        .from<CandidateEvent[]>("candidate_events")
+        .select("*")
+        .eq("candidate_id", id)
+        .eq("account_id", s.accountId)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      s.db
+        .from<Appointment[]>("candidate_appointments")
+        .select("*")
+        .eq("candidate_id", id)
+        .eq("account_id", s.accountId)
+        .order("appointment_date", { ascending: false }),
+      s.db
+        .from<CandidateFile[]>("candidate_files")
+        .select("*")
+        .eq("candidate_id", id)
+        .eq("account_id", s.accountId)
+        .order("created_at"),
+      candidate.phone_normalized
+        ? s.db
+            .from<CandidateDetail["related"]>("candidates")
+            .select("id,full_name,status,submitted_at")
+            .eq("account_id", s.accountId)
+            .eq("phone_normalized", candidate.phone_normalized)
+            .neq("id", id)
+            .limit(20)
+        : Promise.resolve({ data: [], error: null }),
+      s.admin
+        .from<CandidateDetail["hire"]>("candidate_hires")
+        .select("state,input,error")
+        .eq("account_id", s.accountId)
+        .eq("candidate_id", id)
+        .maybeSingle(),
+    ]);
+  const cs = check(comments) ?? [],
+    es = check(events) ?? [],
+    fs = check(files) ?? [];
+  const authorIds = [
+    ...new Set(
+      [...cs.map((c) => c.author_id), ...es.map((e) => e.actor_id)].filter(
+        (id): id is string => Boolean(id),
+      ),
+    ),
+  ];
+  const names = new Map<string, string>();
+  if (authorIds.length) {
+    const profiles =
+      check(
+        await s.admin
+          .from<
+            {
+              id: string;
+              first_name: string | null;
+              last_name: string | null;
+            }[]
+          >("profiles")
+          .select("id,first_name,last_name")
+          .in("id", authorIds),
+      ) ?? [];
+    for (const p of profiles)
+      names.set(p.id, [p.first_name, p.last_name].filter(Boolean).join(" "));
+  }
+  await Promise.all(
+    fs.map(async (f) => {
+      if (f.storage_path) {
+        const r = await s.client.storage
+          .from("candidate-files")
+          .createSignedUrl(f.storage_path, 1800);
+        f.url = r.data?.signedUrl ?? null;
+      }
+    }),
+  );
+  return {
+    candidate,
+    comments: cs.map((c) => ({
+      ...c,
+      author_name:
+        names.get(c.author_id ?? "") ?? c.source_author ?? "Импорт из Notion",
+    })),
+    events: es.map((e) => ({
+      ...e,
+      actor_name: names.get(e.actor_id ?? "") ?? "Система",
+    })),
+    appointments: check(appointments) ?? [],
+    files: fs,
+    related: check(related) ?? [],
+    hire: check(hire),
+  };
+}

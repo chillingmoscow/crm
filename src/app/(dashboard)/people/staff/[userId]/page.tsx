@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -228,7 +230,23 @@ export default async function StaffMemberPage({
     (targetAuthUser.user_metadata as { needs_password_setup?: boolean } | null)
       ?.needs_password_setup === true;
 
+  const candidateLink = await asLooseDb(supabase)
+    .from<{ id: string; full_name: string }>("candidates")
+    .select("id,full_name")
+    .eq("account_id", accountId)
+    .eq("hired_user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
   return (
+    <>
+      {candidateLink.data ? (
+        <div className="px-4 pt-4 md:px-8">
+          <Link href={`/people/candidates/${candidateLink.data.id}`} className="text-sm text-brand hover:underline">
+            Анкета кандидата и история подбора →
+          </Link>
+        </div>
+      ) : null}
     <StaffDetailPage
       profile={profileRow}
       accountDetails={accountDetails}
@@ -262,5 +280,6 @@ export default async function StaffMemberPage({
       backHref={back?.href}
       backLabel={back?.label}
     />
+    </>
   );
 }

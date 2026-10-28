@@ -49,3 +49,7 @@ next-env.d.ts
 
 # brainstorm visual companion (superpowers)
 .superpowers/
+
+# Local browser verification artifacts (may contain private candidate data).
+/.playwright-cli/
+/output/playwright/

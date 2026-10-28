@@ -76,6 +76,7 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
   },
 
   // Staff
+  "candidate.new": { category: "staff", icon: UserPlus, iconColor: "text-brand", verb: null },
   "staff.payroll_comment": {
     category: "staff",
     icon: MessageCircle,

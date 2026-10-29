@@ -35,6 +35,10 @@ import {
   type AutomationRun,
 } from "./actions";
 import type { AutomationPersonInput } from "@/lib/automations/state";
+import {
+  uniformSchedule,
+  nextUniformPaymentDate,
+} from "@/lib/automations/payroll-rules";
 import { businessDate } from "@/lib/sales/time";
 import Link from "next/link";
 
@@ -71,6 +75,8 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
     [employeeId, setEmployeeId] = useState(""),
     [title, setTitle] = useState(""),
     [amount, setAmount] = useState(""),
+    [bankAccountId, setBankAccountId] = useState(""),
+    [purchasedOn, setPurchasedOn] = useState(""),
     [due, setDue] = useState("");
   const [cancel, setCancel] = useState<string | null>(null),
     [cancelReason, setCancelReason] = useState("");
@@ -80,6 +86,19 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
   );
   const [run, setRun] = useState<AutomationRun | null>(null);
   const names = new Map(data.employees.map((e) => [e.id, e.name]));
+  const uniformEmployee = data.employees.find((e) => e.id === employeeId);
+  let installmentPreview: { dueOn: string; amount: number }[] = [];
+  try {
+    if (amount && due)
+      installmentPreview = uniformSchedule(
+        Number(amount),
+        due,
+        data.settings.uniform.installments,
+        data.settings.uniform.payment_days,
+      );
+  } catch {
+    /* The incomplete form stays editable; the server validates the final plan. */
+  }
   async function act(fn: () => Promise<unknown>, close?: () => void) {
     setBusy(true);
     try {
@@ -167,8 +186,8 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
       />
       <div className="rounded-xl border bg-muted/30 px-4 py-3 text-sm">
         Glide и n8n продолжают работать. Бонусные операции здесь только
-        сравниваются; списаний в Quick Resto нет. Денежные записи попадают в
-        зарплату после проверки результата.
+        сравниваются; списаний в Quick Resto нет. Штрафы и компенсации попадают
+        в зарплату после проверки результата.
       </div>
       {!data.settingsSaved && (
         <p className="text-sm text-muted-foreground">
@@ -219,9 +238,24 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
         <TabsContent value="uniform" className="space-y-4 pt-5">
           <div className="flex justify-end">
             <Button
-              disabled={!data.settingsSaved}
+              disabled={
+                !data.canPurchase ||
+                !data.settingsSaved ||
+                !data.settings.uniform.enabled
+              }
               onClick={() => {
                 setRequestId(crypto.randomUUID());
+                const today = businessDate(new Date(), data.timezone, 0);
+                setPurchasedOn(today);
+                setDue(
+                  nextUniformPaymentDate(
+                    today,
+                    data.settings.uniform.payment_days,
+                  ),
+                );
+                setBankAccountId(
+                  data.bankAccounts.length === 1 ? data.bankAccounts[0].id : "",
+                );
                 setUniformOpen(true);
               }}
             >
@@ -230,9 +264,19 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
             </Button>
           </div>
           <p className="text-sm text-muted-foreground">
-            Покупка фиксирует график возмещения. Сам расход оформляется в
-            финансах отдельно.
+            Одна покупка — один расход по статье должности в ФОТ. Стоимость
+            возмещается частями из зарплаты.
           </p>
+          {!data.canPurchase && (
+            <p className="text-sm text-muted-foreground">
+              Для записи покупки нужен доступ к счетам и созданию расходов.
+            </p>
+          )}
+          {data.canPurchase && !data.bankAccounts.length && (
+            <p className="text-sm text-muted-foreground">
+              Нет доступного рублёвого счёта. Добавьте его в разделе «Финансы».
+            </p>
+          )}
           {!data.uniform.length && !data.legacyUniform.length ? (
             <p className="rounded-xl border p-8 text-center text-muted-foreground">
               Покупок формы пока нет
@@ -261,17 +305,15 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
                     ₽
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {i.installments.map((s) => (
-                    <span
-                      key={s.dueOn}
-                      className="rounded-lg bg-muted px-3 py-2 text-sm"
-                    >
-                      {dateLabel(s.dueOn)} · {s.amount.toLocaleString("ru-RU")}{" "}
-                      ₽
-                    </span>
-                  ))}
-                </div>
+                <UniformInstallments items={i.installments} />
+                {i.expense_transaction_id && (
+                  <Link
+                    className="inline-flex text-sm text-brand hover:underline"
+                    href={`/finance/transactions/${i.expense_transaction_id}`}
+                  >
+                    Расход от {dateLabel(i.purchased_on)} ↗
+                  </Link>
+                )}
                 {!i.cancelled_at && (
                   <Button
                     variant="ghost"
@@ -607,7 +649,7 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
           if (!busy) setUniformOpen(o);
         }}
         title="Покупка формы"
-        description="Стоимость и даты возмещения сотрудником"
+        description="Расход и график возмещения сотрудником"
         focusContentOnOpen
         footer={
           <>
@@ -619,7 +661,17 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
               Отмена
             </Button>
             <Button
-              disabled={busy || !employeeId || !title || !amount || !due}
+              disabled={
+                busy ||
+                !data.canPurchase ||
+                !uniformEmployee?.role_id ||
+                !bankAccountId ||
+                !title ||
+                !purchasedOn ||
+                !installmentPreview.length ||
+                installmentPreview.some((p) => p.amount <= 0) ||
+                installmentPreview[0].dueOn < purchasedOn
+              }
               onClick={() =>
                 act(
                   () =>
@@ -627,7 +679,11 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
                       employeeId,
                       title,
                       amount: Number(amount),
-                      firstDueOn: due,
+                      installments: installmentPreview,
+                      bankAccountId,
+                      purchasedOn,
+                      roleId: uniformEmployee!.role_id!,
+                      settingsVersion: data.settingsVersion,
                       requestId,
                     }),
                   () => {
@@ -638,7 +694,7 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
                 )
               }
             >
-              Сохранить
+              Записать покупку
             </Button>
           </>
         }
@@ -667,14 +723,53 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
             onChange={(e) => setAmount(e.target.value)}
           />
         </Field>
+        <Field label="Дата покупки">
+          <DatePicker
+            value={purchasedOn}
+            onChange={setPurchasedOn}
+            clearable={false}
+          />
+        </Field>
+        <Field label="Счёт списания">
+          <Choice
+            value={bankAccountId || "unselected"}
+            onChange={(v) => setBankAccountId(v === "unselected" ? "" : v)}
+            options={{
+              unselected: "Выберите счёт",
+              ...Object.fromEntries(
+                data.bankAccounts.map((b) => [b.id, b.name]),
+              ),
+            }}
+          />
+        </Field>
+        {uniformEmployee && (
+          <p className="text-sm text-muted-foreground">
+            Статья расхода: ФОТ · {uniformEmployee.role_name}
+          </p>
+        )}
         <Field label="Первое удержание">
-          <DatePicker value={due} onChange={setDue} />
+          <DatePicker
+            value={due}
+            onChange={(v) =>
+              setDue(
+                v
+                  ? nextUniformPaymentDate(
+                      v,
+                      data.settings.uniform.payment_days,
+                    )
+                  : "",
+              )
+            }
+          />
         </Field>
         <p className="text-sm text-muted-foreground">
           {data.settings.uniform.installments} части ·{" "}
           {data.settings.uniform.payment_days.join(" и ")} числа. Последняя
           часть включает остаток копеек.
         </p>
+        {!!installmentPreview.length && (
+          <UniformInstallments items={installmentPreview} />
+        )}
       </EditDrawer>
       <EditDrawer
         open={!!run}
@@ -803,6 +898,21 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
         </Field>
       </EditDrawer>
     </PageFrame>
+  );
+}
+function UniformInstallments({
+  items,
+}: {
+  items: { dueOn: string; amount: number }[];
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {items.map((p) => (
+        <span key={p.dueOn} className="rounded-lg bg-muted px-3 py-2 text-sm">
+          {dateLabel(p.dueOn)} · {p.amount.toLocaleString("ru-RU")} ₽
+        </span>
+      ))}
+    </div>
   );
 }
 function Field({

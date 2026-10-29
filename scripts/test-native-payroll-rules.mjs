@@ -16,9 +16,11 @@ try {
     },
   ).outputText;
   await writeFile(join(dir, "rules.mjs"), code);
-  const { planPayrollAutomations: plan, uniformSchedule } = await import(
-    pathToFileURL(join(dir, "rules.mjs")).href
-  );
+  const {
+    planPayrollAutomations: plan,
+    uniformSchedule,
+    nextUniformPaymentDate,
+  } = await import(pathToFileURL(join(dir, "rules.mjs")).href);
   const defaults = JSON.parse(
     await readFile("src/lib/payroll/automation-defaults.json", "utf8"),
   );
@@ -210,6 +212,9 @@ try {
     3000,
   );
   const parts = uniformSchedule(1000.01, "2026-12-18", 4, [3, 18]);
+  assert.equal(nextUniformPaymentDate("2026-12-29", [3, 18]), "2027-01-03");
+  assert.equal(nextUniformPaymentDate("2026-10-18", [3, 18]), "2026-10-18");
+  assert.throws(() => nextUniformPaymentDate("2026-10-18", []));
   assert.deepEqual(
     parts.map((p) => p.dueOn),
     ["2026-12-18", "2027-01-03", "2027-01-18", "2027-02-03"],

@@ -58,6 +58,8 @@ export type UniformRecord = {
   title: string;
   installments: UniformIssue["installments"];
   cancelled_at: string | null;
+  expense_transaction_id: string | null;
+  purchased_on: string | null;
 };
 export type AutomationSnapshot = {
   account_id: string;

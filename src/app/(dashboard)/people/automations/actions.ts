@@ -15,7 +15,6 @@ import type {
   AutomationDecision,
   AutomationBlocker,
 } from "@/lib/automations/payroll-rules";
-import { uniformSchedule } from "@/lib/automations/payroll-rules";
 import { runPayrollAutomation } from "@/lib/automations/run";
 import {
   defaultAutomationSettings,
@@ -154,6 +153,20 @@ export async function loadAutomationWorkspace() {
     .eq("venue_id", s.venueId);
   if (roleRows.error) throw new Error(roleRows.error.message);
   const can = await getCachedPermissionChecker();
+  const canPurchase =
+    can("finance.create_transaction") && can("finance.view_bank_accounts");
+  const bankAccounts = canPurchase
+    ? await s.db
+        .from<{ id: string; name: string }[]>("bank_accounts")
+        .select("id,name")
+        .eq("account_id", s.accountId)
+        .eq("is_active", true)
+        .eq("currency", "RUB")
+        .is("deleted_at", null)
+        .or(`venue_id.is.null,venue_id.eq.${s.venueId}`)
+        .order("name")
+    : { data: [], error: null };
+  if (bankAccounts.error) throw new Error(bankAccounts.error.message);
   const userIds = (employees.data ?? []).flatMap((e) =>
     e.local_user_id ? [e.local_user_id] : [],
   );
@@ -173,6 +186,9 @@ export async function loadAutomationWorkspace() {
       : { data: [], error: null };
   if (details.error) throw new Error(details.error.message);
   return {
+    canPurchase,
+    bankAccounts: bankAccounts.data ?? [],
+    settingsVersion: settings.data?.version ?? 0,
     legacyUniform: [
       ...new Map(
         [...(imports.data ?? [])]
@@ -225,7 +241,11 @@ export async function addUniform(input: {
   employeeId: string;
   title: string;
   amount: number;
-  firstDueOn: string;
+  installments: { dueOn: string; amount: number }[];
+  purchasedOn: string;
+  bankAccountId: string;
+  roleId: string;
+  settingsVersion: number;
   requestId: string;
 }) {
   const s = await scope();
@@ -234,28 +254,36 @@ export async function addUniform(input: {
       employeeId: z.string().uuid(),
       title: z.string().trim().min(1).max(200),
       amount: z.number().positive().max(1e6),
-      firstDueOn: z.string().refine(validDate),
+      installments: z
+        .array(
+          z
+            .object({
+              dueOn: z.string().refine(validDate),
+              amount: z.number().positive().max(1e6),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(24),
+      purchasedOn: z.string().refine(validDate),
+      bankAccountId: z.string().uuid(),
+      roleId: z.string().uuid(),
+      settingsVersion: z.number().int().positive(),
       requestId: z.string().uuid(),
     })
     .parse(input);
-  const cfg = await s.db
-    .from<AutomationSettingsRecord>("payroll_automation_settings")
-    .select("*")
-    .eq("venue_id", s.venueId)
-    .single();
-  if (cfg.error || !cfg.data)
-    throw new Error("Сначала сохраните правила удержаний в заведении");
-  const installments = uniformSchedule(
-    value.amount,
-    value.firstDueOn,
-    cfg.data.config.uniform.installments,
-    cfg.data.config.uniform.payment_days,
-  );
-  const r = await s.db.rpc("payroll_add_uniform_issue", {
-    p_employee: value.employeeId,
-    p_title: value.title,
-    p_installments: installments,
-    p_request: value.requestId,
+  const r = await s.db.rpc("payroll_purchase_uniform", {
+    p_input: {
+      request_id: value.requestId,
+      employee_id: value.employeeId,
+      role_id: value.roleId,
+      title: value.title,
+      amount: value.amount,
+      installments: value.installments,
+      bank_account_id: value.bankAccountId,
+      purchased_on: value.purchasedOn,
+      settings_version: value.settingsVersion,
+    },
   });
   if (r.error) throw new Error(r.error.message);
 }

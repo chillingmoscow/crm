@@ -121,6 +121,28 @@ function id(value: string): string {
 }
 
 /** A new purchase must supply its first withholding date explicitly. No backdating. */
+function validUniformDays(days: number[]) {
+  return (
+    days.length > 0 &&
+    days.length <= 4 &&
+    days.every(
+      (d, i) =>
+        Number.isInteger(d) &&
+        d >= 1 &&
+        d <= 28 &&
+        (i === 0 || days[i - 1] < d),
+    )
+  );
+}
+export function nextUniformPaymentDate(from: string, paymentDays: number[]) {
+  day(from);
+  if (!validUniformDays(paymentDays))
+    throw new Error("Проверьте график удержаний");
+  let cursor = from;
+  while (!paymentDays.includes(day(cursor).getUTCDate()))
+    cursor = addDays(cursor, 1);
+  return cursor;
+}
 export function uniformSchedule(
   total: number,
   firstDueOn: string,
@@ -133,15 +155,7 @@ export function uniformSchedule(
     !Number.isInteger(count) ||
     count < 1 ||
     count > 24 ||
-    !paymentDays.length ||
-    paymentDays.length > 4 ||
-    paymentDays.some(
-      (d, i) =>
-        !Number.isInteger(d) ||
-        d < 1 ||
-        d > 28 ||
-        (i > 0 && d <= paymentDays[i - 1]),
-    )
+    !validUniformDays(paymentDays)
   )
     throw new Error("Проверьте график удержаний");
   if (!paymentDays.includes(first.getUTCDate()))
@@ -155,9 +169,7 @@ export function uniformSchedule(
       amount: (i === count - 1 ? amount - base * i : base) / 100,
     });
     if (i < count - 1) {
-      do {
-        cursor = addDays(cursor, 1);
-      } while (!paymentDays.includes(day(cursor).getUTCDate()));
+      cursor = nextUniformPaymentDate(addDays(cursor, 1), paymentDays);
     }
   }
   return result;

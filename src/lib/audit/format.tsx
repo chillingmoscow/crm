@@ -378,6 +378,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline:e=><>добавил(а) покупку формы · {String(e.details.title)}</>,
     buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.employee_name??"")} · График возмещения сохранён</p>,
   },
+  "payroll.uniform.expense_linked": {
+    icon:FilePlus2,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>записал(а) расход на форму · {String(e.details.employee_name)}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.title)} · {Number(e.details.amount ?? 0).toLocaleString("ru-RU")} ₽</p>,
+  },
   "payroll.uniform.cancelled": {
     icon: Trash2, iconClass: "text-muted-foreground bg-muted",
     buildHeadline:e=><>отменил(а) будущие удержания за форму · {String(e.details.title)}</>,

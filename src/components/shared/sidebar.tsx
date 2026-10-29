@@ -119,6 +119,7 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "people.view_staff",
       },
       { title: "Зарплата", href: "/people/payroll", icon: Wallet },
+      { title: "Медкнижки и форма", href: "/people/automations", icon: FileBadge2, permission: "payroll.configure" },
       {
         title: "Должности",
         href: "/people/roles",

@@ -202,6 +202,7 @@ function InvitationEmail({ event }: { event: AuditEvent }) {
 function formatFieldValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (
+    ["hired_on","birthday","examined_on","valid_until"].includes(field) ||
     field === "birth_date" ||
     field === "employment_date" ||
     field === "medical_book_date" ||
@@ -357,6 +358,31 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildDetails:e=><div className="text-xs text-muted-foreground"><p>Действует с {String(e.details.valid_from)}</p><p>{String((e.details.after as Record<string,unknown>|undefined)?.change_reason??"")}</p></div>,
   },
   "payroll.transfer.created": payrollTransferSpec("оформил(а)"),
+  "payroll.automation_person.created": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>сохранил(а) сведения для автоматизаций · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><ChangeLines details={e.details}/>,
+  },
+  "payroll.automation_person.updated": {
+    icon: Pencil, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>проверил(а) сведения для автоматизаций · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><><ChangeLines details={e.details}/>{!!e.details.reason&&<p className="text-xs text-muted-foreground">{String(e.details.reason)}</p>}</>,
+  },
+  "payroll.uniform.created": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>добавил(а) покупку формы · {String(e.details.title)}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.employee_name??"")} · График возмещения сохранён</p>,
+  },
+  "payroll.uniform.cancelled": {
+    icon: Trash2, iconClass: "text-muted-foreground bg-muted",
+    buildHeadline:e=><>отменил(а) будущие удержания за форму · {String(e.details.title)}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.employee_name??"")} · {String(e.details.reason)}</p>,
+  },
+  "payroll.automation_run.created": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>{e.details.mode==="native"?"учёл(ла) денежные записи автоматизаций":"сравнил(а) расчёт автоматизаций"}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · Учтено: {Number(e.details.applied??0)} · На проверке: {Number(e.details.blockers??0)}</p>,
+  },
   "payroll.automation_settings.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) настройки медкнижек, формы и мотивации</>,

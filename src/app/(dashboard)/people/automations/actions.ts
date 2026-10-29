@@ -1,0 +1,219 @@
+"use server";
+import { z } from "zod";
+import {
+  createClient,
+  getCachedPermissionChecker,
+  getCachedActiveAccountId,
+} from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
+import {
+  automationPersonSchema,
+  type AutomationPerson,
+  type UniformRecord,
+} from "@/lib/automations/state";
+import type {
+  AutomationDecision,
+  AutomationBlocker,
+} from "@/lib/automations/payroll-rules";
+import { uniformSchedule } from "@/lib/automations/payroll-rules";
+import { runPayrollAutomation } from "@/lib/automations/run";
+import {
+  defaultAutomationSettings,
+  type AutomationSettingsRecord,
+} from "@/lib/payroll/automation-settings";
+import { validDate } from "@/lib/sales/time";
+async function scope() {
+  const client = await createClient();
+  const user = await client.auth.getUser();
+  if (
+    !user.data.user ||
+    !(await getCachedPermissionChecker())("payroll.configure")
+  )
+    throw new Error("Нет доступа к автоматизациям зарплаты");
+  const venue = await client.rpc("get_active_venue_id");
+  const account = await getCachedActiveAccountId();
+  if (venue.error || !venue.data || !account)
+    throw new Error("Выберите заведение");
+  return {
+    db: asLooseDb(client),
+    venueId: String(venue.data),
+    accountId: account,
+    userId: user.data.user.id,
+  };
+}
+export type AutomationRun = {
+  id: string;
+  business_date: string;
+  applied_count: number;
+  mode: "comparison" | "native";
+  created_at: string;
+  decisions: AutomationDecision[];
+  blockers: AutomationBlocker[];
+  recorded_candidates: AutomationDecision[];
+};
+export async function loadAutomationWorkspace() {
+  const s = await scope();
+  const [employees, people, uniform, runs, settings, venue] = await Promise.all(
+    [
+      s.db
+        .from<
+          {
+            id: string;
+            name: string;
+            role_name: string;
+            active: boolean;
+            hired_on: string | null;
+            local_user_id: string | null;
+          }[]
+        >("payroll_employees")
+        .select("id,name,role_name,active,hired_on,local_user_id")
+        .eq("account_id", s.accountId)
+        .eq("venue_id", s.venueId)
+        .order("name")
+        .limit(1000),
+      s.db
+        .from<AutomationPerson[]>("payroll_automation_people")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .limit(1000),
+      s.db
+        .from<UniformRecord[]>("payroll_uniform_issues")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      s.db
+        .from<AutomationRun[]>("payroll_automation_runs")
+        .select(
+          "id,business_date,mode,applied_count,created_at,decisions,blockers,recorded_candidates",
+        )
+        .eq("venue_id", s.venueId)
+        .order("created_at", { ascending: false })
+        .limit(30),
+      s.db
+        .from<AutomationSettingsRecord>("payroll_automation_settings")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .maybeSingle(),
+      s.db
+        .from<{ timezone: string }>("venues")
+        .select("timezone")
+        .eq("id", s.venueId)
+        .single(),
+    ],
+  );
+  for (const r of [employees, people, uniform, runs, settings, venue])
+    if (r.error) throw new Error(r.error.message);
+  const can = await getCachedPermissionChecker();
+  const userIds = (employees.data ?? []).flatMap((e) =>
+    e.local_user_id ? [e.local_user_id] : [],
+  );
+  const details =
+    can("people.edit_staff") && userIds.length
+      ? await s.db
+          .from<
+            {
+              user_id: string;
+              employment_date: string | null;
+              medical_book_date: string | null;
+            }[]
+          >("staff_account_details")
+          .select("user_id,employment_date,medical_book_date")
+          .eq("account_id", s.accountId)
+          .in("user_id", userIds)
+      : { data: [], error: null };
+  if (details.error) throw new Error(details.error.message);
+  return {
+    canReview: can("payroll.review"),
+    staffDetails: details.data ?? [],
+    venueId: s.venueId,
+    timezone: venue.data?.timezone ?? "Europe/Moscow",
+    employees: employees.data ?? [],
+    people: people.data ?? [],
+    uniform: uniform.data ?? [],
+    runs: runs.data ?? [],
+    settings: settings.data?.config ?? defaultAutomationSettings,
+    settingsSaved: !!settings.data,
+  };
+}
+export async function saveAutomationPerson(
+  employeeId: string,
+  version: number,
+  input: unknown,
+) {
+  const s = await scope();
+  z.string().uuid().parse(employeeId);
+  z.number().int().nonnegative().parse(version);
+  const value = automationPersonSchema.parse(input);
+  const r = await s.db.rpc("payroll_save_automation_person", {
+    p_employee: employeeId,
+    p_version: version,
+    p_input: value,
+  });
+  if (r.error) throw new Error(r.error.message);
+}
+export async function addUniform(input: {
+  employeeId: string;
+  title: string;
+  amount: number;
+  firstDueOn: string;
+  requestId: string;
+}) {
+  const s = await scope();
+  const value = z
+    .object({
+      employeeId: z.string().uuid(),
+      title: z.string().trim().min(1).max(200),
+      amount: z.number().positive().max(1e6),
+      firstDueOn: z.string().refine(validDate),
+      requestId: z.string().uuid(),
+    })
+    .parse(input);
+  const cfg = await s.db
+    .from<AutomationSettingsRecord>("payroll_automation_settings")
+    .select("*")
+    .eq("venue_id", s.venueId)
+    .single();
+  if (cfg.error || !cfg.data)
+    throw new Error("Сначала сохраните правила удержаний в заведении");
+  const installments = uniformSchedule(
+    value.amount,
+    value.firstDueOn,
+    cfg.data.config.uniform.installments,
+    cfg.data.config.uniform.payment_days,
+  );
+  const r = await s.db.rpc("payroll_add_uniform_issue", {
+    p_employee: value.employeeId,
+    p_title: value.title,
+    p_installments: installments,
+    p_request: value.requestId,
+  });
+  if (r.error) throw new Error(r.error.message);
+}
+export async function calculateAutomations(
+  date: string,
+  mode: "comparison" | "native",
+  previewId?: string,
+) {
+  const s = await scope();
+  z.string().refine(validDate).parse(date);
+  z.enum(["comparison", "native"]).parse(mode);
+  if (
+    mode === "native" &&
+    !(await getCachedPermissionChecker())("payroll.review")
+  )
+    throw new Error("Нет доступа к учёту начислений");
+  if (previewId) z.string().uuid().parse(previewId);
+  return runPayrollAutomation(s.venueId, date, mode, s.userId, previewId);
+}
+
+export async function cancelUniform(issueId: string, reason: string) {
+  const s = await scope();
+  z.string().uuid().parse(issueId);
+  z.string().trim().min(3).max(1000).parse(reason);
+  const r = await s.db.rpc("payroll_cancel_uniform_issue", {
+    p_issue: issueId,
+    p_reason: reason,
+  });
+  if (r.error) throw new Error(r.error.message);
+}

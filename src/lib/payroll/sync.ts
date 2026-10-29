@@ -35,6 +35,7 @@ import {
   tipBatch,
 } from "./calculate";
 import { previewPayrollBonuses } from "./bonus-preview";
+import { qualificationAtDate } from "./qualifications";
 import { enqueueDay } from "@/lib/sales/sync";
 const db = () => asLooseDb(createAdminClient());
 export async function queuePayroll(
@@ -428,14 +429,7 @@ export async function processPayrollDay() {
                 : 0,
           attendanceIssues,
           adjustments: adjustments.filter((a) => a.employee_id === e.id),
-          qualification: qualifications
-            .filter(
-              (q) =>
-                q.employee_id === e.id &&
-                q.valid_from <= date &&
-                (!q.valid_until || q.valid_until >= date),
-            )
-            .sort((a, b) => b.valid_from.localeCompare(a.valid_from))[0],
+          qualification: qualificationAtDate(qualifications, e.id, date),
           cleanerPresent: present.some((p) => p.role_name === "Клиннер"),
         });
         return {

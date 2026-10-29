@@ -250,6 +250,7 @@ export async function loadPayroll(): Promise<PayrollData> {
   if(roleRows.error) throw new Error(roleRows.error.message);
   return {
     roles: roleRows.data ?? [],
+    asOfDate: businessDate(new Date(), venue.data?.timezone ?? "Europe/Moscow", hours.data?.day_start_hour ?? 9),
     venueId: s.venueId,
     userId: s.user.id,
     timezone: venue.data?.timezone ?? "Europe/Moscow",

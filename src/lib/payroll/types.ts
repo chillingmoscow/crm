@@ -39,6 +39,7 @@ export type PayEmployee = {
 };
 export type Qualification = {
   id: string;
+  created_at?: string;
   employee_id: string;
   valid_from: string;
   valid_until: string | null;
@@ -230,6 +231,7 @@ export type PayrollTransfer = {
   created_at: string;
 };
 export type PayrollData = {
+  asOfDate?: string;
   attendanceRules?: AttendanceRule[];
   roles?: {id:string;name:string}[];
   transfers: PayrollTransfer[];

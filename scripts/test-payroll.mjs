@@ -10,6 +10,7 @@ try {
   for (const [name, path] of [
     ["calculate", "src/lib/payroll/calculate.ts"],
     ["attendance", "src/lib/payroll/attendance.ts"],
+    ["qualifications", "src/lib/payroll/qualifications.ts"],
     ["time", "src/lib/sales/time.ts"],
   ]) {
     const code = ts
@@ -101,6 +102,35 @@ try {
     adjustments: [],
     cleanerPresent: true,
   };
+  const { latestQualification, qualificationAtDate } = await import(
+    pathToFileURL(join(dir, "qualifications.mjs")).href
+  );
+  const oldPass = {
+    id: "old-pass", employee_id: employee.id, valid_from: "2026-08-22",
+    valid_until: null, knowledge: true, experience: true, reason: "Старый результат",
+  };
+  const expiringPass = {
+    ...oldPass, id: "latest-pass", valid_from: "2026-10-20", valid_until: "2026-10-21",
+    knowledge: false, created_at: "2026-10-20T10:00:00Z",
+  };
+  const qualifications = [oldPass, expiringPass, { ...oldPass, id: "other-employee", employee_id: "other" }];
+  assert.equal(qualificationAtDate(qualifications, employee.id, "2026-10-19"), oldPass);
+  assert.equal(qualificationAtDate(qualifications, employee.id, "2026-10-21"), expiringPass,
+    "Expiry date is inclusive, so the final covered shift still earns tenure");
+  assert.equal(qualificationAtDate(qualifications, employee.id, "2026-10-22"), undefined,
+    "Expired recent results must not revive an older indefinite pass");
+  assert.equal(latestQualification(qualifications, employee.id, "2026-10-29"), expiringPass,
+    "The UI must show the expired result, matching payroll eligibility");
+  const failedRetake = { ...expiringPass, id: "failed-retake", knowledge: false, experience: false,
+    created_at: "2026-10-20T11:00:00Z" };
+  assert.equal(qualificationAtDate([...qualifications, failedRetake].reverse(), employee.id, "2026-10-21"), failedRetake,
+    "The latest result on the same day wins independently of database row order");
+  const calculateOn = (date) => calc.computeAccrual({ ...input, date,
+    qualification: qualificationAtDate(qualifications, employee.id, date) });
+  assert.equal(calculateOn("2026-10-21").components.find((c) => c.kind === "experience").amount, 300);
+  assert.equal(calculateOn("2026-10-22").components.find((c) => c.kind === "experience").amount, 0,
+    "An expired test must stop the financial tenure accrual");
+  assert.equal(calculateOn("2026-10-22").components.find((c) => c.kind === "knowledge").amount, 0);
   assert.equal(calc.hasShiftPay({...model,monthly_amount:20000},rule),true);
   assert.equal(calc.hasShiftPay({...model,monthly_amount:47700},{...rule,rates:{}}),false);
   assert.equal(calc.hasShiftPay(model,{...rule,config:{shift_pay:false}}),false);

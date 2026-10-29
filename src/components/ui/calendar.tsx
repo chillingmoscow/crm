@@ -65,7 +65,7 @@ function CalendarDropdown({
         aria-label={ariaLabel}
         className={cn(
           "h-8 w-auto border-input bg-background px-2.5 text-sm font-medium",
-          "focus:ring-1 focus:ring-ring focus:ring-offset-0",
+          "focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0",
           className,
         )}
       >
@@ -145,7 +145,7 @@ function Calendar({
           defaultClassNames.dropdowns
         ),
         dropdown_root: cn(
-          "has-focus:border-ring border-input shadow-xs has-focus:ring-ring/50 has-focus:ring-[3px] relative rounded-md border",
+          "has-[:focus-visible]:border-ring border-input shadow-xs has-[:focus-visible]:ring-ring/50 has-[:focus-visible]:ring-[3px] relative rounded-md border",
           defaultClassNames.dropdown_root
         ),
         dropdown: cn(

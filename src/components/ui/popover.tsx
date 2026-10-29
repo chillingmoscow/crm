@@ -4,6 +4,7 @@ import * as React from "react"
 import * as PopoverPrimitive from "@radix-ui/react-popover"
 
 import { cn } from "@/lib/utils"
+import { focusOverlayContent } from "@/lib/overlay-focus"
 import { useSsrSafeAriaControls } from "@/hooks/use-hydrated"
 
 const Popover = PopoverPrimitive.Root
@@ -28,10 +29,12 @@ type PopoverContentProps = React.ComponentPropsWithoutRef<typeof PopoverPrimitiv
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   PopoverContentProps
->(({ className, align = "center", sideOffset = 4, portalContainer, ...props }, ref) => (
+>(({ className, align = "center", sideOffset = 4, portalContainer, onOpenAutoFocus = focusOverlayContent, ...props }, ref) => (
   <PopoverPrimitive.Portal container={portalContainer}>
     <PopoverPrimitive.Content
       ref={ref}
+      tabIndex={-1}
+      onOpenAutoFocus={onOpenAutoFocus}
       align={align}
       sideOffset={sideOffset}
       className={cn(

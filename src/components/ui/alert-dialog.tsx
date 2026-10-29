@@ -6,6 +6,7 @@ import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { overlayClass } from "@/lib/overlay-classes";
+import { focusOverlayContent } from "@/lib/overlay-focus";
 import { useSsrSafeAriaControls } from "@/hooks/use-hydrated";
 
 /**
@@ -53,11 +54,13 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+>(({ className, onOpenAutoFocus = focusOverlayContent, ...props }, ref) => (
   <AlertDialogPortal>
     <AlertDialogOverlay />
     <AlertDialogPrimitive.Content
       ref={ref}
+      tabIndex={-1}
+      onOpenAutoFocus={onOpenAutoFocus}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg",
         "data-[state=open]:duration-200 data-[state=closed]:duration-150",
@@ -65,7 +68,7 @@ const AlertDialogContent = React.forwardRef<
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
         "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-        "sm:rounded-lg",
+        "sm:rounded-lg outline-none",
         className,
       )}
       {...props}

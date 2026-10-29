@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { overlayClass, overlayContentTiming } from "@/lib/overlay-classes";
+import { focusOverlayContent } from "@/lib/overlay-focus";
 
 interface EditDrawerProps {
   open: boolean;
@@ -46,25 +47,17 @@ export function EditDrawer({
   children,
   footer,
   className,
-  focusContentOnOpen = false,
+  focusContentOnOpen = true,
 }: EditDrawerProps) {
-  const contentRef = React.useRef<HTMLDivElement>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPrimitive.Portal>
         <SheetPrimitive.Overlay className={overlayClass} />
         <SheetPrimitive.Content
-          ref={contentRef}
-          onOpenAutoFocus={
-            focusContentOnOpen
-              ? (event) => {
-                  event.preventDefault();
-                  contentRef.current?.focus({ preventScroll: true });
-                }
-              : undefined
-          }
+          tabIndex={-1}
+          onOpenAutoFocus={focusContentOnOpen ? focusOverlayContent : undefined}
           className={cn(
-            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg transition",
+            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg outline-none transition",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
             overlayContentTiming,
             "border-l flex flex-col w-full sm:max-w-[520px]",
@@ -84,7 +77,7 @@ export function EditDrawer({
               )}
             </div>
             <SheetClose
-              className="flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+              className="flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors shrink-0"
               aria-label="Закрыть"
             >
               <X className="w-[18px] h-[18px]" />

@@ -28,10 +28,12 @@ export function CandidateStatusCell({
   candidate,
   onSaved,
   onRefresh,
+  disabled = false,
 }: {
   candidate: Candidate;
   onSaved: (saved: CandidateStatusUpdate) => void;
   onRefresh: () => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false),
     [pending, setPending] = useState<CandidateStatus | null>(null);
@@ -53,7 +55,7 @@ export function CandidateStatusCell({
       setPending(null);
     }
   };
-  if (candidate.status === "hired")
+  if (candidate.status === "hired" || disabled)
     return (
       <StatusBadge
         label={STATUSES[status]}

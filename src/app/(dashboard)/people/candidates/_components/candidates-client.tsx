@@ -13,7 +13,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  Loader2,
   Settings,
   X,
 } from "lucide-react";
@@ -116,6 +115,7 @@ export function CandidatesClient({
     reload,
   ]);
   const loaded = useRef(key);
+  const versions = useRef(new Map(initialList.rows.map((row) => [row.id, row.revision])));
   const firstPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
   useEffect(() => {
     if (params.get("settings") === "1" && permissions.integrations)
@@ -142,6 +142,7 @@ export function CandidatesClient({
         if (cancelled) return;
         loaded.current = JSON.stringify([filters, next.page, pageSize, reload]);
         setList(next);
+        versions.current = new Map(next.rows.map((row) => [row.id, row.revision]));
         setPagination((p) =>
           p.pageIndex === next.page ? p : { ...p, pageIndex: next.page },
         );
@@ -179,18 +180,26 @@ export function CandidatesClient({
     return () => window.removeEventListener("candidates:incoming", refreshList);
   }, [refreshList]);
   const statusSaved = useCallback((saved: CandidateStatusUpdate) => {
+    if ((versions.current.get(saved.id) ?? -1) >= saved.revision) return;
+    versions.current.set(saved.id, saved.revision);
     setList((current) => ({
       ...current,
       rows: current.rows.map((c) =>
         c.id === saved.id ? { ...c, ...saved } : c,
       ),
     }));
-    setReload((n) => n + 1);
+    // Only a status-dependent filter/order needs a quiet server reconciliation.
+    if (saved.status === "hired" || status || st.sorting.some((sort) => sort.id === "status")) refreshList();
     window.dispatchEvent(new Event("candidates:changed"));
-  }, []);
+  }, [status, st.sorting, refreshList]);
+  useEffect(() => {
+    const updated = (event: Event) => statusSaved((event as CustomEvent<CandidateStatusUpdate>).detail);
+    window.addEventListener("candidates:row-updated", updated);
+    return () => window.removeEventListener("candidates:row-updated", updated);
+  }, [statusSaved]);
   const columns = useMemo(
-    () => candidateColumns(statusSaved, refreshList),
-    [statusSaved, refreshList],
+    () => candidateColumns(statusSaved, refreshList, options),
+    [statusSaved, refreshList, options],
   );
   const table = useReactTable({
     data: list.rows,
@@ -448,15 +457,6 @@ export function CandidatesClient({
               Повторить загрузку
             </Button>
           </div>
-        ) : null}
-        {loading ? (
-          <p
-            className="flex items-center gap-2 text-xs text-muted-foreground"
-            role="status"
-          >
-            <Loader2 className="size-3 motion-safe:animate-spin" />
-            Обновляем список…
-          </p>
         ) : null}
         <div className="overflow-auto rounded-xl border">
           <table

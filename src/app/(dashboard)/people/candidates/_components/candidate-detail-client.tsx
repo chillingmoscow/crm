@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -28,7 +27,6 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
-import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
 import {
@@ -42,7 +40,6 @@ import {
   getCandidate,
   getCandidateOptions,
   commentCandidate,
-  saveCandidateAppointment,
   uploadCandidateFile,
   candidateLifecycle,
   getCandidateDoorCode,
@@ -51,16 +48,14 @@ import { canScheduleCandidateTrial, interviewFeedbackEntries } from "@/lib/candi
 import { candidateError } from "@/lib/candidates/errors";
 import { CandidateForm } from "./candidate-form";
 import { HireDrawer } from "./hire-drawer";
+import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import { CandidateStatusCell } from "./candidate-status-cell";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
 import { ProfileHeader } from "@/components/shared/profile-header";
 import { ProfileSection } from "@/components/shared/profile-section";
 import {
-  Field,
-  FieldSelect,
   dateLabel,
   safeLink,
-  localTimeToISO,
   wallTime,
 } from "./fields";
 const outcomes = {
@@ -250,6 +245,7 @@ export function CandidateDetailClient({
           </span>
           <CandidateStatusCell
             candidate={c}
+            options={options}
             disabled={!canEdit || busy}
             onSaved={(saved) => {
               setData((current) => ({ ...current, candidate: { ...current.candidate, ...saved } }));
@@ -292,10 +288,7 @@ export function CandidateDetailClient({
           <div className="overflow-x-auto">
             <TabsList className="min-w-max justify-center">
               <TabsTrigger value="profile">Анкета</TabsTrigger>
-              <TabsTrigger value="meetings">Собеседования</TabsTrigger>
-              <TabsTrigger value="comments">
-                Комментарии <span className="ml-1.5 rounded bg-muted px-1.5 text-xs tabular-nums">{data.comments.length}</span>
-              </TabsTrigger>
+              <TabsTrigger value="meetings">Встречи и стажировки</TabsTrigger>
               <TabsTrigger value="history">Журнал</TabsTrigger>
             </TabsList>
           </div>
@@ -445,77 +438,6 @@ export function CandidateDetailClient({
                 ) : null}
               </div>
             ) : null}
-          </TabsContent>
-          <TabsContent value="meetings" className="mx-auto w-full max-w-[720px]">
-            <ProfileSection title="Собеседования и стажировки" description="Даты, участники и результаты встреч">
-              {canEdit && !c.hired_user_id && !data.hire && c.status !== "rejected" ? (
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => openMeeting("interview")}>
-                    <Plus className="mr-2 h-4 w-4" />Назначить собеседование
-                  </Button>
-                  <Button variant="outline" disabled={!canTrial} title={!canTrial ? "Сначала заполните результат последнего собеседования" : undefined} onClick={() => openMeeting("trial")}>
-                    <Plus className="mr-2 h-4 w-4" />Назначить стажировку
-                  </Button>
-                </div>
-              ) : null}
-              {data.appointments.length ? (
-                data.appointments.map((a) => (
-                  <article
-                    key={a.id}
-                    className="flex flex-wrap items-start justify-between gap-3 border-b py-4"
-                  >
-                    <div>
-                      <p className="font-medium">
-                        {a.kind === "interview" ? "Собеседование" : "Стажировка"} ·{" "}
-                        {a.starts_at
-                          ? new Date(a.starts_at).toLocaleString("ru-RU", {
-                            timeZone: a.timezone,
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })
-                          : a.appointment_date.split("-").reverse().join(".")}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {a.timezone} · {outcomes[a.outcome]}
-                        {a.location ? ` · ${a.location}` : ""}
-                        {a.interviewer_id
-                          ? ` · ${options.members.find((m) => m.id === a.interviewer_id)?.name ?? "Интервьюер"}`
-                          : ""}
-                      </p>
-                      {a.venue_id && <p className="mt-1 text-xs text-muted-foreground">{options.venues.find((venue) => venue.id === a.venue_id)?.name ?? "Заведение"}</p>}
-                      {interviewFeedbackEntries(a.interview_feedback).length > 0 && (
-                        <dl className="mt-3 space-y-1 text-sm">
-                          {interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => <div key={label}><dt className="inline text-muted-foreground">{label}: </dt><dd className="inline whitespace-pre-wrap break-words">{value}</dd></div>)}
-                        </dl>
-                      )}
-                      {a.notes ? (
-                        <p className="mt-2 whitespace-pre-wrap text-sm">
-                          {a.notes}
-                        </p>
-                      ) : null}
-                    </div>
-                    {canEdit ? (
-                      <div className="flex flex-wrap gap-2">
-                      {a.kind === "interview" && a.outcome === "scheduled" && <Button variant="outline" size="sm" onClick={() => openMeeting("interview", a, "passed")}>Заполнить результат</Button>}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openMeeting(a.kind, a)}
-                      >
-                        Изменить
-                      </Button>
-                      </div>
-                    ) : null}
-                  </article>
-                ))
-              ) : (
-                <p className="py-8 text-sm text-muted-foreground">
-                  Собеседования и стажировки ещё не назначены.
-                </p>
-              )}
-            </ProfileSection>
-          </TabsContent>
-          <TabsContent value="comments" className="mx-auto w-full max-w-[720px]">
             <ProfileSection title="Комментарии" description="Обсуждение анкеты и заметки по общению">
               {canEdit ? (
                 <form
@@ -562,6 +484,76 @@ export function CandidateDetailClient({
                   Комментариев пока нет.
                 </p>
               ) : null}
+            </ProfileSection>
+          </TabsContent>
+          <TabsContent value="meetings" className="mx-auto w-full max-w-[720px]">
+            <ProfileSection title="Встречи и стажировки" description="Даты, участники и результаты встреч">
+              {canEdit && !c.hired_user_id && !data.hire && c.status !== "rejected" ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => openMeeting("interview")}>
+                    <Plus className="mr-2 h-4 w-4" />Назначить собеседование
+                  </Button>
+                  <Button variant="outline" disabled={!canTrial} title={!canTrial ? "Сначала заполните результат последнего собеседования" : undefined} onClick={() => openMeeting("trial")}>
+                    <Plus className="mr-2 h-4 w-4" />Назначить стажировку
+                  </Button>
+                </div>
+              ) : null}
+              {data.appointments.length ? (
+                data.appointments.map((a) => (
+                  <article
+                    key={a.id}
+                    className="flex flex-wrap items-start justify-between gap-3 border-b py-4"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {a.kind === "interview" ? "Собеседование" : "Стажировка"} ·{" "}
+                        {a.starts_at
+                          ? new Date(a.starts_at).toLocaleString("ru-RU", {
+                            timeZone: a.timezone,
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })
+                          : a.appointment_date.split("-").reverse().join(".")}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {outcomes[a.outcome]}
+                        {a.location && !a.venue_id && !safeLink(a.location) ? ` · ${a.location}` : ""}
+                        {a.interviewer_id
+                          ? ` · ${options.members.find((m) => m.id === a.interviewer_id)?.name ?? "Интервьюер"}`
+                          : ""}
+                      </p>
+                      {a.venue_id && <p className="mt-1 text-xs text-muted-foreground">{options.venues.find((venue) => venue.id === a.venue_id)?.name ?? "Заведение"}</p>}
+                      {a.location && safeLink(a.location) && <a className="mt-2 inline-block text-sm text-brand hover:underline" href={safeLink(a.location)!} target="_blank" rel="noreferrer">Открыть ссылку на встречу</a>}
+                      {interviewFeedbackEntries(a.interview_feedback).length > 0 && (
+                        <dl className="mt-3 space-y-1 text-sm">
+                          {interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => <div key={label}><dt className="inline text-muted-foreground">{label}: </dt><dd className="inline whitespace-pre-wrap break-words">{value}</dd></div>)}
+                        </dl>
+                      )}
+                      {a.notes ? (
+                        <p className="mt-2 whitespace-pre-wrap text-sm">
+                          {a.notes}
+                        </p>
+                      ) : null}
+                    </div>
+                    {canEdit ? (
+                      <div className="flex flex-wrap gap-2">
+                      {a.outcome === "scheduled" && <Button variant="outline" size="sm" onClick={() => openMeeting(a.kind, a, "passed")}>Заполнить результат</Button>}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openMeeting(a.kind, a)}
+                      >
+                        Изменить
+                      </Button>
+                      </div>
+                    ) : null}
+                  </article>
+                ))
+              ) : (
+                <p className="py-8 text-sm text-muted-foreground">
+                  Собеседования и стажировки ещё не назначены.
+                </p>
+              )}
             </ProfileSection>
           </TabsContent>
           <TabsContent value="history" className="mx-auto w-full max-w-[720px]">
@@ -705,7 +697,7 @@ export function CandidateDetailClient({
         />
       ) : null}
       {meeting !== undefined ? (
-        <AppointmentForm
+        <CandidateAppointmentDrawer
           candidateId={c.id}
           appointment={meeting}
           initialKind={meetingKind}
@@ -728,181 +720,5 @@ function ProfileValue({ label, children, wide = false }: { label: string; childr
       <dt className="text-[13px] leading-snug text-muted-foreground">{label}</dt>
       <dd className="min-w-0 whitespace-pre-wrap break-words text-sm leading-relaxed">{children || <span className="text-muted-foreground">Не указано</span>}</dd>
     </div>
-  );
-}
-function AppointmentForm({
-  candidateId,
-  appointment: a,
-  initialKind,
-  initialOutcome,
-  canScheduleTrial,
-  options,
-  onClose,
-  onSaved,
-}: {
-  candidateId: string;
-  appointment: Appointment | null;
-  initialKind: Appointment["kind"];
-  initialOutcome: Appointment["outcome"];
-  canScheduleTrial: boolean;
-  options: HiringOptions;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [kind, setKind] = useState(a?.kind ?? initialKind),
-    [venueId, setVenueId] = useState(a?.venue_id ?? options.active_venue_id ?? ""),
-    [date, setDate] = useState(a?.appointment_date ?? ""),
-    [time, setTime] = useState(
-      a?.starts_at ? wallTime(a.starts_at, a.timezone).slice(11) : "",
-    ),
-    [timezone, setTimezone] = useState(a?.timezone ?? "Europe/Moscow"),
-    [location, setLocation] = useState(a?.location ?? ""),
-    [interviewer, setInterviewer] = useState(a?.interviewer_id ?? ""),
-    [outcome, setOutcome] = useState(initialOutcome),
-    [punctuality, setPunctuality] = useState(a?.interview_feedback?.punctuality ?? ""),
-    [appearance, setAppearance] = useState(a?.interview_feedback?.appearance ?? ""),
-    [communication, setCommunication] = useState(a?.interview_feedback?.communication ?? ""),
-    [smiled, setSmiled] = useState(a?.interview_feedback?.smiled === undefined ? "" : String(a.interview_feedback.smiled)),
-    [notes, setNotes] = useState(a?.notes ?? ""),
-    [busy, start] = useTransition();
-  const save = () =>
-    start(async () => {
-      try {
-        await saveCandidateAppointment(candidateId, {
-          ...(a ? { id: a.id, revision: a.revision } : {}),
-          kind,
-          venue_id: kind === "trial" ? venueId || null : null,
-          interview_feedback: kind === "interview" ? {
-            ...(punctuality ? { punctuality } : {}),
-            ...(appearance.trim() ? { appearance: appearance.trim() } : {}),
-            ...(communication.trim() ? { communication: communication.trim() } : {}),
-            ...(smiled ? { smiled: smiled === "true" } : {}),
-          } : {},
-          appointment_date: date,
-          starts_at: time ? localTimeToISO(`${date}T${time}`, timezone) : null,
-          timezone,
-          location,
-          interviewer_id: interviewer || null,
-          outcome,
-          notes,
-        });
-        toast.success("Встреча сохранена");
-        onSaved();
-      } catch (e) {
-        toast.error(
-          candidateError(e, "Не удалось сохранить встречу"),
-        );
-      }
-    });
-  return (
-    <EditDrawer
-      open
-      title={kind === "interview" && outcome !== "scheduled" ? "Результат собеседования" : a ? "Изменить встречу" : kind === "trial" ? "Назначить стажировку" : "Назначить собеседование"}
-      description={kind === "interview" && outcome !== "scheduled" ? "Дата, время, наблюдения и итог собеседования" : "Дата, время, место и участник встречи"}
-      onOpenChange={(open) => {
-        if (!open && !busy) onClose();
-      }}
-      footer={
-        <>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
-            Отмена
-          </Button>
-          <Button disabled={busy || !date || (kind === "interview" && (!time || (["passed", "rejected"].includes(outcome) && !notes.trim()))) || (kind === "trial" && (!venueId || (!a && !canScheduleTrial)))} onClick={save}>
-            Сохранить
-          </Button>
-        </>
-      }
-    >
-      <FieldSelect
-        label="Тип встречи"
-        disabled={!!a}
-        value={kind}
-        onChange={(v) => setKind(v as typeof kind)}
-        options={[
-          { value: "interview", label: "Собеседование" },
-          ...(canScheduleTrial || a?.kind === "trial" ? [{ value: "trial", label: "Стажировка" }] : []),
-        ]}
-      />
-      {kind === "trial" && (
-        <FieldSelect
-          label="Заведение *"
-          value={venueId}
-          onChange={(id) => {
-            setVenueId(id);
-            const venue = options.venues.find((value) => value.id === id);
-            if (venue) setTimezone(venue.timezone);
-          }}
-          options={[
-            { value: "", label: "Выберите заведение" },
-            ...options.venues.map((venue) => ({ value: venue.id, label: venue.name })),
-          ]}
-        />
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Дата *">
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </Field>
-        <Field label={kind === "interview" ? "Время *" : "Время · необязательно"}>
-          <Input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-          />
-        </Field>
-      </div>
-      <FieldSelect
-        label="Часовой пояс"
-        value={timezone}
-        onChange={setTimezone}
-        options={[
-          ...new Set([
-            "Europe/Moscow",
-            ...options.venues.map((v) => v.timezone),
-            timezone,
-          ]),
-        ].map((v) => ({ value: v, label: v }))}
-      />
-      <Field label="Место или ссылка на звонок">
-        <Input value={location} onChange={(e) => setLocation(e.target.value)} />
-      </Field>
-      <FieldSelect
-        label="Интервьюер"
-        value={interviewer}
-        onChange={setInterviewer}
-        options={[
-          { value: "", label: "Не назначен" },
-          ...options.members.map((m) => ({ value: m.id, label: m.name })),
-        ]}
-      />
-      <FieldSelect
-        label="Результат"
-        value={outcome}
-        onChange={(v) => setOutcome(v as typeof outcome)}
-        options={Object.entries(outcomes).map(([value, label]) => ({
-          value,
-          label,
-        }))}
-      />
-      {kind === "interview" && ["passed", "rejected"].includes(outcome) && (
-        <div className="space-y-4 border-t pt-4">
-          <h3 className="text-sm font-semibold">Наблюдения на собеседовании</h3>
-          <FieldSelect label="Пунктуальность" value={punctuality} onChange={(value) => setPunctuality(value as typeof punctuality)} options={[{ value: "", label: "Не отмечено" }, { value: "on_time", label: "Вовремя" }, { value: "late", label: "Опоздал" }]} />
-          <Field label="Внешний вид"><Textarea value={appearance} onChange={(event) => setAppearance(event.target.value)} maxLength={2000} placeholder="Опрятность и внешний вид" /></Field>
-          <Field label="Общение"><Textarea value={communication} onChange={(event) => setCommunication(event.target.value)} maxLength={2000} placeholder="Как общался и отвечал на вопросы" /></Field>
-          <FieldSelect label="Улыбался" value={smiled} onChange={setSmiled} options={[{ value: "", label: "Не отмечено" }, { value: "true", label: "Да" }, { value: "false", label: "Нет" }]} />
-        </div>
-      )}
-      <Field label={kind === "interview" && outcome !== "scheduled" ? `Комментарий по результатам${["passed", "rejected"].includes(outcome) ? " *" : ""}` : "Заметки"}>
-        <Textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          maxLength={12000}
-        />
-      </Field>
-    </EditDrawer>
   );
 }

@@ -59,6 +59,17 @@ export async function candidateOptions(): Promise<HiringOptions> {
   return check(await s.db.rpc("candidate_hiring_options", {})) as HiringOptions;
 }
 type CandidateScope = Awaited<ReturnType<typeof candidateScope>>;
+function appointmentQuery(s: CandidateScope, id: string) {
+  return s.db.from<Appointment[]>("candidate_appointments").select("*")
+    .eq("candidate_id", id).eq("account_id", s.accountId)
+    .order("appointment_date", { ascending: false })
+    .order("starts_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false }).order("id", { ascending: false });
+}
+export async function candidateAppointments(id: string) {
+  const scope = await candidateScope();
+  return check(await appointmentQuery(scope, uuid.parse(id))) ?? [];
+}
 function candidateQuery(s: CandidateScope, filters: ListFilters) {
   let query = s.db
     .from<Candidate[]>("candidates")
@@ -201,15 +212,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
         .eq("account_id", s.accountId)
         .order("created_at", { ascending: false })
         .limit(200),
-      s.db
-        .from<Appointment[]>("candidate_appointments")
-        .select("*")
-        .eq("candidate_id", id)
-        .eq("account_id", s.accountId)
-        .order("appointment_date", { ascending: false })
-        .order("starts_at", { ascending: false, nullsFirst: false })
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: false }),
+      appointmentQuery(s, id),
       s.db
         .from<CandidateFile[]>("candidate_files")
         .select("*")

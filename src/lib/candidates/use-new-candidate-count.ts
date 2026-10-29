@@ -18,7 +18,7 @@ export function useNewCandidateCount(
       lastCount = initialCount,
       timer: ReturnType<typeof setTimeout> | undefined,
       request = 0;
-    const refresh = async () => {
+    const refresh = async (notifyList = false) => {
       const current = ++request;
       try {
         const next = await countNewCandidates();
@@ -26,17 +26,21 @@ export function useNewCandidateCount(
           setCount(next);
           if (next !== lastCount) {
             lastCount = next;
-            window.dispatchEvent(new Event("candidates:incoming"));
+            if (notifyList) window.dispatchEvent(new Event("candidates:incoming"));
           }
         }
       } catch {
         /* Keep the last confirmed count while offline. */
       }
     };
-    const schedule = () => {
+    let notifyOnRefresh = false;
+    const schedule = (notifyList = false) => {
+      notifyOnRefresh ||= notifyList;
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        void refresh();
+        const notify = notifyOnRefresh;
+        notifyOnRefresh = false;
+        void refresh(notify);
       }, 150);
     };
     const channel = client
@@ -49,7 +53,10 @@ export function useNewCandidateCount(
           table: "candidates",
           filter: `account_id=eq.${accountId}`,
         },
-        schedule,
+        () => {
+          window.dispatchEvent(new Event("candidates:incoming"));
+          schedule();
+        },
       )
       .on(
         "postgres_changes",
@@ -59,29 +66,36 @@ export function useNewCandidateCount(
           table: "candidates",
           filter: `account_id=eq.${accountId}`,
         },
-        schedule,
+        (payload) => {
+          const row = payload.new;
+          if (typeof row.id === "string" && typeof row.revision === "number" && typeof row.status === "string")
+            window.dispatchEvent(new CustomEvent("candidates:row-updated", { detail: { id: row.id, revision: row.revision, status: row.status } }));
+          schedule();
+        },
       )
       // The default replica identity omits account_id on DELETE. Only refresh the scoped count.
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "candidates" },
-        schedule,
+        () => { window.dispatchEvent(new Event("candidates:incoming")); schedule(); },
       )
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") void refresh();
+        if (status === "SUBSCRIBED") void refresh(true);
       });
     const poll = setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
+      if (document.visibilityState === "visible") void refresh(true);
     }, 30000);
-    window.addEventListener("focus", schedule);
-    window.addEventListener("candidates:changed", schedule);
+    const onFocus = () => schedule(true);
+    const onChanged = () => schedule();
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("candidates:changed", onChanged);
     void refresh();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
       clearInterval(poll);
-      window.removeEventListener("focus", schedule);
-      window.removeEventListener("candidates:changed", schedule);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("candidates:changed", onChanged);
       void client.removeChannel(channel);
     };
   }, [accountId, enabled, initialCount, client]);

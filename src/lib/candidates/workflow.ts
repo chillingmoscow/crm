@@ -3,7 +3,7 @@ import type { Appointment } from "./types";
 /** Appointments arrive ordered by date, time, creation time and id descending. */
 export function canScheduleCandidateTrial(appointments: Appointment[], status: string) {
   const latest = appointments.find((appointment) => appointment.kind === "interview");
-  return ["interview", "trial"].includes(status) && latest?.outcome === "passed" &&
+  return status !== "hired" && latest?.outcome === "passed" &&
     !!latest.notes?.trim() && !!latest.starts_at && new Date(latest.starts_at).getTime() <= Date.now();
 }
 

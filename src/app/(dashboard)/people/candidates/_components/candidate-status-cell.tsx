@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, Loader2 } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import {
   Popover,
@@ -14,10 +14,13 @@ import {
   STATUS_CLASSES,
   type Candidate,
   type CandidateStatus,
+  type Appointment,
+  type AppointmentOptions,
 } from "@/lib/candidates/types";
 import { candidateError } from "@/lib/candidates/errors";
 import { updateCandidate } from "../actions";
 import { StatusBadge } from "./fields";
+import { CandidateStatusAppointment } from "./candidate-status-appointment";
 
 export type CandidateStatusUpdate = {
   id: string;
@@ -29,17 +32,24 @@ export function CandidateStatusCell({
   onSaved,
   onRefresh,
   disabled = false,
+  options,
 }: {
   candidate: Candidate;
   onSaved: (saved: CandidateStatusUpdate) => void;
   onRefresh: () => void;
   disabled?: boolean;
+  options: AppointmentOptions;
 }) {
   const [open, setOpen] = useState(false),
-    [pending, setPending] = useState<CandidateStatus | null>(null);
+    [pending, setPending] = useState<CandidateStatus | null>(null),
+    [appointmentKind, setAppointmentKind] = useState<Appointment["kind"] | null>(null);
   const status = pending ?? candidate.status;
   const save = async (next: CandidateStatus) => {
     setOpen(false);
+    if (next === "interview" || next === "trial") {
+      setAppointmentKind(next);
+      return;
+    }
     if (next === candidate.status) return;
     setPending(next);
     try {
@@ -63,6 +73,7 @@ export function CandidateStatusCell({
       />
     );
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
@@ -70,17 +81,14 @@ export function CandidateStatusCell({
           aria-label={`Изменить статус: ${candidate.full_name}`}
           title={STATUSES[status]}
           disabled={!!pending}
-          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-wait"
+          aria-busy={!!pending}
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-default"
         >
           <StatusBadge
             label={STATUSES[status]}
             className={STATUS_CLASSES[status]}
           />
-          {pending ? (
-            <Loader2 className="size-3 shrink-0 motion-safe:animate-spin" />
-          ) : (
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-          )}
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-60 p-1">
@@ -104,5 +112,10 @@ export function CandidateStatusCell({
         </div>
       </PopoverContent>
     </Popover>
+    {appointmentKind && (
+      <CandidateStatusAppointment candidate={candidate} kind={appointmentKind} options={options}
+        onClose={() => setAppointmentKind(null)} onSaved={onSaved} />
+    )}
+    </>
   );
 }

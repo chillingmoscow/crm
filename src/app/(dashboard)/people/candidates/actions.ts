@@ -11,6 +11,7 @@ import {
   candidateList,
   candidateDetail,
   candidateOptions,
+  candidateAppointments,
 } from "@/lib/candidates/data";
 import { uuid, candidateUpdate, hireInput } from "@/lib/candidates/schema";
 import type {
@@ -65,6 +66,9 @@ export async function getCandidate(id: string) {
 export async function getCandidateOptions() {
   return candidateOptions();
 }
+export async function getCandidateAppointments(id: string) {
+  return candidateAppointments(uuid.parse(id));
+}
 async function command(action: string, id: string | null, input: unknown) {
   const s = await candidateScope();
   const r = await s.db.rpc("candidate_command", {
@@ -77,7 +81,9 @@ async function command(action: string, id: string | null, input: unknown) {
     revision: number;
     status: CandidateStatus;
   };
-  revalidatePath("/people/candidates", "layout");
+  const isStatusOnly = action === "update" && input !== null && typeof input === "object" &&
+    Object.keys(input).every((key) => key === "revision" || key === "status");
+  if (!isStatusOnly) revalidatePath("/people/candidates", "layout");
   if (action !== "comment") revalidatePath("/schedule");
   return data;
 }
@@ -129,6 +135,8 @@ export async function saveCandidateAppointment(id: string, input: unknown) {
           context.addIssue({ code: "custom", path: ["venue_id"], message: "Выберите заведение для стажировки" });
         if (value.kind === "interview" && !value.starts_at)
           context.addIssue({ code: "custom", path: ["starts_at"], message: "Укажите время собеседования" });
+        if (value.kind === "interview" && !value.id && !value.venue_id && !/^https?:\/\/\S+$/i.test(value.location ?? ""))
+          context.addIssue({ code: "custom", path: ["location"], message: "Выберите заведение или добавьте ссылку на встречу" });
         if (value.kind === "interview" && ["passed", "rejected"].includes(value.outcome) && !value.notes?.trim())
           context.addIssue({ code: "custom", path: ["notes"], message: "Заполните комментарий по результатам собеседования" });
       })

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { ColumnDef } from "@tanstack/react-table";
-import { type Candidate } from "@/lib/candidates/types";
+import { type AppointmentOptions, type Candidate } from "@/lib/candidates/types";
 import { dateLabel, plural } from "./fields";
 import {
   HoverCard,
@@ -44,6 +44,7 @@ export const COLUMN_CONFIG = Object.keys(FIELD_LABELS).map((id) => ({
 export function candidateColumns(
   onSaved: (saved: CandidateStatusUpdate) => void,
   onRefresh: () => void,
+  options: AppointmentOptions,
 ): ColumnDef<Candidate>[] {
   return COLUMN_CONFIG.map(({ id, defaultSize }) => ({
     id,
@@ -107,6 +108,7 @@ export function candidateColumns(
             candidate={c}
             onSaved={onSaved}
             onRefresh={onRefresh}
+            options={options}
           />
         );
       const value =

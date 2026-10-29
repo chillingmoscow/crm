@@ -24,6 +24,22 @@ insert into public.candidate_connections(id,account_id,secret_hash,enabled,form_
 insert into public.candidate_employment_settings(account_id,venue_id) values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000020');
 update public.candidate_employment_settings set store_ids='{1,2}' where venue_id='ce000000-0000-4000-8000-000000000020';
 update public.candidate_connections set telegram_secret='{"encrypted":"qa-not-a-real-secret","iv":"qa","tag":"qa"}' where id='ce000000-0000-4000-8000-000000000050';
+savepoint owner_interviewer;
+delete from public.user_venue_roles where user_id='ce000000-0000-4000-8000-000000000001';
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
+do $$begin
+ if not exists(select 1 from jsonb_array_elements(public.candidate_hiring_options()->'members') member where member->>'id'='ce000000-0000-4000-8000-000000000001') then raise exception 'Owner missing from interviewers';end if;
+ perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','interviewer_id','ce000000-0000-4000-8000-000000000001','appointment_date',(now()+interval '1 day')::date,'starts_at',now()+interval '1 day','timezone','UTC','outcome','scheduled'));
+ if not exists(select 1 from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040' and venue_id='ce000000-0000-4000-8000-000000000020' and location='QA' and timezone='Europe/Moscow') then raise exception 'Venue location or timezone not derived';end if;
+ begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','appointment_date',(now()+interval '1 day')::date,'starts_at',now()+interval '1 day','location','Свободный текст','outcome','scheduled'));raise exception 'Unstructured new meeting place allowed';exception when others then if SQLERRM not like 'Выберите заведение или%' then raise;end if;end;
+ begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','interviewer_id','ce000000-0000-4000-8000-000000000099','appointment_date',(now()+interval '1 day')::date,'starts_at',now()+interval '1 day','outcome','scheduled'));raise exception 'Unknown interviewer allowed';exception when others then if SQLERRM<>'Интервьюер недоступен' then raise;end if;end;
+ perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','appointment_date',(now()+interval '1 day')::date,'starts_at',now()+interval '1 day','timezone','Europe/Moscow','location','https://example.com/meeting','outcome','scheduled'));
+ if not exists(select 1 from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040' and venue_id is null and location='https://example.com/meeting') then raise exception 'Meeting link lost';end if;
+
+end $$;
+rollback to savepoint owner_interviewer;
 set local role service_role;
 select public.candidate_receive('ce000000-0000-4000-8000-000000000050','qa-event','{"full_name":"Повтор webhook","phone":"+79990000000","photos":[]}','{"formid":"form123"}');
 select public.candidate_receive('ce000000-0000-4000-8000-000000000050','qa-event','{"full_name":"Повтор webhook","phone":"+79990000000","photos":[]}','{"formid":"form123"}');
@@ -52,7 +68,7 @@ do $$declare n int;begin
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"hired"}');raise exception 'Status bypass permitted';exception when others then if SQLERRM='Status bypass permitted' then raise;end if;end;
  begin perform public.candidate_command('archive','ce000000-0000-4000-8000-000000000040','{}');raise exception 'Recruiter archive permitted';exception when others then if SQLERRM='Recruiter archive permitted' then raise;end if;end;
  begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"interview","appointment_date":"2026-10-29","starts_at":null,"timezone":"Europe/Moscow","outcome":"scheduled"}');raise exception 'Interview without time allowed';exception when others then if SQLERRM='Interview without time allowed' then raise;end if;end;
- perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','appointment_date',(now()-interval '1 day')::date,'starts_at',now()-interval '1 day','timezone','Europe/Moscow','outcome','scheduled','location','QA'));
+ perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()-interval '1 day')::date,'starts_at',now()-interval '1 day','timezone','Europe/Moscow','outcome','scheduled','location','QA'));
  if not exists(select 1 from public.candidates where id='ce000000-0000-4000-8000-000000000040' and status='interview' and revision=2) then raise exception 'Interview did not advance stage';end if;
  declare qa_interview uuid;qa_trial uuid;qa_followup uuid;v int;payroll_before int;staff_before int;
  begin
@@ -70,14 +86,17 @@ do $$declare n int;begin
   perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_trial,'revision',1,'kind','trial','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date','2026-10-31','starts_at','2026-10-31T10:00:00Z','timezone','Europe/Moscow','outcome','scheduled'));
   if not exists(select 1 from public.candidate_appointments where id=qa_trial and venue_id='ce000000-0000-4000-8000-000000000020' and starts_at='2026-10-31T10:00:00Z' and revision=2) then raise exception 'Trial edit not saved';end if;
   if public.candidate_calendar_trials()<>'[]'::jsonb then raise exception 'Calendar exposed without schedule permission';end if;
-  select (public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','appointment_date',(now()+interval '2 days')::date,'starts_at',now()+interval '2 days','timezone','Europe/Moscow','outcome','scheduled'))->>'id')::uuid into qa_followup;
+  select (public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()+interval '2 days')::date,'starts_at',now()+interval '2 days','timezone','Europe/Moscow','outcome','scheduled'))->>'id')::uuid into qa_followup;
   if (select status from public.candidates where id='ce000000-0000-4000-8000-000000000040')<>'interview' then raise exception 'New follow-up did not change stage';end if;
   begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"trial","venue_id":"ce000000-0000-4000-8000-000000000020","appointment_date":"2026-10-31","starts_at":null,"timezone":"Europe/Moscow","outcome":"scheduled"}');raise exception 'Old result bypassed latest interview';exception when others then if SQLERRM not like 'Сначала заполните результат%' then raise;end if;end;
   perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_followup,'revision',1,'kind','interview','appointment_date',(now()+interval '2 days')::date,'starts_at',now()+interval '2 days','timezone','Europe/Moscow','outcome','canceled'));
-  -- Manual stage overrides are explicitly allowed, including automatic stages.
-  foreach v in array array[0,1,2,3] loop
+  -- Simple stage overrides stay direct; meeting stages require scheduling.
+  foreach v in array array[0,1] loop
    perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'status',(array['new','review','interview','trial'])[v+1]));
   end loop;
+  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'status','trial'));raise exception 'Dateless trial stage allowed';exception when others then if SQLERRM not like 'Для этого этапа%' then raise;end if;end;
+  perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_trial,'revision',2,'kind','trial','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date','2026-10-31','starts_at','2026-10-31T10:00:00Z','timezone','Europe/Moscow','outcome','scheduled'));
+
  end;
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"trial"}');raise exception 'Stale update permitted';exception when others then if SQLERRM='Stale update permitted' then raise;end if;end;
 end $$;
@@ -137,10 +156,14 @@ create temp table qa_hire_context(payload jsonb);
 do $$declare r uuid;h jsonb;stage text;begin
  r:=public.candidate_create_role('ce000000-0000-4000-8000-000000000020','{"name":"Бармен QA","valid_from":"2026-10-01","monthly_amount":0,"basis":"none","tips":false,"shift_pay":true,"rates":{"1":{"1":{"base":2000,"percent":0}}},"food_amount":0,"knowledge_amount":0,"quickresto_role_id":999}');
  foreach stage in array array['new','review','interview','rejected'] loop
+  if stage='interview' then
+    perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()+interval '3 days')::date,'starts_at',now()+interval '3 days','timezone','Europe/Moscow','outcome','scheduled'));
+  else
   perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'status',stage));
+  end if;
   begin perform public.candidate_begin_hire('ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'venue_id','ce000000-0000-4000-8000-000000000020','role_id',r,'first_name','Кандидат','last_name','QA','employment_date','2026-10-29','attendance_source','quickresto'));raise exception 'Hire outside trial allowed';exception when others then if SQLERRM not like 'Приём на работу доступен только%' then raise;end if;end;
  end loop;
- perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'status','trial'));
+ perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',(select id from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040' and kind='trial' limit 1),'revision',(select revision from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040' and kind='trial' limit 1),'kind','trial','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date','2026-10-31','starts_at','2026-10-31T10:00:00Z','timezone','Europe/Moscow','outcome','scheduled'));
  h:=public.candidate_begin_hire('ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'venue_id','ce000000-0000-4000-8000-000000000020','role_id',r,'first_name','Кандидат','last_name','QA','employment_date','2026-10-29','attendance_source','quickresto'));
  insert into qa_hire_context values(h);
 end $$;

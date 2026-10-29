@@ -147,6 +147,7 @@ export type HiringOptions = {
   }[];
   members: { id: string; name: string }[];
 };
+export type AppointmentOptions = Pick<HiringOptions, "active_venue_id" | "venues" | "members">;
 export type CandidatePermissions = {
   manage: boolean;
   hire: boolean;

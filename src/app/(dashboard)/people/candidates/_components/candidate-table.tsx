@@ -3,12 +3,17 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { ColumnDef } from "@tanstack/react-table";
+import { type Candidate } from "@/lib/candidates/types";
+import { dateLabel, plural } from "./fields";
 import {
-  STATUSES,
-  STATUS_CLASSES,
-  type Candidate,
-} from "@/lib/candidates/types";
-import { dateLabel, plural, StatusBadge } from "./fields";
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
+import {
+  CandidateStatusCell,
+  type CandidateStatusUpdate,
+} from "./candidate-status-cell";
 
 export const FIELD_LABELS = {
   full_name: "Кандидат",
@@ -36,13 +41,16 @@ export const COLUMN_CONFIG = Object.keys(FIELD_LABELS).map((id) => ({
   defaultSize:
     id === "full_name" ? 260 : id === "photo" ? 80 : id === "age" ? 100 : 180,
 }));
-export const CANDIDATE_COLUMNS: ColumnDef<Candidate>[] = COLUMN_CONFIG.map(
-  ({ id, defaultSize }) => ({
+export function candidateColumns(
+  onSaved: (saved: CandidateStatusUpdate) => void,
+  onRefresh: () => void,
+): ColumnDef<Candidate>[] {
+  return COLUMN_CONFIG.map(({ id, defaultSize }) => ({
     id,
     accessorKey: id,
     header: FIELD_LABELS[id as CandidateField],
     size: defaultSize,
-    minSize: id === "photo" ? 60 : 80,
+    minSize: id === "photo" ? 60 : id === "status" ? 180 : 80,
     maxSize: 800,
     enableHiding: id !== "full_name",
     cell: ({ row }) => {
@@ -58,22 +66,47 @@ export const CANDIDATE_COLUMNS: ColumnDef<Candidate>[] = COLUMN_CONFIG.map(
         );
       if (id === "photo")
         return c.photo_url ? (
-          <Image
-            unoptimized
-            width={36}
-            height={36}
-            alt=""
-            src={c.photo_url}
-            className="size-9 rounded-md object-cover"
-          />
+          <HoverCard openDelay={150} closeDelay={80}>
+            <HoverCardTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Увеличить фотографию: ${c.full_name}`}
+                className="block rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              >
+                <Image
+                  unoptimized
+                  width={36}
+                  height={36}
+                  alt=""
+                  src={c.photo_url}
+                  className="size-9 rounded-md object-cover"
+                />
+              </button>
+            </HoverCardTrigger>
+            <HoverCardContent
+              side="right"
+              align="start"
+              className="w-auto max-w-[min(340px,calc(100vw-32px))] p-2"
+            >
+              <Image
+                unoptimized
+                width={300}
+                height={360}
+                src={c.photo_url}
+                alt={`Фотография кандидата ${c.full_name}`}
+                className="max-h-[60vh] max-w-full rounded object-contain"
+              />
+            </HoverCardContent>
+          </HoverCard>
         ) : (
           "—"
         );
       if (id === "status")
         return (
-          <StatusBadge
-            className={STATUS_CLASSES[c.status]}
-            label={STATUSES[c.status]}
+          <CandidateStatusCell
+            candidate={c}
+            onSaved={onSaved}
+            onRefresh={onRefresh}
           />
         );
       const value =
@@ -90,5 +123,5 @@ export const CANDIDATE_COLUMNS: ColumnDef<Candidate>[] = COLUMN_CONFIG.map(
         </span>
       );
     },
-  }),
-);
+  }));
+}

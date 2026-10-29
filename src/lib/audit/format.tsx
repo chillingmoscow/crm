@@ -36,6 +36,7 @@ import type { ReactNode } from "react";
 
 import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
 import { auditFallbackHeadline, auditFieldValueLabel, auditFieldLabel, formatAuditDate as formatDate } from "./labels";
+import { candidateAuditSpecs } from "./candidates";
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
@@ -65,7 +66,7 @@ function KbPageTitle({ event, text }: { event: AuditEvent; text: string }) {
   return <strong className="font-medium">{label}</strong>;
 }
 
-interface AuditEventSpec {
+export interface AuditEventSpec {
   icon: LucideIcon;
   iconClass: string;
   /** Главная фраза события: «уволил(а) Петю Иванова. Причина: прогул».
@@ -370,11 +371,10 @@ const SPECS: Record<string, AuditEventSpec> = {
   "payroll.adjustment.restored": payrollAdjustmentSpec("восстановил(а)", RotateCcw),
   "payroll.adjustment.commented": payrollAdjustmentSpec("прокомментировал(а)", FileEdit),
   "payroll.adjustment.photo_added": payrollAdjustmentSpec("добавил(а) фото", FilePlus2),
-  "candidate.updated": {icon:Pencil,iconClass:"text-brand bg-brand/10",buildHeadline:e=><>изменил(а) анкету <Link className="font-medium hover:underline" href={`/people/candidates/${e.entity_id}`}>{String(e.details.name??"кандидата")}</Link></>},
+  ...candidateAuditSpecs,
   "candidate.archived": {icon:Archive,iconClass:"text-muted-foreground bg-muted",buildHeadline:e=><>архивировал(а) анкету кандидата «{String(e.details.name??"")}»</>},
   "candidate.restored": {icon:RotateCcw,iconClass:"text-brand bg-brand/10",buildHeadline:e=><>восстановил(а) анкету кандидата «{String(e.details.name??"")}»</>},
   "candidate.deleted": {icon:Trash2,iconClass:"text-destructive bg-destructive/10",buildHeadline:e=><>удалил(а) анкету кандидата «{String(e.details.name??"")}»</>},
-  "candidate.hired": {icon:UserPlus,iconClass:"text-brand bg-brand/10",buildHeadline:e=><>принял(а) на работу «{String(e.details.name??"")}»</>},
   // ── staff ──────────────────────────────────────────────────
   "staff.hired": {
     icon: UserPlus,

@@ -85,22 +85,20 @@ create table public.candidate_hires (
 create index candidate_hires_parent on public.candidate_hires(account_id,candidate_id);
 
 insert into public.permissions(id,code,module,description) values
- (gen_random_uuid(),'people.view_candidates','people','Просматривать кандидатов аккаунта и их журнал'),
- (gen_random_uuid(),'people.manage_candidates','people','Вести анкеты, комментарии и собеседования кандидатов'),
- (gen_random_uuid(),'people.hire_candidates','people','Принимать кандидатов на работу') on conflict(code) do nothing;
+ (gen_random_uuid(),'people.manage_candidates','people','Доступ к кандидатам: просмотр и ведение анкет, комментариев и встреч') on conflict(code) do nothing;
 insert into public.role_permissions(role_id,permission_id,granted)
 select r.id,p.id,true from public.roles r cross join public.permissions p
-where r.code in ('owner','custom_manager','custom_admin') and p.code in ('people.view_candidates','people.manage_candidates','people.hire_candidates') on conflict do nothing;
+where r.code in ('owner','custom_manager','custom_admin') and p.code in ('people.manage_candidates') on conflict do nothing;
 create function public.candidate_seed_role_permissions() returns trigger language plpgsql security definer set search_path=public,pg_catalog as $$
 begin
  if new.code in ('owner','custom_manager','custom_admin') then
- insert into public.role_permissions(role_id,permission_id,granted) select new.id,id,true from public.permissions where code in ('people.view_candidates','people.manage_candidates','people.hire_candidates') on conflict do nothing;
+ insert into public.role_permissions(role_id,permission_id,granted) select new.id,id,true from public.permissions where code in ('people.manage_candidates') on conflict do nothing;
  end if; return new;
 end $$;
 create trigger candidate_seed_role_permissions after insert on public.roles for each row execute function public.candidate_seed_role_permissions();
 create function private.candidate_access(a uuid,writing boolean default false) returns boolean language sql stable security definer set search_path=public,pg_catalog as $$
  select (select auth.uid()) is not null and a=public.get_active_account_id() and
- case when writing then public.has_permission('people.manage_candidates') else public.has_permission('people.view_candidates') or public.has_permission('people.manage_candidates') or public.has_permission('people.hire_candidates') end
+ public.has_permission('people.manage_candidates')
 $$;
 create function private.candidate_venue_permission(u uuid,v uuid,p text) returns boolean language sql stable security definer set search_path=public,pg_catalog as $$
  select exists(select 1 from public.venues venue join public.accounts a on a.id=venue.account_id where venue.id=v and venue.archived_at is null and (a.owner_id=u or exists(
@@ -193,7 +191,7 @@ begin
  family_status=case when p_input?'family_status' then p_input->>'family_status' else family_status end,
  drivers_license=case when p_input?'drivers_license' then p_input->>'drivers_license' else drivers_license end,
  salary_expectation=case when p_input?'salary_expectation' then p_input->>'salary_expectation' else salary_expectation end,
- status=coalesce(p_input->>'status',status) where id=c.id;
+ status=coalesce(p_input->>'status',status) where id=c.id returning * into c;
  elsif p_action='comment' then
  insert into public.candidate_comments(account_id,candidate_id,author_id,body,source_id) values(a,c.id,u,trim(p_input->>'body'),p_input->>'request_key') on conflict(account_id,candidate_id,source_id) do nothing returning id into ident;
  if ident is not null then insert into public.candidate_events(account_id,candidate_id,actor_id,kind) values(a,c.id,u,'commented');end if;
@@ -208,8 +206,8 @@ begin
  on conflict(id) do update set kind=excluded.kind,appointment_date=excluded.appointment_date,starts_at=excluded.starts_at,timezone=excluded.timezone,location=excluded.location,interviewer_id=excluded.interviewer_id,outcome=excluded.outcome,notes=excluded.notes,updated_at=now(),revision=public.candidate_appointments.revision+1
  where public.candidate_appointments.account_id=a and public.candidate_appointments.candidate_id=c.id;
  if not found then raise exception 'Встреча недоступна';end if;
- insert into public.candidate_events(account_id,candidate_id,actor_id,kind,details) values(a,c.id,u,case when r.id is null then 'appointment_created' else 'appointment_updated' end,jsonb_build_object('before',to_jsonb(r),'after',p_input));
- end if;return jsonb_build_object('id',coalesce(ident,c.id));
+ insert into public.candidate_events(account_id,candidate_id,actor_id,kind,details) values(a,c.id,u,case when r.id is null then 'appointment_created' else 'appointment_updated' end,jsonb_build_object('before',to_jsonb(r),'after',(select to_jsonb(saved) from public.candidate_appointments saved where saved.id=ident)));
+ end if;return jsonb_build_object('id',coalesce(ident,c.id),'revision',c.revision,'status',c.status);
 end $$;
 revoke all on function public.candidate_command(text,uuid,jsonb) from public,anon;
 grant execute on function public.candidate_command(text,uuid,jsonb) to authenticated;
@@ -257,8 +255,8 @@ grant execute on function public.candidate_receive(uuid,text,jsonb,jsonb) to ser
 create function public.candidate_begin_hire(p_candidate uuid,p_input jsonb) returns jsonb language plpgsql security definer set search_path=public,pg_catalog as $$
 declare a uuid:=public.get_active_account_id();u uuid:=auth.uid();c public.candidates;h public.candidate_hires;v uuid:=(p_input->>'venue_id')::uuid;r uuid:=(p_input->>'role_id')::uuid;existing uuid:=nullif(p_input->>'existing_user_id','')::uuid;m uuid; ident uuid;
 begin
- if u is null or a is null or not public.has_permission('people.hire_candidates') then raise exception 'Нет права принимать кандидатов';end if;
- if not private.candidate_venue_permission(u,v,'people.invite_staff') or not private.candidate_venue_permission(u,v,'people.hire_candidates') or not exists(select 1 from public.venues where id=v and account_id=a and archived_at is null) then raise exception 'Нет прав на найм в выбранном заведении';end if;
+ if u is null or a is null or not public.has_permission('people.manage_candidates') then raise exception 'Нет права принимать кандидатов';end if;
+ if not private.candidate_venue_permission(u,v,'people.invite_staff') or not private.candidate_venue_permission(u,v,'people.manage_candidates') or not exists(select 1 from public.venues where id=v and account_id=a and archived_at is null) then raise exception 'Нет прав на найм в выбранном заведении';end if;
  select * into c from public.candidates where id=p_candidate and account_id=a and archived_at is null for update;
  if not found then raise exception 'Кандидат недоступен';end if;
  select * into h from public.candidate_hires where account_id=a and candidate_id=c.id;
@@ -289,7 +287,7 @@ begin
  select * into c from public.candidates where id=h.candidate_id and account_id=h.account_id for update;
  if h.provisioning#>>'{employee,state}' is distinct from 'done' or h.provisioning#>>'{guest,state}' is distinct from 'done' or h.provisioning#>>'{bonus,state}' is distinct from 'done' or not exists(select 1 from public.staff_door_codes where hire_id=h.id) then raise exception 'Завершите создание в Quick Resto и выдачу кода замка';end if;
  if c.archived_at is not null or c.hired_user_id is not null then raise exception 'Состояние анкеты изменилось';end if;
- if not private.candidate_venue_permission(h.actor_id,v,'people.invite_staff') or not private.candidate_venue_permission(h.actor_id,v,'people.hire_candidates') then raise exception 'Права на найм изменились';end if;
+ if not private.candidate_venue_permission(h.actor_id,v,'people.invite_staff') or not private.candidate_venue_permission(h.actor_id,v,'people.manage_candidates') then raise exception 'Права на найм изменились';end if;
  select pm.id,ro.name into m,label from public.payroll_models pm join public.roles ro on ro.id=pm.role_id where pm.account_id=h.account_id and pm.venue_id=v and pm.role_id=r and pm.is_role_default and not pm.archived and ro.archived_at is null;
  if m is null or not exists(select 1 from public.payroll_rule_versions where model_id=m and employee_id is null and valid_from<=d) then raise exception 'Условия оплаты изменились';end if;
  if not exists(select 1 from auth.users where id=h.target_user_id) then raise exception 'Учётная запись ещё не создана';end if;
@@ -338,8 +336,8 @@ create function public.candidate_hiring_options() returns jsonb language sql sta
  select case when private.candidate_access(public.get_active_account_id(),false) then jsonb_build_object(
  'active_venue_id',(select active_venue_id from public.profiles where id=auth.uid()),
  'positions',coalesce((select jsonb_agg(x.desired_position order by x.desired_position) from (select distinct desired_position from public.candidates where account_id=public.get_active_account_id() and archived_at is null and status<>'hired' and nullif(trim(desired_position),'') is not null) x),'[]'),
- 'venues',coalesce((select jsonb_agg(jsonb_build_object('id',v.id,'name',v.name,'timezone',v.timezone,'can_hire',private.candidate_venue_permission(auth.uid(),v.id,'people.invite_staff') and private.candidate_venue_permission(auth.uid(),v.id,'people.hire_candidates'),'can_create_role',private.candidate_venue_permission(auth.uid(),v.id,'people.manage_roles') and private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))) from public.venues v where v.account_id=public.get_active_account_id() and v.archived_at is null),'[]'),
- 'roles',coalesce((select jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'venue_id',r.venue_id,'model_id',m.id,'quickresto_role_id',coalesce(m.quickresto_role_id,(select l.external_id::bigint from public.external_entity_links l where l.account_id=v.account_id and l.provider='quickresto' and l.entity_type='role' and l.local_id=r.id and l.external_id~'^[0-9]+$' limit 1)),'rules',coalesce((select jsonb_agg(jsonb_build_object('valid_from',rv.valid_from,'monthly_amount',rv.monthly_amount,'rates',rv.rates,'config',rv.config) order by rv.valid_from desc,rv.created_at desc,rv.id desc) from public.payroll_rule_versions rv where rv.model_id=m.id and rv.employee_id is null),'[]'))) from public.roles r join public.venues v on v.id=r.venue_id left join public.payroll_models m on m.role_id=r.id and m.is_role_default and not m.archived where v.account_id=public.get_active_account_id() and v.archived_at is null and r.archived_at is null and (private.candidate_venue_permission(auth.uid(),v.id,'people.hire_candidates') or private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))),'[]'),
+ 'venues',coalesce((select jsonb_agg(jsonb_build_object('id',v.id,'name',v.name,'timezone',v.timezone,'can_hire',private.candidate_venue_permission(auth.uid(),v.id,'people.invite_staff') and private.candidate_venue_permission(auth.uid(),v.id,'people.manage_candidates'),'can_create_role',private.candidate_venue_permission(auth.uid(),v.id,'people.manage_roles') and private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))) from public.venues v where v.account_id=public.get_active_account_id() and v.archived_at is null),'[]'),
+ 'roles',coalesce((select jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'venue_id',r.venue_id,'model_id',m.id,'quickresto_role_id',coalesce(m.quickresto_role_id,(select l.external_id::bigint from public.external_entity_links l where l.account_id=v.account_id and l.provider='quickresto' and l.entity_type='role' and l.local_id=r.id and l.external_id~'^[0-9]+$' limit 1)),'rules',coalesce((select jsonb_agg(jsonb_build_object('valid_from',rv.valid_from,'monthly_amount',rv.monthly_amount,'rates',rv.rates,'config',rv.config) order by rv.valid_from desc,rv.created_at desc,rv.id desc) from public.payroll_rule_versions rv where rv.model_id=m.id and rv.employee_id is null),'[]'))) from public.roles r join public.venues v on v.id=r.venue_id left join public.payroll_models m on m.role_id=r.id and m.is_role_default and not m.archived where v.account_id=public.get_active_account_id() and v.archived_at is null and r.archived_at is null and (private.candidate_venue_permission(auth.uid(),v.id,'people.manage_candidates') or private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))),'[]'),
  'staff',coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'name',concat_ws(' ',p.first_name,p.last_name),'venue_id',v.id,'role_id',uv.role_id)) from public.profiles p join public.user_venue_roles uv on uv.user_id=p.id join public.venues v on v.id=uv.venue_id where v.account_id=public.get_active_account_id() and uv.status='active' and uv.fired_at is null),'[]'),
  'members',coalesce((select jsonb_agg(x) from (select distinct p.id,concat_ws(' ',p.first_name,p.last_name) as name from public.profiles p join public.user_venue_roles uv on uv.user_id=p.id join public.venues v on v.id=uv.venue_id where v.account_id=public.get_active_account_id() and uv.status='active' and uv.fired_at is null) x),'[]')
  ) else null end;
@@ -374,10 +372,13 @@ begin
  select * into c from public.candidates where id=p_candidate;
  if not found then return;end if;
  insert into public.notifications(user_id,venue_id,type,title,body,link,category,entity_type,entity_id)
- select distinct on(uv.user_id) uv.user_id,uv.venue_id,'candidate.new','Новая анкета: '||c.full_name,coalesce(c.desired_position,''),'/people/candidates/'||c.id,'staff','candidate',c.id
- from public.user_venue_roles uv join public.venues v on v.id=uv.venue_id
- where v.account_id=c.account_id and v.archived_at is null and uv.status='active' and uv.fired_at is null and (
- private.candidate_venue_permission(uv.user_id,v.id,'people.view_candidates') or private.candidate_venue_permission(uv.user_id,v.id,'people.manage_candidates'))
+ select distinct on(recipient.user_id) recipient.user_id,recipient.venue_id,'candidate.new','Новая анкета: '||c.full_name,coalesce(c.desired_position,''),'/people/candidates/'||c.id,'staff','candidate',c.id
+ from (
+ select a.owner_id as user_id,v.id as venue_id from public.accounts a join lateral (select id from public.venues where account_id=a.id and archived_at is null order by id limit 1) v on true where a.id=c.account_id
+ union all
+ select uv.user_id,uv.venue_id from public.user_venue_roles uv join public.venues v on v.id=uv.venue_id
+ where v.account_id=c.account_id and v.archived_at is null and uv.status='active' and uv.fired_at is null and private.candidate_venue_permission(uv.user_id,v.id,'people.manage_candidates')
+ ) recipient order by recipient.user_id,recipient.venue_id
  on conflict(user_id,entity_id,type) where entity_type='candidate' and type='candidate.new' do nothing;
 end $$;
 revoke all on function public.candidate_notify_in_app(uuid) from public,anon,authenticated;
@@ -427,7 +428,7 @@ create trigger candidate_responsible before insert or update of responsible_id o
 create function public.candidate_link_staff(p_candidate uuid,p_user uuid,p_venue uuid,p_revision int) returns uuid language plpgsql security definer set search_path=public,pg_catalog as $$
 declare a uuid:=public.get_active_account_id();u uuid:=auth.uid();c public.candidates;r uuid;
 begin
- if u is null or a is null or not public.has_permission('people.hire_candidates') or not private.candidate_venue_permission(u,p_venue,'people.invite_staff') or not exists(select 1 from public.venues where id=p_venue and account_id=a and archived_at is null) then raise exception 'Нет права связывать кандидата с сотрудником';end if;
+ if u is null or a is null or not public.has_permission('people.manage_candidates') or not private.candidate_venue_permission(u,p_venue,'people.invite_staff') or not exists(select 1 from public.venues where id=p_venue and account_id=a and archived_at is null) then raise exception 'Нет права связывать кандидата с сотрудником';end if;
  select * into c from public.candidates where id=p_candidate and account_id=a and archived_at is null for update;
  if not found then raise exception 'Кандидат недоступен';end if;
  if c.hired_user_id=p_user and c.hired_venue_id=p_venue then return p_user;end if;
@@ -439,3 +440,71 @@ begin
 end $$;
 revoke all on function public.candidate_link_staff(uuid,uuid,uuid,int) from public,anon;
 grant execute on function public.candidate_link_staff(uuid,uuid,uuid,int) to authenticated;
+
+-- One tab permission; hiring still requires people.invite_staff at the destination.
+create index candidates_new_count on public.candidates(account_id) where archived_at is null and status='new';
+create function public.candidate_new_count() returns integer language sql stable security invoker set search_path=public,pg_catalog as $$
+ select count(*)::integer from public.candidates where account_id=public.get_active_account_id() and archived_at is null and status='new'
+$$;
+revoke all on function public.candidate_new_count() from public,anon;
+grant execute on function public.candidate_new_count() to authenticated;
+
+-- Business events are mirrored atomically into the shared journal.
+create function public.candidate_event_audit() returns trigger language plpgsql security definer set search_path=public,pg_catalog as $$
+declare c public.candidates;d jsonb;code text;part text;person uuid;
+begin
+ if new.kind not in ('created','commented','appointment_created','appointment_updated','file_added') then return new;end if;
+ select * into c from public.candidates where id=new.candidate_id and account_id=new.account_id;
+ if not found then return new;end if;
+ d:=new.details||jsonb_build_object('name',c.full_name,'candidate_event_id',new.id);
+ if new.kind='file_added' then d:=d||jsonb_build_object('name_of_file',new.details->>'name');end if;
+ if new.kind in ('appointment_created','appointment_updated') then
+ foreach part in array array['before','after'] loop
+ person:=nullif(d->part->>'interviewer_id','')::uuid;
+ if person is not null then d:=jsonb_set(d,array[part,'interviewer_name'],to_jsonb(coalesce((select nullif(concat_ws(' ',first_name,last_name),'') from public.profiles where id=person),'Сотрудник')));end if;
+ end loop;
+ end if;
+ code:=case new.kind when 'appointment_created' then 'candidate.appointment.created' when 'appointment_updated' then 'candidate.appointment.updated' when 'file_added' then 'candidate.file.created' else 'candidate.'||new.kind end;
+ insert into public.audit_logs(account_id,user_id,action_code,entity_type,entity_id,details) values(c.account_id,new.actor_id,code,'candidate',c.id,d);
+ return new;
+end $$;
+revoke all on function public.candidate_event_audit() from public,anon,authenticated;
+create trigger candidate_event_shared_audit after insert on public.candidate_events for each row execute function public.candidate_event_audit();
+
+create function public.candidate_configuration_audit() returns trigger language plpgsql security definer set search_path=public,pg_catalog as $$
+declare before_data jsonb:='{}';after_data jsonb;changes jsonb:='{}';k text;label text;code text;
+begin
+ if TG_TABLE_NAME='candidate_connections' then
+ if TG_OP='UPDATE' then before_data:=jsonb_build_object('form_id',old.form_id,'enabled',old.enabled,'telegram_chat_id',old.telegram_chat_id,'telegram_configured',old.telegram_secret is not null);end if;
+ after_data:=jsonb_build_object('form_id',new.form_id,'enabled',new.enabled,'telegram_chat_id',new.telegram_chat_id,'telegram_configured',new.telegram_secret is not null);
+ if TG_OP='UPDATE' and new.secret_hash is distinct from old.secret_hash then changes:=changes||jsonb_build_object('webhook_secret',jsonb_build_object('old','Настроен','new','Обновлён'));end if;
+ if TG_OP='UPDATE' and new.telegram_secret is distinct from old.telegram_secret then changes:=changes||jsonb_build_object('telegram_token',jsonb_build_object('old','Настроен','new','Обновлён'));end if;
+ label:='Приём заявок из Тильды';code:='candidate.connection.updated';
+ else
+ if TG_OP='UPDATE' then before_data:=to_jsonb(old)-'account_id'-'venue_id';end if;
+ after_data:=to_jsonb(new)-'account_id'-'venue_id';
+ label:=coalesce((select name from public.venues where id=new.venue_id),'Заведение');code:='candidate.employment_settings.updated';
+ end if;
+ for k in select jsonb_object_keys(after_data) loop
+ if before_data->k is distinct from after_data->k then changes:=changes||jsonb_build_object(k,jsonb_build_object('old',before_data->k,'new',after_data->k));end if;
+ end loop;
+ if changes<>'{}' then insert into public.audit_logs(account_id,user_id,action_code,entity_type,details) values(new.account_id,auth.uid(),code,'candidate',jsonb_build_object('name',label,'changes',changes));end if;
+ return new;
+end $$;
+revoke all on function public.candidate_configuration_audit() from public,anon,authenticated;
+create trigger candidate_connection_audit after insert or update on public.candidate_connections for each row execute function public.candidate_configuration_audit();
+create trigger candidate_employment_settings_audit after insert or update on public.candidate_employment_settings for each row execute function public.candidate_configuration_audit();
+
+-- Old notifications and journal entries also obey the current tab permission.
+create policy candidate_notification_access on public.notifications as restrictive for select to authenticated using (
+ entity_type is distinct from 'candidate' or exists(select 1 from public.candidates c where c.id=notifications.entity_id and private.candidate_access(c.account_id,false))
+);
+create policy candidate_shared_audit_access on public.audit_logs as restrictive for select to authenticated using (
+ action_code not like 'candidate.%' or private.candidate_access(account_id,false)
+);
+do $$ begin
+ if exists(select 1 from pg_publication where pubname='supabase_realtime') and not exists(select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='candidates') then
+ alter publication supabase_realtime add table public.candidates;
+ end if;
+end $$;
+notify pgrst,'reload schema';

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useNewCandidateCount } from "@/lib/candidates/use-new-candidate-count";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
@@ -118,7 +119,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: User,
         permission: "people.view_staff",
       },
-      { title: "Кандидаты", href: "/people/candidates", icon: User, permissions: ["people.view_candidates", "people.manage_candidates", "people.hire_candidates"] },
+      { title: "Кандидаты", href: "/people/candidates", icon: User, permission: "people.manage_candidates" },
       { title: "Зарплата", href: "/people/payroll", icon: Wallet },
       {
         title: "Должности",
@@ -348,6 +349,8 @@ interface AppSidebarProps {
    *  бейджем на пункте «Сотрудники». 0 = не показываем. Источник —
    *  RPC count_venue_staff_attention (миграция 144). */
   staffAttentionCount?: number;
+  candidateAccountId?: string | null;
+  newCandidatesCount?: number;
   /** SSR-полученное состояние KB-сайдбара из cookie `kb_sidebar_hidden`.
    *  Прокидывается дальше в `KbNavLink` как `initialHidden`, чтобы первый
    *  рендер иконки «База знаний» использовал правильный цвет (muted vs
@@ -410,6 +413,8 @@ function SidebarBody({
   activeRoleCode,
   userPermissions,
   staffAttentionCount = 0,
+  candidateAccountId = null,
+  newCandidatesCount = 0,
   kbSidebarHidden = false,
   isImpersonating = false,
 }: AppSidebarProps) {
@@ -533,6 +538,7 @@ function SidebarBody({
     window.location.assign("/login");
   };
 
+  const candidateCount = useNewCandidateCount(candidateAccountId,userPermissionsSet.has("people.manage_candidates"),newCandidatesCount);
   const visibleSections = useMemo(
     () =>
       NAV_SECTIONS.map((s) => ({
@@ -544,7 +550,7 @@ function SidebarBody({
           // «сколько строк подсвечены».
           item.href === "/people/staff" && staffAttentionCount > 0
             ? { ...item, badge: staffAttentionCount }
-            : item,
+            : item.href === "/people/candidates" && candidateCount > 0 ? {...item,badge:candidateCount} : item,
         ),
       }))
         .filter(isSectionVisible)
@@ -554,7 +560,7 @@ function SidebarBody({
     // же массив, идентичность стабильна между рендерами с одним
     // userPermissions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [userPermissionsSet, activeRoleCode, staffAttentionCount],
+    [userPermissionsSet, activeRoleCode, staffAttentionCount, candidateCount],
   );
 
   const [openSections, setOpenSections] = useState<Set<string>>(() => {
@@ -814,6 +820,9 @@ function ExpandedSection({
     0,
   );
 
+  const candidateBadge = section.items.find(item => item.href === "/people/candidates")?.badge;
+  // Candidate attention has the same meaning on the parent and on the tab.
+  const sectionBadge = typeof candidateBadge === "number" && candidateBadge > 0 ? candidateBadge : (isOpen ? 0 : collapsedBadgeSum);
   return (
     // Group · gap 4px between Trigger and Nested
     <div className="flex flex-col gap-1" data-nav-section>
@@ -829,9 +838,9 @@ function ExpandedSection({
       >
         <SectionIcon className="w-[18px] h-[18px] shrink-0" />
         <span className="flex-1 text-left">{section.label}</span>
-        {!isOpen && collapsedBadgeSum > 0 && (
+        {sectionBadge > 0 && (
           <span className="flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary text-primary-foreground text-[11px] font-semibold px-1.5">
-            {collapsedBadgeSum}
+            {sectionBadge}
           </span>
         )}
         <ChevronIcon className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />

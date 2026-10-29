@@ -52,6 +52,7 @@ export async function loadAuditFeedPage(params: AuditFeedParams): Promise<{
     // Если ни одно не нашлось — listAuditEvents short-circuit'нет в empty.
     filterGroups.push({
       entityIds: [
+        ...search.candidateIds,
         ...search.staffIds,
         ...search.kbPageIds,
         ...search.roleIds,

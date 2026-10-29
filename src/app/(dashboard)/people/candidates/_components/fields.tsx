@@ -56,11 +56,13 @@ export function StatusBadge({
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        "inline-flex min-w-0 max-w-full items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium",
         className,
       )}
     >
-      {label}
+      <span className="truncate" title={label}>
+        {label}
+      </span>
     </span>
   );
 }

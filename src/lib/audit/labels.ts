@@ -57,6 +57,7 @@ const SECTIONS: Record<string, string> = {
   role: "Должности", department: "Подразделения", venue: "Заведения",
   legal_entity: "Юрлица", account: "Аккаунт", invitation: "Приглашения",
   kb_page: "База знаний", kb_thread: "База знаний",
+  candidate: "Кандидаты",
 };
 
 /** A new backend event must not expose its technical code in the journal. */

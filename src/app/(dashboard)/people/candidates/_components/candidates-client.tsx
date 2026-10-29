@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   flexRender,
@@ -43,7 +43,7 @@ import { listCandidates } from "../actions";
 import { plural } from "./fields";
 import { RecruitingSettings } from "./recruiting-settings";
 import {
-  CANDIDATE_COLUMNS,
+  candidateColumns,
   COLUMN_CONFIG,
   FIELD_LABELS,
   type CandidateField,
@@ -53,6 +53,8 @@ import {
   CandidateSortPicker,
 } from "./candidate-sort-settings";
 
+import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import type { CandidateStatusUpdate } from "./candidate-status-cell";
 import { CandidateFilterChip } from "./candidate-filter-chip";
 import { useCandidateColumnResize } from "./use-candidate-column-resize";
 
@@ -171,9 +173,28 @@ export function CandidatesClient({
           : st.sorting.filter((s) => s.id !== id),
     );
   };
+  const refreshList = useCallback(() => setReload((n) => n + 1), []);
+  useEffect(() => {
+    window.addEventListener("candidates:incoming", refreshList);
+    return () => window.removeEventListener("candidates:incoming", refreshList);
+  }, [refreshList]);
+  const statusSaved = useCallback((saved: CandidateStatusUpdate) => {
+    setList((current) => ({
+      ...current,
+      rows: current.rows.map((c) =>
+        c.id === saved.id ? { ...c, ...saved } : c,
+      ),
+    }));
+    setReload((n) => n + 1);
+    window.dispatchEvent(new Event("candidates:changed"));
+  }, []);
+  const columns = useMemo(
+    () => candidateColumns(statusSaved, refreshList),
+    [statusSaved, refreshList],
+  );
   const table = useReactTable({
     data: list.rows,
-    columns: CANDIDATE_COLUMNS,
+    columns,
     state: {
       sorting: st.sorting,
       pagination: { ...st.pagination, pageSize },
@@ -194,6 +215,13 @@ export function CandidatesClient({
     table,
     st.setColumnSizing,
   );
+  const statusColumn = table.getColumn("status");
+  const minimumTableWidth = statusColumn?.getIsVisible()
+    ? Math.max(
+        640,
+        Math.ceil((180 * table.getTotalSize()) / statusColumn.getSize()),
+      )
+    : 640;
   const hasFilters = !!(status || position || from || to);
   const reset = () => {
     setStatus("");
@@ -211,6 +239,18 @@ export function CandidatesClient({
   );
   return (
     <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6">
+      <PageBreadcrumb>
+        <nav
+          aria-label="Навигация по разделам"
+          className="flex min-w-0 items-center gap-2 text-sm"
+        >
+          <span className="text-muted-foreground">Люди</span>
+          <span className="text-muted-foreground" aria-hidden="true">
+            /
+          </span>
+          <span className="truncate">Кандидаты</span>
+        </nav>
+      </PageBreadcrumb>
       <TablePageHeader
         className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
         title={
@@ -421,7 +461,8 @@ export function CandidatesClient({
         <div className="overflow-auto rounded-xl border">
           <table
             ref={tableRef}
-            className="w-full min-w-[640px] table-fixed border-collapse text-left text-sm"
+            className="w-full table-fixed border-collapse text-left text-sm"
+            style={{ minWidth: minimumTableWidth }}
           >
             <ResizableTableHead
               table={table}

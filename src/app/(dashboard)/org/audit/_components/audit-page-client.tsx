@@ -34,6 +34,7 @@ import { AUDIT_ACTION_CATEGORIES } from "@/lib/audit/action-categories";
 import type { AuditStaffOption } from "@/lib/audit/search-staff";
 
 const SECTION_OPTIONS: MultiSelectItem[] = [
+  { id: "candidate", name: "Кандидаты" },
   { id: "staff", name: "Сотрудники" },
   { id: "invitation", name: "Приглашения" },
   { id: "role", name: "Должности" },
@@ -239,7 +240,7 @@ export function AuditPageClient({
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Журнал событий</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            История действий по аккаунту: приём и увольнение сотрудников,
+            История действий по аккаунту: обработка кандидатов, приём и увольнение сотрудников,
             смена должностей, обновление контактов и HR-данных, изменения
             в базе знаний
           </p>

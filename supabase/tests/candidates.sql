@@ -9,7 +9,7 @@ insert into public.accounts(id,name,owner_id) values('ce000000-0000-4000-8000-00
 insert into public.venues(id,account_id,name) values('ce000000-0000-4000-8000-000000000020','ce000000-0000-4000-8000-000000000010','QA'),('ce000000-0000-4000-8000-000000000021','ce000000-0000-4000-8000-000000000011','Чужое QA');
 insert into public.user_venue_roles(user_id,venue_id,role_id,status) select 'ce000000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000020',id,'active' from public.roles where code='owner' and venue_id is null;
 insert into public.roles(id,venue_id,name,code) values('ce000000-0000-4000-8000-000000000030','ce000000-0000-4000-8000-000000000020','Рекрутер QA','candidate_qa_recruiter');
-insert into public.role_permissions(role_id,permission_id,granted) select 'ce000000-0000-4000-8000-000000000030',id,true from public.permissions where code in ('people.view_candidates','people.manage_candidates');
+insert into public.role_permissions(role_id,permission_id,granted) select 'ce000000-0000-4000-8000-000000000030',id,true from public.permissions where code in ('people.manage_candidates','org.view_audit');
 insert into public.user_venue_roles(user_id,venue_id,role_id,status) values('ce000000-0000-4000-8000-000000000002','ce000000-0000-4000-8000-000000000020','ce000000-0000-4000-8000-000000000030','active');
 update public.profiles set active_venue_id='ce000000-0000-4000-8000-000000000020' where id in ('ce000000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000002');
 insert into public.candidates(id,account_id,full_name) values('ce000000-0000-4000-8000-000000000040','ce000000-0000-4000-8000-000000000010','Кандидат QA'),('ce000000-0000-4000-8000-000000000041','ce000000-0000-4000-8000-000000000011','Чужой кандидат QA');
@@ -21,6 +21,9 @@ insert into storage.objects(bucket_id,name) values
 ('candidate-files','ce000000-0000-4000-8000-000000000010/qa/photo.jpg'),
 ('candidate-files','ce000000-0000-4000-8000-000000000011/qa/photo.jpg');
 insert into public.candidate_connections(id,account_id,secret_hash,enabled,form_id,created_by) values('ce000000-0000-4000-8000-000000000050','ce000000-0000-4000-8000-000000000010',repeat('a',64),true,'form123','ce000000-0000-4000-8000-000000000001');
+insert into public.candidate_employment_settings(account_id,venue_id) values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000020');
+update public.candidate_employment_settings set store_ids='{1,2}' where venue_id='ce000000-0000-4000-8000-000000000020';
+update public.candidate_connections set telegram_secret='{"encrypted":"qa-not-a-real-secret","iv":"qa","tag":"qa"}' where id='ce000000-0000-4000-8000-000000000050';
 set local role service_role;
 select public.candidate_receive('ce000000-0000-4000-8000-000000000050','qa-event','{"full_name":"Повтор webhook","phone":"+79990000000","photos":[]}','{"formid":"form123"}');
 select public.candidate_receive('ce000000-0000-4000-8000-000000000050','qa-event','{"full_name":"Повтор webhook","phone":"+79990000000","photos":[]}','{"formid":"form123"}');
@@ -58,6 +61,45 @@ do $$declare n int;begin
  perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"interview"}');
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"trial"}');raise exception 'Stale update permitted';exception when others then if SQLERRM='Stale update permitted' then raise;end if;end;
 end $$;
+reset role;
+-- Shared journal, app notifications, one permission and the separate hiring gate.
+select public.candidate_notify_in_app('ce000000-0000-4000-8000-000000000040');
+select public.candidate_notify_in_app('ce000000-0000-4000-8000-000000000040');
+select public.candidate_notify_in_app('ce000000-0000-4000-8000-000000000041');
+insert into public.candidate_events(account_id,candidate_id,actor_id,kind,details) values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000040','ce000000-0000-4000-8000-000000000002','file_added','{"name":"QA.jpg"}');
+do $$begin
+ if (select count(*) from public.permissions where code like 'people.%candidates')<>1 then raise exception 'More than one candidate permission';end if;
+ if (select count(*) from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.commented')<>1 then raise exception 'Missing or duplicate shared comment event';end if;
+ if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.appointment.updated' and details->'after'->>'kind'='trial') then raise exception 'Meeting missing from shared journal';end if;
+ if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.updated' and details->'changes'->'status'->>'new'='interview') then raise exception 'Status diff missing from shared journal';end if;
+ if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.file.created' and details->>'name_of_file'='QA.jpg') then raise exception 'File missing from shared journal';end if;
+ if (select count(*) from public.notifications where entity_id='ce000000-0000-4000-8000-000000000040' and type='candidate.new')<>2 then raise exception 'Missing or duplicate app notification';end if;
+ if (select count(*) from public.notifications where entity_id='ce000000-0000-4000-8000-000000000041' and type='candidate.new')<>1 then raise exception 'Owner without membership not notified';end if;
+ if not exists(select 1 from public.audit_logs where action_code='candidate.employment_settings.updated' and details->'changes'->'store_ids'->'new'='[1,2]'::jsonb) then raise exception 'Employment settings missing from shared journal';end if;
+ if exists(select 1 from public.audit_logs where action_code='candidate.connection.updated' and (details::text like '%'||repeat('a',64)||'%' or details::text like '%qa-not-a-real-secret%')) then raise exception 'Integration credential leaked to journal';end if;
+end $$;
+set local role authenticated;
+select set_config('app.ctx_ready','',true);
+do $$begin
+ if public.candidate_new_count()<>1 then raise exception 'New count does not track status and account';end if;
+ if (public.candidate_hiring_options()->'venues'->0->>'can_hire')::boolean then raise exception 'Recruiter can hire without staff permission';end if;
+ begin perform public.candidate_begin_hire('ce000000-0000-4000-8000-000000000040','{"revision":2,"venue_id":"ce000000-0000-4000-8000-000000000020","role_id":"ce000000-0000-4000-8000-000000000030"}');raise exception 'Hire allowed without staff permission';exception when others then if SQLERRM='Hire allowed without staff permission' then raise;end if;end;
+ if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040') then raise exception 'Allowed journal inaccessible';end if;
+end $$;
+reset role;
+delete from public.role_permissions where role_id='ce000000-0000-4000-8000-000000000030' and permission_id=(select id from public.permissions where code='people.manage_candidates');
+set local role authenticated;
+select set_config('app.ctx_ready','',true);
+do $$begin
+ if public.candidate_new_count()<>0 or exists(select 1 from public.candidates) then raise exception 'Revoked candidate access still reads data';end if;
+ if exists(select 1 from public.audit_logs where action_code like 'candidate.%') then raise exception 'Revoked candidate journal data exposed';end if;
+ if exists(select 1 from public.notifications where entity_type='candidate') then raise exception 'Revoked candidate notification exposed';end if;
+ if exists(select 1 from storage.objects where bucket_id='candidate-files') then raise exception 'Revoked candidate photo exposed';end if;
+ begin perform public.candidate_command('comment','ce000000-0000-4000-8000-000000000040','{"body":"Denied","request_key":"ce000000-0000-4000-8000-000000000099"}');raise exception 'Revoked candidate write allowed';exception when others then if SQLERRM='Revoked candidate write allowed' then raise;end if;end;
+end $$;
+reset role;
+insert into public.role_permissions(role_id,permission_id,granted) select 'ce000000-0000-4000-8000-000000000030',id,true from public.permissions where code='people.manage_candidates';
+select set_config('app.ctx_ready','',true);
 reset role;
 select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 set local role authenticated;

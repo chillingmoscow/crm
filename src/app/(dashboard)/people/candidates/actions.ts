@@ -3,6 +3,8 @@ import { randomBytes, createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { encryptSecret } from "@/lib/integrations/crypto";
 import {
   candidateScope,
@@ -11,7 +13,11 @@ import {
   candidateOptions,
 } from "@/lib/candidates/data";
 import { uuid, candidateUpdate, hireInput } from "@/lib/candidates/schema";
-import type { ListFilters, ConnectionView } from "@/lib/candidates/types";
+import type {
+  ListFilters,
+  ConnectionView,
+  CandidateStatus,
+} from "@/lib/candidates/types";
 import { CANDIDATE_SORT_FIELDS } from "@/lib/candidates/types";
 import { provisionCandidateHire } from "@/lib/candidates/provision";
 const result = <T>(r: {
@@ -48,6 +54,11 @@ const listingFilters = z.object({
 export async function listCandidates(filters: ListFilters) {
   return candidateList(listingFilters.parse(filters));
 }
+export async function countNewCandidates() {
+  const db = asLooseDb(await createClient());
+  const count = result(await db.rpc("candidate_new_count", {}));
+  return typeof count === "number" ? count : 0;
+}
 export async function getCandidate(id: string) {
   return candidateDetail(uuid.parse(id));
 }
@@ -55,13 +66,17 @@ export async function getCandidateOptions() {
   return candidateOptions();
 }
 async function command(action: string, id: string | null, input: unknown) {
-  const s = await candidateScope(true);
+  const s = await candidateScope();
   const r = await s.db.rpc("candidate_command", {
     p_action: action,
     p_id: id,
     p_input: input,
   });
-  const data = result(r) as { id: string };
+  const data = result(r) as {
+    id: string;
+    revision: number;
+    status: CandidateStatus;
+  };
   revalidatePath("/people/candidates", "layout");
   return data;
 }
@@ -112,7 +127,7 @@ export async function candidateLifecycle(
   return command(action, uuid.parse(id), {});
 }
 export async function uploadCandidateFile(id: string, form: FormData) {
-  const s = await candidateScope(true);
+  const s = await candidateScope();
   uuid.parse(id);
   result(
     await s.db
@@ -200,7 +215,7 @@ export async function hireCandidate(id: string, input: unknown) {
   return { user_id: hire.target_user_id };
 }
 export async function createCandidateRole(venueId: string, input: unknown) {
-  const s = await candidateScope(true);
+  const s = await candidateScope();
   const money = z.number().finite().min(0).max(1000000000);
   const rate = z.object({
     base: money.nullable(),

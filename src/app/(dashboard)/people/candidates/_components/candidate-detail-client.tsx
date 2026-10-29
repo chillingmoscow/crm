@@ -195,7 +195,7 @@ export function CandidateDetailClient({
                 Открыть сотрудника
               </Link>
             </Button>
-          ) : permissions.hire && !c.archived_at ? (
+          ) : permissions.hire && options.venues.some(v => v.can_hire) && !c.archived_at ? (
             <Button onClick={() => setHiring(true)}>
               <UserCheck className="mr-2 h-4 w-4" />
               {data.hire?.state === "reserved"

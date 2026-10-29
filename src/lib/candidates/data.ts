@@ -20,7 +20,7 @@ import type {
   CandidatePage,
 } from "./types";
 import { uuid, normalizePhone } from "./schema";
-export async function candidateScope(manage = false) {
+export async function candidateScope() {
   const [user, accountId, can, client] = await Promise.all([
     getCachedUser(),
     getCachedActiveAccountId(),
@@ -28,15 +28,7 @@ export async function candidateScope(manage = false) {
     createClient(),
   ]);
   if (!user || !accountId) throw new Error("Войдите в аккаунт");
-  if (
-    manage
-      ? !can("people.manage_candidates")
-      : ![
-          "people.view_candidates",
-          "people.manage_candidates",
-          "people.hire_candidates",
-        ].some(can)
-  )
+  if (!can("people.manage_candidates"))
     throw new Error("Нет доступа к кандидатам");
   const owner = await client
     .from("accounts")
@@ -45,7 +37,7 @@ export async function candidateScope(manage = false) {
     .maybeSingle();
   const permissions: CandidatePermissions = {
     manage: can("people.manage_candidates"),
-    hire: can("people.hire_candidates"),
+    hire: can("people.manage_candidates"),
     owner: owner.data?.owner_id === user.id,
     integrations: can("settings.manage_integrations"),
   };

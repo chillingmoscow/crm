@@ -34,6 +34,10 @@ set local role authenticated;
 select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
 select set_config('app.ctx_ready','',true);
 do $$declare n int;begin
+ if has_any_column_privilege('authenticated','public.candidates','INSERT') then raise exception 'Manual candidate insertion allowed';end if;
+ begin perform public.candidate_command('create',null,'{"full_name":"Недопустимый ручной кандидат"}');raise exception 'Manual candidate creation allowed';exception when others then if SQLERRM='Manual candidate creation allowed' then raise;end if;end;
+ begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"unknown"}');raise exception 'Unknown status allowed';exception when others then if SQLERRM='Unknown status allowed' then raise;end if;end;
+ begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"responsible_id":null}');raise exception 'Assignment allowed';exception when others then if SQLERRM='Assignment allowed' then raise;end if;end;
  select count(*) into n from public.candidates where id='ce000000-0000-4000-8000-000000000041';if n<>0 then raise exception 'Cross-tenant read';end if;
  perform public.candidate_command('comment','ce000000-0000-4000-8000-000000000040','{"body":"Комментарий QA","request_key":"ce000000-0000-4000-8000-000000000090"}');
  perform public.candidate_command('comment','ce000000-0000-4000-8000-000000000040','{"body":"Комментарий QA","request_key":"ce000000-0000-4000-8000-000000000090"}');

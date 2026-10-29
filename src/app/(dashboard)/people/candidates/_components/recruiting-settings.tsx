@@ -15,11 +15,14 @@ import {
   saveCandidateEmploymentSettings,
 } from "../actions";
 import { Field, FieldSelect } from "./fields";
+import { candidateError } from "@/lib/candidates/errors";
 export function RecruitingSettings({
   options,
+  owner,
   onClose,
 }: {
   options: HiringOptions;
+  owner: boolean;
   onClose: () => void;
 }) {
   const [connection, setConnection] = useState<ConnectionView>(null),
@@ -31,8 +34,11 @@ export function RecruitingSettings({
     [secret, setSecret] = useState(""),
     [url, setUrl] = useState(""),
     [busy, start] = useTransition(),
-    [error, setError] = useState("");
-  const [venue, setVenue] = useState(options.venues[0]?.id ?? ""),
+    [connectionError, setConnectionError] = useState(""),
+    [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [venue, setVenue] = useState(
+      options.active_venue_id ?? options.venues[0]?.id ?? "",
+    ),
     [stores, setStores] = useState("1"),
     [masterStores, setMasterStores] = useState("16"),
     [group, setGroup] = useState("8"),
@@ -40,9 +46,13 @@ export function RecruitingSettings({
     [codes, setCodes] = useState(""),
     [poolReady, setPoolReady] = useState(false),
     [emptyPool, setEmptyPool] = useState(false),
-    [employmentLoaded, setEmploymentLoaded] = useState(false);
+    [employmentLoaded, setEmploymentLoaded] = useState(false),
+    [employmentError, setEmploymentError] = useState(""),
+    [employmentAttempt, setEmploymentAttempt] = useState(0);
   useEffect(() => {
     let active = true;
+    setLoaded(false);
+    setConnectionError("");
     candidateConnection()
       .then((c) => {
         if (!active) return;
@@ -62,18 +72,22 @@ export function RecruitingSettings({
       })
       .catch((e) => {
         if (active)
-          setError(
-            e instanceof Error ? e.message : "Не удалось загрузить настройки",
+          setConnectionError(
+            candidateError(e, "Не удалось загрузить подключение Тильды."),
           );
+      })
+      .finally(() => {
+        if (active) setLoaded(true);
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [connectionAttempt]);
   useEffect(() => {
-    if (!venue) return;
+    if (!venue || !owner) return;
     let active = true;
     setEmploymentLoaded(false);
+    setEmploymentError("");
     candidateEmploymentSettings(venue)
       .then((s) => {
         if (!active) return;
@@ -88,14 +102,20 @@ export function RecruitingSettings({
       })
       .catch((e) => {
         if (active)
-          setError(
-            e instanceof Error ? e.message : "Не удалось загрузить настройки",
+          setEmploymentError(
+            candidateError(
+              e,
+              "Не удалось загрузить подключение Quick Resto и замка.",
+            ),
           );
+      })
+      .finally(() => {
+        if (active) setEmploymentLoaded(true);
       });
     return () => {
       active = false;
     };
-  }, [venue]);
+  }, [venue, owner, employmentAttempt]);
   const save = (rotate = false) =>
     start(async () => {
       try {
@@ -117,9 +137,7 @@ export function RecruitingSettings({
         setConnection(await candidateConnection());
         toast.success("Приём заявок настроен");
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Не удалось сохранить настройки",
-        );
+        toast.error(candidateError(e, "Не удалось сохранить настройки"));
       }
     });
   const saveEmployment = () =>
@@ -150,16 +168,14 @@ export function RecruitingSettings({
             : "Настройки найма сохранены",
         );
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Не удалось сохранить настройки",
-        );
+        toast.error(candidateError(e, "Не удалось сохранить настройки"));
       }
     });
   return (
     <EditDrawer
       open
-      title="Настройки кандидатов"
-      description="Анкеты с сайта и оформление сотрудников"
+      title="Приём заявок и найм"
+      description="Подключение Тильды, уведомлений и создания сотрудника после найма"
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -169,21 +185,28 @@ export function RecruitingSettings({
         </Button>
       }
     >
-      {error ? (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
       <Tabs defaultValue="tilda">
         <TabsList>
-          <TabsTrigger value="tilda">Анкеты с сайта</TabsTrigger>
-          <TabsTrigger value="hire">Оформление сотрудника</TabsTrigger>
+          <TabsTrigger value="tilda">Заявки из Тильды</TabsTrigger>
+          {owner ? (
+            <TabsTrigger value="hire">Quick Resto и замок</TabsTrigger>
+          ) : null}
         </TabsList>
         <TabsContent value="tilda" className="mt-5 space-y-5">
+          <p className="text-sm text-muted-foreground">
+            Кандидат заполняет анкету на сайте, и она появляется в этом разделе.
+            Здесь один раз подключают форму Тильды и чат для уведомлений.
+            Уведомления внутри CRM включаются автоматически.
+          </p>
           {!loaded ? (
             <p className="text-sm text-muted-foreground">
               Загружаем настройки…
             </p>
+          ) : connectionError ? (
+            <SettingsLoadError
+              message={connectionError}
+              onRetry={() => setConnectionAttempt((n) => n + 1)}
+            />
           ) : (
             <>
               <label className="flex items-center gap-2 text-sm">
@@ -298,89 +321,131 @@ export function RecruitingSettings({
             </>
           )}
         </TabsContent>
-        <TabsContent value="hire" className="mt-5 space-y-5">
-          <FieldSelect
-            label="Заведение"
-            value={venue}
-            onChange={setVenue}
-            options={options.venues.map((v) => ({
-              value: v.id,
-              label: v.name,
-            }))}
-          />
-          {employmentLoaded ? (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Настройки повторяют создание сотрудника из Glide: Quick Resto,
-                PIN, склады, гость, бонусный счёт и код офисного замка.
-              </p>
-              <Field label="Склады Quick Resto для всех сотрудников · ID через запятую">
-                <Input
-                  value={stores}
-                  onChange={(e) => setStores(e.target.value)}
-                />
-              </Field>
-              <Field label="Дополнительные склады для мастеров · ID через запятую">
-                <Input
-                  value={masterStores}
-                  onChange={(e) => setMasterStores(e.target.value)}
-                />
-              </Field>
-              <Field label="Группа гостей «Сотрудники» · ID в Quick Resto">
-                <Input
-                  type="number"
-                  min={1}
-                  value={group}
-                  onChange={(e) => setGroup(e.target.value)}
-                />
-              </Field>
-              <Field label="Тип бонусного счёта · ID в Quick Resto">
-                <Input
-                  type="number"
-                  min={1}
-                  value={accountType}
-                  onChange={(e) => setAccountType(e.target.value)}
-                />
-              </Field>
-              <div className="space-y-3 border-t pt-4">
-                <h3 className="text-base font-semibold">Офисный замок</h3>
-                <p className="text-sm text-muted-foreground">
-                  {poolReady
-                    ? "Занятые коды перенесены. Можно дополнить список."
-                    : "Перед первым наймом перенесите занятые номера и коды из старой системы."}
-                </p>
-                <Field label="Занятые номера и коды · одна пара в строке">
-                  <Textarea
-                    autoComplete="off"
-                    value={codes}
-                    onChange={(e) => setCodes(e.target.value)}
-                    placeholder={
-                      "Номер пользователя → код\nВставьте два столбца из старой системы"
-                    }
-                    rows={5}
-                  />
-                </Field>
-                {!poolReady ? (
-                  <label className="flex items-start gap-2 text-sm">
-                    <Checkbox
-                      checked={emptyPool}
-                      onCheckedChange={(v) => setEmptyPool(v === true)}
-                    />
-                    В этом аккаунте ещё нет выданных кодов замка
-                  </label>
-                ) : null}
-              </div>
-              <Button disabled={busy} onClick={saveEmployment}>
-                Сохранить настройки найма
-              </Button>
-            </>
-          ) : (
+        {owner ? (
+          <TabsContent value="hire" className="mt-5 space-y-5">
             <p className="text-sm text-muted-foreground">
-              Загружаем настройки…
+              После нажатия «Принять на работу» Sheerly создаёт сотрудника и PIN
+              в Quick Resto, открывает доступ к складам, создаёт гостя с
+              бонусным счётом и подбирает код замка. Эти параметры настраиваются
+              один раз для каждого заведения.
             </p>
-          )}
-        </TabsContent>
+            <FieldSelect
+              label="Заведение"
+              value={venue}
+              onChange={setVenue}
+              options={options.venues.map((v) => ({
+                value: v.id,
+                label: v.name,
+              }))}
+            />
+            {employmentError ? (
+              <SettingsLoadError
+                message={employmentError}
+                onRetry={() => setEmploymentAttempt((n) => n + 1)}
+              />
+            ) : employmentLoaded ? (
+              <>
+                <details className="space-y-4 rounded-lg border p-4">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    Склады и бонусный счёт
+                  </summary>
+                  <p className="text-sm text-muted-foreground">
+                    Номера складов, группы гостей и типа счёта берутся из вашего
+                    подключения Quick Resto.
+                  </p>
+                  <Field label="Склады Quick Resto для всех сотрудников · ID через запятую">
+                    <Input
+                      value={stores}
+                      onChange={(e) => setStores(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Дополнительные склады для мастеров · ID через запятую">
+                    <Input
+                      value={masterStores}
+                      onChange={(e) => setMasterStores(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Группа гостей «Сотрудники» · ID в Quick Resto">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={group}
+                      onChange={(e) => setGroup(e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Тип бонусного счёта · ID в Quick Resto">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={accountType}
+                      onChange={(e) => setAccountType(e.target.value)}
+                    />
+                  </Field>
+                </details>
+                <div className="space-y-3 border-t pt-4">
+                  <h3 className="text-base font-semibold">
+                    Коды офисного замка
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    Старые коды нужны, чтобы не выдать один код двум
+                    сотрудникам. Новые данные сохраняются в карточке сотрудника;
+                    в сам замок их добавляют отдельно.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {poolReady
+                      ? "Занятые коды перенесены. Можно дополнить список."
+                      : "Перед первым наймом перенесите занятые номера и коды из старой системы."}
+                  </p>
+                  <Field label="Занятые номера и коды · одна пара в строке">
+                    <Textarea
+                      autoComplete="off"
+                      value={codes}
+                      onChange={(e) => setCodes(e.target.value)}
+                      placeholder={
+                        "Номер пользователя → код\nВставьте два столбца из старой системы"
+                      }
+                      rows={5}
+                    />
+                  </Field>
+                  {!poolReady ? (
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox
+                        checked={emptyPool}
+                        onCheckedChange={(v) => setEmptyPool(v === true)}
+                      />
+                      В этом аккаунте ещё нет выданных кодов замка
+                    </label>
+                  ) : null}
+                </div>
+                <Button disabled={busy} onClick={saveEmployment}>
+                  Сохранить настройки найма
+                </Button>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Загружаем настройки…
+              </p>
+            )}
+          </TabsContent>
+        ) : null}
       </Tabs>
     </EditDrawer>
+  );
+}
+
+function SettingsLoadError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div role="alert" className="space-y-3 rounded-lg border p-4">
+      <p className="text-sm">{message}</p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        Повторить загрузку
+      </Button>
+    </div>
   );
 }

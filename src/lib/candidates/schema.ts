@@ -24,11 +24,8 @@ export const candidateUpdate = candidateInput.partial().extend({
       "interview",
       "trial",
       "rejected",
-      "hired",
-      "unknown",
     ])
     .optional(),
-  responsible_id: uuid.nullable().optional(),
 });
 export const hireInput = z.object({
   revision: z.number().int().positive(),

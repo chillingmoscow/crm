@@ -1,11 +1,13 @@
-export const STATUSES = {
+export const CANDIDATE_STAGES = {
   new: "Новая анкета",
   review: "Можно рассмотреть",
   interview: "Собеседование",
   trial: "Стажировка",
-  hired: "Принят на работу",
   rejected: "Не подходит",
-  unknown: "Без статуса",
+} as const;
+export const STATUSES = {
+  ...CANDIDATE_STAGES,
+  hired: "Принят на работу",
 } as const;
 export type CandidateStatus = keyof typeof STATUSES;
 export const STATUS_CLASSES: Record<CandidateStatus, string> = {
@@ -15,7 +17,6 @@ export const STATUS_CLASSES: Record<CandidateStatus, string> = {
   trial: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
   hired: "bg-brand/10 text-brand",
   rejected: "bg-destructive/10 text-destructive",
-  unknown: "bg-muted text-muted-foreground",
 };
 export type Candidate = {
   id: string;
@@ -87,6 +88,7 @@ export type CandidateEvent = {
   actor_name?: string;
 };
 export type HiringOptions = {
+  active_venue_id: string | null;
   staff: { id: string; name: string; venue_id: string; role_id: string }[];
   venues: {
     id: string;
@@ -136,7 +138,6 @@ export type ListFilters = {
   search?: string;
   status?: string;
   position?: string;
-  responsible?: string;
   from?: string;
   to?: string;
   archive?: boolean;

@@ -21,7 +21,7 @@ export function HireDrawer({
   detail: CandidateDetail;
   options: HiringOptions;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (userId?: string) => void;
 }) {
   const c = detail.candidate,
     old = detail.hire?.state === "reserved" ? detail.hire.input : null;
@@ -35,6 +35,9 @@ export function HireDrawer({
     [venue, setVenue] = useState(
       String(
         old?.venue_id ??
+          initialOptions.venues.find(
+            (v) => v.id === initialOptions.active_venue_id && v.can_hire,
+          )?.id ??
           initialOptions.venues.find((v) => v.can_hire)?.id ??
           "",
       ),
@@ -104,7 +107,7 @@ export function HireDrawer({
   const hire = () =>
     start(async () => {
       try {
-        await hireCandidate(
+        const result = await hireCandidate(
           c.id,
           old ?? {
             revision: c.revision,
@@ -118,7 +121,7 @@ export function HireDrawer({
           },
         );
         toast.success("Кандидат принят на работу");
-        onSaved();
+        onSaved(result.user_id);
         onClose();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "Оформление не завершено");

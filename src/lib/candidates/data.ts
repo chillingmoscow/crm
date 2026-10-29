@@ -73,6 +73,7 @@ export async function candidateList(filters: ListFilters = {}) {
     .from<Candidate[]>("candidates")
     .select("*", { count: "exact" })
     .eq("account_id", s.accountId)
+    .neq("status", "hired")
     .order("submitted_at", { ascending: false })
     .order("id", { ascending: false });
   query = filters.archive
@@ -88,8 +89,6 @@ export async function candidateList(filters: ListFilters = {}) {
     );
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.position) query = query.eq("desired_position", filters.position);
-  if (filters.responsible)
-    query = query.eq("responsible_id", uuid.parse(filters.responsible));
   // Business dates are interpreted in the account's recruiting timezone (Moscow for the initial Tilda form).
   if (filters.from || filters.to) {
     const from = filters.from ? `${filters.from}T00:00:00+03:00` : null;

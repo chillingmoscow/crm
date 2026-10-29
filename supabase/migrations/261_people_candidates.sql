@@ -5,7 +5,7 @@ create table public.candidates (
  phone_normalized text generated always as (regexp_replace(regexp_replace(coalesce(phone,''),'[^0-9]','','g'),'^8([0-9]{10})$','7\1')) stored,
  desired_position text, age integer check(age between 14 and 100), address text,
  social jsonb not null default '{}', education text, experience text, plans text, family_status text, drivers_license text, salary_expectation text,
- status text not null default 'new' check(status in ('new','review','interview','trial','rejected','hired','unknown')),
+ status text not null default 'new' check(status in ('new','review','interview','trial','rejected','hired')),
  responsible_id uuid references public.profiles(id) on delete set null,
  source text not null default 'manual' check(source in ('manual','tilda','notion')), source_id text, source_url text,
  submitted_at timestamptz not null default now(), legacy_data jsonb not null default '{}',
@@ -119,9 +119,7 @@ do $$ declare t text;begin
  end loop;
 end $$;
 -- Column grants keep employment links and imported identity server-controlled.
-grant insert(account_id,full_name,phone,desired_position,age,address,social,education,experience,plans,family_status,drivers_license,salary_expectation,responsible_id) on public.candidates to authenticated;
-grant update(full_name,phone,desired_position,age,address,social,education,experience,plans,family_status,drivers_license,salary_expectation,responsible_id,status) on public.candidates to authenticated;
-create policy candidate_insert on public.candidates for insert to authenticated with check(private.candidate_access(account_id,true) and source='manual' and status='new' and hired_user_id is null);
+grant update(full_name,phone,desired_position,age,address,social,education,experience,plans,family_status,drivers_license,salary_expectation,status) on public.candidates to authenticated;
 create policy candidate_update on public.candidates for update to authenticated using(private.candidate_access(account_id,true) and archived_at is null) with check(private.candidate_access(account_id,true) and status<>'hired' and hired_user_id is null);
 -- Managers never receive the integration credentials or the Auth provisioning journal.
 revoke all on function private.candidate_access(uuid,boolean) from public,anon;
@@ -160,13 +158,8 @@ create function public.candidate_command(p_action text,p_id uuid default null,p_
 declare a uuid:=public.get_active_account_id();u uuid:=auth.uid();c public.candidates;ident uuid;r public.candidate_appointments;owner boolean;
 begin
  if u is null or a is null then raise exception 'Войдите в аккаунт';end if;
- if p_action not in ('create','update','comment','appointment','archive','restore','delete') then raise exception 'Неизвестное действие';end if;
+ if p_action not in ('update','comment','appointment','archive','restore','delete') then raise exception 'Неизвестное действие';end if;
  if not private.candidate_access(a,true) then raise exception 'Нет права вести кандидатов';end if;
- if p_action='create' then
- insert into public.candidates(account_id,full_name,phone,desired_position,age,address,social,education,experience,plans,family_status,drivers_license,salary_expectation)
- values(a,trim(p_input->>'full_name'),nullif(p_input->>'phone',''),p_input->>'desired_position',nullif(p_input->>'age','')::int,p_input->>'address',coalesce(p_input->'social','{}'),p_input->>'education',p_input->>'experience',p_input->>'plans',p_input->>'family_status',p_input->>'drivers_license',p_input->>'salary_expectation') returning id into ident;
- return jsonb_build_object('id',ident);
- end if;
  select * into c from public.candidates where id=p_id and account_id=a for update;
  if not found then raise exception 'Кандидат недоступен';end if;
  if p_action in ('archive','restore','delete') then
@@ -182,9 +175,9 @@ begin
  end if;
  if c.archived_at is not null then raise exception 'Сначала восстановите анкету из архива';end if;
  if p_action='update' then
+ if p_input?'responsible_id' then raise exception 'Назначение ответственного больше не используется';end if;
  if c.revision is distinct from (p_input->>'revision')::int then raise exception 'Анкета изменена. Обновите страницу';end if;
  if p_input ? 'status' and (p_input->>'status'='hired' or c.status='hired' and p_input->>'status'<>'hired') then raise exception 'Приём на работу доступен через кнопку «Принять на работу»';end if;
- if p_input ? 'responsible_id' and nullif(p_input->>'responsible_id','') is not null and not exists(select 1 from public.user_venue_roles m join public.venues v on v.id=m.venue_id where m.user_id=(p_input->>'responsible_id')::uuid and v.account_id=a and m.status='active' and m.fired_at is null) then raise exception 'Ответственный недоступен';end if;
  update public.candidates set
  full_name=case when p_input?'full_name' then trim(p_input->>'full_name') else full_name end,
  phone=case when p_input?'phone' then p_input->>'phone' else phone end,
@@ -198,7 +191,7 @@ begin
  family_status=case when p_input?'family_status' then p_input->>'family_status' else family_status end,
  drivers_license=case when p_input?'drivers_license' then p_input->>'drivers_license' else drivers_license end,
  salary_expectation=case when p_input?'salary_expectation' then p_input->>'salary_expectation' else salary_expectation end,
- status=coalesce(p_input->>'status',status),responsible_id=case when p_input?'responsible_id' then nullif(p_input->>'responsible_id','')::uuid else responsible_id end where id=c.id;
+ status=coalesce(p_input->>'status',status) where id=c.id;
  elsif p_action='comment' then
  insert into public.candidate_comments(account_id,candidate_id,author_id,body,source_id) values(a,c.id,u,trim(p_input->>'body'),p_input->>'request_key') on conflict(account_id,candidate_id,source_id) do nothing returning id into ident;
  if ident is not null then insert into public.candidate_events(account_id,candidate_id,actor_id,kind) values(a,c.id,u,'commented');end if;
@@ -341,6 +334,7 @@ create policy candidate_files_read on storage.objects for select to authenticate
 
 create function public.candidate_hiring_options() returns jsonb language sql stable security definer set search_path=public,pg_catalog as $$
  select case when private.candidate_access(public.get_active_account_id(),false) then jsonb_build_object(
+ 'active_venue_id',(select active_venue_id from public.profiles where id=auth.uid()),
  'venues',coalesce((select jsonb_agg(jsonb_build_object('id',v.id,'name',v.name,'timezone',v.timezone,'can_hire',private.candidate_venue_permission(auth.uid(),v.id,'people.invite_staff') and private.candidate_venue_permission(auth.uid(),v.id,'people.hire_candidates'),'can_create_role',private.candidate_venue_permission(auth.uid(),v.id,'people.manage_roles') and private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))) from public.venues v where v.account_id=public.get_active_account_id() and v.archived_at is null),'[]'),
  'roles',coalesce((select jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'venue_id',r.venue_id,'model_id',m.id,'quickresto_role_id',coalesce(m.quickresto_role_id,(select l.external_id::bigint from public.external_entity_links l where l.account_id=v.account_id and l.provider='quickresto' and l.entity_type='role' and l.local_id=r.id and l.external_id~'^[0-9]+$' limit 1)),'rules',coalesce((select jsonb_agg(jsonb_build_object('valid_from',rv.valid_from,'monthly_amount',rv.monthly_amount,'rates',rv.rates,'config',rv.config) order by rv.valid_from desc,rv.created_at desc,rv.id desc) from public.payroll_rule_versions rv where rv.model_id=m.id and rv.employee_id is null),'[]'))) from public.roles r join public.venues v on v.id=r.venue_id left join public.payroll_models m on m.role_id=r.id and m.is_role_default and not m.archived where v.account_id=public.get_active_account_id() and v.archived_at is null and r.archived_at is null and (private.candidate_venue_permission(auth.uid(),v.id,'people.hire_candidates') or private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))),'[]'),
  'staff',coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'name',concat_ws(' ',p.first_name,p.last_name),'venue_id',v.id,'role_id',uv.role_id)) from public.profiles p join public.user_venue_roles uv on uv.user_id=p.id join public.venues v on v.id=uv.venue_id where v.account_id=public.get_active_account_id() and uv.status='active' and uv.fired_at is null),'[]'),

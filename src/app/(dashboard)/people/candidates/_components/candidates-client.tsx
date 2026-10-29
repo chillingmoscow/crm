@@ -2,10 +2,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
-  Plus,
-  Search,
   LayoutGrid,
   List,
   Settings2,
@@ -14,10 +12,13 @@ import {
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { TablePageHeader } from "@/components/shared/table/table-page-header";
+import { TablePageHeader, TableControls } from "@/components/shared/table";
+import { DateRangeFilter } from "@/components/shared/date-range-filter";
+import { format } from "date-fns";
+import { candidateError } from "@/lib/candidates/errors";
 import {
+  CANDIDATE_STAGES,
   STATUSES,
   STATUS_CLASSES,
   type Candidate,
@@ -26,7 +27,6 @@ import {
 } from "@/lib/candidates/types";
 import { listCandidates, updateCandidate } from "../actions";
 import { FieldSelect, StatusBadge, dateLabel, plural } from "./fields";
-import { CandidateForm } from "./candidate-form";
 import { RecruitingSettings } from "./recruiting-settings";
 export function CandidatesClient({
   initial,
@@ -39,18 +39,17 @@ export function CandidatesClient({
   permissions: CandidatePermissions;
   archive?: boolean;
 }) {
-  const router = useRouter(),
-    [data, setData] = useState(initial),
+  const [data, setData] = useState(initial),
     [search, setSearch] = useState(""),
     [query, setQuery] = useState(""),
     [status, setStatus] = useState(""),
     [position, setPosition] = useState(""),
-    [responsible, setResponsible] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
     [page, setPage] = useState(0),
     [view, setView] = useState<"board" | "table">("board"),
-    [creating, setCreating] = useState(false),
+    [searchOpen, setSearchOpen] = useState(false),
+    [preset, setPreset] = useState<string | null>(null),
     [settings, setSettings] = useState(false),
     [error, setError] = useState(""),
     [busy, start] = useTransition();
@@ -86,7 +85,6 @@ export function CandidatesClient({
           search: query,
           status,
           position,
-          responsible,
           from: from || undefined,
           to: to || undefined,
           archive,
@@ -99,21 +97,23 @@ export function CandidatesClient({
       } catch (e) {
         if (active)
           setError(
-            e instanceof Error ? e.message : "Не удалось загрузить анкеты",
+            candidateError(
+              e,
+              "Не удалось загрузить анкеты. Повторите попытку.",
+            ),
           );
       }
     });
     return () => {
       active = false;
     };
-  }, [query, status, position, responsible, from, to, archive, page]);
+  }, [query, status, position, from, to, archive, page]);
   const refresh = async () =>
     setData(
       await listCandidates({
         search: query,
         status,
         position,
-        responsible,
         from: from || undefined,
         to: to || undefined,
         archive,
@@ -137,9 +137,7 @@ export function CandidatesClient({
         await updateCandidate(id, { revision: c.revision, status: key });
         await refresh();
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Не удалось сменить статус",
-        );
+        toast.error(candidateError(e, "Не удалось сменить статус"));
       }
     });
   };
@@ -171,110 +169,103 @@ export function CandidatesClient({
                 Настройки
               </Button>
             ) : null}
-            {permissions.manage && !archive ? (
-              <Button onClick={() => setCreating(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Добавить кандидата
-              </Button>
-            ) : null}
           </>
         }
       />
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="relative min-w-0 flex-1 basis-52">
-          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-          <Input
-            aria-label="Поиск кандидатов"
-            placeholder="Имя, телефон или должность"
-            className="pl-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+      <div className="grid gap-3 lg:flex lg:flex-wrap lg:items-center lg:justify-between">
+        <DateRangeFilter
+          ariaLabel="Дата заявки"
+          value={{
+            start: from ? new Date(`${from}T12:00:00`) : null,
+            end: to ? new Date(`${to}T12:00:00`) : null,
+          }}
+          presetLabel={preset}
+          onChange={(range, label) => {
+            setFrom(range.start ? format(range.start, "yyyy-MM-dd") : "");
+            setTo(range.end ? format(range.end, "yyyy-MM-dd") : "");
+            setPreset(label);
+            setPage(0);
+          }}
+        />
+        <div className="flex flex-wrap justify-end gap-2">
+          <TableControls
+            search={{
+              value: search,
+              onChange: setSearch,
+              open: searchOpen,
+              onOpenChange: setSearchOpen,
+              placeholder: "Имя, телефон или должность",
+            }}
+            filters={{
+              active: !!(status || position),
+              content: (
+                <div className="w-72 space-y-4 p-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-medium">Фильтры</h2>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setStatus("");
+                        setPosition("");
+                        setPage(0);
+                      }}
+                    >
+                      Сбросить
+                    </Button>
+                  </div>
+                  <FieldSelect
+                    label="Статус"
+                    value={status}
+                    onChange={(v) => {
+                      setStatus(v);
+                      setPage(0);
+                    }}
+                    options={[
+                      { value: "", label: "Все статусы" },
+                      ...Object.entries(CANDIDATE_STAGES).map(
+                        ([value, label]) => ({ value, label }),
+                      ),
+                    ]}
+                  />
+                  <FieldSelect
+                    label="Должность"
+                    value={position}
+                    onChange={(v) => {
+                      setPosition(v);
+                      setPage(0);
+                    }}
+                    options={[
+                      { value: "", label: "Все должности" },
+                      ...positions.map((p) => ({ value: p, label: p })),
+                    ]}
+                  />
+                </div>
+              ),
+            }}
           />
-        </div>
-        <FieldSelect
-          label="Статус"
-          value={status}
-          onChange={(v) => {
-            setStatus(v);
-            setPage(0);
-          }}
-          options={[
-            { value: "", label: "Все статусы" },
-            ...Object.entries(STATUSES).map(([value, label]) => ({
-              value,
-              label,
-            })),
-          ]}
-        />
-        <FieldSelect
-          label="Должность"
-          value={position}
-          onChange={(v) => {
-            setPosition(v);
-            setPage(0);
-          }}
-          options={[
-            { value: "", label: "Все должности" },
-            ...positions.map((p) => ({ value: p, label: p })),
-          ]}
-        />
-        <FieldSelect
-          label="Ответственный"
-          value={responsible}
-          onChange={(v) => {
-            setResponsible(v);
-            setPage(0);
-          }}
-          options={[
-            { value: "", label: "Все" },
-            ...options.members.map((m) => ({ value: m.id, label: m.name })),
-          ]}
-        />
-        <div className="flex max-w-full items-end gap-2">
-          <label className="text-xs text-muted-foreground">
-            Заявки с
-            <Input
-              aria-label="Заявки с"
-              type="date"
-              value={from}
-              onChange={(e) => {
-                setFrom(e.target.value);
-                setPage(0);
-              }}
-            />
-          </label>
-          <label className="text-xs text-muted-foreground">
-            по
-            <Input
-              aria-label="Заявки по"
-              type="date"
-              value={to}
-              onChange={(e) => {
-                setTo(e.target.value);
-                setPage(0);
-              }}
-            />
-          </label>
-        </div>
-        <div className="flex rounded-md border p-1">
-          <Button
-            variant={view === "board" ? "secondary" : "ghost"}
-            size="icon"
-            aria-label="Доска"
-            aria-pressed={view === "board"}
-            onClick={() => setView("board")}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={view === "table" ? "secondary" : "ghost"}
-            size="icon"
-            aria-label="Таблица"
-            aria-pressed={view === "table"}
-            onClick={() => setView("table")}
-          >
-            <List className="h-4 w-4" />
-          </Button>
+          <div className="flex gap-1" aria-label="Вид списка">
+            <Button
+              variant={view === "board" ? "secondary" : "ghost"}
+              size="icon"
+              className="size-9"
+              aria-label="Доска"
+              aria-pressed={view === "board"}
+              onClick={() => setView("board")}
+            >
+              <LayoutGrid className="size-4" />
+            </Button>
+            <Button
+              variant={view === "table" ? "secondary" : "ghost"}
+              size="icon"
+              className="size-9"
+              aria-label="Таблица"
+              aria-pressed={view === "table"}
+              onClick={() => setView("table")}
+            >
+              <List className="size-4" />
+            </Button>
+          </div>
         </div>
       </div>
       <div
@@ -316,7 +307,7 @@ export function CandidatesClient({
         <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-center">
           <UserRound className="h-8 w-8 text-muted-foreground" />
           <h2 className="text-xl font-semibold">
-            {query || status || from || to
+            {query || status || position || from || to
               ? "По этим условиям анкет нет"
               : archive
                 ? "Архив пуст"
@@ -325,25 +316,22 @@ export function CandidatesClient({
           <p className="max-w-sm text-sm text-muted-foreground">
             {archive
               ? "Архивированные анкеты появятся здесь."
-              : "Добавьте кандидата вручную или подключите анкету на Тильде в настройках."}
+              : query || status || position || from || to
+                ? "Измените поиск или сбросьте фильтры."
+                : "Новые анкеты появятся здесь после отправки формы на сайте."}
           </p>
         </div>
       ) : view === "board" ? (
         <div className="flex min-w-0 gap-4 overflow-x-auto pb-4">
-          {Object.entries(STATUSES)
+          {Object.entries(CANDIDATE_STAGES)
             .filter(([key]) => !status || key === status)
-            .filter(
-              ([key]) =>
-                key !== "unknown" ||
-                data.rows.some((c) => c.status === "unknown"),
-            )
             .map(([key, label]) => (
               <section
                 key={key}
                 aria-label={label}
                 className="w-72 shrink-0 rounded-xl bg-muted/40 p-3"
                 onDragOver={(e) => {
-                  if (permissions.manage && key !== "hired") e.preventDefault();
+                  if (permissions.manage && !archive) e.preventDefault();
                 }}
                 onDrop={(e) => drop(e, key)}
               >
@@ -402,13 +390,6 @@ export function CandidatesClient({
                         ) : null}
                         <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
                           <span>{dateLabel(c.submitted_at)}</span>
-                          {c.responsible_id ? (
-                            <span className="truncate">
-                              {options.members
-                                .find((m) => m.id === c.responsible_id)
-                                ?.name.split(" ")[0] ?? "Ответственный"}
-                            </span>
-                          ) : null}
                         </div>
                       </Link>
                     ))}
@@ -427,7 +408,6 @@ export function CandidatesClient({
                   "Статус",
                   "Телефон",
                   "Дата заявки",
-                  "Ответственный",
                 ].map((l) => (
                   <th
                     key={l}
@@ -462,25 +442,16 @@ export function CandidatesClient({
                   <td className="whitespace-nowrap px-4 py-3">
                     {dateLabel(c.submitted_at)}
                   </td>
-                  <td className="px-4 py-3">
-                    {options.members.find((m) => m.id === c.responsible_id)
-                      ?.name ?? "—"}
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {creating ? (
-        <CandidateForm
-          onClose={() => setCreating(false)}
-          onSaved={(id) => router.push(`/people/candidates/${id}`)}
-        />
-      ) : null}
       {settings ? (
         <RecruitingSettings
           options={options}
+          owner={permissions.owner}
           onClose={() => setSettings(false)}
         />
       ) : null}

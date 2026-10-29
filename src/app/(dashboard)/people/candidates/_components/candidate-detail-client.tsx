@@ -43,6 +43,7 @@ import {
   candidateLifecycle,
   getCandidateDoorCode,
 } from "../actions";
+import { candidateError } from "@/lib/candidates/errors";
 import { CandidateForm } from "./candidate-form";
 import { HireDrawer } from "./hire-drawer";
 import {
@@ -133,16 +134,16 @@ export function CandidateDetailClient({
         await refresh();
         if (message) toast.success(message);
       } catch (e) {
-        toast.error(
-          e instanceof Error ? e.message : "Не удалось сохранить изменения",
-        );
+        toast.error(candidateError(e, "Не удалось сохранить изменения"));
       }
     });
   const display = (field: string, value: unknown): string => {
     if (value === null || value === undefined || value === "")
       return "Не указано";
     if (field === "status")
-      return STATUSES[value as keyof typeof STATUSES] ?? String(value);
+      return value === "unknown"
+        ? "Не указан в прежней анкете"
+        : (STATUSES[value as keyof typeof STATUSES] ?? String(value));
     if (field === "responsible_id")
       return options.members.find((m) => m.id === value)?.name ?? "Сотрудник";
     if (field === "hired_venue_id")
@@ -239,7 +240,7 @@ export function CandidateDetailClient({
           </p>
         </div>
       ) : null}
-      <div className="grid min-w-0 gap-5 md:grid-cols-2">
+      <div className="max-w-md">
         <FieldSelect
           label="Статус"
           value={c.status}
@@ -253,25 +254,6 @@ export function CandidateDetailClient({
           options={Object.entries(STATUSES)
             .filter(([key]) => key !== "hired" || c.status === "hired")
             .map(([value, label]) => ({ value, label }))}
-        />
-        <FieldSelect
-          label="Ответственный"
-          value={c.responsible_id ?? ""}
-          disabled={!canEdit || busy}
-          onChange={(id) =>
-            action(
-              () =>
-                updateCandidate(c.id, {
-                  revision: c.revision,
-                  responsible_id: id || null,
-                }),
-              "Ответственный назначен",
-            )
-          }
-          options={[
-            { value: "", label: "Не назначен" },
-            ...options.members.map((m) => ({ value: m.id, label: m.name })),
-          ]}
         />
       </div>
       <Tabs defaultValue="profile">
@@ -602,20 +584,30 @@ export function CandidateDetailClient({
                   <p className="mt-2 text-xs text-muted-foreground">
                     {(() => {
                       const before = item.details.before as
-                        Partial<Appointment> | null | undefined;
+                        | Partial<Appointment>
+                        | null
+                        | undefined;
                       const after = item.details.after as
-                        Partial<Appointment> | undefined;
+                        | Partial<Appointment>
+                        | undefined;
                       const summary = (a: Partial<Appointment>) => {
-                        const date = a.appointment_date?.split("-").reverse().join(".") ?? "";
+                        const date =
+                          a.appointment_date?.split("-").reverse().join(".") ??
+                          "";
                         const time = a.starts_at
-                          ? wallTime(a.starts_at, a.timezone ?? "Europe/Moscow").slice(11)
+                          ? wallTime(
+                              a.starts_at,
+                              a.timezone ?? "Europe/Moscow",
+                            ).slice(11)
                           : "";
                         return [
                           a.kind === "trial" ? "Стажировка" : "Собеседование",
                           `${date}${time ? `, ${time} (${a.timezone ?? "Europe/Moscow"})` : ""}`,
                           a.outcome ? outcomes[a.outcome] : "",
                           a.location,
-                        ].filter(Boolean).join(" · ");
+                        ]
+                          .filter(Boolean)
+                          .join(" · ");
                       };
                       return after
                         ? `${before?.id ? `${summary(before)} → ` : ""}${summary(after)}`
@@ -755,8 +747,9 @@ export function CandidateDetailClient({
           detail={data}
           options={options}
           onClose={() => setHiring(false)}
-          onSaved={() => {
-            void refresh();
+          onSaved={(userId) => {
+            if (userId) router.push(`/people/staff/${userId}`);
+            else void refresh();
           }}
         />
       ) : null}

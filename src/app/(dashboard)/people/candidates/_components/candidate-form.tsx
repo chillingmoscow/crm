@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import type { Candidate } from "@/lib/candidates/types";
-import { createCandidate, updateCandidate } from "../actions";
+import { updateCandidate } from "../actions";
 import { Field } from "./fields";
 const fields = [
   ["full_name", "ФИО"],
@@ -28,7 +28,7 @@ export function CandidateForm({
   onClose,
   onSaved,
 }: {
-  candidate?: Candidate;
+  candidate: Candidate;
   onClose: () => void;
   onSaved: (id: string) => void;
 }) {
@@ -36,11 +36,11 @@ export function CandidateForm({
     Object.fromEntries(
       [...fields, ...longFields].map(([key]) => [
         key,
-        String(candidate?.[key] ?? ""),
+        String(candidate[key] ?? ""),
       ]),
     ),
   );
-  const [social, setSocial] = useState(candidate?.social ?? {});
+  const [social, setSocial] = useState(candidate.social);
   const [busy, start] = useTransition();
   const set = (key: string, value: string) =>
     setValues((v) => ({ ...v, [key]: value }));
@@ -52,13 +52,11 @@ export function CandidateForm({
           age: values.age ? Number(values.age) : null,
           social,
         };
-        const r = candidate
-          ? await updateCandidate(candidate.id, {
-              ...input,
-              revision: candidate.revision,
-            })
-          : await createCandidate(input);
-        toast.success(candidate ? "Анкета сохранена" : "Кандидат добавлен");
+        const r = await updateCandidate(candidate.id, {
+          ...input,
+          revision: candidate.revision,
+        });
+        toast.success("Анкета сохранена");
         onSaved(r.id);
         onClose();
       } catch (e) {
@@ -73,7 +71,7 @@ export function CandidateForm({
       onOpenChange={(v) => {
         if (!v && !busy) onClose();
       }}
-      title={candidate ? "Редактировать анкету" : "Новый кандидат"}
+      title="Редактировать анкету"
       description="Контакты, опыт и пожелания кандидата"
       footer={
         <>

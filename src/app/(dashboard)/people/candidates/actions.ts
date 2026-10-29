@@ -12,7 +12,6 @@ import {
 } from "@/lib/candidates/data";
 import {
   uuid,
-  candidateInput,
   candidateUpdate,
   hireInput,
 } from "@/lib/candidates/schema";
@@ -37,13 +36,10 @@ export async function listCandidates(filters: ListFilters) {
             "interview",
             "trial",
             "rejected",
-            "hired",
-            "unknown",
             "",
           ])
           .optional(),
         position: z.string().max(300).optional(),
-        responsible: z.union([uuid, z.literal("")]).optional(),
         from: z.string().date().optional(),
         to: z.string().date().optional(),
         archive: z.boolean().optional(),
@@ -68,9 +64,6 @@ async function command(action: string, id: string | null, input: unknown) {
   const data = result(r) as { id: string };
   revalidatePath("/people/candidates", "layout");
   return data;
-}
-export async function createCandidate(input: unknown) {
-  return command("create", null, candidateInput.parse(input));
 }
 export async function updateCandidate(id: string, input: unknown) {
   return command("update", uuid.parse(id), candidateUpdate.parse(input));

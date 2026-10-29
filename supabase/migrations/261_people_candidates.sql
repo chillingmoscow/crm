@@ -5,8 +5,8 @@ create table public.candidates (
  phone_normalized text generated always as (regexp_replace(regexp_replace(coalesce(phone,''),'[^0-9]','','g'),'^8([0-9]{10})$','7\1')) stored,
  desired_position text, age integer check(age between 14 and 100), address text,
  social jsonb not null default '{}', education text, experience text, plans text, family_status text, drivers_license text, salary_expectation text,
- stage_changed_at timestamptz,
  status text not null default 'new' check(status in ('new','review','interview','trial','rejected','hired')),
+ status_order integer generated always as (case status when 'new' then 0 when 'review' then 1 when 'interview' then 2 when 'trial' then 3 when 'rejected' then 4 else 5 end) stored,
  responsible_id uuid references public.profiles(id) on delete set null,
  source text not null default 'manual' check(source in ('manual','tilda','notion')), source_id text, source_url text,
  submitted_at timestamptz not null default now(), legacy_data jsonb not null default '{}',
@@ -19,7 +19,7 @@ create table public.candidates (
 );
 create unique index candidates_source_unique on public.candidates(account_id,source,source_id);
 create index candidates_list on public.candidates(account_id,submitted_at desc,id desc) where archived_at is null;
-create index candidates_board on public.candidates(account_id,status,stage_changed_at desc nulls last,submitted_at desc,id desc) where archived_at is null and status<>'hired';
+create index candidates_status_list on public.candidates(account_id,status_order,submitted_at desc,id desc) where archived_at is null and status<>'hired';
 create index candidates_phone on public.candidates(account_id,phone_normalized) where phone_normalized<>'';
 create index candidates_hired_venue on public.candidates(account_id,hired_venue_id);
 create table public.candidate_comments (
@@ -137,7 +137,6 @@ begin
  if TG_OP='INSERT' then event_kind:='created';
  else
  new.updated_at:=now();new.revision:=old.revision+1;
- if new.status is distinct from old.status then new.stage_changed_at:=now();end if;
  foreach k in array array['full_name','phone','desired_position','age','address','social','education','experience','plans','family_status','drivers_license','salary_expectation','status','responsible_id','hired_user_id','hired_venue_id','hired_role_id','archived_at'] loop
  if to_jsonb(old)->k is distinct from to_jsonb(new)->k then changes:=changes||jsonb_build_object(k,jsonb_build_object('old',to_jsonb(old)->k,'new',to_jsonb(new)->k));end if;
  end loop;

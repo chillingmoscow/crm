@@ -7,12 +7,12 @@ import { encryptSecret } from "@/lib/integrations/crypto";
 import {
   candidateScope,
   candidateList,
-  candidateBoard,
   candidateDetail,
   candidateOptions,
 } from "@/lib/candidates/data";
 import { uuid, candidateUpdate, hireInput } from "@/lib/candidates/schema";
 import type { ListFilters, ConnectionView } from "@/lib/candidates/types";
+import { CANDIDATE_SORT_FIELDS } from "@/lib/candidates/types";
 import { provisionCandidateHire } from "@/lib/candidates/provision";
 const result = <T>(r: {
   data: T | null;
@@ -30,36 +30,23 @@ const listingFilters = z.object({
   from: z.string().date().optional(),
   to: z.string().date().optional(),
   page: z.number().int().min(0).max(10000).optional(),
-  pageSize: z
-    .union([
-      z.literal(5),
-      z.literal(10),
-      z.literal(20),
-      z.literal(25),
-      z.literal(50),
-      z.literal(100),
-    ])
+  pageSize: z.union([z.literal(25), z.literal(50), z.literal(100)]).optional(),
+  sort: z
+    .array(
+      z.object({
+        field: z.enum(CANDIDATE_SORT_FIELDS),
+        direction: z.enum(["asc", "desc"]),
+      }),
+    )
+    .max(CANDIDATE_SORT_FIELDS.length)
+    .refine(
+      (items) => new Set(items.map((s) => s.field)).size === items.length,
+      "Поля сортировки не должны повторяться",
+    )
     .optional(),
-  view: z.enum(["board", "table"]).optional(),
 });
 export async function listCandidates(filters: ListFilters) {
   return candidateList(listingFilters.parse(filters));
-}
-export async function loadCandidateBoard(
-  filters: ListFilters,
-  pages: unknown = {},
-  pageSize = 5,
-) {
-  const paging = z
-    .record(
-      z.enum(["new", "review", "interview", "trial", "rejected"]),
-      z.number().int().min(0).max(10000),
-    )
-    .parse(pages);
-  const size = z
-    .union([z.literal(5), z.literal(10), z.literal(20)])
-    .parse(pageSize);
-  return candidateBoard(listingFilters.parse(filters), paging, size);
 }
 export async function getCandidate(id: string) {
   return candidateDetail(uuid.parse(id));

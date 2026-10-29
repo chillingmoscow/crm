@@ -18,10 +18,7 @@ import type {
   HiringOptions,
   ListFilters,
   CandidatePage,
-  CandidateBoardData,
-  CandidateStage,
 } from "./types";
-import { CANDIDATE_STAGE_KEYS, BOARD_PAGE_SIZE } from "./types";
 import { uuid, normalizePhone } from "./schema";
 export async function candidateScope(manage = false) {
   const [user, accountId, can, client] = await Promise.all([
@@ -76,14 +73,15 @@ function candidateQuery(s: CandidateScope, filters: ListFilters) {
     .select("*", { count: "exact" })
     .eq("account_id", s.accountId)
     .neq("status", "hired");
-  if (filters.view === "board")
-    query = query.order("stage_changed_at", {
-      ascending: false,
+  for (const sort of filters.sort ?? []) {
+    query = query.order(sort.field === "status" ? "status_order" : sort.field, {
+      ascending: sort.direction === "asc",
       nullsFirst: false,
     });
-  query = query
-    .order("submitted_at", { ascending: false })
-    .order("id", { ascending: false });
+  }
+  if (!filters.sort?.some((s) => s.field === "submitted_at"))
+    query = query.order("submitted_at", { ascending: false });
+  query = query.order("id", { ascending: false });
   query = filters.archive
     ? query.or("archived_at.not.is.null")
     : query.is("archived_at", null);
@@ -182,40 +180,6 @@ export async function candidateList(
   const result = await candidatePage(s, filters);
   await attachCandidatePhotos(s, result.rows);
   return result;
-}
-export async function candidateBoard(
-  filters: ListFilters = {},
-  pages: Partial<Record<CandidateStage, number>> = {},
-  pageSize = BOARD_PAGE_SIZE,
-): Promise<CandidateBoardData> {
-  const s = await candidateScope();
-  if (filters.archive && !s.permissions.owner)
-    throw new Error("Архив доступен владельцу");
-  const columns = await Promise.all(
-    CANDIDATE_STAGE_KEYS.map(
-      async (status) =>
-        [
-          status,
-          filters.status && filters.status !== status
-            ? { rows: [], total: 0, page: 0, pageSize }
-            : await candidatePage(s, {
-                ...filters,
-                status,
-                page: pages[status] ?? 0,
-                pageSize,
-                view: "board",
-              }),
-        ] as const,
-    ),
-  );
-  await attachCandidatePhotos(
-    s,
-    columns.flatMap(([, column]) => column.rows),
-  );
-  return {
-    columns: Object.fromEntries(columns) as CandidateBoardData["columns"],
-    total: columns.reduce((n, [, c]) => n + c.total, 0),
-  };
 }
 export async function candidateDetail(id: string): Promise<CandidateDetail> {
   const s = await candidateScope();

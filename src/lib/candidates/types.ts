@@ -10,20 +10,28 @@ export const STATUSES = {
   hired: "Принят на работу",
 } as const;
 export type CandidateStatus = keyof typeof STATUSES;
-export type CandidateStage = keyof typeof CANDIDATE_STAGES;
-export const CANDIDATE_STAGE_KEYS = Object.keys(
-  CANDIDATE_STAGES,
-) as CandidateStage[];
-export const BOARD_PAGE_SIZE = 5;
+export const CANDIDATE_SORT_FIELDS = [
+  "full_name",
+  "desired_position",
+  "status",
+  "phone",
+  "submitted_at",
+  "age",
+  "salary_expectation",
+  "address",
+  "experience",
+  "education",
+] as const;
+export type CandidateSortField = (typeof CANDIDATE_SORT_FIELDS)[number];
+export type CandidateSort = {
+  field: CandidateSortField;
+  direction: "asc" | "desc";
+};
 export type CandidatePage = {
   rows: Candidate[];
   total: number;
   page: number;
   pageSize: number;
-};
-export type CandidateBoardData = {
-  columns: Record<CandidateStage, CandidatePage>;
-  total: number;
 };
 export const STATUS_CLASSES: Record<CandidateStatus, string> = {
   new: "bg-muted text-muted-foreground",
@@ -57,7 +65,6 @@ export type Candidate = {
   submitted_at: string;
   created_at: string;
   updated_at: string;
-  stage_changed_at: string | null;
   revision: number;
   hired_user_id: string | null;
   hired_venue_id: string | null;
@@ -160,7 +167,7 @@ export type ListFilters = {
   archive?: boolean;
   page?: number;
   pageSize?: number;
-  view?: "board" | "table";
+  sort?: CandidateSort[];
 };
 export type ConnectionView = {
   id: string;

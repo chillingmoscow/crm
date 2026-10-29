@@ -14,7 +14,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   Loader2,
-  Settings2,
+  Settings,
   X,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -40,7 +40,7 @@ import {
   type ListFilters,
 } from "@/lib/candidates/types";
 import { listCandidates } from "../actions";
-import { FieldSelect, plural } from "./fields";
+import { plural } from "./fields";
 import { RecruitingSettings } from "./recruiting-settings";
 import {
   CANDIDATE_COLUMNS,
@@ -48,7 +48,13 @@ import {
   FIELD_LABELS,
   type CandidateField,
 } from "./candidate-table";
-import { CandidateSortSettings } from "./candidate-sort-settings";
+import {
+  CandidateSortSettings,
+  CandidateSortPicker,
+} from "./candidate-sort-settings";
+
+import { CandidateFilterChip } from "./candidate-filter-chip";
+import { useCandidateColumnResize } from "./use-candidate-column-resize";
 
 const sortableColumns = new Set<string>(CANDIDATE_SORT_FIELDS);
 const noControlColumns = () => false;
@@ -184,6 +190,10 @@ export function CandidatesClient({
     columnResizeMode: "onChange",
     autoResetPageIndex: false,
   });
+  const { tableRef, onResizeStart } = useCandidateColumnResize(
+    table,
+    st.setColumnSizing,
+  );
   const hasFilters = !!(status || position || from || to);
   const reset = () => {
     setStatus("");
@@ -229,7 +239,15 @@ export function CandidatesClient({
                 active: filtersVisible || hasFilters,
                 onClick: () => setFiltersVisible((v) => !v),
               }}
-              sort={{ active: !!st.sorting.length, content: sortSettings }}
+              sort={{
+                active: !!st.sorting.length,
+                content: (
+                  <CandidateSortPicker
+                    sorting={st.sorting}
+                    onChange={changeSorting}
+                  />
+                ),
+              }}
               columns={{
                 content: (
                   <TableColumnManager
@@ -260,26 +278,38 @@ export function CandidatesClient({
                 className="h-9"
                 onClick={() => setSettings(true)}
               >
-                <Settings2 className="mr-2 size-4" />
+                <Settings className="mr-2 size-4" />
                 Настройки
               </Button>
             ) : null}
           </>
         }
       />
-      {filtersVisible || st.sorting.length > 0 ? (
+      {filtersVisible || hasFilters || st.sorting.length > 0 ? (
         <div
           className="flex flex-wrap items-center gap-2"
           aria-label="Условия списка кандидатов"
         >
           {st.sorting.length > 0 ? (
             <TableControlPin
-              label={`${FIELD_LABELS[st.sorting[0].id as CandidateField]}${st.sorting.length > 1 ? ` +${st.sorting.length - 1}` : ""}`}
-              icon={<ArrowUpDown />}
+              label={
+                st.sorting.length === 1
+                  ? FIELD_LABELS[st.sorting[0].id as CandidateField]
+                  : `${st.sorting.length} ${plural(st.sorting.length, ["сортировка", "сортировки", "сортировок"])}`
+              }
+              icon={
+                st.sorting.length === 1 ? (
+                  st.sorting[0].desc ? (
+                    <ArrowDown />
+                  ) : (
+                    <ArrowUp />
+                  )
+                ) : (
+                  <ArrowUpDown />
+                )
+              }
               active
-              onClear={() => changeSorting([])}
-              clearLabel="Сбросить сортировку"
-              contentClassName="w-80 p-3"
+              contentClassName="w-auto p-3"
             >
               {sortSettings}
             </TableControlPin>
@@ -303,60 +333,33 @@ export function CandidatesClient({
                   firstPage();
                 }}
               />
-              <TableControlPin
-                label={
-                  status
-                    ? CANDIDATE_STAGES[status as keyof typeof CANDIDATE_STAGES]
-                    : "Статус"
-                }
-                active={!!status}
-                onClear={() => {
-                  setStatus("");
+              <CandidateFilterChip
+                label="Статус"
+                value={status}
+                onChange={(v) => {
+                  setStatus(v);
                   firstPage();
                 }}
-                clearLabel="Сбросить статус"
-              >
-                <div className="p-2">
-                  <FieldSelect
-                    label="Статус"
-                    value={status}
-                    onChange={(v) => {
-                      setStatus(v);
-                      firstPage();
-                    }}
-                    options={[
-                      { value: "", label: "Все статусы" },
-                      ...Object.entries(CANDIDATE_STAGES).map(
-                        ([value, label]) => ({ value, label }),
-                      ),
-                    ]}
-                  />
-                </div>
-              </TableControlPin>
-              <TableControlPin
-                label={position || "Должность"}
-                active={!!position}
-                onClear={() => {
-                  setPosition("");
+                options={[
+                  { value: "", label: "Все статусы" },
+                  ...Object.entries(CANDIDATE_STAGES).map(([value, label]) => ({
+                    value,
+                    label,
+                  })),
+                ]}
+              />
+              <CandidateFilterChip
+                label="Должность"
+                value={position}
+                onChange={(v) => {
+                  setPosition(v);
                   firstPage();
                 }}
-                clearLabel="Сбросить должность"
-              >
-                <div className="p-2">
-                  <FieldSelect
-                    label="Должность"
-                    value={position}
-                    onChange={(v) => {
-                      setPosition(v);
-                      firstPage();
-                    }}
-                    options={[
-                      { value: "", label: "Все должности" },
-                      ...options.positions.map((p) => ({ value: p, label: p })),
-                    ]}
-                  />
-                </div>
-              </TableControlPin>
+                options={[
+                  { value: "", label: "Все должности" },
+                  ...options.positions.map((p) => ({ value: p, label: p })),
+                ]}
+              />
             </>
           ) : null}
           {query ? (
@@ -416,9 +419,13 @@ export function CandidatesClient({
           </p>
         ) : null}
         <div className="overflow-auto rounded-xl border">
-          <table className="w-full min-w-[640px] table-fixed border-collapse text-left text-sm">
+          <table
+            ref={tableRef}
+            className="w-full min-w-[640px] table-fixed border-collapse text-left text-sm"
+          >
             <ResizableTableHead
               table={table}
+              onResizeStart={onResizeStart}
               isControlColumn={noControlColumns}
               sortableColumnIds={sortableColumns}
               onSort={(id) => cycleSort(id)}

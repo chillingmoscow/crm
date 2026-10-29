@@ -1,6 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { runOneSlice, scheduleDueDays } from "@/lib/sales/sync";
+import {
+  scheduleStatisticsReports,
+  processStatisticsReport,
+} from "@/lib/sales/statistics-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -29,7 +33,30 @@ export async function POST(request: NextRequest) {
         break;
       }
     }
-    return NextResponse.json({ queued, slices, failed });
+    let monthReports = 0,
+      monthReportErrors = 0;
+    try {
+      await scheduleStatisticsReports();
+      const start = Date.now();
+      while (Date.now() - start < 5000) {
+        const r = await processStatisticsReport();
+        if (r.idle) break;
+        monthReports++;
+        if (r.error) {
+          monthReportErrors++;
+          break;
+        }
+      }
+    } catch {
+      monthReportErrors++;
+    }
+    return NextResponse.json({
+      queued,
+      slices,
+      failed,
+      monthReports,
+      monthReportErrors,
+    });
   } catch {
     return NextResponse.json(
       { error: "Не удалось обработать очередь смен" },

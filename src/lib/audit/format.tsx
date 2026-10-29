@@ -309,6 +309,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) настройки продаж</>,
   },
+  "sales.statistics.refresh_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление месячной статистики</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.month).slice(0,7)} · отчётов: {Number(e.details.reports??0)}</p>,
+  },
   "payroll.data.imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) данные зарплаты</>,

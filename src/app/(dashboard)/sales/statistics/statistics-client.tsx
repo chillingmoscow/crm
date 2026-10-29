@@ -30,23 +30,26 @@ import {
   useTableState,
 } from "@/components/shared/table";
 import {
-  aggregateSalesMonths,
   monthBounds,
   sumSalesMetric,
   type MetricTotal,
   type SalesMonth,
 } from "@/lib/sales/monthly";
-import {
-  metricHints,
-  metricLabels,
-  type MetricKey,
-  type SalesData,
-} from "@/lib/sales/types";
+import { metricHints, metricLabels, type MetricKey } from "@/lib/sales/types";
 import { money } from "@/lib/sales/format";
 import { csvCell } from "@/lib/sales/csv";
 import { cn } from "@/lib/utils";
 import { PageFrame } from "@/components/shared/page-frame";
-import { exportSalesRows, loadSales } from "../shifts/actions";
+import { exportSalesRows } from "../shifts/actions";
+import {
+  loadStatistics,
+  requestStatisticsMonth,
+  type StatisticsData,
+} from "./actions";
+import {
+  combineStatisticsMonths,
+  type StatisticsReport,
+} from "@/lib/sales/statistics-reports";
 
 const keys = [
   "turnover",
@@ -66,7 +69,29 @@ const labels: Record<string, string> = {
   hookahShare: "Доля кальянов",
   barShare: "Доля бара",
   perShift: "Оборот за смену",
+  alcoholRevenue: "Алкоголь",
+  regularGuests: "Постоянные гости",
+  regularRevenue: "Постоянные гости, ₽",
+  averageCheck: "Средний чек",
 };
+const reportColumns = {
+  alcoholRevenue: { kind: "alcohol", field: "revenue", unit: "₽" },
+  regularGuests: { kind: "regular_guests", field: "guests", unit: "" },
+  regularRevenue: { kind: "regular_guests", field: "revenue", unit: "₽" },
+  averageCheck: { kind: "average_check", field: "average", unit: "₽" },
+} as const;
+function reportMap(reports: StatisticsReport[]) {
+  return new Map(reports.map((r) => [`${r.month.slice(0, 7)}:${r.kind}`, r]));
+}
+function reportValue(
+  reports: Map<string, StatisticsReport>,
+  month: string,
+  column: keyof typeof reportColumns,
+) {
+  const c = reportColumns[column],
+    r = reports.get(`${month}:${c.kind}`);
+  return { report: r, value: r?.metrics?.[c.field] ?? null, unit: c.unit };
+}
 const stateColumns = [
   { id: "month", defaultSize: 185 },
   { id: "shifts", defaultSize: 95 },
@@ -79,6 +104,11 @@ const stateColumns = [
     id,
     defaultSize: 155,
     defaultVisible: id === "perShift",
+  })),
+  ...Object.keys(reportColumns).map((id) => ({
+    id,
+    defaultSize: 165,
+    defaultVisible: id !== "regularGuests",
   })),
 ];
 const sortMap = Object.fromEntries(stateColumns.map((c) => [c.id, c.id]));
@@ -132,9 +162,15 @@ function Amount({
   );
 }
 
-export function StatisticsClient({ initial }: { initial: SalesData }) {
+export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   const [data, setData] = useState(initial);
-  const months = useMemo(() => aggregateSalesMonths(data.days), [data.days]);
+  const months = useMemo(
+    () => combineStatisticsMonths(data.days, data.reports),
+    [data.days, data.reports],
+  );
+  const reports = useMemo(() => reportMap(data.reports), [data.reports]);
+  const [reportMonth, setReportMonth] = useState(months[0]?.month ?? "");
+  const [reportBusy, setReportBusy] = useState(false);
   const [year, setYear] = useState(months[0]?.month.slice(0, 4) ?? "all");
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -227,8 +263,48 @@ export function StatisticsClient({ initial }: { initial: SalesData }) {
           ),
         }),
       ),
+      ...(Object.keys(reportColumns) as (keyof typeof reportColumns)[]).map(
+        (key): ColumnDef<SalesMonth> => ({
+          id: key,
+          header: labels[key],
+          accessorFn: (r) =>
+            reportValue(reports, r.month, key).value ?? undefined,
+          sortUndefined: "last",
+          size: 165,
+          cell: ({ row }) => {
+            const { report, value, unit } = reportValue(
+              reports,
+              row.original.month,
+              key,
+            );
+            return (
+              <span
+                className="inline-flex flex-col items-end tabular-nums"
+                title={report?.last_error ?? undefined}
+              >
+                <span>
+                  {money(value)}
+                  {value !== null && unit && (
+                    <span className="ml-1 text-muted-foreground">{unit}</span>
+                  )}
+                </span>
+                {report?.through_date && (
+                  <span className="text-xs text-muted-foreground">
+                    по {report.through_date.split("-").reverse().join(".")}
+                  </span>
+                )}
+                {report && report.state !== "ready" && (
+                  <span className="text-xs text-muted-foreground">
+                    {report.state === "error" ? "Не обновлено" : "Обновляется"}
+                  </span>
+                )}
+              </span>
+            );
+          },
+        }),
+      ),
     ],
-    [],
+    [reports],
   );
   const table = useReactTable({
     data: rows,
@@ -265,7 +341,7 @@ export function StatisticsClient({ initial }: { initial: SalesData }) {
   async function refresh() {
     setBusy(true);
     try {
-      const next = await loadSales();
+      const next = await loadStatistics();
       if (next.venueId !== initial.venueId)
         throw new Error("Заведение изменилось. Обновите страницу");
       setData(next);
@@ -277,13 +353,39 @@ export function StatisticsClient({ initial }: { initial: SalesData }) {
       setBusy(false);
     }
   }
+  async function updateMonthReports() {
+    setReportBusy(true);
+    try {
+      await requestStatisticsMonth(reportMonth, initial.venueId);
+      const next = await loadStatistics();
+      if (next.venueId !== initial.venueId)
+        throw new Error("Заведение изменилось. Обновите страницу");
+      setData(next);
+      toast.success("Месячные отчёты запрошены");
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Не удалось обновить отчёты",
+      );
+    } finally {
+      setReportBusy(false);
+    }
+  }
   async function download() {
     setExporting(true);
     try {
       const fresh = await exportSalesRows(days.map((d) => d.id));
       if (fresh.length !== days.length)
         throw new Error("Данные изменились. Обновите статистику");
-      const map = new Map(aggregateSalesMonths(fresh).map((r) => [r.month, r]));
+      const snapshot = await loadStatistics();
+      if (snapshot.venueId !== initial.venueId)
+        throw new Error("Заведение изменилось. Обновите страницу");
+      const freshReports = reportMap(snapshot.reports);
+      const map = new Map(
+        combineStatisticsMonths(fresh, snapshot.reports).map((r) => [
+          r.month,
+          r,
+        ]),
+      );
       const cols = table.getVisibleLeafColumns();
       const lines: unknown[][] = [
         cols.flatMap((c) =>
@@ -293,7 +395,14 @@ export function StatisticsClient({ initial }: { initial: SalesData }) {
                 `${labels[c.id]}: смен с данными`,
                 `${labels[c.id]}: всего смен`,
               ]
-            : [labels[c.id]],
+            : c.id in reportColumns
+              ? [
+                  labels[c.id],
+                  `${labels[c.id]}: по дату`,
+                  `${labels[c.id]}: обновлено`,
+                  `${labels[c.id]}: состояние`,
+                ]
+              : [labels[c.id]],
         ),
       ];
       for (const row of table.getSortedRowModel().rows) {
@@ -304,6 +413,26 @@ export function StatisticsClient({ initial }: { initial: SalesData }) {
             if (keys.includes(c.id as (typeof keys)[number])) {
               const t = r.totals[c.id as MetricKey];
               return [t.value, t.known, t.total];
+            }
+            if (c.id in reportColumns) {
+              const value = reportValue(
+                freshReports,
+                r.month,
+                c.id as keyof typeof reportColumns,
+              );
+              return [
+                value.value,
+                value.report?.through_date ?? null,
+                value.report?.synced_at ?? null,
+                value.report
+                  ? {
+                      ready: "Обновлено",
+                      pending: "Ожидает обновления",
+                      running: "Обновляется",
+                      error: "Не обновлено",
+                    }[value.report.state]
+                  : "Нет данных",
+              ];
             }
             return [
               c.id === "month"
@@ -386,15 +515,13 @@ export function StatisticsClient({ initial }: { initial: SalesData }) {
           columns={{
             content: (
               <TableColumnManager
-                columns={table
-                  .getAllLeafColumns()
-                  .map((c) => ({
-                    id: c.id,
-                    label: labels[c.id],
-                    visible: c.getIsVisible(),
-                    canHide: c.id !== "month",
-                    width: c.getSize(),
-                  }))}
+                columns={table.getAllLeafColumns().map((c) => ({
+                  id: c.id,
+                  label: labels[c.id],
+                  visible: c.getIsVisible(),
+                  canHide: c.id !== "month",
+                  width: c.getSize(),
+                }))}
                 onVisibilityChange={(id, v) =>
                   table.getColumn(id)?.toggleVisibility(v)
                 }
@@ -435,6 +562,65 @@ export function StatisticsClient({ initial }: { initial: SalesData }) {
           }
         />
       </div>
+      {data.reportsConfigured &&
+        data.permissions.includes("sales.sync_shifts") && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Select value={reportMonth} onValueChange={setReportMonth}>
+              <SelectTrigger
+                className="w-52"
+                aria-label="Месяц отчётов Quick Resto"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {months.map((m) => (
+                  <SelectItem key={m.month} value={m.month}>
+                    {monthLabel(m.month)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              disabled={reportBusy || !reportMonth}
+              onClick={() => void updateMonthReports()}
+            >
+              {reportBusy ? "Загрузка…" : "Обновить отчёты Quick Resto"}
+            </Button>
+            <p className="text-sm text-muted-foreground">
+              Алкоголь, постоянные гости и средний чек — по завершённым рабочим
+              дням.
+            </p>
+          </div>
+        )}
+      {!data.reportsConfigured && (
+        <p className="text-sm text-muted-foreground">
+          Дополнительные отчёты Quick Resto ещё не подключены.
+        </p>
+      )}
+      {data.reports.some((r) => r.state === "error") && (
+        <details className="rounded-xl border p-4 text-sm">
+          <summary className="cursor-pointer font-medium">
+            Не обновились отчёты ·{" "}
+            {data.reports.filter((r) => r.state === "error").length}
+          </summary>
+          <ul className="mt-3 space-y-2 text-muted-foreground">
+            {data.reports
+              .filter((r) => r.state === "error")
+              .map((r) => (
+                <li key={r.id}>
+                  {monthLabel(r.month.slice(0, 7))} ·{" "}
+                  {r.kind === "alcohol"
+                    ? "Алкоголь"
+                    : r.kind === "regular_guests"
+                      ? "Постоянные гости"
+                      : "Средний чек"}
+                  : {r.last_error}
+                </li>
+              ))}
+          </ul>
+        </details>
+      )}
       {rows.length ? (
         <>
           <section

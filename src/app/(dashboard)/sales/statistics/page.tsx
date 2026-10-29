@@ -3,7 +3,7 @@ import {
   getCachedUser,
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
-import { loadSales } from "../shifts/actions";
+import { loadStatistics } from "./actions";
 import { StatisticsClient } from "./statistics-client";
 
 export default async function SalesStatisticsPage() {
@@ -14,5 +14,5 @@ export default async function SalesStatisticsPage() {
         Нет доступа к статистике продаж.
       </div>
     );
-  return <StatisticsClient initial={await loadSales()} />;
+  return <StatisticsClient initial={await loadStatistics()} />;
 }

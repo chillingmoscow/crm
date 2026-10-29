@@ -2,8 +2,8 @@ import { VENUE_TYPES } from "../constants";
 
 /** Display labels only; stored audit codes and original values stay unchanged. */
 const FIELD_VALUES: Record<string, Record<string, string>> = {
-  missing_fine_state: {unknown:"Не проверено",recorded:"Уже учтён",not_recorded:"Не учтён"},
-  expiry_fine_state: {unknown:"Не проверено",recorded:"Уже учтён",not_recorded:"Не учтён"},
+  missing_fine_state: {unknown:"Не проверено",recorded:"Уже учтён",not_recorded:"Не учтён",waived:"Штраф отменён"},
+  expiry_fine_state: {unknown:"Не проверено",recorded:"Уже учтён",not_recorded:"Не учтён",waived:"Штраф отменён"},
   medical_state: {unknown:"Не проверено",missing:"Не предоставлена",present:"Предоставлена"},
   reimbursement_state: {unknown:"Не проверено",recorded:"Уже выплачена",not_recorded:"Не выплачена"},
   gender: {male:"Мужской",female:"Женский"},
@@ -73,6 +73,7 @@ export function auditFallbackHeadline(code: string): string {
 }
 
 const FIELD_LABELS: Record<string, string> = {
+  active:"действующий",
   hired_on: "дата приёма",
   birthday: "дата рождения",
   gender: "пол",

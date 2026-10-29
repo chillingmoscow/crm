@@ -32,7 +32,7 @@ export type PayEmployee = {
   hired_on: string | null;
   experience_offset_months: number;
   casual?: boolean;
-  attendance_source?: "quickresto" | "schedule";
+  attendance_source?: "quickresto" | "schedule" | "excluded";
   active: boolean;
   opening_balance: number;
   opening_confirmed: boolean;
@@ -73,7 +73,7 @@ export type PayRule = {
   >;
 };
 export type AttendanceRule = {
- id:string;employee_id:string;source:"quickresto"|"schedule";valid_from:string;reason:string;created_by:string|null;created_at:string;
+ id:string;employee_id:string;source:"quickresto"|"schedule"|"excluded";valid_from:string;reason:string;created_by:string|null;created_at:string;
 };
 export type Attendance = {
   source?: "schedule" | "quickresto";

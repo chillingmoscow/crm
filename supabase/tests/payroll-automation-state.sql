@@ -5,8 +5,8 @@ declare u uuid:=current_setting('test.payroll_owner')::uuid;a uuid;v uuid;e uuid
 begin
  perform set_config('request.jwt.claim.sub',u::text,true);perform set_config('app.ctx_ready','0',true);
  a:=public.get_active_account_id();v:=public.get_active_venue_id();
- select id into e from public.payroll_employees where venue_id=v and active and not exists(select 1 from public.payroll_automation_people p where p.employee_id=payroll_employees.id) order by local_user_id nulls last limit 1;
- if e is null then raise exception 'Missing payroll employee fixture';end if;
+ insert into public.payroll_employees(account_id,venue_id,name,role_name,active,local_user_id,quickresto_id)
+ values(a,v,'Automation state fixture','Бармен',true,u,999999983) returning id into e;
  today:=(now() at time zone 'Europe/Moscow')::date;
  cfg:=$cfg${"medical": {"reminders": true, "reminder_after_hire_days": 3, "reminder_before_expiry_days": 30, "submission_fine": true, "submission_after_hire_months": 1, "submission_amount": 3000, "expiry_fine": true, "expiry_amount": 3000, "expiry_frequency": "once_per_expiry_case", "reimbursement": true, "reimbursement_amount": 3000, "reimbursement_after_exam_months": 3, "reimbursement_requires_exam_after_hire": true}, "uniform": {"enabled": true, "installments": 4, "payment_days": [3, 18]}, "tasks": {"missing_enabled": true, "missing_kind": "deduction", "missing_amount": 200, "extra_reward_enabled": true, "extra_reward_medium": "bonus"}, "gifts": {"enabled": false, "tenure_boundary_days": 90, "holidays": [], "tenure": []}}$cfg$::jsonb;
  perform public.payroll_save_automation_settings(v,coalesce((select version from public.payroll_automation_settings where venue_id=v),0),cfg);

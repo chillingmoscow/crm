@@ -342,10 +342,15 @@ const SPECS: Record<string, AuditEventSpec> = {
       return <p className="text-xs text-muted-foreground">{String(summary?.salary_days ?? 0)} дневных начислений · {String(summary?.payments ?? 0)} выплат · {String(summary?.transfers ?? 0)} переносов</p>;
     },
   },
+  "payroll.employee.status.changed": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>изменил(а) участие в зарплатном учёте · {String(e.details.employee_name)}</>,
+    buildDetails:e=><><ChangeLines details={e.details}/><p className="text-xs text-muted-foreground">{String(e.details.reason??"")}</p></>,
+  },
   "payroll.attendance_source.changed": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
     buildHeadline:e=><>изменил(а) источник факта работы · {String(e.details.employee_name)}</>,
-    buildDetails:e=><div className="text-xs text-muted-foreground"><p>{e.details.source==="schedule"?"Опубликованный график":"Quick Resto"} · с {String(e.details.valid_from)}</p><p>{String(e.details.reason??"")}</p></div>,
+    buildDetails:e=><div className="text-xs text-muted-foreground"><p>{e.details.source==="excluded"?"Не учитывать в зарплате":e.details.source==="schedule"?"Опубликованный график":"Quick Resto"} · с {String(e.details.valid_from)}</p><p>{String(e.details.reason??"")}</p></div>,
   },
   "payroll.position.assigned": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",

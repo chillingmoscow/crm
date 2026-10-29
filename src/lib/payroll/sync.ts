@@ -22,7 +22,7 @@ import type {
   PayAssignment,
 } from "./types";
 import { readPayrollDay, extraBonuses } from "./source";
-import { reconcileAttendance, blocksPayrollAttendance, attendanceRuleAtDate } from "./attendance";
+import { reconcileAttendance, blocksPayrollAttendance, attendanceRuleAtDate, payrollFactRows } from "./attendance";
 import {
   computeAccrual,
   hasShiftPay,
@@ -249,12 +249,12 @@ export async function processPayrollDay() {
         employee.local_user_id = linked;
       }
     }
-    const rows = source.attendance.filter(r=>!employees.some(e=>e.attendance_source==="schedule"&&e.quickresto_id!==null&&e.quickresto_id===Number((r.owner as {id:number})?.id))).map((r) => ({
+    const rows = payrollFactRows(source.attendance.filter(r=>!employees.some(e=>e.attendance_source==="schedule"&&e.quickresto_id!==null&&e.quickresto_id===Number((r.owner as {id:number})?.id))).map((r) => ({
       id: Number(r.id),
       owner: { id: Number((r.owner as { id: number })?.id) },
       startTime: Number(r.startTime),
       endTime: r.endTime ? Number(r.endTime) : null,
-    }));
+    })),employees);
     if (
       rows.some(
         (r) =>
@@ -470,7 +470,7 @@ export async function processPayrollDay() {
     // Monthly salaries are accrued once, independently of POS attendance.
     for (const e of primaryEmployees.filter(
       (e) =>
-        e.active &&
+        e.active && e.attendance_source!=="excluded" &&
         (!e.hired_on || e.hired_on <= date) &&
         date === [`${date.slice(0, 7)}-01`, e.hired_on ?? "", settings.historical_through ? addDays(settings.historical_through, 1) : ""].sort().at(-1),
     )) {

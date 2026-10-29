@@ -396,6 +396,13 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
     }
     const gifts = config.gifts;
     if (!gifts.enabled) continue;
+    // A known ineligible position does not need a hire date to rule out gifts.
+    if (
+      employee.giftRole &&
+      !gifts.holidays.some((h) => h.roles.includes(employee.giftRole!)) &&
+      !gifts.tenure.some((t) => t.roles.includes(employee.giftRole!))
+    )
+      continue;
     if (!employee.hiredOn) {
       block(
         employee.id,

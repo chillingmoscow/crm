@@ -233,7 +233,7 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
             Покупка фиксирует график возмещения. Сам расход оформляется в
             финансах отдельно.
           </p>
-          {!data.uniform.length ? (
+          {!data.uniform.length && !data.legacyUniform.length ? (
             <p className="rounded-xl border p-8 text-center text-muted-foreground">
               Покупок формы пока нет
             </p>
@@ -287,8 +287,52 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
               </div>
             ))
           )}
+          {!!data.legacyUniform.length && (
+            <details className="rounded-xl border p-4">
+              <summary className="cursor-pointer text-sm font-medium">
+                Архив из Glide · {data.legacyUniform.length}
+              </summary>
+              <div className="mt-4 divide-y">
+                {data.legacyUniform.map((u) => (
+                  <div
+                    key={u.id}
+                    className="flex flex-col justify-between gap-2 py-4 text-sm sm:flex-row"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {names.get(u.employee_id) ?? "Сотрудник"}
+                      </p>
+                      <p className="mt-1 text-muted-foreground">
+                        {u.purchased_on
+                          ? dateLabel(u.purchased_on)
+                          : "Дата покупки не указана"}{" "}
+                        ·{" "}
+                        {u.legacy_parts_created
+                          ? "Удержания оформлены в прежней системе"
+                          : "Части удержаний в источнике не подтверждены"}
+                      </p>
+                    </div>
+                    <p className="shrink-0 tabular-nums">{u.amount ?? "—"} ₽</p>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Исторические сведения. Новых удержаний или расходов эти записи
+                не создают.
+              </p>
+            </details>
+          )}
         </TabsContent>
         <TabsContent value="runs" className="space-y-4 pt-5">
+          <p className="text-sm text-muted-foreground">
+            Ежедневная сверка — с 08:15 по времени заведения. Автоматический
+            запуск создаёт только сравнение; деньги и бонусы не списывает.
+          </p>
+          {data.failedJobs.map((job) => (
+            <p key={job.id} className="rounded-xl border px-4 py-3 text-sm">
+              {dateLabel(job.business_date)} · {job.last_error}
+            </p>
+          ))}
           <div className="flex flex-wrap justify-between gap-3">
             <div className="w-48">
               <DatePicker value={date} onChange={setDate} />
@@ -426,6 +470,7 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
               options={{
                 unknown: "Не проверено",
                 recorded: "Уже учтён",
+                waived: "Штраф отменён",
                 not_recorded: "Не учтён, проверено",
               }}
             />
@@ -457,6 +502,7 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
                 options={{
                   unknown: "Не проверено",
                   recorded: "Уже учтён",
+                  waived: "Штраф отменён",
                   not_recorded: "Не учтён, проверено",
                 }}
               />

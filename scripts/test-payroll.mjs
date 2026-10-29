@@ -26,12 +26,16 @@ try {
     await writeFile(join(dir, `${name}.mjs`), code);
   }
   const calc = await import(pathToFileURL(join(dir, "calculate.mjs")).href),
-    { reconcileAttendance,attendanceRuleAtDate } = await import(
+    { reconcileAttendance,attendanceRuleAtDate,payrollFactRows } = await import(
       pathToFileURL(join(dir, "attendance.mjs")).href
     ),
     { businessDate, dayWindow } = await import(
       pathToFileURL(join(dir, "time.mjs")).href
     );
+  const clocks=[{id:1,owner:{id:84},startTime:Date.parse("2026-09-01T02:00:00Z"),endTime:null},{id:2,owner:{id:174},startTime:Date.parse("2026-09-01T10:00:00Z"),endTime:Date.parse("2026-09-01T18:00:00Z")}];
+  const staff=[{id:"technical",quickresto_id:84,attendance_source:"excluded",active:true,local_user_id:null,role_name:"Мастер"},{id:"real",quickresto_id:174,attendance_source:"quickresto",active:true,local_user_id:null,role_name:"Мастер"}];
+  assert.deepEqual(payrollFactRows(clocks,staff).map(r=>r.owner.id),[174],"Technical open clocks cannot affect day boundaries or team shares");
+  assert.deepEqual(reconcileAttendance(clocks,staff,[],"2026-09-01","Europe/Moscow",9).items.map(r=>r.employee_id),["real"]);
   assert.equal(calc.recognizeTipComment(" ЧАЕВЫЕ ", ["чаевые"]), "exact");
   assert.equal(
     calc.recognizeTipComment("чаевые и хозяйственные расходы", ["чаевые"]),

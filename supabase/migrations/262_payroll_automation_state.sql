@@ -4,8 +4,8 @@ create table public.payroll_automation_people (
  employee_id uuid primary key, account_id uuid not null, venue_id uuid not null,
  employment_id uuid not null default gen_random_uuid(), hired_on date,
  legacy_reconciled boolean not null default false,
- missing_fine_state text not null default 'unknown' check(missing_fine_state in ('unknown','recorded','not_recorded')),
- expiry_fine_state text not null default 'unknown' check(expiry_fine_state in ('unknown','recorded','not_recorded')),
+ missing_fine_state text not null default 'unknown' check(missing_fine_state in ('unknown','recorded','not_recorded','waived')),
+ expiry_fine_state text not null default 'unknown' check(expiry_fine_state in ('unknown','recorded','not_recorded','waived')),
  birthday date, gender text check(gender in ('male','female')), gift_role text,
  medical_required boolean, medical_state text not null default 'unknown' check(medical_state in ('unknown','missing','present')),
  medical_case_id uuid, examined_on date, valid_until date,
@@ -66,8 +66,8 @@ begin
  or not(p_input ?& array['medical_state','reimbursement_state','new_medical_case','legacy_reconciled','missing_fine_state','expiry_fine_state'])
  or jsonb_typeof(p_input->'new_medical_case') is distinct from 'boolean'
  or jsonb_typeof(p_input->'legacy_reconciled') is distinct from 'boolean'
- or jsonb_typeof(p_input->'missing_fine_state') is distinct from 'string' or p_input->>'missing_fine_state' not in ('unknown','recorded','not_recorded')
- or jsonb_typeof(p_input->'expiry_fine_state') is distinct from 'string' or p_input->>'expiry_fine_state' not in ('unknown','recorded','not_recorded')
+ or jsonb_typeof(p_input->'missing_fine_state') is distinct from 'string' or p_input->>'missing_fine_state' not in ('unknown','recorded','not_recorded','waived')
+ or jsonb_typeof(p_input->'expiry_fine_state') is distinct from 'string' or p_input->>'expiry_fine_state' not in ('unknown','recorded','not_recorded','waived')
  or jsonb_typeof(p_input->'medical_state') is distinct from 'string' or jsonb_typeof(p_input->'reimbursement_state') is distinct from 'string'
  or p_input->>'medical_state' not in ('unknown','missing','present') or p_input->>'reimbursement_state' not in ('unknown','recorded','not_recorded')
  or (p_input->'medical_required' is not null and p_input->'medical_required'<>'null'::jsonb and jsonb_typeof(p_input->'medical_required')<>'boolean') then raise exception 'Проверьте сведения';end if;
@@ -229,5 +229,9 @@ grant execute on function public.payroll_commit_automation_run(uuid,date,jsonb,j
 
 create policy payroll_automation_state_audit_access on public.audit_logs as restrictive for select to authenticated
  using(entity_type not in ('payroll_automation_person','payroll_uniform','payroll_automation_run') or (venue_id=public.get_active_venue_id() and public.has_permission('payroll.configure')));
+create policy payroll_automation_import_events_read on public.payroll_events for select to authenticated
+ using(action='automation_source_imported' and account_id=public.get_active_account_id() and venue_id=public.get_active_venue_id() and public.has_permission('payroll.configure'));
+create policy payroll_automation_import_event_access on public.payroll_events as restrictive for select to authenticated
+ using(action<>'automation_source_imported' or (account_id=public.get_active_account_id() and venue_id=public.get_active_venue_id() and public.has_permission('payroll.configure')));
 notify pgrst,'reload schema';
 commit;

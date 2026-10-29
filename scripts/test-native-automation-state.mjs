@@ -105,6 +105,26 @@ try {
     ).length,
     0,
   );
+  const waived = structuredClone(snapshot);
+  waived.employees[0].subject.expiry_fine_state = "waived";
+  assert.equal(
+    planFromSnapshot(waived, "2026-10-29").decisions.filter(
+      (d) => d.rule === "medical_expired",
+    ).length,
+    0,
+    "A deleted legacy fine must not reappear",
+  );
+  const cleaner = structuredClone(snapshot);
+  Object.assign(cleaner.employees[0].subject, {
+    medical_required: false,
+    gift_role: "Клиннер",
+    hired_on: null,
+  });
+  assert.equal(
+    planFromSnapshot(cleaner, "2026-10-29").blockers.length,
+    0,
+    "Ineligible gift roles do not need a hire date",
+  );
   const unknown = structuredClone(snapshot);
   unknown.employees[0].subject.medical_state = "unknown";
   assert.ok(

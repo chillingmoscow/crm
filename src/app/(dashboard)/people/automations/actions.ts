@@ -51,10 +51,22 @@ export type AutomationRun = {
   blockers: AutomationBlocker[];
   recorded_candidates: AutomationDecision[];
 };
+type UniformImportEvent = {
+  id: string;
+  employee_id: string;
+  details: {
+    uniform_source?: {
+      legacy_employee_id: string;
+      purchased_on: string | null;
+      amount: number | null;
+      legacy_parts_created: boolean;
+    } | null;
+  };
+};
 export async function loadAutomationWorkspace() {
   const s = await scope();
-  const [employees, people, uniform, runs, settings, venue] = await Promise.all(
-    [
+  const [employees, people, uniform, runs, settings, venue, jobs, imports] =
+    await Promise.all([
       s.db
         .from<
           {
@@ -64,9 +76,10 @@ export async function loadAutomationWorkspace() {
             active: boolean;
             hired_on: string | null;
             local_user_id: string | null;
+            role_id: string | null;
           }[]
         >("payroll_employees")
-        .select("id,name,role_name,active,hired_on,local_user_id")
+        .select("id,name,role_name,active,hired_on,local_user_id,role_id")
         .eq("account_id", s.accountId)
         .eq("venue_id", s.venueId)
         .order("name")
@@ -100,10 +113,46 @@ export async function loadAutomationWorkspace() {
         .select("timezone")
         .eq("id", s.venueId)
         .single(),
-    ],
-  );
-  for (const r of [employees, people, uniform, runs, settings, venue])
+      s.db
+        .from<
+          {
+            id: string;
+            business_date: string;
+            state: string;
+            last_error: string | null;
+            next_retry_at: string;
+          }[]
+        >("payroll_automation_jobs")
+        .select("id,business_date,state,last_error,next_retry_at")
+        .eq("venue_id", s.venueId)
+        .in("state", ["error", "review"])
+        .order("created_at", { ascending: false })
+        .limit(10),
+      s.db
+        .from<UniformImportEvent[]>("payroll_events")
+        .select("id,employee_id,details")
+        .eq("account_id", s.accountId)
+        .eq("venue_id", s.venueId)
+        .eq("action", "automation_source_imported")
+        .order("created_at", { ascending: false })
+        .limit(1000),
+    ]);
+  for (const r of [
+    employees,
+    people,
+    uniform,
+    runs,
+    settings,
+    venue,
+    jobs,
+    imports,
+  ])
     if (r.error) throw new Error(r.error.message);
+  const roleRows = await s.db
+    .from<{ id: string; name: string }[]>("roles")
+    .select("id,name")
+    .eq("venue_id", s.venueId);
+  if (roleRows.error) throw new Error(roleRows.error.message);
   const can = await getCachedPermissionChecker();
   const userIds = (employees.data ?? []).flatMap((e) =>
     e.local_user_id ? [e.local_user_id] : [],
@@ -124,11 +173,31 @@ export async function loadAutomationWorkspace() {
       : { data: [], error: null };
   if (details.error) throw new Error(details.error.message);
   return {
+    legacyUniform: [
+      ...new Map(
+        [...(imports.data ?? [])]
+          .reverse()
+          .filter((e) => e.details.uniform_source)
+          .map((e) => [
+            e.details.uniform_source!.legacy_employee_id,
+            {
+              id: e.id,
+              employee_id: e.employee_id,
+              ...e.details.uniform_source!,
+            },
+          ]),
+      ).values(),
+    ],
+    failedJobs: jobs.data ?? [],
     canReview: can("payroll.review"),
     staffDetails: details.data ?? [],
     venueId: s.venueId,
     timezone: venue.data?.timezone ?? "Europe/Moscow",
-    employees: employees.data ?? [],
+    employees: (employees.data ?? []).map((e) => ({
+      ...e,
+      role_name:
+        roleRows.data?.find((r) => r.id === e.role_id)?.name ?? e.role_name,
+    })),
     people: people.data ?? [],
     uniform: uniform.data ?? [],
     runs: runs.data ?? [],

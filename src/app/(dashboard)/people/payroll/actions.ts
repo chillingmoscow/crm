@@ -763,7 +763,7 @@ export async function assignPayrollPosition(employeeId:string,roleId:string,from
  return result.data;
 }
 
-export async function setPayrollAttendanceSource(employeeId:string,source:"quickresto"|"schedule",from:string,reason:string,expectedRuleId:string|null) {
+export async function setPayrollAttendanceSource(employeeId:string,source:"quickresto"|"schedule"|"excluded",from:string,reason:string,expectedRuleId:string|null) {
  const s=await scope("payroll.configure");
  if(!validDate(from))throw new Error("Укажите дату начала действия");
  const result=await s.db.rpc("payroll_set_attendance_source",{p_employee_id:employeeId,p_source:source,p_valid_from:from,p_reason:reason,p_expected_rule_id:expectedRuleId});

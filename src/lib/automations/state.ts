@@ -14,8 +14,18 @@ const date = z.string().refine(validDate, "Проверьте дату").nullabl
 export const automationPersonSchema = z
   .object({
     legacy_reconciled: z.boolean(),
-    missing_fine_state: z.enum(["unknown", "recorded", "not_recorded"]),
-    expiry_fine_state: z.enum(["unknown", "recorded", "not_recorded"]),
+    missing_fine_state: z.enum([
+      "unknown",
+      "recorded",
+      "not_recorded",
+      "waived",
+    ]),
+    expiry_fine_state: z.enum([
+      "unknown",
+      "recorded",
+      "not_recorded",
+      "waived",
+    ]),
     hired_on: date,
     birthday: date,
     gender: z.enum(["male", "female"]).nullable(),
@@ -135,7 +145,7 @@ export function planFromSnapshot(
       d.rule === "medical_missing"
         ? s?.missing_fine_state
         : s?.expiry_fine_state;
-    if (previous === "recorded") {
+    if (previous === "recorded" || previous === "waived") {
       result.recordedCandidates.push(d);
       return false;
     }

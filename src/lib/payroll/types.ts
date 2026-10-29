@@ -32,19 +32,10 @@ export type PayEmployee = {
   hired_on: string | null;
   experience_offset_months: number;
   casual?: boolean;
-  attendance_source?: "quickresto" | "schedule";
+  attendance_source?: "quickresto" | "schedule" | "excluded";
   active: boolean;
   opening_balance: number;
   opening_confirmed: boolean;
-};
-export type Qualification = {
-  id: string;
-  employee_id: string;
-  valid_from: string;
-  valid_until: string | null;
-  knowledge: boolean;
-  experience: boolean;
-  reason: string;
 };
 export type PayRule = {
   id: string;
@@ -73,7 +64,7 @@ export type PayRule = {
   >;
 };
 export type AttendanceRule = {
- id:string;employee_id:string;source:"quickresto"|"schedule";valid_from:string;reason:string;created_by:string|null;created_at:string;
+ id:string;employee_id:string;source:"quickresto"|"schedule"|"excluded";valid_from:string;reason:string;created_by:string|null;created_at:string;
 };
 export type Attendance = {
   source?: "schedule" | "quickresto";
@@ -175,6 +166,8 @@ export type Allocation = {
   settled_amount: number;
 };
 export type PaySettings = {
+  experience_starts_on?: string | null;
+  experience_policy_version?: number;
   historical_through?: string | null;
   account_id: string;
   venue_id: string;
@@ -230,6 +223,8 @@ export type PayrollTransfer = {
   created_at: string;
 };
 export type PayrollData = {
+  asOfDate?: string;
+  experienceStartsOn?: string | null;
   attendanceRules?: AttendanceRule[];
   roles?: {id:string;name:string}[];
   transfers: PayrollTransfer[];
@@ -243,7 +238,6 @@ export type PayrollData = {
   employees: PayEmployee[];
   models: PayModel[];
   rules: PayRule[];
-  qualifications: Qualification[];
   assignments: PayAssignment[];
   salaryLinks: {
     payment_id: string;

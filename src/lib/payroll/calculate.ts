@@ -73,7 +73,7 @@ export function computeAccrual(input: {
   attendanceIssues: string[];
   adjustments: Adjustment[];
   cleanerPresent: boolean;
-  qualification?: { knowledge: boolean; experience: boolean } | null;
+  experienceStartsOn?: string | null;
 }) {
   const { employee: e, model: m, rule: r, date, roleCount, metrics } = input;
   const issues = [...input.attendanceIssues],
@@ -130,7 +130,7 @@ export function computeAccrual(input: {
     );
   }
   if (m.experience) {
-    const eligible = !r.tenure_requires_exam || input.qualification?.experience;
+    const eligible = Boolean(input.experienceStartsOn && date >= input.experienceStartsOn);
     const months = monthsWorked(e, date),
       step = Object.entries(r.experience_steps)
         .filter(([n]) => Number(n) <= months)
@@ -139,20 +139,10 @@ export function computeAccrual(input: {
       "experience",
       "Стаж",
       eligible && step ? Number(step[1]) : 0,
-      `${months} полных месяцев${eligible ? "" : " · тест не подтверждён"}`,
+      `${months} полных месяцев${eligible ? "" : input.experienceStartsOn ? ` · начисление с ${input.experienceStartsOn.split("-").reverse().join(".")}` : " · дата начала начисления не назначена"}`,
       "Дата трудоустройства и шкала надбавок",
     );
   }
-  if (m.knowledge_amount > 0)
-    add(
-      "knowledge",
-      "Знания",
-      input.qualification?.knowledge ? m.knowledge_amount : 0,
-      input.qualification?.knowledge
-        ? "Тест подтверждён"
-        : "Тест не подтверждён",
-      "Подтверждение управляющим и правило оплаты",
-    );
   if (m.food_amount > 0)
     add("food", "Питание", m.food_amount, "За выход", "Модель оплаты");
   if (!input.cleanerPresent && m.cleaner_bonus > 0)

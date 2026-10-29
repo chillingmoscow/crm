@@ -32,6 +32,10 @@ while (!stopping) {
         console.log(
           `Смены: поставлено ${stats.queued}, обработано частей ${stats.slices}, ошибок ${stats.failed}`,
         );
+      if (stats.monthReports || stats.monthReportErrors)
+        console.log(
+          `Месячные отчёты: обработано ${stats.monthReports}, ошибок ${stats.monthReportErrors}`,
+        );
     }
   } catch (e) {
     console.error(`Обработчик смен: ${e.cause?.code ?? e.name}`);

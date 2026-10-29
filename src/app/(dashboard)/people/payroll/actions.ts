@@ -59,7 +59,6 @@ export async function loadPayroll(): Promise<PayrollData> {
     scheduleReviews: "payroll_schedule_reviews",
     assignments: "payroll_employee_models",
     legacyPayments: "payroll_legacy_payments",
-    qualifications: "payroll_qualifications",
     plannedShifts: "schedule_shifts",
     models: "payroll_models",
     rules: "payroll_rule_versions",
@@ -248,8 +247,18 @@ export async function loadPayroll(): Promise<PayrollData> {
   for (const employee of employees ?? []) employee.avatar_url = avatars.get(employee.local_user_id ?? "") ?? null;
   const roleRows = await s.client.from("roles").select("id,name").eq("venue_id",s.venueId).is("archived_at",null);
   if(roleRows.error) throw new Error(roleRows.error.message);
+  // Own-salary access needs only this public policy date, not finance settings.
+  let experienceStartsOn = settings?.experience_starts_on ?? null;
+  if (!manager && employees?.length) {
+    const policy = await s.admin.from<{ experience_starts_on: string | null }>("payroll_settings")
+      .select("experience_starts_on").eq("account_id",s.accountId).eq("venue_id",s.venueId).maybeSingle();
+    if (policy.error) throw new Error(policy.error.message);
+    experienceStartsOn = policy.data?.experience_starts_on ?? null;
+  }
   return {
     roles: roleRows.data ?? [],
+    experienceStartsOn,
+    asOfDate: businessDate(new Date(), venue.data?.timezone ?? "Europe/Moscow", hours.data?.day_start_hour ?? 9),
     venueId: s.venueId,
     userId: s.user.id,
     timezone: venue.data?.timezone ?? "Europe/Moscow",
@@ -265,6 +274,32 @@ export async function loadPayroll(): Promise<PayrollData> {
     financeTransactions,
   };
 }
+export async function saveExperienceStart(input: {
+  startsOn: string;
+  version: number;
+  requestKey: string;
+  reason: string;
+  venueId: string;
+}) {
+  const parsed = z.object({
+    startsOn: z.string().refine(validDate, "Проверьте дату начала начисления"),
+    version: z.number().int().min(0),
+    requestKey: z.string().uuid(),
+    reason: z.string().trim().min(3).max(1000),
+    venueId: z.string().uuid(),
+  }).parse(input);
+  const s = await scope("payroll.configure");
+  if (s.venueId !== parsed.venueId) throw new Error("Заведение изменилось. Откройте настройки заново");
+  const result = await s.db.rpc("payroll_set_experience_start", {
+    p_date: parsed.startsOn,
+    p_version: parsed.version,
+    p_request: parsed.requestKey,
+    p_reason: parsed.reason,
+    p_expected_venue: parsed.venueId,
+  });
+  if (result.error) throw new Error(result.error.message);
+}
+
 export async function payrollCommand(
   action: string,
   input: Record<string, unknown>,
@@ -276,7 +311,6 @@ export async function payrollCommand(
     model: "payroll.configure",
     new_employee: "payroll.configure",
     settings: "payroll.configure",
-    qualification: "payroll.configure",
     attendance: "payroll.review",
     missing_shift: "payroll.review",
     adjustment: "payroll.review",
@@ -299,7 +333,6 @@ export async function payrollCommand(
       "approve_adjustment",
       "employee",
       "rule",
-      "qualification",
       "settings",
       "new_employee",
     ].includes(action)
@@ -668,7 +701,6 @@ export async function loadPayrollRules(): Promise<PayrollData> {
     cashbox: [...new Set((results[4].data ?? []).map((c) => c.kkm_id))].map(
       (kkm_id) => ({ kkm_id }) as PayrollData["cashbox"][number],
     ),
-    qualifications: [],
     assignments: [],
     salaryLinks: [],
     attendance: [],
@@ -763,7 +795,7 @@ export async function assignPayrollPosition(employeeId:string,roleId:string,from
  return result.data;
 }
 
-export async function setPayrollAttendanceSource(employeeId:string,source:"quickresto"|"schedule",from:string,reason:string,expectedRuleId:string|null) {
+export async function setPayrollAttendanceSource(employeeId:string,source:"quickresto"|"schedule"|"excluded",from:string,reason:string,expectedRuleId:string|null) {
  const s=await scope("payroll.configure");
  if(!validDate(from))throw new Error("Укажите дату начала действия");
  const result=await s.db.rpc("payroll_set_attendance_source",{p_employee_id:employeeId,p_source:source,p_valid_from:from,p_reason:reason,p_expected_rule_id:expectedRuleId});

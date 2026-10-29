@@ -119,6 +119,7 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "people.view_staff",
       },
       { title: "Зарплата", href: "/people/payroll", icon: Wallet },
+      { title: "Медкнижки и форма", href: "/people/automations", icon: FileBadge2, permission: "payroll.configure" },
       {
         title: "Должности",
         href: "/people/roles",
@@ -155,6 +156,12 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Продажи",
     icon: ChartNoAxesCombined,
     items: [
+      {
+        title: "Статистика",
+        href: "/sales/statistics",
+        icon: ChartNoAxesCombined,
+        permission: "sales.view_shifts",
+      },
       {
         title: "Смены",
         href: "/sales/shifts",

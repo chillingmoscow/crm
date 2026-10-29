@@ -202,6 +202,7 @@ function InvitationEmail({ event }: { event: AuditEvent }) {
 function formatFieldValue(field: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (
+    ["hired_on","birthday","examined_on","valid_until"].includes(field) ||
     field === "birth_date" ||
     field === "employment_date" ||
     field === "medical_book_date" ||
@@ -308,6 +309,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) настройки продаж</>,
   },
+  "sales.statistics.refresh_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление месячной статистики</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.month).slice(0,7)} · отчётов: {Number(e.details.reports??0)}</p>,
+  },
   "payroll.data.imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) данные зарплаты</>,
@@ -316,6 +322,14 @@ const SPECS: Record<string, AuditEventSpec> = {
       const summary = fields.filter(([key]) => typeof e.details[key] === "number").map(([key, label]) => `${label}: ${e.details[key]}`);
       return summary.length ? <p className="text-xs text-muted-foreground">{summary.join(" · ")}</p> : null;
     },
+  },
+  "payroll.experience.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) дату начала надбавки за стаж</>,
+    buildDetails: e => <>
+      <p className="text-xs text-muted-foreground">{formatDate(e.details.old)} → {formatDate(e.details.new)}</p>
+      {typeof e.details.reason === "string" && <p className="text-xs text-muted-foreground">{e.details.reason}</p>}
+    </>,
   },
   "kb_thread.created": {
     icon: FileEdit, iconClass: "text-brand bg-brand/10",
@@ -341,10 +355,15 @@ const SPECS: Record<string, AuditEventSpec> = {
       return <p className="text-xs text-muted-foreground">{String(summary?.salary_days ?? 0)} дневных начислений · {String(summary?.payments ?? 0)} выплат · {String(summary?.transfers ?? 0)} переносов</p>;
     },
   },
+  "payroll.employee.status.changed": {
+    icon:Pencil,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>изменил(а) участие в зарплатном учёте · {String(e.details.employee_name)}</>,
+    buildDetails:e=><><ChangeLines details={e.details}/><p className="text-xs text-muted-foreground">{String(e.details.reason??"")}</p></>,
+  },
   "payroll.attendance_source.changed": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
     buildHeadline:e=><>изменил(а) источник факта работы · {String(e.details.employee_name)}</>,
-    buildDetails:e=><div className="text-xs text-muted-foreground"><p>{e.details.source==="schedule"?"Опубликованный график":"Quick Resto"} · с {String(e.details.valid_from)}</p><p>{String(e.details.reason??"")}</p></div>,
+    buildDetails:e=><div className="text-xs text-muted-foreground"><p>{e.details.source==="excluded"?"Не учитывать в зарплате":e.details.source==="schedule"?"Опубликованный график":"Quick Resto"} · с {String(e.details.valid_from)}</p><p>{String(e.details.reason??"")}</p></div>,
   },
   "payroll.position.assigned": {
     icon:Pencil,iconClass:"text-brand bg-brand/10",
@@ -357,6 +376,36 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildDetails:e=><div className="text-xs text-muted-foreground"><p>Действует с {String(e.details.valid_from)}</p><p>{String((e.details.after as Record<string,unknown>|undefined)?.change_reason??"")}</p></div>,
   },
   "payroll.transfer.created": payrollTransferSpec("оформил(а)"),
+  "payroll.automation_person.created": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>сохранил(а) сведения для автоматизаций · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><ChangeLines details={e.details}/>,
+  },
+  "payroll.automation_person.updated": {
+    icon: Pencil, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>проверил(а) сведения для автоматизаций · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><><ChangeLines details={e.details}/>{!!e.details.reason&&<p className="text-xs text-muted-foreground">{String(e.details.reason)}</p>}</>,
+  },
+  "payroll.uniform.created": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>добавил(а) покупку формы · {String(e.details.title)}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.employee_name??"")} · График возмещения сохранён</p>,
+  },
+  "payroll.uniform.expense_linked": {
+    icon:FilePlus2,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>записал(а) расход на форму · {String(e.details.employee_name)}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.title)} · {Number(e.details.amount ?? 0).toLocaleString("ru-RU")} ₽</p>,
+  },
+  "payroll.uniform.cancelled": {
+    icon: Trash2, iconClass: "text-muted-foreground bg-muted",
+    buildHeadline:e=><>отменил(а) будущие удержания за форму · {String(e.details.title)}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.employee_name??"")} · {String(e.details.reason)}</p>,
+  },
+  "payroll.automation_run.created": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline:e=><>{e.details.mode==="native"?"учёл(ла) денежные записи автоматизаций":"сравнил(а) расчёт автоматизаций"}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · Учтено: {Number(e.details.applied??0)} · На проверке: {Number(e.details.blockers??0)}</p>,
+  },
   "payroll.automation_settings.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) настройки медкнижек, формы и мотивации</>,

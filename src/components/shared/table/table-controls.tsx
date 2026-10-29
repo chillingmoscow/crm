@@ -298,7 +298,7 @@ function TableControlPopoverButton({
           {label}
         </TooltipContent>
       </Tooltip>
-      <PopoverContent align={align} tabIndex={-1} onOpenAutoFocus={(event) => {event.preventDefault();if (event.target instanceof HTMLElement) event.target.focus({preventScroll:true});}} className="w-80 max-w-[calc(100vw-24px)] rounded-xl p-3 shadow-lg">
+      <PopoverContent align={align} collisionPadding={12} tabIndex={-1} onOpenAutoFocus={(event) => {event.preventDefault();if (event.target instanceof HTMLElement) event.target.focus({preventScroll:true});}} className="max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw-24px)] overflow-y-auto overscroll-contain rounded-xl p-3 shadow-lg">
         {children}
       </PopoverContent>
     </Popover>

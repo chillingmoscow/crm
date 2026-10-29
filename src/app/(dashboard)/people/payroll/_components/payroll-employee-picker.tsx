@@ -10,7 +10,8 @@ import { PayrollEmployeeCell } from "./payroll-employee-cell";
 type EmployeeOption = { id: string; name: string; role_name?: string | null; avatar_url?: string | null };
 
 /** Shared single/multiple employee selection; callers retain eligibility rules. */
-export function PayrollEmployeePicker({ employees, selectedIds, onChange, multiple = false, disabled = false }: {
+export function PayrollEmployeePicker({ id, employees, selectedIds, onChange, multiple = false, disabled = false }: {
+  id?: string;
   employees: EmployeeOption[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
@@ -22,7 +23,7 @@ export function PayrollEmployeePicker({ employees, selectedIds, onChange, multip
   const employee = employees.find((e) => e.id === selectedIds[0]);
   return <Popover open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
-      <Button ref={trigger} type="button" variant="outline" role="combobox" aria-expanded={open} aria-label={multiple ? "Выбрать сотрудников" : "Выбрать сотрудника"}
+      <Button id={id} ref={trigger} type="button" variant="outline" role="combobox" aria-expanded={open} aria-label={multiple ? "Выбрать сотрудников" : "Выбрать сотрудника"}
         disabled={disabled} className="h-auto min-h-12 w-full justify-between gap-3 px-3 py-2 text-left font-normal">
         {!multiple && employee ? <PayrollEmployeeCell name={employee.name} role={employee.role_name} avatarUrl={employee.avatar_url}/> : <span className="text-[13px]">{multiple ? selectedIds.length ? `Добавить сотрудника · выбрано ${selectedIds.length}` : "Выберите сотрудников" : "Выберите сотрудника"}</span>}
         <ChevronDown size={16} className="shrink-0 text-muted-foreground"/>

@@ -323,6 +323,14 @@ const SPECS: Record<string, AuditEventSpec> = {
       return summary.length ? <p className="text-xs text-muted-foreground">{summary.join(" · ")}</p> : null;
     },
   },
+  "payroll.experience.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) дату начала надбавки за стаж</>,
+    buildDetails: e => <>
+      <p className="text-xs text-muted-foreground">{formatDate(e.details.old)} → {formatDate(e.details.new)}</p>
+      {typeof e.details.reason === "string" && <p className="text-xs text-muted-foreground">{e.details.reason}</p>}
+    </>,
+  },
   "kb_thread.created": {
     icon: FileEdit, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>добавил(а) обсуждение в базе знаний</>,

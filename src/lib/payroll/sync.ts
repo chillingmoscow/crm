@@ -16,7 +16,6 @@ import type {
   PaySettings,
   Attendance,
   Adjustment,
-  Qualification,
   Accrual,
   Cashbox,
   PayAssignment,
@@ -35,7 +34,6 @@ import {
   tipBatch,
 } from "./calculate";
 import { previewPayrollBonuses } from "./bonus-preview";
-import { qualificationAtDate } from "./qualifications";
 import { enqueueDay } from "@/lib/sales/sync";
 const db = () => asLooseDb(createAdminClient());
 export async function queuePayroll(
@@ -125,10 +123,6 @@ export async function processPayrollDay() {
         .eq("venue_id", venueId)
         .eq("business_date", date),
       admin
-        .from<Qualification[]>("payroll_qualifications")
-        .select("*")
-        .eq("venue_id", venueId),
-      admin
         .from<SalesDay>("sales_days")
         .select("*")
         .eq("venue_id", venueId)
@@ -145,7 +139,6 @@ export async function processPayrollDay() {
       shiftsResult,
       priorResult,
       adjustmentsResult,
-      qualificationsResult,
       dayResult,
     ] = results;
     const settings = settingsResult.data!,
@@ -158,7 +151,6 @@ export async function processPayrollDay() {
       adjustments = (adjustmentsResult.data ?? []).filter(
         (a) => !a.deleted_at && (!a.medium || a.medium === "money"),
       ),
-      qualifications = qualificationsResult.data ?? [],
       day = dayResult.data;
     const reviewsResult = await admin
       .from<import("./types").ScheduleReview[]>("payroll_schedule_reviews")
@@ -365,7 +357,6 @@ export async function processPayrollDay() {
     const extras = extraBonuses(source.masters, source.bar),
       metrics = day ? effectiveMetrics(day) : {};
     if (!day) await enqueueDay(accountId, venueId, date);
-    const benefits = settings.benefits_mode;
     const tipRecipients = present.filter(
       (e) =>
         effectivePayModel(
@@ -381,14 +372,7 @@ export async function processPayrollDay() {
             models.find((m) => m.id === e.model_id) ?? null,
             rule,
           );
-        const model = originalModel
-          ? {
-              ...originalModel,
-              experience: benefits === "active" && originalModel.experience,
-              knowledge_amount:
-                benefits === "active" ? originalModel.knowledge_amount : 0,
-            }
-          : null;
+        const model = originalModel;
         const employeeAttendance = attendance.filter(
           (a) => a.employee_id === e.id && a.status !== "ignored",
         );
@@ -406,13 +390,6 @@ export async function processPayrollDay() {
           );
         if (!day || day.status !== "complete")
           attendanceIssues.push("Финансовая смена ещё не завершена");
-        if (
-          benefits === "review" &&
-          (originalModel?.experience || originalModel?.knowledge_amount)
-        )
-          attendanceIssues.push(
-            "Надбавка за стаж требует подтверждения правил",
-          );
         const result = computeAccrual({
           employee: e,
           model,
@@ -429,7 +406,7 @@ export async function processPayrollDay() {
                 : 0,
           attendanceIssues,
           adjustments: adjustments.filter((a) => a.employee_id === e.id),
-          qualification: qualificationAtDate(qualifications, e.id, date),
+          experienceStartsOn: settings.experience_starts_on,
           cleanerPresent: present.some((p) => p.role_name === "Клиннер"),
         });
         return {
@@ -442,6 +419,7 @@ export async function processPayrollDay() {
             position_name:positionName(e.model_id),
             model: originalModel,
             rule,
+            experience_starts_on: settings.experience_starts_on ?? null,
             financial_day_id: day?.id,
             financial_day_version: day?.version,
             extra: extras,

@@ -37,16 +37,6 @@ export type PayEmployee = {
   opening_balance: number;
   opening_confirmed: boolean;
 };
-export type Qualification = {
-  id: string;
-  created_at?: string;
-  employee_id: string;
-  valid_from: string;
-  valid_until: string | null;
-  knowledge: boolean;
-  experience: boolean;
-  reason: string;
-};
 export type PayRule = {
   id: string;
   model_id: string;
@@ -176,6 +166,8 @@ export type Allocation = {
   settled_amount: number;
 };
 export type PaySettings = {
+  experience_starts_on?: string | null;
+  experience_policy_version?: number;
   historical_through?: string | null;
   account_id: string;
   venue_id: string;
@@ -232,6 +224,7 @@ export type PayrollTransfer = {
 };
 export type PayrollData = {
   asOfDate?: string;
+  experienceStartsOn?: string | null;
   attendanceRules?: AttendanceRule[];
   roles?: {id:string;name:string}[];
   transfers: PayrollTransfer[];
@@ -245,7 +238,6 @@ export type PayrollData = {
   employees: PayEmployee[];
   models: PayModel[];
   rules: PayRule[];
-  qualifications: Qualification[];
   assignments: PayAssignment[];
   salaryLinks: {
     payment_id: string;

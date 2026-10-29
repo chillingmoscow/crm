@@ -10,7 +10,6 @@ try {
   for (const [name, path] of [
     ["calculate", "src/lib/payroll/calculate.ts"],
     ["attendance", "src/lib/payroll/attendance.ts"],
-    ["qualifications", "src/lib/payroll/qualifications.ts"],
     ["time", "src/lib/sales/time.ts"],
   ]) {
     const code = ts
@@ -102,35 +101,20 @@ try {
     adjustments: [],
     cleanerPresent: true,
   };
-  const { latestQualification, qualificationAtDate } = await import(
-    pathToFileURL(join(dir, "qualifications.mjs")).href
-  );
-  const oldPass = {
-    id: "old-pass", employee_id: employee.id, valid_from: "2026-08-22",
-    valid_until: null, knowledge: true, experience: true, reason: "Старый результат",
-  };
-  const expiringPass = {
-    ...oldPass, id: "latest-pass", valid_from: "2026-10-20", valid_until: "2026-10-21",
-    knowledge: false, created_at: "2026-10-20T10:00:00Z",
-  };
-  const qualifications = [oldPass, expiringPass, { ...oldPass, id: "other-employee", employee_id: "other" }];
-  assert.equal(qualificationAtDate(qualifications, employee.id, "2026-10-19"), oldPass);
-  assert.equal(qualificationAtDate(qualifications, employee.id, "2026-10-21"), expiringPass,
-    "Expiry date is inclusive, so the final covered shift still earns tenure");
-  assert.equal(qualificationAtDate(qualifications, employee.id, "2026-10-22"), undefined,
-    "Expired recent results must not revive an older indefinite pass");
-  assert.equal(latestQualification(qualifications, employee.id, "2026-10-29"), expiringPass,
-    "The UI must show the expired result, matching payroll eligibility");
-  const failedRetake = { ...expiringPass, id: "failed-retake", knowledge: false, experience: false,
-    created_at: "2026-10-20T11:00:00Z" };
-  assert.equal(qualificationAtDate([...qualifications, failedRetake].reverse(), employee.id, "2026-10-21"), failedRetake,
-    "The latest result on the same day wins independently of database row order");
-  const calculateOn = (date) => calc.computeAccrual({ ...input, date,
-    qualification: qualificationAtDate(qualifications, employee.id, date) });
-  assert.equal(calculateOn("2026-10-21").components.find((c) => c.kind === "experience").amount, 300);
-  assert.equal(calculateOn("2026-10-22").components.find((c) => c.kind === "experience").amount, 0,
-    "An expired test must stop the financial tenure accrual");
-  assert.equal(calculateOn("2026-10-22").components.find((c) => c.kind === "knowledge").amount, 0);
+  const calculateOn = (date, patch = {}) => calc.computeAccrual({ ...input, date,
+    experienceStartsOn: "2026-11-10", ...patch });
+  const tenure = (date, patch) => calculateOn(date, patch).components.find(c => c.kind === "experience")?.amount;
+  assert.equal(tenure("2026-11-09"), 0, "No tenure supplement before the owner-selected date");
+  assert.equal(tenure("2026-11-10"), 300, "The first configured day earns the normal full tenure step");
+  assert.equal(tenure("2026-11-11"), 300);
+  assert.equal(tenure("2026-11-10", { experienceStartsOn: null }), 0, "Unconfigured start must fail closed");
+  assert.equal(tenure("2026-11-10", { rule: { ...rule, tenure_requires_exam: true } }), 300,
+    "Former test flags cannot block tenure after the start date");
+  assert.equal(calculateOn("2026-11-10", { qualification: { knowledge: true, experience: true } }).salary,
+    calculateOn("2026-11-10").salary, "Retired test payloads must not add money");
+  assert.equal(calculateOn("2026-11-10").components.some(c => c.kind === "knowledge"), false,
+    "Former model knowledge amounts must never produce new knowledge components");
+  assert.equal(calc.computeAccrual({ ...input, experienceStartsOn: "2026-11-10" }).salary, 5917);
   assert.equal(calc.hasShiftPay({...model,monthly_amount:20000},rule),true);
   assert.equal(calc.hasShiftPay({...model,monthly_amount:47700},{...rule,rates:{}}),false);
   assert.equal(calc.hasShiftPay(model,{...rule,config:{shift_pay:false}}),false);
@@ -150,12 +134,13 @@ try {
     result.components.find((c) => c.kind === "experience").amount,
     0,
   );
-  assert.equal(result.components.find((c) => c.kind === "knowledge").amount, 0);
+  assert.equal(result.components.some((c) => c.kind === "knowledge"), false);
   result = calc.computeAccrual({
     ...input,
-    qualification: { knowledge: true, experience: true },
+    date: "2026-11-10",
+    experienceStartsOn: "2026-11-10",
   });
-  assert.equal(result.salary, 6417);
+  assert.equal(result.salary, 6217);
   for (const count of [3, 4]) {
     result = calc.computeAccrual({ ...input, roleCount: count });
     assert.equal(result.salary, 1500 + 4042 + Math.round(750 / count));
@@ -521,7 +506,7 @@ try {
     "casual and old QR identity do not double count",
   );
   console.log(
-    "PASS: real golden calculation, qualified benefits, 3/4 employees, missing rates, dated models/rules, overnight attendance, unmapped replacement, open shifts, 09:00 boundary, exact multi-withdrawal cent allocation, 0/100/101 RUB, explicit transfers, no automatic carry-forward, partial/cancelled payments, IDs and full year",
+    "PASS: real golden calculation, tenure starts on 10 November without tests or knowledge payments, 3/4 employees, missing rates, dated models/rules, overnight attendance, unmapped replacement, open shifts, 09:00 boundary, exact multi-withdrawal cent allocation, 0/100/101 RUB, explicit transfers, no automatic carry-forward, partial/cancelled payments, IDs and full year",
   );
 } finally {
   await rm(dir, { recursive: true, force: true });

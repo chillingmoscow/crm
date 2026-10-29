@@ -59,6 +59,7 @@ import {
   type Save,
 } from "./editors";
 import { RunPanel } from "./run-panel";
+import { CandidateTrialCard } from "./candidate-trial-card";
 import { toast } from "sonner";
 type Editor =
   | {
@@ -198,6 +199,13 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
       (publication === "all" ||
         (publication === "draft" ? !s.published : s.published)),
   );
+  const trialDay = (trial: NonNullable<ScheduleData["candidateTrials"]>[number]) =>
+    trial.starts_at ? dateInZone(trial.starts_at, data.timezone) : trial.appointment_date;
+  const weekTrials = (data.candidateTrials ?? []).filter((trial) =>
+    days.includes(trialDay(trial)) && department === "all" &&
+    `${trial.full_name} ${trial.desired_position ?? ""} стажировка кандидат`.toLowerCase().includes(search),
+  );
+  const trialCandidates = [...new Map(weekTrials.map((trial) => [trial.candidate_id, trial])).values()];
   const staff = roster.filter(
     (s) =>
       (canPlan || s.user_id === data.userId) &&
@@ -593,7 +601,7 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
               )}
             </div>
           )}
-          {!staff.length && !openShifts.length ? (
+          {!staff.length && !openShifts.length && !weekTrials.length ? (
             noData(
               Users,
               "Нет сотрудников для выбранных условий",
@@ -725,6 +733,36 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
                         </td>
                       </tr>
                     ))}
+                    {trialCandidates.length > 0 && (
+                      <tr className="border-t bg-muted/30">
+                        <th colSpan={9} className="px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                          Стажировки · {trialCandidates.length}
+                        </th>
+                      </tr>
+                    )}
+                    {trialCandidates.map((candidate) => (
+                      <tr key={candidate.candidate_id} className="border-t">
+                        <th className="px-4 py-3 text-left font-normal">
+                          <Link href={`/people/candidates/${candidate.candidate_id}`} className="block break-words text-xs font-medium hover:underline">
+                            {candidate.full_name}
+                          </Link>
+                          <span className="mt-1 block text-[11px] text-muted-foreground">
+                            {candidate.hired_user_id ? "Принят на работу" : "Кандидат"}
+                            {candidate.desired_position ? ` · ${candidate.desired_position}` : ""}
+                          </span>
+                        </th>
+                        {days.map((day) => (
+                          <td key={day} className="border-l p-2 align-top">
+                            <div className="space-y-2">
+                              {weekTrials.filter((trial) => trial.candidate_id === candidate.candidate_id && trialDay(trial) === day).map((trial) => (
+                                <CandidateTrialCard key={trial.id} trial={trial} timezone={data.timezone} />
+                              ))}
+                            </div>
+                          </td>
+                        ))}
+                        <td className="border-l text-center text-xs text-muted-foreground">—</td>
+                      </tr>
+                    ))}
                   </tbody>
                   <tfoot>
                     <tr className="border-t bg-muted/50">
@@ -797,9 +835,12 @@ export function ScheduleClient({ initial }: { initial: ScheduleData }) {
                             )}
                           </div>
                         ))}
+                      {weekTrials.filter((trial) => trialDay(trial) === d).map((trial) => (
+                        <CandidateTrialCard key={trial.id} trial={trial} timezone={data.timezone} showName />
+                      ))}
                       {!weekShifts.some(
                         (s) => dateInZone(s.starts_at, data.timezone) === d,
-                      ) && (
+                      ) && !weekTrials.some((trial) => trialDay(trial) === d) && (
                         <p className="text-sm text-muted-foreground">
                           Смен нет
                         </p>

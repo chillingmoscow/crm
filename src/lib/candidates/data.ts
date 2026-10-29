@@ -206,7 +206,10 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
         .select("*")
         .eq("candidate_id", id)
         .eq("account_id", s.accountId)
-        .order("appointment_date", { ascending: false }),
+        .order("appointment_date", { ascending: false })
+        .order("starts_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false }),
       s.db
         .from<CandidateFile[]>("candidate_files")
         .select("*")

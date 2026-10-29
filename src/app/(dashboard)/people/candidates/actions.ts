@@ -78,6 +78,7 @@ async function command(action: string, id: string | null, input: unknown) {
     status: CandidateStatus;
   };
   revalidatePath("/people/candidates", "layout");
+  if (action !== "comment") revalidatePath("/schedule");
   return data;
 }
 export async function updateCandidate(id: string, input: unknown) {
@@ -102,6 +103,13 @@ export async function saveCandidateAppointment(id: string, input: unknown) {
         id: uuid.optional(),
         revision: z.number().int().positive().optional(),
         kind: z.enum(["interview", "trial"]),
+        venue_id: uuid.nullable().optional(),
+        interview_feedback: z.object({
+          punctuality: z.enum(["on_time", "late"]).optional(),
+          appearance: z.string().trim().max(2000).optional(),
+          communication: z.string().trim().max(2000).optional(),
+          smiled: z.boolean().optional(),
+        }).optional(),
         appointment_date: z.string().date(),
         starts_at: z.string().datetime({ offset: true }).nullable(),
         timezone: z.string().min(1).max(100),
@@ -115,6 +123,14 @@ export async function saveCandidateAppointment(id: string, input: unknown) {
           "canceled",
         ]),
         notes: z.string().max(12000).optional(),
+      })
+      .superRefine((value, context) => {
+        if (value.kind === "trial" && !value.venue_id)
+          context.addIssue({ code: "custom", path: ["venue_id"], message: "Выберите заведение для стажировки" });
+        if (value.kind === "interview" && !value.starts_at)
+          context.addIssue({ code: "custom", path: ["starts_at"], message: "Укажите время собеседования" });
+        if (value.kind === "interview" && ["passed", "rejected"].includes(value.outcome) && !value.notes?.trim())
+          context.addIssue({ code: "custom", path: ["notes"], message: "Заполните комментарий по результатам собеседования" });
       })
       .parse(input),
   );
@@ -200,6 +216,7 @@ export async function hireCandidate(id: string, input: unknown) {
       }),
     );
     revalidatePath("/people/candidates", "layout");
+    revalidatePath("/schedule");
     return { user_id: payload.existing_user_id };
   }
   const hire = result(
@@ -212,6 +229,7 @@ export async function hireCandidate(id: string, input: unknown) {
   revalidatePath("/people/candidates", "layout");
   revalidatePath("/people/staff", "layout");
   revalidatePath("/people/payroll");
+  revalidatePath("/schedule");
   return { user_id: hire.target_user_id };
 }
 export async function createCandidateRole(venueId: string, input: unknown) {

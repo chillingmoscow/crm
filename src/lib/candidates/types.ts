@@ -84,6 +84,7 @@ export type CandidateFile = {
 };
 export type Appointment = {
   id: string;
+  venue_id: string | null;
   kind: "interview" | "trial";
   appointment_date: string;
   starts_at: string | null;
@@ -92,6 +93,13 @@ export type Appointment = {
   interviewer_id: string | null;
   outcome: "scheduled" | "passed" | "no_show" | "rejected" | "canceled";
   notes: string | null;
+  interview_feedback: {
+    punctuality?: "on_time" | "late";
+    appearance?: string;
+    communication?: string;
+    smiled?: boolean;
+  };
+  created_at: string;
   revision: number;
 };
 export type Comment = {

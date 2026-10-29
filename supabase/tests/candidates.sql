@@ -51,15 +51,44 @@ do $$declare n int;begin
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000041','{"revision":1,"status":"rejected"}');raise exception 'Cross-tenant write permitted';exception when others then if SQLERRM='Cross-tenant write permitted' then raise;end if;end;
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"hired"}');raise exception 'Status bypass permitted';exception when others then if SQLERRM='Status bypass permitted' then raise;end if;end;
  begin perform public.candidate_command('archive','ce000000-0000-4000-8000-000000000040','{}');raise exception 'Recruiter archive permitted';exception when others then if SQLERRM='Recruiter archive permitted' then raise;end if;end;
- perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"interview","appointment_date":"2026-10-30","starts_at":"2026-10-30T11:00:00Z","timezone":"Europe/Moscow","outcome":"scheduled","location":"QA"}');
- declare qa_appointment uuid;
+ begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"interview","appointment_date":"2026-10-29","starts_at":null,"timezone":"Europe/Moscow","outcome":"scheduled"}');raise exception 'Interview without time allowed';exception when others then if SQLERRM='Interview without time allowed' then raise;end if;end;
+ perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','appointment_date',(now()-interval '1 day')::date,'starts_at',now()-interval '1 day','timezone','Europe/Moscow','outcome','scheduled','location','QA'));
+ if not exists(select 1 from public.candidates where id='ce000000-0000-4000-8000-000000000040' and status='interview' and revision=2) then raise exception 'Interview did not advance stage';end if;
+ declare qa_interview uuid;qa_trial uuid;qa_followup uuid;v int;payroll_before int;staff_before int;
  begin
-  select id into qa_appointment from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040';
-  perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_appointment,'revision',1,'kind','trial','appointment_date','2026-10-30','starts_at','2026-10-30T12:00:00Z','timezone','Europe/Moscow','outcome','scheduled'));
-  if not exists(select 1 from public.candidate_appointments where id=qa_appointment and kind='trial' and starts_at='2026-10-30T12:00:00Z' and revision=2) then raise exception 'Meeting edit not saved';end if;
+  select id into qa_interview from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040';
+  begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"trial","venue_id":"ce000000-0000-4000-8000-000000000020","appointment_date":"2026-10-31","starts_at":null,"timezone":"Europe/Moscow","outcome":"scheduled"}');raise exception 'Trial before result allowed';exception when others then if SQLERRM not like 'Сначала заполните результат%' then raise;end if;end;
+  begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_interview,'revision',1,'kind','interview','appointment_date',(now()-interval '1 day')::date,'starts_at',now()-interval '1 day','timezone','Europe/Moscow','outcome','passed'));raise exception 'Empty result allowed';exception when others then if SQLERRM not like 'Заполните комментарий%' then raise;end if;end;
+  perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_interview,'revision',1,'kind','interview','appointment_date',(now()-interval '1 day')::date,'starts_at',now()-interval '1 day','timezone','Europe/Moscow','outcome','passed','notes','Результат собеседования QA','interview_feedback',jsonb_build_object('punctuality','on_time','appearance','Опрятно','communication','Общался спокойно','smiled',false)));
+  begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_interview,'revision',2,'kind','trial','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date','2026-10-31','starts_at',null,'timezone','Europe/Moscow','outcome','scheduled'));raise exception 'Appointment kind overwrite allowed';exception when others then if SQLERRM not like 'Тип проведённой%' then raise;end if;end;
+  begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"trial","venue_id":"ce000000-0000-4000-8000-000000000021","appointment_date":"2026-10-31","starts_at":null,"timezone":"Europe/Moscow","outcome":"scheduled"}');raise exception 'Foreign venue trial allowed';exception when others then if SQLERRM not like 'Выберите доступное%' then raise;end if;end;
+  select count(*) into payroll_before from public.payroll_employees where account_id='ce000000-0000-4000-8000-000000000010';
+  select count(*) into staff_before from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020';
+  select (public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"trial","venue_id":"ce000000-0000-4000-8000-000000000020","appointment_date":"2026-10-31","starts_at":"2026-10-31T09:00:00Z","timezone":"Europe/Moscow","outcome":"scheduled"}')->>'id')::uuid into qa_trial;
+  if not exists(select 1 from public.candidates where id='ce000000-0000-4000-8000-000000000040' and status='trial' and hired_user_id is null) then raise exception 'Trial stage missing or hired early';end if;
+  if (select count(*) from public.payroll_employees where account_id='ce000000-0000-4000-8000-000000000010')<>payroll_before or (select count(*) from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020')<>staff_before then raise exception 'Trial created staff or payroll';end if;
+  perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_trial,'revision',1,'kind','trial','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date','2026-10-31','starts_at','2026-10-31T10:00:00Z','timezone','Europe/Moscow','outcome','scheduled'));
+  if not exists(select 1 from public.candidate_appointments where id=qa_trial and venue_id='ce000000-0000-4000-8000-000000000020' and starts_at='2026-10-31T10:00:00Z' and revision=2) then raise exception 'Trial edit not saved';end if;
+  if public.candidate_calendar_trials()<>'[]'::jsonb then raise exception 'Calendar exposed without schedule permission';end if;
+  select (public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('kind','interview','appointment_date',(now()+interval '2 days')::date,'starts_at',now()+interval '2 days','timezone','Europe/Moscow','outcome','scheduled'))->>'id')::uuid into qa_followup;
+  if (select status from public.candidates where id='ce000000-0000-4000-8000-000000000040')<>'interview' then raise exception 'New follow-up did not change stage';end if;
+  begin perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040','{"kind":"trial","venue_id":"ce000000-0000-4000-8000-000000000020","appointment_date":"2026-10-31","starts_at":null,"timezone":"Europe/Moscow","outcome":"scheduled"}');raise exception 'Old result bypassed latest interview';exception when others then if SQLERRM not like 'Сначала заполните результат%' then raise;end if;end;
+  perform public.candidate_command('appointment','ce000000-0000-4000-8000-000000000040',jsonb_build_object('id',qa_followup,'revision',1,'kind','interview','appointment_date',(now()+interval '2 days')::date,'starts_at',now()+interval '2 days','timezone','Europe/Moscow','outcome','canceled'));
+  -- Manual stage overrides are explicitly allowed, including automatic stages.
+  foreach v in array array[0,1,2,3] loop
+   perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'status',(array['new','review','interview','trial'])[v+1]));
+  end loop;
  end;
- perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"interview"}');
  begin perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040','{"revision":1,"status":"trial"}');raise exception 'Stale update permitted';exception when others then if SQLERRM='Stale update permitted' then raise;end if;end;
+end $$;
+reset role;
+-- Calendar requires both permissions and uses the active venue, never creating shifts.
+insert into public.role_permissions(role_id,permission_id,granted) select 'ce000000-0000-4000-8000-000000000030',id,true from public.permissions where code='schedule.view_all' on conflict(role_id,permission_id) do update set granted=true;
+set local role authenticated;
+select set_config('app.ctx_ready','',true);
+do $$begin
+ if jsonb_array_length(public.candidate_calendar_trials())<>1 then raise exception 'Trial missing from calendar';end if;
+ if public.candidate_calendar_trials()->0->>'full_name'<>'Кандидат QA' then raise exception 'Wrong calendar candidate';end if;
 end $$;
 reset role;
 -- Shared journal, app notifications, one permission and the separate hiring gate.
@@ -70,6 +99,7 @@ insert into public.candidate_events(account_id,candidate_id,actor_id,kind,detail
 do $$begin
  if (select count(*) from public.permissions where code like 'people.%candidates')<>1 then raise exception 'More than one candidate permission';end if;
  if (select count(*) from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.commented')<>1 then raise exception 'Missing or duplicate shared comment event';end if;
+ if not exists(select 1 from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040' and kind='interview' and interview_feedback->>'punctuality'='on_time' and interview_feedback->>'smiled'='false') then raise exception 'Interview feedback lost';end if;
  if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.appointment.updated' and details->'after'->>'kind'='trial') then raise exception 'Meeting missing from shared journal';end if;
  if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.updated' and details->'changes'->'status'->>'new'='interview') then raise exception 'Status diff missing from shared journal';end if;
  if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code='candidate.file.created' and details->>'name_of_file'='QA.jpg') then raise exception 'File missing from shared journal';end if;
@@ -91,7 +121,7 @@ delete from public.role_permissions where role_id='ce000000-0000-4000-8000-00000
 set local role authenticated;
 select set_config('app.ctx_ready','',true);
 do $$begin
- if public.candidate_new_count()<>0 or exists(select 1 from public.candidates) then raise exception 'Revoked candidate access still reads data';end if;
+ if public.candidate_calendar_trials()<>'[]'::jsonb or public.candidate_new_count()<>0 or exists(select 1 from public.candidates) then raise exception 'Revoked candidate access still reads data';end if;
  if exists(select 1 from public.audit_logs where action_code like 'candidate.%') then raise exception 'Revoked candidate journal data exposed';end if;
  if exists(select 1 from public.notifications where entity_type='candidate') then raise exception 'Revoked candidate notification exposed';end if;
  if exists(select 1 from storage.objects where bucket_id='candidate-files') then raise exception 'Revoked candidate photo exposed';end if;
@@ -104,9 +134,14 @@ reset role;
 select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
 set local role authenticated;
 create temp table qa_hire_context(payload jsonb);
-do $$declare r uuid;h jsonb;begin
+do $$declare r uuid;h jsonb;stage text;begin
  r:=public.candidate_create_role('ce000000-0000-4000-8000-000000000020','{"name":"Бармен QA","valid_from":"2026-10-01","monthly_amount":0,"basis":"none","tips":false,"shift_pay":true,"rates":{"1":{"1":{"base":2000,"percent":0}}},"food_amount":0,"knowledge_amount":0,"quickresto_role_id":999}');
- h:=public.candidate_begin_hire('ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',2,'venue_id','ce000000-0000-4000-8000-000000000020','role_id',r,'first_name','Кандидат','last_name','QA','employment_date','2026-10-29','attendance_source','quickresto'));
+ foreach stage in array array['new','review','interview','rejected'] loop
+  perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'status',stage));
+  begin perform public.candidate_begin_hire('ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'venue_id','ce000000-0000-4000-8000-000000000020','role_id',r,'first_name','Кандидат','last_name','QA','employment_date','2026-10-29','attendance_source','quickresto'));raise exception 'Hire outside trial allowed';exception when others then if SQLERRM not like 'Приём на работу доступен только%' then raise;end if;end;
+ end loop;
+ perform public.candidate_command('update','ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'status','trial'));
+ h:=public.candidate_begin_hire('ce000000-0000-4000-8000-000000000040',jsonb_build_object('revision',(select revision from public.candidates where id='ce000000-0000-4000-8000-000000000040'),'venue_id','ce000000-0000-4000-8000-000000000020','role_id',r,'first_name','Кандидат','last_name','QA','employment_date','2026-10-29','attendance_source','quickresto'));
  insert into qa_hire_context values(h);
 end $$;
 reset role;
@@ -125,7 +160,9 @@ do $$declare h jsonb;begin
  if not exists(select 1 from public.staff_door_codes where hire_id=(h->>'id')::uuid and user_id=(h->>'target_user_id')::uuid) then raise exception 'Door code not linked';end if;
  if not exists(select 1 from public.payroll_employees where local_user_id=(h->>'target_user_id')::uuid and role_id=(h->'input'->>'role_id')::uuid and quickresto_guest_id=999998 and quickresto_bonus_account_id=999997) then raise exception 'Role or bonus IDs missing';end if;
  insert into public.candidates(id,account_id,full_name) values('ce000000-0000-4000-8000-000000000043','ce000000-0000-4000-8000-000000000010','Повторная анкета сотрудника QA');
- perform public.candidate_link_staff('ce000000-0000-4000-8000-000000000043',(h->>'target_user_id')::uuid,'ce000000-0000-4000-8000-000000000020',1);
+ begin perform public.candidate_link_staff('ce000000-0000-4000-8000-000000000043',(h->>'target_user_id')::uuid,'ce000000-0000-4000-8000-000000000020',1);raise exception 'Staff link outside trial allowed';exception when others then if SQLERRM not like 'Приём на работу доступен только%' then raise;end if;end;
+ update public.candidates set status='trial' where id='ce000000-0000-4000-8000-000000000043';
+ perform public.candidate_link_staff('ce000000-0000-4000-8000-000000000043',(h->>'target_user_id')::uuid,'ce000000-0000-4000-8000-000000000020',2);
  if (select count(*) from public.payroll_employees where local_user_id=(h->>'target_user_id')::uuid)<>1 or (select count(*) from public.staff_door_codes where user_id=(h->>'target_user_id')::uuid)<>1 then raise exception 'Existing staff was provisioned twice';end if;
 
 end $$;

@@ -1,6 +1,7 @@
 "use client";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 export function Field({
   label,
   children,
@@ -30,19 +31,16 @@ export function FieldSelect({
 }) {
   return (
     <Field label={label}>
-      <select
-        aria-label={label}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+      <Select
+        value={value || "__empty__"}
+        onValueChange={(next) => onChange(next === "__empty__" ? "" : next)}
         disabled={disabled}
-        className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-base font-normal outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-50 sm:text-sm"
       >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger aria-label={label} className="h-10 min-w-0 text-base font-normal sm:text-sm"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {options.map((option) => <SelectItem key={option.value} value={option.value || "__empty__"}>{option.label}</SelectItem>)}
+        </SelectContent>
+      </Select>
     </Field>
   );
 }

@@ -10,6 +10,8 @@ import {
 import type { AuditEventSpec } from "./format";
 import type { AuditEvent } from "./list";
 import { STATUSES } from "@/lib/candidates/types";
+import type { Appointment } from "@/lib/candidates/types";
+import { interviewFeedbackEntries } from "@/lib/candidates/workflow";
 import { formatAuditDate } from "./labels";
 
 const labels: Record<string, string> = {
@@ -108,6 +110,8 @@ const meetingLabels: Record<string, string> = {
   interviewer_name: "Собеседование проводит",
   outcome: "Результат",
   notes: "Заметки",
+  venue_name: "Заведение",
+  interview_feedback: "Наблюдения на собеседовании",
 };
 const outcomes: Record<string, string> = {
   scheduled: "Запланировано",
@@ -124,6 +128,8 @@ function meetingValue(
   if (input == null || input === "") return "Не указано";
   if (field === "kind")
     return input === "trial" ? "Стажировка" : "Собеседование";
+  if (field === "interview_feedback")
+    return interviewFeedbackEntries(input as Appointment["interview_feedback"]).map(([label, item]) => `${label}: ${item}`).join("; ") || "Не заполнены";
   if (field === "outcome") return outcomes[String(input)] ?? "Не указан";
   if (field === "appointment_date") return formatAuditDate(input);
   if (field === "starts_at") {
@@ -145,7 +151,14 @@ function MeetingDetails({ event }: { event: AuditEvent }) {
   return (
     <ul className="space-y-0.5 text-xs text-muted-foreground">
       {Object.entries(meetingLabels)
-        .filter(([field]) => before[field] !== after[field])
+        .filter(([field]) => {
+          if (field === "interview_feedback") {
+            const oldFeedback = before[field] as Appointment["interview_feedback"] | undefined;
+            const newFeedback = after[field] as Appointment["interview_feedback"] | undefined;
+            return (interviewFeedbackEntries(oldFeedback).length > 0 || interviewFeedbackEntries(newFeedback).length > 0) && JSON.stringify(oldFeedback) !== JSON.stringify(newFeedback);
+          }
+          return before[field] !== after[field];
+        })
         .map(([field, label]) => (
           <li key={field}>
             <span className="text-foreground">{label}:</span>{" "}

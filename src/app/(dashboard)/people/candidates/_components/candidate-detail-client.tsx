@@ -5,6 +5,9 @@ import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
+  MoreHorizontal,
+  CalendarPlus,
+  ClipboardCheck,
   UserCheck,
   Plus,
   Paperclip,
@@ -17,6 +20,13 @@ import {
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -37,6 +47,7 @@ import {
   candidateLifecycle,
   getCandidateDoorCode,
 } from "../actions";
+import { canScheduleCandidateTrial, interviewFeedbackEntries } from "@/lib/candidates/workflow";
 import { candidateError } from "@/lib/candidates/errors";
 import { CandidateForm } from "./candidate-form";
 import { HireDrawer } from "./hire-drawer";
@@ -105,6 +116,9 @@ export function CandidateDetailClient({
     [editing, setEditing] = useState(false),
     [hiring, setHiring] = useState(false),
     [meeting, setMeeting] = useState<Appointment | null | undefined>(undefined),
+    [meetingKind, setMeetingKind] = useState<Appointment["kind"]>("interview"),
+    [meetingOutcome, setMeetingOutcome] = useState<Appointment["outcome"]>("scheduled"),
+    [activeTab, setActiveTab] = useState("profile"),
     [comment, setComment] = useState(""),
     [commentKey, setCommentKey] = useState(() => crypto.randomUUID()),
     [deleting, setDeleting] = useState(false),
@@ -153,6 +167,13 @@ export function CandidateDetailClient({
     if (field === "archived_at") return dateLabel(String(value));
     return String(value);
   };
+  const canTrial = canScheduleCandidateTrial(data.appointments, c.status);
+  const latestInterview = data.appointments.find((appointment) => appointment.kind === "interview");
+  const openMeeting = (kind: Appointment["kind"], appointment: Appointment | null = null, outcome?: Appointment["outcome"]) => {
+    setMeetingKind(kind);
+    setMeetingOutcome(outcome ?? appointment?.outcome ?? "scheduled");
+    setMeeting(appointment);
+  };
   const ageForm = c.age === null ? null : new Intl.PluralRules("ru").select(c.age);
   const ageLabel = c.age === null ? null : `${c.age} ${ageForm === "one" ? "год" : ageForm === "few" ? "года" : "лет"}`;
   return (
@@ -169,30 +190,63 @@ export function CandidateDetailClient({
       <div className="mx-auto flex w-full min-w-0 max-w-[1120px] flex-col gap-6 px-6 pb-8 pt-4 md:px-8">
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>
-            {canEdit ? (
-              <Button variant="outline" onClick={() => setEditing(true)}>
-                <Pencil className="mr-2 h-4 w-4" />
-                Редактировать
-              </Button>
-            ) : null}
+            {canEdit && !c.hired_user_id && !data.hire && ["new", "review", "interview"].includes(c.status) && (
+              c.status === "interview" ? (
+                canTrial ? (
+                  <Button onClick={() => openMeeting("trial")}><CalendarPlus className="mr-2 size-4" />Назначить стажировку</Button>
+                ) : (
+                  <Button onClick={() => openMeeting("interview", latestInterview ?? null, "passed")}><ClipboardCheck className="mr-2 size-4" />Результат собеседования</Button>
+                )
+              ) : (
+                <Button onClick={() => openMeeting("interview")}><CalendarPlus className="mr-2 size-4" />Назначить собеседование</Button>
+              )
+            )}
             {c.hired_user_id ? (
               <Button asChild>
                 <Link href={`/people/staff/${c.hired_user_id}`}>
                   Открыть сотрудника
                 </Link>
               </Button>
-            ) : permissions.hire && options.venues.some(v => v.can_hire) && !c.archived_at ? (
-              <Button onClick={() => setHiring(true)}>
+            ) : permissions.hire && options.venues.some(v => v.can_hire) && !c.archived_at && (c.status === "trial" || data.hire?.state === "reserved") ? (
+              <Button
+                disabled={c.status !== "trial" && data.hire?.state !== "reserved"}
+                title={c.status !== "trial" ? "Приём на работу доступен на этапе «Стажировка»" : undefined}
+                onClick={() => setHiring(true)}
+              >
                 <UserCheck className="mr-2 h-4 w-4" />
                 {data.hire?.state === "reserved"
                   ? "Продолжить оформление"
                   : "Принять на работу"}
               </Button>
             ) : null}
+            {canEdit || permissions.owner ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" aria-label="Действия с кандидатом" disabled={busy}>
+                    <MoreHorizontal className="size-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {canEdit ? (
+                    <DropdownMenuItem onSelect={() => setEditing(true)}>
+                      <Pencil className="size-4" />
+                      Редактировать
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canEdit && permissions.owner ? <DropdownMenuSeparator /> : null}
+                  {permissions.owner ? (
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleting(true)}>
+                      <Trash2 className="size-4" />
+                      Удалить навсегда
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
           </>
         }>
           <span className="text-sm text-muted-foreground">
-            {c.desired_position ?? "Желаемая должность не указана"} · Анкета от {dateLabel(c.submitted_at)}
+            {c.desired_position ?? "Желаемая должность не указана"}
           </span>
           <CandidateStatusCell
             candidate={c}
@@ -234,7 +288,7 @@ export function CandidateDetailClient({
             </p>
           </div>
         ) : null}
-        <Tabs defaultValue="profile" className="min-w-0">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="min-w-0">
           <div className="overflow-x-auto">
             <TabsList className="min-w-max justify-center">
               <TabsTrigger value="profile">Анкета</TabsTrigger>
@@ -257,7 +311,8 @@ export function CandidateDetailClient({
                 ) : null}
                 </ProfileValue>
                 <ProfileValue label="Возраст">{ageLabel}</ProfileValue>
-                <ProfileValue label="Адрес">{c.address}</ProfileValue>
+                <ProfileValue label="Дата заявки">{dateLabel(c.submitted_at)}</ProfileValue>
+              <ProfileValue label="Адрес">{c.address}</ProfileValue>
                 {Object.entries(c.social).filter(([, value]) => value).map(([key, value]) => (
                   <ProfileValue key={key} label={key === "vk" ? "VK" : key === "telegram" ? "Telegram" : "Instagram"}>
                     {safeLink(value) ? (
@@ -359,17 +414,6 @@ export function CandidateDetailClient({
                 <p className="text-sm text-muted-foreground">Файлов пока нет.</p>
               )}
             </ProfileSection>
-            {c.source_url && safeLink(c.source_url) ? (
-              <a
-                className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-brand"
-                href={safeLink(c.source_url)!}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Исходная анкета в Notion
-                <ExternalLink className="h-3.5 w-3.5" />
-              </a>
-            ) : null}
             {c.hired_user_id && permissions.owner ? (
               <div className="space-y-3 border-t pt-5">
                 <Button
@@ -404,11 +448,15 @@ export function CandidateDetailClient({
           </TabsContent>
           <TabsContent value="meetings" className="mx-auto w-full max-w-[720px]">
             <ProfileSection title="Собеседования и стажировки" description="Даты, участники и результаты встреч">
-              {canEdit ? (
-                <Button variant="outline" onClick={() => setMeeting(null)}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Назначить встречу
-                </Button>
+              {canEdit && !c.hired_user_id && !data.hire && c.status !== "rejected" ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => openMeeting("interview")}>
+                    <Plus className="mr-2 h-4 w-4" />Назначить собеседование
+                  </Button>
+                  <Button variant="outline" disabled={!canTrial} title={!canTrial ? "Сначала заполните результат последнего собеседования" : undefined} onClick={() => openMeeting("trial")}>
+                    <Plus className="mr-2 h-4 w-4" />Назначить стажировку
+                  </Button>
+                </div>
               ) : null}
               {data.appointments.length ? (
                 data.appointments.map((a) => (
@@ -434,6 +482,12 @@ export function CandidateDetailClient({
                           ? ` · ${options.members.find((m) => m.id === a.interviewer_id)?.name ?? "Интервьюер"}`
                           : ""}
                       </p>
+                      {a.venue_id && <p className="mt-1 text-xs text-muted-foreground">{options.venues.find((venue) => venue.id === a.venue_id)?.name ?? "Заведение"}</p>}
+                      {interviewFeedbackEntries(a.interview_feedback).length > 0 && (
+                        <dl className="mt-3 space-y-1 text-sm">
+                          {interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => <div key={label}><dt className="inline text-muted-foreground">{label}: </dt><dd className="inline whitespace-pre-wrap break-words">{value}</dd></div>)}
+                        </dl>
+                      )}
                       {a.notes ? (
                         <p className="mt-2 whitespace-pre-wrap text-sm">
                           {a.notes}
@@ -441,13 +495,16 @@ export function CandidateDetailClient({
                       ) : null}
                     </div>
                     {canEdit ? (
+                      <div className="flex flex-wrap gap-2">
+                      {a.kind === "interview" && a.outcome === "scheduled" && <Button variant="outline" size="sm" onClick={() => openMeeting("interview", a, "passed")}>Заполнить результат</Button>}
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setMeeting(a)}
+                        onClick={() => openMeeting(a.kind, a)}
                       >
                         Изменить
                       </Button>
+                      </div>
                     ) : null}
                   </article>
                 ))
@@ -564,6 +621,8 @@ export function CandidateDetailClient({
                               `${date}${time ? `, ${time} (${a.timezone ?? "Europe/Moscow"})` : ""}`,
                               a.outcome ? outcomes[a.outcome] : "",
                               a.location,
+                              ...interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => `${label}: ${value}`),
+                              a.notes,
                             ]
                               .filter(Boolean)
                               .join(" · ");
@@ -585,19 +644,7 @@ export function CandidateDetailClient({
             </ProfileSection>
           </TabsContent>
         </Tabs>
-        {permissions.owner ? (
-          <div className="mx-auto flex w-full max-w-[720px] flex-wrap gap-2 border-t pt-5">
-            <Button
-              variant="ghost"
-              className="text-destructive"
-              disabled={busy}
-              onClick={() => setDeleting(true)}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Удалить навсегда
-            </Button>
-          </div>
-        ) : null}
+
       </div>
       <HardDeleteConfirmDialog
         open={deleting}
@@ -661,6 +708,9 @@ export function CandidateDetailClient({
         <AppointmentForm
           candidateId={c.id}
           appointment={meeting}
+          initialKind={meetingKind}
+          initialOutcome={meetingOutcome}
+          canScheduleTrial={canTrial}
           options={options}
           onClose={() => setMeeting(undefined)}
           onSaved={() => {
@@ -683,17 +733,24 @@ function ProfileValue({ label, children, wide = false }: { label: string; childr
 function AppointmentForm({
   candidateId,
   appointment: a,
+  initialKind,
+  initialOutcome,
+  canScheduleTrial,
   options,
   onClose,
   onSaved,
 }: {
   candidateId: string;
   appointment: Appointment | null;
+  initialKind: Appointment["kind"];
+  initialOutcome: Appointment["outcome"];
+  canScheduleTrial: boolean;
   options: HiringOptions;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [kind, setKind] = useState(a?.kind ?? "interview"),
+  const [kind, setKind] = useState(a?.kind ?? initialKind),
+    [venueId, setVenueId] = useState(a?.venue_id ?? options.active_venue_id ?? ""),
     [date, setDate] = useState(a?.appointment_date ?? ""),
     [time, setTime] = useState(
       a?.starts_at ? wallTime(a.starts_at, a.timezone).slice(11) : "",
@@ -701,7 +758,11 @@ function AppointmentForm({
     [timezone, setTimezone] = useState(a?.timezone ?? "Europe/Moscow"),
     [location, setLocation] = useState(a?.location ?? ""),
     [interviewer, setInterviewer] = useState(a?.interviewer_id ?? ""),
-    [outcome, setOutcome] = useState(a?.outcome ?? "scheduled"),
+    [outcome, setOutcome] = useState(initialOutcome),
+    [punctuality, setPunctuality] = useState(a?.interview_feedback?.punctuality ?? ""),
+    [appearance, setAppearance] = useState(a?.interview_feedback?.appearance ?? ""),
+    [communication, setCommunication] = useState(a?.interview_feedback?.communication ?? ""),
+    [smiled, setSmiled] = useState(a?.interview_feedback?.smiled === undefined ? "" : String(a.interview_feedback.smiled)),
     [notes, setNotes] = useState(a?.notes ?? ""),
     [busy, start] = useTransition();
   const save = () =>
@@ -710,6 +771,13 @@ function AppointmentForm({
         await saveCandidateAppointment(candidateId, {
           ...(a ? { id: a.id, revision: a.revision } : {}),
           kind,
+          venue_id: kind === "trial" ? venueId || null : null,
+          interview_feedback: kind === "interview" ? {
+            ...(punctuality ? { punctuality } : {}),
+            ...(appearance.trim() ? { appearance: appearance.trim() } : {}),
+            ...(communication.trim() ? { communication: communication.trim() } : {}),
+            ...(smiled ? { smiled: smiled === "true" } : {}),
+          } : {},
           appointment_date: date,
           starts_at: time ? localTimeToISO(`${date}T${time}`, timezone) : null,
           timezone,
@@ -722,15 +790,15 @@ function AppointmentForm({
         onSaved();
       } catch (e) {
         toast.error(
-          e instanceof Error ? e.message : "Не удалось сохранить встречу",
+          candidateError(e, "Не удалось сохранить встречу"),
         );
       }
     });
   return (
     <EditDrawer
       open
-      title={a ? "Изменить встречу" : "Назначить встречу"}
-      description="Дата, место, интервьюер и результат встречи"
+      title={kind === "interview" && outcome !== "scheduled" ? "Результат собеседования" : a ? "Изменить встречу" : kind === "trial" ? "Назначить стажировку" : "Назначить собеседование"}
+      description={kind === "interview" && outcome !== "scheduled" ? "Дата, время, наблюдения и итог собеседования" : "Дата, время, место и участник встречи"}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -739,7 +807,7 @@ function AppointmentForm({
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Отмена
           </Button>
-          <Button disabled={busy || !date} onClick={save}>
+          <Button disabled={busy || !date || (kind === "interview" && (!time || (["passed", "rejected"].includes(outcome) && !notes.trim()))) || (kind === "trial" && (!venueId || (!a && !canScheduleTrial)))} onClick={save}>
             Сохранить
           </Button>
         </>
@@ -752,9 +820,24 @@ function AppointmentForm({
         onChange={(v) => setKind(v as typeof kind)}
         options={[
           { value: "interview", label: "Собеседование" },
-          { value: "trial", label: "Стажировка" },
+          ...(canScheduleTrial || a?.kind === "trial" ? [{ value: "trial", label: "Стажировка" }] : []),
         ]}
       />
+      {kind === "trial" && (
+        <FieldSelect
+          label="Заведение *"
+          value={venueId}
+          onChange={(id) => {
+            setVenueId(id);
+            const venue = options.venues.find((value) => value.id === id);
+            if (venue) setTimezone(venue.timezone);
+          }}
+          options={[
+            { value: "", label: "Выберите заведение" },
+            ...options.venues.map((venue) => ({ value: venue.id, label: venue.name })),
+          ]}
+        />
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Дата *">
           <Input
@@ -763,7 +846,7 @@ function AppointmentForm({
             onChange={(e) => setDate(e.target.value)}
           />
         </Field>
-        <Field label="Время · необязательно">
+        <Field label={kind === "interview" ? "Время *" : "Время · необязательно"}>
           <Input
             type="time"
             value={time}
@@ -804,7 +887,16 @@ function AppointmentForm({
           label,
         }))}
       />
-      <Field label="Заметки">
+      {kind === "interview" && ["passed", "rejected"].includes(outcome) && (
+        <div className="space-y-4 border-t pt-4">
+          <h3 className="text-sm font-semibold">Наблюдения на собеседовании</h3>
+          <FieldSelect label="Пунктуальность" value={punctuality} onChange={(value) => setPunctuality(value as typeof punctuality)} options={[{ value: "", label: "Не отмечено" }, { value: "on_time", label: "Вовремя" }, { value: "late", label: "Опоздал" }]} />
+          <Field label="Внешний вид"><Textarea value={appearance} onChange={(event) => setAppearance(event.target.value)} maxLength={2000} placeholder="Опрятность и внешний вид" /></Field>
+          <Field label="Общение"><Textarea value={communication} onChange={(event) => setCommunication(event.target.value)} maxLength={2000} placeholder="Как общался и отвечал на вопросы" /></Field>
+          <FieldSelect label="Улыбался" value={smiled} onChange={setSmiled} options={[{ value: "", label: "Не отмечено" }, { value: "true", label: "Да" }, { value: "false", label: "Нет" }]} />
+        </div>
+      )}
+      <Field label={kind === "interview" && outcome !== "scheduled" ? `Комментарий по результатам${["passed", "rejected"].includes(outcome) ? " *" : ""}` : "Заметки"}>
         <Textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}

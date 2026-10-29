@@ -1,17 +1,9 @@
 "use client";
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import {
-  LayoutGrid,
-  List,
-  Settings2,
-  Archive,
-  ArrowLeft,
-  UserRound,
-} from "lucide-react";
-import { toast } from "sonner";
+import { Settings2, Loader2, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TablePageHeader, TableControls } from "@/components/shared/table";
 import { DateRangeFilter } from "@/components/shared/date-range-filter";
@@ -21,51 +13,57 @@ import {
   CANDIDATE_STAGES,
   STATUSES,
   STATUS_CLASSES,
-  type Candidate,
+  type CandidateBoardData,
+  type CandidatePage,
   type CandidatePermissions,
   type HiringOptions,
+  type ListFilters,
 } from "@/lib/candidates/types";
-import { listCandidates, updateCandidate } from "../actions";
-import { FieldSelect, StatusBadge, dateLabel, plural } from "./fields";
+import { listCandidates } from "../actions";
+import { FieldSelect, StatusBadge, plural } from "./fields";
 import { RecruitingSettings } from "./recruiting-settings";
+import { CandidateBoard } from "./candidate-board";
+import {
+  CandidateViewMenu,
+  useCandidateView,
+  FIELD_LABELS,
+  candidateFieldText,
+} from "./candidate-view";
+
 export function CandidatesClient({
-  initial,
+  initialBoard,
+  preferenceKey,
   options,
   permissions,
-  archive = false,
 }: {
-  initial: { rows: Candidate[]; total: number };
+  initialBoard: CandidateBoardData;
+  preferenceKey: string;
   options: HiringOptions;
   permissions: CandidatePermissions;
-  archive?: boolean;
 }) {
-  const [data, setData] = useState(initial),
-    [search, setSearch] = useState(""),
+  const view = useCandidateView(preferenceKey);
+  const [search, setSearch] = useState(""),
     [query, setQuery] = useState(""),
     [status, setStatus] = useState(""),
     [position, setPosition] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
-    [page, setPage] = useState(0),
-    [view, setView] = useState<"board" | "table">("board"),
-    [searchOpen, setSearchOpen] = useState(false),
     [preset, setPreset] = useState<string | null>(null),
+    [searchOpen, setSearchOpen] = useState(false),
     [settings, setSettings] = useState(false),
-    [error, setError] = useState(""),
-    [busy, start] = useTransition();
-  const params = useSearchParams();
+    [boardTotal, setBoardTotal] = useState(initialBoard.total),
+    [list, setList] = useState<CandidatePage | null>(null),
+    [page, setPage] = useState(0),
+    [listLoading, setListLoading] = useState(false),
+    [listError, setListError] = useState(""),
+    [listRevision, setListRevision] = useState(0);
+  const params = useSearchParams(),
+    listRequest = useRef(0),
+    loadedList = useRef("");
   useEffect(() => {
     if (params.get("settings") === "1" && permissions.integrations)
       setSettings(true);
   }, [params, permissions.integrations]);
-  const first = useRef(true);
-  const positions = Array.from(
-    new Set(
-      initial.rows
-        .map((c) => c.desired_position)
-        .filter((p): p is string => Boolean(p)),
-    ),
-  ).sort();
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -73,381 +71,323 @@ export function CandidatesClient({
     }, 250);
     return () => clearTimeout(timer);
   }, [search]);
+  const filters: ListFilters = useMemo(
+    () => ({
+      search: query,
+      status,
+      position,
+      from: from || undefined,
+      to: to || undefined,
+    }),
+    [query, status, position, from, to],
+  );
+  const listKey = JSON.stringify([
+    filters,
+    page,
+    view.listPageSize,
+    listRevision,
+  ]);
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    let active = true;
-    start(async () => {
-      try {
-        const next = await listCandidates({
-          search: query,
-          status,
-          position,
-          from: from || undefined,
-          to: to || undefined,
-          archive,
-          page,
-        });
-        if (active) {
-          setData(next);
-          setError("");
-        }
-      } catch (e) {
-        if (active)
-          setError(
-            candidateError(
-              e,
-              "Не удалось загрузить анкеты. Повторите попытку.",
-            ),
-          );
-      }
-    });
+    if (view.view !== "table" || loadedList.current === listKey) return;
+    const request = ++listRequest.current;
+    let cancelled = false;
+    setListLoading(true);
+    setListError("");
+    listCandidates({
+      ...filters,
+      page,
+      pageSize: view.listPageSize,
+      view: "table",
+    })
+      .then((next) => {
+        if (cancelled || request !== listRequest.current) return;
+        loadedList.current = JSON.stringify([
+          filters,
+          next.page,
+          view.listPageSize,
+          listRevision,
+        ]);
+        setList(next);
+        setPage(next.page);
+      })
+      .catch((e) => {
+        if (!cancelled && request === listRequest.current)
+          setListError(candidateError(e, "Не удалось загрузить список."));
+      })
+      .finally(() => {
+        if (!cancelled && request === listRequest.current)
+          setListLoading(false);
+      });
     return () => {
-      active = false;
+      cancelled = true;
     };
-  }, [query, status, position, from, to, archive, page]);
-  const refresh = async () =>
-    setData(
-      await listCandidates({
-        search: query,
-        status,
-        position,
-        from: from || undefined,
-        to: to || undefined,
-        archive,
-        page,
-      }),
-    );
-  const drop = (event: React.DragEvent, key: string) => {
-    event.preventDefault();
-    const id = event.dataTransfer.getData("text/plain"),
-      c = data.rows.find((c) => c.id === id);
-    if (
-      !c ||
-      key === "hired" ||
-      c.status === "hired" ||
-      !permissions.manage ||
-      archive
-    )
-      return;
-    start(async () => {
-      try {
-        await updateCandidate(id, { revision: c.revision, status: key });
-        await refresh();
-      } catch (e) {
-        toast.error(candidateError(e, "Не удалось сменить статус"));
-      }
-    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listKey, view.view]);
+  const boardChanged = useCallback(() => setListRevision((n) => n + 1), []);
+  const total =
+    view.view === "board" ? boardTotal : (list?.total ?? boardTotal);
+  const hasFilters = !!(status || position || from || to);
+  const reset = () => {
+    setStatus("");
+    setPosition("");
+    setFrom("");
+    setTo("");
+    setPreset(null);
+    setPage(0);
   };
   return (
-    <div className="flex min-w-0 flex-col gap-6 p-4 md:p-8">
+    <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-5 p-4 md:p-6">
       <TablePageHeader
-        title={archive ? "Архив кандидатов" : "Кандидаты"}
-        subtitle="Общий список кандидатов аккаунта"
+        className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
+        title={
+          <span className="inline-flex items-center gap-3">
+            Кандидаты
+            <span
+              aria-hidden="true"
+              className="rounded-md bg-muted px-2 py-1 text-sm font-normal tabular-nums text-muted-foreground"
+            >
+              {total}
+            </span>
+          </span>
+        }
         actions={
           <>
-            {archive ? (
-              <Button variant="outline" asChild>
-                <Link href="/people/candidates">
-                  <ArrowLeft className="mr-2 h-4 w-4" />К кандидатам
-                </Link>
-              </Button>
-            ) : null}
-            {permissions.owner && !archive ? (
-              <Button variant="ghost" asChild>
-                <Link href="/people/candidates/archive">
-                  <Archive className="mr-2 h-4 w-4" />
-                  Архив
-                </Link>
-              </Button>
-            ) : null}
-            {permissions.integrations && !archive ? (
-              <Button variant="outline" onClick={() => setSettings(true)}>
-                <Settings2 className="mr-2 h-4 w-4" />
+            <TableControls
+              className="min-w-0 max-w-full"
+              search={{
+                value: search,
+                onChange: setSearch,
+                open: searchOpen,
+                onOpenChange: setSearchOpen,
+                placeholder: "Имя, телефон или должность",
+              }}
+              filters={{
+                active: hasFilters,
+                content: (
+                  <div className="w-72 space-y-4 p-3">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-sm font-medium">Фильтры</h2>
+                      <Button variant="ghost" size="sm" onClick={reset}>
+                        Сбросить
+                      </Button>
+                    </div>
+                    <FieldSelect
+                      label="Статус"
+                      value={status}
+                      onChange={(value) => {
+                        setStatus(value);
+                        setPage(0);
+                      }}
+                      options={[
+                        { value: "", label: "Все статусы" },
+                        ...Object.entries(CANDIDATE_STAGES).map(
+                          ([value, label]) => ({ value, label }),
+                        ),
+                      ]}
+                    />
+                    <FieldSelect
+                      label="Должность"
+                      value={position}
+                      onChange={(value) => {
+                        setPosition(value);
+                        setPage(0);
+                      }}
+                      options={[
+                        { value: "", label: "Все должности" },
+                        ...options.positions.map((p) => ({
+                          value: p,
+                          label: p,
+                        })),
+                      ]}
+                    />
+                    <div className="space-y-2 border-t pt-4">
+                      <p className="text-[13px] font-medium">Дата заявки</p>
+                      <DateRangeFilter
+                        ariaLabel="Дата заявки"
+                        value={{
+                          start: from ? new Date(`${from}T12:00:00`) : null,
+                          end: to ? new Date(`${to}T12:00:00`) : null,
+                        }}
+                        presetLabel={preset}
+                        onChange={(range, label) => {
+                          setFrom(
+                            range.start
+                              ? format(range.start, "yyyy-MM-dd")
+                              : "",
+                          );
+                          setTo(
+                            range.end ? format(range.end, "yyyy-MM-dd") : "",
+                          );
+                          setPreset(label);
+                          setPage(0);
+                        }}
+                      />
+                    </div>
+                  </div>
+                ),
+              }}
+            />
+            <CandidateViewMenu state={view} />
+            {permissions.integrations ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => setSettings(true)}
+              >
+                <Settings2 className="mr-2 size-4" />
                 Настройки
               </Button>
             ) : null}
           </>
         }
       />
-      <div className="grid gap-3 lg:flex lg:flex-wrap lg:items-center lg:justify-between">
-        <DateRangeFilter
-          ariaLabel="Дата заявки"
-          value={{
-            start: from ? new Date(`${from}T12:00:00`) : null,
-            end: to ? new Date(`${to}T12:00:00`) : null,
-          }}
-          presetLabel={preset}
-          onChange={(range, label) => {
-            setFrom(range.start ? format(range.start, "yyyy-MM-dd") : "");
-            setTo(range.end ? format(range.end, "yyyy-MM-dd") : "");
-            setPreset(label);
-            setPage(0);
-          }}
+      <p className="sr-only" aria-live="polite">
+        {total} {plural(total, ["анкета", "анкеты", "анкет"])}
+      </p>
+      <div hidden={view.view !== "board"} className="min-w-0">
+        <CandidateBoard
+          initial={initialBoard}
+          filters={filters}
+          pageSize={view.boardPageSize}
+          fields={view.visibleCards}
+          active={view.view === "board"}
+          canManage={permissions.manage}
+          onTotalChange={setBoardTotal}
+          onChanged={boardChanged}
         />
-        <div className="flex flex-wrap justify-end gap-2">
-          <TableControls
-            search={{
-              value: search,
-              onChange: setSearch,
-              open: searchOpen,
-              onOpenChange: setSearchOpen,
-              placeholder: "Имя, телефон или должность",
-            }}
-            filters={{
-              active: !!(status || position),
-              content: (
-                <div className="w-72 space-y-4 p-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-sm font-medium">Фильтры</h2>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setStatus("");
-                        setPosition("");
-                        setPage(0);
-                      }}
-                    >
-                      Сбросить
-                    </Button>
-                  </div>
-                  <FieldSelect
-                    label="Статус"
-                    value={status}
-                    onChange={(v) => {
-                      setStatus(v);
-                      setPage(0);
-                    }}
-                    options={[
-                      { value: "", label: "Все статусы" },
-                      ...Object.entries(CANDIDATE_STAGES).map(
-                        ([value, label]) => ({ value, label }),
-                      ),
-                    ]}
-                  />
-                  <FieldSelect
-                    label="Должность"
-                    value={position}
-                    onChange={(v) => {
-                      setPosition(v);
-                      setPage(0);
-                    }}
-                    options={[
-                      { value: "", label: "Все должности" },
-                      ...positions.map((p) => ({ value: p, label: p })),
-                    ]}
-                  />
-                </div>
-              ),
-            }}
-          />
-          <div className="flex gap-1" aria-label="Вид списка">
-            <Button
-              variant={view === "board" ? "secondary" : "ghost"}
-              size="icon"
-              className="size-9"
-              aria-label="Доска"
-              aria-pressed={view === "board"}
-              onClick={() => setView("board")}
-            >
-              <LayoutGrid className="size-4" />
-            </Button>
-            <Button
-              variant={view === "table" ? "secondary" : "ghost"}
-              size="icon"
-              className="size-9"
-              aria-label="Таблица"
-              aria-pressed={view === "table"}
-              onClick={() => setView("table")}
-            >
-              <List className="size-4" />
-            </Button>
-          </div>
-        </div>
       </div>
-      <div
-        className="flex items-center justify-between text-sm text-muted-foreground"
-        aria-live="polite"
-      >
-        <span>
-          {data.total} {plural(data.total, ["анкета", "анкеты", "анкет"])}
-          {busy ? " · Обновляем…" : ""}
-        </span>
-        {data.total > 100 ? (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={page === 0 || busy}
-              onClick={() => setPage((p) => p - 1)}
+      {view.view === "table" ? (
+        <div className="min-w-0 space-y-3" aria-busy={listLoading}>
+          {listError ? (
+            <div
+              role="alert"
+              className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm"
             >
-              Назад
-            </Button>
-            <span>{page + 1}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={(page + 1) * 100 >= data.total || busy}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Далее
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      {error ? (
-        <div role="alert" className="text-destructive">
-          {error}
-        </div>
-      ) : null}
-      {data.rows.length === 0 ? (
-        <div className="flex min-h-64 flex-col items-center justify-center gap-3 text-center">
-          <UserRound className="h-8 w-8 text-muted-foreground" />
-          <h2 className="text-xl font-semibold">
-            {query || status || position || from || to
-              ? "По этим условиям анкет нет"
-              : archive
-                ? "Архив пуст"
-                : "Пока нет кандидатов"}
-          </h2>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            {archive
-              ? "Архивированные анкеты появятся здесь."
-              : query || status || position || from || to
-                ? "Измените поиск или сбросьте фильтры."
-                : "Новые анкеты появятся здесь после отправки формы на сайте."}
-          </p>
-        </div>
-      ) : view === "board" ? (
-        <div className="flex min-w-0 gap-4 overflow-x-auto pb-4">
-          {Object.entries(CANDIDATE_STAGES)
-            .filter(([key]) => !status || key === status)
-            .map(([key, label]) => (
-              <section
-                key={key}
-                aria-label={label}
-                className="w-72 shrink-0 rounded-xl bg-muted/40 p-3"
-                onDragOver={(e) => {
-                  if (permissions.manage && !archive) e.preventDefault();
-                }}
-                onDrop={(e) => drop(e, key)}
+              <p>{listError}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setListRevision((n) => n + 1)}
               >
-                <div className="mb-3 flex items-center justify-between px-1">
-                  <h2 className="text-sm font-medium">{label}</h2>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {data.rows.filter((c) => c.status === key).length}
-                  </span>
-                </div>
-                <div className="space-y-2">
-                  {data.rows
-                    .filter((c) => c.status === key)
-                    .map((c) => (
-                      <Link
-                        key={c.id}
-                        href={`/people/candidates/${c.id}`}
-                        draggable={
-                          permissions.manage && !archive && c.status !== "hired"
-                        }
-                        onDragStart={(e) =>
-                          e.dataTransfer.setData("text/plain", c.id)
-                        }
-                        className="block rounded-lg border bg-card p-3 transition-colors hover:border-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-                      >
-                        <div className="flex items-start gap-3">
-                          {c.photo_url ? (
+                Повторить загрузку
+              </Button>
+            </div>
+          ) : null}
+          {listLoading ? (
+            <p
+              className="flex items-center gap-2 text-xs text-muted-foreground"
+              role="status"
+            >
+              <Loader2 className="size-3 motion-safe:animate-spin" />
+              Обновляем список…
+            </p>
+          ) : null}
+          <div className="overflow-x-auto rounded-xl border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted/40 text-xs text-muted-foreground">
+                <tr>
+                  {view.visibleColumns.map((id) => (
+                    <th
+                      key={id}
+                      className="whitespace-nowrap px-4 py-3 font-medium"
+                    >
+                      {FIELD_LABELS[id]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(list?.rows ?? []).map((c) => (
+                  <tr key={c.id} className="border-t hover:bg-muted/30">
+                    {view.visibleColumns.map((id) => (
+                      <td key={id} className="max-w-72 px-4 py-3">
+                        {id === "full_name" ? (
+                          <Link
+                            className="font-medium hover:text-brand"
+                            href={`/people/candidates/${c.id}`}
+                          >
+                            {c.full_name}
+                          </Link>
+                        ) : id === "photo" ? (
+                          c.photo_url ? (
                             <Image
                               unoptimized
-                              width={40}
-                              height={40}
-                              src={c.photo_url}
+                              width={36}
+                              height={36}
                               alt=""
-                              className="size-10 shrink-0 rounded-lg object-cover"
+                              src={c.photo_url}
+                              className="size-9 rounded-md object-cover"
                             />
                           ) : (
-                            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-sm font-medium text-muted-foreground">
-                              {c.full_name.slice(0, 1)}
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="break-words text-sm font-medium">
-                              {c.full_name}
-                            </p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {c.desired_position ?? "Должность не указана"}
-                              {c.age
-                                ? ` · ${c.age} ${plural(c.age, ["год", "года", "лет"])}`
-                                : ""}
-                            </p>
-                          </div>
-                        </div>
-                        {c.salary_expectation ? (
-                          <p className="mt-3 truncate text-xs text-muted-foreground">
-                            Ожидания: {c.salary_expectation}
-                          </p>
-                        ) : null}
-                        <div className="mt-3 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                          <span>{dateLabel(c.submitted_at)}</span>
-                        </div>
-                      </Link>
+                            "—"
+                          )
+                        ) : id === "status" ? (
+                          <StatusBadge
+                            className={STATUS_CLASSES[c.status]}
+                            label={STATUSES[c.status]}
+                          />
+                        ) : (
+                          <span className="line-clamp-3 break-words">
+                            {candidateFieldText(c, id)}
+                          </span>
+                        )}
+                      </td>
                     ))}
-                </div>
-              </section>
-            ))}
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-muted/40 text-xs text-muted-foreground">
-              <tr>
-                {[
-                  "Кандидат",
-                  "Должность",
-                  "Статус",
-                  "Телефон",
-                  "Дата заявки",
-                ].map((l) => (
-                  <th
-                    key={l}
-                    className="whitespace-nowrap px-4 py-3 font-medium"
-                  >
-                    {l}
-                  </th>
+                  </tr>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((c) => (
-                <tr key={c.id} className="border-t hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <Link
-                      className="font-medium hover:text-brand"
-                      href={`/people/candidates/${c.id}`}
+                {!listLoading && !list?.rows.length ? (
+                  <tr>
+                    <td
+                      colSpan={view.visibleColumns.length}
+                      className="py-14 text-center text-muted-foreground"
                     >
-                      {c.full_name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">{c.desired_position ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge
-                      className={STATUS_CLASSES[c.status]}
-                      label={STATUSES[c.status]}
-                    />
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {c.phone ?? "—"}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    {dateLabel(c.submitted_at)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      {query || hasFilters
+                        ? "По этим условиям анкет нет"
+                        : "Новые анкеты появятся здесь после отправки формы на сайте."}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              {list?.total ?? 0}{" "}
+              {plural(list?.total ?? 0, ["анкета", "анкеты", "анкет"])}
+            </span>
+            <div className="flex items-center gap-3">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                aria-label="Предыдущая страница списка"
+                disabled={page === 0 || listLoading}
+                onClick={() => setPage((n) => n - 1)}
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="tabular-nums">
+                {(list?.page ?? 0) + 1} из{" "}
+                {Math.max(1, Math.ceil((list?.total ?? 0) / view.listPageSize))}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8"
+                aria-label="Следующая страница списка"
+                disabled={
+                  listLoading ||
+                  (page + 1) * view.listPageSize >= (list?.total ?? 0)
+                }
+                onClick={() => setPage((n) => n + 1)}
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          </div>
         </div>
-      )}
+      ) : null}
       {settings ? (
         <RecruitingSettings
           options={options}

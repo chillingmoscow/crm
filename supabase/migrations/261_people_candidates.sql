@@ -5,6 +5,7 @@ create table public.candidates (
  phone_normalized text generated always as (regexp_replace(regexp_replace(coalesce(phone,''),'[^0-9]','','g'),'^8([0-9]{10})$','7\1')) stored,
  desired_position text, age integer check(age between 14 and 100), address text,
  social jsonb not null default '{}', education text, experience text, plans text, family_status text, drivers_license text, salary_expectation text,
+ stage_changed_at timestamptz,
  status text not null default 'new' check(status in ('new','review','interview','trial','rejected','hired')),
  responsible_id uuid references public.profiles(id) on delete set null,
  source text not null default 'manual' check(source in ('manual','tilda','notion')), source_id text, source_url text,
@@ -18,6 +19,7 @@ create table public.candidates (
 );
 create unique index candidates_source_unique on public.candidates(account_id,source,source_id);
 create index candidates_list on public.candidates(account_id,submitted_at desc,id desc) where archived_at is null;
+create index candidates_board on public.candidates(account_id,status,stage_changed_at desc nulls last,submitted_at desc,id desc) where archived_at is null and status<>'hired';
 create index candidates_phone on public.candidates(account_id,phone_normalized) where phone_normalized<>'';
 create index candidates_hired_venue on public.candidates(account_id,hired_venue_id);
 create table public.candidate_comments (
@@ -135,6 +137,7 @@ begin
  if TG_OP='INSERT' then event_kind:='created';
  else
  new.updated_at:=now();new.revision:=old.revision+1;
+ if new.status is distinct from old.status then new.stage_changed_at:=now();end if;
  foreach k in array array['full_name','phone','desired_position','age','address','social','education','experience','plans','family_status','drivers_license','salary_expectation','status','responsible_id','hired_user_id','hired_venue_id','hired_role_id','archived_at'] loop
  if to_jsonb(old)->k is distinct from to_jsonb(new)->k then changes:=changes||jsonb_build_object(k,jsonb_build_object('old',to_jsonb(old)->k,'new',to_jsonb(new)->k));end if;
  end loop;
@@ -335,6 +338,7 @@ create policy candidate_files_read on storage.objects for select to authenticate
 create function public.candidate_hiring_options() returns jsonb language sql stable security definer set search_path=public,pg_catalog as $$
  select case when private.candidate_access(public.get_active_account_id(),false) then jsonb_build_object(
  'active_venue_id',(select active_venue_id from public.profiles where id=auth.uid()),
+ 'positions',coalesce((select jsonb_agg(x.desired_position order by x.desired_position) from (select distinct desired_position from public.candidates where account_id=public.get_active_account_id() and archived_at is null and status<>'hired' and nullif(trim(desired_position),'') is not null) x),'[]'),
  'venues',coalesce((select jsonb_agg(jsonb_build_object('id',v.id,'name',v.name,'timezone',v.timezone,'can_hire',private.candidate_venue_permission(auth.uid(),v.id,'people.invite_staff') and private.candidate_venue_permission(auth.uid(),v.id,'people.hire_candidates'),'can_create_role',private.candidate_venue_permission(auth.uid(),v.id,'people.manage_roles') and private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))) from public.venues v where v.account_id=public.get_active_account_id() and v.archived_at is null),'[]'),
  'roles',coalesce((select jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'venue_id',r.venue_id,'model_id',m.id,'quickresto_role_id',coalesce(m.quickresto_role_id,(select l.external_id::bigint from public.external_entity_links l where l.account_id=v.account_id and l.provider='quickresto' and l.entity_type='role' and l.local_id=r.id and l.external_id~'^[0-9]+$' limit 1)),'rules',coalesce((select jsonb_agg(jsonb_build_object('valid_from',rv.valid_from,'monthly_amount',rv.monthly_amount,'rates',rv.rates,'config',rv.config) order by rv.valid_from desc,rv.created_at desc,rv.id desc) from public.payroll_rule_versions rv where rv.model_id=m.id and rv.employee_id is null),'[]'))) from public.roles r join public.venues v on v.id=r.venue_id left join public.payroll_models m on m.role_id=r.id and m.is_role_default and not m.archived where v.account_id=public.get_active_account_id() and v.archived_at is null and r.archived_at is null and (private.candidate_venue_permission(auth.uid(),v.id,'people.hire_candidates') or private.candidate_venue_permission(auth.uid(),v.id,'payroll.configure'))),'[]'),
  'staff',coalesce((select jsonb_agg(jsonb_build_object('id',p.id,'name',concat_ws(' ',p.first_name,p.last_name),'venue_id',v.id,'role_id',uv.role_id)) from public.profiles p join public.user_venue_roles uv on uv.user_id=p.id join public.venues v on v.id=uv.venue_id where v.account_id=public.get_active_account_id() and uv.status='active' and uv.fired_at is null),'[]'),

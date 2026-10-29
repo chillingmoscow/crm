@@ -17,7 +17,11 @@ import type {
   CandidateEvent,
   HiringOptions,
   ListFilters,
+  CandidatePage,
+  CandidateBoardData,
+  CandidateStage,
 } from "./types";
+import { CANDIDATE_STAGE_KEYS, BOARD_PAGE_SIZE } from "./types";
 import { uuid, normalizePhone } from "./schema";
 export async function candidateScope(manage = false) {
   const [user, accountId, can, client] = await Promise.all([
@@ -65,15 +69,19 @@ export async function candidateOptions(): Promise<HiringOptions> {
   const s = await candidateScope();
   return check(await s.db.rpc("candidate_hiring_options", {})) as HiringOptions;
 }
-export async function candidateList(filters: ListFilters = {}) {
-  const s = await candidateScope();
-  if (filters.archive && !s.permissions.owner)
-    throw new Error("Архив доступен владельцу");
+type CandidateScope = Awaited<ReturnType<typeof candidateScope>>;
+function candidateQuery(s: CandidateScope, filters: ListFilters) {
   let query = s.db
     .from<Candidate[]>("candidates")
     .select("*", { count: "exact" })
     .eq("account_id", s.accountId)
-    .neq("status", "hired")
+    .neq("status", "hired");
+  if (filters.view === "board")
+    query = query.order("stage_changed_at", {
+      ascending: false,
+      nullsFirst: false,
+    });
+  query = query
     .order("submitted_at", { ascending: false })
     .order("id", { ascending: false });
   query = filters.archive
@@ -104,31 +112,110 @@ export async function candidateList(filters: ListFilters = {}) {
           : `submitted_at.lte.${to}`,
     );
   }
-  const page = Math.max(0, Math.min(filters.page ?? 0, 10000));
-  const result = await query.range(page * 100, page * 100 + 99);
-  const rows = check(result) ?? [];
-  const ids = rows.map((c) => c.id);
-  if (ids.length) {
-    const files = check(
+  return query;
+}
+async function candidatePage(
+  s: CandidateScope,
+  filters: ListFilters,
+): Promise<CandidatePage> {
+  let page = Math.max(0, Math.min(filters.page ?? 0, 10000));
+  const pageSize = Math.max(1, Math.min(filters.pageSize ?? 25, 100));
+  const query = candidateQuery(s, filters);
+  let result = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+  let rows = check(result) ?? [];
+  const total = result.count ?? rows.length;
+  const lastPage = Math.max(0, Math.ceil(total / pageSize) - 1);
+  if (page > lastPage) {
+    page = lastPage;
+    result = await query.range(page * pageSize, (page + 1) * pageSize - 1);
+    rows = check(result) ?? [];
+  }
+  return { rows, total, page, pageSize };
+}
+async function attachCandidatePhotos(s: CandidateScope, rows: Candidate[]) {
+  if (!rows.length) return;
+  const files =
+    check(
       await s.db
-        .from<CandidateFile[]>("candidate_files")
+        .from<(CandidateFile & { candidate_id: string })[]>("candidate_files")
         .select("candidate_id,storage_path")
         .eq("state", "ready")
-        .in("candidate_id", ids),
-    ) as (CandidateFile & { candidate_id: string })[];
-    await Promise.all(
-      rows.map(async (c) => {
-        const f = files.find((f) => f.candidate_id === c.id);
-        if (f?.storage_path) {
-          const r = await s.client.storage
-            .from("candidate-files")
-            .createSignedUrl(f.storage_path, 1800);
-          c.photo_url = r.data?.signedUrl ?? null;
-        }
-      }),
-    );
+        .in("mime_type", [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/avif",
+          "image/gif",
+        ])
+        .in(
+          "candidate_id",
+          rows.map((c) => c.id),
+        ),
+    ) ?? [];
+  const paths = [
+    ...new Set(
+      files.map((f) => f.storage_path).filter((p): p is string => !!p),
+    ),
+  ];
+  if (!paths.length) return;
+  const { data: signed } = await s.client.storage
+    .from("candidate-files")
+    .createSignedUrls(paths, 1800);
+  const urls = new Map(
+    (signed ?? [])
+      .filter((f) => !!f.path && !!f.signedUrl)
+      .map((f) => [f.path, f.signedUrl]),
+  );
+  for (const row of rows) {
+    const file = files.find((f) => f.candidate_id === row.id);
+    row.photo_url = file?.storage_path
+      ? (urls.get(file.storage_path) ?? null)
+      : null;
   }
-  return { rows, total: result.count ?? rows.length };
+}
+export async function candidateList(
+  filters: ListFilters = {},
+): Promise<CandidatePage> {
+  const s = await candidateScope();
+  if (filters.archive && !s.permissions.owner)
+    throw new Error("Архив доступен владельцу");
+  const result = await candidatePage(s, filters);
+  await attachCandidatePhotos(s, result.rows);
+  return result;
+}
+export async function candidateBoard(
+  filters: ListFilters = {},
+  pages: Partial<Record<CandidateStage, number>> = {},
+  pageSize = BOARD_PAGE_SIZE,
+): Promise<CandidateBoardData> {
+  const s = await candidateScope();
+  if (filters.archive && !s.permissions.owner)
+    throw new Error("Архив доступен владельцу");
+  const columns = await Promise.all(
+    CANDIDATE_STAGE_KEYS.map(
+      async (status) =>
+        [
+          status,
+          filters.status && filters.status !== status
+            ? { rows: [], total: 0, page: 0, pageSize }
+            : await candidatePage(s, {
+                ...filters,
+                status,
+                page: pages[status] ?? 0,
+                pageSize,
+                view: "board",
+              }),
+        ] as const,
+    ),
+  );
+  await attachCandidatePhotos(
+    s,
+    columns.flatMap(([, column]) => column.rows),
+  );
+  return {
+    columns: Object.fromEntries(columns) as CandidateBoardData["columns"],
+    total: columns.reduce((n, [, c]) => n + c.total, 0),
+  };
 }
 export async function candidateDetail(id: string): Promise<CandidateDetail> {
   const s = await candidateScope();

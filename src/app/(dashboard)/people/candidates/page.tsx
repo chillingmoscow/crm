@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getCachedUser } from "@/lib/supabase/server";
 import {
   candidateScope,
-  candidateList,
+  candidateBoard,
   candidateOptions,
 } from "@/lib/candidates/data";
 import { CandidatesClient } from "./_components/candidates-client";
@@ -11,12 +11,14 @@ export default async function CandidatesPage() {
   if (!(await getCachedUser())) redirect("/login");
   const s = await candidateScope();
   const [list, options] = await Promise.all([
-    candidateList(),
+    candidateBoard(),
     candidateOptions(),
   ]);
   return (
     <CandidatesClient
-      initial={list}
+      key={`${s.accountId}:${s.user.id}`}
+      initialBoard={list}
+      preferenceKey={`${s.accountId}:${s.user.id}`}
       options={options}
       permissions={s.permissions}
     />

@@ -10,6 +10,21 @@ export const STATUSES = {
   hired: "Принят на работу",
 } as const;
 export type CandidateStatus = keyof typeof STATUSES;
+export type CandidateStage = keyof typeof CANDIDATE_STAGES;
+export const CANDIDATE_STAGE_KEYS = Object.keys(
+  CANDIDATE_STAGES,
+) as CandidateStage[];
+export const BOARD_PAGE_SIZE = 5;
+export type CandidatePage = {
+  rows: Candidate[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+export type CandidateBoardData = {
+  columns: Record<CandidateStage, CandidatePage>;
+  total: number;
+};
 export const STATUS_CLASSES: Record<CandidateStatus, string> = {
   new: "bg-muted text-muted-foreground",
   review: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
@@ -42,6 +57,7 @@ export type Candidate = {
   submitted_at: string;
   created_at: string;
   updated_at: string;
+  stage_changed_at: string | null;
   revision: number;
   hired_user_id: string | null;
   hired_venue_id: string | null;
@@ -88,6 +104,7 @@ export type CandidateEvent = {
   actor_name?: string;
 };
 export type HiringOptions = {
+  positions: string[];
   active_venue_id: string | null;
   staff: { id: string; name: string; venue_id: string; role_id: string }[];
   venues: {
@@ -142,6 +159,8 @@ export type ListFilters = {
   to?: string;
   archive?: boolean;
   page?: number;
+  pageSize?: number;
+  view?: "board" | "table";
 };
 export type ConnectionView = {
   id: string;

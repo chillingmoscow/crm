@@ -9,8 +9,6 @@ import {
   UserCheck,
   Plus,
   Paperclip,
-  Archive,
-  RotateCcw,
   Trash2,
   Send,
   Phone,
@@ -23,7 +21,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ArchiveConfirmDialog } from "@/components/shared/archive-confirm-dialog";
 import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
 import {
   STATUSES,
@@ -110,7 +107,6 @@ export function CandidateDetailClient({
     [meeting, setMeeting] = useState<Appointment | null | undefined>(undefined),
     [comment, setComment] = useState(""),
     [commentKey, setCommentKey] = useState(() => crypto.randomUUID()),
-    [archiving, setArchiving] = useState(false),
     [deleting, setDeleting] = useState(false),
     [busy, start] = useTransition(),
     [door, setDoor] = useState<{
@@ -159,9 +155,7 @@ export function CandidateDetailClient({
   return (
     <div className="min-w-0 space-y-6 p-4 md:p-8">
       <Link
-        href={
-          c.archived_at ? "/people/candidates/archive" : "/people/candidates"
-        }
+        href="/people/candidates"
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -627,30 +621,6 @@ export function CandidateDetailClient({
       </Tabs>
       {permissions.owner ? (
         <div className="flex flex-wrap gap-2 border-t pt-6">
-          {c.archived_at ? (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                action(
-                  () => candidateLifecycle(c.id, "restore"),
-                  "Анкета восстановлена",
-                )
-              }
-            >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              Восстановить
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => setArchiving(true)}
-            >
-              <Archive className="mr-2 h-4 w-4" />
-              Архивировать
-            </Button>
-          )}
           <Button
             variant="ghost"
             className="text-destructive"
@@ -662,39 +632,6 @@ export function CandidateDetailClient({
           </Button>
         </div>
       ) : null}
-      <ArchiveConfirmDialog
-        open={archiving}
-        onOpenChange={setArchiving}
-        entityGenitive="анкету"
-        entityName={c.full_name}
-        description="Скрыть анкету из списка кандидатов. Комментарии, встречи и история сохранятся."
-        impact={[
-          { label: "Комментарии", count: data.comments.length },
-          { label: "Встречи", count: data.appointments.length },
-        ]}
-        onConfirm={async () => {
-          try {
-            await candidateLifecycle(c.id, "archive");
-            toast.success("Анкета в архиве", {
-              duration: 15000,
-              action: {
-                label: "Отменить",
-                onClick: () => {
-                  void candidateLifecycle(c.id, "restore")
-                    .then(() => router.refresh())
-                    .catch((e) => toast.error(String(e)));
-                },
-              },
-            });
-            router.push("/people/candidates");
-            return { error: null };
-          } catch (e) {
-            return {
-              error: e instanceof Error ? e.message : "Ошибка архивации",
-            };
-          }
-        }}
-      />
       <HardDeleteConfirmDialog
         open={deleting}
         onOpenChange={setDeleting}

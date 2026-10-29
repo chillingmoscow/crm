@@ -21,7 +21,7 @@ export function RecruitingSettings({
   owner,
   onClose,
 }: {
-  options: HiringOptions;
+  options: Pick<HiringOptions, "venues" | "active_venue_id">;
   owner: boolean;
   onClose: () => void;
 }) {

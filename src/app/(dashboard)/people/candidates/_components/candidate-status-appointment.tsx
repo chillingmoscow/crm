@@ -18,25 +18,22 @@ export function CandidateStatusAppointment({ candidate, kind, options, onClose, 
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   useEffect(() => {
-    if (kind !== "trial") return;
     let active = true;
     setError("");
     getCandidateAppointments(candidate.id).then((rows) => {
       if (active) setAppointments(rows);
     }).catch((reason) => {
-      if (active) setError(candidateError(reason, "Не удалось проверить результат собеседования"));
+      if (active) setError(candidateError(reason, "Не удалось загрузить коммуникацию"));
     });
     return () => { active = false; };
   }, [candidate.id, kind, retry]);
   return (
     <CandidateAppointmentDrawer
       candidateId={candidate.id}
-      appointment={null}
+      appointment={kind === "interview" ? appointments?.find((a) => a.kind === "interview") ?? null : null}
       initialKind={kind}
-      initialOutcome="scheduled"
-      mode="schedule"
       canScheduleTrial={canScheduleCandidateTrial(appointments ?? [], candidate.status)}
-      eligibilityLoading={kind === "trial" && appointments === null && !error}
+      eligibilityLoading={appointments === null && !error}
       eligibilityError={error}
       onRetryEligibility={() => setRetry((value) => value + 1)}
       options={options}

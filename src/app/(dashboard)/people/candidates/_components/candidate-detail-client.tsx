@@ -7,7 +7,6 @@ import {
   Pencil,
   MoreHorizontal,
   CalendarPlus,
-  ClipboardCheck,
   UserCheck,
   Paperclip,
   Trash2,
@@ -105,9 +104,7 @@ export function CandidateDetailClient({
     [hiring, setHiring] = useState(false),
     [viewing, setViewing] = useState<Appointment | null>(null),
     [meeting, setMeeting] = useState<Appointment | null | undefined>(undefined),
-    [meetingMode, setMeetingMode] = useState<"schedule" | "result">("schedule"),
     [meetingKind, setMeetingKind] = useState<Appointment["kind"]>("interview"),
-    [meetingOutcome, setMeetingOutcome] = useState<Appointment["outcome"]>("scheduled"),
     [activeTab, setActiveTab] = useState("profile"),
     [deleting, setDeleting] = useState(false),
     [busy, start] = useTransition(),
@@ -125,6 +122,7 @@ export function CandidateDetailClient({
     ]);
     setData(next);
     setOptions(ctx);
+    return next;
   };
   const action = (run: () => Promise<unknown>, message?: string) =>
     start(async () => {
@@ -157,11 +155,9 @@ export function CandidateDetailClient({
   };
   const canTrial = canScheduleCandidateTrial(data.appointments, c.status);
   const latestInterview = data.appointments.find((appointment) => appointment.kind === "interview");
-  const openMeeting = (kind: Appointment["kind"], appointment: Appointment | null = null, outcome?: Appointment["outcome"], mode: "schedule" | "result" = "schedule") => {
-    setMeetingMode(mode);
+  const openMeeting = (kind: Appointment["kind"], appointment: Appointment | null = null) => {
     setMeetingKind(kind);
-    setMeetingOutcome(outcome ?? appointment?.outcome ?? "scheduled");
-    setMeeting(appointment);
+    setMeeting(appointment ?? (kind === "interview" ? latestInterview ?? null : null));
   };
   const ageForm = c.age === null ? null : new Intl.PluralRules("ru").select(c.age);
   const ageLabel = c.age === null ? null : `${c.age} ${ageForm === "one" ? "год" : ageForm === "few" ? "года" : "лет"}`;
@@ -180,15 +176,9 @@ export function CandidateDetailClient({
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>
             {canEdit && !c.hired_user_id && !data.hire && ["new", "review", "interview"].includes(c.status) && (
-              c.status === "interview" && latestInterview ? (
-                canTrial ? (
-                  <Button onClick={() => openMeeting("trial")}><CalendarPlus className="mr-2 size-4" />Назначить стажировку</Button>
-                ) : (
-                  <Button onClick={() => openMeeting("interview", latestInterview, "passed", "result")}><ClipboardCheck className="mr-2 size-4" />Результат собеседования</Button>
-                )
-              ) : (
-                <Button onClick={() => openMeeting("interview")}><CalendarPlus className="mr-2 size-4" />Назначить собеседование</Button>
-              )
+              canTrial ? <Button onClick={() => openMeeting("trial")}><CalendarPlus className="mr-2 size-4" />Назначить стажировку</Button>
+                : latestInterview ? <Button onClick={() => setViewing(latestInterview)}>Открыть собеседование</Button>
+                  : <Button onClick={() => openMeeting("interview")}><CalendarPlus className="mr-2 size-4" />Назначить собеседование</Button>
             )}
             {c.hired_user_id ? (
               <Button asChild>
@@ -282,8 +272,7 @@ export function CandidateDetailClient({
           <div className="overflow-x-auto">
             <TabsList className="min-w-max justify-center">
               <TabsTrigger value="profile">Анкета</TabsTrigger>
-              <TabsTrigger value="interviews">Собеседования</TabsTrigger>
-              <TabsTrigger value="trials">Стажировки</TabsTrigger>
+              <TabsTrigger value="communication">Коммуникация</TabsTrigger>
               <TabsTrigger value="history">Журнал</TabsTrigger>
             </TabsList>
           </div>
@@ -433,17 +422,24 @@ export function CandidateDetailClient({
                 ) : null}
               </div>
             ) : null}
-            <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={refresh} />
+            <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={async () => { await refresh(); }} />
           </TabsContent>
-          {(["interview", "trial"] as const).map((kind) => (
-            <TabsContent key={kind} value={kind === "interview" ? "interviews" : "trials"} className="mx-auto w-full max-w-[720px]">
-              <ProfileSection title={kind === "interview" ? "Собеседования" : "Стажировки"}>
-                {data.appointments.some((a) => a.kind === kind) ? data.appointments.filter((a) => a.kind === kind).map((a) => (
-                  <CandidateAppointmentRow key={a.id} appointment={a} options={options} onOpen={() => setViewing(a)} />
-                )) : <p className="py-4 text-sm text-muted-foreground">{kind === "interview" ? "Собеседования ещё не назначены." : "Стажировки ещё не назначены."}</p>}
-              </ProfileSection>
-            </TabsContent>
-          ))}
+          <TabsContent value="communication" className="mx-auto w-full max-w-[720px]">
+            <section className="rounded-[14px] border bg-card p-5">
+              <Tabs defaultValue="interview" className="min-w-0">
+                <TabsList><TabsTrigger value="interview">Собеседование</TabsTrigger><TabsTrigger value="trial">Стажировки</TabsTrigger></TabsList>
+                <TabsContent value="interview" className="mt-2">
+                  {latestInterview ? <CandidateAppointmentRow appointment={latestInterview} options={options} onOpen={() => setViewing(latestInterview)} />
+                    : <p className="py-6 text-sm text-muted-foreground">Собеседование ещё не назначено.</p>}
+                </TabsContent>
+                <TabsContent value="trial" className="mt-2">
+                  {canEdit && canTrial && !c.hired_user_id && !data.hire && c.status === "trial" && <div className="flex justify-end pt-3"><Button variant="ghost" size="sm" className="text-brand" onClick={() => openMeeting("trial")}><CalendarPlus className="mr-1.5 size-4" />Добавить стажировку</Button></div>}
+                  {data.appointments.some((a) => a.kind === "trial") ? data.appointments.filter((a) => a.kind === "trial").map((a) => <CandidateAppointmentRow key={a.id} appointment={a} options={options} onOpen={() => setViewing(a)} />)
+                    : <p className="py-6 text-sm text-muted-foreground">{canTrial ? "Стажировки ещё не назначены." : "Стажировки станут доступны после результата собеседования «Пройдено» с комментарием."}</p>}
+                </TabsContent>
+              </Tabs>
+            </section>
+          </TabsContent>
           <TabsContent value="history" className="mx-auto w-full max-w-[720px]">
             <ProfileSection title="Журнал" description="История изменений анкеты">
               <ol className="space-y-5">
@@ -590,22 +586,21 @@ export function CandidateDetailClient({
           }}
         />
       ) : null}
-      {viewing && <CandidateAppointmentDetails appointment={viewing} candidateName={c.full_name} options={options} editable={canEdit}
+      {viewing && meeting === undefined && <CandidateAppointmentDetails key={viewing.id} candidateId={c.id} appointment={viewing} candidateName={c.full_name} options={options} editable={canEdit}
         onClose={() => setViewing(null)}
-        onSchedule={() => { setViewing(null); openMeeting(viewing.kind, viewing); }}
-        onResult={() => { setViewing(null); openMeeting(viewing.kind, viewing, viewing.outcome === "scheduled" ? "passed" : viewing.outcome, "result"); }} />}
+        onSchedule={() => openMeeting(viewing.kind, viewing)}
+        onSaved={async () => { const next = await refresh(); setViewing(next.appointments.find((a) => a.id === viewing.id) ?? null); }} />}
       {meeting !== undefined ? (
         <CandidateAppointmentDrawer
           candidateId={c.id}
           appointment={meeting}
-          mode={meetingMode}
           initialKind={meetingKind}
-          initialOutcome={meetingOutcome}
           canScheduleTrial={canTrial}
           options={options}
           onClose={() => setMeeting(undefined)}
           onSaved={async () => {
-            await refresh();
+            const next = await refresh();
+            setViewing((current) => current ? next.appointments.find((a) => a.id === current.id) ?? null : null);
             setMeeting(undefined);
           }}
         />

@@ -188,6 +188,53 @@ do $$begin
  if not exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040') then raise exception 'Allowed journal inaccessible';end if;
 end $$;
 reset role;
+-- Bulk deletion reuses the single-candidate rules and rolls back the whole
+-- batch if even one candidate belongs to another account or has been hired.
+insert into public.candidates(id,account_id,full_name) values
+('ce000000-0000-4000-8000-000000000050','ce000000-0000-4000-8000-000000000010','Удаление QA 1'),
+('ce000000-0000-4000-8000-000000000051','ce000000-0000-4000-8000-000000000010','Удаление QA 2'),
+('ce000000-0000-4000-8000-000000000052','ce000000-0000-4000-8000-000000000011','Чужое удаление QA');
+insert into public.candidates(id,account_id,full_name,status,hired_user_id,hired_venue_id) values
+('ce000000-0000-4000-8000-000000000053','ce000000-0000-4000-8000-000000000010','Принят QA','hired','ce000000-0000-4000-8000-000000000001','ce000000-0000-4000-8000-000000000020');
+insert into public.candidate_comments(account_id,candidate_id,body) values
+('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000050','Удаляемый комментарий QA');
+set local role authenticated;
+do $$begin
+ begin
+  perform public.candidate_delete_many(array['ce000000-0000-4000-8000-000000000050']::uuid[]);
+  raise exception 'Recruiter deleted candidates';
+ exception when others then if SQLERRM <> 'Доступно только владельцу аккаунта' then raise; end if; end;
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
+set local role authenticated;
+do $$begin
+ begin
+  perform public.candidate_delete_many(array['ce000000-0000-4000-8000-000000000050','ce000000-0000-4000-8000-000000000052']::uuid[]);
+  raise exception 'Cross-account bulk delete allowed';
+ exception when others then if SQLERRM <> 'Кандидат недоступен' then raise; end if; end;
+ begin
+  perform public.candidate_delete_many(array['ce000000-0000-4000-8000-000000000050','ce000000-0000-4000-8000-000000000053']::uuid[]);
+  raise exception 'Hired candidate deleted';
+ exception when others then if SQLERRM not like 'Анкета связана с оформлением сотрудника%' then raise; end if; end;
+ if not exists(select 1 from public.candidates where id='ce000000-0000-4000-8000-000000000050')
+    or not exists(select 1 from public.candidate_comments where candidate_id='ce000000-0000-4000-8000-000000000050')
+    or exists(select 1 from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000050' and action_code='candidate.deleted') then
+   raise exception 'Failed batch partially deleted data or wrote an audit event';
+ end if;
+ if public.candidate_delete_many(array['ce000000-0000-4000-8000-000000000050','ce000000-0000-4000-8000-000000000051','ce000000-0000-4000-8000-000000000050']::uuid[]) <> 2 then
+   raise exception 'Wrong deleted count';
+ end if;
+ if exists(select 1 from public.candidate_comments where candidate_id='ce000000-0000-4000-8000-000000000050')
+    or (select count(*) from public.audit_logs where entity_id in ('ce000000-0000-4000-8000-000000000050','ce000000-0000-4000-8000-000000000051') and action_code='candidate.deleted') <> 2 then
+   raise exception 'Bulk delete lost cascades or audit';
+ end if;
+ if has_function_privilege('anon','public.candidate_delete_many(uuid[])','execute') then raise exception 'Bulk delete exposed to anon'; end if;
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
 delete from public.role_permissions where role_id='ce000000-0000-4000-8000-000000000030' and permission_id=(select id from public.permissions where code='people.manage_candidates');
 set local role authenticated;
 select set_config('app.ctx_ready','',true);

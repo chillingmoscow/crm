@@ -1,5 +1,7 @@
 # Выпуск раздела Кандидаты на self hosted Supabase
 
+Обновление группового удаления: перед выпуском интерфейса с выделением строк применить `supabase/migrations/20261030231538_candidate_bulk_delete.sql`. Группа удаляется целиком либо полностью сохраняется при ошибке; права владельца, ограничения найма, очистка файлов и журнал берутся из существующей команды удаления анкеты.
+
 Результат выпуска: Тильда передаёт анкеты непосредственно серверу Sheerly, кандидаты хранятся на уровне аккаунта; найм выполняет шаги Quick Resto и выдаёт данные офисного замка. Этот runbook не означает, что выпуск уже выполнен.
 
 1. Сделать резервную копию self-hosted PostgreSQL. Применить последовательно `supabase/migrations/261_people_candidates.sql`, `supabase/migrations/268_candidate_recruiting_workflow.sql`, `supabase/migrations/269_candidate_appointment_forms.sql`, `supabase/migrations/270_candidate_comments_and_meeting_actions.sql`, `supabase/migrations/271_candidate_single_interview.sql`, `supabase/migrations/272_candidate_interview_ratings.sql`, `supabase/migrations/273_candidate_hiring_parity.sql`, `supabase/migrations/274_organization_telegram.sql`, `supabase/migrations/275_candidate_hire_audit.sql` и `supabase/migrations/276_staff_termination.sql` в одной транзакции с `psql -v ON_ERROR_STOP=1 --single-transaction` от владельца закрытой схемы (в текущем self-hosted окружении — `supabase_admin`). Приложение использует существующий self-hosted Supabase, новый облачный проект не требуется. Миграции приложения не применяются через push автоматически.

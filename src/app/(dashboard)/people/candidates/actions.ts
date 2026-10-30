@@ -161,6 +161,15 @@ export async function candidateLifecycle(
   z.enum(["archive", "restore", "delete"]).parse(action);
   return command(action, uuid.parse(id), {});
 }
+export async function deleteCandidates(ids: string[]) {
+  const selected = z.array(uuid).min(1).max(100).parse(ids);
+  const scope = await candidateScope();
+  if (!scope.permissions.owner) throw new Error("Доступно только владельцу аккаунта");
+  const deleted = result(await scope.db.rpc("candidate_delete_many", { p_ids: selected })) as number;
+  revalidatePath("/people/candidates", "layout");
+  revalidatePath("/schedule");
+  return deleted;
+}
 export async function uploadCandidateFile(id: string, form: FormData) {
   const s = await candidateScope();
   uuid.parse(id);

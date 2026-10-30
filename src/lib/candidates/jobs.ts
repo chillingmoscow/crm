@@ -56,7 +56,9 @@ export async function processCandidateJobs(limit = 5) {
             .maybeSingle(),
         );
         const organization = check(await db.from<{secret:{encrypted:string;iv:string;tag:string};default_chat_id:string|null}>("organization_telegram_settings").select("secret,default_chat_id").eq("account_id",job.account_id).maybeSingle());
-        const connection = {telegram_chat_id: recruitingConnection?.telegram_chat_id || organization?.default_chat_id,
+        const connection = {telegram_chat_id: job.kind === "hired"
+          ? organization?.default_chat_id || recruitingConnection?.telegram_chat_id
+          : recruitingConnection?.telegram_chat_id || organization?.default_chat_id,
           telegram_secret: organization?.secret || recruitingConnection?.telegram_secret};
         if (job.kind === "hired" && (!connection?.telegram_chat_id || !connection.telegram_secret))
           throw new Error("Настройте Telegram-бота и чат для уведомления о найме");

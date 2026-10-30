@@ -34,7 +34,7 @@ export function CandidateStatusAppointment({ candidate, kind, options, onClose, 
       appointment={null}
       initialKind={kind}
       initialOutcome="scheduled"
-      schedulingOnly
+      mode="schedule"
       canScheduleTrial={canScheduleCandidateTrial(appointments ?? [], candidate.status)}
       eligibilityLoading={kind === "trial" && appointments === null && !error}
       eligibilityError={error}

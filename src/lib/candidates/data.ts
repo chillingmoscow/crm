@@ -204,6 +204,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
         .select("*")
         .eq("candidate_id", id)
         .eq("account_id", s.accountId)
+        .is("deleted_at", null)
         .order("created_at"),
       s.db
         .from<CandidateEvent[]>("candidate_events")
@@ -246,6 +247,7 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
     ),
   ];
   const names = new Map<string, string>();
+  const avatars = new Map<string, string | null>();
   if (authorIds.length) {
     const profiles =
       check(
@@ -255,13 +257,16 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
               id: string;
               first_name: string | null;
               last_name: string | null;
+              avatar_url: string | null;
             }[]
           >("profiles")
-          .select("id,first_name,last_name")
+          .select("id,first_name,last_name,avatar_url")
           .in("id", authorIds),
       ) ?? [];
-    for (const p of profiles)
+    for (const p of profiles) {
       names.set(p.id, [p.first_name, p.last_name].filter(Boolean).join(" "));
+      avatars.set(p.id, p.avatar_url);
+    }
   }
   await Promise.all(
     fs.map(async (f) => {
@@ -274,9 +279,11 @@ export async function candidateDetail(id: string): Promise<CandidateDetail> {
     }),
   );
   return {
+    viewer_id: s.user.id,
     candidate,
     comments: cs.map((c) => ({
       ...c,
+      author_avatar_url: avatars.get(c.author_id ?? "") ?? null,
       author_name:
         names.get(c.author_id ?? "") ?? c.source_author ?? "Импорт из Notion",
     })),

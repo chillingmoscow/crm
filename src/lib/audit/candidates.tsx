@@ -6,6 +6,7 @@ import {
   Pencil,
   Settings,
   UserPlus,
+  Trash2,
 } from "lucide-react";
 import type { AuditEventSpec } from "./format";
 import type { AuditEvent } from "./list";
@@ -217,6 +218,17 @@ export const candidateAuditSpecs: Record<string, AuditEventSpec> = {
         добавил(а) комментарий к анкете <CandidateName event={e} />
       </>
     ),
+  },
+  "candidate.comment.updated": {
+    ...base,
+    icon: Pencil,
+    buildHeadline: (e) => <>изменил(а) свой комментарий к анкете <CandidateName event={e} /></>,
+    buildDetails: (e) => <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground"><span className="line-through">{String(e.details.before ?? "")}</span> → {String(e.details.after ?? "")}</p>,
+  },
+  "candidate.comment.deleted": {
+    ...base,
+    icon: Trash2,
+    buildHeadline: (e) => <>удалил(а) свой комментарий к анкете <CandidateName event={e} /></>,
   },
   "candidate.appointment.created": {
     ...base,

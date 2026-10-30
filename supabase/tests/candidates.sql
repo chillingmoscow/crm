@@ -40,6 +40,46 @@ do $$begin
 
 end $$;
 rollback to savepoint owner_interviewer;
+-- New form contracts and author-owned comment lifecycle, without external calls.
+savepoint editing_forms;
+insert into public.candidate_comments(account_id,candidate_id,author_id,body) values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000040','ce000000-0000-4000-8000-000000000001','Комментарий владельца QA');
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
+do $$declare cid uuid;aid uuid;original public.candidate_appointments;begin
+ perform public.candidate_command('comment','ce000000-0000-4000-8000-000000000040','{"body":"Свой комментарий QA","request_key":"ce000000-0000-4000-8000-000000000091"}');
+ select id into cid from public.candidate_comments where source_id='ce000000-0000-4000-8000-000000000091';
+ perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000040',cid,1,'Исправленный комментарий QA');
+ if not exists(select 1 from public.candidate_comments where id=cid and revision=2 and body='Исправленный комментарий QA') then raise exception 'Own comment edit failed';end if;
+ begin perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000040',cid,1,'Повтор QA');raise exception 'Stale comment update allowed';exception when others then if SQLERRM not like 'Комментарий изменён%' then raise;end if;end;
+ begin perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000040',cid,2,'  ');raise exception 'Empty comment allowed';exception when others then if SQLERRM not like 'Введите комментарий%' then raise;end if;end;
+ begin perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000041',cid,2,'Чужой аккаунт');raise exception 'Cross-tenant comment edit allowed';exception when others then if SQLERRM<>'Кандидат недоступен' then raise;end if;end;
+ begin perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000040',(select id from public.candidate_comments where body='Комментарий владельца QA'),1,'Чужой комментарий');raise exception 'Other author edit allowed';exception when others then if SQLERRM not like 'Изменять и удалять%' then raise;end if;end;
+ perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000040',cid,2,null,true);
+ if exists(select 1 from public.candidate_comments where id=cid) then raise exception 'Deleted comment visible';end if;
+ if (select count(*) from public.candidate_events where candidate_id='ce000000-0000-4000-8000-000000000040' and kind in ('comment_updated','comment_deleted'))<>2 then raise exception 'Comment history missing';end if;
+ if (select count(*) from public.audit_logs where entity_id='ce000000-0000-4000-8000-000000000040' and action_code in ('candidate.comment.updated','candidate.comment.deleted'))<>2 then raise exception 'Shared comment history missing';end if;
+ aid:=(public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule',jsonb_build_object('kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()-interval '1 day')::date,'starts_at',now()-interval '1 day','timezone','Europe/Moscow','interviewer_id','ce000000-0000-4000-8000-000000000001'))->>'id')::uuid;
+ select * into original from public.candidate_appointments where id=aid;
+ perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','result',jsonb_build_object('id',aid,'revision',1,'outcome','passed','notes','Самостоятельный результат QA','interview_feedback','{"punctuality":"on_time"}'::jsonb));
+ if not exists(select 1 from public.candidate_appointments where id=aid and starts_at=original.starts_at and appointment_date=original.appointment_date and interviewer_id=original.interviewer_id and location=original.location and outcome='passed') then raise exception 'Result changed appointment';end if;
+ begin perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','result',jsonb_build_object('id',aid,'revision',2,'outcome','passed','notes','QA','starts_at',now()));raise exception 'Result rescheduled meeting';exception when others then if SQLERRM not like 'Дата и участники%' then raise;end if;end;
+ begin perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule',jsonb_build_object('id',aid,'revision',2,'outcome','rejected'));raise exception 'Schedule changed result';exception when others then if SQLERRM not like 'Итог встречи%' then raise;end if;end;
+ perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule',jsonb_build_object('id',aid,'revision',2,'kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()-interval '2 days')::date,'starts_at',now()-interval '2 days','timezone','Europe/Moscow','location','QA'));
+ if not exists(select 1 from public.candidate_appointments where id=aid and outcome='passed' and notes='Самостоятельный результат QA' and interview_feedback->>'punctuality'='on_time' and revision=3) then raise exception 'Reschedule lost result';end if;
+ if has_function_privilege('anon','public.candidate_save_appointment(uuid,text,jsonb)','execute') or has_function_privilege('anon','public.candidate_edit_comment(uuid,uuid,integer,text,boolean)','execute') then raise exception 'New RPC exposed to anon';end if;
+end $$;
+reset role;
+-- Account owners still cannot edit someone else's comment.
+insert into public.candidate_comments(account_id,candidate_id,author_id,body) values('ce000000-0000-4000-8000-000000000010','ce000000-0000-4000-8000-000000000040','ce000000-0000-4000-8000-000000000002','Комментарий рекрутера QA');
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
+do $$begin
+ begin perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000040',(select id from public.candidate_comments where body='Комментарий рекрутера QA'),1,null,true);raise exception 'Owner deleted another author comment';exception when others then if SQLERRM not like 'Изменять и удалять%' then raise;end if;end;
+end $$;
+rollback to savepoint editing_forms;
+
 set local role service_role;
 select public.candidate_receive('ce000000-0000-4000-8000-000000000050','qa-event','{"full_name":"Повтор webhook","phone":"+79990000000","photos":[]}','{"formid":"form123"}');
 select public.candidate_receive('ce000000-0000-4000-8000-000000000050','qa-event','{"full_name":"Повтор webhook","phone":"+79990000000","photos":[]}','{"formid":"form123"}');
@@ -144,6 +184,9 @@ do $$begin
  if exists(select 1 from public.audit_logs where action_code like 'candidate.%') then raise exception 'Revoked candidate journal data exposed';end if;
  if exists(select 1 from public.notifications where entity_type='candidate') then raise exception 'Revoked candidate notification exposed';end if;
  if exists(select 1 from storage.objects where bucket_id='candidate-files') then raise exception 'Revoked candidate photo exposed';end if;
+ begin perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule','{}');raise exception 'Revoked meeting edit allowed';exception when others then if SQLERRM<>'Нет доступа к кандидатам' then raise;end if;end;
+ begin perform public.candidate_edit_comment('ce000000-0000-4000-8000-000000000040','ce000000-0000-4000-8000-000000000090',1,'Denied');raise exception 'Revoked comment edit allowed';exception when others then if SQLERRM<>'Нет доступа к кандидатам' then raise;end if;end;
+
  begin perform public.candidate_command('comment','ce000000-0000-4000-8000-000000000040','{"body":"Denied","request_key":"ce000000-0000-4000-8000-000000000099"}');raise exception 'Revoked candidate write allowed';exception when others then if SQLERRM='Revoked candidate write allowed' then raise;end if;end;
 end $$;
 reset role;

@@ -3,12 +3,14 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import { candidateError } from "@/lib/candidates/errors";
 import type { Appointment, CandidateStatus, AppointmentOptions } from "@/lib/candidates/types";
-import { saveCandidateAppointment } from "../actions";
+import { saveCandidateAppointment, saveCandidateAppointmentResult } from "../actions";
 import { Field, FieldSelect, localTimeToISO, wallTime, safeLink } from "./fields";
 const outcomes = { scheduled: "Назначено", passed: "Пройдено", no_show: "Не пришёл", rejected: "Не подошёл", canceled: "Отменено" };
 export function CandidateAppointmentDrawer({
@@ -20,7 +22,7 @@ export function CandidateAppointmentDrawer({
   options,
   onClose,
   onSaved,
-  schedulingOnly = false,
+  mode = "schedule",
   eligibilityLoading = false,
   eligibilityError,
   onRetryEligibility,
@@ -32,15 +34,15 @@ export function CandidateAppointmentDrawer({
   canScheduleTrial: boolean;
   options: AppointmentOptions;
   onClose: () => void;
-  onSaved: (saved: { id: string; revision: number; status: CandidateStatus }) => void;
-  schedulingOnly?: boolean;
+  onSaved: (saved: { id: string; revision: number; status: CandidateStatus }) => void | Promise<void>;
+  mode?: "schedule" | "result";
   eligibilityLoading?: boolean;
   eligibilityError?: string;
   onRetryEligibility?: () => void;
 }) {
   const kind = a?.kind ?? initialKind;
   const defaultVenue = options.venues.find((venue) => venue.id === options.active_venue_id) ?? options.venues[0];
-  const scheduling = schedulingOnly || initialOutcome === "scheduled";
+  const scheduling = mode === "schedule";
   const [place, setPlace] = useState(a?.venue_id ?? (a?.location ? (safeLink(a.location) ? "__link__" : "__legacy__") : defaultVenue?.id ?? "")),
     [link, setLink] = useState(a?.location && safeLink(a.location) ? a.location : ""),
     [date, setDate] = useState(a?.appointment_date ?? ""),
@@ -61,26 +63,23 @@ export function CandidateAppointmentDrawer({
   const save = () =>
     start(async () => {
       try {
-        const saved = await saveCandidateAppointment(candidateId, {
-          ...(a ? { id: a.id, revision: a.revision } : {}),
-          kind,
-          venue_id: venue?.id ?? null,
+        const saved = !scheduling && a ? await saveCandidateAppointmentResult(candidateId, {
+          id: a.id, revision: a.revision, outcome, notes,
           interview_feedback: kind === "interview" ? {
             ...(punctuality ? { punctuality } : {}),
             ...(appearance.trim() ? { appearance: appearance.trim() } : {}),
             ...(communication.trim() ? { communication: communication.trim() } : {}),
             ...(smiled ? { smiled: smiled === "true" } : {}),
           } : {},
+        }) : await saveCandidateAppointment(candidateId, {
+          ...(a ? { id: a.id, revision: a.revision } : {}),
+          kind, venue_id: venue?.id ?? null,
           appointment_date: date,
           starts_at: time ? localTimeToISO(`${date}T${time}`, timezone) : null,
-          timezone,
-          location,
-          interviewer_id: interviewer || null,
-          outcome,
-          notes,
+          timezone, location, interviewer_id: interviewer || null,
         });
-        toast.success("Встреча сохранена");
-        onSaved({ ...saved, id: candidateId });
+        toast.success(!scheduling ? "Результат сохранён" : a ? "Назначение обновлено" : "Встреча назначена");
+        await onSaved({ ...saved, id: candidateId });
       } catch (e) {
         toast.error(
           candidateError(e, "Не удалось сохранить встречу"),
@@ -90,8 +89,8 @@ export function CandidateAppointmentDrawer({
   return (
     <EditDrawer
       open
-      title={!scheduling ? kind === "interview" ? "Результат собеседования" : "Результат стажировки" : a ? "Изменить встречу" : kind === "trial" ? "Назначить стажировку" : "Назначить собеседование"}
-      description={!scheduling ? "Дата, время и результат встречи" : "Дата, время, место и кто проводит встречу"}
+      title={!scheduling ? kind === "interview" ? "Результат собеседования" : "Результат стажировки" : a ? "Изменить назначение" : kind === "trial" ? "Назначить стажировку" : "Назначить собеседование"}
+      description={!scheduling ? "Итог и наблюдения по проведённой встрече" : "Дата, время, место и кто проводит встречу"}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -100,7 +99,7 @@ export function CandidateAppointmentDrawer({
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Отмена
           </Button>
-          <Button disabled={busy || eligibilityLoading || !!eligibilityError || blocked || !date || invalidPlace || (kind === "interview" && (!time || (["passed", "rejected"].includes(outcome) && !notes.trim())))} onClick={save}>
+          <Button disabled={busy || eligibilityLoading || !!eligibilityError || blocked || (scheduling ? !date || invalidPlace || (kind === "interview" && !time) : !a || (kind === "interview" && ["passed", "rejected"].includes(outcome) && !notes.trim()))} onClick={save}>
             Сохранить
           </Button>
         </>
@@ -112,52 +111,30 @@ export function CandidateAppointmentDrawer({
         <div className="space-y-3 text-sm"><p>Для назначения стажировки заполните результат последнего собеседования: «Пройдено» и комментарий.</p><Button variant="outline" asChild><Link onClick={onClose} href={`/people/candidates/${candidateId}`}>Открыть карточку кандидата</Link></Button></div>
       ) : null}
       {!blocked && !eligibilityError && <>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Дата *">
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </Field>
-        <Field label={kind === "interview" ? "Время *" : "Время · необязательно"}>
-          <Input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-          />
-        </Field>
-      </div>
-      <FieldSelect
-        label={kind === "trial" ? "Заведение *" : "Место встречи *"}
-        value={place}
-        onChange={setPlace}
-        options={[
-          { value: "", label: "Выберите место" },
-          ...options.venues.map((value) => ({ value: value.id, label: value.name })),
-          ...(kind === "interview" ? [{ value: "__link__", label: "Добавить ссылку" }] : []),
-          ...(a?.location && place === "__legacy__" ? [{ value: "__legacy__", label: a.location }] : []),
-        ]}
-      />
-      {place === "__link__" && <>
-        <Field label="Ссылка на встречу *"><Input type="url" value={link} onChange={(event) => setLink(event.target.value)} maxLength={1000} placeholder="https://…" /></Field>
-        {defaultVenue && <p className="text-xs text-muted-foreground">Время заведения «{defaultVenue.name}»</p>}
-      </>}
-      <FieldSelect
-        label="Интервьюер"
-        value={interviewer}
-        onChange={setInterviewer}
-        options={[
-          { value: "", label: "Не назначен" },
-          ...options.members.map((m) => ({ value: m.id, label: m.name })),
-        ]}
-      />
+      {scheduling ? <>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Дата *"><DatePicker value={date} onChange={setDate} placeholder="Выберите дату" /></Field>
+          <Field label={kind === "interview" ? "Время *" : "Время · необязательно"}><TimePicker value={time} onChange={setTime} /></Field>
+        </div>
+        <FieldSelect label={kind === "trial" ? "Заведение *" : "Место встречи *"} value={place} onChange={setPlace}
+          options={[
+            { value: "", label: "Выберите место" },
+            ...options.venues.map((value) => ({ value: value.id, label: value.name })),
+            ...(kind === "interview" ? [{ value: "__link__", label: "Добавить ссылку" }] : []),
+            ...(a?.location && place === "__legacy__" ? [{ value: "__legacy__", label: a.location }] : []),
+          ]} />
+        {place === "__link__" && <Field label="Ссылка на встречу *"><Input type="url" value={link} onChange={(event) => setLink(event.target.value)} maxLength={1000} placeholder="https://…" /></Field>}
+        <FieldSelect label="Интервьюер" value={interviewer} onChange={setInterviewer}
+          options={[{ value: "", label: "Не назначен" }, ...options.members.map((member) => ({ value: member.id, label: member.name }))]} />
+      </> : a && <p className="text-sm text-muted-foreground">
+        {a.kind === "interview" ? "Собеседование" : "Стажировка"} · {a.appointment_date.split("-").reverse().join(".")}{a.starts_at ? `, ${wallTime(a.starts_at, a.timezone).slice(11)}` : ""}
+      </p>}
       {!scheduling && <>
       <FieldSelect
         label="Результат"
         value={outcome}
         onChange={(v) => setOutcome(v as typeof outcome)}
-        options={Object.entries(outcomes).map(([value, label]) => ({
+        options={Object.entries(outcomes).filter(([value]) => value !== "scheduled").map(([value, label]) => ({
           value,
           label,
         }))}

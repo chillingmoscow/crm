@@ -109,6 +109,9 @@ export type Comment = {
   body: string;
   created_at: string;
   author_name?: string;
+  author_avatar_url?: string | null;
+  revision: number;
+  updated_at: string;
 };
 export type CandidateEvent = {
   id: string;
@@ -155,6 +158,7 @@ export type CandidatePermissions = {
   integrations: boolean;
 };
 export type CandidateDetail = {
+  viewer_id: string;
   candidate: Candidate;
   comments: Comment[];
   events: CandidateEvent[];

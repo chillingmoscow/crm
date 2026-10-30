@@ -9,10 +9,8 @@ import {
   CalendarPlus,
   ClipboardCheck,
   UserCheck,
-  Plus,
   Paperclip,
   Trash2,
-  Send,
   Phone,
   ExternalLink,
   KeyRound,
@@ -26,7 +24,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
 import {
@@ -39,7 +36,6 @@ import {
 import {
   getCandidate,
   getCandidateOptions,
-  commentCandidate,
   uploadCandidateFile,
   candidateLifecycle,
   getCandidateDoorCode,
@@ -48,6 +44,8 @@ import { canScheduleCandidateTrial, interviewFeedbackEntries } from "@/lib/candi
 import { candidateError } from "@/lib/candidates/errors";
 import { CandidateForm } from "./candidate-form";
 import { HireDrawer } from "./hire-drawer";
+import { CandidateComments } from "./candidate-comments";
+import { CandidateMeetingCard } from "./candidate-meeting-card";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import { CandidateStatusCell } from "./candidate-status-cell";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
@@ -90,6 +88,8 @@ const events: Record<string, string> = {
   updated: "Анкета изменена",
   hired: "Принят на работу",
   commented: "Добавлен комментарий",
+  comment_updated: "Комментарий изменён",
+  comment_deleted: "Комментарий удалён",
   appointment_created: "Назначена встреча",
   appointment_updated: "Встреча изменена",
   archived: "Анкета архивирована",
@@ -111,11 +111,10 @@ export function CandidateDetailClient({
     [editing, setEditing] = useState(false),
     [hiring, setHiring] = useState(false),
     [meeting, setMeeting] = useState<Appointment | null | undefined>(undefined),
+    [meetingMode, setMeetingMode] = useState<"schedule" | "result">("schedule"),
     [meetingKind, setMeetingKind] = useState<Appointment["kind"]>("interview"),
     [meetingOutcome, setMeetingOutcome] = useState<Appointment["outcome"]>("scheduled"),
     [activeTab, setActiveTab] = useState("profile"),
-    [comment, setComment] = useState(""),
-    [commentKey, setCommentKey] = useState(() => crypto.randomUUID()),
     [deleting, setDeleting] = useState(false),
     [busy, start] = useTransition(),
     [door, setDoor] = useState<{
@@ -164,7 +163,8 @@ export function CandidateDetailClient({
   };
   const canTrial = canScheduleCandidateTrial(data.appointments, c.status);
   const latestInterview = data.appointments.find((appointment) => appointment.kind === "interview");
-  const openMeeting = (kind: Appointment["kind"], appointment: Appointment | null = null, outcome?: Appointment["outcome"]) => {
+  const openMeeting = (kind: Appointment["kind"], appointment: Appointment | null = null, outcome?: Appointment["outcome"], mode: "schedule" | "result" = "schedule") => {
+    setMeetingMode(mode);
     setMeetingKind(kind);
     setMeetingOutcome(outcome ?? appointment?.outcome ?? "scheduled");
     setMeeting(appointment);
@@ -186,11 +186,11 @@ export function CandidateDetailClient({
         <ProfileHeader name={c.full_name} avatarUrl={photo} wrapName actions={
           <>
             {canEdit && !c.hired_user_id && !data.hire && ["new", "review", "interview"].includes(c.status) && (
-              c.status === "interview" ? (
+              c.status === "interview" && latestInterview ? (
                 canTrial ? (
                   <Button onClick={() => openMeeting("trial")}><CalendarPlus className="mr-2 size-4" />Назначить стажировку</Button>
                 ) : (
-                  <Button onClick={() => openMeeting("interview", latestInterview ?? null, "passed")}><ClipboardCheck className="mr-2 size-4" />Результат собеседования</Button>
+                  <Button onClick={() => openMeeting("interview", latestInterview, "passed", "result")}><ClipboardCheck className="mr-2 size-4" />Результат собеседования</Button>
                 )
               ) : (
                 <Button onClick={() => openMeeting("interview")}><CalendarPlus className="mr-2 size-4" />Назначить собеседование</Button>
@@ -438,116 +438,15 @@ export function CandidateDetailClient({
                 ) : null}
               </div>
             ) : null}
-            <ProfileSection title="Комментарии" description="Обсуждение анкеты и заметки по общению">
-              {canEdit ? (
-                <form
-                  className="space-y-3"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    action(async () => {
-                      await commentCandidate(c.id, comment, commentKey);
-                      setComment("");
-                      setCommentKey(crypto.randomUUID());
-                    });
-                  }}
-                >
-                  <Textarea
-                    aria-label="Комментарий"
-                    placeholder="Добавить комментарий…"
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    maxLength={12000}
-                  />
-                  <Button type="submit" disabled={busy || !comment.trim()}>
-                    <Send className="mr-2 h-4 w-4" />
-                    Отправить
-                  </Button>
-                </form>
-              ) : null}
-              {data.comments.map((item) => (
-                <article key={item.id} className="border-b pb-5">
-                  <div className="flex flex-wrap items-center gap-x-3 text-xs">
-                    <strong className="font-medium">{item.author_name}</strong>
-                    <span className="text-muted-foreground">
-                      {new Date(item.created_at).toLocaleString("ru-RU", {
-                        timeZone: "Europe/Moscow",
-                      })}
-                    </span>
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap break-words text-sm">
-                    {item.body}
-                  </p>
-                </article>
-              ))}
-              {!data.comments.length ? (
-                <p className="text-sm text-muted-foreground">
-                  Комментариев пока нет.
-                </p>
-              ) : null}
-            </ProfileSection>
+            <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={refresh} />
           </TabsContent>
           <TabsContent value="meetings" className="mx-auto w-full max-w-[720px]">
             <ProfileSection title="Встречи и стажировки" description="Даты, участники и результаты встреч">
-              {canEdit && !c.hired_user_id && !data.hire && c.status !== "rejected" ? (
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => openMeeting("interview")}>
-                    <Plus className="mr-2 h-4 w-4" />Назначить собеседование
-                  </Button>
-                  <Button variant="outline" disabled={!canTrial} title={!canTrial ? "Сначала заполните результат последнего собеседования" : undefined} onClick={() => openMeeting("trial")}>
-                    <Plus className="mr-2 h-4 w-4" />Назначить стажировку
-                  </Button>
-                </div>
-              ) : null}
               {data.appointments.length ? (
                 data.appointments.map((a) => (
-                  <article
-                    key={a.id}
-                    className="flex flex-wrap items-start justify-between gap-3 border-b py-4"
-                  >
-                    <div>
-                      <p className="font-medium">
-                        {a.kind === "interview" ? "Собеседование" : "Стажировка"} ·{" "}
-                        {a.starts_at
-                          ? new Date(a.starts_at).toLocaleString("ru-RU", {
-                            timeZone: a.timezone,
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          })
-                          : a.appointment_date.split("-").reverse().join(".")}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {outcomes[a.outcome]}
-                        {a.location && !a.venue_id && !safeLink(a.location) ? ` · ${a.location}` : ""}
-                        {a.interviewer_id
-                          ? ` · ${options.members.find((m) => m.id === a.interviewer_id)?.name ?? "Интервьюер"}`
-                          : ""}
-                      </p>
-                      {a.venue_id && <p className="mt-1 text-xs text-muted-foreground">{options.venues.find((venue) => venue.id === a.venue_id)?.name ?? "Заведение"}</p>}
-                      {a.location && safeLink(a.location) && <a className="mt-2 inline-block text-sm text-brand hover:underline" href={safeLink(a.location)!} target="_blank" rel="noreferrer">Открыть ссылку на встречу</a>}
-                      {interviewFeedbackEntries(a.interview_feedback).length > 0 && (
-                        <dl className="mt-3 space-y-1 text-sm">
-                          {interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => <div key={label}><dt className="inline text-muted-foreground">{label}: </dt><dd className="inline whitespace-pre-wrap break-words">{value}</dd></div>)}
-                        </dl>
-                      )}
-                      {a.notes ? (
-                        <p className="mt-2 whitespace-pre-wrap text-sm">
-                          {a.notes}
-                        </p>
-                      ) : null}
-                    </div>
-                    {canEdit ? (
-                      <div className="flex flex-wrap gap-2">
-                      {a.outcome === "scheduled" && <Button variant="outline" size="sm" onClick={() => openMeeting(a.kind, a, "passed")}>Заполнить результат</Button>}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openMeeting(a.kind, a)}
-                      >
-                        Изменить
-                      </Button>
-                      </div>
-                    ) : null}
-                  </article>
+                  <CandidateMeetingCard key={a.id} appointment={a} options={options} editable={canEdit}
+                    onSchedule={() => openMeeting(a.kind, a)}
+                    onResult={() => openMeeting(a.kind, a, a.outcome === "scheduled" ? "passed" : a.outcome, "result")} />
                 ))
               ) : (
                 <p className="py-8 text-sm text-muted-foreground">
@@ -572,6 +471,7 @@ export function CandidateDetailClient({
                         timeZone: "Europe/Moscow",
                       })}
                     </p>
+                    {item.kind === "comment_updated" && <p className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground"><span className="line-through">{String(item.details.before ?? "")}</span> → {String(item.details.after ?? "")}</p>}
                     {item.details.changes &&
                       typeof item.details.changes === "object" ? (
                       <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
@@ -700,13 +600,14 @@ export function CandidateDetailClient({
         <CandidateAppointmentDrawer
           candidateId={c.id}
           appointment={meeting}
+          mode={meetingMode}
           initialKind={meetingKind}
           initialOutcome={meetingOutcome}
           canScheduleTrial={canTrial}
           options={options}
           onClose={() => setMeeting(undefined)}
-          onSaved={() => {
-            void refresh();
+          onSaved={async () => {
+            await refresh();
             setMeeting(undefined);
           }}
         />

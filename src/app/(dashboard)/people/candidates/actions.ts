@@ -100,48 +100,58 @@ export async function commentCandidate(
     request_key: uuid.parse(requestKey),
   });
 }
+const interviewFeedback = z.object({
+  punctuality: z.enum(["on_time", "late"]).optional(),
+  appearance: z.string().trim().max(2000).optional(),
+  communication: z.string().trim().max(2000).optional(),
+  smiled: z.boolean().optional(),
+});
+async function appointmentCommand(id: string, mode: "schedule" | "result", input: unknown) {
+  const scope = await candidateScope();
+  const data = result(await scope.db.rpc("candidate_save_appointment", {
+    p_candidate: uuid.parse(id), p_mode: mode, p_input: input,
+  })) as { id: string; revision: number; status: CandidateStatus };
+  revalidatePath("/people/candidates", "layout");
+  revalidatePath("/schedule");
+  return data;
+}
 export async function saveCandidateAppointment(id: string, input: unknown) {
-  return command(
-    "appointment",
-    uuid.parse(id),
-    z
-      .object({
-        id: uuid.optional(),
-        revision: z.number().int().positive().optional(),
-        kind: z.enum(["interview", "trial"]),
-        venue_id: uuid.nullable().optional(),
-        interview_feedback: z.object({
-          punctuality: z.enum(["on_time", "late"]).optional(),
-          appearance: z.string().trim().max(2000).optional(),
-          communication: z.string().trim().max(2000).optional(),
-          smiled: z.boolean().optional(),
-        }).optional(),
-        appointment_date: z.string().date(),
-        starts_at: z.string().datetime({ offset: true }).nullable(),
-        timezone: z.string().min(1).max(100),
-        location: z.string().max(1000).optional(),
-        interviewer_id: uuid.nullable().optional(),
-        outcome: z.enum([
-          "scheduled",
-          "passed",
-          "no_show",
-          "rejected",
-          "canceled",
-        ]),
-        notes: z.string().max(12000).optional(),
-      })
-      .superRefine((value, context) => {
-        if (value.kind === "trial" && !value.venue_id)
-          context.addIssue({ code: "custom", path: ["venue_id"], message: "Выберите заведение для стажировки" });
-        if (value.kind === "interview" && !value.starts_at)
-          context.addIssue({ code: "custom", path: ["starts_at"], message: "Укажите время собеседования" });
-        if (value.kind === "interview" && !value.id && !value.venue_id && !/^https?:\/\/\S+$/i.test(value.location ?? ""))
-          context.addIssue({ code: "custom", path: ["location"], message: "Выберите заведение или добавьте ссылку на встречу" });
-        if (value.kind === "interview" && ["passed", "rejected"].includes(value.outcome) && !value.notes?.trim())
-          context.addIssue({ code: "custom", path: ["notes"], message: "Заполните комментарий по результатам собеседования" });
-      })
-      .parse(input),
-  );
+  return appointmentCommand(id, "schedule", z.object({
+    id: uuid.optional(),
+    revision: z.number().int().positive().optional(),
+    kind: z.enum(["interview", "trial"]),
+    venue_id: uuid.nullable(),
+    appointment_date: z.string().date(),
+    starts_at: z.string().datetime({ offset: true }).nullable(),
+    timezone: z.string().min(1).max(100),
+    location: z.string().max(1000),
+    interviewer_id: uuid.nullable(),
+  }).superRefine((value, context) => {
+    if (value.kind === "trial" && !value.venue_id)
+      context.addIssue({ code: "custom", path: ["venue_id"], message: "Выберите заведение для стажировки" });
+    if (value.kind === "interview" && !value.starts_at)
+      context.addIssue({ code: "custom", path: ["starts_at"], message: "Укажите время собеседования" });
+    if (value.kind === "interview" && !value.id && !value.venue_id && !/^https?:\/\/\S+$/i.test(value.location))
+      context.addIssue({ code: "custom", path: ["location"], message: "Выберите заведение или добавьте ссылку на встречу" });
+  }).parse(input));
+}
+export async function saveCandidateAppointmentResult(id: string, input: unknown) {
+  return appointmentCommand(id, "result", z.object({
+    id: uuid,
+    revision: z.number().int().positive(),
+    outcome: z.enum(["passed", "no_show", "rejected", "canceled"]),
+    notes: z.string().trim().max(12000),
+    interview_feedback: interviewFeedback,
+  }).parse(input));
+}
+export async function editCandidateComment(candidateId: string, commentId: string, revision: number, body: string | null, remove = false) {
+  const scope = await candidateScope();
+  result(await scope.db.rpc("candidate_edit_comment", {
+    p_candidate: uuid.parse(candidateId), p_comment: uuid.parse(commentId),
+    p_revision: z.number().int().positive().parse(revision),
+    p_body: remove ? null : z.string().trim().min(1).max(12000).parse(body), p_delete: remove,
+  }));
+  revalidatePath("/people/candidates", "layout");
 }
 export async function candidateLifecycle(
   id: string,

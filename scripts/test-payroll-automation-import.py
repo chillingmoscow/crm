@@ -27,4 +27,6 @@ twins=copy.deepcopy(source);twins['employees'].append({**person,'id':'another-pe
 native=copy.deepcopy(server);native['employees'][0]['name']='Сотрудник';native['employees'][0]['quickresto_id']=None
 assert not m.prepare(twins,native)['people'], 'Ambiguous name and hire-date match must not pick a stranger'
 assert m.sql("x');select 1;--")=="'x'');select 1;--'", 'Source text stays data in the generated SQL'
+medical=m.prepare(source,server,medical_only=True)['people'][0]['input']
+assert medical['birthday'] is None and medical['gender'] is None and medical['gift_role'] is None, 'Deferred gifts do not copy their extra profile fields'
 print('PASS: cancelled cases stay consumed, IDs beat names, changed money is held, 365-day expiry, malformed rows and ambiguous identities')

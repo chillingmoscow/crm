@@ -39,7 +39,7 @@ def native_fee(fee, employee, server):
         return a
     return None
 
-def prepare(source, server):
+def prepare(source, server, medical_only=False):
     source_ids = [e['id'] for e in source['employees']]
     if len(set(source_ids)) != len(source_ids) or not all(source_ids):
         raise ValueError('Source employee IDs must be present and unique')
@@ -90,9 +90,9 @@ def prepare(source, server):
         compensation_state = 'recorded' if any(not a['deleted_at'] for a in compensation) else 'unknown'
         required = yes(pos.get('medical'))  # n8n requires exactly TRUE; blank is disabled.
         payload = {
-            'hired_on': day(r.get('hiredOn')), 'birthday': day(r.get('birthday')),
-            'gender': {'Мужчина': 'male', 'Женщина': 'female'}.get(r.get('gender')),
-            'gift_role': pos['name'], 'medical_required': required, 'medical_state': state,
+            'hired_on': day(r.get('hiredOn')), 'birthday': None if medical_only else day(r.get('birthday')),
+            'gender': None if medical_only else {'Мужчина': 'male', 'Женщина': 'female'}.get(r.get('gender')),
+            'gift_role': None if medical_only else pos['name'], 'medical_required': required, 'medical_state': state,
             'examined_on': exam, 'valid_until': expiry, 'reimbursement_state': compensation_state,
             'missing_fine_state': missing_state, 'expiry_fine_state': 'not_recorded' if expiry and expiry > source['asOf'] else 'unknown',
             'new_medical_case': False,
@@ -166,12 +166,13 @@ if __name__ == '__main__':
     ap.add_argument('--account')
     ap.add_argument('--venue')
     ap.add_argument('--owner')
+    ap.add_argument('--medical-only', action='store_true', help='Do not import birthday, gender or gift role')
     args = ap.parse_args()
     src, target = json.loads(args.source.read_text()), json.loads(args.server.read_text())
     src['asOf'] = dt.date.fromisoformat(args.as_of).isoformat()
-    report = prepare(src, target)
+    report = prepare(src, target, args.medical_only)
     args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
     if args.sql:
         assert all((args.account, args.venue, args.owner)), 'SQL target identity is required'
-        args.sql.write_text(render_sql(report, target, args.account, args.venue, args.owner, 'automation-sources-20261029'))
+        args.sql.write_text(render_sql(report, target, args.account, args.venue, args.owner, 'automation-sources-'+args.as_of))
     print(json.dumps({'people': len(report['people']), 'held_employees': report['holds'], 'uniform_archive': len(report['uniform_archive']), 'reconciled_effects': sum(len(p['effects']) for p in report['people']), 'unmatched_fees': sum(len(p['unmatched_fee_ids']) for p in report['people'])}, ensure_ascii=False))

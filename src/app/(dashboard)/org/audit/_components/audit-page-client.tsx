@@ -44,6 +44,8 @@ const SECTION_OPTIONS: MultiSelectItem[] = [
   { id: "payroll_adjustment", name: "Начисления и удержания" },
   { id: "payroll_automation_person", name:"Медкнижки и сведения для автоматизаций" },
   { id: "payroll_uniform", name:"Рабочая форма" },
+  { id:"payroll_execution",name:"Режим автоматизаций" },
+  { id:"payroll_bonus_operation",name:"Бонусные операции" },
   { id: "payroll_automation_run", name:"Расчёты автоматизаций" },
   { id: "payroll_automation_settings", name: "Настройки мотивации" },
   { id: "payroll_attendance_rule", name: "Учёт выходов" },

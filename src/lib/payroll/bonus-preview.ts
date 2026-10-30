@@ -14,10 +14,18 @@ export async function previewPayrollBonuses(
   venueId: string,
 ) {
   const admin = asLooseDb(createAdminClient());
+  const policy = await admin
+    .from<{ bonus_from: string | null }>("payroll_execution_policy")
+    .select("bonus_from")
+    .eq("venue_id", venueId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (policy.error) throw new Error(policy.error.message);
+  if (policy.data?.bonus_from) return; // Native queue rechecks the actual balance immediately before send.
   const pending = await admin
-    .from<{ id: string; employee_id: string; amount: number }[]>(
-      "payroll_adjustments",
-    )
+    .from<
+      { id: string; employee_id: string; amount: number }[]
+    >("payroll_adjustments")
     .select("id,employee_id,amount")
     .eq("account_id", accountId)
     .eq("venue_id", venueId)

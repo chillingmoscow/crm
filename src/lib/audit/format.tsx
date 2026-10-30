@@ -403,6 +403,21 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline:e=><>отменил(а) будущие удержания за форму · {String(e.details.title)}</>,
     buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.employee_name??"")} · {String(e.details.reason)}</p>,
   },
+  "payroll.execution.updated": {
+    icon:Settings2, iconClass:"text-brand bg-brand/10",
+    buildHeadline:()=> <>изменил(а) режим автоматизаций Sheerly</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">Медкнижки и форма: {e.details.salary_from?`с ${formatDate(e.details.salary_from)}`:"сравнение"} · Бонусы: {e.details.bonus_from?`с ${formatDate(e.details.bonus_from)}`:"сравнение"}</p>,
+  },
+  "payroll.bonus_operation.updated": {
+    icon:CreditCard,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>обновил(а) бонусную операцию · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{Number(e.details.amount??0).toLocaleString("ru-RU")} б. · {({pending:"В очереди",reading:"Проверка баланса",sending:"Отправлена в Quick Resto",done:"Проведена",review:"Нужна сверка",cancelled:"Отменена",money:"Удержано деньгами"} as Record<string,string>)[String(e.details.state)]??"Нужна сверка"}{e.details.message?` · ${String(e.details.message)}`:""}</p>,
+  },
+  "payroll.bonus_operation.reviewed": {
+    icon:CreditCard,iconClass:"text-brand bg-brand/10",
+    buildHeadline:e=><>проверил(а) бонусную операцию · {String(e.details.employee_name??"Сотрудник")}</>,
+    buildDetails:e=><p className="text-xs text-muted-foreground">{e.details.executed?"Проведение подтверждено":"Подтверждено отсутствие операции, разрешена новая попытка"} · {String(e.details.evidence??"")}</p>,
+  },
   "payroll.automation_run.created": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline:e=><>{e.details.mode==="native"?"учёл(ла) денежные записи автоматизаций":"сравнил(а) расчёт автоматизаций"}</>,

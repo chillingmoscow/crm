@@ -62,6 +62,24 @@ type UniformImportEvent = {
     } | null;
   };
 };
+export type ExecutionPolicy = {
+  version: number;
+  salary_from: string | null;
+  bonus_from: string | null;
+  legacy_stopped: boolean;
+};
+export type BonusOperationRow = {
+  id: string;
+  employee_id: string;
+  adjustment_id: string;
+  operation: "apply" | "reverse";
+  direction: "credit" | "debit";
+  amount: number;
+  state: string;
+  message: string | null;
+  created_at: string;
+  provider_reference: string | null;
+};
 export async function loadAutomationWorkspace() {
   const s = await scope();
   const [employees, people, uniform, runs, settings, venue, jobs, imports] =
@@ -185,7 +203,29 @@ export async function loadAutomationWorkspace() {
           .in("user_id", userIds)
       : { data: [], error: null };
   if (details.error) throw new Error(details.error.message);
+  const [policy, bonusOperations] = await Promise.all([
+    s.db
+      .from<ExecutionPolicy>("payroll_execution_policy")
+      .select("version,salary_from,bonus_from,legacy_stopped")
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .maybeSingle(),
+    s.db
+      .from<BonusOperationRow[]>("payroll_bonus_operations")
+      .select(
+        "id,employee_id,adjustment_id,operation,direction,amount,state,message,created_at,provider_reference",
+      )
+      .eq("account_id", s.accountId)
+      .eq("venue_id", s.venueId)
+      .order("created_at", { ascending: false })
+      .limit(100),
+  ]);
+  if (policy.error || bonusOperations.error)
+    throw new Error("Не удалось загрузить состояние автоматизаций");
   return {
+    executionPolicy: policy.data,
+    bonusOperations: bonusOperations.data ?? [],
+    bonusWorkerReady: process.env.PAYROLL_BONUS_WRITES_ENABLED === "true",
     canPurchase,
     bankAccounts: bankAccounts.data ?? [],
     settingsVersion: settings.data?.version ?? 0,
@@ -311,6 +351,55 @@ export async function cancelUniform(issueId: string, reason: string) {
   const r = await s.db.rpc("payroll_cancel_uniform_issue", {
     p_issue: issueId,
     p_reason: reason,
+  });
+  if (r.error) throw new Error(r.error.message);
+}
+
+export async function saveExecutionPolicy(input: {
+  version: number;
+  salaryFrom: string | null;
+  bonusFrom: string | null;
+  legacyStopped: boolean;
+}) {
+  const s = await scope();
+  const parsed = z
+    .object({
+      version: z.number().int().nonnegative(),
+      salaryFrom: z.string().refine(validDate).nullable(),
+      bonusFrom: z.string().refine(validDate).nullable(),
+      legacyStopped: z.boolean(),
+    })
+    .strict()
+    .parse(input);
+  const result = await s.db.rpc("payroll_set_execution_policy", {
+    p_version: parsed.version,
+    p_salary_from: parsed.salaryFrom,
+    p_bonus_from: parsed.bonusFrom,
+    p_legacy_stopped: parsed.legacyStopped,
+  });
+  if (result.error) throw new Error(result.error.message);
+}
+export async function reviewBonusOperation(
+  id: string,
+  executed: boolean,
+  evidence: string,
+) {
+  const s = await scope();
+  z.string().uuid().parse(id);
+  z.boolean().parse(executed);
+  z.string().trim().min(3).max(1000).parse(evidence);
+  const r = await s.db.rpc("payroll_review_bonus_operation", {
+    p_id: id,
+    p_executed: executed,
+    p_evidence: evidence,
+  });
+  if (r.error) throw new Error(r.error.message);
+}
+export async function reverseBonusOperation(adjustmentId: string) {
+  const s = await scope();
+  z.string().uuid().parse(adjustmentId);
+  const r = await s.db.rpc("payroll_reverse_bonus", {
+    p_adjustment: adjustmentId,
   });
   if (r.error) throw new Error(r.error.message);
 }

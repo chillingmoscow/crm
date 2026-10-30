@@ -39,6 +39,7 @@ import {
   uniformSchedule,
   nextUniformPaymentDate,
 } from "@/lib/automations/payroll-rules";
+import { PayrollExecutionPanel } from "./execution-panel";
 import { businessDate } from "@/lib/sales/time";
 import Link from "next/link";
 
@@ -185,9 +186,9 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
         }
       />
       <div className="rounded-xl border bg-muted/30 px-4 py-3 text-sm">
-        Glide и n8n продолжают работать. Бонусные операции здесь только
-        сравниваются; списаний в Quick Resto нет. Штрафы и компенсации попадают
-        в зарплату после проверки результата.
+        {data.executionPolicy?.salary_from || data.executionPolicy?.bonus_from
+          ? "Режим и дата перехода заданы отдельно для зарплаты и бонусов. Состояние операций — во вкладке «Бонусы и переход»."
+          : "Режим сравнения: n8n продолжает работать. Sheerly проверяет медкнижки, форму и бонусы без новых списаний. Подарки отложены."}
       </div>
       {!data.settingsSaved && (
         <p className="text-sm text-muted-foreground">
@@ -206,7 +207,14 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
           <TabsTrigger value="people">Сотрудники</TabsTrigger>
           <TabsTrigger value="uniform">Форма</TabsTrigger>
           <TabsTrigger value="runs">Журнал расчётов</TabsTrigger>
+          <TabsTrigger value="execution">Бонусы и переход</TabsTrigger>
         </TabsList>
+        <TabsContent value="execution" className="pt-5">
+          <PayrollExecutionPanel
+            data={data}
+            onChange={async () => setData(await loadAutomationWorkspace())}
+          />
+        </TabsContent>
         <TabsContent value="people" className="pt-5">
           <PayrollTable
             id="automation-people"
@@ -782,6 +790,8 @@ export function AutomationWorkspace({ initial }: { initial: Data }) {
         footer={
           run?.mode === "comparison" &&
           data.canReview &&
+          data.executionPolicy?.salary_from &&
+          run.business_date >= data.executionPolicy.salary_from &&
           run.decisions.some((d) => d.medium === "money") ? (
             <Button
               disabled={

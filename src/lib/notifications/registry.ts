@@ -83,6 +83,7 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     iconColor: "text-brand",
     verb: null,
   },
+  "staff.medical_reminder": { category:"staff",icon:HeartPulse,iconColor:"text-rose-500",verb:null },
   "staff.medical_book_expiring": {
     category: "staff",
     icon: HeartPulse,

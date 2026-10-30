@@ -9,6 +9,9 @@ export type PaymentJournalRow = {
   avatarUrl?: string | null;
   kind: string;
   amount: number;
+  /** Debt settled includes tax; cash still comes from the financial operation. */
+  settledAmount?: number;
+  taxAmount?: number;
   status: string;
   posted: boolean;
   external?: boolean;
@@ -43,15 +46,31 @@ export function paymentJournalRows(
         ),
       ].join(", "),
       ...(() => {
-        const ids = [...new Set(data.allocations.filter((a) => a.payment_id === payment.id).map((a) => a.employee_id))];
-        const employee = ids.length === 1 ? data.employees.find((e) => e.id === ids[0]) : undefined;
-        return { roleName: employee?.role_name, avatarUrl: employee?.avatar_url };
+        const ids = [
+          ...new Set(
+            data.allocations
+              .filter((a) => a.payment_id === payment.id)
+              .map((a) => a.employee_id),
+          ),
+        ];
+        const employee =
+          ids.length === 1
+            ? data.employees.find((e) => e.id === ids[0])
+            : undefined;
+        return {
+          roleName: employee?.role_name,
+          avatarUrl: employee?.avatar_url,
+        };
       })(),
       kind:
         data.financeTransactions?.find((t) => t.id === payment.transaction_id)
           ?.category_name ??
         (payment.kind === "tips" ? "Чаевые" : "Фонд оплаты труда"),
       amount: Number(payment.amount),
+      ...paymentSettlement(
+        data.allocations.filter((a) => a.payment_id === payment.id),
+        Number(payment.amount),
+      ),
       status: payment.state === "posted" ? "Проведена" : "Удалена",
       posted: payment.state === "posted",
     })),
@@ -79,4 +98,31 @@ export function paymentJournalRows(
           }))
       : []),
   ];
+}
+
+export function paymentSettlement(
+  allocations: PayrollData["allocations"],
+  cash: number,
+): { settledAmount?: number; taxAmount?: number } {
+  // A restricted view may contain only part of an old group payment.
+  // Do not present that partial gross as the total or invent tax for finance-only rows.
+  if (!allocations.length || !Number.isFinite(cash)) return {};
+  const cashCents = allocations.reduce(
+    (s, a) => s + Math.round(Number(a.amount) * 100),
+    0,
+  );
+  const grossCents = allocations.reduce(
+    (s, a) => s + Math.round(Number(a.settled_amount ?? a.amount) * 100),
+    0,
+  );
+  if (
+    !Number.isSafeInteger(grossCents) ||
+    cashCents !== Math.round(cash * 100) ||
+    grossCents < cashCents
+  )
+    return {};
+  return {
+    settledAmount: grossCents / 100,
+    taxAmount: (grossCents - cashCents) / 100,
+  };
 }

@@ -74,6 +74,11 @@ export type AutomationSnapshot = {
     subject: AutomationPerson | null;
   }[];
   uniform: UniformRecord[];
+  execution?: {
+    salary_from: string | null;
+    bonus_from: string | null;
+    legacy_stopped: boolean;
+  } | null;
   recorded: { key: string; decision: AutomationDecision }[];
 };
 export function planFromSnapshot(
@@ -114,7 +119,11 @@ export function planFromSnapshot(
     venueId: snapshot.venue_id,
     businessDate,
     ruleVersion: snapshot.settings.version,
-    config: automationSettingsSchema.parse(snapshot.settings.config),
+    // Gifts are deferred to the separate Notion migration; tasks await photo reports/checklists.
+    config: {
+      ...automationSettingsSchema.parse(snapshot.settings.config),
+      gifts: { ...snapshot.settings.config.gifts, enabled: false },
+    },
     employees,
     uniformIssues: snapshot.uniform.map((i) => ({
       id: i.id,

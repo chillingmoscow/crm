@@ -238,13 +238,11 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-semibold">Медкнижки, форма и мотивация</h2>
           <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-            Исполняет n8n
+            Правила заведения
           </span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Здесь готовим правила для перехода. До переключения автоматизаций n8n
-          использует прежние настройки. Сохранение не запускает начисления и
-          списания.
+          Режим работы и дата перехода задаются отдельно в разделе «Медкнижки и форма». Подарки пока остаются в Notion и прежней автоматике.
         </p>
         {record.current.version === 0 && (
           <p className="text-sm text-muted-foreground">

@@ -10,6 +10,7 @@ begin
  today:=(now() at time zone 'Europe/Moscow')::date;
  cfg:=$cfg${"medical": {"reminders": true, "reminder_after_hire_days": 3, "reminder_before_expiry_days": 30, "submission_fine": true, "submission_after_hire_months": 1, "submission_amount": 3000, "expiry_fine": true, "expiry_amount": 3000, "expiry_frequency": "once_per_expiry_case", "reimbursement": true, "reimbursement_amount": 3000, "reimbursement_after_exam_months": 3, "reimbursement_requires_exam_after_hire": true}, "uniform": {"enabled": true, "installments": 4, "payment_days": [3, 18]}, "tasks": {"missing_enabled": true, "missing_kind": "deduction", "missing_amount": 200, "extra_reward_enabled": true, "extra_reward_medium": "bonus"}, "gifts": {"enabled": false, "tenure_boundary_days": 90, "holidays": [], "tenure": []}}$cfg$::jsonb;
  perform public.payroll_save_automation_settings(v,coalesce((select version from public.payroll_automation_settings where venue_id=v),0),cfg);
+ perform public.payroll_set_execution_policy(coalesce((select version from public.payroll_execution_policy where venue_id=v),0),today,null,true);
  payload:=jsonb_build_object('hired_on',today-100,'birthday',null,'gender',null,'gift_role',null,'medical_required',true,'medical_state','present','examined_on',today-99,'valid_until',today-1,'reimbursement_state','recorded','new_medical_case',false,'legacy_reconciled',true,'missing_fine_state','not_recorded','expiry_fine_state','not_recorded');
  perform public.payroll_save_automation_person(e,0,payload);
  select * into s from public.payroll_automation_people where employee_id=e;
@@ -63,8 +64,7 @@ begin
  decision:=jsonb_set(jsonb_set(jsonb_set(decision,'{medium}','"bonus"'),'{kind}','"bonus"'),'{rule}','"holiday"');
  plan:=jsonb_build_object('decisions',jsonb_build_array(decision),'blockers','[]'::jsonb,'recordedCandidates','[]'::jsonb);
  preview:=public.payroll_commit_automation_run(v,today,snapshot,plan,'comparison',u);
- run:=public.payroll_commit_automation_run(v,today,snapshot,plan,'native',u,preview);
- if (select applied_count from public.payroll_automation_runs where id=run)<>0 then raise exception 'Bonus operation applied';end if;
+ begin perform public.payroll_commit_automation_run(v,today,snapshot,plan,'native',u,preview);raise exception 'Deferred gifts accepted';exception when raise_exception then if sqlerrm<>'Задачи и подарки пока не перенесены' then raise;end if;end;
  -- Uniform request identity survives retries, and changed retries are rejected.
  perform public.payroll_add_uniform_issue(e,'Футболка',jsonb_build_array(jsonb_build_object('dueOn',today,'amount',250)),i);
  perform public.payroll_add_uniform_issue(e,'Футболка',jsonb_build_array(jsonb_build_object('dueOn',today,'amount',250)),i);

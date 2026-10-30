@@ -231,6 +231,9 @@ do $$declare h jsonb;begin
  update public.candidate_hires set provisioning='{"employee":{"state":"done","id":999999,"pin":"9834"},"guest":{"state":"done","id":999998},"bonus":{"state":"done","id":999997}}' where id=(h->>'id')::uuid;
  insert into public.staff_door_codes(account_id,hire_id,user_number,password_hash,source) values('ce000000-0000-4000-8000-000000000010',(h->>'id')::uuid,899,'qa-hash','sheerly');
  perform public.candidate_finish_hire((h->>'id')::uuid);perform public.candidate_finish_hire((h->>'id')::uuid);
+ if (select count(*) from public.candidate_jobs where candidate_id='ce000000-0000-4000-8000-000000000040' and kind='hired')<>1 then raise exception 'Missing or duplicate hire notification';end if;
+ if (select count(*) from public.audit_logs where entity_id=(h->>'target_user_id')::uuid and action_code in ('staff.hired','candidate.hired'))<>1 or not exists(select 1 from public.audit_logs where entity_id=(h->>'target_user_id')::uuid and action_code='candidate.hired' and user_id=(h->>'actor_id')::uuid) then raise exception 'Duplicate hire or wrong actor';end if;
+ if has_table_privilege('authenticated','public.organization_telegram_settings','SELECT') or has_table_privilege('anon','public.organization_telegram_settings','SELECT') then raise exception 'Organization bot secret exposed';end if;
  if (select count(*) from public.user_venue_roles where user_id=(h->>'target_user_id')::uuid)<>1 then raise exception 'Duplicate membership';end if;
  if (select count(*) from public.payroll_employees where local_user_id=(h->>'target_user_id')::uuid)<>1 then raise exception 'Missing or duplicate payroll';end if;
  if not exists(select 1 from public.candidates where id='ce000000-0000-4000-8000-000000000040' and status='hired' and hired_user_id=(h->>'target_user_id')::uuid) then raise exception 'Hire not linked';end if;

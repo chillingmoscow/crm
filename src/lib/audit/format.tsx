@@ -299,8 +299,9 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 const SPECS: Record<string, AuditEventSpec> = {
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
-    buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : ""}</>,
+    buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : ""}</>,
     buildDetails: (e) => <>
+      {e.details.provider === "telegram" && <p className="text-xs text-muted-foreground">Бот: @{String(e.details.bot_username ?? "")} · Чат: {String(e.details.chat_id ?? "")}</p>}
       {typeof e.details.backoffice_configured === "boolean" && <p className="text-xs text-muted-foreground">Доступ к бэк-офису: {e.details.backoffice_configured ? "настроен" : "не настроен"}</p>}
       {typeof e.details.bonus_writes === "boolean" && <p className="text-xs text-muted-foreground">Бонусные списания: {e.details.bonus_writes ? "включены" : "выключены"}</p>}
     </>,

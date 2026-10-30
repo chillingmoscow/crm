@@ -194,3 +194,16 @@ test("back-office action: login redirect is classified for token refresh", async
     /Quick Resto back-office auth failed \(302\)/,
   );
 });
+
+// Creation may commit before a connection reset; reconciliation owns the retry.
+test("quickRestoFetch: creation does not replay an ambiguous network failure", async (t) => {
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", () => {
+    calls++;
+    throw networkTypeError("ECONNRESET");
+  });
+  await assert.rejects(() => quickRestoFetch("https://example.quickresto.ru/platform/online/api/create", {
+    method: "POST", body: JSON.stringify({ firstName: "QA" }),
+  }, { retryNetwork: false }));
+  assert.equal(calls, 1);
+});

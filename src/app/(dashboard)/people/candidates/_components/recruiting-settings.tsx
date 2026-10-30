@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { EditDrawer } from "@/components/ui/edit-drawer";
@@ -30,7 +31,6 @@ export function RecruitingSettings({
     [enabled, setEnabled] = useState(false),
     [form, setForm] = useState(""),
     [chat, setChat] = useState(""),
-    [token, setToken] = useState(""),
     [secret, setSecret] = useState(""),
     [url, setUrl] = useState(""),
     [busy, start] = useTransition(),
@@ -43,6 +43,7 @@ export function RecruitingSettings({
     [masterStores, setMasterStores] = useState("16"),
     [group, setGroup] = useState("8"),
     [accountType, setAccountType] = useState("1"),
+    [tipsUri, setTipsUri] = useState(""),
     [codes, setCodes] = useState(""),
     [poolReady, setPoolReady] = useState(false),
     [emptyPool, setEmptyPool] = useState(false),
@@ -95,6 +96,7 @@ export function RecruitingSettings({
         setMasterStores((s?.master_store_ids ?? [16]).join(", "));
         setGroup(String(s?.staff_group_id ?? 8));
         setAccountType(String(s?.bonus_account_type_id ?? 1));
+        setTipsUri(s?.tips_uri ?? "");
         setPoolReady(s?.office_pool_initialized ?? false);
         setCodes("");
         setEmptyPool(false);
@@ -123,10 +125,8 @@ export function RecruitingSettings({
           enabled,
           form_id: form,
           telegram_chat_id: chat,
-          telegram_token: token || undefined,
           rotate,
         });
-        setToken("");
         if (next.secret) setSecret(next.secret);
         setUrl(
           new URL(
@@ -154,6 +154,7 @@ export function RecruitingSettings({
           master_store_ids: parse(masterStores),
           staff_group_id: Number(group),
           bonus_account_type_id: Number(accountType),
+          tips_uri: tipsUri.trim() || null,
           legacy_codes: codes || undefined,
           confirm_empty_pool: emptyPool,
         });
@@ -228,26 +229,10 @@ export function RecruitingSettings({
                 <Input
                   value={chat}
                   onChange={(e) => setChat(e.target.value)}
-                  placeholder="ID текущего чата"
+                  placeholder="По умолчанию — чат организации"
                 />
               </Field>
-              <Field
-                label={
-                  connection?.telegram_configured
-                    ? "Токен бота · сохранён, можно заменить"
-                    : "Токен Telegram-бота"
-                }
-              >
-                <Input
-                  type="password"
-                  autoComplete="new-password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder={
-                    connection?.telegram_configured ? "••••••••" : "Токен бота"
-                  }
-                />
-              </Field>
+              <p className="text-sm text-muted-foreground">Используется бот организации. <Link href="/settings/integrations/telegram" className="text-brand hover:underline">Настроить Telegram →</Link></p>
               <Button disabled={busy} onClick={() => save(false)}>
                 Сохранить настройки
               </Button>
@@ -345,6 +330,7 @@ export function RecruitingSettings({
               />
             ) : employmentLoaded ? (
               <>
+                <Field label="Ссылка на чаевые"><Input type="url" value={tipsUri} disabled={busy} onChange={event => setTipsUri(event.target.value)} placeholder="https://…" maxLength={1000} /></Field>
                 <details className="space-y-4 rounded-lg border p-4">
                   <summary className="cursor-pointer text-sm font-medium">
                     Склады и бонусный счёт

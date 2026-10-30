@@ -1,3 +1,4 @@
+import { StaffDoorCode } from "../../candidates/_components/staff-door-code";
 import Link from "next/link";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { redirect } from "next/navigation";
@@ -238,13 +239,16 @@ export default async function StaffMemberPage({
     .limit(1)
     .maybeSingle();
 
+  const { data: accountOwner } = await admin.from("accounts").select("id").eq("id", accountId).eq("owner_id", user.id).maybeSingle();
+  const door = accountOwner && candidateLink.data ? await asLooseDb(admin).from("staff_door_codes").select("id").eq("account_id", accountId).eq("user_id", userId).maybeSingle() : null;
   return (
     <>
       {candidateLink.data ? (
-        <div className="px-4 pt-4 md:px-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 md:px-8">
           <Link href={`/people/candidates/${candidateLink.data.id}`} className="text-sm text-brand hover:underline">
             Анкета кандидата и история подбора →
           </Link>
+          {door?.data ? <StaffDoorCode userId={userId} /> : null}
         </div>
       ) : null}
     <StaffDetailPage
@@ -266,7 +270,7 @@ export default async function StaffMemberPage({
       firedAt={targetUvr.fired_at}
       firedReason={targetUvr.fired_reason}
       isMe={user.id === userId}
-      importedFromQuickResto={Boolean(importedLink)}
+      importedFromQuickResto={Boolean(importedLink) && !targetAuthUser.app_metadata?.candidate_hire_id}
       joinedAt={targetUvr.created_at}
       userCreatedAt={targetAuthUser.created_at ?? null}
       emailConfirmed={Boolean(targetAuthUser.email_confirmed_at)}

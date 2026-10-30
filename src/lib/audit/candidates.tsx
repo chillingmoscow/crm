@@ -46,6 +46,7 @@ const labels: Record<string, string> = {
   staff_group_id: "Группа сотрудников Quick Resto",
   bonus_account_type_id: "Тип бонусного счёта",
   office_pool_initialized: "Пул кодов замка перенесён",
+  tips_uri: "Ссылка на чаевые",
 };
 function value(field: string, input: unknown): string {
   if (input == null || input === "") return "Не указано";

@@ -95,6 +95,7 @@ export async function provisionCandidateHire(hireId: string) {
           store_ids: number[];
           master_store_ids: number[];
           staff_group_id: number;
+          tips_uri: string | null;
           bonus_account_type_id: number;
           office_pool_initialized: boolean;
         }>("candidate_employment_settings")
@@ -240,7 +241,7 @@ export async function provisionCandidateHire(hireId: string) {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(25000),
         redirect: "manual",
-      });
+      }, { retryNetwork: false });
       if (!response.ok)
         throw new Error(
           `Quick Resto не подтвердил запись (HTTP ${response.status}). Проверьте результат перед повтором`,
@@ -264,6 +265,7 @@ export async function provisionCandidateHire(hireId: string) {
       const response = await quickRestoFetch(url.toString(), {
         method: "GET",
         headers: {
+          "Content-Type": "application/json",
           Authorization:
             "Basic " +
             Buffer.from(`${connection.login}:${password}`).toString("base64"),
@@ -272,7 +274,7 @@ export async function provisionCandidateHire(hireId: string) {
         redirect: "manual",
       });
       if (!response.ok)
-        throw new Error("Не удалось проверить гостя Quick Resto");
+        throw new Error(`Не удалось проверить гостя Quick Resto (HTTP ${response.status})`);
       return entity(await response.json());
     };
     const desiredName = `${h.input.first_name} ${h.input.last_name}`
@@ -336,6 +338,7 @@ export async function provisionCandidateHire(hireId: string) {
           basicCreate("personnel.employee", employeeClass, {
             className: employeeClass,
             systemEmployee: "Custom",
+            ...(settings.tips_uri ? { tipsUri: settings.tips_uri } : {}),
             firstName: h.input.first_name,
             lastName: h.input.last_name,
             language: {
@@ -425,10 +428,8 @@ export async function provisionCandidateHire(hireId: string) {
         complete.push(await readGuest(Number(candidate.id)));
       const matches = complete.filter(
         (e) =>
-          Array.isArray(e.tokens) &&
-          e.tokens.some(
-            (t) => normalizePhone(String(object(t).key ?? "")) === phone,
-          ),
+          (Array.isArray(e.tokens) && e.tokens.some((t) => object(t).type === "phone" && normalizePhone(String(object(t).key ?? "")) === phone)) ||
+          (Array.isArray(e.contactMethods) && e.contactMethods.some((t) => object(t).type === "phoneNumber" && normalizePhone(String(object(t).value ?? "")) === phone)),
       );
       if (matches.length > 1)
         throw new Error(
@@ -450,7 +451,6 @@ export async function provisionCandidateHire(hireId: string) {
           className: customerClass,
           firstName: h.input.first_name,
           lastName: h.input.last_name,
-          tokens: [{ type: "phone", entry: "manual", key: phone }],
           customerGroup: { id: settings.staff_group_id },
         }),
       guestMatches,
@@ -473,6 +473,17 @@ export async function provisionCandidateHire(hireId: string) {
         },
       );
     }
+    // Contacts are separate child entities; nested tokens are silently ignored by QR.
+    const contactQuery = { ownerContextId: guestId, ownerContextClassName: customerClass };
+    const findPhone = async () => (await rows("crm.customer.contacts/select", contactQuery)).find(
+      (contact) => contact.type === "phoneNumber" && normalizePhone(String(contact.value ?? "")) === phone,
+    ) ?? null;
+    const existingPhone = await findPhone();
+    if (existingPhone) { h.provisioning.guest_phone = { state: "done", id: Number(existingPhone.id) }; await save(); }
+    else await step("guest_phone", () => postData("crm.customer.contacts/create", {
+      className: "ru.edgex.quickresto.modules.crm.customer.contacts.ContactMethod",
+      type: "phoneNumber", value: `+${phone}`,
+    }, contactQuery), findPhone);
     const accountQuery = {
       mode: "bonuses",
       ownerContextId: guestId,

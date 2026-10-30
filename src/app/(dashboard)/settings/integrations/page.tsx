@@ -103,6 +103,8 @@ export default async function IntegrationsPage({
 
       <Link href="/people/candidates?settings=1" className="mt-6 block max-w-xl rounded-xl border bg-card p-5 hover:border-brand/40"><h2 className="text-base font-semibold">Тильда · кандидаты</h2><p className="mt-1 text-sm text-muted-foreground">Анкеты с сайта, уведомления и оформление сотрудников.</p><span className="mt-3 inline-block text-sm text-brand">Настроить →</span></Link>
 
+      <Link href="/settings/integrations/telegram" className="mt-6 block max-w-xl rounded-xl border bg-card p-5 hover:border-brand/40"><h2 className="text-base font-semibold">Telegram</h2><p className="mt-1 text-sm text-muted-foreground">Бот организации и чат уведомлений.</p><span className="mt-3 inline-block text-sm text-brand">Настроить →</span></Link>
+
       <QuickRestoConnectionCard
         connection={connectionView}
         canSync={can("inventory.sync_quickresto")}

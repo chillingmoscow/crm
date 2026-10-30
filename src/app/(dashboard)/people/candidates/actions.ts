@@ -364,10 +364,11 @@ export async function saveCandidateConnection(input: unknown) {
       throw new Error("Некорректный токен Telegram-бота");
     payload.telegram_secret = encryptSecret(value.telegram_token);
   }
+  const organizationTelegram = result(await s.admin.from<{secret:unknown;default_chat_id:string|null}>("organization_telegram_settings").select("secret,default_chat_id").eq("account_id",s.accountId).maybeSingle());
   if (
     value.enabled &&
-    (!value.telegram_chat_id ||
-      (!value.telegram_token && !old?.telegram_secret))
+    (!(value.telegram_chat_id || organizationTelegram?.default_chat_id) ||
+      (!value.telegram_token && !old?.telegram_secret && !organizationTelegram?.secret))
   )
     throw new Error(
       "Настройте Telegram-бота и чат перед включением приёма заявок",
@@ -425,10 +426,11 @@ export async function candidateEmploymentSettings(venueId: string) {
         master_store_ids: number[];
         staff_group_id: number;
         bonus_account_type_id: number;
+        tips_uri: string | null;
         office_pool_initialized: boolean;
       }>("candidate_employment_settings")
       .select(
-        "store_ids,master_store_ids,staff_group_id,bonus_account_type_id,office_pool_initialized",
+        "store_ids,master_store_ids,staff_group_id,bonus_account_type_id,office_pool_initialized,tips_uri",
       )
       .eq("account_id", s.accountId)
       .eq("venue_id", venueId)
@@ -448,6 +450,7 @@ export async function saveCandidateEmploymentSettings(
       master_store_ids: z.array(z.number().int().positive()).max(30),
       staff_group_id: z.number().int().positive(),
       bonus_account_type_id: z.number().int().positive(),
+      tips_uri: z.string().trim().max(1000).url().refine(value => value.startsWith("https://"), "Ссылка должна начинаться с https://").nullable().optional(),
       legacy_codes: z.string().max(150000).optional(),
       confirm_empty_pool: z.boolean().optional(),
     })
@@ -522,6 +525,7 @@ export async function saveCandidateEmploymentSettings(
         master_store_ids: value.master_store_ids,
         staff_group_id: value.staff_group_id,
         bonus_account_type_id: value.bonus_account_type_id,
+        ...(value.tips_uri !== undefined ? { tips_uri: value.tips_uri } : {}),
         office_pool_initialized:
           old?.office_pool_initialized ||
           reserved.length > 0 ||

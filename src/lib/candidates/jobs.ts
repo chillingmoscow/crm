@@ -35,13 +35,13 @@ export async function processCandidateJobs(limit = 5) {
         )
           check(await admin.storage.from("candidate-files").remove(paths));
       }
-      if (job.kind === "notify" && job.candidate_id) {
-        check(
+      if (["notify", "hired"].includes(job.kind) && job.candidate_id) {
+        if (job.kind === "notify") check(
           await db.rpc("candidate_notify_in_app", {
             p_candidate: job.candidate_id,
           }),
         );
-        const connection = check(
+        const recruitingConnection = check(
           await db
             .from<{
               telegram_chat_id: string | null;
@@ -55,6 +55,11 @@ export async function processCandidateJobs(limit = 5) {
             .eq("account_id", job.account_id)
             .maybeSingle(),
         );
+        const organization = check(await db.from<{secret:{encrypted:string;iv:string;tag:string};default_chat_id:string|null}>("organization_telegram_settings").select("secret,default_chat_id").eq("account_id",job.account_id).maybeSingle());
+        const connection = {telegram_chat_id: recruitingConnection?.telegram_chat_id || organization?.default_chat_id,
+          telegram_secret: organization?.secret || recruitingConnection?.telegram_secret};
+        if (job.kind === "hired" && (!connection?.telegram_chat_id || !connection.telegram_secret))
+          throw new Error("Настройте Telegram-бота и чат для уведомления о найме");
         if (connection?.telegram_chat_id && connection.telegram_secret) {
           if (job.payload.telegram === "started")
             throw new Error(
@@ -91,7 +96,9 @@ export async function processCandidateJobs(limit = 5) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   chat_id: connection.telegram_chat_id,
-                  text: `Новая анкета: ${candidate.full_name}\nДолжность: ${candidate.desired_position ?? "Не указана"}\n${new URL(`/people/candidates/${job.candidate_id}`, origin)}`,
+                  text: job.kind === "hired"
+                    ? `👤 В нашей команде появился новый ${String(job.payload.role_name ?? "сотрудник")} — ${String(job.payload.name ?? candidate.full_name)}\n${new URL(`/people/staff/${job.payload.user_id}`, origin)}`
+                    : `Новая анкета: ${candidate.full_name}\nДолжность: ${candidate.desired_position ?? "Не указана"}\n${new URL(`/people/candidates/${job.candidate_id}`, origin)}`,
                   link_preview_options: { is_disabled: true },
                 }),
                 signal: AbortSignal.timeout(12000),

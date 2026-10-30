@@ -28,6 +28,10 @@ while (!stopping) {
     else {
       const stats = await r.json();
       if (stats.processed && !stats.errors) delay = 500;
+      if (stats.automationComparisons || stats.automationErrors)
+        console.log(
+          `Автоматизации: сверок ${stats.automationComparisons ?? 0}, ошибок ${stats.automationErrors ?? 0}`,
+        );
       if (stats.processed)
         console.log(
           `Зарплата: обработано дней ${stats.processed}, ошибок ${stats.errors}`,

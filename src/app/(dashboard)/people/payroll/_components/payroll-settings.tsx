@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
+import { PayrollExperiencePolicy } from "./payroll-experience-policy";
 import type { PayrollData } from "@/lib/payroll/types";
 import { loadPayrollRules, payrollCommand } from "../actions";
 import { selectClass } from "./employee-pay";
@@ -19,8 +19,7 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
     [category, setCategory] = useState(""),
     [salaryCategory, setSalaryCategory] = useState(""),
     [cashAccounts, setCashAccounts] = useState<Record<string, string>>({}),
-    [busy, setBusy] = useState(false),
-    [benefitsConfirmed, setBenefitsConfirmed] = useState(false);
+    [busy, setBusy] = useState(false);
   const reload = useCallback(async () => {
     const d = await loadPayrollRules();
     if (d.venueId !== venueId)
@@ -31,7 +30,6 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
       throw new Error("Нет доступа к настройке оплаты труда");
     setData(d);
     setComments(d.settings?.tip_comments.join("\n") ?? "чаевые");
-    setBenefitsConfirmed(d.settings?.benefits_mode === "active");
     setCategory(d.settings?.tip_category_id ?? "");
     setSalaryCategory(d.settings?.salary_category_id ?? "");
     setCashAccounts(d.settings?.cashbox_accounts ?? {});
@@ -65,7 +63,9 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
     );
   return (
     <div className="space-y-6">
-      <PayrollSetup data={data} onChange={reload} /><DisciplineSettings />
+      <PayrollSetup data={data} onChange={reload} />
+      <PayrollExperiencePolicy settings={data.settings} onChange={reload} />
+      <DisciplineSettings />
       <AutomationSettings key={venueId} venueId={venueId} />
       <section className="rounded-xl border p-5"><h2 className="font-semibold">Оплата должностей</h2><div className="mt-4 flex flex-wrap gap-2">{(data.roles??[]).filter(r=>data.models.some(m=>m.role_id===r.id&&m.is_role_default&&!m.archived)).map(r=><Button key={r.id} variant="outline" size="sm" asChild><Link href={`/people/roles/${r.id}?tab=compensation`}>{r.name}</Link></Button>)}</div></section>
       <form
@@ -74,7 +74,6 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
           e.preventDefault();
           void run(() =>
             payrollCommand("settings", {
-              benefits_mode: benefitsConfirmed ? "active" : "review",
               ...(data.permissions.includes("payroll.pay") &&
               data.permissions.includes("finance.create_transaction")
                 ? {
@@ -94,14 +93,6 @@ export function PayrollSettings({ venueId }: { venueId: string }) {
         }}
       >
         <h2 className="font-semibold">Выдача чаевых и финансы</h2>
-        <label className="flex items-start gap-3 text-sm">
-          <Checkbox
-            checked={benefitsConfirmed}
-            onCheckedChange={(v) => setBenefitsConfirmed(v === true)}
-          />
-          Правила надбавок проверены. Начислять стаж и знания по подтверждённым
-          тестам.
-        </label>
         <p className="text-sm text-muted-foreground">
           Распознаём точное совпадение комментария инкассации. Суммируем
           операции за рабочий день; до 100 ₽ включительно считаем округлением.

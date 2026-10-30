@@ -26,12 +26,16 @@ try {
     await writeFile(join(dir, `${name}.mjs`), code);
   }
   const calc = await import(pathToFileURL(join(dir, "calculate.mjs")).href),
-    { reconcileAttendance,attendanceRuleAtDate } = await import(
+    { reconcileAttendance,attendanceRuleAtDate,payrollFactRows } = await import(
       pathToFileURL(join(dir, "attendance.mjs")).href
     ),
     { businessDate, dayWindow } = await import(
       pathToFileURL(join(dir, "time.mjs")).href
     );
+  const clocks=[{id:1,owner:{id:84},startTime:Date.parse("2026-09-01T02:00:00Z"),endTime:null},{id:2,owner:{id:174},startTime:Date.parse("2026-09-01T10:00:00Z"),endTime:Date.parse("2026-09-01T18:00:00Z")}];
+  const staff=[{id:"technical",quickresto_id:84,attendance_source:"excluded",active:true,local_user_id:null,role_name:"Мастер"},{id:"real",quickresto_id:174,attendance_source:"quickresto",active:true,local_user_id:null,role_name:"Мастер"}];
+  assert.deepEqual(payrollFactRows(clocks,staff).map(r=>r.owner.id),[174],"Technical open clocks cannot affect day boundaries or team shares");
+  assert.deepEqual(reconcileAttendance(clocks,staff,[],"2026-09-01","Europe/Moscow",9).items.map(r=>r.employee_id),["real"]);
   assert.equal(calc.recognizeTipComment(" ЧАЕВЫЕ ", ["чаевые"]), "exact");
   assert.equal(
     calc.recognizeTipComment("чаевые и хозяйственные расходы", ["чаевые"]),
@@ -97,6 +101,20 @@ try {
     adjustments: [],
     cleanerPresent: true,
   };
+  const calculateOn = (date, patch = {}) => calc.computeAccrual({ ...input, date,
+    experienceStartsOn: "2026-11-10", ...patch });
+  const tenure = (date, patch) => calculateOn(date, patch).components.find(c => c.kind === "experience")?.amount;
+  assert.equal(tenure("2026-11-09"), 0, "No tenure supplement before the owner-selected date");
+  assert.equal(tenure("2026-11-10"), 300, "The first configured day earns the normal full tenure step");
+  assert.equal(tenure("2026-11-11"), 300);
+  assert.equal(tenure("2026-11-10", { experienceStartsOn: null }), 0, "Unconfigured start must fail closed");
+  assert.equal(tenure("2026-11-10", { rule: { ...rule, tenure_requires_exam: true } }), 300,
+    "Former test flags cannot block tenure after the start date");
+  assert.equal(calculateOn("2026-11-10", { qualification: { knowledge: true, experience: true } }).salary,
+    calculateOn("2026-11-10").salary, "Retired test payloads must not add money");
+  assert.equal(calculateOn("2026-11-10").components.some(c => c.kind === "knowledge"), false,
+    "Former model knowledge amounts must never produce new knowledge components");
+  assert.equal(calc.computeAccrual({ ...input, experienceStartsOn: "2026-11-10" }).salary, 5917);
   assert.equal(calc.hasShiftPay({...model,monthly_amount:20000},rule),true);
   assert.equal(calc.hasShiftPay({...model,monthly_amount:47700},{...rule,rates:{}}),false);
   assert.equal(calc.hasShiftPay(model,{...rule,config:{shift_pay:false}}),false);
@@ -116,12 +134,13 @@ try {
     result.components.find((c) => c.kind === "experience").amount,
     0,
   );
-  assert.equal(result.components.find((c) => c.kind === "knowledge").amount, 0);
+  assert.equal(result.components.some((c) => c.kind === "knowledge"), false);
   result = calc.computeAccrual({
     ...input,
-    qualification: { knowledge: true, experience: true },
+    date: "2026-11-10",
+    experienceStartsOn: "2026-11-10",
   });
-  assert.equal(result.salary, 6417);
+  assert.equal(result.salary, 6217);
   for (const count of [3, 4]) {
     result = calc.computeAccrual({ ...input, roleCount: count });
     assert.equal(result.salary, 1500 + 4042 + Math.round(750 / count));
@@ -487,7 +506,7 @@ try {
     "casual and old QR identity do not double count",
   );
   console.log(
-    "PASS: real golden calculation, qualified benefits, 3/4 employees, missing rates, dated models/rules, overnight attendance, unmapped replacement, open shifts, 09:00 boundary, exact multi-withdrawal cent allocation, 0/100/101 RUB, explicit transfers, no automatic carry-forward, partial/cancelled payments, IDs and full year",
+    "PASS: real golden calculation, tenure starts on 10 November without tests or knowledge payments, 3/4 employees, missing rates, dated models/rules, overnight attendance, unmapped replacement, open shifts, 09:00 boundary, exact multi-withdrawal cent allocation, 0/100/101 RUB, explicit transfers, no automatic carry-forward, partial/cancelled payments, IDs and full year",
   );
 } finally {
   await rm(dir, { recursive: true, force: true });

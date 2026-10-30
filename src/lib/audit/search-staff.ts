@@ -93,7 +93,7 @@ export async function searchAuditEntities(q: string): Promise<{
       .or(`name.ilike.${pattern},short_name.ilike.${pattern},inn.ilike.${pattern}`)
       .limit(200),
     supabase.from("audit_logs").select("entity_id")
-      .in("entity_type", ["payroll_adjustment", "payroll_transfer"])
+      .in("entity_type", ["payroll_adjustment", "payroll_transfer", "payroll_automation_person", "payroll_uniform", "payroll_employee"])
       .or(`details->>employee_name.ilike.${pattern},details->>reason.ilike.${pattern}`)
       .limit(200),
     supabase.from("audit_logs").select("entity_id").eq("entity_type","candidate").ilike("details->>name",pattern).limit(200),

@@ -5,7 +5,7 @@ export function attendanceRuleAtDate(rules:AttendanceRule[],employeeId:string,da
  return rules.filter(r=>r.employee_id===employeeId&&r.valid_from<=date).sort((a,b)=>b.valid_from.localeCompare(a.valid_from)||b.created_at.localeCompare(a.created_at)||b.id.localeCompare(a.id))[0]??null;
 }
 function plannedEmployee(shift:Shift,employees:PayEmployee[]) {
- return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id):employees.find(e=>e.local_user_id&&e.local_user_id===shift.user_id&&e.attendance_source==="schedule");
+ return shift.payroll_employee_id?employees.find(e=>e.id===shift.payroll_employee_id&&e.attendance_source!=="excluded"):employees.find(e=>e.local_user_id&&e.local_user_id===shift.user_id&&e.attendance_source==="schedule");
 }
 export function reconcileAttendance(
   rows: {
@@ -33,7 +33,7 @@ export function reconcileAttendance(
   const items = rows
     .filter(
       (r) =>
-        !employees.some(e=>e.attendance_source==="schedule"&&e.quickresto_id!==null&&e.quickresto_id===Number(r.owner?.id)) && !scheduled.some((s) =>
+        !employees.some(e=>(e.attendance_source==="schedule"||e.attendance_source==="excluded")&&e.quickresto_id!==null&&e.quickresto_id===Number(r.owner?.id)) && !scheduled.some((s) =>
           employees.some(
             (e) =>
               e.id === plannedEmployee(s,employees)?.id &&
@@ -122,7 +122,7 @@ export function reconcileAttendance(
             s.published &&
             s.user_id &&
             !matched.has(s.id) &&
-            !employees.some(e=>e.local_user_id===s.user_id&&e.attendance_source==="schedule") &&
+            !employees.some(e=>e.local_user_id===s.user_id&&(e.attendance_source==="schedule"||e.attendance_source==="excluded")) &&
             businessDate(new Date(s.starts_at), timezone, hour) === date,
         )
         .map((s) => ({
@@ -143,4 +143,8 @@ export function blocksPayrollAttendance(
       !a.ends_at ||
       (a.status === "deviation" && !!a.issue?.includes("границ")))
   );
+}
+
+export function payrollFactRows<T extends {owner:{id:number}}>(rows:T[],employees:PayEmployee[]):T[] {
+ return rows.filter(r=>!employees.some(e=>e.attendance_source==="excluded"&&e.quickresto_id!==null&&e.quickresto_id===Number(r.owner.id)));
 }

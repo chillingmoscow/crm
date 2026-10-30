@@ -131,6 +131,10 @@ try {
         ...(kind === "attendance"
           ? {
               uniqueEmployees: new Set(rows.map((r) => r.owner?.id)).size,
+              employees: [...new Map(rows.map((r) => [r.owner?.id, {
+                id: r.owner?.id,
+                name: r.owner?.title ?? null,
+              }])).values()],
               intervals: rows.map((r) => ({
                 id: r.id,
                 start: new Date(r.startTime).toISOString(),

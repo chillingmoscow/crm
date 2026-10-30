@@ -141,6 +141,30 @@ export function salesSource(
         businessDayOffsetInMs: settings.day_start_hour * 3600000,
         timeZone: 0,
       }),
+    statisticsReport: (
+      reportId: number,
+      range: { start: number; end: number },
+    ) => {
+      if (
+        !Number.isSafeInteger(reportId) ||
+        reportId <= 0 ||
+        !Number.isSafeInteger(range.start) ||
+        !Number.isSafeInteger(range.end) ||
+        range.start >= range.end
+      )
+        throw new Error("Проверьте источник и период отчёта");
+      return backRead("report.datasources.sales/select", {
+        vid: reportId,
+        mode: "dateFilter",
+        "extParams[className]": "DateFilter",
+        "extParams[dateRange][start]": range.start,
+        "extParams[dateRange][end]": range.end,
+        "extParams[dateFrom]": range.start,
+        "extParams[dateTo]": range.end,
+        businessDayOffsetInMs: settings.day_start_hour * 3600000,
+        timeZone: 0,
+      });
+    },
     taxi: () =>
       publicRead("front.encashment", undefined, [
         {

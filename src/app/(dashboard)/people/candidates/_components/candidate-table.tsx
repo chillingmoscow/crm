@@ -3,6 +3,8 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { ColumnDef } from "@tanstack/react-table";
+import { Checkbox } from "@/components/ui/checkbox";
+import { formatPhoneDisplay } from "@/lib/format/phone";
 import { type AppointmentOptions, type Candidate } from "@/lib/candidates/types";
 import { dateLabel, plural } from "./fields";
 import {
@@ -45,8 +47,9 @@ export function candidateColumns(
   onSaved: (saved: CandidateStatusUpdate) => void,
   onRefresh: () => void,
   options: AppointmentOptions,
+  canDelete = false,
 ): ColumnDef<Candidate>[] {
-  return COLUMN_CONFIG.map(({ id, defaultSize }) => ({
+  const fields: ColumnDef<Candidate>[] = COLUMN_CONFIG.map(({ id, defaultSize }) => ({
     id,
     accessorKey: id,
     header: FIELD_LABELS[id as CandidateField],
@@ -114,6 +117,8 @@ export function candidateColumns(
       const value =
         id === "submitted_at"
           ? dateLabel(c.submitted_at)
+          : id === "phone"
+            ? formatPhoneDisplay(c.phone)
           : id === "age"
             ? c.age
               ? `${c.age} ${plural(c.age, ["год", "года", "лет"])}`
@@ -126,4 +131,21 @@ export function candidateColumns(
       );
     },
   }));
+  return canDelete ? [{
+    id: "select",
+    size: 44,
+    minSize: 44,
+    maxSize: 44,
+    enableHiding: false,
+    enableResizing: false,
+    cell: ({ row }) => (
+      <Checkbox
+        checked={row.getIsSelected()}
+        disabled={!row.getCanSelect()}
+        onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+        aria-label={`Выбрать анкету: ${row.original.full_name}`}
+        className="align-middle"
+      />
+    ),
+  }, ...fields] : fields;
 }

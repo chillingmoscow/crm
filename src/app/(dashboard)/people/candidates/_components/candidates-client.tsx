@@ -14,10 +14,14 @@ import {
   ArrowUp,
   ArrowUpDown,
   Settings,
+  Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 import {
   TablePageHeader,
   TableControls,
@@ -25,6 +29,7 @@ import {
   TableColumnManager,
   TablePagination,
   ResizableTableHead,
+  TableBulkBar,
   useTableState,
 } from "@/components/shared/table";
 import { DateRangeFilter } from "@/components/shared/date-range-filter";
@@ -38,7 +43,8 @@ import {
   type HiringOptions,
   type ListFilters,
 } from "@/lib/candidates/types";
-import { listCandidates } from "../actions";
+import { deleteCandidates, listCandidates } from "../actions";
+import { CandidateDeleteDialog } from "./candidate-delete-dialog";
 import { plural } from "./fields";
 import { RecruitingSettings } from "./recruiting-settings";
 import {
@@ -58,7 +64,7 @@ import { CandidateFilterChip } from "./candidate-filter-chip";
 import { useCandidateColumnResize } from "./use-candidate-column-resize";
 
 const sortableColumns = new Set<string>(CANDIDATE_SORT_FIELDS);
-const noControlColumns = () => false;
+const isControlColumn = (id: string) => id === "select";
 
 export function CandidatesClient({
   initialList,
@@ -89,6 +95,7 @@ export function CandidatesClient({
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
     [reload, setReload] = useState(0);
+  const [deleting, setDeleting] = useState<{ id: string; full_name: string }[] | null>(null);
   const params = useSearchParams();
   const { setPagination } = st;
   const pageSize = [25, 50, 100].includes(st.pagination.pageSize)
@@ -115,6 +122,8 @@ export function CandidatesClient({
     reload,
   ]);
   const loaded = useRef(key);
+  const { setRowSelection } = st;
+  useEffect(() => { setRowSelection({}); }, [key, setRowSelection]);
   const versions = useRef(new Map(initialList.rows.map((row) => [row.id, row.revision])));
   const firstPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
   useEffect(() => {
@@ -198,8 +207,8 @@ export function CandidatesClient({
     return () => window.removeEventListener("candidates:row-updated", updated);
   }, [statusSaved]);
   const columns = useMemo(
-    () => candidateColumns(statusSaved, refreshList, options),
-    [statusSaved, refreshList, options],
+    () => candidateColumns(statusSaved, refreshList, options, permissions.owner),
+    [statusSaved, refreshList, options, permissions.owner],
   );
   const table = useReactTable({
     data: list.rows,
@@ -207,10 +216,14 @@ export function CandidatesClient({
     state: {
       sorting: st.sorting,
       pagination: { ...st.pagination, pageSize },
-      columnVisibility: { ...st.columnVisibility, full_name: true },
-      columnOrder: st.columnOrder,
+      columnVisibility: { ...st.columnVisibility, full_name: true, select: true },
+      columnOrder: ["select", ...st.columnOrder],
       columnSizing: st.columnSizing,
+      rowSelection: st.rowSelection,
     },
+    getRowId: (row) => row.id,
+    enableRowSelection: permissions.owner && !loading,
+    onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     manualSorting: true,
     manualPagination: true,
@@ -220,6 +233,7 @@ export function CandidatesClient({
     columnResizeMode: "onChange",
     autoResetPageIndex: false,
   });
+  const selectedRows = table.getSelectedRowModel().rows.map((row) => row.original);
   const { tableRef, onResizeStart } = useCandidateColumnResize(
     table,
     st.setColumnSizing,
@@ -247,7 +261,7 @@ export function CandidatesClient({
     <CandidateSortSettings sorting={st.sorting} onChange={changeSorting} />
   );
   return (
-    <div className="mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6">
+    <div className={cn("mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6", selectedRows.length > 0 && "pb-28 md:pb-24")}>
       <PageBreadcrumb>
         <nav
           aria-label="Навигация по разделам"
@@ -300,7 +314,7 @@ export function CandidatesClient({
               columns={{
                 content: (
                   <TableColumnManager
-                    columns={table.getAllLeafColumns().map((c) => ({
+                    columns={table.getAllLeafColumns().filter((c) => !isControlColumn(c.id)).map((c) => ({
                       id: c.id,
                       label: FIELD_LABELS[c.id as CandidateField],
                       visible: c.getIsVisible(),
@@ -468,7 +482,16 @@ export function CandidatesClient({
             <ResizableTableHead
               table={table}
               onResizeStart={onResizeStart}
-              isControlColumn={noControlColumns}
+              isControlColumn={isControlColumn}
+              renderControlHeader={() => (
+                <Checkbox
+                  checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
+                  onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked === true)}
+                  disabled={loading || !list.rows.length}
+                  aria-label="Выбрать все анкеты на странице"
+                  className="align-middle"
+                />
+              )}
               sortableColumnIds={sortableColumns}
               onSort={(id) => cycleSort(id)}
               headerIndicator={(id) => {
@@ -498,12 +521,13 @@ export function CandidatesClient({
               {table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.original.id}
-                  className="border-t hover:bg-muted/30"
+                  data-state={row.getIsSelected() ? "selected" : undefined}
+                  className={cn("border-t transition-colors", row.getIsSelected() ? "bg-brand/5 hover:bg-brand/10" : "hover:bg-muted/30")}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
-                      className="overflow-hidden px-3 py-3 align-top"
+                      className={cn("overflow-hidden px-3 py-3", isControlColumn(cell.column.id) ? "align-middle" : "align-top")}
                     >
                       {flexRender(
                         cell.column.columnDef.cell,
@@ -545,6 +569,42 @@ export function CandidatesClient({
           />
         </div>
       </div>
+      {permissions.owner ? (
+        <>
+          <TableBulkBar
+            floating
+            selectedCount={selectedRows.length}
+            onClear={() => setRowSelection({})}
+            actions={
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => setDeleting(selectedRows.map(({ id, full_name }) => ({ id, full_name })))}
+              >
+                <Trash2 className="mr-2 size-4" />Удалить
+              </Button>
+            }
+          />
+          <CandidateDeleteDialog
+            open={!!deleting}
+            onOpenChange={(open) => { if (!open) setDeleting(null); }}
+            count={deleting?.length ?? 0}
+            name={deleting?.length === 1 ? deleting[0].full_name : undefined}
+            onConfirm={async () => {
+              if (!deleting?.length) return;
+              const count = await deleteCandidates(deleting.map((row) => row.id));
+              const deletedIds = new Set(deleting.map((row) => row.id));
+              setList((current) => ({ ...current, rows: current.rows.filter((row) => !deletedIds.has(row.id)), total: Math.max(0, current.total - count) }));
+              setRowSelection({});
+              refreshList();
+              window.dispatchEvent(new Event("candidates:changed"));
+              toast.success(count === 1 ? "Анкета удалена" : `Удалено анкет: ${count}`);
+            }}
+          />
+        </>
+      ) : null}
       {settings ? (
         <RecruitingSettings
           options={options}

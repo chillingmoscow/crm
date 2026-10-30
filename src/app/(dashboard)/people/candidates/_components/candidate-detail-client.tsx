@@ -25,7 +25,8 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { HardDeleteConfirmDialog } from "@/components/shared/hard-delete-confirm-dialog";
+import { CandidateDeleteDialog } from "./candidate-delete-dialog";
+import { formatPhoneDisplay, normalizePhone } from "@/lib/format/phone";
 import {
   STATUSES,
   type CandidateDetail,
@@ -282,9 +283,9 @@ export function CandidateDetailClient({
               <dl className="grid min-w-0 gap-x-8 gap-y-5 sm:grid-cols-2">
                 <ProfileValue label="Телефон">
                   {c.phone ? (
-                  <a href={`tel:${c.phone.replace(/[^+\d]/g, "")}`} className="inline-flex max-w-full items-center gap-2 text-brand">
+                  <a href={`tel:${normalizePhone(c.phone) ?? c.phone.replace(/[^+\d]/g, "")}`} className="inline-flex max-w-full items-center gap-2 text-brand">
                     <Phone className="size-3.5 shrink-0" />
-                    {c.phone}
+                    {formatPhoneDisplay(c.phone)}
                   </a>
                 ) : null}
                 </ProfileValue>
@@ -526,43 +527,22 @@ export function CandidateDetailClient({
         </Tabs>
 
       </div>
-      <HardDeleteConfirmDialog
+      <CandidateDeleteDialog
         open={deleting}
         onOpenChange={setDeleting}
-        entityGenitive="анкету"
-        entityName={c.full_name}
-        impact={[
-          {
-            label: "Комментарии",
-            count: data.comments.length,
-            tone: "cascade",
-          },
-          {
-            label: "Собеседования",
-            count: data.appointments.filter((a) => a.kind === "interview").length,
-            tone: "cascade",
-          },
-          { label: "Стажировки", count: data.appointments.filter((a) => a.kind === "trial").length, tone: "cascade" },
-          { label: "Файлы", count: data.files.length, tone: "cascade" },
-        ]}
-        restrictedBy={
+        name={c.full_name}
+        restriction={
           c.hired_user_id
-            ? [{ label: "Анкета связана с сотрудником", count: 1 }]
+            ? "Анкета связана с сотрудником. Удаление недоступно."
             : data.hire
-              ? [{ label: "Начато оформление сотрудника", count: 1 }]
-              : []
+              ? "Начато оформление сотрудника. Удаление недоступно."
+              : undefined
         }
         onConfirm={async () => {
-          try {
-            await candidateLifecycle(c.id, "delete");
-            toast.success("Анкета удалена");
-            router.push("/people/candidates");
-            return { error: null };
-          } catch (e) {
-            return {
-              error: e instanceof Error ? e.message : "Ошибка удаления",
-            };
-          }
+          await candidateLifecycle(c.id, "delete");
+          window.dispatchEvent(new Event("candidates:changed"));
+          toast.success("Анкета удалена");
+          router.push("/people/candidates");
         }}
       />
       {editing ? (

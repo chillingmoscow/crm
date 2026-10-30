@@ -94,10 +94,10 @@ export type Appointment = {
   outcome: "scheduled" | "passed" | "no_show" | "rejected" | "canceled";
   notes: string | null;
   interview_feedback: {
-    punctuality?: "on_time" | "late";
+    punctuality?: "early" | "on_time" | "late_warned" | "late";
     appearance?: string;
     communication?: string;
-    smiled?: boolean;
+    smiled?: boolean | "occasionally";
   };
   created_at: string;
   revision: number;

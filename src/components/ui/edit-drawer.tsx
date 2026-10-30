@@ -31,6 +31,7 @@ interface EditDrawerProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
+  titleAccessory?: React.ReactNode;
   children: React.ReactNode;
   /** Footer slot — typically <Button variant="outline">Отмена</Button> + <Button>Сохранить</Button> */
   footer?: React.ReactNode;
@@ -44,6 +45,7 @@ export function EditDrawer({
   onOpenChange,
   title,
   description,
+  titleAccessory,
   children,
   footer,
   className,
@@ -67,9 +69,10 @@ export function EditDrawer({
           {/* Header — bordered bottom, padding [20,24] */}
           <div className="flex items-start justify-between gap-2 px-6 py-5 border-b border-border">
             <div className="flex flex-col gap-1 min-w-0">
-              <SheetTitle className="text-[18px] font-semibold tracking-tight leading-tight">
-                {title}
-              </SheetTitle>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <SheetTitle className="text-[18px] font-semibold tracking-tight leading-tight">{title}</SheetTitle>
+                {titleAccessory}
+              </div>
               {description && (
                 <SheetDescription className="text-[13px] text-muted-foreground leading-relaxed">
                   {description}

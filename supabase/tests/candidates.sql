@@ -67,6 +67,13 @@ do $$declare cid uuid;aid uuid;original public.candidate_appointments;begin
  begin perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule',jsonb_build_object('id',aid,'revision',2,'outcome','rejected'));raise exception 'Schedule changed result';exception when others then if SQLERRM not like 'Итог встречи%' then raise;end if;end;
  perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule',jsonb_build_object('id',aid,'revision',2,'kind','interview','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()-interval '2 days')::date,'starts_at',now()-interval '2 days','timezone','Europe/Moscow','location','QA'));
  if not exists(select 1 from public.candidate_appointments where id=aid and outcome='passed' and notes='Самостоятельный результат QA' and interview_feedback->>'punctuality'='on_time' and revision=3) then raise exception 'Reschedule lost result';end if;
+ -- Expanded observations survive the real result command, with strict validation.
+ perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','result',jsonb_build_object('id',aid,'revision',3,'outcome','passed','notes','Оценка QA','interview_feedback','{"punctuality":"late_warned","smiled":"occasionally","appearance":"В целом опрятный вид","communication":"Ясно и по делу"}'::jsonb));
+ if not exists(select 1 from public.candidate_appointments where id=aid and interview_feedback->>'smiled'='occasionally' and interview_feedback->>'punctuality'='late_warned' and revision=4) then raise exception 'Expanded feedback lost';end if;
+ begin
+  perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','result',jsonb_build_object('id',aid,'revision',4,'outcome','passed','notes','QA','interview_feedback','{"smiled":"invalid"}'::jsonb));
+  raise exception 'Invalid feedback accepted';
+ exception when check_violation then null;end;
  perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule',jsonb_build_object('kind','trial','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()+interval '1 day')::date,'starts_at',null,'timezone','Europe/Moscow'));
  perform public.candidate_save_appointment('ce000000-0000-4000-8000-000000000040','schedule',jsonb_build_object('kind','trial','venue_id','ce000000-0000-4000-8000-000000000020','appointment_date',(now()+interval '2 days')::date,'starts_at',null,'timezone','Europe/Moscow'));
  if (select count(*) from public.candidate_appointments where candidate_id='ce000000-0000-4000-8000-000000000040' and kind='trial')<>2 then raise exception 'Multiple trial days unavailable';end if;

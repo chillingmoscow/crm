@@ -102,10 +102,10 @@ export async function commentCandidate(
   });
 }
 const interviewFeedback = z.object({
-  punctuality: z.enum(["on_time", "late"]).optional(),
+  punctuality: z.enum(["early", "on_time", "late_warned", "late"]).optional(),
   appearance: z.string().trim().max(2000).optional(),
   communication: z.string().trim().max(2000).optional(),
-  smiled: z.boolean().optional(),
+  smiled: z.union([z.boolean(), z.literal("occasionally")]).optional(),
 });
 async function appointmentCommand(id: string, mode: "schedule" | "result", input: unknown) {
   const scope = await candidateScope();

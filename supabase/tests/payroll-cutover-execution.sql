@@ -1,6 +1,6 @@
 begin;
 do $test$
-declare u uuid;a uuid;v uuid;e uuid;r uuid;r2 uuid;today date;job jsonb;second jsonb;op_id uuid;lease uuid;refund uuid;before_count bigint;
+declare u uuid;a uuid;v uuid;e uuid;r uuid;r2 uuid;future_entry uuid;future_op uuid;today date;job jsonb;second jsonb;op_id uuid;lease uuid;refund uuid;before_count bigint;
 begin
  select id into u from auth.users where email='owner@test.com';
  perform set_config('request.jwt.claim.sub',u::text,true);perform set_config('app.ctx_ready','0',true);
@@ -14,11 +14,30 @@ begin
  begin
  perform public.payroll_set_execution_policy(0,today,today,false);raise exception 'Legacy active accepted';
  exception when raise_exception then if sqlerrm not like 'Сначала остановите%' then raise;end if;end;
- perform public.payroll_set_execution_policy(0,today,today,true);
+ -- Future-dated manual entries must not cross tomorrow's handover today.
+ perform public.payroll_set_execution_policy(0,null,today+1,true);
+ insert into public.payroll_adjustments(account_id,venue_id,employee_id,business_date,kind,medium,amount,reason,approved,managed,origin,external_state,created_at)
+ values(a,v,e,today+1,'bonus','bonus',500,'Завтрашняя премия fixture',true,true,'manual','pending',clock_timestamp()) returning id into future_entry;
+ if public.payroll_prepare_bonus_operations()<>0 then raise exception 'Future cutover queued a write today';end if;
+ insert into public.payroll_bonus_operations(account_id,venue_id,employee_id,adjustment_id,operation,guest_id,bonus_account_id,direction,amount,policy_version)
+ values(a,v,e,future_entry,'apply',999999001,999999002,'credit',500,(select version from public.payroll_execution_policy where venue_id=v)) returning id into future_op;
+ if public.payroll_claim_bonus_operation() is not null then raise exception 'Future cutover claimed a write today';end if;
+ lease:=gen_random_uuid();update public.payroll_bonus_operations set state='reading',lease_token=lease where id=future_op;
+ if public.payroll_begin_bonus_send(future_op,lease,1000) then raise exception 'Future cutover sent before handover';end if;
+ delete from public.payroll_bonus_operations where id=future_op;
+ perform public.payroll_set_execution_policy(1,today,today,true);
  -- NOW() is fixed within this transaction; ensure the newly created row is after activation.
  update public.payroll_adjustments set created_at=clock_timestamp() where id=r;
  if public.payroll_prepare_bonus_operations()<>1 then raise exception 'Eligible native entry missing';end if;
  if public.payroll_prepare_bonus_operations()<>0 then raise exception 'Duplicate queue row';end if;
+ update public.payroll_adjustments set amount=-600 where id=r;
+ if not exists(select 1 from public.payroll_bonus_operations where adjustment_id=r and amount=600 and state='pending') then raise exception 'Unsent amount edit left a stale operation';end if;
+ update public.payroll_adjustments set amount=-800 where id=r;
+ update public.payroll_adjustments set deleted_at=now() where id=r;
+ if (select state from public.payroll_bonus_operations where adjustment_id=r)<>'cancelled' then raise exception 'Unsent deletion not cancelled';end if;
+ update public.payroll_adjustments set deleted_at=null where id=r;
+ if public.payroll_prepare_bonus_operations()<>1 or (select count(*) from public.payroll_bonus_operations where adjustment_id=r)<>1 then raise exception 'Unsent restoration duplicated/lost queue row';end if;
+
  job:=public.payroll_claim_bonus_operation();op_id:=(job->>'id')::uuid;lease:=(job->>'lease_token')::uuid;
  if op_id is null then raise exception 'Queue not claimed';end if;
  begin update public.payroll_adjustments set amount=-400 where id=r;raise exception 'Racing edit accepted';exception when raise_exception then if sqlerrm not like 'Бонусная операция обрабатывается%' then raise;end if;end;
@@ -28,7 +47,9 @@ begin
  perform public.payroll_finish_bonus_operation(op_id,lease,200,'provider-1',true);
  perform public.payroll_finish_bonus_operation(op_id,lease,null,null,false);
  if (select external_state from public.payroll_adjustments where id=r)<>'done' then raise exception 'Confirmed operation not settled';end if;
+ update public.payroll_employees set quickresto_bonus_account_id=999999003 where id=e;
  refund:=public.payroll_reverse_bonus(r);
+ if (select bonus_account_id from public.payroll_bonus_operations where id=refund)<>999999002 then raise exception 'Refund lost original account';end if;
  if public.payroll_reverse_bonus(r)<>refund then raise exception 'Duplicate reverse';end if;
  job:=public.payroll_claim_bonus_operation();lease:=(job->>'lease_token')::uuid;
  if (job->>'id')::uuid<>refund then raise exception 'Refund not claimed';end if;
@@ -52,6 +73,6 @@ begin
  perform public.payroll_review_bonus_operation(op_id,true,'Подтверждено в истории QR #123');
  if (select external_state from public.payroll_adjustments where id=r2)<>'done' then raise exception 'Manual proof not applied';end if;
  if has_table_privilege('authenticated','public.payroll_bonus_operations','UPDATE') or has_function_privilege('authenticated','public.payroll_begin_bonus_send(uuid,uuid,numeric)','EXECUTE') or has_function_privilege('service_role','public.payroll_commit_automation_source_run(uuid,date,jsonb,jsonb,text,uuid,uuid)','EXECUTE') then raise exception 'Unsafe writer grants';end if;
- raise notice 'PASS: default comparison, explicit cutover, one queue row, exact lease, racing edit, refund, full money fallback, lost POST response, no automatic retry, proof and grants';
+ raise notice 'PASS: default comparison, explicit cutover, one queue row, exact lease, racing edit, refund, full money fallback, lost POST response, no automatic retry, future handover, pending edits, original-account refund, proof and grants';
 end $test$;
 rollback;

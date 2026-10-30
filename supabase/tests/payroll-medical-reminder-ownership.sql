@@ -23,6 +23,13 @@ begin
  if (select count(*) from public.notifications where user_id=u)<>before_count then raise exception 'Existing HR worker duplicated payroll reminder';end if;
  snapshot:=public.payroll_automation_snapshot(v);preview:=public.payroll_commit_automation_run(v,today,snapshot,plan,'comparison',u);perform public.payroll_commit_automation_run(v,today,snapshot,plan,'native',u,preview);
  if (select count(*) from public.notifications where entity_id=e and user_id=u)<>1 then raise exception 'Repeated reminder duplicated notification';end if;
+ -- Editing a date inside the reminder window must retain the HR catch-up.
+ update public.staff_account_details set medical_book_date=today+10,medical_book_expiry_notified_for=null where account_id=a and user_id=u;
+ select count(*) into before_count from public.notifications where user_id=u;
+ perform public.enqueue_medical_book_expiry_notifications();
+ if (select count(*) from public.notifications where user_id=u)<>before_count+1 then raise exception 'Late date edit lost medical reminder';end if;
+ perform public.enqueue_medical_book_expiry_notifications();
+ if (select count(*) from public.notifications where user_id=u)<>before_count+1 then raise exception 'HR catch-up duplicated medical reminder';end if;
  raise notice 'PASS: comparison silent, one employee/owner notification, profile link, shared marker, old HR worker and retry deduplicated';
 end $test$;
 rollback;

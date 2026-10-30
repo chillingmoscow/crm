@@ -1,3 +1,7 @@
+import { StaffDoorCode } from "../../candidates/_components/staff-door-code";
+import { StaffTerminationStatus } from "../_components/staff-termination-status";
+import Link from "next/link";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { redirect } from "next/navigation";
 import {
   createClient,
@@ -228,7 +232,29 @@ export default async function StaffMemberPage({
     (targetAuthUser.user_metadata as { needs_password_setup?: boolean } | null)
       ?.needs_password_setup === true;
 
+  const candidateLink = await asLooseDb(supabase)
+    .from<{ id: string; full_name: string }>("candidates")
+    .select("id,full_name")
+    .eq("account_id", accountId)
+    .eq("hired_user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  const { data: accountOwner } = await admin.from("accounts").select("id").eq("id", accountId).eq("owner_id", user.id).maybeSingle();
+  const door = accountOwner && candidateLink.data ? await asLooseDb(admin).from("staff_door_codes").select("id").eq("account_id", accountId).eq("user_id", userId).is("revoked_at",null).maybeSingle() : null;
+  const termination = can("people.edit_staff") ? await asLooseDb(admin).from<{state:string;error:string|null;door_revoked:boolean;shared_access:boolean;employee_id:number|null;guest_id:number|null;attempts:number}>("staff_terminations").select("state,error,door_revoked,shared_access,employee_id,guest_id,attempts").eq("account_id",accountId).eq("uvr_id",targetUvr.id).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle() : null;
+  const revokedDoorNumbers = accountOwner && termination?.data?.door_revoked ? await asLooseDb(admin).from<{user_number:number;revoked_at:string|null}[]>("staff_door_codes").select("user_number,revoked_at").eq("account_id",accountId).eq("user_id",userId) : null;
   return (
+    <>
+      {candidateLink.data ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 md:px-8">
+          <Link href={`/people/candidates/${candidateLink.data.id}`} className="text-sm text-brand hover:underline">
+            Анкета кандидата и история подбора →
+          </Link>
+          {door?.data ? <StaffDoorCode userId={userId} /> : null}
+        </div>
+      ) : null}
+    {termination?.data ? <StaffTerminationStatus uvrId={targetUvr.id} status={termination.data} doorNumbers={revokedDoorNumbers?.data?.filter(x=>x.revoked_at).map(x=>x.user_number)}/> : null}
     <StaffDetailPage
       profile={profileRow}
       accountDetails={accountDetails}
@@ -245,10 +271,11 @@ export default async function StaffMemberPage({
       roles={roles ?? []}
       canEdit={canEdit}
       isFired={isFired}
+      canRestore={!termination?.data || termination.data.shared_access || (!termination.data.employee_id && !termination.data.guest_id && !termination.data.door_revoked)}
       firedAt={targetUvr.fired_at}
       firedReason={targetUvr.fired_reason}
       isMe={user.id === userId}
-      importedFromQuickResto={Boolean(importedLink)}
+      importedFromQuickResto={Boolean(importedLink) && !targetAuthUser.app_metadata?.candidate_hire_id}
       joinedAt={targetUvr.created_at}
       userCreatedAt={targetAuthUser.created_at ?? null}
       emailConfirmed={Boolean(targetAuthUser.email_confirmed_at)}
@@ -262,5 +289,6 @@ export default async function StaffMemberPage({
       backHref={back?.href}
       backLabel={back?.label}
     />
+    </>
   );
 }

@@ -35,13 +35,14 @@ export async function searchAuditEntities(q: string): Promise<{
   venueIds: string[];
   legalEntityIds: string[];
   payrollAdjustmentIds: string[];
+  candidateIds: string[];
 }> {
   const term = q.trim();
   if (term.length === 0) {
     return {
       staffIds: [], kbPageIds: [], roleIds: [], invitationIds: [],
       transactionIds: [], bankAccountIds: [], financeCategoryIds: [],
-      counterpartyIds: [], venueIds: [], legalEntityIds: [], payrollAdjustmentIds: [],
+      counterpartyIds: [], venueIds: [], legalEntityIds: [], payrollAdjustmentIds: [], candidateIds: [],
     };
   }
 
@@ -52,7 +53,7 @@ export async function searchAuditEntities(q: string): Promise<{
   const [
     staffResult, kbResult, roleResult, invResult,
     bankResult, categoryResult, counterpartyResult, txResult,
-    venueResult, legalEntityResult, payrollResult,
+    venueResult, legalEntityResult, payrollResult, candidateResult,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -95,9 +96,11 @@ export async function searchAuditEntities(q: string): Promise<{
       .in("entity_type", ["payroll_adjustment", "payroll_transfer", "payroll_automation_person", "payroll_uniform", "payroll_employee"])
       .or(`details->>employee_name.ilike.${pattern},details->>reason.ilike.${pattern}`)
       .limit(200),
+    supabase.from("audit_logs").select("entity_id").eq("entity_type","candidate").ilike("details->>name",pattern).limit(200),
   ]);
 
   return {
+    candidateIds: [...new Set((candidateResult.data ?? []).flatMap(r => r.entity_id ? [r.entity_id] : []))],
     staffIds:           (staffResult.data ?? []).map((r) => r.id as string),
     kbPageIds:          (kbResult.data ?? []).map((r) => r.id as string),
     roleIds:            (roleResult.data ?? []).map((r) => r.id as string),

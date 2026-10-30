@@ -9,6 +9,8 @@ import {
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hasCustomMailerConfig, sendInvitationEmail } from "@/lib/people/invitations/mailer";
 import { revalidatePath } from "next/cache";
+import { processStaffTermination } from "@/lib/people/termination";
+import { asLooseDb } from "@/lib/supabase/loose";
 
 export type PendingInvitation = {
   inv_id:    string;
@@ -810,18 +812,23 @@ export async function fireStaff(
     return { error: "Укажите причину увольнения" };
   }
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("user_venue_roles")
-    .update({
-      status: "fired",
-      fired_at: new Date().toISOString(),
-      fired_reason: trimmed,
-    } as Record<string, unknown>)
-    .eq("id", uvrId);
-
+  const { data, error } = await asLooseDb(supabase).rpc("staff_begin_termination", {p_uvr:uvrId,p_reason:trimmed});
   if (error) return { error: error.message };
+  try {
+    await processStaffTermination(String(data));
+    const status=await asLooseDb(createAdminClient()).from<{state:string}>("staff_terminations").select("state").eq("id",data).single();
+    if(status.error||status.data?.state!=="complete")throw new Error("Удаление ещё выполняется. Состояние доступно в карточке сотрудника");
+  }
+  catch (error) {
+    revalidatePath("/people/staff");
+    return {error:"Доступ к заведению закрыт. Внешнее удаление не завершено: " + (error instanceof Error ? error.message : "проверьте карточку сотрудника")};
+  }
   revalidatePath("/people/staff");
   return { error: null };
+}
+
+export async function retryStaffTermination(uvrId:string) {
+  return fireStaff(uvrId,"Продолжение увольнения");
 }
 
 export async function restoreStaff(

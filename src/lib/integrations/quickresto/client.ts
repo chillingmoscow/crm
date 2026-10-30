@@ -346,10 +346,14 @@ function fetchQuickRestoData(url: string, init: RequestInit) {
   });
 }
 
-// Только для KC-флоу входа (4 шага) и его рефреша: data-вызовы на
-// chilling/nx815 идут через callQuickRestoBackOfficeData и ретраятся
-// намеренно — часть POST/DELETE не идемпотентна, а сам маршрут здоров.
-export async function quickRestoFetch(url: string, init: RequestInit): Promise<Response> {
+// KC login and public API reads may retry network failures. Creates must pass
+// retryNetwork: false and reconcile their result before another write. Data API
+// requests use callQuickRestoBackOfficeData with method-specific retry rules.
+export async function quickRestoFetch(
+  url: string,
+  init: RequestInit,
+  options: { retryNetwork?: boolean } = {},
+): Promise<Response> {
   for (let attempt = 0; ; attempt += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), QUICK_RESTO_REQUEST_TIMEOUT_MS);
@@ -367,7 +371,7 @@ export async function quickRestoFetch(url: string, init: RequestInit): Promise<R
         );
       }
       const delay = QUICK_RESTO_FETCH_RETRY_DELAYS_MS[attempt];
-      if (delay !== undefined && isRetryableQuickRestoNetworkError(error)) {
+      if (options.retryNetwork !== false && delay !== undefined && isRetryableQuickRestoNetworkError(error)) {
         await sleep(delay);
         continue;
       }
@@ -715,7 +719,7 @@ export async function createInventoryItemBackOffice(input: {
  * `regTime`. Именно так это делает интерфейс Quick Resto; без тела эндпоинт
  * отвечает «Object doesn't exist», а POST — 405. Отдельного `/delete` нет.
  */
-async function callQuickRestoBackOfficeRemove<T>(input: {
+export async function callQuickRestoBackOfficeRemove<T>(input: {
   layerName: string;
   baseUrl?: string | null;
   /** Authorization-заголовок сессии: «Bearer <access_token>». */

@@ -202,6 +202,7 @@ export function NotificationBell({
             setActiveNotifs((prev) =>
               prev.some((n) => n.id === row.id) ? prev : [row, ...prev],
             );
+            if (row.type === "candidate.new") window.dispatchEvent(new Event("candidates:changed"));
             if (row.actor_user_id) {
               void ensureActorsForList([row]);
             }

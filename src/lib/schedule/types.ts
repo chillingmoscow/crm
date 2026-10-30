@@ -139,6 +139,7 @@ export type ScheduleData = {
   userId: string;
   permissions: string[];
   shifts: Shift[];
+  candidateTrials?: CandidateCalendarTrial[];
   templates: ShiftTemplate[];
   checklists: Checklist[];
   runs: ChecklistRun[];
@@ -163,3 +164,17 @@ export const assignmentFields = (id: string | null) => ({
   user_id: id?.startsWith("payroll:") ? null : id,
   payroll_employee_id: id?.startsWith("payroll:") ? id.slice(8) : null,
 });
+
+/** Recruiting appointments shown in the calendar; never employee shifts. */
+export type CandidateCalendarTrial = {
+  id: string;
+  candidate_id: string;
+  full_name: string;
+  desired_position: string | null;
+  hired_user_id: string | null;
+  appointment_date: string;
+  starts_at: string | null;
+  timezone: string;
+  location: string | null;
+  outcome: "scheduled" | "passed";
+};

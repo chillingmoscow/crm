@@ -24,12 +24,14 @@ import {
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { overlayClass, overlayContentTiming } from "@/lib/overlay-classes";
+import { focusOverlayContent } from "@/lib/overlay-focus";
 
 interface EditDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
+  titleAccessory?: React.ReactNode;
   children: React.ReactNode;
   /** Footer slot — typically <Button variant="outline">Отмена</Button> + <Button>Сохранить</Button> */
   footer?: React.ReactNode;
@@ -43,28 +45,21 @@ export function EditDrawer({
   onOpenChange,
   title,
   description,
+  titleAccessory,
   children,
   footer,
   className,
-  focusContentOnOpen = false,
+  focusContentOnOpen = true,
 }: EditDrawerProps) {
-  const contentRef = React.useRef<HTMLDivElement>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPrimitive.Portal>
         <SheetPrimitive.Overlay className={overlayClass} />
         <SheetPrimitive.Content
-          ref={contentRef}
-          onOpenAutoFocus={
-            focusContentOnOpen
-              ? (event) => {
-                  event.preventDefault();
-                  contentRef.current?.focus({ preventScroll: true });
-                }
-              : undefined
-          }
+          tabIndex={-1}
+          onOpenAutoFocus={focusContentOnOpen ? focusOverlayContent : undefined}
           className={cn(
-            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg transition",
+            "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg outline-none transition",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:slide-in-from-right data-[state=closed]:slide-out-to-right",
             overlayContentTiming,
             "border-l flex flex-col w-full sm:max-w-[520px]",
@@ -74,9 +69,10 @@ export function EditDrawer({
           {/* Header — bordered bottom, padding [20,24] */}
           <div className="flex items-start justify-between gap-2 px-6 py-5 border-b border-border">
             <div className="flex flex-col gap-1 min-w-0">
-              <SheetTitle className="text-[18px] font-semibold tracking-tight leading-tight">
-                {title}
-              </SheetTitle>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <SheetTitle className="text-[18px] font-semibold tracking-tight leading-tight">{title}</SheetTitle>
+                {titleAccessory}
+              </div>
               {description && (
                 <SheetDescription className="text-[13px] text-muted-foreground leading-relaxed">
                   {description}
@@ -84,7 +80,7 @@ export function EditDrawer({
               )}
             </div>
             <SheetClose
-              className="flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
+              className="flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors shrink-0"
               aria-label="Закрыть"
             >
               <X className="w-[18px] h-[18px]" />

@@ -24,6 +24,7 @@ export function ResizableTableHead<TData>({
   headerIndicator,
   headerAriaSort,
   renderControlHeader,
+  onResizeStart,
 }: {
   table: TanStackTable<TData>;
   /** Служебные колонки: без сортировки и без ручки ресайза (чекбокс, «⋯»). */
@@ -35,6 +36,8 @@ export function ResizableTableHead<TData>({
   headerAriaSort: (columnId: string) => "ascending" | "descending" | "none" | undefined;
   /** Содержимое шапки служебной колонки. По умолчанию — пусто. */
   renderControlHeader?: (header: Header<TData, unknown>) => ReactNode;
+  /** Live resize without committing React state on every pointer movement. */
+  onResizeStart?: (columnId: string, event: React.PointerEvent<HTMLDivElement>) => void;
 }) {
   return (
     <>
@@ -86,8 +89,9 @@ export function ResizableTableHead<TData>({
                   )}
                   {header.column.getCanResize() && !isControl ? (
                     <div
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
+                      onPointerDown={onResizeStart ? (event) => onResizeStart(columnId, event) : undefined}
+                      onMouseDown={onResizeStart ? undefined : header.getResizeHandler()}
+                      onTouchStart={onResizeStart ? undefined : header.getResizeHandler()}
                       className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
                     >
                       <span

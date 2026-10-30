@@ -36,6 +36,7 @@ import type { ReactNode } from "react";
 
 import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
 import { auditFallbackHeadline, auditFieldValueLabel, auditFieldLabel, formatAuditDate as formatDate } from "./labels";
+import { candidateAuditSpecs } from "./candidates";
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
  *  страница ещё существует и не в корзине; иначе — просто выделенный
@@ -65,7 +66,7 @@ function KbPageTitle({ event, text }: { event: AuditEvent; text: string }) {
   return <strong className="font-medium">{label}</strong>;
 }
 
-interface AuditEventSpec {
+export interface AuditEventSpec {
   icon: LucideIcon;
   iconClass: string;
   /** Главная фраза события: «уволил(а) Петю Иванова. Причина: прогул».
@@ -299,8 +300,9 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 const SPECS: Record<string, AuditEventSpec> = {
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
-    buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : ""}</>,
+    buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : ""}</>,
     buildDetails: (e) => <>
+      {e.details.provider === "telegram" && <p className="text-xs text-muted-foreground">Бот: @{String(e.details.bot_username ?? "")} · Чат: {String(e.details.chat_id ?? "")}</p>}
       {typeof e.details.backoffice_configured === "boolean" && <p className="text-xs text-muted-foreground">Доступ к бэк-офису: {e.details.backoffice_configured ? "настроен" : "не настроен"}</p>}
       {typeof e.details.bonus_writes === "boolean" && <p className="text-xs text-muted-foreground">Бонусные списания: {e.details.bonus_writes ? "включены" : "выключены"}</p>}
     </>,
@@ -419,6 +421,10 @@ const SPECS: Record<string, AuditEventSpec> = {
   "payroll.adjustment.restored": payrollAdjustmentSpec("восстановил(а)", RotateCcw),
   "payroll.adjustment.commented": payrollAdjustmentSpec("прокомментировал(а)", FileEdit),
   "payroll.adjustment.photo_added": payrollAdjustmentSpec("добавил(а) фото", FilePlus2),
+  ...candidateAuditSpecs,
+  "candidate.archived": {icon:Archive,iconClass:"text-muted-foreground bg-muted",buildHeadline:e=><>архивировал(а) анкету кандидата «{String(e.details.name??"")}»</>},
+  "candidate.restored": {icon:RotateCcw,iconClass:"text-brand bg-brand/10",buildHeadline:e=><>восстановил(а) анкету кандидата «{String(e.details.name??"")}»</>},
+  "candidate.deleted": {icon:Trash2,iconClass:"text-destructive bg-destructive/10",buildHeadline:e=><>удалил(а) анкету кандидата «{String(e.details.name??"")}»</>},
   // ── staff ──────────────────────────────────────────────────
   "staff.hired": {
     icon: UserPlus,
@@ -453,6 +459,11 @@ const SPECS: Record<string, AuditEventSpec> = {
         </>
       );
     },
+  },
+  "staff.access_removed": {
+    icon: UserMinus,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => <>подтвердил(а) закрытие внешнего доступа <StaffName event={e} /></>,
   },
   "staff.restored": {
     icon: RotateCcw,

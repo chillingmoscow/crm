@@ -43,15 +43,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
   PageBreadcrumb,
   PageHeaderActions,
 } from "@/components/shared/page-header-actions";
+import { ProfileHeader } from "@/components/shared/profile-header";
+import { ProfileSection as FormSection } from "@/components/shared/profile-section";
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
@@ -115,6 +111,7 @@ interface Props {
   roles:          Role[];
   canEdit:        boolean;
   isFired:        boolean;
+  canRestore?:   boolean;
   firedAt:        string | null;
   firedReason:    string | null;
   isMe:           boolean;
@@ -150,57 +147,6 @@ interface Props {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function FormSection({
-  title,
-  description,
-  locked,
-  children,
-}: {
-  title: string;
-  description?: string;
-  /** Если задан — рядом с заголовком секции рисуется иконка-замочек
-   * с tooltip'ом. tone:
-   *   - "locked" — данными управляет сотрудник, для админа read-only
-   *   - "info"   — placeholder-юзер, админ временно может править */
-  locked?: { tone: "locked" | "info" };
-  children: React.ReactNode;
-}) {
-  const lockMessage = locked?.tone === "locked"
-    ? "Этими данными управляет сотрудник через свой профиль. Чтобы поменять — попросите его обновить."
-    : "Сотрудник пока не зарегистрирован. Заполните за него — позже он сможет обновлять сам.";
-  return (
-    <section className="rounded-[14px] border bg-card p-5 flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-base font-semibold text-foreground leading-tight">
-            {title}
-          </h2>
-          {locked && (
-            <TooltipProvider delayDuration={500} skipDelayDuration={500}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex items-center text-muted-foreground/70 hover:text-muted-foreground cursor-help">
-                    <Lock className="w-3 h-3" aria-label="Раздел с ограничением" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[280px] text-[12px]">
-                  {lockMessage}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          )}
-        </div>
-        {description && (
-          <p className="text-[13px] text-muted-foreground leading-snug">
-            {description}
-          </p>
-        )}
-      </header>
-      {children}
-    </section>
-  );
-}
-
 // ── Component ─────────────────────────────────────────────────
 
 export function StaffDetailPage({
@@ -219,6 +165,7 @@ export function StaffDetailPage({
   roles,
   canEdit: canEditProp,
   isFired,
+  canRestore = true,
   firedAt,
   firedReason,
   isMe,
@@ -581,7 +528,7 @@ export function StaffDetailPage({
     }
     startTransition(async () => {
       const result = await fireStaff(uvrId, reason);
-      if (result.error) { toast.error(result.error); return; }
+      if (result.error) { toast.error(result.error); router.refresh(); return; }
       toast.success("Сотрудник уволен");
       router.push("/people/staff");
     });
@@ -664,7 +611,7 @@ export function StaffDetailPage({
       </PageBreadcrumb>
 
       <PageHeaderActions>
-        {isFired && canManageStaff && (
+        {isFired && canManageStaff && canRestore && (
           <Button
             variant="outline"
             size="sm"
@@ -696,81 +643,59 @@ export function StaffDetailPage({
       </PageHeaderActions>
 
       <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        {/* Header — мини-аватар 56px + имя + бейджи. Крупное фото вынесено в
-            первую секцию таба «Основное» (см. ниже), чтобы было видно. */}
-        <div className="flex items-center gap-4 min-w-0">
-          <div className="relative shrink-0">
-            {avatarUrl ? (
-              <img
-                src={avatarUrl}
-                alt={displayName}
-                className="w-14 h-14 rounded-full object-cover bg-muted"
-              />
-            ) : (
-              <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center text-xl font-semibold text-muted-foreground">
-                {displayName.charAt(0).toUpperCase()}
-              </div>
-            )}
-          </div>
-          <div className="flex flex-col gap-2 min-w-0">
-            <h1 className="text-[28px] font-bold tracking-tight leading-tight truncate">
-              {displayName}
-            </h1>
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-sm text-muted-foreground">
-                {roleName}
-                {departmentName && (
-                  <>
-                    {" · "}
-                    {departmentId ? (
-                      <Link
-                        href={`/people/departments/${departmentId}`}
-                        className="hover:text-foreground hover:underline"
-                      >
-                        {departmentName}
-                      </Link>
-                    ) : (
-                      departmentName
-                    )}
-                  </>
+        <ProfileHeader name={displayName} avatarUrl={avatarUrl}>
+          <span className="text-sm text-muted-foreground">
+            {roleName}
+            {departmentName && (
+              <>
+                {" · "}
+                {departmentId ? (
+                  <Link
+                    href={`/people/departments/${departmentId}`}
+                    className="hover:text-foreground hover:underline"
+                  >
+                    {departmentName}
+                  </Link>
+                ) : (
+                  departmentName
                 )}
+              </>
+            )}
+          </span>
+          {isFired ? (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
+              <span className="text-[12px] font-medium text-muted-foreground leading-none">
+                Уволен{firedAt ? ` · ${formatDate(firedAt)}` : ""}
               </span>
-              {isFired ? (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
-                  <span className="text-[12px] font-medium text-muted-foreground leading-none">
-                    Уволен{firedAt ? ` · ${formatDate(firedAt)}` : ""}
-                  </span>
-                </span>
-              ) : isPlaceholderUser ? (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
-                  <span className="text-[12px] font-medium text-muted-foreground leading-none">
-                    Без аккаунта
-                  </span>
-                </span>
-              ) : isPendingInvite ? (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15">
-                  <span className="text-[12px] font-medium text-amber-700 dark:text-amber-300 leading-none">
-                    Ожидает подтверждения
-                  </span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15">
-                  <span className="text-[12px] font-medium text-emerald-700 dark:text-emerald-400 leading-none">
-                    Активен
-                  </span>
-                </span>
-              )}
-              {importedFromQuickResto && (
-                <Badge
-                  variant="outline"
-                  className="text-[11px] border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-500/30"
-                >
-                  Из QuickResto
-                </Badge>
-              )}
-            </div>
-          </div>
-        </div>
+            </span>
+          ) : isPlaceholderUser ? (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-secondary">
+              <span className="text-[12px] font-medium text-muted-foreground leading-none">
+                Без аккаунта
+              </span>
+            </span>
+          ) : isPendingInvite ? (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/15">
+              <span className="text-[12px] font-medium text-amber-700 dark:text-amber-300 leading-none">
+                Ожидает подтверждения
+              </span>
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15">
+              <span className="text-[12px] font-medium text-emerald-700 dark:text-emerald-400 leading-none">
+                Активен
+              </span>
+            </span>
+          )}
+          {importedFromQuickResto && (
+            <Badge
+              variant="outline"
+              className="text-[11px] border-blue-200 text-blue-700 dark:text-blue-300 dark:border-blue-500/30"
+            >
+              Из QuickResto
+            </Badge>
+          )}
+        </ProfileHeader>
 
         {isFired && firedReason && (
           <div className="rounded-[14px] border bg-card px-5 py-4">
@@ -1342,9 +1267,9 @@ export function StaffDetailPage({
                         Уволить сотрудника
                       </p>
                       <p className="text-[13px] text-muted-foreground leading-snug">
-                        Сотрудник потеряет доступ к этому заведению. Профиль и
-                        история сохраняются — восстановить можно из списка
-                        уволенных.
+                        Сотрудник потеряет доступ к заведению. Если это последнее
+                        заведение аккаунта, связанные записи Quick Resto будут удалены,
+                        а код замка отозван. Профиль и история сохраняются.
                       </p>
                     </div>
                     <div className="shrink-0">
@@ -1385,8 +1310,9 @@ export function StaffDetailPage({
           <DialogHeader>
             <DialogTitle>Уволить сотрудника?</DialogTitle>
             <DialogDescription>
-              «{displayName}» потеряет доступ к этому заведению. Профиль и
-              история сохраняются — восстановить можно из списка уволенных.
+              «{displayName}» потеряет доступ к этому заведению. Если это последнее
+              заведение аккаунта, удалим связанные записи Quick Resto и отзовём код
+              замка. Профиль и история сохраняются. Повторный найм потребует нового оформления доступа.
             </DialogDescription>
           </DialogHeader>
 

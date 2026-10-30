@@ -2,7 +2,8 @@
 import { createClient, getCachedPermissions } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Json } from "@/types/database";
-import type { ScheduleDatabase, ScheduleData } from "@/lib/schedule/types";
+import type { CandidateCalendarTrial, ScheduleDatabase, ScheduleData } from "@/lib/schedule/types";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 const uuid = z.string().uuid();
@@ -129,6 +130,7 @@ export async function loadSchedule(
     departments,
     roles,
     venue,
+    candidateTrials,
   ] = await Promise.all([
     sq,
     db
@@ -159,6 +161,9 @@ export async function loadSchedule(
       .eq("venue_id", venueId)
       .order("name"),
     db.from("venues").select("timezone").eq("id", venueId).single(),
+    permissions.includes("people.manage_candidates") && permissions.includes("schedule.view_all")
+      ? asLooseDb(db).rpc("candidate_calendar_trials", {})
+      : Promise.resolve({ data: [], error: null }),
   ]);
   for (const r of [
     shifts,
@@ -170,6 +175,7 @@ export async function loadSchedule(
     departments,
     roles,
     venue,
+    candidateTrials,
   ])
     if (r.error)
       throw new Error("Не удалось загрузить график: " + r.error.message);
@@ -179,6 +185,7 @@ export async function loadSchedule(
     userId: user.id,
     permissions,
     shifts: shifts.data ?? [],
+    candidateTrials: (candidateTrials.data ?? []) as CandidateCalendarTrial[],
     templates: templates.data ?? [],
     checklists: checklists.data ?? [],
     runs: runs.data ?? [],

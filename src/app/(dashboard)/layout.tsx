@@ -99,10 +99,11 @@ export default async function DashboardLayout({
   const supabaseUntyped = supabase as unknown as {
     rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>;
   };
-  const [accountId, userPermissions, attentionRes] = await Promise.all([
+  const [accountId, userPermissions, attentionRes, candidateCountRes] = await Promise.all([
     getCachedActiveAccountId(),
     getCachedPermissions(),
     supabaseUntyped.rpc("count_venue_staff_attention", { p_venue_id: activeVenueId }),
+    supabaseUntyped.rpc("candidate_new_count", {}),
   ]);
   let accountName: string | null = null;
   // KB-поиск (Cmd+K) поднят на dashboard-layout, чтобы работать из
@@ -183,6 +184,8 @@ export default async function DashboardLayout({
         accountName={accountName}
         userPermissions={userPermissions}
         staffAttentionCount={staffAttentionCount}
+        candidateAccountId={accountId}
+        newCandidatesCount={typeof candidateCountRes?.data === "number" ? candidateCountRes.data : 0}
         kbSidebarHidden={kbSidebarHidden}
         isImpersonating={Boolean(activeImpersonation)}
       />

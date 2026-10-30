@@ -217,3 +217,7 @@
   upsert HR-данных
 - `supabase/migrations/150_invitations_token.sql` — token для custom
   invite flow
+
+## Кандидаты
+
+Общий список анкет, собеседования, комментарии и приём на работу: [Кандидаты](candidates.md).

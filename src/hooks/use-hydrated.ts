@@ -27,6 +27,7 @@ type HiddenTabsContentIds = { id?: undefined; "aria-labelledby"?: undefined };
 
 /** Стабильные ссылки, чтобы спред не создавал новый объект на рендер. */
 const KEEP_IDS = {};
+const HIDE_TRIGGER_ID = { id: undefined };
 const HIDE_ARIA_CONTROLS: HiddenAriaControls = { "aria-controls": undefined };
 const HIDE_TABS_TRIGGER_IDS: HiddenTabsTriggerIds = {
   id: undefined,
@@ -62,11 +63,17 @@ const HIDE_TABS_CONTENT_IDS: HiddenTabsContentIds = {
  * затёрт нашим undefined.
  *
  * Применять к триггерам, у которых контент монтируется позже: Dialog,
- * Sheet, AlertDialog, Popover, Select. DropdownMenu не нужен — там Radix
- * сам отдаёт `aria-controls` только когда меню открыто.
+ * Sheet, AlertDialog, Popover, Select. У DropdownMenu `aria-controls`
+ * появляется только при открытии, но собственный id триггера всегда
+ * присутствует — его обрабатывает useSsrSafeDropdownTriggerId.
  */
 export function useSsrSafeAriaControls(): HiddenAriaControls {
   return useHydrated() ? KEEP_IDS : HIDE_ARIA_CONTROLS;
+}
+
+/** DropdownMenu content uses this id for aria-labelledby after opening. */
+export function useSsrSafeDropdownTriggerId(): { id?: undefined } {
+  return useHydrated() ? KEEP_IDS : HIDE_TRIGGER_ID;
 }
 
 /**

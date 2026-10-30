@@ -1,5 +1,5 @@
 "use client";
-import { ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronRight } from "lucide-react";
 import type { Appointment, AppointmentOptions } from "@/lib/candidates/types";
 import { APPOINTMENT_OUTCOME_CLASSES, appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { dateLabel, safeLink, StatusBadge, wallTime } from "./fields";
@@ -13,12 +13,13 @@ export function CandidateAppointmentRow({ appointment: a, options, onOpen }: {
   const status = appointmentOutcomeLabel(a.kind, a.outcome);
   return <button type="button" onClick={onOpen}
     aria-label={`Открыть ${a.kind === "interview" ? "собеседование" : "стажировку"}: ${dateLabel(a.appointment_date)}, ${status}`}
-    className="flex w-full min-w-0 items-center gap-3 border-b py-4 text-left outline-none transition-colors last:border-b-0 last:pb-0 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring">
+    className="group flex min-h-[76px] w-full min-w-0 items-center gap-3 rounded-lg px-3 py-3 text-left outline-none transition-colors duration-150 ease-out hover:bg-muted/40 active:bg-muted/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/60 motion-reduce:transition-none">
+    <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground"><CalendarDays className="size-4" /></span>
     <span className="min-w-0 flex-1 space-y-1">
       <span className="block text-sm font-medium">{dateLabel(a.appointment_date)}</span>
-      {subtitle && <span className="block truncate text-xs text-muted-foreground" title={subtitle}>{subtitle}</span>}
+      {subtitle && <span className="block truncate text-[13px] text-muted-foreground">{subtitle}</span>}
     </span>
     <span className="shrink-0"><StatusBadge label={status} className={APPOINTMENT_OUTCOME_CLASSES[a.outcome]} /></span>
-    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+    <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground motion-reduce:transition-none" />
   </button>;
 }

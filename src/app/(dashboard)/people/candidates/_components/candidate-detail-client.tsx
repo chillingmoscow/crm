@@ -5,6 +5,7 @@ import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
+  Plus,
   MoreHorizontal,
   CalendarPlus,
   UserCheck,
@@ -430,9 +431,10 @@ export function CandidateDetailClient({
                   {latestInterview ? <CandidateAppointmentRow appointment={latestInterview} options={options} onOpen={() => setViewing(latestInterview)} />
                     : <p className="py-6 text-sm text-muted-foreground">Собеседование ещё не назначено.</p>}
               </ProfileSection>
-              <ProfileSection title="Стажировки">
-                  {canEdit && canTrial && !c.hired_user_id && !data.hire && c.status === "trial" && <div className="flex justify-end pt-3"><Button variant="ghost" size="sm" className="text-brand" onClick={() => openMeeting("trial")}><CalendarPlus className="mr-1.5 size-4" />Добавить стажировку</Button></div>}
-                  {data.appointments.some((a) => a.kind === "trial") ? data.appointments.filter((a) => a.kind === "trial").map((a) => <CandidateAppointmentRow key={a.id} appointment={a} options={options} onOpen={() => setViewing(a)} />)
+              <ProfileSection title="Стажировки" actions={canEdit && canTrial && !c.hired_user_id && !data.hire && c.status === "trial" ? (
+                <Button variant="ghost" size="sm" aria-label="Добавить стажировку" className="-my-1.5 -mr-2 h-8 gap-1.5 px-2 text-brand hover:bg-brand/10 hover:text-brand" onClick={() => openMeeting("trial")}><Plus className="size-3.5" />Добавить</Button>
+              ) : undefined}>
+                  {data.appointments.some((a) => a.kind === "trial") ? <div className="space-y-1">{data.appointments.filter((a) => a.kind === "trial").map((a) => <CandidateAppointmentRow key={a.id} appointment={a} options={options} onOpen={() => setViewing(a)} />)}</div>
                     : <p className="py-6 text-sm text-muted-foreground">{canTrial ? "Стажировки ещё не назначены." : "Стажировки станут доступны после результата собеседования «Пройдено» с комментарием."}</p>}
               </ProfileSection>
             </div>

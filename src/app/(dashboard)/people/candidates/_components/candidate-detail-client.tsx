@@ -425,20 +425,17 @@ export function CandidateDetailClient({
             <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={async () => { await refresh(); }} />
           </TabsContent>
           <TabsContent value="communication" className="mx-auto w-full max-w-[720px]">
-            <section className="rounded-[14px] border bg-card p-5">
-              <Tabs defaultValue="interview" className="min-w-0">
-                <TabsList><TabsTrigger value="interview">Собеседование</TabsTrigger><TabsTrigger value="trial">Стажировки</TabsTrigger></TabsList>
-                <TabsContent value="interview" className="mt-2">
+            <div className="space-y-5">
+              <ProfileSection title="Собеседование">
                   {latestInterview ? <CandidateAppointmentRow appointment={latestInterview} options={options} onOpen={() => setViewing(latestInterview)} />
                     : <p className="py-6 text-sm text-muted-foreground">Собеседование ещё не назначено.</p>}
-                </TabsContent>
-                <TabsContent value="trial" className="mt-2">
+              </ProfileSection>
+              <ProfileSection title="Стажировки">
                   {canEdit && canTrial && !c.hired_user_id && !data.hire && c.status === "trial" && <div className="flex justify-end pt-3"><Button variant="ghost" size="sm" className="text-brand" onClick={() => openMeeting("trial")}><CalendarPlus className="mr-1.5 size-4" />Добавить стажировку</Button></div>}
                   {data.appointments.some((a) => a.kind === "trial") ? data.appointments.filter((a) => a.kind === "trial").map((a) => <CandidateAppointmentRow key={a.id} appointment={a} options={options} onOpen={() => setViewing(a)} />)
                     : <p className="py-6 text-sm text-muted-foreground">{canTrial ? "Стажировки ещё не назначены." : "Стажировки станут доступны после результата собеседования «Пройдено» с комментарием."}</p>}
-                </TabsContent>
-              </Tabs>
-            </section>
+              </ProfileSection>
+            </div>
           </TabsContent>
           <TabsContent value="history" className="mx-auto w-full max-w-[720px]">
             <ProfileSection title="Журнал" description="История изменений анкеты">

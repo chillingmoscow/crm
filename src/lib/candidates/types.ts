@@ -173,7 +173,7 @@ export type CandidateDetail = {
 };
 export type ListFilters = {
   search?: string;
-  status?: string;
+  status?: string | string[];
   position?: string;
   from?: string;
   to?: string;

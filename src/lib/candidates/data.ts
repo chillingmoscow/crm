@@ -96,7 +96,9 @@ function candidateQuery(s: CandidateScope, filters: ListFilters) {
     query = query.or(
       `full_name.ilike.%${search}%,phone.ilike.%${search}%,desired_position.ilike.%${search}%${normalizePhone(search).length >= 3 ? ",phone_normalized.ilike.%" + normalizePhone(search) + "%" : ""}`,
     );
-  if (filters.status) query = query.eq("status", filters.status);
+  if (Array.isArray(filters.status)) {
+    if (filters.status.length) query = query.in("status", filters.status);
+  } else if (filters.status) query = query.eq("status", filters.status);
   if (filters.position) query = query.eq("desired_position", filters.position);
   // Business dates are interpreted in the account's recruiting timezone (Moscow for the initial Tilda form).
   if (filters.from || filters.to) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -10,20 +10,20 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-/** Same single-choice chip and option rows as the transaction type filter. */
+/** Shared filter chip; multiple selections stay open until dismissed. */
 export function CandidateFilterChip({
   label,
+  multiple,
   value,
   options,
   onChange,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-}) {
+}: { label: string; options: { value: string; label: string }[] } & (
+  { multiple: true; value: string[]; onChange: (value: string[]) => void } |
+  { multiple?: false; value: string; onChange: (value: string) => void }
+)) {
   const [open, setOpen] = useState(false);
-  const active = !!value;
+  const selected = Array.isArray(value) ? value : value ? [value] : [];
+  const active = selected.length > 0;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <div className="relative inline-flex">
@@ -39,7 +39,7 @@ export function CandidateFilterChip({
             )}
           >
             <span className="truncate">
-              {active ? options.find((o) => o.value === value)?.label : label}
+              {active ? options.filter((o) => selected.includes(o.value)).map((o) => o.label).join(", ") : label}
             </span>
             {!active ? (
               <ChevronDown className="ml-1 size-3.5 shrink-0 opacity-70" />
@@ -52,7 +52,7 @@ export function CandidateFilterChip({
             aria-label={`Сбросить ${label.toLocaleLowerCase("ru")}`}
             onClick={(e) => {
               e.stopPropagation();
-              onChange("");
+              if (multiple) onChange([]); else onChange("");
             }}
             className="absolute right-1.5 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-full bg-brand text-brand-foreground hover:bg-brand/90"
           >
@@ -78,17 +78,20 @@ export function CandidateFilterChip({
             <button
               key={o.value}
               type="button"
-              aria-pressed={o.value === value}
+              role={multiple ? "checkbox" : undefined}
+              aria-checked={multiple ? (o.value ? selected.includes(o.value) : !active) : undefined}
+              aria-pressed={multiple ? undefined : o.value === value}
               onClick={() => {
-                onChange(o.value);
-                setOpen(false);
+                if (multiple) onChange(!o.value ? [] : selected.includes(o.value) ? selected.filter((v) => v !== o.value) : [...selected, o.value]);
+                else { onChange(o.value); setOpen(false); }
               }}
               className={cn(
-                "block w-full rounded-sm px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent",
-                o.value === value && "bg-accent",
+                "flex w-full items-center justify-between gap-2 rounded-sm px-3 py-2 text-left text-sm outline-none hover:bg-accent focus-visible:bg-accent",
+                (o.value ? selected.includes(o.value) : !active) && "bg-accent",
               )}
             >
               {o.label}
+              {multiple && (o.value ? selected.includes(o.value) : !active) && <Check className="size-3.5 shrink-0" />}
             </button>
           ))}
         </div>

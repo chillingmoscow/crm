@@ -30,9 +30,10 @@ const result = <T>(r: {
 };
 const listingFilters = z.object({
   search: z.string().max(100).optional(),
-  status: z
-    .enum(["new", "review", "interview", "trial", "rejected", ""])
-    .optional(),
+  status: z.union([
+    z.enum(["new", "review", "interview", "trial", "rejected", ""]),
+    z.array(z.enum(["new", "review", "interview", "trial", "rejected"])).max(5),
+  ]).optional(),
   position: z.string().max(300).optional(),
   from: z.string().date().optional(),
   to: z.string().date().optional(),

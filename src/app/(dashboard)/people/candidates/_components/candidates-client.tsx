@@ -78,7 +78,7 @@ export function CandidatesClient({
   });
   const [search, setSearch] = useState(""),
     [query, setQuery] = useState(""),
-    [status, setStatus] = useState(""),
+    [status, setStatus] = useState<string[]>([]),
     [position, setPosition] = useState(""),
     [from, setFrom] = useState(""),
     [to, setTo] = useState(""),
@@ -189,7 +189,7 @@ export function CandidatesClient({
       ),
     }));
     // Only a status-dependent filter/order needs a quiet server reconciliation.
-    if (saved.status === "hired" || status || st.sorting.some((sort) => sort.id === "status")) refreshList();
+    if (saved.status === "hired" || status.length > 0 || st.sorting.some((sort) => sort.id === "status")) refreshList();
     window.dispatchEvent(new Event("candidates:changed"));
   }, [status, st.sorting, refreshList]);
   useEffect(() => {
@@ -231,9 +231,9 @@ export function CandidatesClient({
         Math.ceil((180 * table.getTotalSize()) / statusColumn.getSize()),
       )
     : 640;
-  const hasFilters = !!(status || position || from || to);
+  const hasFilters = !!(status.length || position || from || to);
   const reset = () => {
-    setStatus("");
+    setStatus([]);
     setPosition("");
     setFrom("");
     setTo("");
@@ -384,6 +384,7 @@ export function CandidatesClient({
               />
               <CandidateFilterChip
                 label="Статус"
+                multiple
                 value={status}
                 onChange={(v) => {
                   setStatus(v);

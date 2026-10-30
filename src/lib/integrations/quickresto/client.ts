@@ -719,7 +719,7 @@ export async function createInventoryItemBackOffice(input: {
  * `regTime`. Именно так это делает интерфейс Quick Resto; без тела эндпоинт
  * отвечает «Object doesn't exist», а POST — 405. Отдельного `/delete` нет.
  */
-async function callQuickRestoBackOfficeRemove<T>(input: {
+export async function callQuickRestoBackOfficeRemove<T>(input: {
   layerName: string;
   baseUrl?: string | null;
   /** Authorization-заголовок сессии: «Bearer <access_token>». */

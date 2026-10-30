@@ -247,6 +247,72 @@ do $$declare h jsonb;begin
  if (select count(*) from public.payroll_employees where local_user_id=(h->>'target_user_id')::uuid)<>1 or (select count(*) from public.staff_door_codes where user_id=(h->>'target_user_id')::uuid)<>1 then raise exception 'Existing staff was provisioned twice';end if;
 
 end $$;
+-- Dismissal is authorized, idempotent and preserves employment history.
+savepoint termination_checks;
+update public.profiles set active_venue_id='ce000000-0000-4000-8000-000000000020' where id=(select (payload->>'target_user_id')::uuid from qa_hire_context);
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000002","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
+set local role authenticated;
+do $$begin
+ begin perform public.staff_begin_termination((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'QA');raise exception 'Recruiter could fire staff';exception when others then if SQLERRM<>'Нет права увольнять сотрудника' then raise;end if;end;
+ if has_table_privilege('authenticated','public.staff_terminations','SELECT') or has_function_privilege('authenticated','public.staff_claim_termination(uuid)','EXECUTE') then raise exception 'Private termination job exposed';end if;
+end $$;
+reset role;
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
+set local role authenticated;
+do $$begin
+ begin perform public.staff_begin_termination((select id from public.user_venue_roles where user_id='ce000000-0000-4000-8000-000000000001' limit 1),'QA');raise exception 'Owner could fire self';exception when others then if SQLERRM<>'Владельца и себя нельзя уволить' then raise;end if;end;
+ begin perform public.staff_begin_termination('ce000000-0000-4000-8000-000000009999','QA');raise exception 'Unknown staff allowed';exception when others then if SQLERRM<>'Нет права увольнять сотрудника' then raise;end if;end;
+end $$;
+create temp table qa_termination_context(id uuid);
+insert into qa_termination_context select public.staff_begin_termination((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'Проверка увольнения QA');
+do $$begin
+ if (select id from qa_termination_context) is distinct from public.staff_begin_termination((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'Повтор') then raise exception 'Duplicate termination job';end if;
+end $$;
+reset role;
+do $$declare j public.staff_terminations;h jsonb;claim jsonb;begin
+ select * into j from public.staff_terminations where id=(select id from qa_termination_context);
+ select payload into h from qa_hire_context;
+ if j.employee_id<>999999 or j.guest_id<>999998 or j.bonus_id<>999997 or j.shared_access or not j.door_revoked then raise exception 'Wrong cleanup manifest';end if;
+ if exists(select 1 from public.user_venue_roles where id=j.uvr_id and status='active') or exists(select 1 from public.payroll_employees where local_user_id=j.user_id and active) then raise exception 'Staff still active';end if;
+ if exists(select 1 from public.schedule_qualifications where user_id=j.user_id) then raise exception 'Qualification still active';end if;
+ if not exists(select 1 from public.staff_door_codes where user_id=j.user_id and revoked_at is not null and password_secret is null) then raise exception 'Door secret not revoked';end if;
+ if not exists(select 1 from public.profiles where id=j.user_id) or not exists(select 1 from public.payroll_employees where local_user_id=j.user_id) or not exists(select 1 from public.candidates where hired_user_id=j.user_id) then raise exception 'Employment history erased';end if;
+ if not exists(select 1 from public.audit_logs where entity_id=j.user_id and action_code='staff.fired' and user_id=j.actor_id) then raise exception 'Dismissal actor not logged';end if;
+ claim:=public.staff_claim_termination(j.id);
+ if claim->>'id' is distinct from j.id::text or public.staff_claim_termination(j.id) is not null then raise exception 'Concurrent job claim allowed';end if;
+ update public.staff_terminations set state='complete',completed_at=now(),lease_until=null where id=j.id;
+ update public.staff_terminations set state='complete' where id=j.id;
+ if (select count(*) from public.audit_logs where entity_id=j.user_id and action_code='staff.access_removed' and user_id=j.actor_id)<>1 then raise exception 'Missing or duplicate cleanup audit';end if;
+ begin update public.user_venue_roles set status='active' where id=j.uvr_id;raise exception 'Unsafe restore allowed';exception when others then if SQLERRM not like 'Внешний доступ закрыт%' then raise;end if;end;
+end $$;
+select set_config('request.jwt.claims',jsonb_build_object('sub',(select payload->>'target_user_id' from qa_hire_context),'role','authenticated')::text,true);
+select set_config('app.ctx_ready','',true);
+set local role authenticated;
+do $$begin
+ if public.get_active_account_id() is not null or public.has_permission('people.view_staff') then raise exception 'Fired user retained account access';end if;
+end $$;
+reset role;
+rollback to savepoint termination_checks;
+-- An employee still active in another venue keeps shared QR and door access.
+savepoint shared_termination;
+insert into public.venues(id,account_id,name) values('ce000000-0000-4000-8000-000000000022','ce000000-0000-4000-8000-000000000010','Второе QA');
+insert into public.roles(id,venue_id,name,code) values('ce000000-0000-4000-8000-000000000032','ce000000-0000-4000-8000-000000000022','Работник QA','worker_qa');
+insert into public.user_venue_roles(user_id,venue_id,role_id,status) select (payload->>'target_user_id')::uuid,'ce000000-0000-4000-8000-000000000022','ce000000-0000-4000-8000-000000000032','active' from qa_hire_context;
+select set_config('request.jwt.claims','{"sub":"ce000000-0000-4000-8000-000000000001","role":"authenticated"}',true);
+select set_config('app.ctx_ready','',true);
+set local role authenticated;
+select public.staff_begin_termination((select id from public.user_venue_roles where venue_id='ce000000-0000-4000-8000-000000000020' and user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context)),'QA другое заведение');
+reset role;
+do $$begin
+ if not exists(select 1 from public.staff_terminations where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context) and shared_access and state='complete' and not door_revoked) then raise exception 'Shared access removed';end if;
+ if not exists(select 1 from public.staff_door_codes where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context) and revoked_at is null) then raise exception 'Shared door revoked';end if;
+ update public.user_venue_roles set status='active',fired_at=null,fired_reason=null where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context) and venue_id='ce000000-0000-4000-8000-000000000020';
+ perform public.staff_begin_termination((select id from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context) and venue_id='ce000000-0000-4000-8000-000000000020'),'QA повторное увольнение');
+ if (select count(*) from public.staff_terminations where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context))<>2 or exists(select 1 from public.user_venue_roles where user_id=(select (payload->>'target_user_id')::uuid from qa_hire_context) and venue_id='ce000000-0000-4000-8000-000000000020' and status='active') then raise exception 'Second dismissal reused a prior employment cycle';end if;
+end $$;
+rollback to savepoint shared_termination;
 set local role authenticated;
 select public.candidate_command('archive','ce000000-0000-4000-8000-000000000040','{}');
 reset role;

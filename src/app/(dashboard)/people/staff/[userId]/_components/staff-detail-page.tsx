@@ -111,6 +111,7 @@ interface Props {
   roles:          Role[];
   canEdit:        boolean;
   isFired:        boolean;
+  canRestore?:   boolean;
   firedAt:        string | null;
   firedReason:    string | null;
   isMe:           boolean;
@@ -164,6 +165,7 @@ export function StaffDetailPage({
   roles,
   canEdit: canEditProp,
   isFired,
+  canRestore = true,
   firedAt,
   firedReason,
   isMe,
@@ -526,7 +528,7 @@ export function StaffDetailPage({
     }
     startTransition(async () => {
       const result = await fireStaff(uvrId, reason);
-      if (result.error) { toast.error(result.error); return; }
+      if (result.error) { toast.error(result.error); router.refresh(); return; }
       toast.success("Сотрудник уволен");
       router.push("/people/staff");
     });
@@ -609,7 +611,7 @@ export function StaffDetailPage({
       </PageBreadcrumb>
 
       <PageHeaderActions>
-        {isFired && canManageStaff && (
+        {isFired && canManageStaff && canRestore && (
           <Button
             variant="outline"
             size="sm"
@@ -1265,9 +1267,9 @@ export function StaffDetailPage({
                         Уволить сотрудника
                       </p>
                       <p className="text-[13px] text-muted-foreground leading-snug">
-                        Сотрудник потеряет доступ к этому заведению. Профиль и
-                        история сохраняются — восстановить можно из списка
-                        уволенных.
+                        Сотрудник потеряет доступ к заведению. Если это последнее
+                        заведение аккаунта, связанные записи Quick Resto будут удалены,
+                        а код замка отозван. Профиль и история сохраняются.
                       </p>
                     </div>
                     <div className="shrink-0">
@@ -1308,8 +1310,9 @@ export function StaffDetailPage({
           <DialogHeader>
             <DialogTitle>Уволить сотрудника?</DialogTitle>
             <DialogDescription>
-              «{displayName}» потеряет доступ к этому заведению. Профиль и
-              история сохраняются — восстановить можно из списка уволенных.
+              «{displayName}» потеряет доступ к этому заведению. Если это последнее
+              заведение аккаунта, удалим связанные записи Quick Resto и отзовём код
+              замка. Профиль и история сохраняются. Повторный найм потребует нового оформления доступа.
             </DialogDescription>
           </DialogHeader>
 

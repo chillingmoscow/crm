@@ -411,6 +411,11 @@ const SPECS: Record<string, AuditEventSpec> = {
       );
     },
   },
+  "staff.access_removed": {
+    icon: UserMinus,
+    iconClass: "text-destructive bg-destructive/10",
+    buildHeadline: (e) => <>подтвердил(а) закрытие внешнего доступа <StaffName event={e} /></>,
+  },
   "staff.restored": {
     icon: RotateCcw,
     iconClass: "text-foreground bg-muted",

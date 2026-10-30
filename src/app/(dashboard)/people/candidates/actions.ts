@@ -401,6 +401,7 @@ export async function getCandidateDoorCode(userId: string) {
       .select("user_number,password_secret")
       .eq("account_id", s.accountId)
       .eq("user_id", uuid.parse(userId))
+      .is("revoked_at", null)
       .maybeSingle(),
   );
   if (!row?.password_secret) return null;

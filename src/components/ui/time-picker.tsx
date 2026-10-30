@@ -19,11 +19,12 @@ export function TimePicker({ value, onChange, id, className, clearable = true, d
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement | null>(null);
   const [hh = "00", mm = "00"] = value ? value.split(":") : [];
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button id={id} type="button" disabled={disabled} aria-label="Время" className={cn(
+        <button ref={trigger} id={id} type="button" disabled={disabled} aria-label="Время" className={cn(
           "flex h-10 w-full min-w-0 items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50",
           className,
         )}>
@@ -31,7 +32,7 @@ export function TimePicker({ value, onChange, id, className, clearable = true, d
           <span className={cn("truncate tabular-nums", !value && "text-muted-foreground")}>{value || "ЧЧ:ММ"}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-auto p-2">
+      <PopoverContent portalContainer={trigger.current?.closest<HTMLElement>('[role="dialog"]')} align="start" sideOffset={6} className="w-auto p-2">
         <div className="flex gap-2">
           <TimeColumn label="Часы" items={HOURS} selected={value ? hh : undefined} onSelect={(h) => onChange(`${h}:${mm}`)} />
           <TimeColumn label="Минуты" items={MINUTES} selected={value ? mm : undefined} onSelect={(m) => onChange(`${hh}:${m}`)} />
@@ -50,7 +51,7 @@ function TimeColumn({ label, items, selected, onSelect }: { label: string; items
   return (
     <div className="min-w-0">
       <p className="mb-1 text-center text-xs text-muted-foreground">{label}</p>
-      <div role="group" aria-label={label} className="flex max-h-52 flex-col gap-0.5 overflow-y-auto px-0.5 [scrollbar-width:thin]">
+      <div role="group" aria-label={label} className="flex max-h-52 touch-pan-y flex-col gap-0.5 overflow-y-auto overscroll-y-contain px-0.5 [scrollbar-width:thin]">
         {items.map((item) => <button key={item} ref={item === selected ? selectedRef : undefined}
           type="button" aria-label={`${label}: ${item}`} aria-pressed={item === selected} onClick={() => onSelect(item)}
           className={cn("h-8 w-14 shrink-0 rounded-md text-sm tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring", item === selected ? "bg-brand text-white" : "hover:bg-accent")}>

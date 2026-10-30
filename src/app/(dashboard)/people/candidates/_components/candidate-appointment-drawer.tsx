@@ -8,11 +8,12 @@ import { TimePicker } from "@/components/ui/time-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { EditDrawer } from "@/components/ui/edit-drawer";
-import { candidateError } from "@/lib/candidates/errors";
+import { appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
+import { appointmentError } from "@/lib/candidates/errors";
 import type { Appointment, CandidateStatus, AppointmentOptions } from "@/lib/candidates/types";
 import { saveCandidateAppointment, saveCandidateAppointmentResult } from "../actions";
 import { Field, FieldSelect, localTimeToISO, wallTime, safeLink } from "./fields";
-const outcomes = { scheduled: "Назначено", passed: "Пройдено", no_show: "Не пришёл", rejected: "Не подошёл", canceled: "Отменено" };
+const outcomes = ["passed", "no_show", "rejected", "canceled"] as const;
 export function CandidateAppointmentDrawer({
   candidateId,
   appointment: a,
@@ -76,13 +77,16 @@ export function CandidateAppointmentDrawer({
           kind, venue_id: venue?.id ?? null,
           appointment_date: date,
           starts_at: time ? localTimeToISO(`${date}T${time}`, timezone) : null,
-          timezone, location, interviewer_id: interviewer || null,
+          timezone, location, interviewer_id: kind === "interview" ? interviewer || null : null,
         });
-        toast.success(!scheduling ? "Результат сохранён" : a ? "Назначение обновлено" : "Встреча назначена");
+        toast.success(!scheduling
+          ? kind === "trial" ? "Результат стажировки сохранён" : "Результат собеседования сохранён"
+          : kind === "trial" ? a ? "Стажировка изменена" : "Стажировка назначена"
+            : a ? "Собеседование изменено" : "Собеседование назначено");
         await onSaved({ ...saved, id: candidateId });
       } catch (e) {
         toast.error(
-          candidateError(e, "Не удалось сохранить встречу"),
+          appointmentError(e, kind),
         );
       }
     });
@@ -90,7 +94,7 @@ export function CandidateAppointmentDrawer({
     <EditDrawer
       open
       title={!scheduling ? kind === "interview" ? "Результат собеседования" : "Результат стажировки" : a ? "Изменить назначение" : kind === "trial" ? "Назначить стажировку" : "Назначить собеседование"}
-      description={!scheduling ? "Итог и наблюдения по проведённой встрече" : "Дата, время, место и кто проводит встречу"}
+      description={!scheduling ? kind === "trial" ? "Итог и комментарий по стажировке" : "Итог и наблюдения по собеседованию" : kind === "trial" ? "Первый день, время и заведение" : "Дата, время, место и интервьюер"}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
@@ -116,16 +120,16 @@ export function CandidateAppointmentDrawer({
           <Field label="Дата *"><DatePicker value={date} onChange={setDate} placeholder="Выберите дату" /></Field>
           <Field label={kind === "interview" ? "Время *" : "Время · необязательно"}><TimePicker value={time} onChange={setTime} /></Field>
         </div>
-        <FieldSelect label={kind === "trial" ? "Заведение *" : "Место встречи *"} value={place} onChange={setPlace}
+        <FieldSelect label={kind === "trial" ? "Заведение *" : "Место собеседования *"} value={place} onChange={setPlace}
           options={[
             { value: "", label: "Выберите место" },
             ...options.venues.map((value) => ({ value: value.id, label: value.name })),
             ...(kind === "interview" ? [{ value: "__link__", label: "Добавить ссылку" }] : []),
             ...(a?.location && place === "__legacy__" ? [{ value: "__legacy__", label: a.location }] : []),
           ]} />
-        {place === "__link__" && <Field label="Ссылка на встречу *"><Input type="url" value={link} onChange={(event) => setLink(event.target.value)} maxLength={1000} placeholder="https://…" /></Field>}
-        <FieldSelect label="Интервьюер" value={interviewer} onChange={setInterviewer}
-          options={[{ value: "", label: "Не назначен" }, ...options.members.map((member) => ({ value: member.id, label: member.name }))]} />
+        {place === "__link__" && <Field label="Ссылка на собеседование *"><Input type="url" value={link} onChange={(event) => setLink(event.target.value)} maxLength={1000} placeholder="https://…" /></Field>}
+        {kind === "interview" && <FieldSelect label="Интервьюер" value={interviewer} onChange={setInterviewer}
+          options={[{ value: "", label: "Не назначен" }, ...options.members.map((member) => ({ value: member.id, label: member.name }))]} />}
       </> : a && <p className="text-sm text-muted-foreground">
         {a.kind === "interview" ? "Собеседование" : "Стажировка"} · {a.appointment_date.split("-").reverse().join(".")}{a.starts_at ? `, ${wallTime(a.starts_at, a.timezone).slice(11)}` : ""}
       </p>}
@@ -134,10 +138,7 @@ export function CandidateAppointmentDrawer({
         label="Результат"
         value={outcome}
         onChange={(v) => setOutcome(v as typeof outcome)}
-        options={Object.entries(outcomes).filter(([value]) => value !== "scheduled").map(([value, label]) => ({
-          value,
-          label,
-        }))}
+        options={outcomes.map((value) => ({ value, label: appointmentOutcomeLabel(kind, value) }))}
       />
       {kind === "interview" && ["passed", "rejected"].includes(outcome) && (
         <div className="space-y-4 border-t pt-4">

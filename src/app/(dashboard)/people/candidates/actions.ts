@@ -132,7 +132,7 @@ export async function saveCandidateAppointment(id: string, input: unknown) {
     if (value.kind === "interview" && !value.starts_at)
       context.addIssue({ code: "custom", path: ["starts_at"], message: "Укажите время собеседования" });
     if (value.kind === "interview" && !value.id && !value.venue_id && !/^https?:\/\/\S+$/i.test(value.location))
-      context.addIssue({ code: "custom", path: ["location"], message: "Выберите заведение или добавьте ссылку на встречу" });
+      context.addIssue({ code: "custom", path: ["location"], message: "Выберите заведение или добавьте ссылку на собеседование" });
   }).parse(input));
 }
 export async function saveCandidateAppointmentResult(id: string, input: unknown) {

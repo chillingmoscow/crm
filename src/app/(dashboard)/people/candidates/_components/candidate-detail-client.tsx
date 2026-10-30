@@ -45,7 +45,9 @@ import { candidateError } from "@/lib/candidates/errors";
 import { CandidateForm } from "./candidate-form";
 import { HireDrawer } from "./hire-drawer";
 import { CandidateComments } from "./candidate-comments";
-import { CandidateMeetingCard } from "./candidate-meeting-card";
+import { CandidateAppointmentRow } from "./candidate-appointment-row";
+import { CandidateAppointmentDetails } from "./candidate-appointment-details";
+import { appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { CandidateAppointmentDrawer } from "./candidate-appointment-drawer";
 import { CandidateStatusCell } from "./candidate-status-cell";
 import { PageBreadcrumb } from "@/components/shared/page-header-actions";
@@ -56,13 +58,6 @@ import {
   safeLink,
   wallTime,
 } from "./fields";
-const outcomes = {
-  scheduled: "Назначено",
-  passed: "Пройдено",
-  no_show: "Не пришёл",
-  rejected: "Не подошёл",
-  canceled: "Отменено",
-};
 const labels: Record<string, string> = {
   full_name: "ФИО",
   phone: "Телефон",
@@ -90,8 +85,6 @@ const events: Record<string, string> = {
   commented: "Добавлен комментарий",
   comment_updated: "Комментарий изменён",
   comment_deleted: "Комментарий удалён",
-  appointment_created: "Назначена встреча",
-  appointment_updated: "Встреча изменена",
   archived: "Анкета архивирована",
   restored: "Анкета восстановлена",
   file_added: "Добавлен файл",
@@ -110,6 +103,7 @@ export function CandidateDetailClient({
     [options, setOptions] = useState(initialOptions),
     [editing, setEditing] = useState(false),
     [hiring, setHiring] = useState(false),
+    [viewing, setViewing] = useState<Appointment | null>(null),
     [meeting, setMeeting] = useState<Appointment | null | undefined>(undefined),
     [meetingMode, setMeetingMode] = useState<"schedule" | "result">("schedule"),
     [meetingKind, setMeetingKind] = useState<Appointment["kind"]>("interview"),
@@ -288,7 +282,8 @@ export function CandidateDetailClient({
           <div className="overflow-x-auto">
             <TabsList className="min-w-max justify-center">
               <TabsTrigger value="profile">Анкета</TabsTrigger>
-              <TabsTrigger value="meetings">Встречи и стажировки</TabsTrigger>
+              <TabsTrigger value="interviews">Собеседования</TabsTrigger>
+              <TabsTrigger value="trials">Стажировки</TabsTrigger>
               <TabsTrigger value="history">Журнал</TabsTrigger>
             </TabsList>
           </div>
@@ -440,28 +435,26 @@ export function CandidateDetailClient({
             ) : null}
             <CandidateComments candidateId={c.id} comments={data.comments} viewerId={data.viewer_id} editable={canEdit} onSaved={refresh} />
           </TabsContent>
-          <TabsContent value="meetings" className="mx-auto w-full max-w-[720px]">
-            <ProfileSection title="Встречи и стажировки" description="Даты, участники и результаты встреч">
-              {data.appointments.length ? (
-                data.appointments.map((a) => (
-                  <CandidateMeetingCard key={a.id} appointment={a} options={options} editable={canEdit}
-                    onSchedule={() => openMeeting(a.kind, a)}
-                    onResult={() => openMeeting(a.kind, a, a.outcome === "scheduled" ? "passed" : a.outcome, "result")} />
-                ))
-              ) : (
-                <p className="py-8 text-sm text-muted-foreground">
-                  Собеседования и стажировки ещё не назначены.
-                </p>
-              )}
-            </ProfileSection>
-          </TabsContent>
+          {(["interview", "trial"] as const).map((kind) => (
+            <TabsContent key={kind} value={kind === "interview" ? "interviews" : "trials"} className="mx-auto w-full max-w-[720px]">
+              <ProfileSection title={kind === "interview" ? "Собеседования" : "Стажировки"}>
+                {data.appointments.some((a) => a.kind === kind) ? data.appointments.filter((a) => a.kind === kind).map((a) => (
+                  <CandidateAppointmentRow key={a.id} appointment={a} options={options} onOpen={() => setViewing(a)} />
+                )) : <p className="py-4 text-sm text-muted-foreground">{kind === "interview" ? "Собеседования ещё не назначены." : "Стажировки ещё не назначены."}</p>}
+              </ProfileSection>
+            </TabsContent>
+          ))}
           <TabsContent value="history" className="mx-auto w-full max-w-[720px]">
             <ProfileSection title="Журнал" description="История изменений анкеты">
               <ol className="space-y-5">
                 {data.events.map((item) => (
                   <li key={item.id} className="border-l-2 pl-4">
                     <p className="text-sm font-medium">
-                      {events[item.kind] ?? "Событие"}{" "}
+                      {item.kind.startsWith("appointment_")
+                        ? (item.details.after as Partial<Appointment> | undefined)?.kind === "trial"
+                          ? item.kind === "appointment_created" ? "Назначена стажировка" : "Стажировка изменена"
+                          : item.kind === "appointment_created" ? "Назначено собеседование" : "Собеседование изменено"
+                        : events[item.kind] ?? "Событие"}{" "}
                       <span className="font-normal text-muted-foreground">
                         · {item.actor_name}
                       </span>
@@ -511,7 +504,7 @@ export function CandidateDetailClient({
                             return [
                               a.kind === "trial" ? "Стажировка" : "Собеседование",
                               `${date}${time ? `, ${time} (${a.timezone ?? "Europe/Moscow"})` : ""}`,
-                              a.outcome ? outcomes[a.outcome] : "",
+                              a.outcome ? appointmentOutcomeLabel(a.kind === "trial" ? "trial" : "interview", a.outcome) : "",
                               a.location,
                               ...interviewFeedbackEntries(a.interview_feedback).map(([label, value]) => `${label}: ${value}`),
                               a.notes,
@@ -550,10 +543,11 @@ export function CandidateDetailClient({
             tone: "cascade",
           },
           {
-            label: "Встречи",
-            count: data.appointments.length,
+            label: "Собеседования",
+            count: data.appointments.filter((a) => a.kind === "interview").length,
             tone: "cascade",
           },
+          { label: "Стажировки", count: data.appointments.filter((a) => a.kind === "trial").length, tone: "cascade" },
           { label: "Файлы", count: data.files.length, tone: "cascade" },
         ]}
         restrictedBy={
@@ -596,6 +590,10 @@ export function CandidateDetailClient({
           }}
         />
       ) : null}
+      {viewing && <CandidateAppointmentDetails appointment={viewing} candidateName={c.full_name} options={options} editable={canEdit}
+        onClose={() => setViewing(null)}
+        onSchedule={() => { setViewing(null); openMeeting(viewing.kind, viewing); }}
+        onResult={() => { setViewing(null); openMeeting(viewing.kind, viewing, viewing.outcome === "scheduled" ? "passed" : viewing.outcome, "result"); }} />}
       {meeting !== undefined ? (
         <CandidateAppointmentDrawer
           candidateId={c.id}

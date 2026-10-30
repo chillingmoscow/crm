@@ -12,6 +12,7 @@ import type { AuditEventSpec } from "./format";
 import type { AuditEvent } from "./list";
 import { STATUSES } from "@/lib/candidates/types";
 import type { Appointment } from "@/lib/candidates/types";
+import { appointmentOutcomeLabel } from "@/lib/candidates/appointment-labels";
 import { interviewFeedbackEntries } from "@/lib/candidates/workflow";
 import { formatAuditDate } from "./labels";
 
@@ -104,7 +105,7 @@ function Changes({ details }: { details: Record<string, unknown> }) {
   );
 }
 const meetingLabels: Record<string, string> = {
-  kind: "Встреча",
+  kind: "Тип",
   appointment_date: "Дата",
   starts_at: "Время",
   location: "Место",
@@ -113,13 +114,6 @@ const meetingLabels: Record<string, string> = {
   notes: "Заметки",
   venue_name: "Заведение",
   interview_feedback: "Наблюдения на собеседовании",
-};
-const outcomes: Record<string, string> = {
-  scheduled: "Запланировано",
-  passed: "Пройдено",
-  no_show: "Не пришёл",
-  rejected: "Отказ",
-  canceled: "Отменено",
 };
 function meetingValue(
   field: string,
@@ -131,7 +125,7 @@ function meetingValue(
     return input === "trial" ? "Стажировка" : "Собеседование";
   if (field === "interview_feedback")
     return interviewFeedbackEntries(input as Appointment["interview_feedback"]).map(([label, item]) => `${label}: ${item}`).join("; ") || "Не заполнены";
-  if (field === "outcome") return outcomes[String(input)] ?? "Не указан";
+  if (field === "outcome") return appointmentOutcomeLabel(data.kind === "trial" ? "trial" : "interview", String(input));
   if (field === "appointment_date") return formatAuditDate(input);
   if (field === "starts_at") {
     try {
@@ -235,7 +229,7 @@ export const candidateAuditSpecs: Record<string, AuditEventSpec> = {
     icon: CalendarDays,
     buildHeadline: (e) => (
       <>
-        назначил(а) встречу с кандидатом <CandidateName event={e} />
+        назначил(а) {(e.details.after as { kind?: string } | undefined)?.kind === "trial" ? "стажировку" : "собеседование"} · <CandidateName event={e} />
       </>
     ),
     buildDetails: (e) => <MeetingDetails event={e} />,
@@ -245,7 +239,7 @@ export const candidateAuditSpecs: Record<string, AuditEventSpec> = {
     icon: CalendarDays,
     buildHeadline: (e) => (
       <>
-        изменил(а) встречу с кандидатом <CandidateName event={e} />
+        изменил(а) {(e.details.after as { kind?: string } | undefined)?.kind === "trial" ? "стажировку" : "собеседование"} · <CandidateName event={e} />
       </>
     ),
     buildDetails: (e) => <MeetingDetails event={e} />,

@@ -169,6 +169,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: CalendarDays,
         permission: "sales.view_shifts",
       },
+      { title: "Допродажи", href: "/sales/additional", icon: ChartNoAxesCombined, permission: "sales.view_shifts" },
     ],
   },
   {

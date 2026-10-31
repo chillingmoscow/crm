@@ -54,7 +54,7 @@ begin
   if jsonb_typeof(p->k)<>'array' or jsonb_array_length(p->k) not between 1 and 40 then raise exception 'Проверьте группы допродаж';end if;
   ids:='{}';branches:='{}';
   for g in select value from jsonb_array_elements(p->k) loop
-   if jsonb_typeof(g)<>'object' or not g ?& array['id','label','branches','rate'] or g-array['id','label','branches','rate']<>'{}' or jsonb_typeof(g->'id')<>'string' or jsonb_typeof(g->'label')<>'string' or (g->>'id') !~ '^[a-z][a-z0-9_]{0,39}$' or g->>'id'=any(ids) or length(trim(g->>'label')) not between 1 and 100 or jsonb_typeof(g->'rate')<>'number' or jsonb_typeof(g->'branches')<>'array' or jsonb_array_length(g->'branches') not between 1 and 40 then raise exception 'Проверьте названия и ставки допродаж';end if;
+   if jsonb_typeof(g)<>'object' or not g ?& array['id','label','branches','rate'] or g-array['id','label','branches','rate']<>'{}' or jsonb_typeof(g->'id')<>'string' or jsonb_typeof(g->'label')<>'string' or (g->>'id') !~ '^[a-z][a-z0-9_]{0,39}$' or g->>'id'=any(ids) or g->>'id'=any(array['date','bonus','points','revenue','quantities']) or length(trim(g->>'label')) not between 1 and 100 or jsonb_typeof(g->'rate')<>'number' or jsonb_typeof(g->'branches')<>'array' or jsonb_array_length(g->'branches') not between 1 and 40 then raise exception 'Проверьте названия и ставки допродаж';end if;
    ids:=array_append(ids,g->>'id');n:=(g->>'rate')::numeric;if n<0 or n>1000000 or n<>round(n,2) then raise exception 'Некорректная ставка допродаж';end if;
    if exists(select 1 from jsonb_array_elements(g->'branches') x where jsonb_typeof(x)<>'string') then raise exception 'Некорректная категория допродаж';end if;
    for b in select jsonb_array_elements_text(g->'branches') loop
@@ -65,7 +65,7 @@ begin
  if jsonb_typeof(p->'tiers')<>'array' or jsonb_array_length(p->'tiers') not between 1 and 20 then raise exception 'Проверьте шкалу баллов';end if;
  thresholds:='{}';
  for t in select value from jsonb_array_elements(p->'tiers') loop
-  if jsonb_typeof(t->'from')<>'number' or jsonb_typeof(t->'rate')<>'number' or t-array['from','rate']<>'{}' then raise exception 'Некорректная шкала баллов';end if;
+  if jsonb_typeof(t)<>'object' or not t ?& array['from','rate'] or jsonb_typeof(t->'from')<>'number' or jsonb_typeof(t->'rate')<>'number' or t-array['from','rate']<>'{}' then raise exception 'Некорректная шкала баллов';end if;
   n:=(t->>'from')::numeric;if n<0 or n>1000000 or n<>round(n,2) or n=any(thresholds) then raise exception 'Некорректный порог баллов';end if;thresholds:=array_append(thresholds,n);
   n:=(t->>'rate')::numeric;if n<0 or n>1000000 or n<>round(n,2) then raise exception 'Некорректная ставка баллов';end if;
  end loop;
@@ -103,7 +103,7 @@ begin
  cutoff:=((now() at time zone s.timezone)-make_interval(hours=>s.day_start_hour))::date;
  if p_date>=cutoff then return 0;end if;
  select * into r from public.sales_additional_rules where venue_id=p_venue and account_id=s.account_id and valid_from<=p_date order by valid_from desc,created_at desc,id desc limit 1;
- if not found then raise exception 'Нет правил допродаж на дату смены';end if;
+ if not found then return 0;end if;
  foreach k in array array['bar','masters'] loop
   payload:=jsonb_build_object('source_version',s.version,'rule_id',r.id,'rules',r.config,'timezone',s.timezone,'hour',s.day_start_hour,'report_id',case k when 'bar' then s.bar_report_id else s.masters_report_id end,'cocktail_report_id',s.cocktail_report_id,'start',(extract(epoch from ((p_date+make_time(s.day_start_hour,0,0)) at time zone s.timezone))*1000)::bigint,'end',(extract(epoch from (((p_date+1)+make_time(s.day_start_hour,0,0)) at time zone s.timezone))*1000)::bigint-1);
   insert into public.sales_additional_reports(account_id,venue_id,business_date,kind,request) values(s.account_id,p_venue,p_date,k,payload)
@@ -167,13 +167,13 @@ begin
  foreach k in array array['revenue','primeCost','bonus','points'] loop
   val:=p_metrics->k;if k='points' and val='null' then continue;end if;
   if jsonb_typeof(val)<>'number' then raise exception 'Отсутствующий показатель не равен нулю';end if;
-  n:=(val#>>'{}')::numeric;if abs(n)>1e12 or n<>round(n,2) then raise exception 'Некорректный показатель допродаж';end if;
+  n:=(val#>>'{}')::numeric;if abs(n)>1e12 or n<>round(n,case when k='points' then 8 else 2 end) then raise exception 'Некорректный показатель допродаж';end if;
  end loop;
  if exists(select 1 from jsonb_array_elements(r.request->'rules'->r.kind) g where not (p_metrics->'quantities') ? (g->>'id')) then raise exception 'Неполный набор групп допродаж';end if;
  for k,val in select * from jsonb_each(p_metrics->'quantities') loop
   if not exists(select 1 from jsonb_array_elements(r.request->'rules'->r.kind) g where g->>'id'=k) then raise exception 'Неизвестная группа допродаж';end if;
   if val='null' then continue;end if;if jsonb_typeof(val)<>'number' then raise exception 'Некорректное количество допродаж';end if;
-  n:=(val#>>'{}')::numeric;if abs(n)>1e12 or n<>round(n,2) then raise exception 'Некорректное количество допродаж';end if;
+  n:=(val#>>'{}')::numeric;if abs(n)>1e12 or n<>round(n,8) then raise exception 'Некорректное количество допродаж';end if;
  end loop;
  update public.sales_additional_reports set metrics=p_metrics,metrics_request=r.request,period_start=to_timestamp((r.request->>'start')::bigint/1000.0),period_end=to_timestamp((r.request->>'end')::bigint/1000.0),synced_at=now(),state='ready',last_error=null where id=r.id;
  insert into public.sales_additional_history(account_id,venue_id,report_id,request,metrics) values(r.account_id,r.venue_id,r.id,r.request,p_metrics);return true;

@@ -308,6 +308,21 @@ const SPECS: Record<string, AuditEventSpec> = {
       {typeof e.details.bonus_writes === "boolean" && <p className="text-xs text-muted-foreground">Бонусные списания: {e.details.bonus_writes ? "включены" : "выключены"}</p>}
     </>,
   },
+  "sales.additional_rules.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила допродаж</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Действует с {formatDate(e.details.valid_from)}</p><p>{String(e.details.reason ?? "")}</p></div>,
+  },
+  "sales.additional.refresh_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление допродаж</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{String(e.details.month).slice(0,7)} · отчётов: {Number(e.details.reports??0)}</p>,
+  },
+  "sales.additional.archive_imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) архив допродаж</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Записей: {Number(e.details.days??0)} · {String(e.details.source??"Glide")}</p>,
+  },
   "sales.settings.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) настройки продаж</>,

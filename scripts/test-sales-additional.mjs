@@ -23,6 +23,11 @@ try {
     defaultAdditionalRules: rules,
     validateAdditionalRules: validate,
   } = await import(pathToFileURL(join(dir, "additional.mjs")).href);
+  assert.deepEqual(
+    award("masters", { premium: 5.999, degust: null, exclusive: null }),
+    { bonus: 0, points: 2.9995 },
+    "rounding must not cross a payout threshold",
+  );
   const item = (name, qty, level = 0, total = 0, cost = 0) => ({
     type: "branchItem",
     object: {
@@ -155,6 +160,93 @@ try {
       "PASS: real published executions 23771/23773 match Fees and shared payroll award",
     );
   }
+  await writeFile(
+    join(dir, "additional-view.mjs"),
+    ts.transpileModule(
+      (await readFile("src/lib/sales/additional-view.ts", "utf8")).replace(
+        '"./additional"',
+        '"./additional.mjs"',
+      ),
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.ES2022,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+  );
+  const { additionalCoverage, additionalRows, additionalTotal } = await import(
+    pathToFileURL(join(dir, "additional-view.mjs")).href
+  );
+  assert.equal(additionalCoverage("2026-10-01", "2026-10-30"), 30);
+  assert.equal(additionalCoverage("2026-11-01", "2026-10-30"), 0);
+  assert.equal(additionalCoverage("2024-02-01", "2024-03-01"), 29);
+  assert.equal(
+    additionalCoverage("2026-10-01", "2026-10-30", "2026-10-16"),
+    15,
+  );
+  const archiveRow = {
+    id: "a",
+    kind: "masters",
+    business_date: "2026-10-30",
+    captured_at: "2026-10-31T00:00:00Z",
+    metrics: {
+      revenue: 1,
+      primeCost: 0,
+      bonus: 0,
+      points: 0,
+      quantities: { premium: null, degust: 0, exclusive: null },
+    },
+  };
+  const archiveRows = additionalRows(
+    [],
+    [
+      archiveRow,
+      {
+        ...archiveRow,
+        id: "b",
+        captured_at: "2026-11-01T00:00:00Z",
+        metrics: { ...archiveRow.metrics, bonus: 150 },
+      },
+    ],
+    "archive",
+    "masters",
+  );
+  assert.equal(archiveRows.length, 1);
+  assert.equal(archiveRows[0].metrics.bonus, 150);
+  assert.deepEqual(additionalTotal(archiveRows, "premium"), {
+    value: null,
+    known: 0,
+    total: 1,
+  });
+  assert.deepEqual(additionalTotal(archiveRows, "degust"), {
+    value: 0,
+    known: 1,
+    total: 1,
+  });
+  const originalRequest = { rules, rule_id: "old" };
+  const nextRules = structuredClone(rules);
+  nextRules.masters[0].rate = 999;
+  const retained = additionalRows(
+    [
+      {
+        id: "r",
+        kind: "masters",
+        business_date: "2026-10-30",
+        metrics: archiveRow.metrics,
+        request: { rules: nextRules, rule_id: "new" },
+        metrics_request: originalRequest,
+        state: "error",
+      },
+    ],
+    [],
+    "native",
+    "masters",
+  );
+  assert.equal(retained[0].rules.masters[0].rate, 0.5);
+  const reserved = structuredClone(rules);
+  reserved.bar[0].id = "bonus";
+  assert.throws(() => validate(reserved));
   console.log(
     "PASS: report hierarchy, footer totals, null/zero, tier boundaries, unique categories, unchanged salary formula and excluded income",
   );

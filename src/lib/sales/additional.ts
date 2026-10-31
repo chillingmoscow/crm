@@ -173,6 +173,7 @@ export function validateAdditionalRules(rules: AdditionalRules) {
       if (
         !/^[a-z][a-z0-9_]{0,39}$/.test(g.id) ||
         ids.has(g.id) ||
+        ["date", "bonus", "points", "revenue", "quantities"].includes(g.id) ||
         !g.label.trim() ||
         g.label.length > 100 ||
         !Number.isFinite(g.rate) ||
@@ -238,6 +239,7 @@ function rows(raw: unknown): AdditionalReport {
     throw new Error("Quick Resto вернул некорректные строки допродаж");
   return report;
 }
+const precise = (n: number) => Math.round((n + Number.EPSILON) * 1e8) / 1e8;
 export function additionalQuantities(
   kind: AdditionalKind,
   report: AdditionalReport,
@@ -253,7 +255,7 @@ export function additionalQuantities(
       return [
         g.id,
         matching.length
-          ? round(
+          ? precise(
               matching.reduce(
                 (s, r) => s + finite(r.object.saleAmount, g.label),
                 0,
@@ -269,7 +271,7 @@ export function additionalAward(
   quantities: Record<string, number | null>,
   rules = defaultAdditionalRules,
 ) {
-  const weighted = round(
+  const weighted = precise(
     rules[kind].reduce((sum, g) => sum + (quantities[g.id] ?? 0) * g.rate, 0),
   );
   if (kind === "bar") return { bonus: Math.round(weighted), points: null };
@@ -278,7 +280,7 @@ export function additionalAward(
     .sort((a, b) => b.from - a.from)[0];
   return {
     bonus: Math.round(Math.floor(weighted) * (tier?.rate ?? 0)),
-    points: round(weighted),
+    points: precise(weighted),
   };
 }
 /** Same payout formula as the existing payroll reader, shared with the journal. */

@@ -25,46 +25,52 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Нет доступа" }, { status: 401 });
   try {
     const queued = await scheduleDueDays();
-    const started = Date.now();
     let slices = 0,
-      failed = 0;
-    while (Date.now() - started < 25000 && slices < 100) {
-      const result = await runOneSlice();
-      if (result.idle) break;
-      slices++;
-      if (result.error) {
-        failed++;
-        break;
-      }
-    }
-    let monthReports = 0,
-      monthReportErrors = 0;
+      failed = 0,
+      monthReports = 0,
+      monthReportErrors = 0,
+      additionalReports = 0,
+      additionalErrors = 0;
     try {
       await scheduleStatisticsReports();
-      const start = Date.now();
-      while (Date.now() - start < 5000) {
-        const r = await processStatisticsReport();
-        if (r.idle) break;
-        monthReports++;
-        if (r.error) {
-          monthReportErrors++;
-          break;
-        }
-      }
     } catch {
       monthReportErrors++;
     }
-    let additionalReports = 0,
-      additionalErrors = 0;
     try {
       await scheduleAdditionalReports();
-      if (Date.now() - started < 30000) {
+    } catch {
+      additionalErrors++;
+    }
+    // One provider workload per tick: a slow two-report day must not be appended
+    // to 25 seconds of order imports and a monthly report in the same request.
+    const lane = Math.floor(Date.now() / 15000) % 3;
+    if (lane === 2) {
+      try {
         const r = await processAdditionalReport();
         if (!r.idle) additionalReports++;
         if (r.error) additionalErrors++;
+      } catch {
+        additionalErrors++;
       }
-    } catch {
-      additionalErrors++;
+    } else if (lane === 1) {
+      try {
+        const r = await processStatisticsReport();
+        if (!r.idle) monthReports++;
+        if (r.error) monthReportErrors++;
+      } catch {
+        monthReportErrors++;
+      }
+    } else {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && slices < 100) {
+        const r = await runOneSlice();
+        if (r.idle) break;
+        slices++;
+        if (r.error) {
+          failed++;
+          break;
+        }
+      }
     }
     return NextResponse.json({
       queued,

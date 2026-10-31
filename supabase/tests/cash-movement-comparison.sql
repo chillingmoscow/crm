@@ -47,7 +47,7 @@ declare j jsonb;jid uuid:=current_setting('test.movement_job')::uuid;f jsonb;bad
  -- QR filters use literal local hours with Z; the response uses actual UTC.
  -- Keep the live-proven provider contract separate from shift-date conversion.
  if not exists(select 1 from private.cash_movement_jobs where id=jid and request->>'since'=(request->>'from')||'T00:00:00.000Z' and request->>'till'=((now() at time zone (request->>'timezone'))::date+1)::text||'T00:00:00.000Z') then raise exception 'QR wall-clock filter contract changed';end if;
- if (select count(distinct public.sales_next_worker_lane()) from generate_series(1,14))<>7 then raise exception 'Worker lane starves';end if;
+ if (select count(distinct public.sales_next_worker_lane()) from generate_series(1,16))<>8 then raise exception 'Worker lane starves';end if;
  f:=jsonb_build_array(jsonb_build_object('id',1,'date','2000-01-03','amountCents',100000,'type','cashOut','shiftId',1,'openedAt','2000-01-03T09:00:00Z','occurredAt','2000-01-04T01:00:00Z','arrivedAt','2000-01-04T09:00:00Z','comment','Такси'));
  j:=public.cash_movement_claim();if j->>'id'<>jid::text then raise exception 'Wrong job claimed';end if;
  oldlease:=(j->>'lease')::uuid;update private.cash_movement_jobs set claimed_at=now()-interval '3 minutes' where id=jid;

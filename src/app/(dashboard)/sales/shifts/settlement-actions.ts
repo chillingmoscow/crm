@@ -220,7 +220,7 @@ export async function loadSettlementPanel(
   const s = await scope(venueId);
   if (!s) return null;
   if (!validDate(date)) throw new Error("Выберите рабочий день");
-  const [config, day, status] = await Promise.all([
+  const [config, day, status, pinned] = await Promise.all([
     s.db
       .from<SettlementVersion>("finance_settlement_settings")
       .select("id,version,config,auto_read,reason,actor_name,created_at")
@@ -246,11 +246,23 @@ export async function loadSettlementPanel(
       p_venue: venueId,
       p_date: date,
     }),
+    s.db.rpc("finance_execution_day_rule", {
+      p_venue: venueId, p_date: date, p_kind: "settlement",
+    }),
   ]);
-  if (config.error || day.error || status.error)
+  if (config.error || day.error || status.error || pinned.error)
     throw new Error("Не удалось загрузить сверку поступлений");
-  const d = day.data,
-    c = config.data;
+  const d = day.data;
+  let c = config.data;
+  if (pinned.data) {
+    const saved = await s.db.from<SettlementVersion>("finance_settlement_settings")
+      .select("id,version,config,auto_read,reason,actor_name,created_at")
+      .eq("account_id", s.accountId).eq("venue_id", venueId)
+      .eq("id", pinned.data).single();
+    if (saved.error || !saved.data)
+      throw new Error("Не удалось загрузить правила проведённого дня");
+    c = saved.data;
+  }
   const result: SettlementPanelData = {
     configured: !!c,
     version: d?.version ?? null,

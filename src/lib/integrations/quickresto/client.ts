@@ -1357,6 +1357,14 @@ export async function readInventoryDocument(input: {
   });
 }
 
+/** Warehouse discard reads. This is distinct from inventory count documents. */
+export function listDiscardDocuments(input:{layerName:string;login:string;password:string;from:string;to:string}) {
+  return callQuickResto<unknown>({...input,path:"list",moduleName:"warehouse.documents.discard",className:"ru.edgex.quickresto.modules.warehouse.documents.discard.DiscardInvoice",body:{filters:[{field:"invoiceDate",operation:"range",value:{since:input.from,till:input.to}}]}});
+}
+export function readDiscardDocument(input:{layerName:string;login:string;password:string;objectId:number}) {
+  return callQuickResto<unknown>({...input,path:"read",moduleName:"warehouse.documents.discard",className:"ru.edgex.quickresto.modules.warehouse.documents.discard.DiscardInvoice"});
+}
+
 /**
  * Backoffice-action «провести акт».
  *

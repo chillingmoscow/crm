@@ -1,4 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { NextRequest, NextResponse } from "next/server";
 import { runOneSlice, scheduleDueDays } from "@/lib/sales/sync";
 import {
@@ -9,6 +11,10 @@ import {
   scheduleStatisticsReports,
   processStatisticsReport,
 } from "@/lib/sales/statistics-sync";
+import {
+  scheduleStockWriteoffs,
+  processStockWriteoff,
+} from "@/lib/stock/writeoff-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -30,7 +36,9 @@ export async function POST(request: NextRequest) {
       monthReports = 0,
       monthReportErrors = 0,
       additionalReports = 0,
-      additionalErrors = 0;
+      additionalErrors = 0,
+      stockSlices = 0,
+      stockErrors = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -41,10 +49,35 @@ export async function POST(request: NextRequest) {
     } catch {
       additionalErrors++;
     }
+    try {
+      await scheduleStockWriteoffs();
+    } catch {
+      stockErrors++;
+    }
     // One provider workload per tick: a slow two-report day must not be appended
     // to 25 seconds of order imports and a monthly report in the same request.
-    const lane = Math.floor(Date.now() / 15000) % 3;
-    if (lane === 2) {
+    // Persist rotation: a once-per-minute scheduler would otherwise always pick
+    // the same lane with a clock modulo divisible by four.
+    const rotation = await asLooseDb(createAdminClient()).rpc(
+      "sales_next_worker_lane",
+    );
+    if (
+      rotation.error ||
+      !Number.isInteger(rotation.data) ||
+      Number(rotation.data) < 0 ||
+      Number(rotation.data) > 3
+    )
+      throw new Error("Не удалось выбрать очередь");
+    const lane = Number(rotation.data);
+    if (lane === 3) {
+      try {
+        const r = await processStockWriteoff();
+        if (!r.idle) stockSlices++;
+        if (r.error) stockErrors++;
+      } catch {
+        stockErrors++;
+      }
+    } else if (lane === 2) {
       try {
         const r = await processAdditionalReport();
         if (!r.idle) additionalReports++;
@@ -80,6 +113,8 @@ export async function POST(request: NextRequest) {
       monthReportErrors,
       additionalReports,
       additionalErrors,
+      stockSlices,
+      stockErrors,
     });
   } catch {
     return NextResponse.json(

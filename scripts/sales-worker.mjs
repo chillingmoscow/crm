@@ -30,7 +30,8 @@ while (!stopping) {
       if (
         (stats.slices && !stats.failed) ||
         (stats.monthReports && !stats.monthReportErrors) ||
-        (stats.additionalReports && !stats.additionalErrors)
+        (stats.additionalReports && !stats.additionalErrors) ||
+        (stats.stockSlices && !stats.stockErrors)
       )
         delay = 500;
       if (stats.slices || stats.queued)
@@ -44,6 +45,10 @@ while (!stopping) {
       if (stats.additionalReports || stats.additionalErrors)
         console.log(
           `Допродажи: обработано ${stats.additionalReports}, ошибок ${stats.additionalErrors}`,
+        );
+      if (stats.stockSlices || stats.stockErrors)
+        console.log(
+          `Списания: обработано частей ${stats.stockSlices}, ошибок ${stats.stockErrors}`,
         );
     }
   } catch (e) {

@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { NotificationsHelp } from "@/app/(dashboard)/notifications/notifications-help";
 import { PayrollHelp } from "@/app/(dashboard)/people/payroll/_components/payroll-help";
+import { StaffHelp } from "@/app/(dashboard)/people/staff/_components/staff-help";
 import { CandidatesHelp } from "@/app/(dashboard)/people/candidates/_components/candidates-help";
 
 import { SalesShiftsHelp } from "@/app/(dashboard)/sales/shifts/_components/sales-shifts-help";
@@ -29,6 +30,7 @@ export type PageHelpEntry = {
 };
 
 export const PAGE_HELP_ENTRIES: PageHelpEntry[] = [
+  { match: p => p === "/people/staff", title: "Сотрудники", Content: StaffHelp },
   { match: p => p === "/people/candidates" || p.startsWith("/people/candidates/"), title: "Кандидаты", Content: CandidatesHelp },
   { match: p => p === "/notifications", title: "Уведомления", Content: NotificationsHelp },
   {

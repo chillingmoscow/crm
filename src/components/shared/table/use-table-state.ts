@@ -34,18 +34,26 @@ type UseTableStateInput = {
   tableId: string;
   columns: TableStateColumn[];
   defaultPageSize?: number;
+  legacyVisibilityKey?: string;
 };
 
 export function useTableState({
   tableId,
   columns,
   defaultPageSize = 25,
+  legacyVisibilityKey,
 }: UseTableStateInput) {
   const storageKey = `sheerly.table.${tableId}`;
-  const defaultColumnOrder = useMemo(() => columns.map((column) => column.id), [columns]);
+  const defaultColumnOrder = useMemo(
+    () => columns.map((column) => column.id),
+    [columns],
+  );
   // Сигнатура набора колонок — для инвалидации сохранённого порядка при
   // изменении набора (см. PersistedTableState.columnsSignature).
-  const columnsSignature = useMemo(() => defaultColumnOrder.join("|"), [defaultColumnOrder]);
+  const columnsSignature = useMemo(
+    () => defaultColumnOrder.join("|"),
+    [defaultColumnOrder],
+  );
   const defaultVisibility = useMemo(
     () =>
       Object.fromEntries(
@@ -87,7 +95,21 @@ export function useTableState({
     try {
       const raw = window.localStorage.getItem(storageKey);
       const persisted = raw ? (JSON.parse(raw) as PersistedTableState) : {};
-      setColumnVisibility({ ...defaultVisibility, ...persisted.columnVisibility });
+      if (!raw && legacyVisibilityKey) {
+        const legacyRaw = window.localStorage.getItem(legacyVisibilityKey);
+        const legacy: unknown = legacyRaw ? JSON.parse(legacyRaw) : null;
+        if (Array.isArray(legacy))
+          persisted.columnVisibility = Object.fromEntries(
+            Object.keys(defaultVisibility).map((id) => [
+              id,
+              legacy.includes(id),
+            ]),
+          );
+      }
+      setColumnVisibility({
+        ...defaultVisibility,
+        ...persisted.columnVisibility,
+      });
       // Если набор колонок изменился (нет сигнатуры или она другая) —
       // игнорируем сохранённый порядок и берём конфиг: новая колонка встаёт
       // на своё место, а не в хвост после actions.
@@ -110,7 +132,15 @@ export function useTableState({
     } finally {
       setIsHydrated(true);
     }
-  }, [columnsSignature, defaultColumnOrder, defaultPageSize, defaultSizing, defaultVisibility, storageKey]);
+  }, [
+    columnsSignature,
+    defaultColumnOrder,
+    defaultPageSize,
+    defaultSizing,
+    defaultVisibility,
+    storageKey,
+    legacyVisibilityKey,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !isHydrated) return;
@@ -122,7 +152,15 @@ export function useTableState({
       columnsSignature,
     };
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
-  }, [columnOrder, columnSizing, columnVisibility, columnsSignature, isHydrated, pagination.pageSize, storageKey]);
+  }, [
+    columnOrder,
+    columnSizing,
+    columnVisibility,
+    columnsSignature,
+    isHydrated,
+    pagination.pageSize,
+    storageKey,
+  ]);
 
   const resetColumns = () => {
     setColumnVisibility(defaultVisibility);

@@ -1,7 +1,13 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
@@ -67,58 +73,61 @@ import type { StaffProfile, StaffAccountDetails } from "../../actions";
 
 const schema = z.object({
   // Тир 1+2 — personal (profiles)
-  first_name:  z.string().min(1, "Обязательное поле"),
-  last_name:   z.string().min(1, "Обязательное поле"),
-  phone:       z.string().optional(),
+  first_name: z.string().min(1, "Обязательное поле"),
+  last_name: z.string().min(1, "Обязательное поле"),
+  phone: z.string().optional(),
   telegram_id: z.string().optional(),
-  gender:      z.enum(["male", "female", ""]).optional(),
-  birth_date:  z.string().optional(),
-  address:     z.string().optional(),
+  gender: z.enum(["male", "female", ""]).optional(),
+  birth_date: z.string().optional(),
+  address: z.string().optional(),
 
   // Тир 3 — account-scoped (staff_account_details)
-  employment_date:     z.string().min(1, "Укажите дату трудоустройства"),
+  employment_date: z.string().min(1, "Укажите дату трудоустройства"),
   medical_book_number: z.string().optional(),
-  medical_book_date:   z.string().optional(),
-  comment:             z.string().optional(),
+  medical_book_date: z.string().optional(),
+  comment: z.string().optional(),
 
   // UVR (venue-specific)
   terminal_pin: z.string().optional(),
-  role_id:      z.string().min(1, "Выберите должность"),
+  role_id: z.string().min(1, "Выберите должность"),
 });
 
 type FormValues = z.infer<typeof schema>;
 
 type Role = { id: string; name: string; code: string };
 
-import {StaffPayPanel} from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { StaffPayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
 
 type TabKey = "pay" | "main" | "documents" | "history" | "activity" | "danger";
 
 interface Props {
-  profile:        StaffProfile;
+  candidateId?: string | null;
+  doorCode?: ReactNode;
+  terminationStatus?: ReactNode;
+  profile: StaffProfile;
   accountDetails: StaffAccountDetails;
-  accountId:      string;
-  email:          string;
-  uvrId:          string;
-  roleId:         string;
-  roleName:       string;
+  accountId: string;
+  email: string;
+  uvrId: string;
+  roleId: string;
+  roleName: string;
   /** code текущей роли. owner (системная) через staff-UI не меняется —
    *  при roleCode==='owner' селектор должности read-only. */
-  roleCode:       string;
-  departmentId:   string | null;
+  roleCode: string;
+  departmentId: string | null;
   departmentName: string | null;
-  terminalPin:    string | null;
-  venueId:        string;
-  roles:          Role[];
-  canEdit:        boolean;
-  isFired:        boolean;
-  canRestore?:   boolean;
-  firedAt:        string | null;
-  firedReason:    string | null;
-  isMe:           boolean;
+  terminalPin: string | null;
+  venueId: string;
+  roles: Role[];
+  canEdit: boolean;
+  isFired: boolean;
+  canRestore?: boolean;
+  firedAt: string | null;
+  firedReason: string | null;
+  isMe: boolean;
   importedFromQuickResto: boolean;
-  joinedAt:       string | null;
-  userCreatedAt:  string | null;
+  joinedAt: string | null;
+  userCreatedAt: string | null;
   /** auth.users.email_confirmed_at !== null. Если false — приглашение
    *  отправлено, но юзер ещё не подтвердил email. Админ может перепослать
    *  на другой адрес, если ошибся. */
@@ -153,6 +162,9 @@ interface Props {
 // ── Component ─────────────────────────────────────────────────
 
 export function StaffDetailPage({
+  candidateId,
+  doorCode,
+  terminationStatus,
   profile,
   accountDetails,
   accountId,
@@ -190,36 +202,44 @@ export function StaffDetailPage({
 }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
-  const [documentAudit, setDocumentAudit] = useState<{events: AuditEvent[]; hasMore: boolean} | null>(null);
+  const [documentAudit, setDocumentAudit] = useState<{
+    events: AuditEvent[];
+    hasMore: boolean;
+  } | null>(null);
   const refreshDocumentHistory = () => {
-    if (canViewAudit) void listAuditEvents({entityType: "staff", entityId: profile.id}).then(result => {
-      if (!result.error) setDocumentAudit(result);
-    });
+    if (canViewAudit)
+      void listAuditEvents({ entityType: "staff", entityId: profile.id }).then(
+        (result) => {
+          if (!result.error) setDocumentAudit(result);
+        },
+      );
   };
-  const [avatarUrl, setAvatarUrl]             = useState<string | null>(profile.avatar_url);
-  const [passportPhotos, setPassportPhotos]   = useState<string[]>(accountDetails.passport_photos ?? []);
-  const [signedUrls, setSignedUrls]           = useState<Record<string, string>>({});
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(profile.avatar_url);
+  const [passportPhotos, setPassportPhotos] = useState<string[]>(
+    accountDetails.passport_photos ?? [],
+  );
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [uploadingDocs, setUploadingDocs]     = useState(false);
-  const [confirmFire, setConfirmFire]         = useState(false);
-  const [fireReason, setFireReason]           = useState("");
-  const [isPending, startTransition]          = useTransition();
+  const [uploadingDocs, setUploadingDocs] = useState(false);
+  const [confirmFire, setConfirmFire] = useState(false);
+  const [fireReason, setFireReason] = useState("");
+  const [isPending, startTransition] = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
   // Если у юзера technical placeholder email — показываем пустое поле,
   // админ впишет реальный для invite. Иначе — реальный email юзера.
-  const [contactEmail, setContactEmail]       = useState(
+  const [contactEmail, setContactEmail] = useState(
     email.toLowerCase().endsWith("@import.local") ? "" : email,
   );
 
   // Modals
   const [photoModalOpen, setPhotoModalOpen] = useState(false);
-  const [photoFile, setPhotoFile]           = useState<File | null>(null);
-  const [docModalOpen, setDocModalOpen]     = useState(false);
-  const [docName, setDocName]               = useState("");
-  const [docFile, setDocFile]               = useState<File | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [docModalOpen, setDocModalOpen] = useState(false);
+  const [docName, setDocName] = useState("");
+  const [docFile, setDocFile] = useState<File | null>(null);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef   = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
 
   // Статус юзера определяет, кто ведёт его данные:
   //   placeholder — сотрудник без аккаунта (QR-импорт или ручное создание),
@@ -238,10 +258,14 @@ export function StaffDetailPage({
   // прошёл. needs_password_setup переживает потерю строки-инвайта (прежний
   // инвайт мог уничтожиться старым багом переотправки до #441), поэтому
   // ловит случай «приглашён, ссылка не сработала, инвайта в таблице уже нет».
-  const isPendingInvite   =
-    !isPlaceholderUser && (hasPendingInvite || needsPasswordSetup || !emailConfirmed);
-  const isRegisteredUser  =
-    !isPlaceholderUser && emailConfirmed && !hasPendingInvite && !needsPasswordSetup;
+  const isPendingInvite =
+    !isPlaceholderUser &&
+    (hasPendingInvite || needsPasswordSetup || !emailConfirmed);
+  const isRegisteredUser =
+    !isPlaceholderUser &&
+    emailConfirmed &&
+    !hasPendingInvite &&
+    !needsPasswordSetup;
 
   const displayName =
     [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
@@ -269,25 +293,31 @@ export function StaffDetailPage({
   // и вошёл в систему — он сам управляет профилем.
   const canEditPersonal = canEdit && !isRegisteredUser;
 
-  const { register, handleSubmit, setValue, control, reset, formState: { errors } } =
-    useForm<FormValues>({
-      resolver: zodResolver(schema),
-      defaultValues: {
-        first_name:          profile.first_name ?? "",
-        last_name:           profile.last_name ?? "",
-        phone:               profile.phone ?? "",
-        telegram_id:         profile.telegram_id ?? "",
-        gender:              (profile.gender as "male" | "female" | "") ?? "",
-        birth_date:          profile.birth_date ?? "",
-        address:             profile.address ?? "",
-        employment_date:     accountDetails.employment_date ?? "",
-        medical_book_number: accountDetails.medical_book_number ?? "",
-        medical_book_date:   accountDetails.medical_book_date ?? "",
-        comment:             accountDetails.comment ?? "",
-        terminal_pin:        terminalPin ?? "",
-        role_id:             roleId,
-      },
-    });
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    control,
+    reset,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      first_name: profile.first_name ?? "",
+      last_name: profile.last_name ?? "",
+      phone: profile.phone ?? "",
+      telegram_id: profile.telegram_id ?? "",
+      gender: (profile.gender as "male" | "female" | "") ?? "",
+      birth_date: profile.birth_date ?? "",
+      address: profile.address ?? "",
+      employment_date: accountDetails.employment_date ?? "",
+      medical_book_number: accountDetails.medical_book_number ?? "",
+      medical_book_date: accountDetails.medical_book_date ?? "",
+      comment: accountDetails.comment ?? "",
+      terminal_pin: terminalPin ?? "",
+      role_id: roleId,
+    },
+  });
 
   // Синхронизация формы с сервером после router.refresh() / window.reload.
   // Без этого useForm защёлкивается на defaultValues из первого рендера, и
@@ -297,19 +327,19 @@ export function StaffDetailPage({
   // не нужны.
   useEffect(() => {
     reset({
-      first_name:          profile.first_name ?? "",
-      last_name:           profile.last_name ?? "",
-      phone:               profile.phone ?? "",
-      telegram_id:         profile.telegram_id ?? "",
-      gender:              (profile.gender as "male" | "female" | "") ?? "",
-      birth_date:          profile.birth_date ?? "",
-      address:             profile.address ?? "",
-      employment_date:     accountDetails.employment_date ?? "",
+      first_name: profile.first_name ?? "",
+      last_name: profile.last_name ?? "",
+      phone: profile.phone ?? "",
+      telegram_id: profile.telegram_id ?? "",
+      gender: (profile.gender as "male" | "female" | "") ?? "",
+      birth_date: profile.birth_date ?? "",
+      address: profile.address ?? "",
+      employment_date: accountDetails.employment_date ?? "",
       medical_book_number: accountDetails.medical_book_number ?? "",
-      medical_book_date:   accountDetails.medical_book_date ?? "",
-      comment:             accountDetails.comment ?? "",
-      terminal_pin:        terminalPin ?? "",
-      role_id:             roleId,
+      medical_book_date: accountDetails.medical_book_date ?? "",
+      comment: accountDetails.comment ?? "",
+      terminal_pin: terminalPin ?? "",
+      role_id: roleId,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -330,7 +360,10 @@ export function StaffDetailPage({
 
   // Generate signed URLs for passport photos
   useEffect(() => {
-    if (!passportPhotos.length) { setSignedUrls({}); return; }
+    if (!passportPhotos.length) {
+      setSignedUrls({});
+      return;
+    }
     const supabase = createClient();
     Promise.all(
       passportPhotos.map(async (path) => {
@@ -338,9 +371,9 @@ export function StaffDetailPage({
           .from("staff-documents")
           .createSignedUrl(path, 3600);
         return { path, url: data?.signedUrl ?? "" };
-      })
+      }),
     ).then((results) =>
-      setSignedUrls(Object.fromEntries(results.map((r) => [r.path, r.url])))
+      setSignedUrls(Object.fromEntries(results.map((r) => [r.path, r.url]))),
     );
   }, [passportPhotos]);
 
@@ -349,23 +382,25 @@ export function StaffDetailPage({
   // полях невидимого таба (раньше клик «Сохранить» просто не давал
   // никакого фидбэка — silent failure).
   const FIELD_TAB: Record<keyof FormValues, TabKey> = {
-    first_name:           "main",
-    last_name:            "main",
-    phone:                "main",
-    telegram_id:          "main",
-    gender:               "main",
-    birth_date:           "main",
-    address:              "main",
-    employment_date:      "main",
-    terminal_pin:         "main",
-    role_id:              "main",
-    medical_book_number:  "documents",
-    medical_book_date:    "documents",
-    comment:              "main",
+    first_name: "main",
+    last_name: "main",
+    phone: "main",
+    telegram_id: "main",
+    gender: "main",
+    birth_date: "main",
+    address: "main",
+    employment_date: "main",
+    terminal_pin: "main",
+    role_id: "main",
+    medical_book_number: "documents",
+    medical_book_date: "documents",
+    comment: "main",
   };
 
   const onValidationError = (formErrors: typeof errors) => {
-    const firstField = Object.keys(formErrors)[0] as keyof FormValues | undefined;
+    const firstField = Object.keys(formErrors)[0] as
+      | keyof FormValues
+      | undefined;
     if (!firstField) return;
     const targetTab = FIELD_TAB[firstField] ?? "main";
     if (targetTab !== activeTab) setActiveTab(targetTab);
@@ -388,13 +423,13 @@ export function StaffDetailPage({
       // Иначе их обновляет сам сотрудник через свой профиль.
       const profilePromise = canEditPersonal
         ? updateStaffProfile(profile.id, {
-            first_name:  values.first_name,
-            last_name:   values.last_name,
-            phone:       values.phone || null,
+            first_name: values.first_name,
+            last_name: values.last_name,
+            phone: values.phone || null,
             telegram_id: values.telegram_id || null,
-            gender:      values.gender || null,
-            birth_date:  values.birth_date || null,
-            address:     values.address || null,
+            gender: values.gender || null,
+            birth_date: values.birth_date || null,
+            address: values.address || null,
           })
         : Promise.resolve({ error: null });
 
@@ -403,18 +438,23 @@ export function StaffDetailPage({
           ? updateStaffRole(uvrId, values.role_id)
           : Promise.resolve({ error: null });
 
-      const [profileResult, detailsResult, pinResult, roleResult] = await Promise.all([
-        profilePromise,
-        updateStaffAccountDetails(profile.id, accountId, {
-          employment_date:     values.employment_date,
-          comment:             values.comment || null,
-        }),
-        updateStaffTerminalPin(uvrId, values.terminal_pin || null),
-        rolePromise,
-      ]);
+      const [profileResult, detailsResult, pinResult, roleResult] =
+        await Promise.all([
+          profilePromise,
+          updateStaffAccountDetails(profile.id, accountId, {
+            employment_date: values.employment_date,
+            comment: values.comment || null,
+          }),
+          updateStaffTerminalPin(uvrId, values.terminal_pin || null),
+          rolePromise,
+        ]);
 
-      const errors = [profileResult.error, detailsResult.error, pinResult.error, roleResult.error]
-        .filter(Boolean) as string[];
+      const errors = [
+        profileResult.error,
+        detailsResult.error,
+        pinResult.error,
+        roleResult.error,
+      ].filter(Boolean) as string[];
       if (errors.length > 0) {
         toast.error(errors.join(" · "));
         return;
@@ -459,9 +499,13 @@ export function StaffDetailPage({
         );
         return;
       }
-      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+      const { data: urlData } = supabase.storage
+        .from("avatars")
+        .getPublicUrl(path);
       const newUrl = `${urlData.publicUrl}?t=${Date.now()}`;
-      const result = await updateStaffProfile(profile.id, { avatar_url: newUrl });
+      const result = await updateStaffProfile(profile.id, {
+        avatar_url: newUrl,
+      });
       if (result.error) {
         toast.error(translateError(result.error));
         return;
@@ -537,7 +581,11 @@ export function StaffDetailPage({
     }
     startTransition(async () => {
       const result = await fireStaff(uvrId, reason);
-      if (result.error) { toast.error(result.error); router.refresh(); return; }
+      if (result.error) {
+        toast.error(result.error);
+        router.refresh();
+        return;
+      }
       toast.success("Сотрудник уволен");
       router.push("/people/staff");
     });
@@ -571,13 +619,19 @@ export function StaffDetailPage({
   // Парсит filename storage-пути:
   //   `${ts}__${encName}__${origFilename}` → user-introduced name (новый формат)
   //   `${ts}_${origFilename}` или `origFilename` → fallback на имя файла
-  const parseDocPath = (path: string): { name: string; uploadedAt: string | null } => {
+  const parseDocPath = (
+    path: string,
+  ): { name: string; uploadedAt: string | null } => {
     const last = path.split("/").pop() ?? path;
     const newFormat = last.match(/^(\d+)__([^_]+)__(.+)$/);
     if (newFormat) {
       const ts = Number(newFormat[1]);
       let displayName = "";
-      try { displayName = decodeURIComponent(newFormat[2]); } catch { displayName = newFormat[3]; }
+      try {
+        displayName = decodeURIComponent(newFormat[2]);
+      } catch {
+        displayName = newFormat[3];
+      }
       return {
         name: displayName || newFormat[3],
         uploadedAt: Number.isFinite(ts) ? new Date(ts).toISOString() : null,
@@ -637,7 +691,11 @@ export function StaffDetailPage({
             }}
             disabled={isPending}
           >
-            {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+            {isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RotateCcw className="w-4 h-4" />
+            )}
             Восстановить
           </Button>
         )}
@@ -652,7 +710,7 @@ export function StaffDetailPage({
       </PageHeaderActions>
 
       <div className="px-6 md:px-8 pt-4 pb-8 w-full flex flex-col gap-6">
-        <ProfileHeader name={displayName} avatarUrl={avatarUrl}>
+        <ProfileHeader name={displayName} avatarUrl={avatarUrl} wrapName>
           <span className="text-sm text-muted-foreground">
             {roleName}
             {departmentName && (
@@ -706,24 +764,14 @@ export function StaffDetailPage({
           )}
         </ProfileHeader>
 
-        {isFired && firedReason && (
-          <div className="rounded-[14px] border bg-card px-5 py-4">
-            <p className="text-[12px] font-medium uppercase tracking-wider text-muted-foreground">
-              Причина увольнения
-            </p>
-            <p className="mt-1.5 text-sm text-foreground leading-snug whitespace-pre-wrap">
-              {firedReason}
-            </p>
-          </div>
-        )}
-
         <Tabs
           value={activeTab}
           onValueChange={(v) => setActiveTab(v as TabKey)}
         >
-          <TabsList className="justify-center">
+          <TabsList className="justify-start overflow-x-auto [&>button]:shrink-0 [&>button:first-child]:ml-auto [&>button:last-child]:mr-auto">
             <TabsTrigger value="main">Основное</TabsTrigger>
-            <TabsTrigger value="documents">Документы</TabsTrigger><TabsTrigger value="pay">Оплата</TabsTrigger>
+            <TabsTrigger value="documents">Документы</TabsTrigger>
+            <TabsTrigger value="pay">Оплата</TabsTrigger>
             {canViewAudit && (
               <>
                 <TabsTrigger value="history">Журнал</TabsTrigger>
@@ -744,6 +792,21 @@ export function StaffDetailPage({
               onSubmit={handleSubmit(onSave, onValidationError)}
               className="mx-auto w-full max-w-[720px] flex flex-col gap-5"
             >
+              {isFired && (firedReason || terminationStatus) && (
+                <FormSection title="Увольнение">
+                  {firedReason && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-muted-foreground">
+                        Причина увольнения
+                      </p>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed">
+                        {firedReason}
+                      </p>
+                    </div>
+                  )}
+                  {terminationStatus}
+                </FormSection>
+              )}
               {/* Личные данные — фото сверху по центру + поля ниже,
                   в одной карточке. */}
               <FormSection
@@ -770,7 +833,9 @@ export function StaffDetailPage({
                         type="button"
                         onClick={() => setPhotoModalOpen(true)}
                         className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-                        aria-label={avatarUrl ? "Изменить фото" : "Загрузить фото"}
+                        aria-label={
+                          avatarUrl ? "Изменить фото" : "Загрузить фото"
+                        }
                       >
                         <Camera className="w-5 h-5 text-white" />
                       </button>
@@ -787,11 +852,15 @@ export function StaffDetailPage({
                       </button>
                       {avatarUrl && (
                         <>
-                          <span className="text-border" aria-hidden>·</span>
+                          <span className="text-border" aria-hidden>
+                            ·
+                          </span>
                           <button
                             type="button"
                             onClick={async () => {
-                              await updateStaffProfile(profile.id, { avatar_url: null });
+                              await updateStaffProfile(profile.id, {
+                                avatar_url: null,
+                              });
                               setAvatarUrl(null);
                               toast.success("Фото удалено");
                             }}
@@ -807,7 +876,12 @@ export function StaffDetailPage({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="first_name" className="text-[13px] font-medium">Имя</Label>
+                    <Label
+                      htmlFor="first_name"
+                      className="text-[13px] font-medium"
+                    >
+                      Имя
+                    </Label>
                     <Input
                       id="first_name"
                       {...register("first_name")}
@@ -815,11 +889,18 @@ export function StaffDetailPage({
                       className={!canEditPersonal ? "bg-muted/50" : ""}
                     />
                     {errors.first_name && (
-                      <p className="text-xs text-destructive">{errors.first_name.message}</p>
+                      <p className="text-xs text-destructive">
+                        {errors.first_name.message}
+                      </p>
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="last_name" className="text-[13px] font-medium">Фамилия</Label>
+                    <Label
+                      htmlFor="last_name"
+                      className="text-[13px] font-medium"
+                    >
+                      Фамилия
+                    </Label>
                     <Input
                       id="last_name"
                       {...register("last_name")}
@@ -827,7 +908,9 @@ export function StaffDetailPage({
                       className={!canEditPersonal ? "bg-muted/50" : ""}
                     />
                     {errors.last_name && (
-                      <p className="text-xs text-destructive">{errors.last_name.message}</p>
+                      <p className="text-xs text-destructive">
+                        {errors.last_name.message}
+                      </p>
                     )}
                   </div>
                   <div className="space-y-1.5">
@@ -835,7 +918,9 @@ export function StaffDetailPage({
                     {canEditPersonal ? (
                       <Select
                         defaultValue={profile.gender ?? ""}
-                        onValueChange={(v) => setValue("gender", v as "male" | "female" | "")}
+                        onValueChange={(v) =>
+                          setValue("gender", v as "male" | "female" | "")
+                        }
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="Не указан" />
@@ -848,9 +933,11 @@ export function StaffDetailPage({
                     ) : (
                       <Input
                         value={
-                          profile.gender === "male" ? "Мужской"
-                          : profile.gender === "female" ? "Женский"
-                          : "—"
+                          profile.gender === "male"
+                            ? "Мужской"
+                            : profile.gender === "female"
+                              ? "Женский"
+                              : "—"
                         }
                         readOnly
                         className="bg-muted/50"
@@ -858,7 +945,10 @@ export function StaffDetailPage({
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="birth_date" className="text-[13px] font-medium">
+                    <Label
+                      htmlFor="birth_date"
+                      className="text-[13px] font-medium"
+                    >
                       Дата рождения
                     </Label>
                     <Controller
@@ -902,7 +992,9 @@ export function StaffDetailPage({
               >
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="phone" className="text-[13px] font-medium">Телефон</Label>
+                    <Label htmlFor="phone" className="text-[13px] font-medium">
+                      Телефон
+                    </Label>
                     <Controller
                       control={control}
                       name="phone"
@@ -930,10 +1022,20 @@ export function StaffDetailPage({
                     <div className="flex items-center gap-2">
                       <Input
                         value={contactEmail}
-                        onChange={(event) => setContactEmail(event.target.value)}
+                        onChange={(event) =>
+                          setContactEmail(event.target.value)
+                        }
                         readOnly={!canManageImportedInvite}
-                        className={!canManageImportedInvite ? "bg-muted/50 text-muted-foreground" : ""}
-                        placeholder={isPlaceholderUser ? "Не указан" : "employee@example.com"}
+                        className={
+                          !canManageImportedInvite
+                            ? "bg-muted/50 text-muted-foreground"
+                            : ""
+                        }
+                        placeholder={
+                          isPlaceholderUser
+                            ? "Не указан"
+                            : "employee@example.com"
+                        }
                       />
                       {canManageImportedInvite && (
                         <Button
@@ -943,10 +1045,13 @@ export function StaffDetailPage({
                           disabled={isInvitePending || !contactEmail.trim()}
                           className="shrink-0"
                         >
-                          {isInvitePending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                          {isInvitePending ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                          ) : null}
                           {isPlaceholderUser
                             ? "Пригласить"
-                            : contactEmail.trim().toLowerCase() === email.toLowerCase()
+                            : contactEmail.trim().toLowerCase() ===
+                                email.toLowerCase()
                               ? "Отправить повторно"
                               : "Изменить и переслать"}
                         </Button>
@@ -961,7 +1066,12 @@ export function StaffDetailPage({
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="telegram_id" className="text-[13px] font-medium">Telegram ID</Label>
+                    <Label
+                      htmlFor="telegram_id"
+                      className="text-[13px] font-medium"
+                    >
+                      Telegram ID
+                    </Label>
                     <Controller
                       control={control}
                       name="telegram_id"
@@ -972,7 +1082,9 @@ export function StaffDetailPage({
                           pattern="[0-9]*"
                           placeholder="123456789"
                           value={field.value ?? ""}
-                          onChange={(e) => field.onChange(e.target.value.replace(/\D+/g, ""))}
+                          onChange={(e) =>
+                            field.onChange(e.target.value.replace(/\D+/g, ""))
+                          }
                           onBlur={field.onBlur}
                           readOnly={!canEditPersonal}
                           className={!canEditPersonal ? "bg-muted/50" : ""}
@@ -981,7 +1093,12 @@ export function StaffDetailPage({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="address" className="text-[13px] font-medium">Адрес проживания</Label>
+                    <Label
+                      htmlFor="address"
+                      className="text-[13px] font-medium"
+                    >
+                      Адрес проживания
+                    </Label>
                     <Input
                       id="address"
                       placeholder="г. Москва, ул. Примерная, 1"
@@ -1005,13 +1122,18 @@ export function StaffDetailPage({
                       control={control}
                       name="role_id"
                       render={({ field }) => (
-                        <Select value={field.value} onValueChange={field.onChange}>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Выберите должность" />
                           </SelectTrigger>
                           <SelectContent>
                             {roles.map((r) => (
-                              <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                              <SelectItem key={r.id} value={r.id}>
+                                {r.name}
+                              </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -1021,14 +1143,20 @@ export function StaffDetailPage({
                     <Input value={roleName} readOnly className="bg-muted/50" />
                   )}
                   {errors.role_id && (
-                    <p className="text-xs text-destructive">{errors.role_id.message}</p>
+                    <p className="text-xs text-destructive">
+                      {errors.role_id.message}
+                    </p>
                   )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="employment_date" className="text-[13px] font-medium">
-                      Дата трудоустройства <span className="text-destructive">*</span>
+                    <Label
+                      htmlFor="employment_date"
+                      className="text-[13px] font-medium"
+                    >
+                      Дата трудоустройства{" "}
+                      <span className="text-destructive">*</span>
                     </Label>
                     <Controller
                       control={control}
@@ -1045,11 +1173,16 @@ export function StaffDetailPage({
                       )}
                     />
                     {errors.employment_date && (
-                      <p className="text-xs text-destructive">{errors.employment_date.message}</p>
+                      <p className="text-xs text-destructive">
+                        {errors.employment_date.message}
+                      </p>
                     )}
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="terminal_pin" className="text-[13px] font-medium">
+                    <Label
+                      htmlFor="terminal_pin"
+                      className="text-[13px] font-medium"
+                    >
                       PIN терминала
                     </Label>
                     <Input
@@ -1061,6 +1194,7 @@ export function StaffDetailPage({
                     />
                   </div>
                 </div>
+                {doorCode && <div className="border-t pt-4">{doorCode}</div>}
               </FormSection>
 
               {/* Заметка — тир 3, видна только админам */}
@@ -1088,7 +1222,9 @@ export function StaffDetailPage({
                       : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
                   }
                 >
-                  {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {isPending && (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  )}
                   Сохранить
                 </Button>
               </div>
@@ -1096,13 +1232,48 @@ export function StaffDetailPage({
           </TabsContent>
 
           {/* ── Документы ────────────────────────────────────── */}
-          <TabsContent value="pay"><StaffPayPanel userId={profile.id}/></TabsContent>
+          <TabsContent value="pay">
+            <StaffPayPanel userId={profile.id} />
+          </TabsContent>
           <TabsContent value="documents">
             <div className="mx-auto w-full max-w-[720px] flex flex-col gap-5">
+              {candidateId && (
+                <FormSection title="Анкета кандидата">
+                  <Link
+                    href={`/people/candidates/${candidateId}`}
+                    className="inline-flex items-center gap-3 rounded-lg border px-4 py-3 text-sm hover:bg-muted/40"
+                  >
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      Анкета и история подбора
+                    </span>
+                    <span className="shrink-0 text-brand">Открыть</span>
+                  </Link>
+                </FormSection>
+              )}
               {canConfigurePayroll ? (
-                <EmployeeDocuments target={{userId: profile.id}} basic={{userId: profile.id, accountId, number: accountDetails.medical_book_number, until: accountDetails.medical_book_date, canEdit}} onChanged={refreshDocumentHistory} />
+                <EmployeeDocuments
+                  target={{ userId: profile.id }}
+                  basic={{
+                    userId: profile.id,
+                    accountId,
+                    number: accountDetails.medical_book_number,
+                    until: accountDetails.medical_book_date,
+                    canEdit,
+                  }}
+                  onChanged={refreshDocumentHistory}
+                />
               ) : (
-                <BasicMedicalCard basic={{userId: profile.id, accountId, number: accountDetails.medical_book_number, until: accountDetails.medical_book_date, canEdit}} onChanged={refreshDocumentHistory} />
+                <BasicMedicalCard
+                  basic={{
+                    userId: profile.id,
+                    accountId,
+                    number: accountDetails.medical_book_number,
+                    until: accountDetails.medical_book_date,
+                    canEdit,
+                  }}
+                  onChanged={refreshDocumentHistory}
+                />
               )}
 
               <section className="rounded-[14px] border bg-card p-5 flex flex-col gap-4">
@@ -1112,7 +1283,8 @@ export function StaffDetailPage({
                       Документы
                     </h2>
                     <p className="text-[13px] text-muted-foreground leading-snug">
-                      Паспорт, трудовой договор, NDA и другие документы сотрудника
+                      Паспорт, трудовой договор, NDA и другие документы
+                      сотрудника
                     </p>
                   </div>
                   {canEdit && (
@@ -1166,7 +1338,9 @@ export function StaffDetailPage({
                               {name}
                             </p>
                             <p className="text-[11px] text-muted-foreground">
-                              {uploadedAt ? `Загружен ${formatDate(uploadedAt)}` : "Файл"}
+                              {uploadedAt
+                                ? `Загружен ${formatDate(uploadedAt)}`
+                                : "Файл"}
                             </p>
                           </div>
                           {canEdit && (
@@ -1185,7 +1359,6 @@ export function StaffDetailPage({
                   </div>
                 )}
               </section>
-
             </div>
           </TabsContent>
 
@@ -1230,9 +1403,10 @@ export function StaffDetailPage({
                         Уволить сотрудника
                       </p>
                       <p className="text-[13px] text-muted-foreground leading-snug">
-                        Сотрудник потеряет доступ к заведению. Если это последнее
-                        заведение аккаунта, связанные записи Quick Resto будут удалены,
-                        а код замка отозван. Профиль и история сохраняются.
+                        Сотрудник потеряет доступ к заведению. Если это
+                        последнее заведение аккаунта, связанные записи Quick
+                        Resto будут удалены, а код замка отозван. Профиль и
+                        история сохраняются.
                       </p>
                     </div>
                     <div className="shrink-0">
@@ -1273,9 +1447,10 @@ export function StaffDetailPage({
           <DialogHeader>
             <DialogTitle>Уволить сотрудника?</DialogTitle>
             <DialogDescription>
-              «{displayName}» потеряет доступ к этому заведению. Если это последнее
-              заведение аккаунта, удалим связанные записи Quick Resto и отзовём код
-              замка. Профиль и история сохраняются. Повторный найм потребует нового оформления доступа.
+              «{displayName}» потеряет доступ к этому заведению. Если это
+              последнее заведение аккаунта, удалим связанные записи Quick Resto
+              и отзовём код замка. Профиль и история сохраняются. Повторный найм
+              потребует нового оформления доступа.
             </DialogDescription>
           </DialogHeader>
 
@@ -1303,7 +1478,10 @@ export function StaffDetailPage({
             </Button>
             <Button
               variant="destructive"
-              onClick={() => { setConfirmFire(false); handleFire(); }}
+              onClick={() => {
+                setConfirmFire(false);
+                handleFire();
+              }}
               disabled={isPending || fireReason.trim().length === 0}
             >
               Уволить
@@ -1346,7 +1524,8 @@ export function StaffDetailPage({
                   {photoFile.name}
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  {(photoFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите, чтобы выбрать другой файл
+                  {(photoFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите,
+                  чтобы выбрать другой файл
                 </p>
               </>
             ) : (
@@ -1355,7 +1534,9 @@ export function StaffDetailPage({
                 <p className="text-[13px] text-muted-foreground">
                   Перетащите файл сюда или нажмите для выбора
                 </p>
-                <p className="text-[11px] text-muted-foreground/70">JPG, PNG до 5 МБ</p>
+                <p className="text-[11px] text-muted-foreground/70">
+                  JPG, PNG до 5 МБ
+                </p>
               </>
             )}
           </button>
@@ -1383,7 +1564,9 @@ export function StaffDetailPage({
               onClick={submitAvatarModal}
               disabled={!photoFile || uploadingAvatar}
             >
-              {uploadingAvatar && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {uploadingAvatar && (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              )}
               Загрузить
             </Button>
           </DialogFooter>
@@ -1441,7 +1624,8 @@ export function StaffDetailPage({
                     {docFile.name}
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    {(docFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите, чтобы выбрать другой
+                    {(docFile.size / 1024 / 1024).toFixed(2)} МБ — нажмите,
+                    чтобы выбрать другой
                   </p>
                 </>
               ) : (
@@ -1450,7 +1634,9 @@ export function StaffDetailPage({
                   <p className="text-[13px] text-muted-foreground">
                     Перетащите файл или нажмите для выбора
                   </p>
-                  <p className="text-[11px] text-muted-foreground/70">JPG, PNG, PDF до 10 МБ</p>
+                  <p className="text-[11px] text-muted-foreground/70">
+                    JPG, PNG, PDF до 10 МБ
+                  </p>
                 </>
               )}
             </button>
@@ -1479,7 +1665,9 @@ export function StaffDetailPage({
               onClick={submitDocModal}
               disabled={!docFile || !docName.trim() || uploadingDocs}
             >
-              {uploadingDocs && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {uploadingDocs && (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              )}
               Загрузить
             </Button>
           </DialogFooter>

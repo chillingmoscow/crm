@@ -62,10 +62,14 @@ def render_sql(rows, target):
 select set_config('request.jwt.claim.sub',{u},true);
 select set_config('app.ctx_ready','0',true);
 select pg_advisory_xact_lock(hashtextextended('statistics-archive:'||{v},0));
+-- Keep source text outside the PL/pgSQL dollar-quoted body, even if a comment
+-- contains the same dollar tag or SQL-looking text.
+create temporary table _statistics_archive_input(payload jsonb) on commit drop;
+insert into _statistics_archive_input(payload) values({payload});
 do $import$ declare r jsonb;old public.sales_statistics_archive;n integer:=0;before_hash text;after_hash text;begin
 if public.get_active_account_id() is distinct from {a}::uuid or public.get_active_venue_id() is distinct from {v}::uuid or not public.is_account_owner({a}::uuid) then raise exception 'Wrong owner/scope';end if;
 select {digest} into before_hash;
-for r in select value from jsonb_array_elements({payload}) loop
+for r in select value from jsonb_array_elements((select payload from pg_temp._statistics_archive_input)) loop
  select * into old from public.sales_statistics_archive where venue_id={v} and month=(r->>'month')::date order by captured_at desc limit 1;
  if found and old.source_hash=r->>'source_hash' then continue;end if;
  if found and old.captured_at>=(r->>'captured_at')::timestamptz then raise exception 'Newer or conflicting snapshot already exists';end if;
@@ -73,7 +77,7 @@ for r in select value from jsonb_array_elements({payload}) loop
  values({a},{v},(r->>'month')::date,r->'metrics',r->'weekday_turnover',r->>'note',r->'origin',r->>'source_hash',(r->>'captured_at')::timestamptz,{u});n:=n+1;
 end loop;
 if n>0 then insert into public.audit_logs(account_id,venue_id,user_id,action_code,entity_type,entity_id,details)
- values({a},{v},{u},'sales.statistics.archive_imported','venue',{v},jsonb_build_object('months',n,'source','Fees / Statistics','captured_at',({payload})->0->>'captured_at'));end if;
+ values({a},{v},{u},'sales.statistics.archive_imported','venue',{v},jsonb_build_object('months',n,'source','Fees / Statistics','captured_at',(select payload->0->>'captured_at' from pg_temp._statistics_archive_input)));end if;
 select {digest} into after_hash;
 if before_hash is distinct from after_hash then raise exception 'Sales or financial data changed';end if;
 raise notice 'Imported % archive snapshots; sales and financial data unchanged',n;

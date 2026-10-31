@@ -3,6 +3,8 @@
 import copy
 import importlib.util
 import unittest
+import sys
+sys.dont_write_bytecode = True
 
 spec = importlib.util.spec_from_file_location('archive', 'scripts/prepare-statistics-archive.py')
 archive = importlib.util.module_from_spec(spec)
@@ -37,5 +39,15 @@ class ArchiveSourceTests(unittest.TestCase):
             if change == 'boolean': source['rows'][0][0] = True
             with self.subTest(change=change), self.assertRaises(ValueError):
                 archive.prepare(source,'venue')
+
+    def test_comment_is_data_outside_procedural_sql(self):
+        self.source['rows'][0][16] = "$import$; select 'text'; -- quotation \\ and newline\n"
+        rows=archive.prepare(self.source,'venue')
+        target={'account_id':'cccccccc-0000-0000-0000-000000000001','venue_id':'0bd81f1b-53be-4250-af97-eb5f693b30e1','owner_id':'aaaaaaaa-0000-0000-0000-000000000001'}
+        sql=archive.render_sql(rows,target)
+        start=sql.index('do $import$')
+        self.assertNotIn("quotation",sql[start:])
+        self.assertIn("quotation",sql[:start])
+        self.assertIn("pg_temp._statistics_archive_input",sql[start:])
 
 if __name__ == '__main__': unittest.main()

@@ -8,6 +8,8 @@ export const cashControlRulesSchema = z
     closing: z.boolean(),
     autoRead: z.boolean(),
     intervalMinutes: z.number().int().min(15).max(1440),
+    notifyFinance: z.boolean().default(false),
+    notificationAudience: z.enum(["owner", "owner_finance"]).default("owner_finance"),
   })
   .strict();
 export type CashControlRules = z.infer<typeof cashControlRulesSchema>;
@@ -17,6 +19,8 @@ export const initialCashControlRules: CashControlRules = {
   closing: true,
   autoRead: false,
   intervalMinutes: 60,
+  notifyFinance: false,
+  notificationAudience: "owner_finance",
 };
 export type CashControlReport = {
   id: number;

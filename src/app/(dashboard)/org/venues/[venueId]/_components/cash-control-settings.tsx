@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   initialCashControlRules,
   type CashControlRules,
@@ -118,6 +119,31 @@ function Form({
         ))}
         <div className="flex items-center justify-between gap-4 border-t pt-5">
           <div>
+            <Label htmlFor="cash-notify">Уведомления в приложении</Label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Для новых открытий и закрытий кассы.
+            </p>
+          </div>
+          <Switch
+            id="cash-notify"
+            checked={rules.notifyFinance}
+            onCheckedChange={(v) => setRules((r) => ({ ...r, notifyFinance: v }))}
+          />
+        </div>
+        {rules.notifyFinance && (
+          <div className="space-y-2">
+            <Label htmlFor="cash-audience">Получатели</Label>
+            <Select value={rules.notificationAudience} onValueChange={(v) => setRules((r) => ({ ...r, notificationAudience: v as CashControlRules["notificationAudience"] }))}>
+              <SelectTrigger id="cash-audience"><SelectValue /></SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-2rem)]">
+                <SelectItem value="owner_finance">Владелец и пользователи с доступом к финансам</SelectItem>
+                <SelectItem value="owner">Только владелец</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-4 border-t pt-5">
+          <div>
             <Label htmlFor="cash-auto">Автоматическая проверка</Label>
             <p className="mt-1 text-xs text-muted-foreground">
               Текущий и предыдущий рабочий день.
@@ -226,7 +252,7 @@ export function CashControlSettingsSection({ venueId }: { venueId: string }) {
                   {v.config.closing ? "вкл." : "выкл."} ·{" "}
                   {v.config.autoRead
                     ? `каждые ${v.config.intervalMinutes} мин.`
-                    : "ручная проверка"}
+                    : "ручная проверка"} · уведомления {v.config.notifyFinance ? v.config.notificationAudience === "owner" ? "владельцу" : "владельцу и финансам" : "выкл."}
                 </p>
               </li>
             ))}

@@ -6,6 +6,13 @@ import {
   type AdditionalMetrics,
   type AdditionalRules,
 } from "./additional";
+import {
+  dayContext,
+  type DayArchive,
+  type DayContextValue,
+  type DayReference,
+} from "./day-context";
+
 export type AdditionalRow = {
   id: string;
   date: string;
@@ -14,12 +21,18 @@ export type AdditionalRow = {
   rules: AdditionalRules;
   native?: AdditionalDay;
   archive?: AdditionalArchive;
+  context?: DayContextValue;
 };
 export function additionalRows(
   reports: AdditionalDay[],
   archives: AdditionalArchive[],
   source: "native" | "archive",
   kind: AdditionalKind,
+  context?: {
+    venueId: string;
+    days: DayReference[];
+    dayArchives: DayArchive[];
+  },
 ): AdditionalRow[] {
   if (source === "native")
     return reports
@@ -31,6 +44,15 @@ export function additionalRows(
         metrics: r.metrics,
         rules: (r.metrics_request ?? r.request).rules,
         native: r,
+        context: context
+          ? dayContext(
+              context.venueId,
+              r.business_date,
+              source,
+              context.days,
+              context.dayArchives,
+            )
+          : undefined,
       }))
       .sort((a, b) => b.date.localeCompare(a.date));
   const latest = new Map<string, AdditionalArchive>();
@@ -51,10 +73,21 @@ export function additionalRows(
       metrics: r.metrics,
       rules: defaultAdditionalRules,
       archive: r,
+      context: context
+        ? dayContext(
+            context.venueId,
+            r.business_date,
+            source,
+            context.days,
+            context.dayArchives,
+            r.origin.legacy_shift_id,
+          )
+        : undefined,
     }))
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 export function additionalValue(r: AdditionalRow, key: string): number | null {
+  if (key === "turnover") return r.context?.turnover ?? null;
   if (!r.metrics) return null;
   if (key in r.metrics && key !== "quantities")
     return r.metrics[key as Exclude<keyof AdditionalMetrics, "quantities">];

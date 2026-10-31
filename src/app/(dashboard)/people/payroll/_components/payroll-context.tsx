@@ -8,6 +8,8 @@ import { EmployeePay, selectClass } from "./employee-pay";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DayTeamList } from "@/app/(dashboard)/sales/_components/day-team";
+import { nativeDayMembers } from "@/lib/sales/day-context";
 import { toast } from "sonner";
 export function StaffPayPanel({ userId }: { userId: string }) {
   const [data, setData] = useState<PayrollData | null>(null),
@@ -73,59 +75,11 @@ export function PayrollDayPanel({ date }: { date: string }) {
     cash = data.cashbox.filter((c) => c.business_date === date);
   return (
     <div className="space-y-5 pt-4">
-      <div className="grid grid-cols-2 gap-4 rounded-xl border p-4">
-        <div>
-          <p className="text-xs text-muted-foreground">ФОТ за день</p>
-          <p className="mt-2 font-semibold">
-            {money(accruals.reduce((s, a) => s + Number(a.salary), 0))} ₽
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-muted-foreground">Чаевые команде</p>
-          <p className="mt-2 font-semibold">
-            {money(accruals.reduce((s, a) => s + Number(a.tips), 0))} ₽
-          </p>
-        </div>
-      </div>
-      {accruals.map((a) => (
-        <details key={a.id} className="rounded-xl border">
-          <summary className="flex cursor-pointer items-center justify-between gap-3 p-4 text-sm">
-            <span>
-              {data.employees.find((e) => e.id === a.employee_id)?.name}
-              <span className="block text-xs text-muted-foreground">
-                {a.issues.length ? "Требует проверки" : "Рассчитано"}
-              </span>
-            </span>
-            <span className="tabular-nums">{money(Number(a.salary))} ₽</span>
-          </summary>
-          <div className="space-y-3 border-t p-4">
-            {a.issues.map((issue) => (
-              <p
-                className="text-xs text-amber-700 dark:text-amber-400"
-                key={issue}
-              >
-                {issue}
-              </p>
-            ))}
-            {a.components.map((c, i) => (
-              <div key={i} className="flex justify-between gap-3 text-sm">
-                <div>
-                  {c.label}
-                  <p className="text-xs text-muted-foreground">{c.basis}</p>
-                </div>
-                <span className="shrink-0 tabular-nums">
-                  {money(c.amount)} ₽
-                </span>
-              </div>
-            ))}
-          </div>
-        </details>
-      ))}
-      {!accruals.length && (
-        <p className="text-sm text-muted-foreground">
-          Расчёт команды ещё не загружен
-        </p>
-      )}
+      <DayTeamList
+        date={date}
+        source="native"
+        members={nativeDayMembers(accruals, data.employees)}
+      />
       <Link
         href="/schedule/attendance"
         className="inline-block text-sm text-brand hover:underline"

@@ -372,6 +372,21 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>сохранил(а) результат чтения чеков</>,
     buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · версия {Number(e.details.version??0)} · чеков: {Number(e.details.receipts??0)}</p>,
   },
+  "cash.control.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила контроля кассы</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "cash.control.requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) контроль кассовых остатков</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)}</p>,
+  },
+  "cash.control.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) кассовые остатки из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · отчётов: {Number(e.details.reports??0)} · версия {Number(e.details.version??0)}</p>,
+  },
   "stock.writeoffs.synced": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>обновил(а) журнал списаний из Quick Resto</>,

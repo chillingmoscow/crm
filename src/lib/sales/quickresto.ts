@@ -145,6 +145,14 @@ export function salesSource(
           value: { since: date, till: addDays(date, 1) },
         },
       ]) as Promise<Record<string, unknown>[]>,
+    cashControlList: () =>
+      publicRead("front.zreport", undefined, [
+        {
+          field: "localOpenedTime",
+          operation: "range",
+          value: { since: date, till: addDays(date, 2) },
+        },
+      ]) as Promise<Record<string, unknown>[]>,
     zDetail: (id: number) =>
       publicRead("front.zreport", id) as Promise<Record<string, unknown>>,
     hookah: () =>

@@ -14,6 +14,7 @@ import {
 import { businessDate } from "@/lib/sales/time";
 import type { SalesConfiguration } from "@/lib/sales/types";
 import { SettlementSettingsSection } from "./settlement-settings";
+import { CashControlSettingsSection } from "./cash-control-settings";
 
 export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
   const [data, setData] = useState(initial);
@@ -166,6 +167,7 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
         </div>
       </section>
       <SettlementSettingsSection venueId={data.venueId}/>
+      <CashControlSettingsSection venueId={data.venueId}/>
       {open && (
         <SettingsDrawer
           data={data}

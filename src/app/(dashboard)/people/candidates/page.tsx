@@ -7,8 +7,9 @@ import {
 } from "@/lib/candidates/data";
 import { CandidatesClient } from "./_components/candidates-client";
 export const dynamic = "force-dynamic";
-export default async function CandidatesPage() {
+export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ settings?: string }> }) {
   if (!(await getCachedUser())) redirect("/login");
+  if ((await searchParams).settings === "1") redirect("/settings/integrations/tilda");
   const s = await candidateScope();
   const [list, options] = await Promise.all([
     candidateList(),

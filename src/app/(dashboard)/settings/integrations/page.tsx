@@ -1,115 +1,41 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { asLooseDb } from "@/lib/supabase/loose";
-import {
-  getCachedActiveAccountId,
-  getCachedPermissionChecker,
-  getCachedUser,
-} from "@/lib/supabase/server";
-import {
-  QuickRestoConnectionCard,
-  type QuickRestoConnectionView,
-} from "./_components/quickresto-connection-card";
-
-type ConnectionRow = {
-  login: string | null;
-  status: string | null;
-  last_tested_at: string | null;
-  backoffice_login: string | null;
-  backoffice_password_encrypted: string | null;
-  backoffice_last_tested_at: string | null;
-};
-
-export default async function IntegrationsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ quickresto?: string }>;
-}) {
-  const params = await searchParams;
-  const [user, accountId, can] = await Promise.all([
-    getCachedUser(),
-    getCachedActiveAccountId(),
-    getCachedPermissionChecker(),
+import { ArrowRight, KeyRound, PanelsTopLeft, PlugZap, Send } from "lucide-react";
+import { checked, integrationPageScope } from "@/lib/integrations/settings";
+import { LocalDateTime } from "@/components/shared/local-date-time";
+import { IntegrationLayout, IntegrationStatus } from "./_components/integration-layout";
+export default async function IntegrationsPage({ searchParams }: { searchParams: Promise<{ quickresto?: string }> }) {
+  const [s, params] = await Promise.all([integrationPageScope(), searchParams]);
+  const [tilda, telegram, quickresto, venues, pools] = await Promise.all([
+    s.db.from<{ enabled: boolean; last_received_at: string | null }>("candidate_connections").select("enabled,last_received_at").eq("account_id", s.accountId).maybeSingle(),
+    s.db.from<{ bot_username: string | null }>("organization_telegram_settings").select("bot_username").eq("account_id", s.accountId).maybeSingle(),
+    s.db.from<{ login: string | null; status: string | null; last_tested_at: string | null; backoffice_last_tested_at: string | null }>("integration_connections").select("login,status,last_tested_at,backoffice_last_tested_at").eq("account_id", s.accountId).eq("provider", "quickresto").maybeSingle(),
+    s.db.from<{ id: string }[]>("venues").select("id").eq("account_id", s.accountId).is("archived_at", null),
+    s.db.from<{ venue_id: string; office_pool_initialized: boolean }[]>("candidate_employment_settings").select("venue_id,office_pool_initialized").eq("account_id", s.accountId),
   ]);
-
-  if (!user) redirect("/login");
-  if (!accountId || !can("settings.manage_integrations")) redirect("/dashboard");
-
-  const admin = asLooseDb(createAdminClient());
-
-  // Подключение и время последней синхронизации читаем вместе: до этого
-  // страница не знала о подключении вовсе и всегда предлагала «Запустить
-  // интеграцию», даже когда синхронизация давно работала (#368).
-  const [{ data: account }, { data: connection }, { data: lastSynced }] = await Promise.all([
-    admin
-      .from<{ id: string; name: string }>("accounts")
-      .select("id, name")
-      .eq("id", accountId)
-      .maybeSingle(),
-    admin
-      .from<ConnectionRow>("integration_connections")
-      .select(
-        "login, status, last_tested_at, backoffice_login, backoffice_password_encrypted, backoffice_last_tested_at",
-      )
-      .eq("account_id", accountId)
-      .eq("provider", "quickresto")
-      .maybeSingle(),
-    admin
-      .from<Array<{ synced_at: string | null }>>("ingredients")
-      .select("synced_at")
-      .eq("account_id", accountId)
-      .order("synced_at", { ascending: false })
-      .range(0, 0),
-  ]);
-
-  if (!account) {
-    return (
-      <div className="w-full p-6 md:p-8">
-        <h1 className="text-2xl font-semibold">Интеграции</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Аккаунт не найден</p>
-      </div>
-    );
-  }
-
-  const connectionView: QuickRestoConnectionView | null = connection
-    ? {
-        login: connection.login,
-        status: connection.status,
-        lastTestedAt: connection.last_tested_at,
-        backofficeLastTestedAt: connection.backoffice_last_tested_at,
-        // «Настроен» — это сохранённые учётные данные и успешная проверка.
-        // Краткоживущий токен при необходимости будет получен заново.
-        backofficeConfigured: Boolean(
-          connection.backoffice_login &&
-          connection.backoffice_password_encrypted &&
-          connection.backoffice_last_tested_at,
-        ),
-      }
-    : null;
-
-  return (
-    <div className="w-full p-6 md:p-8">
-      <h1 className="text-2xl font-semibold">Интеграции</h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Подключайте внешние системы и повторяйте импорт данных
-      </p>
-
-      {params.quickresto === "done" ? (
-        <div className="mt-4 max-w-xl rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-500/30 dark:bg-green-500/15 dark:text-green-300">
-          Импорт Quick Resto завершён.
-        </div>
-      ) : null}
-
-      <Link href="/people/candidates?settings=1" className="mt-6 block max-w-xl rounded-xl border bg-card p-5 hover:border-brand/40"><h2 className="text-base font-semibold">Тильда · кандидаты</h2><p className="mt-1 text-sm text-muted-foreground">Анкеты с сайта, уведомления и оформление сотрудников.</p><span className="mt-3 inline-block text-sm text-brand">Настроить →</span></Link>
-
-      <Link href="/settings/integrations/telegram" className="mt-6 block max-w-xl rounded-xl border bg-card p-5 hover:border-brand/40"><h2 className="text-base font-semibold">Telegram</h2><p className="mt-1 text-sm text-muted-foreground">Бот организации и чат уведомлений.</p><span className="mt-3 inline-block text-sm text-brand">Настроить →</span></Link>
-
-      <QuickRestoConnectionCard
-        connection={connectionView}
-        canSync={can("inventory.sync_quickresto")}
-        lastSyncedAt={lastSynced?.[0]?.synced_at ?? null}
-      />
-    </div>
-  );
+  const t = checked(tilda), tg = checked(telegram), qr = checked(quickresto), venueRows = checked(venues) ?? [], poolRows = checked(pools) ?? [];
+  const ready = venueRows.filter(v => poolRows.some(p => p.venue_id === v.id && p.office_pool_initialized)).length;
+  const qrReady = !!qr?.last_tested_at && qr.status !== "disabled";
+  const cards = [
+    { title: "Тильда", icon: PanelsTopLeft, href: "/settings/integrations/tilda", description: "Приём анкет с сайта в список кандидатов.",
+      status: t ? t.enabled ? "Приём включён" : "Приём выключен" : "Не настроено", tone: t?.enabled ? "success" as const : "neutral" as const,
+      detail: t?.last_received_at ? <>Последняя анкета: <LocalDateTime value={t.last_received_at} /></> : <>Анкеты пока не поступали</> },
+    { title: "Telegram", icon: Send, href: "/settings/integrations/telegram", description: "Бот и чаты для новых анкет и сообщений о найме.",
+      status: tg ? "Подключено" : "Не подключено", tone: tg ? "success" as const : "neutral" as const,
+      detail: tg?.bot_username ? <>@{tg.bot_username}</> : <>Подключите бота организации</> },
+    { title: "Quick Resto", icon: PlugZap, href: "/settings/integrations/quickresto", description: "Подключение кассы, импорт и создание сотрудников.",
+      status: qrReady ? "Подключено" : qr?.status === "disabled" ? "Отключено" : qr ? "Не проверено" : "Не подключено", tone: qrReady ? "success" as const : qr && qr.status !== "disabled" ? "warning" as const : "neutral" as const,
+      detail: qr?.login ? <>Учётная запись: {qr.login}</> : <>Подключите учётную запись Quick Resto</> },
+    { title: "Коды замка", icon: KeyRound, href: "/settings/integrations/office-codes", description: "Резерв занятых кодов и выдача доступа при найме.",
+      status: ready === venueRows.length && ready > 0 ? "Настроено" : ready ? "Частично настроено" : "Не настроено", tone: ready === venueRows.length && ready > 0 ? "success" as const : ready ? "warning" as const : "neutral" as const,
+      detail: <>{ready ? `Настроено заведений: ${ready} из ${venueRows.length}` : "Учёт кодов без управления физическим замком"}</> },
+  ];
+  return <IntegrationLayout root title="Интеграции" description="Подключения и автоматические действия вашей организации.">
+    {params.quickresto === "done" ? <p role="status" className="text-sm text-emerald-700 dark:text-emerald-400">Импорт Quick Resto завершён.</p> : null}
+    <div className="grid gap-4 lg:grid-cols-2">{cards.map(card => <Link key={card.title} href={card.href} className="group flex min-w-0 flex-col gap-4 rounded-xl border bg-card p-5 transition-colors hover:border-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand motion-reduce:transition-none">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-center gap-3"><div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><card.icon className="size-5 text-muted-foreground" /></div><h2 className="text-base font-semibold">{card.title}</h2></div><IntegrationStatus tone={card.tone}>{card.status}</IntegrationStatus></div>
+      <p className="text-sm leading-6 text-muted-foreground">{card.description}</p>
+      <p className="mt-auto break-words text-xs leading-5 text-muted-foreground">{card.detail}</p>
+      <span className="flex items-center gap-2 border-t pt-4 text-sm font-medium text-brand">Настроить<ArrowRight className="size-4" /></span>
+    </Link>)}</div>
+  </IntegrationLayout>;
 }

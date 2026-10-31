@@ -317,6 +317,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>запросил(а) обновление месячной статистики</>,
     buildDetails:e=><p className="text-xs text-muted-foreground">{String(e.details.month).slice(0,7)} · отчётов: {Number(e.details.reports??0)}</p>,
   },
+  "sales.statistics.archive_imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) архив статистики продаж</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Месяцев: {Number(e.details.months ?? 0)} · {String(e.details.source ?? "Glide")}</p>,
+  },
   "payroll.data.imported": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>перенёс(ла) данные зарплаты</>,

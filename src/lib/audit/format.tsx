@@ -347,6 +347,21 @@ const SPECS: Record<string, AuditEventSpec> = {
       </p>
     ),
   },
+  "stock.writeoffs.refresh_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление списаний</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Месяц: {String(e.details.month ?? "").slice(0,7)}</p>,
+  },
+  "stock.writeoffs.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) журнал списаний из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Актов: {Number(e.details.documents ?? 0)} · изменений: {Number(e.details.changed ?? 0)}</p>,
+  },
+  "stock.writeoffs.archive_imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) архив списаний</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Записей: {Number(e.details.rows ?? 0)} · Glide</p>,
+  },
   "sales.additional_rules.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) правила допродаж</>,

@@ -280,8 +280,7 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Документы — учётные документы. Сейчас акты инвентаризации;
-    // позже Списания/Перемещения (Этап 2).
+    // Учётные документы и журнал складских списаний.
     label: "Документы",
     icon: ClipboardList,
     items: [
@@ -295,6 +294,13 @@ const NAV_SECTIONS: NavSection[] = [
           "inventory.fill_assigned_documents",
         ],
         roles: ["owner", "admin", "manager", "hostess", "waiter"],
+      },
+      {
+        title: "Списания",
+        href: "/documents/writeoffs",
+        icon: ClipboardList,
+        permission: "inventory.view_results",
+        roles: ["owner", "admin", "manager"],
       },
     ],
   },

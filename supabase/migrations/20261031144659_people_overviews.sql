@@ -1,6 +1,17 @@
 -- Atomic, read-only aggregates. Never use membership.created_at as a hiring date.
 -- Staff dismissal history is aggregated privately so viewing the team does not
 -- require (or grant) access to the underlying general audit journal.
+-- PostgreSQL 15 (the self-hosted production version) has no pg_input_is_valid.
+-- Keep malformed legacy event dates from breaking the entire overview.
+create or replace function private.people_overview_event_time(p_value text,p_fallback timestamptz)
+returns timestamptz language plpgsql stable security invoker set search_path = '' as $$
+begin
+  return coalesce(nullif(p_value,'')::timestamptz,p_fallback);
+exception when invalid_datetime_format or datetime_field_overflow then
+  return p_fallback;
+end $$;
+revoke all on function private.people_overview_event_time(text,timestamptz) from public,anon,authenticated;
+
 create or replace function private.staff_people_overview(p_month date default null)
 returns jsonb language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -36,8 +47,7 @@ begin
   ), dismissal_days as (
     select user_id,(fired_at at time zone tz)::date as business_day from members where fired_at is not null
     union
-    select l.entity_id,(case when pg_input_is_valid(l.details->>'fired_at','timestamp with time zone')
-      then (l.details->>'fired_at')::timestamptz else l.created_at end at time zone tz)::date
+    select l.entity_id,(private.people_overview_event_time(l.details->>'fired_at',l.created_at) at time zone tz)::date
     from public.audit_logs l where l.account_id=a and l.venue_id=v
       and l.entity_type='staff' and l.action_code='staff.fired'
   ), months as (

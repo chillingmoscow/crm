@@ -1,5 +1,13 @@
 \set ON_ERROR_STOP on
 begin;
+do $$declare fallback timestamptz:='2026-10-15T12:00:00Z';begin
+ if private.people_overview_event_time('2026-10-01T09:00:00+03:00',fallback)<>'2026-10-01T06:00:00Z'::timestamptz
+   or private.people_overview_event_time('not-a-date',fallback)<>fallback
+   or private.people_overview_event_time('2026-02-31T00:00:00Z',fallback)<>fallback
+   or private.people_overview_event_time('',fallback)<>fallback
+   or private.people_overview_event_time(null,fallback)<>fallback
+ then raise exception 'Event timestamp parsing is not compatible with legacy dates';end if;
+end $$;
 -- No fixture is committed or visible to workers/notifications.
 insert into auth.users(id,aud,role,email,email_confirmed_at,raw_user_meta_data,raw_app_meta_data,created_at,updated_at)
 select ('e0e00000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,'authenticated','authenticated','overview-qa-'||n||'@import.local',now(),'{}','{}',now(),now() from generate_series(1,6)n;

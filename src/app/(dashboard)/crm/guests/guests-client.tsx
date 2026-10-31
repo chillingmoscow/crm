@@ -1087,7 +1087,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
           if (!o && !saving) setConfirm(null);
         }}
       >
-        <DialogContent hideClose>
+        <DialogContent hideClose aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>
               {discarding

@@ -51,12 +51,14 @@ export function EditDrawer({
   className,
   focusContentOnOpen = true,
 }: EditDrawerProps) {
+  const descriptionId = React.useId();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetPrimitive.Portal>
         <SheetPrimitive.Overlay className={overlayClass} />
         <SheetPrimitive.Content
           tabIndex={-1}
+          aria-describedby={description ? descriptionId : undefined}
           onOpenAutoFocus={focusContentOnOpen ? focusOverlayContent : undefined}
           className={cn(
             "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg outline-none transition",
@@ -74,7 +76,7 @@ export function EditDrawer({
                 {titleAccessory}
               </div>
               {description && (
-                <SheetDescription className="text-[13px] text-muted-foreground leading-relaxed">
+                <SheetDescription id={descriptionId} className="text-[13px] text-muted-foreground leading-relaxed">
                   {description}
                 </SheetDescription>
               )}

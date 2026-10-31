@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   flexRender,
   getCoreRowModel,
@@ -538,7 +539,18 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     types = [...new Set(allRows.map((r) => r.kind))].sort();
   return (
     <PageFrame className="space-y-6">
-      <TablePageHeader title="Списания" />
+      <TablePageHeader
+        title="Списания"
+        actions={
+          data.permissions.includes("org.manage_venues") ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`/org/venues/${data.venueId}?tab=inventory`}>
+                Настройки
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <div className="w-44">

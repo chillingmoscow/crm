@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { decryptSecret } from "@/lib/integrations/crypto";
+import { telegramDestination } from "@/lib/integrations/telegram-destination";
 import { allowedPhotoURL } from "./schema";
 import type { CandidateFile } from "./types";
 type Job = {
@@ -55,10 +56,8 @@ export async function processCandidateJobs(limit = 5) {
             .eq("account_id", job.account_id)
             .maybeSingle(),
         );
-        const organization = check(await db.from<{secret:{encrypted:string;iv:string;tag:string};default_chat_id:string|null}>("organization_telegram_settings").select("secret,default_chat_id").eq("account_id",job.account_id).maybeSingle());
-        const connection = {telegram_chat_id: job.kind === "hired"
-          ? organization?.default_chat_id || recruitingConnection?.telegram_chat_id
-          : recruitingConnection?.telegram_chat_id || organization?.default_chat_id,
+        const organization = check(await db.from<{secret:{encrypted:string;iv:string;tag:string};default_chat_id:string|null;candidate_chat_id:string|null}>("organization_telegram_settings").select("secret,default_chat_id,candidate_chat_id").eq("account_id",job.account_id).maybeSingle());
+        const connection = {telegram_chat_id: telegramDestination(job.kind === "hired" ? "hired" : "notify", organization, recruitingConnection?.telegram_chat_id ?? null),
           telegram_secret: organization?.secret || recruitingConnection?.telegram_secret};
         if (job.kind === "hired" && (!connection?.telegram_chat_id || !connection.telegram_secret))
           throw new Error("Настройте Telegram-бота и чат для уведомления о найме");

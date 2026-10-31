@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   flexRender,
   getCoreRowModel,
@@ -13,7 +12,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
-  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -46,7 +44,6 @@ import {
 import { deleteCandidates, listCandidates } from "../actions";
 import { CandidateDeleteDialog } from "./candidate-delete-dialog";
 import { plural } from "./fields";
-import { RecruitingSettings } from "./recruiting-settings";
 import {
   candidateColumns,
   COLUMN_CONFIG,
@@ -90,13 +87,11 @@ export function CandidatesClient({
     [to, setTo] = useState(""),
     [preset, setPreset] = useState<string | null>(null),
     [filtersVisible, setFiltersVisible] = useState(false),
-    [settings, setSettings] = useState(false),
     [list, setList] = useState(initialList),
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
     [reload, setReload] = useState(0);
   const [deleting, setDeleting] = useState<{ id: string; full_name: string }[] | null>(null);
-  const params = useSearchParams();
   const { setPagination } = st;
   const pageSize = [25, 50, 100].includes(st.pagination.pageSize)
     ? st.pagination.pageSize
@@ -126,10 +121,6 @@ export function CandidatesClient({
   useEffect(() => { setRowSelection({}); }, [key, setRowSelection]);
   const versions = useRef(new Map(initialList.rows.map((row) => [row.id, row.revision])));
   const firstPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
-  useEffect(() => {
-    if (params.get("settings") === "1" && permissions.integrations)
-      setSettings(true);
-  }, [params, permissions.integrations]);
   useEffect(() => {
     const timer = setTimeout(() => {
       setQuery(search);
@@ -334,17 +325,7 @@ export function CandidatesClient({
                 ),
               }}
             />
-            {permissions.integrations ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9"
-                onClick={() => setSettings(true)}
-              >
-                <Settings className="mr-2 size-4" />
-                Настройки
-              </Button>
-            ) : null}
+
           </>
         }
       />
@@ -605,13 +586,7 @@ export function CandidatesClient({
           />
         </>
       ) : null}
-      {settings ? (
-        <RecruitingSettings
-          options={options}
-          owner={permissions.owner}
-          onClose={() => setSettings(false)}
-        />
-      ) : null}
+
     </div>
   );
 }

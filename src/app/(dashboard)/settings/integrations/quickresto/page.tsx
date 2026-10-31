@@ -1,5 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
+import { integrationPageScope, integrationVenues } from "@/lib/integrations/settings";
+import { QuickRestoSettings } from "./_components/quickresto-settings";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   createClient,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/supabase/server";
 import { QuickRestoIntegrationFlow } from "./_components/quickresto-integration-flow";
 import { NomenclatureProbeButton } from "./_components/nomenclature-probe-button";
+import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
 
 type IntegrationConnection = {
   id: string;
@@ -15,9 +17,12 @@ type IntegrationConnection = {
   backoffice_login: string | null;
   quickresto_bot_role_external_id: string | null;
   quickresto_bot_employee_external_id: string | null;
+  status: string | null;
+  last_tested_at: string | null;
 };
 
-export default async function QuickRestoIntegrationPage() {
+export default async function QuickRestoIntegrationPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const [scope, venueOptions, params] = await Promise.all([integrationPageScope(), integrationVenues(), searchParams]);
   const supabase = await createClient();
   type LooseQueryBuilder = {
     select: (columns: string) => LooseQueryBuilder;
@@ -59,12 +64,13 @@ export default async function QuickRestoIntegrationPage() {
 
   const connectionResult = (await db
     .from("integration_connections")
-    .select("id, login, backoffice_login, quickresto_bot_role_external_id, quickresto_bot_employee_external_id")
+    .select("id, login, backoffice_login, quickresto_bot_role_external_id, quickresto_bot_employee_external_id,status,last_tested_at")
     .eq("account_id", account.id)
     .eq("provider", "quickresto")
     .maybeSingle()) as unknown as { data: IntegrationConnection | null };
 
   const connection = connectionResult.data;
+  const lastSync = await scope.db.from<{ synced_at: string | null }[]>("ingredients").select("synced_at").eq("account_id", account.id).order("synced_at", { ascending: false }).range(0, 0);
   const botRoleExternalId = connection?.quickresto_bot_role_external_id
     ? Number(connection.quickresto_bot_role_external_id)
     : null;
@@ -73,20 +79,8 @@ export default async function QuickRestoIntegrationPage() {
     : null;
 
   return (
-    <div className="p-6 md:p-8 w-full">
-      <div className="mb-6">
-        <Link
-          href="/settings/integrations"
-          className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2"
-        >
-          К списку интеграций
-        </Link>
-        <h1 className="text-2xl font-semibold mt-2">Quick Resto</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Подключите API, сервисного back-office пользователя и выберите, какие данные импортировать.
-        </p>
-      </div>
-
+    <QuickRestoSettings key={scope.accountId} {...venueOptions} editable={scope.owner} initialTab={params.tab === "employees" ? "employees" : "connection"} connection={<>
+      {connection?.status === "active" && connection.last_tested_at && can("inventory.sync_quickresto") ? <InventorySyncButton canSync lastSyncedAt={lastSync.data?.[0]?.synced_at ?? null} /> : null}
       <QuickRestoIntegrationFlow
         accountId={account.id}
         initialLogin={connection?.login ?? ""}
@@ -97,6 +91,6 @@ export default async function QuickRestoIntegrationPage() {
       />
 
       {connection ? <NomenclatureProbeButton /> : null}
-    </div>
+    </>} />
   );
 }

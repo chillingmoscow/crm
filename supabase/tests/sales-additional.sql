@@ -1,7 +1,7 @@
 -- Requires local migrated schema + prepared archive fixture. All mutations roll back.
 begin;
 do $test$
-declare u uuid;a uuid;v uuid;d date;job jsonb;old_job jsonb;other_job jsonb;expected_metrics jsonb;rules_config jsonb;old_request jsonb;before_hash text;history_count bigint;ver integer;cutoff date;
+declare u uuid;a uuid;v uuid;d date;job jsonb;old_job jsonb;other_job jsonb;expected_metrics jsonb;rules_config jsonb;old_request jsonb;before_hash text;history_count bigint;ver integer;source_version integer;cutoff date;
 begin
  select id into u from auth.users where email='owner@test.com';perform set_config('request.jwt.claim.sub',u::text,true);perform set_config('app.ctx_ready','0',true);
  a:=public.get_active_account_id();v:=public.get_active_venue_id();perform set_config('test.additional_venue',v::text,true);perform set_config('test.additional_owner',u::text,true);
@@ -33,10 +33,17 @@ begin
  perform private.sales_request_additional_day(v,d,true);job:=public.sales_claim_additional_report(v);
  update public.sales_additional_sources set version=version+1 where venue_id=v;
  if public.sales_commit_additional_report((job->>'id')::uuid,(job->>'lease_token')::uuid,expected_metrics) then raise exception 'Changed source accepted';end if;
- select version into ver from public.sales_additional_sources where venue_id=v;
+ select rules_version,version into ver,source_version from public.sales_additional_sources where venue_id=v;
  begin perform public.sales_save_additional_rules(v,ver,cutoff,rules_config,'Test');raise exception 'Historical rule accepted';exception when raise_exception then if sqlerrm not like 'Новые правила%' then raise;end if;end;
  begin perform public.sales_save_additional_rules(gen_random_uuid(),ver,cutoff+1,rules_config,'Test');raise exception 'Foreign venue accepted';exception when raise_exception then if sqlerrm not like 'Заведение изменилось%' then raise;end if;end;
+ -- A future rule edit must not invalidate a queued historical report.
+ update public.sales_additional_reports set next_retry_at=now()+interval '1 day' where venue_id=v;
+ perform private.sales_request_additional_day(v,cutoff-8,true);job:=public.sales_claim_additional_report(v);
+ if (job->>'date')::date<>cutoff-8 then raise exception 'Historical job not isolated';end if;
+ expected_metrics:=jsonb_build_object('revenue',0,'primeCost',0,'bonus',0,'points',case when job->>'kind'='bar' then null else 2.9995 end,'quantities',(select jsonb_object_agg(g->>'id','null'::jsonb) from jsonb_array_elements(rules_config->(job->>'kind')) g));
  perform public.sales_save_additional_rules(v,ver,cutoff+1,rules_config,'Test future version');
+ if (select version from public.sales_additional_sources where venue_id=v)<>source_version then raise exception 'Future rule invalidated source version';end if;
+ if not public.sales_commit_additional_report((job->>'id')::uuid,(job->>'lease_token')::uuid,expected_metrics) then raise exception 'Future edit blocked historical job';end if;
  begin perform public.sales_save_additional_rules(v,ver,cutoff+1,rules_config,'Stale editor');raise exception 'Stale editor accepted';exception when raise_exception then if sqlerrm not like 'Правила изменились%' then raise;end if;end;
  if has_function_privilege('authenticated','public.sales_claim_additional_report(uuid)','EXECUTE') or has_table_privilege('authenticated','public.sales_additional_reports','UPDATE') or has_function_privilege('anon','public.sales_request_additional_month(date,uuid)','EXECUTE') then raise exception 'Unsafe worker grants';end if;
  if before_hash is distinct from md5(jsonb_build_object('transactions',(select jsonb_agg(to_jsonb(t) order by id) from public.transactions t),'accruals',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_accruals t),'adjustments',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_adjustments t),'banks',(select jsonb_agg(to_jsonb(t) order by id) from public.bank_accounts t))::text) then raise exception 'Financial/payroll mutation';end if;

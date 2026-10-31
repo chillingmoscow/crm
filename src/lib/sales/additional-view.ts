@@ -90,3 +90,12 @@ export function additionalCoverage(
     ? 0
     : Math.round((Date.parse(through) - Date.parse(first)) / 86400000) + 1;
 }
+
+export function additionalNeedsRefresh(
+  reports: Pick<AdditionalDay, "business_date" | "state">[],
+  month: string,
+) {
+  return reports.some(
+    (r) => r.business_date.startsWith(month.slice(0, 7)) && r.state !== "ready",
+  );
+}

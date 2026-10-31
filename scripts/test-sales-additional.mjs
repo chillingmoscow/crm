@@ -175,8 +175,32 @@ try {
       },
     ).outputText,
   );
-  const { additionalCoverage, additionalRows, additionalTotal } = await import(
-    pathToFileURL(join(dir, "additional-view.mjs")).href
+  const {
+    additionalCoverage,
+    additionalRows,
+    additionalTotal,
+    additionalNeedsRefresh,
+  } = await import(pathToFileURL(join(dir, "additional-view.mjs")).href);
+  assert.equal(
+    additionalNeedsRefresh(
+      [
+        { business_date: "2026-10-30", state: "ready" },
+        { business_date: "2026-10-29", state: "error" },
+      ],
+      "2026-10",
+    ),
+    true,
+    "UI must keep following automatic retry after pending jobs become errors",
+  );
+  assert.equal(
+    additionalNeedsRefresh(
+      [
+        { business_date: "2026-10-30", state: "ready" },
+        { business_date: "2026-09-30", state: "error" },
+      ],
+      "2026-10",
+    ),
+    false,
   );
   assert.equal(additionalCoverage("2026-10-01", "2026-10-30"), 30);
   assert.equal(additionalCoverage("2026-11-01", "2026-10-30"), 0);

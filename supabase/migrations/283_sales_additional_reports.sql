@@ -2,7 +2,7 @@ begin;
 create table public.sales_additional_sources (
  venue_id uuid primary key,account_id uuid not null,enabled boolean not null default true,
  masters_report_id integer not null check(masters_report_id>0),bar_report_id integer not null check(bar_report_id>0),cocktail_report_id integer not null check(cocktail_report_id>0),
- version integer not null default 1 check(version>0),origin jsonb not null default '{}',
+ version integer not null default 1 check(version>0),rules_version integer not null default 1 check(rules_version>0),origin jsonb not null default '{}',
  foreign key(account_id,venue_id) references public.venues(account_id,id)
 );
 create index sales_additional_sources_scope on public.sales_additional_sources(account_id,venue_id);
@@ -80,13 +80,13 @@ begin
  if auth.uid() is null or not public.has_permission('sales.configure_shifts') or not public.has_permission('sales.view_shifts') then raise exception 'Нет доступа к правилам допродаж';end if;
  if v is distinct from p_expected_venue then raise exception 'Заведение изменилось. Обновите страницу';end if;
  select * into s from public.sales_additional_sources where account_id=a and venue_id=v for update;
- if not found or p_version is distinct from s.version then raise exception 'Правила изменились. Обновите страницу';end if;
+ if not found or p_version is distinct from s.rules_version then raise exception 'Правила изменились. Обновите страницу';end if;
  select ((now() at time zone timezone)-make_interval(hours=>day_start_hour))::date into cutoff from public.sales_settings where account_id=a and venue_id=v;
  if p_from is null or cutoff is null or p_from<=cutoff or p_from>cutoff+366 then raise exception 'Новые правила можно назначить со следующего рабочего дня';end if;
  if length(trim(p_reason)) not between 3 and 1000 then raise exception 'Укажите причину изменения';end if;
  perform private.sales_validate_additional_rules(p_config);
  insert into public.sales_additional_rules(account_id,venue_id,valid_from,config,reason,created_by) values(a,v,p_from,p_config,trim(p_reason),auth.uid()) returning id into r;
- update public.sales_additional_sources set version=version+1 where venue_id=v;
+ update public.sales_additional_sources set rules_version=rules_version+1 where venue_id=v;
  insert into public.audit_logs(account_id,venue_id,user_id,action_code,entity_type,entity_id,details) values(a,v,auth.uid(),'sales.additional_rules.updated','sales_additional_rules',r,jsonb_build_object('valid_from',p_from,'reason',trim(p_reason),'config',p_config));
  return r;
 end $$;

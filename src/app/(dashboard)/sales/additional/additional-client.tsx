@@ -37,6 +37,7 @@ import {
   additionalValue,
   additionalTotal,
   additionalCoverage,
+  additionalNeedsRefresh,
   type AdditionalRow,
 } from "@/lib/sales/additional-view";
 import {
@@ -409,9 +410,10 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       setBusy(false);
     }
   }
-  const pending = data.reports.some((r) =>
-    ["pending", "running"].includes(r.state),
-  );
+  const pending =
+    data.configured &&
+    source === "native" &&
+    additionalNeedsRefresh(data.reports, month);
   useEffect(() => {
     if (!pending) return;
     let active = true;

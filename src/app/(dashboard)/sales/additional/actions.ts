@@ -92,8 +92,11 @@ export async function loadAdditional(
       "valid_from",
     ),
     s.db
-      .from<{ enabled: boolean; version: number }>("sales_additional_sources")
-      .select("enabled,version")
+      .from<{
+        enabled: boolean;
+        rules_version: number;
+      }>("sales_additional_sources")
+      .select("enabled,rules_version")
       .eq("venue_id", s.venueId)
       .maybeSingle(),
     s.db
@@ -111,7 +114,7 @@ export async function loadAdditional(
     venueId: s.venueId,
     permissions: s.permissions,
     configured: source.data?.enabled ?? false,
-    version: source.data?.version ?? 0,
+    version: source.data?.rules_version ?? 0,
     timezone: settings.data?.timezone ?? "Europe/Moscow",
     hour: settings.data?.day_start_hour ?? 9,
     nextFrom: addDays(

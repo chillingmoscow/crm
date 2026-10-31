@@ -245,7 +245,6 @@ export async function loadEmployeeDocuments(
     venueId: s.venueId,
     timezone: venue.data?.timezone ?? "Europe/Moscow",
     canEditHr: can("people.edit_staff"),
-    canReview: can("payroll.review"),
     canPurchase:
       can("finance.create_transaction") && can("finance.view_bank_accounts"),
     employee,

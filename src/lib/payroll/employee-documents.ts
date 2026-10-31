@@ -16,7 +16,6 @@ export type EmployeeDocumentsData = {
   timezone: string;
   canEditHr: boolean;
   canPurchase: boolean;
-  canReview: boolean;
   employee: {
     id: string;
     name: string;

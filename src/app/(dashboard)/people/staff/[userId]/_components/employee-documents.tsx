@@ -588,7 +588,7 @@ function UniformCard({
                       Расход на покупку ↗
                     </Link>
                   )}
-                  {data.canReview && !i.cancelled_at && (
+                  {!i.cancelled_at && (
                     <Button
                       type="button"
                       variant="ghost"

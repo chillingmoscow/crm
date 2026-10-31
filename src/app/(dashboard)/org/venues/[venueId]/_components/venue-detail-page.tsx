@@ -126,7 +126,7 @@ export function VenueDetailPage({
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
   salesConfiguration: SalesConfiguration | null;
-  initialTab?:'inventory'|'audit';
+  initialTab?: 'inventory' | 'audit' | 'sales';
   canViewStockRules:boolean;
 }) {
   const router = useRouter();
@@ -134,7 +134,12 @@ export function VenueDetailPage({
   const [workingHours, setWorkingHours] = useState<WorkingHours>(
     venue.working_hours ?? INITIAL_WORKING_HOURS
   );
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab==='inventory'&&canViewStockRules?'Инвентаризация':initialTab==='audit'&&canViewAudit?'Журнал':'Основное');
+  const [activeTab, setActiveTab] = useState<Tab>(
+    initialTab === 'inventory' && canViewStockRules ? 'Инвентаризация'
+      : initialTab === 'audit' && canViewAudit ? 'Журнал'
+      : initialTab === 'sales' && salesConfiguration ? 'Продажи'
+      : 'Основное'
+  );
   const TABS: Tab[] = [
     ...BASE_TABS,
     ...(salesConfiguration ? ["Продажи" as const,"Оплата труда" as const] : []),

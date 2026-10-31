@@ -27,7 +27,7 @@ create index finance_execution_bindings_run on private.finance_execution_binding
 create index finance_execution_bindings_scope on private.finance_execution_bindings(account_id,venue_id,kind);
 create table private.finance_execution_jobs (
  id uuid primary key default gen_random_uuid(),account_id uuid not null,venue_id uuid not null,kind text not null check(kind in ('settlement','movements')),business_date date not null,
- source_hash text not null,state text not null default 'pending' check(state in ('pending','running','done','review','error')),lease uuid,claimed_at timestamptz,
+ source_hash text not null,rules_hash text not null default '',state text not null default 'pending' check(state in ('pending','running','done','review','error')),lease uuid,claimed_at timestamptz,
  next_retry_at timestamptz not null default now(),attempts integer not null default 0,failures integer not null default 0,last_error text,updated_at timestamptz not null default now(),
  unique(venue_id,kind,business_date),foreign key(account_id,venue_id) references public.venues(account_id,id) on delete cascade
 );
@@ -134,18 +134,28 @@ declare s public.sales_settings;p public.finance_execution_rules;provider_hash t
 end $$;
 revoke all on function private.finance_execution_snapshot(uuid,uuid,text,date) from public,anon,authenticated,service_role;
 
+-- Only decisions for this day's source IDs affect its scheduling fingerprint.
+-- Once posted, ordinary rate/account changes keep using the pinned rule.
+create function private.finance_execution_rules_hash(a uuid,v uuid,k text,d date) returns text language sql security definer set search_path='' as $$
+ select md5(jsonb_build_object(
+  'rule',coalesce((select rule_id from public.finance_execution_runs where account_id=a and venue_id=v and kind=k and business_date=d and state='committed' order by created_at,id limit 1),case when k='settlement' then (select id from public.finance_settlement_settings where account_id=a and venue_id=v order by version desc limit 1) else (select id from public.cash_movement_rules where account_id=a and venue_id=v order by version desc limit 1) end),
+  'decisions',case when k='movements' then coalesce((select jsonb_agg(o order by o->>'sourceId') from jsonb_array_elements(coalesce((select config->'overrides' from public.cash_movement_rules where account_id=a and venue_id=v order by version desc limit 1),'[]'))o where o->>'date'=d::text or o->>'sourceId' in(select i->>'id' from public.cash_movement_days cd,jsonb_array_elements(cd.items)i where cd.account_id=a and cd.venue_id=v and cd.business_date=d)),'[]') else '[]'::jsonb end
+ )::text)
+$$;
+revoke all on function private.finance_execution_rules_hash(uuid,uuid,text,date) from public,anon,authenticated,service_role;
+
 create function public.finance_schedule_execution() returns integer language plpgsql security definer set search_path='' as $$
 declare r record;n integer:=0;begin
  for r in
   with policies as(select distinct on(venue_id) * from public.finance_execution_rules order by venue_id,version desc),sources as(
    select account_id,venue_id,'settlement'::text kind,business_date,source_hash from public.finance_settlement_days
    union all select account_id,venue_id,'movements',business_date,source_hash from public.cash_movement_days
-  )select s.* from sources s join policies p on p.venue_id=s.venue_id and p.account_id=s.account_id join public.venues v on v.id=s.venue_id
+  )select s.*,private.finance_execution_rules_hash(s.account_id,s.venue_id,s.kind,s.business_date) as rules_hash from sources s join policies p on p.venue_id=s.venue_id and p.account_id=s.account_id join public.venues v on v.id=s.venue_id
    where p.enabled and p.legacy_stopped and s.business_date>=p.from_date and v.archived_at is null and case when s.kind='settlement' then p.settlement else p.movements end
  loop
-  insert into private.finance_execution_jobs(account_id,venue_id,kind,business_date,source_hash) values(r.account_id,r.venue_id,r.kind,r.business_date,r.source_hash)
-  on conflict(venue_id,kind,business_date) do update set source_hash=excluded.source_hash,state='pending',lease=null,claimed_at=null,failures=0,last_error=null,next_retry_at=now(),updated_at=now()
-   where finance_execution_jobs.source_hash<>excluded.source_hash and (finance_execution_jobs.state<>'running' or finance_execution_jobs.claimed_at<now()-interval '2 minutes');
+  insert into private.finance_execution_jobs(account_id,venue_id,kind,business_date,source_hash,rules_hash) values(r.account_id,r.venue_id,r.kind,r.business_date,r.source_hash,r.rules_hash)
+  on conflict(venue_id,kind,business_date) do update set source_hash=excluded.source_hash,rules_hash=excluded.rules_hash,state='pending',lease=null,claimed_at=null,failures=0,last_error=null,next_retry_at=now(),updated_at=now()
+   where (finance_execution_jobs.source_hash<>excluded.source_hash or finance_execution_jobs.rules_hash<>excluded.rules_hash) and (finance_execution_jobs.state<>'running' or finance_execution_jobs.claimed_at<now()-interval '2 minutes');
   if found then n:=n+1;end if;
  end loop;return n;
 end $$;
@@ -165,8 +175,9 @@ declare j private.finance_execution_jobs;p public.finance_execution_rules;begin
  if not found then raise exception 'Проведение передано другому обработчику';end if;
  select * into p from public.finance_execution_rules where venue_id=j.venue_id order by version desc limit 1;
  if p.id is null or not p.enabled or not p.legacy_stopped or j.business_date<p.from_date or not(case when j.kind='settlement' then p.settlement else p.movements end) then
-  update private.finance_execution_jobs set state='done',lease=null,claimed_at=null,last_error=null,updated_at=now() where id=j.id;return null;
+  update private.finance_execution_jobs set state='done',rules_hash='',lease=null,claimed_at=null,last_error=null,updated_at=now() where id=j.id;return null;
  end if;
+ update private.finance_execution_jobs set rules_hash=private.finance_execution_rules_hash(j.account_id,j.venue_id,j.kind,j.business_date) where id=j.id;
  return private.finance_execution_snapshot(j.account_id,j.venue_id,j.kind,j.business_date);
 end $$;
 revoke all on function public.finance_execution_source(uuid,uuid) from public,anon,authenticated;
@@ -194,7 +205,7 @@ declare j private.finance_execution_jobs;p public.finance_execution_rules;existi
  if not found then raise exception 'Проведение передано другому обработчику';end if;
  select * into p from public.finance_execution_rules where venue_id=j.venue_id order by version desc limit 1;
  if p.id is null or not p.enabled or not p.legacy_stopped or j.business_date<p.from_date or not(case when j.kind='settlement' then p.settlement else p.movements end) then
-  update private.finance_execution_jobs set state='done',lease=null,claimed_at=null,last_error=null,updated_at=now() where id=j.id;return jsonb_build_object('state','disabled');
+  update private.finance_execution_jobs set state='done',rules_hash='',lease=null,claimed_at=null,last_error=null,updated_at=now() where id=j.id;return jsonb_build_object('state','disabled');
  end if;
  -- Serialize the short financial commit with every ordinary ledger writer.
  -- A stale UI form / bank import cannot slip between comparison and INSERT.
@@ -306,7 +317,7 @@ declare j private.finance_execution_jobs;p public.finance_execution_rules;existi
    on conflict(venue_id,key) do update set original=excluded.original,baseline=excluded.baseline,auto_cancelled=case when mode='cancelled' then finance_execution_bindings.auto_cancelled else excluded.auto_cancelled end,run_id=excluded.run_id,updated_at=now();
   end loop;
   update public.finance_execution_runs set state='committed',created_count=created_n,corrected_count=corrected_n,linked_count=linked_n,cancelled_count=cancelled_n where id=p_request;
-  update private.finance_execution_jobs set state='done',lease=null,claimed_at=null,last_error=null,failures=0,updated_at=now() where id=j.id;
+  update private.finance_execution_jobs set state='done',rules_hash=private.finance_execution_rules_hash(j.account_id,j.venue_id,j.kind,j.business_date),lease=null,claimed_at=null,last_error=null,failures=0,updated_at=now() where id=j.id;
   insert into public.audit_logs(account_id,venue_id,action_code,entity_type,entity_id,details) values(j.account_id,j.venue_id,'finance.execution.committed','venue',j.venue_id,jsonb_build_object('run_id',p_request,'date',j.business_date,'kind',j.kind,'created',created_n,'corrected',corrected_n,'linked',linked_n,'cancelled',cancelled_n));
  exception when others then
   error_message:=left(sqlerrm,1000);
@@ -366,8 +377,8 @@ declare a uuid:=private.finance_settlement_owner(p_venue);p public.finance_execu
  select * into j from private.finance_execution_jobs where venue_id=p_venue and kind=p_kind and business_date=p_date for update;
  if found and j.state in ('pending','running') then raise exception 'Проведение уже запущено';end if;
  s:=private.finance_execution_snapshot(a,p_venue,p_kind,p_date);
- insert into private.finance_execution_jobs(account_id,venue_id,kind,business_date,source_hash) values(a,p_venue,p_kind,p_date,s->'source'->>'hash')
- on conflict(venue_id,kind,business_date) do update set source_hash=excluded.source_hash,state='pending',lease=null,claimed_at=null,failures=0,last_error=null,next_retry_at=now(),updated_at=now();
+ insert into private.finance_execution_jobs(account_id,venue_id,kind,business_date,source_hash,rules_hash) values(a,p_venue,p_kind,p_date,s->'source'->>'hash',private.finance_execution_rules_hash(a,p_venue,p_kind,p_date))
+ on conflict(venue_id,kind,business_date) do update set source_hash=excluded.source_hash,rules_hash=excluded.rules_hash,state='pending',lease=null,claimed_at=null,failures=0,last_error=null,next_retry_at=now(),updated_at=now();
  insert into public.audit_logs(account_id,venue_id,user_id,action_code,entity_type,entity_id,details) values(a,p_venue,auth.uid(),'finance.execution.requested','venue',p_venue,jsonb_build_object('date',p_date,'kind',p_kind));
 end $$;
 revoke all on function public.finance_retry_execution(uuid,date,text) from public,anon,service_role;

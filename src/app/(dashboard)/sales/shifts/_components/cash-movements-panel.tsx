@@ -81,7 +81,7 @@ export function CashMovementsPanel({
         <div>
           <h3 className="text-sm font-semibold">Инкассации и внесения</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Операции кассовой смены. Денежные записи пока создаёт n8n.
+            Инкассации, такси и выдача чаевых по кассовой смене.
           </p>
         </div>
         {data?.canManage && (

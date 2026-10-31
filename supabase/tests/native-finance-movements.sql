@@ -7,7 +7,7 @@ declare a uuid;v uuid;u uuid;le uuid;b uuid;cat uuid;r uuid;n integer;cfg jsonb;
  select legal_entity_id into le from public.bank_accounts where account_id=a and deleted_at is null limit 1;
  insert into public.bank_accounts(account_id,venue_id,legal_entity_id,name,type,balance) values(a,v,le,'Native cash QA','cash',1000) returning id into b;perform set_config('test.cash_bank',b::text,true);
  insert into public.bank_accounts(account_id,venue_id,legal_entity_id,name,type) values(a,v,le,'Native operating QA','cash') returning id into b;perform set_config('test.cash_operating',b::text,true);
- insert into public.bank_accounts(account_id,venue_id,legal_entity_id,name,type) values(a,v,le,'Native safe QA','safe') returning id into b;
+ insert into public.bank_accounts(account_id,venue_id,legal_entity_id,name,type) values(a,v,le,'Native safe QA','safe') returning id into b;perform set_config('test.cash_safe',b::text,true);
  insert into public.finance_categories(account_id,name,type) values(a,'Native cash income QA','income') returning id into cat;
  cfg:=jsonb_build_object('cashAccountId',current_setting('test.cash_bank'),'safeAccountId',b,'operatingAccountId',current_setting('test.cash_operating'),'incomeCategoryId',cat,'safePattern','инкас|инк.*ация','taxiPattern','такси','tipsPattern','ча[йеюёвы]','lookbackDays',30,'intervalMinutes',60,'autoRead',false,'overrides','[]'::jsonb);
  insert into public.finance_categories(account_id,name,type) values(a,'Native taxi QA','expense') returning id into cat;cfg:=cfg||jsonb_build_object('taxiCategoryId',cat,'tipsCategoryId',cat);perform set_config('test.cash_category',cat::text,true);
@@ -69,6 +69,23 @@ declare outcome jsonb;t1 uuid;e1 uuid;t3 uuid;e3 uuid;items jsonb;one jsonb;begi
  if outcome->>'state'<>'committed' or (select balance from public.bank_accounts where id=current_setting('test.cash_bank')::uuid)<>785 or (select balance from public.bank_accounts where id=current_setting('test.cash_operating')::uuid)<>0 or (select source_external_id from public.transactions where id=e3)<>'adesk:qa:9010003:expense' then raise exception 'Legacy correction changed identity or duplicated expense: %',outcome;end if;
  outcome:=pg_temp.cash_apply(jsonb_build_array(pg_temp.cash_cmd(9999999,4500,'transfer')));
  if outcome->>'state'<>'error' or (select balance from public.bank_accounts where id=current_setting('test.cash_bank')::uuid)<>785 then raise exception 'Foreign source ID posted';end if;
+ -- A per-item decision changes routing without changing the provider hash.
+ update private.finance_execution_jobs set state='done' where id=current_setting('test.cash_job')::uuid;
+ perform public.finance_schedule_execution();
+ if (select state from private.finance_execution_jobs where id=current_setting('test.cash_job')::uuid)<>'done' then raise exception 'Unchanged routing replayed a day';end if;
+ insert into public.cash_movement_rules(account_id,venue_id,version,config,reason,created_by,actor_name)
+ select account_id,venue_id,version+1,jsonb_set(config,'{overrides}',jsonb_build_array(jsonb_build_object('sourceId',9010001,'date','2000-01-04','amountCents',12000,'comment','Такси','route','safe','reason','QA route correction'))),'QA route correction',created_by,actor_name from public.cash_movement_rules where venue_id=current_setting('test.cash_v')::uuid order by version desc limit 1;
+ perform public.finance_schedule_execution();
+ if (select state from private.finance_execution_jobs where id=current_setting('test.cash_job')::uuid)<>'pending' then raise exception 'Changed routing did not enqueue posted day';end if;
+ update private.finance_execution_jobs set next_retry_at=now()+interval '1 day' where id<>current_setting('test.cash_job')::uuid;
+ outcome:=pg_temp.cash_apply(jsonb_build_array(pg_temp.cash_cmd(9010001,12000,'transfer','update',t1)||jsonb_build_object('toBankAccountId',current_setting('test.cash_safe')),pg_temp.cash_cmd(9010001,12000,'expense','cancel',e1)));
+ if outcome->>'state'<>'committed' or (select balance from public.bank_accounts where id=current_setting('test.cash_bank')::uuid)<>785 or (select balance from public.bank_accounts where id=current_setting('test.cash_operating')::uuid)<>0 or (select balance from public.bank_accounts where id=current_setting('test.cash_safe')::uuid)<>120 then raise exception 'Routing correction duplicated money: %',outcome;end if;
+ perform public.finance_schedule_execution();
+ if (select state from private.finance_execution_jobs where id=current_setting('test.cash_job')::uuid)<>'done' then raise exception 'Committed routing replayed repeatedly';end if;
+ insert into public.cash_movement_rules(account_id,venue_id,version,config,reason,created_by,actor_name)
+ select account_id,venue_id,version+1,jsonb_set(config,'{overrides}',config->'overrides'||jsonb_build_array(jsonb_build_object('sourceId',9019999,'date','2000-01-06','amountCents',100,'comment','Другое','route','safe','reason','QA other day'))),'QA other day',created_by,actor_name from public.cash_movement_rules where venue_id=current_setting('test.cash_v')::uuid order by version desc limit 1;
+ perform public.finance_schedule_execution();
+ if (select state from private.finance_execution_jobs where id=current_setting('test.cash_job')::uuid)<>'done' then raise exception 'Unrelated decision replayed posted day';end if;
  raise notice 'PASS: complete native cash chains, late taxi remainder, corrections/cancellations/restores, preserved Adesk identities, exact account balances, source membership';
 end $$;
 rollback;

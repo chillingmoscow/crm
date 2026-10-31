@@ -75,7 +75,7 @@ export function SettlementPanel({
         <div>
           <h3 className="text-sm font-semibold">Поступления по счетам</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Сверка с финансами Sheerly. Операции создаёт n8n.
+            Сверка поступлений с финансовыми операциями.
           </p>
         </div>
         <Button

@@ -51,7 +51,8 @@ import { ProfileSection as FormSection } from "@/components/shared/profile-secti
 import { EntityInfoPopover } from "@/components/shared/entity-info-popover";
 import { createClient } from "@/lib/supabase/client";
 import { translateError } from "@/lib/i18n/translate-error";
-import type { AuditEvent } from "@/lib/audit/list";
+import { listAuditEvents, type AuditEvent } from "@/lib/audit/list";
+import { EmployeeDocuments, BasicMedicalCard } from "./employee-documents";
 import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import {
   fireStaff,
@@ -134,6 +135,8 @@ interface Props {
    *  `org.view_audit` выполняется на сервере; здесь — флаг для
    *  conditional render'а. */
   canViewAudit: boolean;
+  canConfigurePayroll: boolean;
+  initialTab?: "main" | "documents" | "pay";
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
   initialActivityEvents: AuditEvent[];
@@ -176,6 +179,8 @@ export function StaffDetailPage({
   hasPendingInvite,
   needsPasswordSetup,
   canViewAudit,
+  canConfigurePayroll,
+  initialTab = "main",
   initialAuditEvents,
   initialAuditHasMore,
   initialActivityEvents,
@@ -184,7 +189,13 @@ export function StaffDetailPage({
   backLabel = "Сотрудники",
 }: Props) {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<TabKey>("main");
+  const [activeTab, setActiveTab] = useState<TabKey>(initialTab);
+  const [documentAudit, setDocumentAudit] = useState<{events: AuditEvent[]; hasMore: boolean} | null>(null);
+  const refreshDocumentHistory = () => {
+    if (canViewAudit) void listAuditEvents({entityType: "staff", entityId: profile.id}).then(result => {
+      if (!result.error) setDocumentAudit(result);
+    });
+  };
   const [avatarUrl, setAvatarUrl]             = useState<string | null>(profile.avatar_url);
   const [passportPhotos, setPassportPhotos]   = useState<string[]>(accountDetails.passport_photos ?? []);
   const [signedUrls, setSignedUrls]           = useState<Record<string, string>>({});
@@ -396,8 +407,6 @@ export function StaffDetailPage({
         profilePromise,
         updateStaffAccountDetails(profile.id, accountId, {
           employment_date:     values.employment_date,
-          medical_book_number: values.medical_book_number || null,
-          medical_book_date:   values.medical_book_date || null,
           comment:             values.comment || null,
         }),
         updateStaffTerminalPin(uvrId, values.terminal_pin || null),
@@ -1089,43 +1098,12 @@ export function StaffDetailPage({
           {/* ── Документы ────────────────────────────────────── */}
           <TabsContent value="pay"><StaffPayPanel userId={profile.id}/></TabsContent>
           <TabsContent value="documents">
-            <form
-              onSubmit={handleSubmit(onSave, onValidationError)}
-              className="mx-auto w-full max-w-[720px] flex flex-col gap-5"
-            >
-              <FormSection
-                title="Медицинская книжка"
-                description="Номер и срок действия медкнижки"
-              >
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="medical_book_number" className="text-[13px] font-medium">Номер</Label>
-                    <Input
-                      id="medical_book_number"
-                      placeholder="МК-0000000"
-                      {...register("medical_book_number")}
-                      readOnly={!canEdit}
-                      className={!canEdit ? "bg-muted/50" : ""}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="medical_book_date" className="text-[13px] font-medium">Аттестован до</Label>
-                    <Controller
-                      control={control}
-                      name="medical_book_date"
-                      render={({ field }) => (
-                        <DatePicker
-                          id="medical_book_date"
-                          value={field.value ?? ""}
-                          onChange={field.onChange}
-                          placeholder="Выберите дату"
-                          readOnly={!canEdit}
-                        />
-                      )}
-                    />
-                  </div>
-                </div>
-              </FormSection>
+            <div className="mx-auto w-full max-w-[720px] flex flex-col gap-5">
+              {canConfigurePayroll ? (
+                <EmployeeDocuments target={{userId: profile.id}} basic={{userId: profile.id, accountId, number: accountDetails.medical_book_number, until: accountDetails.medical_book_date, canEdit}} onChanged={refreshDocumentHistory} />
+              ) : (
+                <BasicMedicalCard basic={{userId: profile.id, accountId, number: accountDetails.medical_book_number, until: accountDetails.medical_book_date, canEdit}} onChanged={refreshDocumentHistory} />
+              )}
 
               <section className="rounded-[14px] border bg-card p-5 flex flex-col gap-4">
                 <header className="flex items-start justify-between gap-3">
@@ -1208,22 +1186,7 @@ export function StaffDetailPage({
                 )}
               </section>
 
-              <div className="flex justify-end pt-1">
-                <Button
-                  type="submit"
-                  disabled={!canEdit || isPending}
-                  variant={canEdit ? "default" : "secondary"}
-                  className={
-                    canEdit
-                      ? ""
-                      : "disabled:opacity-100 text-muted-foreground hover:bg-secondary cursor-default"
-                  }
-                >
-                  {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Сохранить
-                </Button>
-              </div>
-            </form>
+            </div>
           </TabsContent>
 
           {/* ── Журнал (что делали с этим сотрудником) ──────── */}
@@ -1234,8 +1197,8 @@ export function StaffDetailPage({
                 entityType="staff"
                 entityId={profile.id}
                 canView={canViewAudit}
-                initialEvents={initialAuditEvents}
-                initialHasMore={initialAuditHasMore}
+                initialEvents={documentAudit?.events ?? initialAuditEvents}
+                initialHasMore={documentAudit?.hasMore ?? initialAuditHasMore}
               />
             </TabsContent>
           )}

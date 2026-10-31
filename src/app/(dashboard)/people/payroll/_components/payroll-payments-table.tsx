@@ -90,7 +90,11 @@ export function PayrollPaymentsTable({
               <span className="font-normal text-muted-foreground">₽</span>
             </span>
           ) : id === "employee" ? (
-            <PayrollEmployeeCell name={row.original.employee} role={row.original.roleName} avatarUrl={row.original.avatarUrl} />
+            <PayrollEmployeeCell
+              name={row.original.employee}
+              role={row.original.roleName}
+              avatarUrl={row.original.avatarUrl}
+            />
           ) : id === "status" ? (
             <PaymentStatus posted={row.original.posted} />
           ) : (
@@ -182,12 +186,22 @@ function PaymentDetails({
   return (
     <PayrollDetailDialog
       open
-      onOpenChange={(open) => { if (!open) onClose(); }}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
       title="Выплата"
-      description={row.earningMonths.length ? `За ${row.earningMonths.map((m) => new Date(`${m}T12:00:00Z`).toLocaleDateString("ru-RU", {month:"long", year:"numeric", timeZone:"UTC"}).replace(" г.", "")).join(", ")}` : "Зарплатная операция"}
-      employee={{name:row.employee, role:row.roleName, avatarUrl:row.avatarUrl}}
+      description={
+        row.earningMonths.length
+          ? `За ${row.earningMonths.map((m) => new Date(`${m}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" }).replace(" г.", "")).join(", ")}`
+          : "Зарплатная операция"
+      }
+      employee={{
+        name: row.employee,
+        role: row.roleName,
+        avatarUrl: row.avatarUrl,
+      }}
       amount={<>{money(row.amount)} ₽</>}
-      amountLabel="Сумма выплаты"
+      amountLabel="Выдано сотруднику"
       status={<PaymentStatus posted={row.posted} />}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
@@ -237,68 +251,96 @@ function PaymentDetails({
       }
     >
       <Tabs defaultValue="details">
-        <TabsList><TabsTrigger value="details">Детали</TabsTrigger><TabsTrigger value="history">История</TabsTrigger></TabsList>
+        <TabsList>
+          <TabsTrigger value="details">Детали</TabsTrigger>
+          <TabsTrigger value="history">История</TabsTrigger>
+        </TabsList>
         <TabsContent value="details">
-      {error ? (
-        <p className="text-sm text-destructive">{error}</p>
-      ) : details ? (
-        <dl className="space-y-4 border-y py-5 text-sm">
-          {[
-            ...(row.earningMonths.length
-              ? [
-                  [
-                    "За месяц",
-                    row.earningMonths
-                      .map((m) =>
-                        new Date(`${m}T12:00:00Z`).toLocaleDateString("ru-RU", {
-                          month: "long",
-                          year: "numeric",
-                          timeZone: "UTC",
-                        }),
-                      )
-                      .join(", "),
-                  ],
-                ]
-              : []),
-            [
-              "Дата",
-              new Date(details.date).toLocaleDateString("ru-RU", {
-                timeZone: data.timezone,
-              }),
-            ],
-            ["Счёт", details.bankName],
-            ["Статья ФОТ", details.categoryName],
-            ["Номер транзакции", `№ ${details.public_id}`],
-          ].map(([label, value]) => (
-            <div key={label} className="flex justify-between gap-5">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="text-right font-medium">{value}</dd>
-            </div>
-          ))}
-          {details.description && (
-            <div className="space-y-2 border-t pt-4">
-              <dt className="text-muted-foreground">Комментарий</dt>
-              <dd className="whitespace-pre-wrap break-words">
-                {details.description}
-              </dd>
-            </div>
+          {row.settledAmount !== undefined && (
+            <dl className="mb-5 divide-y rounded-xl border px-4 text-sm">
+              {[
+                ["Выдано сотруднику", row.amount],
+                ["Удержанный налог", row.taxAmount ?? 0],
+                ["Погашено по зарплате", row.settledAmount],
+              ].map(([label, value]) => (
+                <div
+                  key={String(label)}
+                  className="flex items-center justify-between gap-4 py-3"
+                >
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="whitespace-nowrap font-medium tabular-nums">
+                    {money(Number(value))} ₽
+                  </dd>
+                </div>
+              ))}
+            </dl>
           )}
-        </dl>
-      ) : row.transactionId ? (
-        <p role="status" className="flex gap-2 text-sm text-muted-foreground">
-          <Loader2 size={15} className="animate-spin" />
-          Загружаем реквизиты…
-        </p>
-      ) : null}
+          {error ? (
+            <p className="text-sm text-destructive">{error}</p>
+          ) : details ? (
+            <dl className="space-y-4 border-y py-5 text-sm">
+              {[
+                ...(row.earningMonths.length
+                  ? [
+                      [
+                        "За месяц",
+                        row.earningMonths
+                          .map((m) =>
+                            new Date(`${m}T12:00:00Z`).toLocaleDateString(
+                              "ru-RU",
+                              {
+                                month: "long",
+                                year: "numeric",
+                                timeZone: "UTC",
+                              },
+                            ),
+                          )
+                          .join(", "),
+                      ],
+                    ]
+                  : []),
+                [
+                  "Дата",
+                  new Date(details.date).toLocaleDateString("ru-RU", {
+                    timeZone: data.timezone,
+                  }),
+                ],
+                ["Счёт", details.bankName],
+                ["Статья ФОТ", details.categoryName],
+                ["Номер транзакции", `№ ${details.public_id}`],
+              ].map(([label, value]) => (
+                <div key={label} className="flex justify-between gap-5">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="text-right font-medium">{value}</dd>
+                </div>
+              ))}
+              {details.description && (
+                <div className="space-y-2 border-t pt-4">
+                  <dt className="text-muted-foreground">Комментарий</dt>
+                  <dd className="whitespace-pre-wrap break-words">
+                    {details.description}
+                  </dd>
+                </div>
+              )}
+            </dl>
+          ) : row.transactionId ? (
+            <p
+              role="status"
+              className="flex gap-2 text-sm text-muted-foreground"
+            >
+              <Loader2 size={15} className="animate-spin" />
+              Загружаем реквизиты…
+            </p>
+          ) : null}
         </TabsContent>
         <TabsContent value="history">
-        {row.transactionId ? (
-          <TransactionHistory transactionId={row.transactionId} />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            У этой записи нет связанной транзакции.
-          </p>
-        )}
+          {row.transactionId ? (
+            <TransactionHistory transactionId={row.transactionId} />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              У этой записи нет связанной транзакции.
+            </p>
+          )}
         </TabsContent>
       </Tabs>
     </PayrollDetailDialog>

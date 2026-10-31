@@ -74,6 +74,11 @@ export type AutomationSnapshot = {
     subject: AutomationPerson | null;
   }[];
   uniform: UniformRecord[];
+  execution?: {
+    salary_from: string | null;
+    bonus_from: string | null;
+    legacy_stopped: boolean;
+  } | null;
   recorded: { key: string; decision: AutomationDecision }[];
 };
 export function planFromSnapshot(
@@ -102,9 +107,15 @@ export function planFromSnapshot(
                 examinedOn: s.examined_on,
                 validUntil: s.valid_until,
                 reimbursementRecorded:
-                  s.reimbursement_state === "unknown"
-                    ? null
-                    : s.reimbursement_state === "recorded",
+                  snapshot.recorded.some(
+                    (r) =>
+                      r.decision.employeeId === e.id &&
+                      r.decision.rule === "medical_reimbursement",
+                  ) || s.reimbursement_state === "recorded"
+                    ? true
+                    : s.reimbursement_state === "unknown"
+                      ? null
+                      : false,
               },
             }
           : {}),
@@ -114,7 +125,11 @@ export function planFromSnapshot(
     venueId: snapshot.venue_id,
     businessDate,
     ruleVersion: snapshot.settings.version,
-    config: automationSettingsSchema.parse(snapshot.settings.config),
+    // Gifts are deferred to the separate Notion migration; tasks await photo reports/checklists.
+    config: {
+      ...automationSettingsSchema.parse(snapshot.settings.config),
+      gifts: { ...snapshot.settings.config.gifts, enabled: false },
+    },
     employees,
     uniformIssues: snapshot.uniform.map((i) => ({
       id: i.id,
@@ -124,21 +139,6 @@ export function planFromSnapshot(
     tasks: [],
     recordedKeys: snapshot.recorded.map((r) => r.key),
   });
-  for (const d of result.decisions) {
-    if (
-      d.medium === "money" &&
-      d.rule.startsWith("medical_") &&
-      !snapshot.employees.find((e) => e.id === d.employeeId)?.subject
-        ?.legacy_reconciled
-    )
-      result.blockers.push({
-        employeeId: d.employeeId,
-        sourceId: d.sourceId,
-        code: "legacy_medical_unreconciled",
-        message:
-          "Сначала сверьте прежние штрафы и компенсации медкнижки с Glide",
-      });
-  }
   result.decisions = result.decisions.filter((d) => {
     if (d.rule !== "medical_missing" && d.rule !== "medical_expired")
       return true;

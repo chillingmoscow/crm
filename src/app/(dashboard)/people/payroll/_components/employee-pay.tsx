@@ -11,6 +11,7 @@ import type { PayrollData, PayEmployee, Accrual } from "@/lib/payroll/types";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayrollTable } from "./payroll-table";
 import { PayrollPaymentsTable } from "./payroll-payments-table";
+import { EmployeeDocuments } from "../../staff/[userId]/_components/employee-documents";
 import { EmployeePayConditions } from "./employee-pay-conditions";
 import { cancelPayrollPayment } from "../actions";
 import { PayrollJournal, PayrollEntryForm } from "@/app/payroll-concept/payroll-journal";
@@ -24,17 +25,19 @@ const dateLabel = (date: string) => new Date(`${date}T12:00:00Z`).toLocaleDateSt
 const labels = { date: "Дата", role: "Должность", base: "Выход", percent: "Процент", extra: "Допродажи", other: "Надбавки и прочее", salary: "Начислено", tips: "Чаевые" };
 const numeric = ["base", "percent", "extra", "other", "salary", "tips"];
 const hidden = ["tips"];
-export function EmployeePay({ data, employee, month, onChange, fullPage = false, conditionsOpen, onConditionsOpenChange }: {
+export function EmployeePay({ data, employee, month, onChange, fullPage = false, conditionsOpen, onConditionsOpenChange, initialTab }: {
     data: PayrollData;
     employee: PayEmployee;
     month: string;
     onChange: () => Promise<void>;
     fullPage?: boolean;
+    initialTab?: string;
     conditionsOpen?: boolean;
     onConditionsOpenChange?: (open: boolean) => void;
 }) {
     const controlsId = fullPage ? "employee-payroll-controls" : `employee-inline-controls-${employee.id}`;
-    const [tab, setTab] = useState("shifts");
+    const documentsAvailable = fullPage && !employee.local_user_id && data.permissions.includes("payroll.configure");
+    const [tab, setTab] = useState(initialTab === "documents" && documentsAvailable ? "documents" : "shifts");
     const [detail, setDetail] = useState<Accrual | null>(null);
     const [breakdown, setBreakdown] = useState(false);
     const [ownConditions, setOwnConditions] = useState(false);
@@ -83,10 +86,11 @@ export function EmployeePay({ data, employee, month, onChange, fullPage = false,
   <div className={s.meta}><span>{shifts.length} смен{shifts.length > 0 ? ` · В среднем ${rub((row?.earned ?? 0) / shifts.length)} за смену` : ""}</span>{!fullPage && <Button variant="ghost" size="sm" onClick={() => setConditions(true)}>Условия сотрудника</Button>}</div>
   {!fullPage && <div id={controlsId} className={s.controls}/>}
   <Tabs value={tab} onValueChange={setTab} className={tabStyle.tabs}>
-   <TabsList aria-label="Расчёт сотрудника"><TabsTrigger value="shifts">Смены</TabsTrigger><TabsTrigger value="entries">Начисления и удержания</TabsTrigger><TabsTrigger value="payments">Выплаты</TabsTrigger></TabsList>
+   <TabsList aria-label="Расчёт сотрудника"><TabsTrigger value="shifts">Смены</TabsTrigger><TabsTrigger value="entries">Начисления и удержания</TabsTrigger><TabsTrigger value="payments">Выплаты</TabsTrigger>{documentsAvailable && <TabsTrigger value="documents">Документы</TabsTrigger>}</TabsList>
    <TabsContent value="shifts"><PayrollTable id={`employee-shifts-v2-${employee.id}`} rows={shifts} columns={columns} labels={labels} numeric={numeric} hiddenColumns={hidden} defaultSort="date" defaultSortDesc scrollMode="page" minWidth={880} searchText={a => `${a.business_date} ${accrualRole(a, employee.role_name, data)}`} onRow={setDetail} toolbarTargetId={controlsId} actions={actions}/>{!shifts.length && accruals.length > 0 && <Button variant="link" onClick={() => setBreakdown(true)}>Посмотреть начисления за месяц</Button>}</TabsContent>
    <TabsContent value="entries"><PayrollJournal data={data} month={month} employeeId={employee.id} query={query} onQuery={setQuery} onChange={onChange} toolbarTargetId={controlsId}/></TabsContent>
    <TabsContent value="payments"><PayrollPaymentsTable data={paymentData} payments={payments} busy={false} actions={canPay ? <Button onClick={() => setPayOpen(true)}><Plus />Добавить выплату</Button> : null} toolbarTargetId={controlsId} tableId={`employee-payments-${employee.id}`} scrollMode="page" onCancel={async (id) => { await cancelPayrollPayment(id); await onChange(); }}/></TabsContent>
+   {documentsAvailable && <TabsContent value="documents"><div className="mx-auto w-full max-w-[720px]"><EmployeeDocuments target={{employeeId:employee.id}} /></div></TabsContent>}
   </Tabs>
   <PayrollDetailDialog open={breakdown} onOpenChange={setBreakdown} title="Начисления за месяц" description={new Date(`${month}T12:00:00Z`).toLocaleDateString("ru-RU", { month: "long", year: "numeric", timeZone: "UTC" })} employee={{ name: employee.name, role: employee.role_name, avatarUrl: employee.avatar_url }} amount={rub(row?.earned ?? 0)} amountLabel="Всего начислено">
    {[...sums].map(([label, value]) => <div key={label} className={s.breakdown}><span>{label}</span><strong>{rub(value)}</strong></div>)}

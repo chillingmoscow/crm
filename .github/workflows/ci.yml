@@ -25,3 +25,9 @@ jobs:
         run: pnpm exec tsc --noEmit
       - name: Lint
         run: pnpm lint
+      - name: Payroll automation invariants
+        run: |
+          node scripts/test-payroll-bonus-execution.mjs
+          node scripts/test-native-payroll-rules.mjs
+          node scripts/test-native-automation-state.mjs
+          python3 scripts/test-payroll-automation-import.py

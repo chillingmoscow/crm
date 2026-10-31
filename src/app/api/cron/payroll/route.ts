@@ -5,6 +5,7 @@ import {
   scheduleAutomationComparisons,
   processAutomationComparison,
 } from "@/lib/automations/worker";
+import { processPayrollBonus } from "@/lib/payroll/bonus-worker";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -51,7 +52,18 @@ export async function POST(request: NextRequest) {
     } catch {
       automationErrors++;
     }
+    let bonusProcessed = 0,
+      bonusErrors = 0;
+    try {
+      const bonus = await processPayrollBonus();
+      if (!bonus.idle) bonusProcessed++;
+      if ("review" in bonus && bonus.review) bonusErrors++;
+    } catch {
+      bonusErrors++;
+    }
     return NextResponse.json({
+      bonusProcessed,
+      bonusErrors,
       processed,
       errors,
       automationComparisons,

@@ -238,13 +238,12 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-semibold">Медкнижки, форма и мотивация</h2>
           <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-            Исполняет n8n
+            Правила заведения
           </span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Здесь готовим правила для перехода. До переключения автоматизаций n8n
-          использует прежние настройки. Сохранение не запускает начисления и
-          списания.
+          Общие правила медкнижек и удержаний за форму. Сведения и покупки
+          хранятся во вкладке «Документы» сотрудника.
         </p>
         {record.current.version === 0 && (
           <p className="text-sm text-muted-foreground">
@@ -335,7 +334,7 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
           </div>
           <div className="space-y-4 border-t pt-5">
             <Toggle
-              label="Компенсировать изготовление книжки"
+              label="Компенсация медкнижки один раз сотруднику"
               checked={m.reimbursement}
               onChange={(reimbursement) => change("medical", { reimbursement })}
             />

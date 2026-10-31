@@ -408,8 +408,7 @@ export function DisciplineSettings() {
       <footer className="flex flex-wrap items-center justify-between gap-4 border-t bg-muted/10 p-5">
         <div className="max-w-xl text-xs text-muted-foreground">
           <p>
-            Бонусы: пока только расчёт в Sheerly. Реальные списания выполняет
-            прежняя система.
+            Фактическое списание и изменения состояния бонусной операции отражаются в истории записи.
           </p>
           {invalid && (
             <p role="alert" className="mt-1 text-destructive">

@@ -426,8 +426,8 @@ export function PayrollJournal({
             {selected.medium === "bonus" &&
               selected.external_state !== "done" && (
                 <p className={style.parallel}>
-                  Параллельная проверка: реальные бонусы списывает прежняя
-                  система.
+                  Результат бонусной операции ещё не подтверждён.
+                  Изменения состояния бонусной операции сохраняются в истории записи.
                 </p>
               )}
                 <section className="space-y-3 border-t pt-4">{Boolean(detail?.photos.length) && <h3 className="text-xs font-medium text-muted-foreground">Фотографии</h3>}
@@ -483,8 +483,10 @@ export function PayrollJournal({
                           updated: "Изменена запись",
                           commented: "Добавлен комментарий",
                           photo_added: "Добавлена фотография",
+                          bonus_operation: "Обработка бонусной операции",
                         }[h.action] ?? h.action}
                       </p>
+                      {h.action === "bonus_operation" && <p className="text-muted-foreground">{({pending:"В очереди",reading:"Проверка баланса",sending:"Отправлена в Quick Resto",done:"Проведена",review:"Нужна сверка",cancelled:"Отменена",money:"Удержано деньгами"} as Record<string,string>)[String(h.details.state)]??"Нужна сверка"}{h.details.message?` · ${String(h.details.message)}`:""}</p>}
                       {h.action === "updated" && h.details.previous_amount != null && Number(h.details.previous_amount) !== Number(h.details.amount) && <p className="text-muted-foreground">Сумма: {format(Number(h.details.previous_amount))} → {format(Number(h.details.amount))} {h.details.medium === "bonus" ? "б." : "₽"}</p>}
                       {h.action === "updated" && typeof h.details.previous_reason === "string" && h.details.previous_reason !== h.details.reason && <p className="text-muted-foreground">Основание: {h.details.previous_reason} → {String(h.details.reason)}</p>}
                       {h.details.delete_reason ? (
@@ -754,7 +756,7 @@ export function PayrollEntryForm({
         </label>
         {kind !== "warning" && medium === "bonus" && (
           <p className={style.parallel}>
-            Параллельная проверка: без реального списания бонусов Quick Resto.
+            Состояние бонусной операции появится в карточке записи.
           </p>
         )}
       </form>

@@ -695,7 +695,6 @@ export function StaffClient({
         overviewPanel={overview.panel}
         secondaryActions={
           <>
-            {overview.button}
             <IconTooltip
               label={
                 firedOpen
@@ -718,6 +717,7 @@ export function StaffClient({
                 <Archive className="size-4" />
               </Button>
             </IconTooltip>
+            {overview.button}
           </>
         }
         canEdit={canEdit}

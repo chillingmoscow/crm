@@ -21,7 +21,6 @@ export const staffOverviewSchema = z.object({
   ...base,
   kind: z.literal("staff"),
   working: count,
-  hired: count,
   dated_staff: count,
   average_days: z.number().nonnegative().nullable(),
   tenure: z
@@ -32,9 +31,6 @@ export const staffOverviewSchema = z.object({
       }),
     )
     .length(4),
-  movement: z
-    .array(z.object({ month: date, hired: count, fired: count }))
-    .length(3),
 });
 export const candidateOverviewSchema = z.object({
   ...base,
@@ -42,6 +38,7 @@ export const candidateOverviewSchema = z.object({
   received: count,
   new: count,
   hired: count,
+  legacy_count: count,
   stages: z
     .array(
       z.object({
@@ -52,8 +49,16 @@ export const candidateOverviewSchema = z.object({
     .length(5),
   arrivals: z
     .array(z.object({ from: date, to: date, count }))
-    .min(4)
-    .max(6),
+    .min(1)
+    .max(31),
+  funnel: z
+    .array(
+      z.object({
+        id: z.enum(["received", "review", "interview", "trial", "hired"]),
+        count,
+      }),
+    )
+    .length(5),
 });
 export const overviewSchema = z.discriminatedUnion("kind", [
   staffOverviewSchema,

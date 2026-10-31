@@ -19,6 +19,7 @@ import {
   chartCeiling,
   overviewMonth,
   overviewTenure,
+  type CandidateOverview,
   type OverviewKind,
   type PeopleOverviewData,
 } from "@/lib/people/overview";
@@ -117,7 +118,7 @@ function ColumnChart({ items }: { items: Column[] }) {
                   <button
                     type="button"
                     className={styles.inspectColumn}
-                    aria-label={`${item.description}: ${item.values.map((s) => `${s.label} — ${s.count}`).join(", ")}`}
+                    aria-label={`${item.description}: ${item.values.map((s) => `${s.label}: ${s.count}`).join(", ")}`}
                   >
                     {item.values.map((series) => (
                       <span className={styles.columnTrack} key={series.label}>
@@ -126,11 +127,7 @@ function ColumnChart({ items }: { items: Column[] }) {
                           style={{
                             height: `${(series.count / ceiling) * 100}%`,
                           }}
-                        >
-                          <span className={styles.columnValue}>
-                            {series.count}
-                          </span>
-                        </span>
+                        />
                       </span>
                     ))}
                   </button>
@@ -165,146 +162,112 @@ const stageColors = {
   trial: "bg-emerald-400/80",
   rejected: "bg-rose-400/75",
 };
+const funnelLabels = {
+  received: "Получены анкеты",
+  review: "Рассмотрение",
+  interview: "Собеседование",
+  trial: "Стажировка",
+  hired: "Приняты",
+};
+const percent = new Intl.NumberFormat("ru-RU", {
+  style: "percent",
+  maximumFractionDigits: 1,
+});
+function RecruitingFunnel({ data }: { data: CandidateOverview }) {
+  return (
+    <section>
+      <div className={styles.chartHeading}>
+        <h3>Воронка подбора</h3>
+        <Hint text="Каждый кандидат учитывается один раз на достигнутом этапе и на всех предыдущих. Отказ и отмена не стирают пройденный путь. Собеседование и стажировка учитываются с момента назначения. Воронка включает принятых сотрудников, которых список уже скрывает." />
+      </div>
+      <ol className={styles.funnel}>
+        {data.funnel.map((step) => (
+          <li key={step.id}>
+            <span className={styles.barLabel}>{funnelLabels[step.id]}</span>
+            <span className={styles.funnelTrack} aria-hidden="true">
+              <span
+                className={cn(
+                  styles.bar,
+                  step.id === "hired" ? "bg-emerald-500/80" : "bg-brand/80",
+                )}
+                style={{
+                  width: `${data.received ? (step.count / data.received) * 100 : 0}%`,
+                }}
+              />
+            </span>
+            <span className={styles.count}>{step.count}</span>
+            <span className={styles.funnelPercent}>
+              {data.received ? percent.format(step.count / data.received) : "—"}
+            </span>
+          </li>
+        ))}
+      </ol>
+      <p className={styles.caption}>Доля от всех анкет выбранного месяца.</p>
+      {data.legacy_count > 0 && (
+        <p className={styles.historyNote}>
+          <Hint text={`Анкет из Notion: ${data.legacy_count}. Их этапы до переноса могли не сохраниться. Учитываем известный этап и последующие изменения в Sheerly, без восстановления неизвестных переходов у отказов.`} />
+          История до переноса из Notion неполная
+        </p>
+      )}
+    </section>
+  );
+}
 function OverviewBody({ data }: { data: PeopleOverviewData }) {
   if (data.kind === "staff")
     return (
-      <>
-        <dl className={styles.metrics}>
-          <Metric
-            label="Работают"
-            value={data.working}
-            hint="Действующие сотрудники выбранного заведения на сегодня. Приглашения не входят в численность."
-          />
-          <Metric
-            label="Принято за месяц"
-            value={data.hired}
-            hint="Сотрудники заведения с датой трудоустройства в выбранном месяце, включая впоследствии уволенных. Дата создания профиля не используется."
-          />
+      <div className={styles.staffBody}>
+        <dl>
           <Metric
             label="Средний стаж"
             value={overviewTenure(data.average_days)}
             hint={`Среднее время с даты найма у действующих сотрудников на ${new Date(`${data.today}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" })}. Учитываются указанные в карточках даты, которые уже наступили.`}
           />
         </dl>
-        <div className={styles.charts}>
-          <section>
-            <h3>Стаж команды</h3>
-            {data.dated_staff > 0 ? (
-              <HorizontalBars
-                items={data.tenure.map((item) => ({
-                  ...item,
-                  label: tenureLabels[item.id],
-                  color: "bg-brand/85",
-                }))}
-              />
-            ) : (
-              <EmptyChart>
-                {data.working
-                  ? "Укажите даты трудоустройства в карточках сотрудников"
-                  : "В заведении пока нет действующих сотрудников"}
-              </EmptyChart>
-            )}
-            <p className={styles.caption}>
-              Стаж рассчитан для {data.dated_staff} из {data.working}{" "}
-              {data.working % 10 === 1 && data.working % 100 !== 11
-                ? "сотрудника"
-                : "сотрудников"}
-              .
-            </p>
-          </section>
-          <section>
-            <div className={styles.chartHeading}>
-              <h3>Движение команды</h3>
-              <div className={styles.legend}>
-                <span>
-                  <i className="bg-brand/85" />
-                  Принято
-                </span>
-                <span>
-                  <i className="bg-muted-foreground/45" />
-                  Уволено
-                </span>
-              </div>
-            </div>
-            {data.movement.some((item) => item.hired || item.fired) ? (
-              <ColumnChart
-                items={data.movement.map((item) => ({
-                  label: overviewMonth(item.month, true),
-                  description: overviewMonth(item.month),
-                  values: [
-                    {
-                      label: "Принято",
-                      count: item.hired,
-                      color: "bg-brand/85",
-                    },
-                    {
-                      label: "Уволено",
-                      count: item.fired,
-                      color: "bg-muted-foreground/45",
-                    },
-                  ],
-                }))}
-              />
-            ) : (
-              <EmptyChart>
-                За эти месяцы приёмов и увольнений не записано
-              </EmptyChart>
-            )}
-            <p className={styles.caption}>
-              Приём по датам найма в карточках, увольнения по датам и журналу.
-            </p>
-          </section>
-        </div>
-      </>
-    );
-  return (
-    <>
-      <dl className={styles.metrics}>
-        <Metric
-          label="Поступило"
-          value={data.received}
-          hint="Все сохранённые анкеты, поступившие в выбранном месяце, включая принятых сотрудников. Удалённые и архивные анкеты не учитываются."
-        />
-        <Metric
-          label="Новые анкеты"
-          value={data.new}
-          hint="Анкеты выбранного месяца, которые сейчас находятся на этапе «Новая анкета»."
-        />
-        <Metric
-          label="Принято"
-          value={data.hired}
-          hint="Успешно принятые сотрудники из анкет выбранного месяца. Найм мог завершиться позже месяца поступления."
-        />
-      </dl>
-      <div className={styles.charts}>
         <section>
-          <h3>Анкеты по текущим этапам</h3>
-          {data.received > data.hired ? (
+          <h3>Стаж команды</h3>
+          {data.dated_staff > 0 ? (
             <HorizontalBars
-              items={data.stages.map((item) => ({
+              items={data.tenure.map((item) => ({
                 ...item,
-                label: STATUSES[item.id],
-                color: stageColors[item.id],
+                label: tenureLabels[item.id],
+                color: "bg-brand/85",
               }))}
             />
           ) : (
             <EmptyChart>
-              {data.received
-                ? "Все анкеты этого месяца завершились наймом"
-                : "В этом месяце анкет не поступало"}
+              {data.working
+                ? "Укажите даты трудоустройства в карточках сотрудников"
+                : "В заведении пока нет действующих сотрудников"}
             </EmptyChart>
           )}
           <p className={styles.caption}>
-            Этапы анкет выбранного месяца. Принятые сотрудники учтены выше.
+            Стаж рассчитан для {data.dated_staff} из {data.working}{" "}
+            {data.working % 10 === 1 && data.working % 100 !== 11
+              ? "сотрудника"
+              : "сотрудников"}
+            .
           </p>
         </section>
+      </div>
+    );
+  return (
+    <>
+      <div className={styles.charts}>
         <section>
           <h3>Поступление анкет</h3>
           {data.received > 0 ? (
             <ColumnChart
-              items={data.arrivals.map((item) => ({
-                label: `${Number(item.from.slice(-2))}–${Number(item.to.slice(-2))}`,
-                description: `${item.from.split("-").reverse().join(".")} — ${item.to.split("-").reverse().join(".")}`,
+              items={data.arrivals.map((item, index, items) => ({
+                label:
+                  index === 0 ||
+                  ((index + 1) % 5 === 0 && index < items.length - 3) ||
+                  index === items.length - 1
+                    ? String(Number(item.from.slice(-2)))
+                    : "",
+                description: new Date(`${item.from}T12:00:00Z`).toLocaleDateString(
+                  "ru-RU",
+                  { day: "numeric", month: "long", timeZone: "UTC" },
+                ),
                 values: [
                   { label: "Анкеты", count: item.count, color: "bg-brand/85" },
                 ],
@@ -316,21 +279,53 @@ function OverviewBody({ data }: { data: PeopleOverviewData }) {
             </EmptyChart>
           )}
           <p className={styles.caption}>
-            {overviewMonth(data.month)} · календарные недели
+            {overviewMonth(data.month)} · по дням
           </p>
         </section>
+        <RecruitingFunnel data={data} />
       </div>
+      <section
+        className={styles.currentStages}
+        aria-label="Анкеты по текущим этапам"
+      >
+        <h3>Анкеты по текущим этапам</h3>
+        {data.received > data.hired ? (
+          <>
+            <div className={styles.stageTrack} aria-hidden="true">
+              {data.stages.map((item) => (
+                <span
+                  key={item.id}
+                  className={stageColors[item.id]}
+                  style={{
+                    width: `${(item.count / (data.received - data.hired)) * 100}%`,
+                  }}
+                />
+              ))}
+            </div>
+            <ul className={styles.stageLegend}>
+              {data.stages.map((item) => (
+                <li key={item.id}>
+                  <i className={stageColors[item.id]} aria-hidden="true" />
+                  <span>{STATUSES[item.id]}</span>
+                  <strong>{item.count}</strong>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className={styles.caption}>
+            {data.received
+              ? "Все анкеты этого месяца завершились наймом"
+              : "В этом месяце анкет не поступало"}
+          </p>
+        )}
+      </section>
     </>
   );
 }
 function OverviewSkeleton() {
   return (
     <div className={styles.skeleton} aria-label="Загружаем обзор">
-      <div className="grid grid-cols-3 gap-6">
-        {[0, 1, 2].map((i) => (
-          <div className="h-12 rounded bg-muted" key={i} />
-        ))}
-      </div>
       <div className="grid gap-6 sm:grid-cols-2">
         <div className="h-40 rounded bg-muted/60" />
         <div className="h-40 rounded bg-muted/60" />
@@ -428,13 +423,13 @@ export function usePeopleOverview(
           <Hint
             text={
               kind === "staff"
-                ? "По всему выбранному заведению. Численность и стаж на сегодня; приём за выбранный месяц, движение за три месяца. Поиск и фильтры таблицы не меняют обзор."
+                ? "Стаж действующих сотрудников выбранного заведения на сегодня. Поиск, фильтры и список уволенных не меняют обзор."
                 : "По анкетам всего аккаунта, поступившим в выбранном месяце. Поиск и фильтры таблицы не меняют обзор."
             }
           />
         </div>
         <div className={styles.period}>
-          {month && scopedData && (
+          {kind === "candidates" && month && scopedData && (
             <MonthPicker
               value={month}
               onChange={setPeriod}

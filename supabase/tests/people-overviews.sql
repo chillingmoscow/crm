@@ -41,16 +41,52 @@ insert into public.candidates(account_id,full_name,status,submitted_at,archived_
  ('e0e00000-0000-4000-8001-000000000001','Archived QA','new',(date_trunc('month',now() at time zone 'Europe/Moscow')-interval '1 month'+interval '2 days') at time zone 'Europe/Moscow',now()),
  ('e0e00000-0000-4000-8001-000000000002','Foreign account QA','new',(date_trunc('month',now() at time zone 'Europe/Moscow')-interval '1 month'+interval '2 days') at time zone 'Europe/Moscow',null);
 
+-- Rejection must retain an earlier interview/trial. Historical signals also
+-- cover resets to New, canceled and repeated appointments, and removed plans.
+update public.candidates set status='rejected',source=case when full_name='Overview paging QA 2' then 'notion' else source end
+where account_id='e0e00000-0000-4000-8001-000000000001' and full_name in ('Overview paging QA 1','Overview paging QA 2');
+insert into public.candidate_events(account_id,candidate_id,kind,details)
+select account_id,id,'updated',jsonb_build_object('changes',jsonb_build_object('status',jsonb_build_object('old',
+ case when full_name='Overview paging QA 1' then 'interview' else 'trial' end,'new','rejected')))
+from public.candidates where account_id='e0e00000-0000-4000-8001-000000000001' and full_name in ('Overview paging QA 1','Overview paging QA 2');
+insert into public.candidate_events(account_id,candidate_id,kind,details)
+select c.account_id,c.id,'updated','{"changes":{"status":{"old":"new","new":"review"}}}' from public.candidates c
+cross join generate_series(1,10) n where c.account_id='e0e00000-0000-4000-8001-000000000001' and c.full_name='Overview paging QA 3';
+insert into public.candidate_appointments(account_id,candidate_id,kind,appointment_date,outcome)
+select c.account_id,c.id,case when c.full_name='Overview paging QA 4' then 'interview' else 'trial' end,
+ (now() at time zone 'Europe/Moscow')::date,case when c.full_name='Overview paging QA 4' then 'rejected' else 'canceled' end
+from public.candidates c cross join generate_series(1,2) n
+where c.account_id='e0e00000-0000-4000-8001-000000000001' and c.full_name in ('Overview paging QA 4','Overview paging QA 5')
+ and (c.full_name='Overview paging QA 5' or n=1);
+insert into public.candidate_events(account_id,candidate_id,kind,details)
+select account_id,id,'appointment_updated','{"before":{"kind":"trial"},"after":null}' from public.candidates
+where account_id='e0e00000-0000-4000-8001-000000000001' and full_name='Overview paging QA 6';
+insert into public.candidate_events(account_id,candidate_id,kind,details,created_at)
+select account_id,id,'updated','{"changes":{"status":{"old":"new","new":"trial"}}}',now()+interval '1 day' from public.candidates
+where account_id='e0e00000-0000-4000-8001-000000000001' and full_name='Overview paging QA 7';
+insert into public.candidate_events(account_id,candidate_id,kind,details)
+select account_id,id,'comment_updated','{"after":{"kind":"trial"}}' from public.candidates
+where account_id='e0e00000-0000-4000-8001-000000000001' and full_name='Overview paging QA 8';
+insert into public.candidate_events(account_id,candidate_id,kind,details)
+select account_id,id,'updated','{"changes":{"status":{"old":"trial","new":"hired"}}}' from public.candidates
+where full_name in ('Archived QA','Foreign account QA');
+
 set local role authenticated;
 select set_config('request.jwt.claim.sub','e0e00000-0000-4000-8000-000000000001',true),set_config('app.ctx_ready','0',true);
 do $$declare s jsonb;c jsonb;previous date:=(date_trunc('month',now() at time zone 'Europe/Moscow')-interval '1 month')::date;begin
  s:=public.staff_people_overview();c:=public.candidate_people_overview(previous);
  if (s->>'working')::int<>4 or (s->>'dated_staff')::int<>1 or (s->>'hired')::int<>1 or (s->>'average_days')::numeric<>(s->>'today')::date-(s->>'month')::date then raise exception 'Staff counts used invitation/import/future date';end if;
  if (s#>>'{movement,2,fired}')::int<>1 then raise exception 'Dismissal double counted';end if;
- if (c->>'received')::int<>1007 or (c->>'new')::int<>1005 or (c->>'hired')::int<>1 then raise exception 'Cohort truncated or boundary/hire/scope incorrect: %',c;end if;
- if (select sum((x->>'count')::int) from jsonb_array_elements(c->'arrivals')x)<>1007 or (select sum((x->>'count')::int) from jsonb_array_elements(c->'stages')x)<>1006 then raise exception 'Week/stage totals differ';end if;
- if (c#>>'{arrivals,0,from}')::date<>previous or (c#>>'{arrivals,-1,to}')::date<>previous+interval '1 month'-interval '1 day' then raise exception 'Week boundaries drift';end if;
+ if (c->>'received')::int<>1007 or (c->>'new')::int<>1003 or (c->>'hired')::int<>1 then raise exception 'Cohort truncated or boundary/hire/scope incorrect: %',c;end if;
+ if (select sum((x->>'count')::int) from jsonb_array_elements(c->'arrivals')x)<>1007 or (select sum((x->>'count')::int) from jsonb_array_elements(c->'stages')x)<>1006 then raise exception 'Daily/stage totals differ';end if;
+ if (c#>>'{arrivals,0,from}')::date<>previous or (c#>>'{arrivals,-1,to}')::date<>previous+interval '1 month'-interval '1 day'
+   or jsonb_array_length(c->'arrivals')<>extract(day from previous+interval '1 month'-interval '1 day')
+   or exists(select 1 from jsonb_array_elements(c->'arrivals')x where x->>'from'<>x->>'to') then raise exception 'Daily boundaries drift';end if;
+ if (select array_agg((x->>'count')::int order by ord) from jsonb_array_elements(c->'funnel') with ordinality t(x,ord))<>array[1007,7,6,4,1]
+   or (c->>'legacy_count')::int<>1 then raise exception 'History lost, duplicated, inferred from rejection, or foreign history leaked: %',c->'funnel';end if;
  if (public.candidate_people_overview((previous-interval '2 months')::date)->>'received')::int<>0 then raise exception 'Empty month not empty';end if;
+ if exists(select 1 from jsonb_array_elements(public.candidate_people_overview((previous-interval '2 months')::date)->'funnel')x where (x->>'count')::int<>0) then raise exception 'Empty funnel not empty';end if;
+ if (public.candidate_people_overview()#>>'{arrivals,-1,to}')::date<>(now() at time zone 'Europe/Moscow')::date then raise exception 'Future days shown as zeros';end if;
  begin perform public.candidate_people_overview(previous+1);raise exception 'Bad month accepted';exception when raise_exception then if sqlerrm not like 'Выберите%' then raise;end if;end;
  begin perform public.staff_people_overview((previous+interval '2 months')::date);raise exception 'Future month accepted';exception when raise_exception then if sqlerrm not like 'Выберите%' then raise;end if;end;
 end $$;

@@ -10,6 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { StaffDetailPage } from "./_components/staff-detail-page";
 import { listAuditEvents } from "@/lib/audit/list";
 import type { StaffProfile, StaffAccountDetails } from "../actions";
+import { staffProfileIdentitySchema } from "@/lib/people/staff-identity";
 
 // force-dynamic: Next 15 может статически закэшировать RSC payload для
 // dynamic-сегмента при определённых условиях (особенно после
@@ -113,12 +114,6 @@ export default async function StaffMemberPage({
   // Use admin client to bypass RLS for target user data
   const admin = createAdminClient();
 
-  // Target user email
-  const {
-    data: { user: targetAuthUser },
-  } = await admin.auth.admin.getUserById(userId);
-  if (!targetAuthUser) redirect("/people/staff");
-
   // Параллелим: персональный профиль (тир 1+2), UVR (terminal_pin + role),
   // тенант-данные (тир 3), QR-link, список ролей.
   const [
@@ -127,7 +122,7 @@ export default async function StaffMemberPage({
     { data: accountDetailsRow },
     { data: importedLink },
     { data: roles },
-    { data: pendingInviteRow },
+    identityResult,
   ] = await Promise.all([
     admin
       .from("profiles")
@@ -177,22 +172,28 @@ export default async function StaffMemberPage({
       .eq("venue_id", venueId)
       .is("archived_at", null)
       .order("name"),
-    // Есть ли неотозванное приглашение на email этого юзера в текущем venue.
-    // Надёжный признак «приглашён, но ещё не активировал» — в отличие от
-    // email_confirmed, который у импортированного сотрудника после смены email
-    // может остаться true (admin email_confirm:false не снимает подтверждение).
-    admin
-      .from("invitations")
-      .select("id")
-      .eq("venue_id", venueId)
-      .ilike("email", targetAuthUser.email ?? "__no_email__")
-      .eq("status", "pending")
-      .limit(1)
-      .maybeSingle(),
+    // Read minimal, venue-scoped identity without GoTrue's full Auth serializer.
+    // Legacy HR-only records can have NULL tokens / an infinite login ban.
+    asLooseDb(supabase).rpc("get_staff_profile_identity", { p_user_id: userId }),
   ]);
 
   if (!profileRow) redirect("/people/staff");
   if (!targetUvr) redirect("/people/staff");
+  if (identityResult.error)
+    throw new Error("Не удалось загрузить данные карточки сотрудника");
+  const identity = staffProfileIdentitySchema.nullable().parse(identityResult.data);
+  if (!identity || identity.id !== userId) redirect("/people/staff");
+
+  const { data: pendingInviteRow } = identity.email
+    ? await admin
+        .from("invitations")
+        .select("id")
+        .eq("venue_id", venueId)
+        .ilike("email", identity.email)
+        .eq("status", "pending")
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
 
   // Журнал + Активность. RLS на audit_logs фильтрует по org.view_audit;
   // canViewAudit нужен фронту, чтобы решить рендерить ли табы.
@@ -229,9 +230,7 @@ export default async function StaffMemberPage({
   // (например, прежний инвайт уничтожался старым багом переотправки до #441),
   // — в отличие от has_pending_invite (зависит от строки) и email_confirmed
   // (у импортированного остаётся true после admin-смены email).
-  const needsPasswordSetup =
-    (targetAuthUser.user_metadata as { needs_password_setup?: boolean } | null)
-      ?.needs_password_setup === true;
+  const needsPasswordSetup = identity.needs_password_setup;
 
   const candidateLink = await asLooseDb(supabase)
     .from<{ id: string; full_name: string }>("candidates")
@@ -307,7 +306,7 @@ export default async function StaffMemberPage({
         profile={profileRow}
         accountDetails={accountDetails}
         accountId={accountId}
-        email={targetAuthUser.email ?? ""}
+        email={identity.email}
         uvrId={targetUvr.id}
         roleId={targetUvr.role_id}
         roleName={targetUvr.roles?.name ?? ""}
@@ -330,12 +329,11 @@ export default async function StaffMemberPage({
         firedReason={targetUvr.fired_reason}
         isMe={user.id === userId}
         importedFromQuickResto={
-          Boolean(importedLink) &&
-          !targetAuthUser.app_metadata?.candidate_hire_id
+          Boolean(importedLink) && !identity.from_candidate
         }
         joinedAt={targetUvr.created_at}
-        userCreatedAt={targetAuthUser.created_at ?? null}
-        emailConfirmed={Boolean(targetAuthUser.email_confirmed_at)}
+        userCreatedAt={identity.created_at}
+        emailConfirmed={identity.email_confirmed}
         hasPendingInvite={Boolean(pendingInviteRow)}
         needsPasswordSetup={needsPasswordSetup}
         canViewAudit={Boolean(canViewAudit)}

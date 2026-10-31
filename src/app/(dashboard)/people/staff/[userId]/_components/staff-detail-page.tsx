@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import Link from "next/link";
+import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -228,7 +229,7 @@ export function StaffDetailPage({
   // Если у юзера technical placeholder email — показываем пустое поле,
   // админ впишет реальный для invite. Иначе — реальный email юзера.
   const [contactEmail, setContactEmail] = useState(
-    email.toLowerCase().endsWith("@import.local") ? "" : email,
+    isStaffPlaceholderEmail(email) ? "" : email,
   );
 
   // Modals
@@ -250,7 +251,7 @@ export function StaffDetailPage({
   //                 опечатки.
   //   registered  — юзер подтвердил email хотя бы раз. С этого момента
   //                 он сам управляет своим профилем.
-  const isPlaceholderUser = email.toLowerCase().endsWith("@import.local");
+  const isPlaceholderUser = isStaffPlaceholderEmail(email);
   // pending — есть неотозванное приглашение, ЛИБО стоит флаг
   // needs_password_setup, ЛИБО email ещё не подтверждён. hasPendingInvite и
   // needsPasswordSetup надёжнее emailConfirmed: у импортированного сотрудника

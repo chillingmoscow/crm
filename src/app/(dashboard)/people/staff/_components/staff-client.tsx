@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -392,9 +393,7 @@ export function StaffClient({
           </div>
         );
       case "name": {
-        const isPlaceholder = member.email
-          .toLowerCase()
-          .endsWith("@import.local");
+        const isPlaceholder = isStaffPlaceholderEmail(member.email);
         // has_pending_invite / needs_password_setup надёжнее email_confirmed:
         // у импортированного сотрудника после смены email подтверждение может
         // остаться true, хотя активацию (создание пароля) он не прошёл.
@@ -479,7 +478,7 @@ export function StaffClient({
       case "email":
         return (
           <div className="text-sm text-muted-foreground min-w-0 truncate">
-            {member.email.toLowerCase().endsWith("@import.local")
+            {isStaffPlaceholderEmail(member.email)
               ? "Email не указан"
               : member.email}
           </div>
@@ -645,7 +644,7 @@ export function StaffClient({
       case "email":
         return (
           <span className="block truncate text-muted-foreground">
-            {member.email.toLowerCase().endsWith("@import.local")
+            {isStaffPlaceholderEmail(member.email)
               ? "Email не указан"
               : member.email}
           </span>

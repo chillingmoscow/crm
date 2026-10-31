@@ -1,6 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
+import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
 
 import {
   createClient,
@@ -377,10 +378,6 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function isImportedPlaceholderEmail(value: string): boolean {
-  return value.toLowerCase().endsWith("@import.local");
-}
-
 // Создаёт сотрудника БЕЗ email (placeholder-auth-user). Используется когда
 // сотруднику не нужен личный кабинет — уборщица, повар, кассир — но он
 // должен быть в системе для расчётов смен, ЗП, статистики и т.д. Админ
@@ -720,7 +717,7 @@ export async function inviteImportedStaffByCurrentEmail(data: {
   }
 
   const email = targetUser.email.toLowerCase();
-  if (isImportedPlaceholderEmail(email)) {
+  if (isStaffPlaceholderEmail(email)) {
     return { error: "У сотрудника пока нет реального email", invitation: null };
   }
 

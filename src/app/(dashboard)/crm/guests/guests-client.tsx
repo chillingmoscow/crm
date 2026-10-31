@@ -766,7 +766,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
       >
         {editing ? (
           <fieldset disabled={saving} className="space-y-5">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3">
               <GuestAvatar
                 large
                 guest={{
@@ -791,6 +791,17 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 <Camera className="mr-2 size-4" />
                 {draft.photoPath ? "Изменить фото" : "Прикрепить фото"}
               </Button>
+              {draft.photoPath && (
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    setDraft((d) => ({ ...d, photoPath: null }));
+                    setPhotoUrl(null);
+                  }}
+                >
+                  Убрать фото
+                </Button>
+              )}
               <input
                 ref={file}
                 type="file"
@@ -853,16 +864,18 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
                 </div>
               </div>
             )}
-            <div className="flex items-center justify-between">
-              <Label htmlFor="guest-regular">Постоянный гость</Label>
-              <Switch
-                id="guest-regular"
-                checked={draft.regular === true}
-                onCheckedChange={(regular) =>
-                  setDraft((d) => ({ ...d, regular }))
-                }
-              />
-            </div>
+            {(["regular", "recognized"] as const).map((key) => (
+              <div key={key} className="flex items-center justify-between">
+                <Label htmlFor={`guest-${key}`}>{guestFields[key]}</Label>
+                <Switch
+                  id={`guest-${key}`}
+                  checked={draft[key] === true}
+                  onCheckedChange={(checked) =>
+                    setDraft((d) => ({ ...d, [key]: checked }))
+                  }
+                />
+              </div>
+            ))}
             <details className="rounded-lg border p-4">
               <summary className="cursor-pointer text-sm font-medium">
                 Предпочтения и подробности
@@ -927,7 +940,7 @@ export function GuestsClient({ initial }: { initial: GuestList }) {
           </fieldset>
         ) : detail ? (
           <>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-3">
               <GuestAvatar guest={detail} large />
               <div className="min-w-0">
                 <p className="truncate font-medium">{detail.data.name}</p>

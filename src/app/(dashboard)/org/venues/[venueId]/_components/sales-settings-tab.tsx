@@ -13,6 +13,7 @@ import {
 } from "@/app/(dashboard)/sales/shifts/actions";
 import { businessDate } from "@/lib/sales/time";
 import type { SalesConfiguration } from "@/lib/sales/types";
+import { SettlementSettingsSection } from "./settlement-settings";
 
 export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
   const [data, setData] = useState(initial);
@@ -164,6 +165,7 @@ export function SalesSettingsTab({ initial }: { initial: SalesConfiguration }) {
           </Button>
         </div>
       </section>
+      <SettlementSettingsSection venueId={data.venueId}/>
       {open && (
         <SettingsDrawer
           data={data}

@@ -173,7 +173,12 @@ export function normalizeSettlementReceipt(input: {
     )
       throw new Error("Платёж относится к другому чеку");
     return {
-      id: id(p.id, "платёж"),
+      id: (() => {
+        const n = finite(p.id, "платёж");
+        if (!Number.isSafeInteger(n) || n === 0)
+          throw new Error("Некорректный ID платежа");
+        return n;
+      })(),
       typeId: id(type.id, "способ оплаты"),
       amountCents: cents(p.amount, "платёж"),
     };
@@ -257,7 +262,7 @@ export function calculateSettlement(input: {
     throw new Error("Неполные или повторяющиеся чеки рабочего дня");
   const window = dayWindow(input.date, s.timezone, s.dayStartHour);
   const sums = new Map<number, number>(),
-    seenPayments = new Set<number>();
+    seenPayments = new Set<string>();
   const exclusions = new Map<"bonus" | "no_payment", number>();
   const personalReceiptIds: number[] = [],
     returnedIds: number[] = [],
@@ -277,13 +282,13 @@ export function calculateSettlement(input: {
     for (const p of r.payments) {
       if (
         !Number.isSafeInteger(p.id) ||
-        p.id <= 0 ||
+        p.id === 0 ||
         !Number.isSafeInteger(p.amountCents) ||
         p.amountCents < 0 ||
-        seenPayments.has(p.id)
+        seenPayments.has(`${r.id}:${p.id}`)
       )
         throw new Error("Некорректные или повторяющиеся платежи");
-      seenPayments.add(p.id);
+      seenPayments.add(`${r.id}:${p.id}`);
       const method = s.methods.find((m) => m.paymentTypeId === p.typeId);
       if (!method)
         throw new Error(`Не настроен способ оплаты Quick Resto №${p.typeId}`);

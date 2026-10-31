@@ -271,26 +271,33 @@ try {
   assert.throws(
     () =>
       make([
-        sources[0],
         {
-          ...sources[1],
+          ...sources[0],
           payments: {
-            ...sources[1].payments,
-            rows: [
-              {
-                object: {
-                  id: 1001,
-                  amount: 1,
-                  paymentType: { id: 1 },
-                  ownerContextId: 2,
-                },
-              },
-            ],
+            ...sources[0].payments,
+            rows: [sources[0].payments.rows[0], sources[0].payments.rows[0]],
           },
         },
       ]),
     /повторяющиеся платежи/,
   );
+  const virtualPayment = {
+    ...sources[0],
+    payments: {
+      ...sources[0].payments,
+      rows: [
+        {
+          object: {
+            id: -79781,
+            amount: 4200,
+            paymentType: { id: 1 },
+            ownerContextId: 1,
+          },
+        },
+      ],
+    },
+  };
+  assert.equal(make([virtualPayment]).methods[0].gross, 4200);
   const deleted = raw(10, 1, 999);
   deleted.order.object.deleted = true;
   assert.equal(

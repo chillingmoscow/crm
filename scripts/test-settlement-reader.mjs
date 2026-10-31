@@ -161,10 +161,10 @@ try {
   const signed = await run({
     ...one,
     payments: async (id, n) => ({
-      ds: n ? [] : [{ ...payment(id), id: -79781 }],
+      ds: n ? [] : [{ ...payment(id), id: -7001 }],
     }),
   });
-  assert.equal(signed.facts[0].payments[0].id, -79781);
+  assert.equal(signed.facts[0].payments[0].id, -7001);
   const noCost = await run({
     ...one,
     detail: async (id) => ({ id, returned: false }),

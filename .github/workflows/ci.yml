@@ -35,3 +35,4 @@ jobs:
         run: |
           node scripts/test-sales-settlement.mjs
           node scripts/test-settlement-reader.mjs
+          node scripts/test-cash-control.mjs

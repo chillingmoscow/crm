@@ -35,7 +35,7 @@ export default async function VenueDetailServerPage({
   const { venueId } = await params;
   const requestedTab = (await searchParams).tab;
   const initialTab =
-    requestedTab === "inventory" || requestedTab === "audit"
+    requestedTab === "inventory" || requestedTab === "audit" || requestedTab === "sales"
       ? requestedTab
       : undefined;
   const supabase = await createClient();

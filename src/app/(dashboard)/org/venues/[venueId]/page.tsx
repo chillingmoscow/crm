@@ -27,17 +27,26 @@ type VenueDetail = {
 
 export default async function VenueDetailServerPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ venueId: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { venueId } = await params;
+  const requestedTab = (await searchParams).tab;
+  const initialTab =
+    requestedTab === "inventory" || requestedTab === "audit"
+      ? requestedTab
+      : undefined;
   const supabase = await createClient();
   type LooseQueryBuilder = {
     select: (columns: string) => LooseQueryBuilder;
     eq: (column: string, value: unknown) => LooseQueryBuilder;
     maybeSingle: () => Promise<{ data: unknown }>;
   };
-  const db = supabase as unknown as { from: (table: string) => LooseQueryBuilder };
+  const db = supabase as unknown as {
+    from: (table: string) => LooseQueryBuilder;
+  };
 
   const {
     data: { user },
@@ -56,7 +65,7 @@ export default async function VenueDetailServerPage({
   const { data: venue } = await supabase
     .from("venues")
     .select(
-      "id, name, type, address, phone, currency, timezone, working_hours, comment, default_legal_entity_id, inventory_recount_threshold_sum, inventory_recount_threshold_percent"
+      "id, name, type, address, phone, currency, timezone, working_hours, comment, default_legal_entity_id, inventory_recount_threshold_sum, inventory_recount_threshold_percent",
     )
     .eq("id", venueId)
     .eq("account_id", account.id)
@@ -97,6 +106,9 @@ export default async function VenueDetailServerPage({
   // явно для консистентности контракта VenueDetailPage.
   return (
     <VenueDetailPage
+      key={`${venueId}:${initialTab ?? "main"}`}
+      initialTab={initialTab}
+      canViewStockRules={Boolean(can("inventory.view_results"))}
       venue={venue}
       importedFromQuickResto={Boolean(importedVenueResult.data?.id)}
       legalEntities={legalEntities.map((le) => ({

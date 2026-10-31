@@ -352,6 +352,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>запросил(а) обновление списаний</>,
     buildDetails: e => <p className="text-xs text-muted-foreground">Месяц: {String(e.details.month ?? "").slice(0,7)}</p>,
   },
+  "stock.deductions.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила инвентаризации и удержаний</>,
+    buildDetails: e => <div className="space-y-1 text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)} · действует с {formatDate(e.details.valid_from)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
   "stock.writeoffs.synced": {
     icon: FilePlus2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>обновил(а) журнал списаний из Quick Resto</>,

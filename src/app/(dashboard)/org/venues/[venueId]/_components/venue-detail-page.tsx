@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -32,6 +32,10 @@ import { EntityAuditTab } from "@/components/audit/entity-audit-tab";
 import type { AuditEvent } from "@/lib/audit/list";
 import type { SalesConfiguration } from "@/lib/sales/types";
 import { SalesSettingsTab } from "./sales-settings-tab";
+import { StockSettingsTab } from "./stock-settings-tab";
+import { PageFrame } from "@/components/shared/page-frame";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import tabStyle from "@/components/shared/workspace-tabs.module.css";
 
 import {PayrollSettings} from "@/app/(dashboard)/people/payroll/_components/payroll-settings";
 
@@ -94,7 +98,7 @@ export type LegalEntityOption = {
 };
 
 const BASE_TABS = ["Основное", "Карта залов"] as const;
-type Tab = "Основное" | "Карта залов" | "Продажи" | "Оплата труда" | "Журнал";
+type Tab = "Основное" | "Карта залов" | "Продажи" | "Оплата труда" | "Инвентаризация" | "Журнал";
 
 export function VenueDetailPage({
   venue,
@@ -107,6 +111,8 @@ export function VenueDetailPage({
   initialAuditEvents,
   initialAuditHasMore,
   salesConfiguration,
+  initialTab,
+  canViewStockRules,
 }: {
   venue: Venue;
   importedFromQuickResto: boolean;
@@ -120,18 +126,38 @@ export function VenueDetailPage({
   initialAuditEvents: AuditEvent[];
   initialAuditHasMore: boolean;
   salesConfiguration: SalesConfiguration | null;
+  initialTab?:'inventory'|'audit';
+  canViewStockRules:boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [workingHours, setWorkingHours] = useState<WorkingHours>(
     venue.working_hours ?? INITIAL_WORKING_HOURS
   );
-  const [activeTab, setActiveTab] = useState<Tab>("Основное");
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab==='inventory'&&canViewStockRules?'Инвентаризация':initialTab==='audit'&&canViewAudit?'Журнал':'Основное');
   const TABS: Tab[] = [
     ...BASE_TABS,
     ...(salesConfiguration ? ["Продажи" as const,"Оплата труда" as const] : []),
+    ...(canViewStockRules ? ['Инвентаризация' as const] : []),
     ...(canViewAudit ? ["Журнал" as const] : []),
   ];
+  const tabList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = tabList.current;
+    if (!list) return;
+    const revealSelected = () => {
+      const selected = list.querySelector<HTMLElement>('[data-state="active"]');
+      if (!selected) return;
+      const left = selected.getBoundingClientRect().left - list.getBoundingClientRect().left + list.scrollLeft;
+      if (left < list.scrollLeft) list.scrollLeft = left;
+      else if (left + selected.offsetWidth > list.scrollLeft + list.clientWidth)
+        list.scrollLeft = left + selected.offsetWidth - list.clientWidth;
+    };
+    revealSelected();
+    const observer = new ResizeObserver(revealSelected);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [activeTab]);
 
   const { register, handleSubmit, setValue, watch, control, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
@@ -186,7 +212,8 @@ export function VenueDetailPage({
   };
 
   return (
-    <div className="p-6 md:p-8 w-full">
+    <PageFrame>
+      <Tabs className={tabStyle.tabs} value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)}>
       {/* Header + title + tabs — full width */}
       <div>
         <div className="flex items-center justify-between mb-6">
@@ -216,25 +243,20 @@ export function VenueDetailPage({
         </div>
 
         {/* Tabs */}
-        <div className="border-b mb-6">
-          <div className="flex overflow-x-auto">
+          <TabsList ref={tabList} aria-label="Настройки заведения">
             {TABS.map((tab) => (
-              <button
+              <TabsTrigger
                 key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`shrink-0 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
+                value={tab}
+                className="shrink-0"
               >
                 {tab}
-              </button>
+              </TabsTrigger>
             ))}
-          </div>
-        </div>
+          </TabsList>
       </div>
 
+      <TabsContent value={activeTab}>
       {/* ── Tab: Основное ─────────────────────────────────────── */}
       {activeTab === "Основное" && (
         <div className="max-w-2xl mx-auto">
@@ -465,6 +487,7 @@ export function VenueDetailPage({
       {activeTab === "Продажи" && salesConfiguration && (
         <SalesSettingsTab initial={salesConfiguration} />
       )}
+      {activeTab === 'Инвентаризация' && <StockSettingsTab key={venue.id} venueId={venue.id}/>}
 
       {/* ── Tab: Журнал ───────────────────────────────────────── */}
       {activeTab === "Оплата труда" && <PayrollSettings venueId={venue.id}/>}
@@ -478,6 +501,8 @@ export function VenueDetailPage({
           initialHasMore={initialAuditHasMore}
         />
       )}
-    </div>
+      </TabsContent>
+      </Tabs>
+    </PageFrame>
   );
 }

@@ -354,7 +354,7 @@ export async function processPayrollDay() {
           .map((r) => r.employee_id!),
       ),
     ].map((id) => employees.find((e) => e.id === id)!);
-    const extras = extraBonuses(source.masters, source.bar),
+    const extras = extraBonuses(source.masters, source.bar, source.additional_rules),
       metrics = day ? effectiveMetrics(day) : {};
     if (!day) await enqueueDay(accountId, venueId, date);
     const tipRecipients = present.filter(
@@ -423,6 +423,7 @@ export async function processPayrollDay() {
             financial_day_id: day?.id,
             financial_day_version: day?.version,
             extra: extras,
+            extra_rule: {id:source.additional_rule_id,config:source.additional_rules},
             source: employeeAttendance.some((a) => a.external_id < 0)
               ? "schedule"
               : "quickresto",
@@ -504,6 +505,7 @@ export async function processPayrollDay() {
           financial_day_id: undefined,
           financial_day_version: undefined,
           extra: extras,
+          extra_rule: {id:source.additional_rule_id,config:source.additional_rules},
           attendance_ids: [],
         },
       });

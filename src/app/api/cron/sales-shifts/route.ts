@@ -2,6 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { runOneSlice, scheduleDueDays } from "@/lib/sales/sync";
 import {
+  scheduleAdditionalReports,
+  processAdditionalReport,
+} from "@/lib/sales/additional-sync";
+import {
   scheduleStatisticsReports,
   processStatisticsReport,
 } from "@/lib/sales/statistics-sync";
@@ -50,12 +54,26 @@ export async function POST(request: NextRequest) {
     } catch {
       monthReportErrors++;
     }
+    let additionalReports = 0,
+      additionalErrors = 0;
+    try {
+      await scheduleAdditionalReports();
+      if (Date.now() - started < 30000) {
+        const r = await processAdditionalReport();
+        if (!r.idle) additionalReports++;
+        if (r.error) additionalErrors++;
+      }
+    } catch {
+      additionalErrors++;
+    }
     return NextResponse.json({
       queued,
       slices,
       failed,
       monthReports,
       monthReportErrors,
+      additionalReports,
+      additionalErrors,
     });
   } catch {
     return NextResponse.json(

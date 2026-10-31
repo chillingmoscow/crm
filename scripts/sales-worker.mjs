@@ -36,6 +36,10 @@ while (!stopping) {
         console.log(
           `Месячные отчёты: обработано ${stats.monthReports}, ошибок ${stats.monthReportErrors}`,
         );
+      if (stats.additionalReports || stats.additionalErrors)
+        console.log(
+          `Допродажи: обработано ${stats.additionalReports}, ошибок ${stats.additionalErrors}`,
+        );
     }
   } catch (e) {
     console.error(`Обработчик смен: ${e.cause?.code ?? e.name}`);

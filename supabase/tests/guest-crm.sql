@@ -35,7 +35,7 @@ do $$declare v uuid:=current_setting('test.crm_v')::uuid;x jsonb;begin
 end $$;
 reset role;
 do $$
-declare a uuid:=current_setting('test.crm_a')::uuid;v uuid:=current_setting('test.crm_v')::uuid;provider text;facts jsonb;j uuid;lease uuid;outcome jsonb;h integer;expected_version integer;begin
+declare a uuid:=current_setting('test.crm_a')::uuid;v uuid:=current_setting('test.crm_v')::uuid;provider text;facts jsonb;j uuid;lease uuid;outcome jsonb;h integer;expected_version integer;birthday_guest uuid;birthday_revision integer;begin
  perform set_config('request.jwt.claim.sub','',true);perform set_config('app.ctx_ready','0',true);
  update private.crm_guests set qr_id=900000001 where id=current_setting('test.crm_id')::uuid;
  provider:=private.finance_execution_provider(a,v);select coalesce(max(version),0)+1 into expected_version from private.crm_guest_sources where venue_id=v;
@@ -57,6 +57,22 @@ declare a uuid:=current_setting('test.crm_a')::uuid;v uuid:=current_setting('tes
  outcome:=public.crm_guest_import_legacy(v,provider,current_setting('test.crm_u')::uuid,jsonb_build_array(jsonb_build_object('legacyId','qa-glide-crm','qrId',900000001,'patch',jsonb_build_object('name','QA legacy name','work','QA legacy work'),'legacyData',jsonb_build_object('group','Platinum','discount',20),'reason','Прежние условия Glide: Platinum, 20%. Действующие условия — Quick Resto.')),'[{"guestId":900000001,"joinedAt":"2026-10-01T00:00:00Z"}]');
  if outcome->>'skipped'<>'1'or(select count(*)from private.crm_guest_history where guest_id=current_setting('test.crm_id')::uuid)<>h or public.crm_guest_detail(v,current_setting('test.crm_id')::uuid)->'data'->>'name'<>'QA manual name'then raise exception 'Legacy replay changed guest/manual fields';end if;
  if has_function_privilege('authenticated','public.crm_guest_import_legacy(uuid,text,uuid,jsonb,jsonb)','execute')then raise exception 'Legacy import exposed';end if;
+ -- Review regression: a partial manual date becomes a complete override.
+ insert into private.crm_guests(account_id,venue_id,qr_id,source_data)values(a,v,900000002,'{"name":"QA atomic birthday","day":15,"month":1,"year":1990}')returning id into birthday_guest;
+ outcome:=public.crm_guest_command(v,'update',birthday_guest,1,gen_random_uuid(),'{"day":31}','QA manual day only');
+ if(select local_data->'month'from private.crm_guests where id=birthday_guest)<>'1'::jsonb or(select local_data->'year'from private.crm_guests where id=birthday_guest)<>'1990'::jsonb then raise exception 'Partial manual birthday not pinned as complete date';end if;
+ facts:=facts||jsonb_build_array(jsonb_build_object('id',900000002,'name','QA atomic birthday','contacts',null,'groupId',null,'groupTitle',null,'discountPercent',null,'day',15,'month',4,'year',2001,'issues','[]'::jsonb));
+ lease:=gen_random_uuid();insert into private.crm_guest_jobs(account_id,venue_id,state,phase,cursor,payload,request,lease,claimed_at)
+ select a,v,'running','verify',2,jsonb_build_object('provider',provider,'first',facts,'second',facts,'groups','[]'::jsonb,'verifiedGroups','[]'::jsonb),jsonb_build_object('timezone',timezone,'dayStartHour',day_start_hour),lease,now()from public.sales_settings where venue_id=v returning id into j;
+ perform public.crm_guest_publish(j,lease,facts,provider,'[]','[]');
+ outcome:=public.crm_guest_detail(v,birthday_guest);
+ if outcome->'data'->>'day'<>'31'or outcome->'data'->>'month'<>'1'or outcome->'data'->>'year'<>'1990'then raise exception 'Source mixed a manual birthday with a new source date';end if;
+ birthday_revision:=(outcome->>'revision')::integer;
+ outcome:=public.crm_guest_command(v,'update',birthday_guest,birthday_revision,gen_random_uuid(),'{"note":"QA unrelated edit"}','QA after source date change');
+ outcome:=public.crm_guest_command(v,'archive',birthday_guest,(outcome->>'revision')::integer,gen_random_uuid(),'{}','QA archive after source date change');
+ perform public.crm_guest_command(v,'restore',birthday_guest,(outcome->>'revision')::integer,gen_random_uuid(),'{}','QA restore after source date change');
+ outcome:=public.crm_guest_command(v,'update',birthday_guest,(outcome->>'revision')::integer+1,gen_random_uuid(),'{"year":null}','QA unknown year override');
+ if(select local_data->'year'from private.crm_guests where id=birthday_guest)<>'null'::jsonb then raise exception 'Unknown manual year was not preserved';end if;
  if current_setting('test.crm_protected')is distinct from md5(jsonb_build_object('tx',(select jsonb_agg(to_jsonb(t)order by id)from public.transactions t),'banks',(select jsonb_agg(to_jsonb(t)order by id)from public.bank_accounts t),'salary',(select jsonb_agg(to_jsonb(t)order by id)from public.payroll_accruals t),'notifications',(select jsonb_agg(to_jsonb(t)order by id)from public.notifications t))::text)then raise exception 'Guest CRM changed protected data';end if;
  raise notice 'PASS: private guest projections, scoped CRUD/archive/restore/history, exact request replay, stale edits, partial birthday/leap handling, source preserves manual data, unchanged money/payroll/messages';
 end $$;

@@ -148,6 +148,10 @@ declare k text;x jsonb;begin
  end loop;
 end $$;
 revoke all on function private.crm_validate_guest_patch(jsonb,uuid,uuid) from public,anon,authenticated,service_role;
+create function private.crm_complete_guest_birthday(p_patch jsonb,p_base jsonb)returns jsonb language sql immutable set search_path=''as $$
+ select case when p_patch?|array['day','month','year']then p_patch||jsonb_build_object('day',(coalesce(p_base,'{}')||p_patch)->'day','month',(coalesce(p_base,'{}')||p_patch)->'month','year',(coalesce(p_base,'{}')||p_patch)->'year')else p_patch end
+$$;
+revoke all on function private.crm_complete_guest_birthday(jsonb,jsonb)from public,anon,authenticated,service_role;
 create function public.crm_guest_command(p_venue uuid,p_action text,p_id uuid,p_revision integer,p_request uuid,p_patch jsonb,p_reason text) returns jsonb language plpgsql security definer set search_path='' as $$
 declare a uuid:=private.crm_guest_scope(p_venue,true,true);g private.crm_guests;before_data jsonb;after_data jsonb;actor text;prior private.crm_guest_requests;hash text;result jsonb;changed jsonb;k text;birth date;begin
  if p_request is null or p_action not in ('create','update','archive','restore') or p_reason is null or length(trim(p_reason)) not between 1 and 1000 then raise exception 'Укажите действие и основание';end if;
@@ -162,6 +166,7 @@ declare a uuid:=private.crm_guest_scope(p_venue,true,true);g private.crm_guests;
  end if;
  if p_action='create' then
   if p_id is not null or p_revision is distinct from 0 or trim(coalesce(p_patch->>'name',''))='' then raise exception 'Укажите имя нового гостя';end if;
+  p_patch:=private.crm_complete_guest_birthday(p_patch,'{}');
   insert into private.crm_guests(account_id,venue_id,local_data,created_by) values(a,p_venue,p_patch,auth.uid()) returning * into g;
   before_data:=null;
  else
@@ -171,6 +176,7 @@ declare a uuid:=private.crm_guest_scope(p_venue,true,true);g private.crm_guests;
   if (p_action='update' and g.archived_at is not null) or(p_action='archive' and g.archived_at is not null) or(p_action='restore' and g.archived_at is null) then raise exception 'Состояние карточки изменилось';end if;
   if p_action in ('archive','restore') and p_patch<>'{}' then raise exception 'Для изменения архива не нужны новые поля';end if;
   before_data:=g.source_data||g.local_data;
+  if p_action='update'then p_patch:=private.crm_complete_guest_birthday(p_patch,before_data);end if;
   update private.crm_guests set local_data=case when p_action='update' then local_data||p_patch else local_data end,
    archived_at=case when p_action='archive' then now() when p_action='restore' then null else archived_at end,revision=revision+1,updated_at=now() where id=g.id returning * into g;
  end if;

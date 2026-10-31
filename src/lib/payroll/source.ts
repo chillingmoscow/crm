@@ -9,6 +9,7 @@ import { asLooseDb } from "@/lib/supabase/loose";
 import { salesRead } from "@/lib/sales/rate-limit";
 import { dayWindow, addDays } from "@/lib/sales/time";
 import type { PaySettings } from "./types";
+import { defaultAdditionalRules,type AdditionalRuleVersion } from "@/lib/sales/additional";
 export type ObjectRow = { id?: number; [key: string]: unknown };
 export type PayrollResponse = {
   ds: { type: string; object: ObjectRow }[];
@@ -24,6 +25,14 @@ export async function readPayrollDay(
   if (!connection)
     throw new Error("Подключите Quick Resto в настройках заведения");
   const admin = asLooseDb(createAdminClient());
+  const [extraSource, extraRule] = await Promise.all([
+    admin.from<{masters_report_id:number;bar_report_id:number;cocktail_report_id:number}>("sales_additional_sources")
+      .select("masters_report_id,bar_report_id,cocktail_report_id").eq("account_id",settings.account_id).eq("venue_id",settings.venue_id).maybeSingle(),
+    admin.from<AdditionalRuleVersion>("sales_additional_rules").select("id,config,valid_from,created_at")
+      .eq("account_id",settings.account_id).eq("venue_id",settings.venue_id).lte("valid_from",date)
+      .order("valid_from",{ascending:false}).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle(),
+  ]);
+  if(extraSource.error || extraRule.error) throw new Error("Не удалось получить правила допродаж");
   const window = dayWindow(date, timezone, hour);
   // QR shifts epochs according to the client's JS getTimezoneOffset. Sending the venue
   // offset yields real UTC instants which render exactly like the QR venue wall clock.
@@ -124,22 +133,24 @@ export async function readPayrollDay(
       "extParams[dateFrom]": window.start,
       "extParams[dateTo]": window.end - 1,
       businessDayOffsetInMs: hour * 3600000,
-      timeZone,
+      timeZone: 0,
       count: 10000,
     });
     if (!Array.isArray(result.ds) || result.ds.length >= 10000)
       throw new Error(`Неполный отчёт продаж ${vid}`);
     return result;
   };
-  const masters = await report(140),
-    bar = await report(175),
-    cocktails = await report(227);
+  const masters = await report(extraSource.data?.masters_report_id ?? 140),
+    bar = await report(extraSource.data?.bar_report_id ?? 175),
+    cocktails = await report(extraSource.data?.cocktail_report_id ?? 227);
   return {
     attendance,
     cashbox,
     masters,
     bar,
     cocktails,
+    additional_rules: extraRule.data?.config ?? defaultAdditionalRules,
+    additional_rule_id: extraRule.data?.id ?? null,
     synced_at: new Date().toISOString(),
     timezone,
     timeZone,
@@ -147,54 +158,4 @@ export async function readPayrollDay(
     date,
   };
 }
-export function extraBonuses(masters: PayrollResponse, bar: PayrollResponse) {
-  const top = masters.ds.map((r) => r.object).filter((r) => r._Level === 0);
-  const qty = (name: string) =>
-    top
-      .filter((r) => r._branch === name)
-      .reduce((s, r) => s + Number(r.saleAmount ?? 0), 0);
-  const points =
-    qty("Премиальный табак") * 0.5 +
-    qty("Дегустация") * 1.25 +
-    qty("Эксклюзивные кальяны") * 2;
-  const masterBonus =
-    Math.floor(points) *
-    (points >= 9 ? 300 : points >= 6 ? 225 : points >= 3 ? 150 : 0);
-  const branchRates: Record<string, number> = {
-    "Премиальный чай": 100,
-    "Ягоды и фрукты": 20,
-    Добавки: 20,
-    "Сиропы к кофе": 20,
-    Пюре: 20,
-    Виски: 100,
-    Ром: 100,
-    Джин: 100,
-    "Прочее / Алкоголь": 100,
-    "Мескаль / Текила": 100,
-    "По бокалам": 100,
-    "Белые вина": 600,
-    "Игристые вина": 600,
-    "Красные вина": 600,
-    "Розовые вина": 600,
-    "Фирменные коктейли": 180,
-    Настойки: 20,
-    "Сет настоек": 200,
-    "Лимонад (бокал)": 20,
-    "Лимонад (графин)": 100,
-    "Лимонад-конструктор": 100,
-    "Авторский чай": 100,
-    "Коктейль-конструктор": 220,
-  };
-  const barBonus = bar.ds.reduce(
-    (s, r) =>
-      s +
-      (branchRates[String(r.object._branch)] ?? 0) *
-        Number(r.object.saleAmount ?? 0),
-    0,
-  );
-  return {
-    masters: Math.round(masterBonus),
-    bar: Math.round(barBonus),
-    masterPoints: points,
-  };
-}
+export { extraBonuses } from "@/lib/sales/additional";

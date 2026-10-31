@@ -27,7 +27,12 @@ while (!stopping) {
     if (!r.ok) console.error(`Обработчик смен: HTTP ${r.status}`);
     else {
       const stats = await r.json();
-      if (stats.slices && !stats.failed) delay = 500;
+      if (
+        (stats.slices && !stats.failed) ||
+        (stats.monthReports && !stats.monthReportErrors) ||
+        (stats.additionalReports && !stats.additionalErrors)
+      )
+        delay = 500;
       if (stats.slices || stats.queued)
         console.log(
           `Смены: поставлено ${stats.queued}, обработано частей ${stats.slices}, ошибок ${stats.failed}`,
@@ -35,6 +40,10 @@ while (!stopping) {
       if (stats.monthReports || stats.monthReportErrors)
         console.log(
           `Месячные отчёты: обработано ${stats.monthReports}, ошибок ${stats.monthReportErrors}`,
+        );
+      if (stats.additionalReports || stats.additionalErrors)
+        console.log(
+          `Допродажи: обработано ${stats.additionalReports}, ошибок ${stats.additionalErrors}`,
         );
     }
   } catch (e) {

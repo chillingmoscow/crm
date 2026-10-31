@@ -49,6 +49,12 @@ const FALLBACK: NotificationTypeSpec = {
 };
 
 const REGISTRY: Record<string, NotificationTypeSpec> = {
+  "finance.cash_discrepancy": {
+    category: "finance",
+    icon: AlertTriangle,
+    iconColor: "text-amber-600",
+    verb: null,
+  },
   // KB
   "kb.mention_in_page": {
     category: "kb",

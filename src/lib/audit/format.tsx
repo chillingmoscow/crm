@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   Archive,
   ArrowLeftRight,
   ArrowRightFromLine,
@@ -376,6 +377,11 @@ const SPECS: Record<string, AuditEventSpec> = {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) правила контроля кассы</>,
     buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "cash.control.alert_sent": {
+    icon: AlertTriangle, iconClass: "text-amber-600 bg-amber-500/10",
+    buildHeadline: () => <>уведомил(а) о расхождении кассы</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · {e.details.kind === "open" ? "открытие" : "закрытие"} · {Number(e.details.diffCents ?? 0) / 100} ₽ · получателей: {Number(e.details.recipients ?? 0)}</p>,
   },
   "cash.movement.rules_saved": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",

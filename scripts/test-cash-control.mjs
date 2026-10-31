@@ -36,6 +36,9 @@ try {
   const date = "2026-10-30",
     tz = "Europe/Moscow",
     hour = 9;
+  assert.equal(schema.parse({ thresholdCents: 0, opening: true, closing: true, autoRead: false, intervalMinutes: 60 }).notifyFinance, false, "Old settings must not enable notifications");
+  assert.equal(schema.parse({ ...rules, notifyFinance: true }).notifyFinance, true);
+  assert.throws(() => schema.parse({ ...rules, notifyFinance: "true" }));
   const raw = (id, patch = {}) => ({
     id,
     shiftNumber: id,

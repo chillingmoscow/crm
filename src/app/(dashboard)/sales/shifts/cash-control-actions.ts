@@ -119,7 +119,7 @@ export async function loadCashConfiguration(
       .order("version", { ascending: false })
       .range(start, start + 499);
     if (r.error) throw new Error("Не удалось загрузить правила контроля кассы");
-    versions.push(...(r.data ?? []));
+    versions.push(...(r.data ?? []).map((v) => ({ ...v, config: cashControlRulesSchema.parse(v.config) })));
     if ((r.data?.length ?? 0) < 500)
       return { venueId, versions, canManage: s.canManage };
   }
@@ -194,7 +194,7 @@ export async function loadCashControl(
   ]);
   if (rule.error || day.error || job.error || settings.error)
     throw new Error("Не удалось загрузить контроль кассы");
-  const rules = rule.data?.config ?? initialCashControlRules,
+  const rules = cashControlRulesSchema.parse(rule.data?.config ?? initialCashControlRules),
     d = day.data;
   const problem =
     d &&

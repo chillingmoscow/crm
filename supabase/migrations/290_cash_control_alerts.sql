@@ -83,32 +83,40 @@ grant execute on function public.cash_control_request(uuid,date) to authenticate
 -- separately retryable external send. Unique source identity survives >7 days.
 create function private.cash_control_notify_confirmed() returns trigger
 language plpgsql security definer set search_path='' as $$
-declare d public.cash_control_days;rule public.cash_control_rules;r jsonb;k text;
+declare d public.cash_control_days;rule public.cash_control_rules;event_rule public.cash_control_rules;r jsonb;k text;
  expected bigint;declared bigint;diff bigint;threshold bigint;stamp timestamptz;
-event uuid;owner uuid;recipients integer;title text;body text;source_provider text;begin
+ event uuid;owner uuid;recipients integer;title text;body text;source_provider text;enabled_since timestamptz;disabled_version integer;begin
  select * into d from public.cash_control_days where id=new.day_id;
  select * into rule from public.cash_control_rules where account_id=d.account_id and venue_id=d.venue_id order by version desc limit 1;
  if rule.id is null or coalesce((rule.config->>'notifyFinance')::boolean,false) is not true then return new;end if;
+ -- The activation boundary belongs to the uninterrupted enabled period, not
+ -- the latest edit. Delayed reads must survive polling/threshold/audience edits.
+ select coalesce(max(version),0) into disabled_version from public.cash_control_rules
+  where venue_id=d.venue_id and version<=rule.version and not coalesce((config->>'notifyFinance')::boolean,false);
+ select min(created_at) into enabled_since from public.cash_control_rules where venue_id=d.venue_id and version>disabled_version and version<=rule.version;
  if not exists(select 1 from public.sales_settings s join public.venues v on v.id=s.venue_id
   where s.account_id=d.account_id and s.venue_id=d.venue_id and v.archived_at is null
    and s.timezone=new.request->>'timezone' and s.day_start_hour=(new.request->>'dayStartHour')::integer) then return new;end if;
  select q.provider into source_provider from private.cash_control_jobs q where q.venue_id=d.venue_id and q.business_date=d.business_date and q.state='running' and q.phase='verify' and q.claimed_at>now()-interval '2 minutes';
  if source_provider is null then return new;end if;
  select owner_id into owner from public.accounts where id=d.account_id;
- threshold:=(rule.config->>'thresholdCents')::bigint;
  for r in select value from jsonb_array_elements(new.reports) loop
   if r->'incomplete' is distinct from 'false'::jsonb then continue;end if;
   foreach k in array array['open','close'] loop
-   if (k='open' and not (rule.config->>'opening')::boolean) or (k='close' and (not (rule.config->>'closing')::boolean or r->>'status'<>'CLOSED')) then continue;end if;
+   stamp:=(r->>case when k='open' then 'openedAt' else 'closedAt' end)::timestamptz;
+   if stamp is null or stamp<enabled_since or stamp>clock_timestamp() then continue;end if;
+   select * into event_rule from public.cash_control_rules where venue_id=d.venue_id and version>disabled_version and version<=rule.version and created_at<=stamp order by version desc limit 1;
+   if event_rule.id is null then continue;end if;
+   threshold:=(event_rule.config->>'thresholdCents')::bigint;
+   if (k='open' and not (event_rule.config->>'opening')::boolean) or (k='close' and (not (event_rule.config->>'closing')::boolean or r->>'status'<>'CLOSED')) then continue;end if;
    expected:=(r->>case when k='open' then 'openExpected' else 'closeExpected' end)::bigint;
    declared:=(r->>case when k='open' then 'openDeclared' else 'closeDeclared' end)::bigint;
-   stamp:=(r->>case when k='open' then 'openedAt' else 'closedAt' end)::timestamptz;
    diff:=declared-expected;
    -- Installing/enabling rules never replays an archive of old discrepancies.
-   if expected is null or declared is null or stamp is null or stamp<rule.created_at or stamp>clock_timestamp() or abs(diff)<=threshold then continue;end if;
+   if expected is null or declared is null or abs(diff)<=threshold then continue;end if;
    event:=null;
    insert into private.cash_control_alert_events(account_id,venue_id,day_id,rule_id,provider,report_id,kind,occurred_at,expected_cents,declared_cents,diff_cents,threshold_cents,source_version)
-   values(d.account_id,d.venue_id,d.id,rule.id,source_provider,(r->>'id')::bigint,k,stamp,expected,declared,diff,threshold,new.version)
+   values(d.account_id,d.venue_id,d.id,event_rule.id,source_provider,(r->>'id')::bigint,k,stamp,expected,declared,diff,threshold,new.version)
    on conflict(venue_id,provider,report_id,kind) do nothing returning id into event;
    if event is null then continue;end if;
    title:=case when k='open' then 'Расхождение при открытии кассы' else 'Расхождение при закрытии кассы' end;
@@ -117,13 +125,13 @@ event uuid;owner uuid;recipients integer;title text;body text;source_provider te
    select distinct u.id,d.venue_id,'finance.cash_discrepancy','finance',title,body,
     case when u.id=owner or exists(select 1 from public.user_venue_roles m join public.role_permissions rp on rp.role_id=m.role_id and rp.granted join public.permissions p on p.id=rp.permission_id and p.code='sales.view_shifts' where m.user_id=u.id and m.venue_id=d.venue_id and m.status='active' and m.fired_at is null)
      then '/sales/shifts?from='||d.business_date||'&to='||d.business_date||'&day='||d.business_date else null end,
-    'cash_control_event',event,jsonb_build_object('business_date',d.business_date,'kind',k,'report_id',(r->>'id')::bigint,'diff_cents',diff,'rule_version',rule.version,'source_version',new.version),now()
+    'cash_control_event',event,jsonb_build_object('business_date',d.business_date,'kind',k,'report_id',(r->>'id')::bigint,'diff_cents',diff,'rule_version',event_rule.version,'source_version',new.version),now()
    from (select owner id union select m.user_id from public.user_venue_roles m join public.role_permissions rp on rp.role_id=m.role_id and rp.granted join public.permissions p on p.id=rp.permission_id and p.code='finance.view_transactions' where m.venue_id=d.venue_id and m.status='active' and m.fired_at is null) candidates
-   join auth.users u on u.id=candidates.id where private.cash_control_finance_recipient(d.venue_id,u.id) and (coalesce(rule.config->>'notificationAudience','owner_finance')='owner_finance' or u.id=owner)
+   join auth.users u on u.id=candidates.id where private.cash_control_finance_recipient(d.venue_id,u.id) and (coalesce(event_rule.config->>'notificationAudience','owner_finance')='owner_finance' or u.id=owner)
    on conflict(user_id,entity_id,type) where entity_type='cash_control_event' and type='finance.cash_discrepancy' do nothing;
    get diagnostics recipients=row_count;
    insert into public.audit_logs(account_id,venue_id,action_code,entity_type,entity_id,details)
-   values(d.account_id,d.venue_id,'cash.control.alert_sent','venue',d.venue_id,jsonb_build_object('date',d.business_date,'kind',k,'diffCents',diff,'recipients',recipients,'event_id',event,'rule_version',rule.version,'source_version',new.version));
+   values(d.account_id,d.venue_id,'cash.control.alert_sent','venue',d.venue_id,jsonb_build_object('date',d.business_date,'kind',k,'diffCents',diff,'recipients',recipients,'event_id',event,'rule_version',event_rule.version,'source_version',new.version));
   end loop;
  end loop;
  return new;

@@ -21,6 +21,7 @@ declare u uuid;a uuid;v uuid;r uuid;x uuid;idx integer;cfg jsonb;n integer;rule 
  select coalesce(max(version),0) into n from public.cash_control_rules where venue_id=v;
  rule:=public.cash_control_save_rules(v,n,cfg,'QA legacy notification defaults');
  if public.cash_control_save_rules(v,n,cfg,'QA legacy notification defaults')<>rule or (select config->'notifyFinance' from public.cash_control_rules where id=rule)<>'false' then raise exception 'Legacy settings not safely idempotent';end if;
+ update public.cash_control_rules set created_at=now()-interval '2 days' where id=rule;
  begin perform public.cash_control_save_rules(v,n+1,cfg||'{"notifyFinance":"true"}','QA invalid');raise exception 'Invalid notification flag accepted';exception when raise_exception then if sqlerrm not like 'Проверьте порог%' then raise;end if;end;
  begin perform public.cash_control_save_rules(v,n+1,cfg||'{"notificationAudience":"everyone"}','QA invalid audience');raise exception 'Invalid audience accepted';exception when raise_exception then if sqlerrm not like 'Выберите получателей%' then raise;end if;end;
  rule:=public.cash_control_save_rules(v,n+1,cfg||'{"notifyFinance":true}','QA notifications enabled');
@@ -107,6 +108,23 @@ declare f jsonb:=(current_setting('test.alert_reports')::jsonb)||jsonb_build_arr
  perform public.cash_control_save_read(jid,(j->>'lease')::uuid,f,repeat('a',64));
  if (select count(*) from private.cash_control_alert_events where day_id=current_setting('test.alert_day')::uuid and report_id=987654327)<>2 then raise exception 'Delivery not recovered after rollback';end if;
  if (select count(*) from public.notifications where entity_id in(select id from private.cash_control_alert_events where day_id=current_setting('test.alert_day')::uuid and report_id=987654327))<>2 or exists(select 1 from public.notifications where entity_id in(select id from private.cash_control_alert_events where day_id=current_setting('test.alert_day')::uuid and report_id=987654327) and user_id<>current_setting('test.alert_owner')::uuid) then raise exception 'Owner-only audience ignored';end if;
+end $$;
+-- Unrelated edits must not reset the current activation period or rewrite
+-- the threshold that applied to an event still waiting for its first read.
+do $$
+declare v uuid:=current_setting('test.alert_v')::uuid;c jsonb;n integer;f jsonb;rid uuid;before_n integer;begin
+ perform set_config('request.jwt.claim.sub',current_setting('test.alert_owner'),true);perform set_config('app.ctx_ready','0',true);
+ select config,version into c,n from public.cash_control_rules where venue_id=v order by version desc limit 1;
+ rid:=public.cash_control_save_rules(v,n,c||'{"intervalMinutes":120,"thresholdCents":999999}','QA interval/threshold edit before delayed read');
+ select reports into f from public.cash_control_days where id=current_setting('test.alert_day')::uuid;
+ f:=f||jsonb_build_array((f->0)||'{"id":987654328}');perform pg_temp.cash_alert_read(f);
+ if (select count(*) from private.cash_control_alert_events where day_id=current_setting('test.alert_day')::uuid and report_id=987654328 and rule_id=current_setting('test.alert_rule')::uuid and threshold_cents=100)<>2 then raise exception 'Settings edit lost pending event or changed its historical threshold';end if;
+ -- Disabling and enabling begins a new period; the former period is not replayed.
+ rid:=public.cash_control_save_rules(v,n+1,c||'{"notifyFinance":false}','QA notifications off');
+ rid:=public.cash_control_save_rules(v,n+2,c||'{"notifyFinance":true}','QA notifications back on');
+ before_n:=(select count(*) from public.notifications where type='finance.cash_discrepancy');
+ perform pg_temp.cash_alert_read(f||jsonb_build_array((f->0)||'{"id":987654329}'));
+ if exists(select 1 from private.cash_control_alert_events where day_id=current_setting('test.alert_day')::uuid and report_id=987654329) or (select count(*) from public.notifications where type='finance.cash_discrepancy')<>before_n then raise exception 'Re-enabled period replayed former events';end if;
 end $$;
 do $$ begin
  if current_setting('test.alert_money') is distinct from md5(jsonb_build_object('transactions',(select jsonb_agg(to_jsonb(t) order by id) from public.transactions t),'banks',(select jsonb_agg(to_jsonb(t) order by id) from public.bank_accounts t),'accruals',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_accruals t),'adjustments',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_adjustments t))::text) then raise exception 'Alerts changed financial or payroll data';end if;

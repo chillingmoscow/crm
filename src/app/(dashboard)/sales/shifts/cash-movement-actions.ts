@@ -175,7 +175,7 @@ export async function loadCashMovements(
   const s = await scope(venueId);
   if (!s) return null;
   if (!validDate(date)) throw Error("Выберите день");
-  const [rule, day, job, settings, tx] = await Promise.all([
+  const [rule, day, job, settings, tx, pinned] = await Promise.all([
     s.db
       .from<{ config: CashMovementRules }>("cash_movement_rules")
       .select("config")
@@ -204,17 +204,30 @@ export async function loadCashMovements(
       .eq("venue_id", venueId)
       .maybeSingle(),
     s.db.rpc("cash_movement_transactions", { p_venue: venueId, p_date: date }),
+    s.db.rpc("finance_execution_day_rule", {
+      p_venue: venueId, p_date: date, p_kind: "movements",
+    }),
   ]);
-  if (rule.error || day.error || job.error || settings.error || tx.error)
+  if (rule.error || day.error || job.error || settings.error || tx.error || pinned.error)
     throw Error("Не удалось загрузить сверку кассовых операций");
+  let config = rule.data?.config;
+  if (pinned.data) {
+    const saved = await s.db.from<{ config: CashMovementRules }>("cash_movement_rules")
+      .select("config").eq("account_id", s.accountId).eq("venue_id", venueId)
+      .eq("id", pinned.data).single();
+    if (saved.error || !saved.data || !config)
+      throw Error("Не удалось загрузить правила проведённого дня");
+    // Per-item decisions remain editable; account mappings are pinned to the day.
+    config = { ...saved.data.config, overrides: config.overrides };
+  }
   const items = day.data?.items ?? [],
     problem =
       day.data && day.data.request.timezone !== settings.data?.timezone
         ? "Часовой пояс изменился. Прочитайте кассовые операции заново"
         : null;
   const plan =
-    rule.data && !problem
-      ? planCashMovements(venueId, items, rule.data.config)
+    config && !problem
+      ? planCashMovements(venueId, items, config)
       : null;
   if (!(await scope(venueId))) return null;
   return {

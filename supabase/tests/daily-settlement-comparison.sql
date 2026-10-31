@@ -43,7 +43,7 @@ end $$;
 reset role;
 do $$
 declare j jsonb;jid uuid:=current_setting('test.settlement_job')::uuid;oldlease uuid;f jsonb:='[{"id":1,"createdAt":946880000000,"payerId":null,"excluded":null,"cost":null,"payments":[]}]';m jsonb:='[]';begin
- if (select count(distinct public.sales_next_worker_lane()) from generate_series(1,14))<>7 then raise exception 'One of seven worker lanes starves';end if;
+ if (select count(distinct public.sales_next_worker_lane()) from generate_series(1,16))<>8 then raise exception 'One of eight worker lanes starves';end if;
  j:=public.finance_claim_settlement_job();if j->>'id'<>jid::text then raise exception 'Claimed wrong QA job';end if;oldlease:=(j->>'lease')::uuid;
  update public.finance_settlement_jobs set claimed_at=now()-interval '3 minutes' where id=jid;
  perform public.finance_fail_settlement(jid,oldlease,'Stale writer',null);

@@ -363,6 +363,21 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>изменил(а) правила поступлений из Quick Resto</>,
     buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
   },
+  "finance.execution.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) режим проведения финансовых операций</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)} · {e.details.enabled?`автоматически с ${formatDate(e.details.from)}`:"режим сверки"}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "finance.execution.requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>повторно запустил(а) проведение операций</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · {e.details.kind==="settlement"?"поступления":"кассовые операции"}</p>,
+  },
+  "finance.execution.committed": {
+    icon: CreditCard, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>провёл(а) финансовые операции по смене</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · создано {Number(e.details.created??0)} · исправлено {Number(e.details.corrected??0)} · отменено {Number(e.details.cancelled??0)}</p>,
+  },
   "finance.settlement.requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>запросил(а) сверку поступлений по счетам</>,

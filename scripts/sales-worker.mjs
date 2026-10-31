@@ -34,7 +34,8 @@ while (!stopping) {
         (stats.stockSlices && !stats.stockErrors) ||
         (stats.settlementSlices && !stats.settlementErrors) ||
         (stats.cashControlSlices && !stats.cashControlErrors) ||
-        (stats.cashMovementSlices && !stats.cashMovementErrors)
+        (stats.cashMovementSlices && !stats.cashMovementErrors) ||
+        (stats.nativeFinanceSlices && !stats.nativeFinanceErrors)
       )
         delay = 500;
       if (stats.slices || stats.queued)
@@ -63,6 +64,8 @@ while (!stopping) {
         );
       if (stats.cashMovementSlices || stats.cashMovementErrors)
         console.log(`Инкассации и внесения: обработано частей ${stats.cashMovementSlices}, ошибок ${stats.cashMovementErrors}`);
+      if (stats.nativeFinanceSlices || stats.nativeFinanceErrors)
+        console.log(`Финансовые операции: обработано частей ${stats.nativeFinanceSlices}, ошибок ${stats.nativeFinanceErrors}`);
     }
   } catch (e) {
     console.error(`Обработчик смен: ${e.cause?.code ?? e.name}`);

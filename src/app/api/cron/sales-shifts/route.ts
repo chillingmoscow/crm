@@ -24,6 +24,7 @@ import {
   processCashControl,
 } from "@/lib/sales/cash-control-sync";
 import { scheduleCashMovements, processCashMovement } from "@/lib/sales/cash-movement-sync";
+import { scheduleNativeFinance, processNativeFinance } from "@/lib/finance/native-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -53,7 +54,9 @@ export async function POST(request: NextRequest) {
       cashControlSlices = 0,
       cashControlErrors = 0,
       cashMovementSlices = 0,
-      cashMovementErrors = 0;
+      cashMovementErrors = 0,
+      nativeFinanceSlices = 0,
+      nativeFinanceErrors = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -80,6 +83,7 @@ export async function POST(request: NextRequest) {
       cashControlErrors++;
     }
     try { await scheduleCashMovements(); } catch { cashMovementErrors++; }
+    try { await scheduleNativeFinance(); } catch { nativeFinanceErrors++; }
     // One provider workload per tick: a slow two-report day must not be appended
     // to 25 seconds of order imports and a monthly report in the same request.
     // Persist rotation: a once-per-minute scheduler would otherwise always pick
@@ -91,11 +95,21 @@ export async function POST(request: NextRequest) {
       rotation.error ||
       !Number.isInteger(rotation.data) ||
       Number(rotation.data) < 0 ||
-      Number(rotation.data) > 6
+      Number(rotation.data) > 7
     )
       throw new Error("Не удалось выбрать очередь");
     const lane = Number(rotation.data);
-    if (lane === 6) {
+    if (lane === 7) {
+      const started=Date.now();
+      while(Date.now()-started<25000 && nativeFinanceSlices<100) {
+        try {
+          const r=await processNativeFinance();
+          if(r.idle) break;
+          nativeFinanceSlices++;
+          if(r.error) {nativeFinanceErrors++;break;}
+        } catch {nativeFinanceErrors++;break;}
+      }
+    } else if (lane === 6) {
       const started = Date.now();
       while (Date.now() - started < 25000 && cashMovementSlices < 100) {
         try {
@@ -189,6 +203,8 @@ export async function POST(request: NextRequest) {
       cashControlErrors,
       cashMovementSlices,
       cashMovementErrors,
+      nativeFinanceSlices,
+      nativeFinanceErrors,
     });
   } catch {
     return NextResponse.json(

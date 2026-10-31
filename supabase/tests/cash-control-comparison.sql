@@ -39,7 +39,7 @@ end $$;
 reset role;
 do $$
 declare j jsonb;jid uuid:=current_setting('test.cash_job')::uuid;f jsonb;bad jsonb;provider text:=repeat('a',64);oldlease uuid;begin
- if (select count(distinct public.sales_next_worker_lane()) from generate_series(1,14))<>7 then raise exception 'Worker lane starves';end if;
+ if (select count(distinct public.sales_next_worker_lane()) from generate_series(1,16))<>8 then raise exception 'Worker lane starves';end if;
  f:=jsonb_build_array(jsonb_build_object('id',1,'shiftNumber',1,'openedAt','2000-01-03T09:00:00+03:00','closedAt',null,'terminalId','1','terminal','QA','cashier','QA','status','CLOSED','incomplete',false,'openExpected',100000,'openDeclared',100000,'closeExpected',120000,'closeDeclared',119000));
  j:=public.cash_control_claim();if j->>'id'<>jid::text then raise exception 'Claimed wrong test job';end if;
  oldlease:=(j->>'lease')::uuid;update private.cash_control_jobs set claimed_at=now()-interval '3 minutes' where id=jid;

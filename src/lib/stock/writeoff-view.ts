@@ -87,3 +87,36 @@ export function writeoffTotal(rows: WriteoffRow[]) {
     total: counted.length,
   };
 }
+/** Shared by the on-screen table and a fresh CSV read. */
+export function filterWriteoffs(
+  rows: WriteoffRow[],
+  month: string,
+  kind: string,
+  search: string,
+) {
+  const needle = search.normalize("NFKC").toLocaleLowerCase("ru-RU").trim();
+  return rows.filter(
+    (r) =>
+      r.date.startsWith(month.slice(0, 7)) &&
+      (kind === "all" || r.kind === kind) &&
+      [
+        r.name,
+        r.correspondent,
+        r.reason,
+        r.store,
+        r.date,
+        new Date(`${r.date}T12:00:00`).toLocaleDateString("ru-RU"),
+        new Date(`${r.date}T12:00:00`).toLocaleDateString("ru-RU", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }),
+        ...(r.native?.payload.lines.flatMap((l) => [l.name, ...l.categories]) ??
+          []),
+      ]
+        .join(" ")
+        .normalize("NFKC")
+        .toLocaleLowerCase("ru-RU")
+        .includes(needle),
+  );
+}

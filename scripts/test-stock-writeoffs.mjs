@@ -28,7 +28,7 @@ try {
     personalConsumptionPlan: plan,
     stockCalendarDate: date,
   } = await import(pathToFileURL(join(dir, "writeoffs.mjs")));
-  const { writeoffTotal } = await import(
+  const { writeoffTotal, writeoffRows, filterWriteoffs } = await import(
     pathToFileURL(join(dir, "writeoff-view.mjs"))
   );
   const rules = {
@@ -222,6 +222,28 @@ try {
       },
       rules,
     ),
+  );
+  const searchable = writeoffRows(
+    [{ id: "QA", business_date: d.date, payload: d }],
+    [],
+    "native",
+  );
+  assert.equal(
+    filterWriteoffs(searchable, "2026-10", "all", "Item 2").length,
+    1,
+    "Product search includes line items, shared with export",
+  );
+  assert.equal(
+    filterWriteoffs(searchable, "2026-10", "all", "Category").length,
+    1,
+  );
+  assert.equal(
+    filterWriteoffs(searchable, "2026-09", "all", "Item 2").length,
+    0,
+  );
+  assert.equal(
+    filterWriteoffs(searchable, "2026-10", "Вся команда", "Item 2").length,
+    0,
   );
   const summary = writeoffTotal([
     { total: 100, native: { payload: { processed: true } } },

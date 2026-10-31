@@ -118,9 +118,10 @@ declare line jsonb;k text;begin
  foreach k in array array['id','storeId'] loop
   if jsonb_typeof(d->k) is distinct from 'number' or (d->>k)!~'^[1-9][0-9]*$' or (d->>k)::numeric>9007199254740991 then raise exception 'Некорректный ID списания';end if;
  end loop;
- foreach k in array array['number','date','invoiceAt','storeName','customerType','kind'] loop
+ foreach k in array array['number','date','invoiceAt','storeName','kind'] loop
   if jsonb_typeof(d->k) is distinct from 'string' or length(d->>k) not between 1 and 300 then raise exception 'Некорректное поле списания';end if;
  end loop;
+ if jsonb_typeof(d->'customerType') is distinct from 'string' or length(d->>'customerType')>40 then raise exception 'Некорректный тип получателя списания';end if;
  if (d->>'date')::date<month or (d->>'date')::date>=(month+interval '1 month')::date or not (config->'storeIds' @> (d->'storeId')) or jsonb_typeof(d->'processed') is distinct from 'boolean' or jsonb_typeof(d->'lines') is distinct from 'array' or jsonb_typeof(d->'issues') is distinct from 'array' or d->>'kind' not in ('personal','employee','team','masters','business','unknown') or ((d->>'invoiceAt')::timestamptz at time zone (config->>'timezone'))::date<>(d->>'date')::date then raise exception 'Некорректные данные списания';end if;
  foreach k in array array['total','legacyTotal'] loop
   if jsonb_typeof(d->k) not in ('number','null') or (jsonb_typeof(d->k)='number' and abs((d->>k)::numeric)>1000000000000) then raise exception 'Некорректная сумма списания';end if;
@@ -196,4 +197,14 @@ end $$;
 revoke all on function public.stock_writeoff_job_status(uuid) from public,anon;
 grant execute on function public.stock_writeoff_job_status(uuid) to authenticated;
 create policy stock_writeoff_audit_read on public.audit_logs as restrictive for select to authenticated using(action_code not like 'stock.writeoffs.%' or (account_id=(select public.get_active_account_id()) and venue_id=(select public.get_active_venue_id()) and (select public.has_permission('inventory.view_results'))));
+-- Shared cron rotation, independent of wall-clock cadence and worker process.
+create table private.sales_worker_rotation(id boolean primary key default true check(id),lane integer not null check(lane between 0 and 3));
+alter table private.sales_worker_rotation enable row level security;
+revoke all on private.sales_worker_rotation from public,anon,authenticated,service_role;
+create function public.sales_next_worker_lane() returns integer language sql security definer set search_path=public,pg_catalog as $$
+ insert into private.sales_worker_rotation(id,lane) values(true,0)
+ on conflict(id) do update set lane=(sales_worker_rotation.lane+1)%4 returning lane;
+$$;
+revoke all on function public.sales_next_worker_lane() from public,anon,authenticated;
+grant execute on function public.sales_next_worker_lane() to service_role;
 commit;

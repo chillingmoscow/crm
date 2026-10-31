@@ -11,6 +11,7 @@ begin
  perform set_config('test.stock_owner',u::text,true);perform set_config('test.stock_venue',v::text,true);perform set_config('test.stock_doc',d::text,true);
  perform set_config('test.stock_finance',md5(jsonb_build_object('transactions',(select jsonb_agg(to_jsonb(t) order by id) from public.transactions t),'accruals',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_accruals t),'adjustments',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_adjustments t),'banks',(select jsonb_agg(to_jsonb(t) order by id) from public.bank_accounts t),'notifications',(select jsonb_agg(to_jsonb(t) order by id) from public.notifications t))::text),true);
  perform private.stock_validate_writeoff_payload(d,cfg,'2020-02-01');
+ perform private.stock_validate_writeoff_payload(d||'{"customerType":"","kind":"unknown","issues":["Не определён получатель списания"]}',cfg,'2020-02-01');
  begin perform private.stock_validate_writeoff_payload(d||'{"id":null}',cfg,'2020-02-01');raise exception 'Null ID accepted';exception when raise_exception then if sqlerrm not like 'Некорректный ID%' then raise;end if;end;
  begin perform private.stock_validate_writeoff_payload(d||'{"user":{"password":"not-a-secret"}}',cfg,'2020-02-01');raise exception 'Raw user accepted';exception when raise_exception then if sqlerrm not like 'Некорректные данные%' then raise;end if;end;
  begin perform private.stock_validate_writeoff_payload(d||'{"storeId":999999}',cfg,'2020-02-01');raise exception 'Foreign store accepted';exception when raise_exception then if sqlerrm not like 'Некорректные данные%' then raise;end if;end;
@@ -39,6 +40,9 @@ reset role;
 do $test$
 declare v uuid:=current_setting('test.stock_venue')::uuid;j jsonb;stale uuid;d jsonb:=current_setting('test.stock_doc')::jsonb;n integer;ver integer;
 begin
+ -- Persisted rotation cannot stick to one lane at fixed minute boundaries.
+ if (select count(distinct lane) from (select public.sales_next_worker_lane() as lane from generate_series(1,4)) x)<>4 then raise exception 'Workload lanes starved';end if;
+ if has_function_privilege('authenticated','public.sales_next_worker_lane()','EXECUTE') or has_table_privilege('authenticated','private.sales_worker_rotation','SELECT') then raise exception 'Rotation exposed';end if;
  -- Keep the fixture first without touching other jobs.
  update public.stock_writeoff_jobs set updated_at='1900-01-01' where venue_id=v and month='2020-02-01';
  j:=public.stock_claim_writeoff_job(v);stale:=(j->>'lease')::uuid;

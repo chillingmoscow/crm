@@ -1,4 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { NextRequest, NextResponse } from "next/server";
 import { runOneSlice, scheduleDueDays } from "@/lib/sales/sync";
 import {
@@ -54,7 +56,19 @@ export async function POST(request: NextRequest) {
     }
     // One provider workload per tick: a slow two-report day must not be appended
     // to 25 seconds of order imports and a monthly report in the same request.
-    const lane = Math.floor(Date.now() / 15000) % 4;
+    // Persist rotation: a once-per-minute scheduler would otherwise always pick
+    // the same lane with a clock modulo divisible by four.
+    const rotation = await asLooseDb(createAdminClient()).rpc(
+      "sales_next_worker_lane",
+    );
+    if (
+      rotation.error ||
+      !Number.isInteger(rotation.data) ||
+      Number(rotation.data) < 0 ||
+      Number(rotation.data) > 3
+    )
+      throw new Error("Не удалось выбрать очередь");
+    const lane = Number(rotation.data);
     if (lane === 3) {
       try {
         const r = await processStockWriteoff();

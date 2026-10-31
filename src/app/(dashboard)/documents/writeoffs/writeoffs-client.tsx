@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils";
 import { personalConsumptionPlan } from "@/lib/stock/writeoffs";
 import {
   writeoffRows,
+  filterWriteoffs,
   writeoffTotal,
   type WriteoffRow,
 } from "@/lib/stock/writeoff-view";
@@ -64,12 +65,12 @@ const columnsConfig = Object.keys(names).map((id) => ({
   defaultSize:
     (
       {
-        date: 150,
-        name: 170,
-        correspondent: 170,
-        reason: 200,
-        status: 130,
-        total: 150,
+        date: 120,
+        name: 160,
+        correspondent: 160,
+        reason: 190,
+        status: 120,
+        total: 140,
       } as Record<string, number>
     )[id] ?? 160,
   defaultVisible: [
@@ -362,15 +363,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     columns: columnsConfig,
   });
   const rows = useMemo(
-    () =>
-      allRows.filter(
-        (r) =>
-          r.date.startsWith(month.slice(0, 7)) &&
-          (kind === "all" || r.kind === kind) &&
-          `${r.name} ${r.correspondent} ${r.reason} ${dayLabel(r.date)}`
-            .toLocaleLowerCase("ru-RU")
-            .includes(st.search.toLocaleLowerCase("ru-RU").trim()),
-      ),
+    () => filterWriteoffs(allRows, month, kind, st.search),
     [allRows, month, kind, st.search],
   );
   const cols = useMemo<ColumnDef<WriteoffRow>[]>(
@@ -399,7 +392,9 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           ) : id === "status" ? (
             <Status row={row.original} />
           ) : id === "date" ? (
-            dayLabel(row.original.date)
+            new Date(`${row.original.date}T12:00:00`).toLocaleDateString(
+              "ru-RU",
+            )
           ) : id === "total" ? (
             <span className="tabular-nums">{amount(row.original.total)}</span>
           ) : (
@@ -489,13 +484,11 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
             r,
           ]),
         );
-      const freshRows = [...byId.values()].filter(
-        (r) =>
-          r.date.startsWith(month.slice(0, 7)) &&
-          (kind === "all" || r.kind === kind) &&
-          `${r.name} ${r.correspondent} ${r.reason} ${dayLabel(r.date)}`
-            .toLocaleLowerCase("ru-RU")
-            .includes(st.search.toLocaleLowerCase("ru-RU").trim()),
+      const freshRows = filterWriteoffs(
+        [...byId.values()],
+        month,
+        kind,
+        st.search,
       );
       const unchanged =
         freshRows.length === rows.length &&

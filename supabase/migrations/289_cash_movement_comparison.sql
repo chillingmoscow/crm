@@ -81,6 +81,10 @@ declare source jsonb;j private.cash_movement_jobs;tz text;h integer;days integer
  select timezone,day_start_hour into tz,h from public.sales_settings where account_id=a and venue_id=v;
  if tz is null then raise exception 'Сначала настройте источники продаж';end if;
  select (config->>'lookbackDays')::integer into days from public.cash_movement_rules where venue_id=v order by version desc limit 1;days:=coalesce(days,30);
+ -- QR's serverRegisterTime filter treats these as venue wall-clock hours despite Z.
+ -- A live boundary probe returned 01:27Z in the 04:00Z..05:00Z filter for Moscow,
+ -- and no rows in 01:00Z..02:00Z. Do not convert these filter literals to UTC.
+ -- Returned timestamps remain real UTC; accounting dates come from shift.opened.
  source:=jsonb_build_object('timezone',tz,'dayStartHour',h,'from',d-days,'through',d,'since',(d-days)::text||'T00:00:00.000Z','till',((now() at time zone tz)::date+1)::text||'T00:00:00.000Z');
  select * into j from private.cash_movement_jobs where venue_id=v for update;
  if found and j.state in ('pending','running') then

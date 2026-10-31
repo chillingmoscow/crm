@@ -191,6 +191,10 @@ export function salesSource(
         timeZone: 0,
       });
     },
+    cashMovements: (since: string, till: string) =>
+      publicRead("front.encashment", undefined, [{
+        field: "serverRegisterTime", operation: "range", value: { since, till },
+      }]) as Promise<Record<string, unknown>[]>,
     taxi: () =>
       publicRead("front.encashment", undefined, [
         {

@@ -377,6 +377,26 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>изменил(а) правила контроля кассы</>,
     buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
   },
+  "cash.movement.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила инкассаций и внесений</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "cash.movement.rules_imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) прежние ручные решения по инкассациям</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Сохранено решений: {Number(e.details.decisions??0)}</p>,
+  },
+  "cash.movement.requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) сверку инкассаций и внесений</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)}</p>,
+  },
+  "cash.movement.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) инкассации и внесения из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.from)} — {formatDate(e.details.through)} · операций: {Number(e.details.operations??0)} · обновлено дней: {Number(e.details.days??0)}</p>,
+  },
   "cash.control.requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>запросил(а) контроль кассовых остатков</>,

@@ -4,7 +4,7 @@ create table public.stock_deduction_rules(
  id uuid primary key default gen_random_uuid(),account_id uuid not null,venue_id uuid not null,
  version integer not null check(version>0),valid_from date not null,config jsonb not null,
  reason text not null check(length(trim(reason)) between 1 and 1000),created_by uuid not null references public.profiles(id),actor_name text not null,created_at timestamptz not null default now(),
- unique(venue_id,version),foreign key(account_id,venue_id) references public.venues(account_id,id)
+ unique(venue_id,version),foreign key(account_id,venue_id) references public.venues(account_id,id) on delete cascade
 );
 create index stock_deduction_rules_scope on public.stock_deduction_rules(account_id,venue_id,valid_from desc,version desc);
 create index stock_deduction_rules_actor on public.stock_deduction_rules(created_by);

@@ -19,6 +19,9 @@ begin
  insert into public.profiles(id,first_name,active_venue_id) values(x,'QA',v) on conflict(id) do update set active_venue_id=v;
  insert into public.user_venue_roles(user_id,venue_id,role_id,status) values(x,v,r,'active');perform set_config('test.stock_denied',x::text,true);
  perform set_config('test.stock_version',(select coalesce(max(version),0)::text from public.stock_deduction_rules where venue_id=v),true);
+ insert into public.venues(account_id,name) values(a,'Stock rules deletion QA') returning id into x;
+ perform set_config('test.stock_v_delete',x::text,true);
+ insert into public.stock_deduction_rules(account_id,venue_id,version,valid_from,config,reason,created_by,actor_name) values(a,x,1,current_date,c||'{"enabled":false,"distribution":"shifts","groups":[]}'::jsonb,'QA deletion lifecycle',u,'QA');
 end $test$;
 set local role authenticated;
 do $test$
@@ -42,6 +45,8 @@ begin
  if has_table_privilege('authenticated','public.stock_deduction_rules','INSERT') or has_table_privilege('authenticated','public.stock_deduction_rules','UPDATE') or has_table_privilege('authenticated','public.stock_deduction_rules','DELETE') or has_function_privilege('anon','public.stock_save_deduction_rules(uuid,integer,date,jsonb,text)','EXECUTE') then raise exception 'Unsafe direct grants';end if;
  if has_table_privilege('service_role','public.stock_deduction_rules','INSERT') or has_table_privilege('service_role','public.stock_deduction_rules','UPDATE') or has_table_privilege('service_role','public.stock_deduction_rules','DELETE') then raise exception 'Service can rewrite rule history';end if;
  if not exists(select 1 from public.audit_logs where action_code='stock.deductions.rules_saved' and details->>'version'=(n+1)::text and user_id=auth.uid()) then raise exception 'No actor/audit';end if;
+ delete from public.venues where id=current_setting('test.stock_v_delete')::uuid;
+ if not found then raise exception 'Owner cannot delete otherwise empty venue with rules';end if;
 end $test$;
 select set_config('request.jwt.claim.sub',current_setting('test.stock_reader'),true),set_config('app.ctx_ready','0',true);
 do $$ begin
@@ -54,6 +59,7 @@ select set_config('request.jwt.claim.sub','',true),set_config('app.ctx_ready','0
 do $$ begin if exists(select 1 from public.stock_deduction_rules) then raise exception 'Rules leak without user';end if;end $$;
 reset role;
 do $$ begin
+ if exists(select 1 from public.stock_deduction_rules where venue_id=current_setting('test.stock_v_delete')::uuid) then raise exception 'Deleted venue left orphaned rules';end if;
  if current_setting('test.stock_money') is distinct from md5(jsonb_build_object('transactions',(select jsonb_agg(to_jsonb(t) order by id) from public.transactions t),'accruals',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_accruals t),'adjustments',(select jsonb_agg(to_jsonb(t) order by id) from public.payroll_adjustments t),'banks',(select jsonb_agg(to_jsonb(t) order by id) from public.bank_accounts t),'notifications',(select jsonb_agg(to_jsonb(t) order by id) from public.notifications t))::text) then raise exception 'Settings changed money/payroll';end if;
  raise notice 'PASS: owner-only dated immutable rules, retry/version safety, scope, active roles, Unicode/list/amount validation, audit privacy, no financial/payroll effects';
 end $$;

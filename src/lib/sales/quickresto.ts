@@ -97,6 +97,13 @@ export function salesSource(
           }),
       }),
     );
+  const guestPage = (start: number) => {
+    if (!Number.isSafeInteger(start) || start < 0) throw new Error("Проверьте страницу гостей");
+    return backRead("report.datasources.bonuses/select", {
+      vid: 29, mode: "allTime", start, count: 500,
+      businessDayOffsetInMs: settings.day_start_hour * 3600000, timeZone: 0,
+    });
+  };
   return {
     orders: (start: number) =>
       backRead("front.orders.orderinfoweb/select", {
@@ -108,15 +115,9 @@ export function salesSource(
         businessDayOffsetInMs: settings.day_start_hour * 3600000,
         timeZone: 0,
       }),
-    staff: (start: number) =>
-      backRead("report.datasources.bonuses/select", {
-        vid: 29,
-        mode: "allTime",
-        start,
-        count: 500,
-        businessDayOffsetInMs: settings.day_start_hour * 3600000,
-        timeZone: 0,
-      }),
+    staff: guestPage,
+    guests: guestPage,
+    guestGroups: () => publicRead("crm.customer.group"),
     detail: (id: number) =>
       publicRead("front.orders", id) as Promise<Record<string, unknown>>,
     payments: (id: number, start: number) => {

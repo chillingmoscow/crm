@@ -37,6 +37,7 @@ import type { ReactNode } from "react";
 
 import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
 import { auditFallbackHeadline, auditFieldValueLabel, auditFieldLabel, formatAuditDate as formatDate } from "./labels";
+import {guestAuditSpecs} from "./guests";
 import { candidateAuditSpecs } from "./candidates";
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
@@ -299,6 +300,7 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 }
 
 const SPECS: Record<string, AuditEventSpec> = {
+  ...guestAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : e.details.provider === "office_codes" ? " «Коды замка»" : ""}</>,

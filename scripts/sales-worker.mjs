@@ -35,7 +35,8 @@ while (!stopping) {
         (stats.settlementSlices && !stats.settlementErrors) ||
         (stats.cashControlSlices && !stats.cashControlErrors) ||
         (stats.cashMovementSlices && !stats.cashMovementErrors) ||
-        (stats.nativeFinanceSlices && !stats.nativeFinanceErrors)
+        (stats.nativeFinanceSlices && !stats.nativeFinanceErrors) ||
+        (stats.guestSlices && !stats.guestErrors)
       )
         delay = 500;
       if (stats.slices || stats.queued)
@@ -63,9 +64,17 @@ while (!stopping) {
           `Контроль кассы: обработано частей ${stats.cashControlSlices}, ошибок ${stats.cashControlErrors}`,
         );
       if (stats.cashMovementSlices || stats.cashMovementErrors)
-        console.log(`Инкассации и внесения: обработано частей ${stats.cashMovementSlices}, ошибок ${stats.cashMovementErrors}`);
+        console.log(
+          `Инкассации и внесения: обработано частей ${stats.cashMovementSlices}, ошибок ${stats.cashMovementErrors}`,
+        );
+      if (stats.guestSlices || stats.guestErrors)
+        console.log(
+          `Гости: частей ${stats.guestSlices}, ошибок ${stats.guestErrors}`,
+        );
       if (stats.nativeFinanceSlices || stats.nativeFinanceErrors)
-        console.log(`Финансовые операции: обработано частей ${stats.nativeFinanceSlices}, ошибок ${stats.nativeFinanceErrors}`);
+        console.log(
+          `Финансовые операции: обработано частей ${stats.nativeFinanceSlices}, ошибок ${stats.nativeFinanceErrors}`,
+        );
     }
   } catch (e) {
     console.error(`Обработчик смен: ${e.cause?.code ?? e.name}`);

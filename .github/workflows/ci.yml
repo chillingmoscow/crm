@@ -38,3 +38,5 @@ jobs:
           node scripts/test-cash-control.mjs
           node scripts/test-cash-movements.mjs
           node scripts/test-native-finance.mjs
+      - name: Guest source invariants
+        run: node scripts/test-guests.mjs

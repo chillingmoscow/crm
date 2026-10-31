@@ -7,6 +7,7 @@ import { useNewCandidateCount } from "@/lib/candidates/use-new-candidate-count";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
+  UserRound,
   ArrowLeftRight,
   BookOpen,
   Boxes,
@@ -304,6 +305,7 @@ const NAV_SECTIONS: NavSection[] = [
       },
     ],
   },
+  {label: "Гости",icon: UserRound,href:"/crm/guests",permission:"crm.view_guests",items:[]},
   {
     // База знаний (стадия 8). Flat-section — клик по самому пункту
     // ведёт на /knowledge, без вложенных подпунктов и chevron'а.

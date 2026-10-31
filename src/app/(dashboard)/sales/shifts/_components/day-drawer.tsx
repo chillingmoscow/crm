@@ -31,7 +31,8 @@ import {
 import { adjustSales, salesHistory } from "../actions";
 import { money, dayLabel } from "@/lib/sales/format";
 
-import {PayrollDayPanel} from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { PayrollDayPanel } from "@/app/(dashboard)/people/payroll/_components/payroll-context";
+import { DayDiscussionPanel } from "../../_components/day-discussion";
 
 export function DayDrawer({
   day,
@@ -165,11 +166,7 @@ export function DayDrawer({
                 Сохранить
               </Button>
             </>
-          ) : (
-            <Button variant="outline" onClick={close}>
-              Закрыть
-            </Button>
-          )
+          ) : undefined
         }
       >
         {day.sync_error && (
@@ -179,10 +176,19 @@ export function DayDrawer({
           </p>
         )}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="values">Показатели</TabsTrigger>
-            <TabsTrigger value="employees">Сотрудники</TabsTrigger>
-            <TabsTrigger value="history">История</TabsTrigger>
+          <TabsList className="w-full justify-start overflow-x-auto">
+            <TabsTrigger className="px-2 text-[13px]" value="values">
+              Показатели
+            </TabsTrigger>
+            <TabsTrigger className="px-2 text-[13px]" value="employees">
+              Команда
+            </TabsTrigger>
+            <TabsTrigger className="px-2 text-[13px]" value="comments">
+              Комментарии
+            </TabsTrigger>
+            <TabsTrigger className="px-2 text-[13px]" value="history">
+              История
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="values" className="space-y-5 pt-3">
             <p className="text-xs text-muted-foreground">
@@ -262,7 +268,15 @@ export function DayDrawer({
               </p>
             )}
           </TabsContent>
-          <TabsContent value="employees"><PayrollDayPanel date={day.business_date}/></TabsContent>
+          <TabsContent value="employees">
+            <PayrollDayPanel date={day.business_date} />
+          </TabsContent>
+          <TabsContent value="comments" className="pt-4">
+            <DayDiscussionPanel
+              venueId={day.venue_id}
+              date={day.business_date}
+            />
+          </TabsContent>
           <TabsContent value="history" className="pt-3 space-y-5">
             {historyError ? (
               <p role="alert" className="text-sm text-destructive">

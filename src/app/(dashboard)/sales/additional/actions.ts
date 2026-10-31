@@ -7,6 +7,8 @@ import {
   getCachedActiveAccountId,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+
+import type { DayArchive, DayReference } from "@/lib/sales/day-context";
 import {
   type AdditionalDay,
   type AdditionalArchive,
@@ -51,6 +53,8 @@ export type AdditionalData = {
   reports: AdditionalDay[];
   archives: AdditionalArchive[];
   rules: AdditionalRuleVersion[];
+  days: DayReference[];
+  dayArchives: DayArchive[];
 };
 export async function loadAdditional(
   expectedVenue?: string,
@@ -75,36 +79,47 @@ export async function loadAdditional(
       "Слишком большой период допродаж. Обратитесь к управляющему",
     );
   }
-  const [reports, archives, rules, source, settings] = await Promise.all([
-    rows<AdditionalDay>(
-      "sales_additional_reports",
-      "id,venue_id,business_date,kind,request,metrics,metrics_request,state,last_error,synced_at,period_start,period_end",
-      "business_date",
-    ),
-    rows<AdditionalArchive>(
-      "sales_additional_archive",
-      "id,venue_id,business_date,kind,metrics,captured_at,origin",
-      "captured_at",
-    ),
-    rows<AdditionalRuleVersion>(
-      "sales_additional_rules",
-      "id,valid_from,config,reason,created_at,created_by",
-      "valid_from",
-    ),
-    s.db
-      .from<{
-        enabled: boolean;
-        rules_version: number;
-      }>("sales_additional_sources")
-      .select("enabled,rules_version")
-      .eq("venue_id", s.venueId)
-      .maybeSingle(),
-    s.db
-      .from<{ timezone: string; day_start_hour: number }>("sales_settings")
-      .select("timezone,day_start_hour")
-      .eq("venue_id", s.venueId)
-      .maybeSingle(),
-  ]);
+  const [reports, archives, rules, source, days, dayArchives, settings] =
+    await Promise.all([
+      rows<AdditionalDay>(
+        "sales_additional_reports",
+        "id,venue_id,business_date,kind,request,metrics,metrics_request,state,last_error,synced_at,period_start,period_end",
+        "business_date",
+      ),
+      rows<AdditionalArchive>(
+        "sales_additional_archive",
+        "id,venue_id,business_date,kind,metrics,captured_at,origin",
+        "captured_at",
+      ),
+      rows<AdditionalRuleVersion>(
+        "sales_additional_rules",
+        "id,valid_from,config,reason,created_at,created_by",
+        "valid_from",
+      ),
+      s.db
+        .from<{
+          enabled: boolean;
+          rules_version: number;
+        }>("sales_additional_sources")
+        .select("enabled,rules_version")
+        .eq("venue_id", s.venueId)
+        .maybeSingle(),
+      rows<DayReference>(
+        "sales_days",
+        "id,venue_id,business_date,calculated,overrides,status,updated_at",
+        "business_date",
+      ),
+      rows<DayArchive>(
+        "sales_day_archive",
+        "id,venue_id,business_date,legacy_ref,metrics,captured_at,imported_at,origin",
+        "captured_at",
+      ),
+      s.db
+        .from<{ timezone: string; day_start_hour: number }>("sales_settings")
+        .select("timezone,day_start_hour")
+        .eq("venue_id", s.venueId)
+        .maybeSingle(),
+    ]);
   if (source.error || settings.error)
     throw new Error("Не удалось загрузить настройки допродаж");
   const check = await s.db.rpc("get_active_venue_id");
@@ -128,6 +143,8 @@ export async function loadAdditional(
     reports,
     archives,
     rules,
+    days,
+    dayArchives,
   };
 }
 export async function requestAdditional(month: string, venueId: string) {

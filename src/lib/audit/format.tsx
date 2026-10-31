@@ -308,6 +308,45 @@ const SPECS: Record<string, AuditEventSpec> = {
       {typeof e.details.bonus_writes === "boolean" && <p className="text-xs text-muted-foreground">Бонусные списания: {e.details.bonus_writes ? "включены" : "выключены"}</p>}
     </>,
   },
+  ...Object.fromEntries(
+    Object.entries({
+      created: "добавил(а) комментарий к смене",
+      updated: "изменил(а) комментарий к смене",
+      deleted: "удалил(а) комментарий к смене",
+      restored: "восстановил(а) комментарий к смене",
+      imported: "перенёс(ла) комментарий из Glide",
+      source_updated: "обновил(а) комментарий из Glide",
+    }).map(([action, verb]) => [
+      `sales.comment.${action}`,
+      {
+        icon: FilePlus2,
+        iconClass: "text-brand bg-brand/10",
+        buildHeadline: (e: AuditEvent) => (
+          <>
+            {verb} ·{" "}
+            <Link
+              className="text-brand hover:underline"
+              href={`/sales/shifts?from=${String(e.details.business_date)}&to=${String(e.details.business_date)}&day=${String(e.details.business_date)}&tab=comments`}
+            >
+              {formatDate(e.details.business_date)}
+            </Link>
+          </>
+        ),
+      },
+    ]),
+  ),
+  "sales.day_archive.imported": {
+    icon: FilePlus2,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) архив смен и обсуждений</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        Смен: {Number(e.details.days ?? 0)} · строк команды:{" "}
+        {Number(e.details.members ?? 0)} · комментариев:{" "}
+        {Number(e.details.comments ?? 0)}
+      </p>
+    ),
+  },
   "sales.additional_rules.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) правила допродаж</>,

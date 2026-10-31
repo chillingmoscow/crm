@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import {
   flexRender,
@@ -55,6 +55,8 @@ import { cn } from "@/lib/utils";
 import { money, dayLabel } from "@/lib/sales/format";
 import { exportSalesRows, loadSales, requestSalesSync } from "../actions";
 import { DayDrawer } from "./day-drawer";
+import { ArchiveDayDrawer } from "../../_components/archive-day-drawer";
+import type { DayArchive } from "@/lib/sales/day-context";
 
 const compactDate = (date: string) => date.split("-").reverse().join(".");
 const dateKey = (date: Date | null) =>
@@ -83,9 +85,16 @@ const sortCodec = {
   combine: (field: string, direction: "asc" | "desc") =>
     `${field}:${direction}` as SortMode,
 };
-export function ShiftsClient({ initial, initialRange }: {
+export function ShiftsClient({
+  initial,
+  initialRange,
+  selection,
+  selectedArchive,
+}: {
   initial: SalesData;
   initialRange?: { from: string; to: string };
+  selection?: { date: string; tab: string; source: "native" | "archive" };
+  selectedArchive?: DayArchive | null;
 }) {
   const rangeFrom = initialRange?.from;
   const rangeTo = initialRange?.to;
@@ -117,6 +126,33 @@ export function ShiftsClient({ initial, initialRange }: {
   const [drawer, setDrawer] = useState<{ day: SalesDay; tab: string } | null>(
     null,
   );
+  const [archiveDrawer, setArchiveDrawer] = useState<{
+    archive: DayArchive;
+    tab: string;
+  } | null>(null);
+  const selectionKey = selection
+    ? `${initial.venueId}:${selection.date}:${selection.tab}:${selection.source}`
+    : "";
+  const openedSelection = useRef("");
+  useEffect(() => {
+    if (!selectionKey) {
+      openedSelection.current = "";
+      return;
+    }
+    if (openedSelection.current === selectionKey) return;
+    openedSelection.current = selectionKey;
+    const day = initial.days.find((d) => d.business_date === selection?.date);
+    setDrawer(
+      day && selection?.source !== "archive"
+        ? { day, tab: selection!.tab }
+        : null,
+    );
+    setArchiveDrawer(
+      selectedArchive
+        ? { archive: selectedArchive, tab: selection!.tab }
+        : null,
+    );
+  }, [selectionKey, selection, initial.days, selectedArchive]);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const can = useCallback(
@@ -126,7 +162,6 @@ export function ShiftsClient({ initial, initialRange }: {
   );
   useEffect(() => {
     setData(initial);
-    setDrawer(null);
   }, [initial]);
   // loadSales returns newest dates first. Do not install an implicit unique
   // primary sort that would make every subsequent column look unresponsive.
@@ -786,6 +821,14 @@ export function ShiftsClient({ initial, initialRange }: {
             }));
             setDrawer(null);
           }}
+        />
+      )}
+      {archiveDrawer && (
+        <ArchiveDayDrawer
+          key={archiveDrawer.archive.id}
+          archive={archiveDrawer.archive}
+          tab={archiveDrawer.tab}
+          onClose={() => setArchiveDrawer(null)}
         />
       )}
     </PageFrame>

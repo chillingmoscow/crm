@@ -150,7 +150,11 @@ export type AdditionalArchive = {
   kind: AdditionalKind;
   metrics: AdditionalMetrics;
   captured_at: string;
-  origin: { spreadsheet_id: string; ranges: string[] };
+  origin: {
+    spreadsheet_id: string;
+    ranges: string[];
+    legacy_shift_id?: string;
+  };
 };
 export type ReportRow = { type?: string; object: Record<string, unknown> };
 export type AdditionalReport = {

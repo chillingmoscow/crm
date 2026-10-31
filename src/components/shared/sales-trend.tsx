@@ -29,6 +29,7 @@ const label = (month: string) =>
 export type TrendSeries = {
   label: string;
   unit: string;
+  title?: string;
   points: { month: string; value: number | null }[];
 };
 export function SalesTrend({
@@ -87,7 +88,9 @@ export function SalesTrend({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-muted-foreground">{title}</p>
+          <p className="text-sm text-muted-foreground">
+            {currentSeries.title ?? title}
+          </p>
           <p
             className="mt-1 text-xl font-semibold tabular-nums"
             aria-live="polite"

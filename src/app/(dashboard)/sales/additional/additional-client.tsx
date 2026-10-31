@@ -1,4 +1,7 @@
 "use client";
+import Link from "next/link";
+import { DayTeamPanel } from "../_components/day-team";
+import { DayDiscussionPanel } from "../_components/day-discussion";
 import { useEffect, useMemo, useState } from "react";
 import {
   flexRender,
@@ -23,7 +26,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { PageFrame } from "@/components/shared/page-frame";
 import { MonthPicker } from "@/components/shared/month-picker";
-import { SalesTrend } from "@/components/shared/sales-trend";
+import { SalesTrend, type TrendSeries } from "@/components/shared/sales-trend";
 import {
   ResizableTableHead,
   TableColumnManager,
@@ -58,6 +61,7 @@ import {
 import { AdditionalRulesEditor } from "./additional-rules";
 const labels: Record<string, string> = {
   date: "Дата",
+  turnover: "Оборот заведения",
   revenue: "Выручка",
   primeCost: "Себестоимость",
   bonus: "Общая прибавка",
@@ -76,7 +80,7 @@ const dateTime = (value: string, timezone: string) =>
     timeStyle: "short",
   });
 const unit = (key: string) =>
-  ["revenue", "primeCost", "bonus"].includes(key) ? "₽" : "";
+  ["turnover", "revenue", "primeCost", "bonus"].includes(key) ? "₽" : "";
 const quantityFormat = new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: 8,
 });
@@ -123,9 +127,19 @@ function Detail({
         </p>
       </div>
       <Tabs defaultValue="details">
-        <TabsList>
-          <TabsTrigger value="details">Детали</TabsTrigger>
-          <TabsTrigger value="history">История</TabsTrigger>
+        <TabsList className="w-full justify-start overflow-x-auto">
+          <TabsTrigger value="details" className="px-2 text-[13px]">
+            Детали
+          </TabsTrigger>
+          <TabsTrigger value="team" className="px-2 text-[13px]">
+            Команда
+          </TabsTrigger>
+          <TabsTrigger value="comments" className="px-2 text-[13px]">
+            Комментарии
+          </TabsTrigger>
+          <TabsTrigger value="history" className="px-2 text-[13px]">
+            История
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="details" className="mt-4 space-y-5">
           {row.native && row.native.state !== "ready" && (
@@ -137,6 +151,7 @@ function Detail({
           )}
           <dl className="divide-y">
             {[
+              "turnover",
               "revenue",
               "primeCost",
               ...(row.kind === "masters" ? ["points"] : []),
@@ -184,6 +199,18 @@ function Detail({
                 .join(" · ")}
             </div>
           )}
+        </TabsContent>
+        <TabsContent value="team" className="mt-4">
+          <DayTeamPanel
+            venueId={data.venueId}
+            date={row.date}
+            source={row.archive ? "archive" : "native"}
+            archiveId={row.context?.archiveId}
+            kind={row.kind}
+          />
+        </TabsContent>
+        <TabsContent value="comments" className="mt-4">
+          <DayDiscussionPanel venueId={data.venueId} date={row.date} />
         </TabsContent>
         <TabsContent value="history" className="mt-4 space-y-4">
           {row.archive ? (
@@ -234,6 +261,12 @@ function Detail({
           )}
         </TabsContent>
       </Tabs>
+      <Link
+        href={`/sales/shifts?from=${row.date}&to=${row.date}&day=${row.date}&tab=values${row.archive ? "&source=archive" : ""}`}
+        className="text-sm text-brand hover:underline"
+      >
+        Общая смена →
+      </Link>
       <p className="text-xs text-muted-foreground">
         {row.archive
           ? "Архивные суммы сохранены без пересчёта."
@@ -269,7 +302,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     [rulesOpen, setRulesOpen] = useState(false),
     [detail, setDetail] = useState<AdditionalRow | null>(null);
   const allRows = useMemo(
-    () => additionalRows(data.reports, data.archives, source, kind),
+    () => additionalRows(data.reports, data.archives, source, kind, data),
     [data, source, kind],
   );
   const groups = useMemo(() => {
@@ -292,6 +325,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         "bonus",
         "revenue",
         "primeCost",
+        "turnover",
         ...(kind === "masters" ? ["points"] : []),
         ...groups.map((g) => g.id),
       ].map((id) => ({
@@ -439,6 +473,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
         snapshot.archives,
         source,
         kind,
+        snapshot,
       );
       const byDate = new Map(fresh.map((r) => [r.date, r]));
       const columns = table.getVisibleLeafColumns();
@@ -484,7 +519,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
     }
   }
   const months = [...new Set(allRows.map((r) => r.date.slice(0, 7)))].sort();
-  const series = Object.fromEntries(
+  const series: Record<string, TrendSeries> = Object.fromEntries(
     groups.map((g) => [
       g.id,
       {
@@ -506,6 +541,27 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
       },
     ]),
   );
+  if (kind === "masters")
+    series.points = {
+      label: "Баллы за месяц",
+      unit: "б.",
+      title: "Суммарные баллы по месяцам",
+      points: months.map((m) => {
+        const monthRows = allRows.filter((r) => r.date.startsWith(m));
+        const sum = additionalTotal(monthRows, "points");
+        return { month: m, value: sum.value };
+      }),
+    };
+  const chartSeries =
+    kind === "masters"
+      ? {
+          points: series.points,
+          ...Object.fromEntries(
+            Object.entries(series).filter(([k]) => k !== "points"),
+          ),
+        }
+      : series;
+  const nativeStart = data.rules.at(-1)?.valid_from;
   return (
     <PageFrame className="space-y-6">
       <TablePageHeader
@@ -649,6 +705,15 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           </div>
           {rows.length ? (
             <>
+              {source === "native" &&
+                nativeStart &&
+                nativeStart.slice(0, 7) === month.slice(0, 7) &&
+                nativeStart > month && (
+                  <p className="text-xs text-muted-foreground">
+                    Расчёт Sheerly — с {dayLabel(nativeStart)}. Более ранние дни
+                    доступны в архиве Glide.
+                  </p>
+                )}
               <section
                 className="grid grid-cols-2 gap-y-5 rounded-lg border py-5 sm:grid-cols-4"
                 aria-label="Итоги допродаж"
@@ -744,7 +809,7 @@ export function AdditionalClient({ initial }: { initial: AdditionalData }) {
           {allRows.length > 0 && (
             <SalesTrend
               key={`${source}-${kind}`}
-              series={series}
+              series={chartSeries}
               title="Среднее количество по дням с данными"
             />
           )}

@@ -160,13 +160,16 @@ try {
       "PASS: real published executions 23771/23773 match Fees and shared payroll award",
     );
   }
+  for(const name of ['types','day-context']) {
+    await writeFile(join(dir,`${name}.mjs`),ts.transpileModule((await readFile(`src/lib/sales/${name}.ts`,'utf8')).replaceAll('"./types"','"./types.mjs"'),{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText);
+  }
   await writeFile(
     join(dir, "additional-view.mjs"),
     ts.transpileModule(
       (await readFile("src/lib/sales/additional-view.ts", "utf8")).replace(
         '"./additional"',
         '"./additional.mjs"',
-      ),
+      ).replaceAll('"./day-context"','"./day-context.mjs"'),
       {
         compilerOptions: {
           module: ts.ModuleKind.ES2022,
@@ -175,6 +178,15 @@ try {
       },
     ).outputText,
   );
+  const {dayContext,nativeDayMembers,departmentMember,memberTotal}=await import(pathToFileURL(join(dir,'day-context.mjs')).href);
+  const day={id:'native',venue_id:'venue',business_date:'2026-10-30',status:'complete',calculated:{turnover:100},overrides:{turnover:125},updated_at:'2026-10-31T10:00:00Z'};
+  const archive={id:'archive',venue_id:'venue',business_date:day.business_date,legacy_ref:'shift-source',captured_at:'2026-10-31T09:00:00Z',metrics:{turnover:90}};
+  assert.equal(dayContext('venue',day.business_date,'native',[day],[archive]).turnover,125,'Native day uses approved override');
+  assert.equal(dayContext('venue',day.business_date,'archive',[day],[archive],'shift-source').turnover,90,'Archive never uses current native turnover');
+  assert.equal(dayContext('venue',day.business_date,'archive',[day],[archive],'different-shift').turnover,null,'No guess by date when source row mismatches');
+  assert.equal(dayContext('other',day.business_date,'native',[day],[archive]).turnover,null,'Reference cannot cross venue');
+  const team=nativeDayMembers([{id:'accrual',employee_id:'employee',salary:'1000',tips:null,issues:[],components:[{kind:'extra',amount:200}],calculation_snapshot:{role:'Бармен',position_name:'Бармен',model:{extras_enabled:true}}},{id:'monthly',employee_id:'employee',components:[],calculation_snapshot:{kind:'monthly'}}],[{id:'employee',name:'QA',role_name:'Менеджер'}]);
+  assert.equal(team.length,1,'Monthly salary does not enter shift payroll');assert.equal(departmentMember(team[0],'bar'),true,'Use substitution position, not current primary position');assert.equal(team[0].extras,200);assert.equal(memberTotal(team,'tips'),null,'Missing tips must not become zero');
   const {
     additionalCoverage,
     additionalRows,

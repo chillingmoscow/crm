@@ -51,10 +51,10 @@ export default async function StaffMemberPage({
   searchParams,
 }: {
   params: Promise<{ userId: string }>;
-  searchParams: Promise<{ from?: string }>;
+  searchParams: Promise<{ from?: string; tab?: string }>;
 }) {
   const { userId } = await params;
-  const { from } = await searchParams;
+  const { from, tab } = await searchParams;
   const back = (from && BACK_CONTEXTS[from]) || null;
 
   const supabase = await createClient();
@@ -282,6 +282,8 @@ export default async function StaffMemberPage({
       hasPendingInvite={Boolean(pendingInviteRow)}
       needsPasswordSetup={needsPasswordSetup}
       canViewAudit={Boolean(canViewAudit)}
+      canConfigurePayroll={can("payroll.configure")}
+      initialTab={tab === "documents" || tab === "pay" ? tab : "main"}
       initialAuditEvents={auditResult.events}
       initialAuditHasMore={auditResult.hasMore}
       initialActivityEvents={activityResult.events}

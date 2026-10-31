@@ -1,5 +1,6 @@
 "use server";
 
+import { asLooseDb } from "@/lib/supabase/loose";
 import { createClient } from "@/lib/supabase/server";
 
 /** Унифицированный snapshot сущности для рендера в журнале. Discriminated
@@ -202,26 +203,72 @@ export async function listAuditEvents(input?: {
     .order("id", { ascending: false })
     .limit(pageSize + 1);
 
-  if (input?.entityType) {
-    query = query.eq("entity_type", input.entityType);
+  // A staff card includes documents and uniform purchases from its payroll
+  // card. Read related IDs through the same RLS client; audit RLS independently
+  // protects the payroll details for viewers without payroll.configure.
+  if (
+    input?.entityType === "staff" &&
+    input.entityId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      input.entityId,
+    )
+  ) {
+    const venue = await supabase.rpc("get_active_venue_id");
+    if (venue.error)
+      return { events: [], hasMore: false, error: venue.error.message };
+    const related = await asLooseDb(supabase)
+      .from<{ id: string }[]>("payroll_employees")
+      .select("id")
+      .eq("venue_id", venue.data)
+      .eq("local_user_id", input.entityId)
+      .limit(100);
+    if (related.error)
+      return { events: [], hasMore: false, error: related.error.message };
+    if ((related.data?.length ?? 0) >= 100)
+      return {
+        events: [],
+        hasMore: false,
+        error: "Слишком много связанных расчётных карточек",
+      };
+    const ids = related.data?.map((e) => e.id) ?? [];
+    const parts = [`and(entity_type.eq.staff,entity_id.eq.${input.entityId})`];
+    if (ids.length) {
+      const issues = await asLooseDb(supabase)
+        .from<{ id: string }[]>("payroll_uniform_issues")
+        .select("id")
+        .eq("venue_id", venue.data)
+        .in("employee_id", ids)
+        .limit(1000);
+      if (issues.error)
+        return { events: [], hasMore: false, error: issues.error.message };
+      if ((issues.data?.length ?? 0) >= 1000)
+        return {
+          events: [],
+          hasMore: false,
+          error: "Слишком много связанных покупок формы",
+        };
+      parts.push(
+        `and(entity_type.in.(payroll_automation_person,payroll_employee),entity_id.in.(${ids.join(",")}))`,
+      );
+      if (issues.data?.length)
+        parts.push(
+          `and(entity_type.eq.payroll_uniform,entity_id.in.(${issues.data.map((i) => i.id).join(",")}))`,
+        );
+    }
+    query = query.or(parts.join(","));
+  } else {
+    if (input?.entityType) query = query.eq("entity_type", input.entityType);
+    if (input?.entityId) query = query.eq("entity_id", input.entityId);
   }
   if (input?.entityTypes && input.entityTypes.length > 0) {
     query = query.in("entity_type", input.entityTypes);
   }
-  if (input?.entityId) {
-    query = query.eq("entity_id", input.entityId);
-  }
   if (input?.actionCodes && input.actionCodes.length > 0) {
     query = query.in("action_code", input.actionCodes);
   }
-  if (
-    input?.actionLikePatterns &&
-    input.actionLikePatterns.length > 0
-  ) {
+  if (input?.actionLikePatterns && input.actionLikePatterns.length > 0) {
     query = query.or(
-      input.actionLikePatterns
-        .map((p) => `action_code.like.${p}`)
-        .join(","),
+      input.actionLikePatterns.map((p) => `action_code.like.${p}`).join(","),
     );
   }
   // Каждая группа → отдельный `.or()` или `.in()` — PostgREST AND-итит
@@ -433,8 +480,16 @@ export async function listAuditEvents(input?: {
     const db = supabase as unknown as {
       from: (table: string) => {
         select: (cols: string) => {
-          in: (col: string, vals: string[]) => Promise<{
-            data: Array<{ id: string; name: string; type: string; archived_at: string | null }> | null;
+          in: (
+            col: string,
+            vals: string[],
+          ) => Promise<{
+            data: Array<{
+              id: string;
+              name: string;
+              type: string;
+              archived_at: string | null;
+            }> | null;
           }>;
         };
       };
@@ -494,8 +549,16 @@ export async function listAuditEvents(input?: {
     const db = supabase as unknown as {
       from: (table: string) => {
         select: (cols: string) => {
-          in: (col: string, vals: string[]) => Promise<{
-            data: Array<{ id: string; name: string; inn: string | null; archived_at: string | null }> | null;
+          in: (
+            col: string,
+            vals: string[],
+          ) => Promise<{
+            data: Array<{
+              id: string;
+              name: string;
+              inn: string | null;
+              archived_at: string | null;
+            }> | null;
           }>;
         };
       };
@@ -531,7 +594,7 @@ export async function listAuditEvents(input?: {
   }
 
   const events: AuditEvent[] = sliced.map((r) => {
-    const actorRaw = Array.isArray(r.actor) ? r.actor[0] ?? null : r.actor;
+    const actorRaw = Array.isArray(r.actor) ? (r.actor[0] ?? null) : r.actor;
     const actorName = actorRaw
       ? [actorRaw.first_name, actorRaw.last_name]
           .filter(Boolean)
@@ -553,7 +616,7 @@ export async function listAuditEvents(input?: {
             avatar_url: actorRaw.avatar_url,
           }
         : null,
-      entity: snapshotKey ? snapshotsByKey.get(snapshotKey) ?? null : null,
+      entity: snapshotKey ? (snapshotsByKey.get(snapshotKey) ?? null) : null,
     };
   });
 

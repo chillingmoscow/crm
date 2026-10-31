@@ -427,7 +427,7 @@ export function PayrollJournal({
               selected.external_state !== "done" && (
                 <p className={style.parallel}>
                   Результат бонусной операции ещё не подтверждён.
-                  Состояние и сверка — в разделе «Медкнижки и форма → Бонусы и переход».
+                  Изменения состояния бонусной операции сохраняются в истории записи.
                 </p>
               )}
                 <section className="space-y-3 border-t pt-4">{Boolean(detail?.photos.length) && <h3 className="text-xs font-medium text-muted-foreground">Фотографии</h3>}
@@ -756,7 +756,7 @@ export function PayrollEntryForm({
         </label>
         {kind !== "warning" && medium === "bonus" && (
           <p className={style.parallel}>
-            Исполнение бонусной операции зависит от режима работы в разделе «Медкнижки и форма».
+            Состояние бонусной операции появится в карточке записи.
           </p>
         )}
       </form>

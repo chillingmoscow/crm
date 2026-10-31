@@ -7,15 +7,9 @@ import {
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import {
-  automationPersonSchema,
   type AutomationPerson,
   type UniformRecord,
 } from "@/lib/automations/state";
-import type {
-  AutomationDecision,
-  AutomationBlocker,
-} from "@/lib/automations/payroll-rules";
-import { runPayrollAutomation } from "@/lib/automations/run";
 import {
   defaultAutomationSettings,
   type AutomationSettingsRecord,
@@ -39,243 +33,6 @@ async function scope() {
     accountId: account,
     userId: user.data.user.id,
   };
-}
-export type AutomationRun = {
-  id: string;
-  business_date: string;
-  applied_count: number;
-  mode: "comparison" | "native";
-  created_at: string;
-  decisions: AutomationDecision[];
-  blockers: AutomationBlocker[];
-  recorded_candidates: AutomationDecision[];
-};
-type UniformImportEvent = {
-  id: string;
-  employee_id: string;
-  details: {
-    uniform_source?: {
-      legacy_employee_id: string;
-      purchased_on: string | null;
-      amount: number | null;
-      legacy_parts_created: boolean;
-    } | null;
-  };
-};
-export type ExecutionPolicy = {
-  version: number;
-  salary_from: string | null;
-  bonus_from: string | null;
-  legacy_stopped: boolean;
-};
-export type BonusOperationRow = {
-  id: string;
-  employee_id: string;
-  adjustment_id: string;
-  operation: "apply" | "reverse";
-  direction: "credit" | "debit";
-  amount: number;
-  state: string;
-  message: string | null;
-  created_at: string;
-  provider_reference: string | null;
-};
-export async function loadAutomationWorkspace() {
-  const s = await scope();
-  const [employees, people, uniform, runs, settings, venue, jobs, imports] =
-    await Promise.all([
-      s.db
-        .from<
-          {
-            id: string;
-            name: string;
-            role_name: string;
-            active: boolean;
-            hired_on: string | null;
-            local_user_id: string | null;
-            role_id: string | null;
-          }[]
-        >("payroll_employees")
-        .select("id,name,role_name,active,hired_on,local_user_id,role_id")
-        .eq("account_id", s.accountId)
-        .eq("venue_id", s.venueId)
-        .order("name")
-        .limit(1000),
-      s.db
-        .from<AutomationPerson[]>("payroll_automation_people")
-        .select("*")
-        .eq("venue_id", s.venueId)
-        .limit(1000),
-      s.db
-        .from<UniformRecord[]>("payroll_uniform_issues")
-        .select("*")
-        .eq("venue_id", s.venueId)
-        .order("created_at", { ascending: false })
-        .limit(200),
-      s.db
-        .from<AutomationRun[]>("payroll_automation_runs")
-        .select(
-          "id,business_date,mode,applied_count,created_at,decisions,blockers,recorded_candidates",
-        )
-        .eq("venue_id", s.venueId)
-        .order("created_at", { ascending: false })
-        .limit(30),
-      s.db
-        .from<AutomationSettingsRecord>("payroll_automation_settings")
-        .select("*")
-        .eq("venue_id", s.venueId)
-        .maybeSingle(),
-      s.db
-        .from<{ timezone: string }>("venues")
-        .select("timezone")
-        .eq("id", s.venueId)
-        .single(),
-      s.db
-        .from<
-          {
-            id: string;
-            business_date: string;
-            state: string;
-            last_error: string | null;
-            next_retry_at: string;
-          }[]
-        >("payroll_automation_jobs")
-        .select("id,business_date,state,last_error,next_retry_at")
-        .eq("venue_id", s.venueId)
-        .in("state", ["error", "review"])
-        .order("created_at", { ascending: false })
-        .limit(10),
-      s.db
-        .from<UniformImportEvent[]>("payroll_events")
-        .select("id,employee_id,details")
-        .eq("account_id", s.accountId)
-        .eq("venue_id", s.venueId)
-        .eq("action", "automation_source_imported")
-        .order("created_at", { ascending: false })
-        .limit(1000),
-    ]);
-  for (const r of [
-    employees,
-    people,
-    uniform,
-    runs,
-    settings,
-    venue,
-    jobs,
-    imports,
-  ])
-    if (r.error) throw new Error(r.error.message);
-  const roleRows = await s.db
-    .from<{ id: string; name: string }[]>("roles")
-    .select("id,name")
-    .eq("venue_id", s.venueId);
-  if (roleRows.error) throw new Error(roleRows.error.message);
-  const can = await getCachedPermissionChecker();
-  const canPurchase =
-    can("finance.create_transaction") && can("finance.view_bank_accounts");
-  const bankAccounts = canPurchase
-    ? await s.db
-        .from<{ id: string; name: string }[]>("bank_accounts")
-        .select("id,name")
-        .eq("account_id", s.accountId)
-        .eq("is_active", true)
-        .eq("currency", "RUB")
-        .is("deleted_at", null)
-        .or(`venue_id.is.null,venue_id.eq.${s.venueId}`)
-        .order("name")
-    : { data: [], error: null };
-  if (bankAccounts.error) throw new Error(bankAccounts.error.message);
-  const userIds = (employees.data ?? []).flatMap((e) =>
-    e.local_user_id ? [e.local_user_id] : [],
-  );
-  const details =
-    can("people.edit_staff") && userIds.length
-      ? await s.db
-          .from<
-            {
-              user_id: string;
-              employment_date: string | null;
-              medical_book_date: string | null;
-            }[]
-          >("staff_account_details")
-          .select("user_id,employment_date,medical_book_date")
-          .eq("account_id", s.accountId)
-          .in("user_id", userIds)
-      : { data: [], error: null };
-  if (details.error) throw new Error(details.error.message);
-  const [policy, bonusOperations] = await Promise.all([
-    s.db
-      .from<ExecutionPolicy>("payroll_execution_policy")
-      .select("version,salary_from,bonus_from,legacy_stopped")
-      .eq("account_id", s.accountId)
-      .eq("venue_id", s.venueId)
-      .maybeSingle(),
-    s.db
-      .from<BonusOperationRow[]>("payroll_bonus_operations")
-      .select(
-        "id,employee_id,adjustment_id,operation,direction,amount,state,message,created_at,provider_reference",
-      )
-      .eq("account_id", s.accountId)
-      .eq("venue_id", s.venueId)
-      .order("created_at", { ascending: false })
-      .limit(100),
-  ]);
-  if (policy.error || bonusOperations.error)
-    throw new Error("Не удалось загрузить состояние автоматизаций");
-  return {
-    executionPolicy: policy.data,
-    bonusOperations: bonusOperations.data ?? [],
-    bonusWorkerReady: process.env.PAYROLL_BONUS_WRITES_ENABLED === "true",
-    canPurchase,
-    bankAccounts: bankAccounts.data ?? [],
-    settingsVersion: settings.data?.version ?? 0,
-    legacyUniform: [
-      ...new Map(
-        [...(imports.data ?? [])]
-          .reverse()
-          .filter((e) => e.details.uniform_source)
-          .map((e) => [
-            e.details.uniform_source!.legacy_employee_id,
-            {
-              id: e.id,
-              employee_id: e.employee_id,
-              ...e.details.uniform_source!,
-            },
-          ]),
-      ).values(),
-    ],
-    failedJobs: jobs.data ?? [],
-    canReview: can("payroll.review"),
-    staffDetails: details.data ?? [],
-    venueId: s.venueId,
-    timezone: venue.data?.timezone ?? "Europe/Moscow",
-    employees: (employees.data ?? []).map((e) => ({
-      ...e,
-      role_name:
-        roleRows.data?.find((r) => r.id === e.role_id)?.name ?? e.role_name,
-    })),
-    people: people.data ?? [],
-    uniform: uniform.data ?? [],
-    runs: runs.data ?? [],
-    settings: settings.data?.config ?? defaultAutomationSettings,
-    settingsSaved: !!settings.data,
-  };
-}
-export async function saveAutomationPerson(
-  employeeId: string,
-  version: number,
-  input: unknown,
-) {
-  const s = await scope();
-  z.string().uuid().parse(employeeId);
-  z.number().int().nonnegative().parse(version);
-  const value = automationPersonSchema.parse(input);
-  const r = await s.db.rpc("payroll_save_automation_person", {
-    p_employee: employeeId,
-    p_version: version,
-    p_input: value,
-  });
-  if (r.error) throw new Error(r.error.message);
 }
 export async function addUniform(input: {
   employeeId: string;
@@ -327,23 +84,6 @@ export async function addUniform(input: {
   });
   if (r.error) throw new Error(r.error.message);
 }
-export async function calculateAutomations(
-  date: string,
-  mode: "comparison" | "native",
-  previewId?: string,
-) {
-  const s = await scope();
-  z.string().refine(validDate).parse(date);
-  z.enum(["comparison", "native"]).parse(mode);
-  if (
-    mode === "native" &&
-    !(await getCachedPermissionChecker())("payroll.review")
-  )
-    throw new Error("Нет доступа к учёту начислений");
-  if (previewId) z.string().uuid().parse(previewId);
-  return runPayrollAutomation(s.venueId, date, mode, s.userId, previewId);
-}
-
 export async function cancelUniform(issueId: string, reason: string) {
   const s = await scope();
   z.string().uuid().parse(issueId);
@@ -355,51 +95,220 @@ export async function cancelUniform(issueId: string, reason: string) {
   if (r.error) throw new Error(r.error.message);
 }
 
-export async function saveExecutionPolicy(input: {
+/** Employee-bound data, without the venue-wide migration dashboard. */
+export async function loadEmployeeDocuments(
+  input: { userId: string } | { employeeId: string },
+): Promise<
+  import("@/lib/payroll/employee-documents").EmployeeDocumentsData | null
+> {
+  const s = await scope();
+  const value = z
+    .union([
+      z.object({ userId: z.string().uuid() }).strict(),
+      z.object({ employeeId: z.string().uuid() }).strict(),
+    ])
+    .parse(input);
+  const employees = await s.db
+    .from<
+      {
+        id: string;
+        name: string;
+        role_id: string | null;
+        role_name: string;
+        active: boolean;
+        local_user_id: string | null;
+      }[]
+    >("payroll_employees")
+    .select("id,name,role_id,role_name,active,local_user_id")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq(
+      "userId" in value ? "local_user_id" : "id",
+      "userId" in value ? value.userId : value.employeeId,
+    )
+    .limit(2);
+  if (employees.error) throw new Error(employees.error.message);
+  if (!employees.data?.length) return null;
+  if (employees.data.length !== 1)
+    throw new Error(
+      "У сотрудника несколько расчётных карточек. Требуется сопоставление",
+    );
+  const employee = employees.data[0];
+  const can = await getCachedPermissionChecker();
+  const [person, uniform, settings, hr, bank, entries, archive, venue] =
+    await Promise.all([
+      s.db
+        .from<AutomationPerson>("payroll_automation_people")
+        .select("*")
+        .eq("employee_id", employee.id)
+        .eq("venue_id", s.venueId)
+        .maybeSingle(),
+      s.db
+        .from<UniformRecord[]>("payroll_uniform_issues")
+        .select(
+          "id,title,installments,cancelled_at,expense_transaction_id,purchased_on,employee_id",
+        )
+        .eq("account_id", s.accountId)
+        .eq("venue_id", s.venueId)
+        .eq("employee_id", employee.id)
+        .order("created_at", { ascending: false })
+        .limit(200),
+      s.db
+        .from<AutomationSettingsRecord>("payroll_automation_settings")
+        .select("*")
+        .eq("venue_id", s.venueId)
+        .maybeSingle(),
+      employee.local_user_id && can("people.view_staff")
+        ? s.db
+            .from<{
+              medical_book_number: string | null;
+              medical_book_date: string | null;
+            }>("staff_account_details")
+            .select("medical_book_number,medical_book_date")
+            .eq("account_id", s.accountId)
+            .eq("user_id", employee.local_user_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null, error: null }),
+      can("finance.create_transaction") && can("finance.view_bank_accounts")
+        ? s.db
+            .from<{ id: string; name: string }[]>("bank_accounts")
+            .select("id,name")
+            .eq("account_id", s.accountId)
+            .eq("is_active", true)
+            .eq("currency", "RUB")
+            .is("deleted_at", null)
+            .or(`venue_id.is.null,venue_id.eq.${s.venueId}`)
+            .order("name")
+        : Promise.resolve({ data: [], error: null }),
+      s.db
+        .from<
+          {
+            amount: number;
+            rule_snapshot: { rule?: string; sourceId?: string };
+          }[]
+        >("payroll_adjustments")
+        .select("amount,rule_snapshot")
+        .eq("venue_id", s.venueId)
+        .eq("employee_id", employee.id)
+        .eq("origin", "native_rule")
+        .eq("rule_snapshot->>rule", "uniform")
+        .eq("medium", "money")
+        .eq("approved", true)
+        .is("deleted_at", null)
+        .limit(1000),
+      s.db
+        .from<
+          {
+            id: string;
+            details: {
+              uniform_source?: {
+                purchased_on: string | null;
+                amount: string | number | null;
+                legacy_parts_created: boolean;
+              } | null;
+            };
+          }[]
+        >("payroll_events")
+        .select("id,details")
+        .eq("account_id", s.accountId)
+        .eq("venue_id", s.venueId)
+        .eq("employee_id", employee.id)
+        .eq("action", "automation_source_imported")
+        .order("created_at", { ascending: false })
+        .limit(100),
+      s.db
+        .from<{ timezone: string }>("venues")
+        .select("timezone")
+        .eq("id", s.venueId)
+        .single(),
+    ]);
+  for (const result of [
+    person,
+    uniform,
+    settings,
+    hr,
+    bank,
+    entries,
+    archive,
+    venue,
+  ])
+    if (result.error) throw new Error(result.error.message);
+  if (
+    (uniform.data?.length ?? 0) >= 200 ||
+    (entries.data?.length ?? 0) >= 1000 ||
+    (archive.data?.length ?? 0) >= 100
+  )
+    throw new Error(
+      "История слишком велика для загрузки. Обратитесь к администратору",
+    );
+  return {
+    venueId: s.venueId,
+    timezone: venue.data?.timezone ?? "Europe/Moscow",
+    canEditHr: can("people.edit_staff"),
+    canReview: can("payroll.review"),
+    canPurchase:
+      can("finance.create_transaction") && can("finance.view_bank_accounts"),
+    employee,
+    person: person.data,
+    medicalNumber: hr.data?.medical_book_number ?? null,
+    medicalUntil: hr.data?.medical_book_date ?? null,
+    settingsVersion: settings.data?.version ?? 0,
+    uniformSettings: (settings.data?.config ?? defaultAutomationSettings)
+      .uniform,
+    banks: bank.data ?? [],
+    uniform: (uniform.data ?? []).map((i) => ({
+      ...i,
+      deducted: -(entries.data ?? [])
+        .filter(
+          (a) =>
+            a.rule_snapshot?.rule === "uniform" &&
+            a.rule_snapshot.sourceId === i.id,
+        )
+        .reduce((n, a) => n + Number(a.amount), 0),
+    })),
+    legacyUniform: [
+      ...new Map(
+        (archive.data ?? [])
+          .filter((e) => e.details.uniform_source)
+          .map((e) => [
+            `${e.details.uniform_source!.purchased_on}:${e.details.uniform_source!.amount}`,
+            { id: e.id, ...e.details.uniform_source! },
+          ]),
+      ).values(),
+    ],
+  };
+}
+
+export async function saveEmployeeMedical(input: {
+  employeeId: string;
   version: number;
-  salaryFrom: string | null;
-  bonusFrom: string | null;
-  legacyStopped: boolean;
+  medical: unknown;
+  number: string | null;
+  expectedNumber: string | null;
+  expectedUntil: string | null;
 }) {
   const s = await scope();
-  const parsed = z
+  const { employeeMedicalSchema } = await import(
+    "@/lib/payroll/employee-documents"
+  );
+  const v = z
     .object({
+      employeeId: z.string().uuid(),
       version: z.number().int().nonnegative(),
-      salaryFrom: z.string().refine(validDate).nullable(),
-      bonusFrom: z.string().refine(validDate).nullable(),
-      legacyStopped: z.boolean(),
+      medical: employeeMedicalSchema,
+      number: z.string().max(100).nullable(),
+      expectedNumber: z.string().nullable(),
+      expectedUntil: z.string().refine(validDate).nullable(),
     })
     .strict()
     .parse(input);
-  const result = await s.db.rpc("payroll_set_execution_policy", {
-    p_version: parsed.version,
-    p_salary_from: parsed.salaryFrom,
-    p_bonus_from: parsed.bonusFrom,
-    p_legacy_stopped: parsed.legacyStopped,
-  });
-  if (result.error) throw new Error(result.error.message);
-}
-export async function reviewBonusOperation(
-  id: string,
-  executed: boolean,
-  evidence: string,
-) {
-  const s = await scope();
-  z.string().uuid().parse(id);
-  z.boolean().parse(executed);
-  z.string().trim().min(3).max(1000).parse(evidence);
-  const r = await s.db.rpc("payroll_review_bonus_operation", {
-    p_id: id,
-    p_executed: executed,
-    p_evidence: evidence,
-  });
-  if (r.error) throw new Error(r.error.message);
-}
-export async function reverseBonusOperation(adjustmentId: string) {
-  const s = await scope();
-  z.string().uuid().parse(adjustmentId);
-  const r = await s.db.rpc("payroll_reverse_bonus", {
-    p_adjustment: adjustmentId,
+  const r = await s.db.rpc("payroll_save_employee_medical", {
+    p_employee: v.employeeId,
+    p_version: v.version,
+    p_medical: v.medical,
+    p_number: v.number,
+    p_expected_number: v.expectedNumber,
+    p_expected_until: v.expectedUntil,
   });
   if (r.error) throw new Error(r.error.message);
 }

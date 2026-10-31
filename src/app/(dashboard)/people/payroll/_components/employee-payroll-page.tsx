@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { Button } from "@/components/ui/button";
@@ -17,10 +18,12 @@ export function EmployeePayrollPage({
   initial,
   employeeId,
   month,
+  initialTab,
 }: {
   initial: PayrollData;
   employeeId: string;
   month: string;
+  initialTab?: string;
 }) {
   const [data, setData] = useState(initial);
   const [conditionsOpen, setConditionsOpen] = useState(false);
@@ -62,12 +65,64 @@ export function EmployeePayrollPage({
           Зарплата
         </Link>
       </PageBreadcrumb>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <div className={s.heading}><span className={s.portrait}>{employee.avatar_url ? <img src={employee.avatar_url} alt=""/> : employee.name.split(/\s+/).slice(0,2).map(w=>w[0]).join("")}</span><div><h1>{employee.name}</h1><p>{employee.role_name}</p></div><Button variant="outline" className="ml-auto" onClick={()=>setConditionsOpen(true)}>Условия сотрудника</Button></div>
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="w-fit min-w-44"><PayrollMonthPicker variant="field" ariaLabel="Месяц расчёта сотрудника" prefix="" value={month} min={data.settings?.starts_on??"2026-09-01"} onChange={value=>router.replace(`/people/payroll/${employeeId}?month=${value.slice(0,7)}`)}/></div><div id="employee-payroll-controls" className="flex flex-wrap items-center gap-2"/></div>
+      <div className={s.heading}>
+        <span className={s.portrait}>
+          {employee.avatar_url ? (
+            <img src={employee.avatar_url} alt="" />
+          ) : (
+            employee.name
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((w) => w[0])
+              .join("")
+          )}
+        </span>
+        <div>
+          <h1>{employee.name}</h1>
+          <p>{employee.role_name}</p>
+        </div>
+        {employee.local_user_id &&
+          data.permissions.includes("payroll.configure") && (
+            <Button asChild variant="ghost" className="ml-auto">
+              <Link
+                href={`/people/staff/${employee.local_user_id}?tab=documents`}
+              >
+                Документы сотрудника
+              </Link>
+            </Button>
+          )}
+        <Button
+          variant="outline"
+          className={employee.local_user_id ? "" : "ml-auto"}
+          onClick={() => setConditionsOpen(true)}
+        >
+          Условия сотрудника
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="w-fit min-w-44">
+          <PayrollMonthPicker
+            variant="field"
+            ariaLabel="Месяц расчёта сотрудника"
+            prefix=""
+            value={month}
+            min={data.settings?.starts_on ?? "2026-09-01"}
+            onChange={(value) =>
+              router.replace(
+                `/people/payroll/${employeeId}?month=${value.slice(0, 7)}`,
+              )
+            }
+          />
+        </div>
+        <div
+          id="employee-payroll-controls"
+          className="flex flex-wrap items-center gap-2"
+        />
+      </div>
       <EmployeePay
         key={`${employeeId}.${month}`}
         fullPage
+        initialTab={initialTab}
         conditionsOpen={conditionsOpen}
         onConditionsOpenChange={setConditionsOpen}
         data={data}

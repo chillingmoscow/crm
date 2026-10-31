@@ -8,7 +8,7 @@ export default async function EmployeeSalaryPage({
   searchParams,
 }: {
   params: Promise<{ employeeId: string }>;
-  searchParams: Promise<{ month?: string }>;
+  searchParams: Promise<{ month?: string; tab?: string }>;
 }) {
   const [{ employeeId }, query, data] = await Promise.all([
     params,
@@ -25,6 +25,6 @@ export default async function EmployeeSalaryPage({
       ? `${query.month}-01`
       : (data.settings?.starts_on ?? "2026-09-01");
   return (
-    <EmployeePayrollPage initial={data} employeeId={employeeId} month={month} />
+    <EmployeePayrollPage initial={data} employeeId={employeeId} month={month} initialTab={query.tab} />
   );
 }

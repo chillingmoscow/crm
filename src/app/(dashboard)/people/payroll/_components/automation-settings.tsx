@@ -242,7 +242,7 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
           </span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Режим работы и дата перехода задаются отдельно в разделе «Медкнижки и форма». Подарки пока остаются в Notion и прежней автоматике.
+          Общие правила медкнижек и удержаний за форму. Сведения и покупки хранятся во вкладке «Документы» сотрудника.
         </p>
         {record.current.version === 0 && (
           <p className="text-sm text-muted-foreground">

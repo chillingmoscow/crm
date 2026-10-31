@@ -29,4 +29,21 @@ assert not m.prepare(twins,native)['people'], 'Ambiguous name and hire-date matc
 assert m.sql("x');select 1;--")=="'x'');select 1;--'", 'Source text stays data in the generated SQL'
 medical=m.prepare(source,server,medical_only=True)['people'][0]['input']
 assert medical['birthday'] is None and medical['gender'] is None and medical['gift_role'] is None, 'Deferred gifts do not copy their extra profile fields'
+paid=copy.deepcopy(renewed);paid['employees'][0]['medicalPaid']='TRUE'
+assert m.prepare(paid,server)['people'][0]['input']['reimbursement_state']=='recorded', 'AQ is evidence even without an old Fee'
+for flag in ('', 'FALSE', False, None):
+    unpaid=copy.deepcopy(renewed);unpaid['employees'][0]['medicalPaid']=flag
+    assert m.prepare(unpaid,server)['people'][0]['input']['reimbursement_state']=='not_recorded', 'Blank AQ means not awarded'
+spec2=importlib.util.spec_from_file_location('compensation_sync',Path(__file__).with_name('prepare-medical-compensation-sync.py'))
+sync=importlib.util.module_from_spec(spec2);spec2.loader.exec_module(sync)
+row={'id':'old-id','row':2,'name':'Человек','venue':'legacy-venue','qrEmployee':1,'medicalPaid':False,'hasMedical':False,'examinedOn':None}
+target={'employees':[{'id':'employee','name':'Новое имя','quickresto_id':1,'legacy_id':'old-id','version':1,'reimbursement_state':'recorded','has_award':True,'medical_state':'missing','examined_on':None,'valid_until':None}]}
+result=sync.prepare({'rows':[row],'legacyVenueId':'legacy-venue'},target)
+assert not result['changes'] and result['matched'][0]['conflict'], 'An AQ reset cannot reopen an existing award'
+for invalid in ({'rows':[row,row],'legacyVenueId':'legacy-venue'},{'rows':[{**row,'venue':'foreign'}],'legacyVenueId':'legacy-venue'}):
+    try:
+        sync.prepare(invalid,target)
+        raise AssertionError('Ambiguous/foreign source accepted')
+    except ValueError:
+        pass
 print('PASS: cancelled cases stay consumed, IDs beat names, changed money is held, 365-day expiry, malformed rows and ambiguous identities')

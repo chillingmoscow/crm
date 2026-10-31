@@ -87,7 +87,8 @@ def prepare(source, server, medical_only=False):
         missing_state = 'recorded' if any(not a['deleted_at'] for a in absence) else 'waived' if absence else 'unknown'
         compensation = [a for a in actual if a['kind'] == 'bonus' and 'компенсац' in a['reason'].lower()]
         # A source checkbox alone cannot reintroduce an already deleted reimbursement.
-        compensation_state = 'recorded' if any(not a['deleted_at'] for a in compensation) else 'unknown'
+        compensation_state = ('recorded' if yes(r.get('medicalPaid')) or any(not a['deleted_at'] for a in compensation)
+                              else 'unknown' if compensation else 'not_recorded')
         required = yes(pos.get('medical'))  # n8n requires exactly TRUE; blank is disabled.
         payload = {
             'hired_on': day(r.get('hiredOn')), 'birthday': None if medical_only else day(r.get('birthday')),

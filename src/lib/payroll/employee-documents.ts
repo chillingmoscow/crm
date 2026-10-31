@@ -5,7 +5,12 @@ import {
 } from "@/lib/automations/state";
 export const employeeMedicalSchema = automationPersonSchema
   .innerType()
-  .omit({ hired_on: true, birthday: true, gender: true, gift_role: true })
+  .pick({
+    medical_required: true,
+    medical_state: true,
+    examined_on: true,
+    valid_until: true,
+  })
   .refine(
     (s) => !s.examined_on || !s.valid_until || s.examined_on <= s.valid_until,
     { message: "Срок действия раньше обследования" },
@@ -49,20 +54,4 @@ export type EmployeeDocumentsData = {
     amount: string | number | null;
     legacy_parts_created: boolean;
   }[];
-};
-export const medicalStateLabels = {
-  unknown: "Нужно уточнить",
-  missing: "Не предоставлена",
-  present: "Предоставлена",
-};
-export const fineStateLabels = {
-  unknown: "Нужно уточнить",
-  recorded: "Учтён в зарплате",
-  not_recorded: "Не начислялся",
-  waived: "Отменён",
-};
-export const reimbursementLabels = {
-  unknown: "Нужно уточнить",
-  recorded: "Учтена в зарплате",
-  not_recorded: "Не начислена",
 };

@@ -80,9 +80,10 @@ try {
   assert.equal(fine.amount, 3000);
   const unchecked = structuredClone(snapshot);
   unchecked.employees[0].subject.legacy_reconciled = false;
+  unchecked.employees[0].subject.expiry_fine_state = "unknown";
   assert.ok(
     planFromSnapshot(unchecked, "2026-10-29").blockers.some(
-      (b) => b.code === "legacy_medical_unreconciled",
+      (b) => b.code === "legacy_fine_unreconciled",
     ),
   );
   const changed = structuredClone(snapshot);

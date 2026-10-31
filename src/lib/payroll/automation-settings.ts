@@ -125,7 +125,7 @@ export function automationSettingsLines(c: AutomationSettings): string[] {
     `Предупреждение о сроке: за ${m.reminder_before_expiry_days} дней`,
     `Непредоставленная книжка: ${yes(m.submission_fine)} · ${m.submission_amount} ₽ через ${m.submission_after_hire_months} мес.`,
     `Просрочка: ${yes(m.expiry_fine)} · ${m.expiry_amount} ₽ один раз за случай`,
-    `Компенсация книжки: ${yes(m.reimbursement)} · ${m.reimbursement_amount} ₽ через ${m.reimbursement_after_exam_months} мес. после обследования`,
+    `Однократная компенсация книжки сотруднику: ${yes(m.reimbursement)} · ${m.reimbursement_amount} ₽ через ${m.reimbursement_after_exam_months} мес. после обследования`,
     `Обследование после приёма обязательно: ${yes(m.reimbursement_requires_exam_after_hire)}`,
     `Возмещение формы: ${yes(c.uniform.enabled)} · ${c.uniform.installments} частей · ${c.uniform.payment_days.join(", ")} числа`,
     `Невыполненные задачи: ${yes(t.missing_enabled)} · ${t.missing_kind === "warning" ? "предупреждение" : `${t.missing_amount} ₽`}`,

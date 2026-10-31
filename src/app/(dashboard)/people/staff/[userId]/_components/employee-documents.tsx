@@ -7,7 +7,6 @@ import { ProfileSection } from "@/components/shared/profile-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
 import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
@@ -27,8 +26,6 @@ import {
 import { updateStaffAccountDetails } from "../../actions";
 import {
   employeeMedicalSchema,
-  fineStateLabels,
-  reimbursementLabels,
   type EmployeeDocumentsData,
   type EmployeeMedicalInput,
 } from "@/lib/payroll/employee-documents";
@@ -218,11 +215,6 @@ function initialMedical(data: EmployeeDocumentsData): EmployeeMedicalInput {
     medical_state: p?.medical_state ?? "unknown",
     examined_on: p?.examined_on ?? null,
     valid_until: data.medicalUntil ?? p?.valid_until ?? null,
-    reimbursement_state: p?.reimbursement_state ?? "unknown",
-    missing_fine_state: p?.missing_fine_state ?? "unknown",
-    expiry_fine_state: p?.expiry_fine_state ?? "unknown",
-    new_medical_case: false,
-    legacy_reconciled: p?.legacy_reconciled ?? false,
   };
 }
 function MedicalCard({
@@ -311,9 +303,7 @@ function MedicalCard({
                   id={`${id}-exam`}
                   value={form.examined_on ?? ""}
                   onChange={(v) => patch({ examined_on: v || null })}
-                  readOnly={
-                    !canEditDates || form.medical_state !== "present"
-                  }
+                  readOnly={!canEditDates || form.medical_state !== "present"}
                 />
               </Field>
               <Field id={`${id}-until`} label="Действует до">
@@ -321,97 +311,12 @@ function MedicalCard({
                   id={`${id}-until`}
                   value={form.valid_until ?? ""}
                   onChange={(v) => patch({ valid_until: v || null })}
-                  readOnly={
-                    !canEditDates || form.medical_state !== "present"
-                  }
+                  readOnly={!canEditDates || form.medical_state !== "present"}
                 />
               </Field>
             </>
           )}
         </div>
-        {form.medical_state === "present" &&
-          form.medical_required !== false && (
-            <Choice
-              id={`${id}-reimburse`}
-              label="Компенсация медкнижки"
-              value={form.reimbursement_state}
-              options={reimbursementLabels}
-              onChange={(v) =>
-                patch({
-                  reimbursement_state:
-                    v as EmployeeMedicalInput["reimbursement_state"],
-                })
-              }
-            />
-          )}
-        {data.person?.medical_case_id &&
-          canEditDates &&
-          form.medical_state === "present" &&
-          form.medical_required !== false && (
-            <label className="flex items-start gap-3 text-sm">
-              <Checkbox
-                checked={form.new_medical_case}
-                onCheckedChange={(v) =>
-                  patch(
-                    v === true
-                      ? {
-                          new_medical_case: true,
-                          expiry_fine_state: "not_recorded",
-                          reimbursement_state: "not_recorded",
-                          legacy_reconciled: true,
-                        }
-                      : {
-                          new_medical_case: false,
-                          expiry_fine_state: initial.expiry_fine_state,
-                          reimbursement_state: initial.reimbursement_state,
-                          legacy_reconciled: initial.legacy_reconciled,
-                        },
-                  )
-                }
-              />
-              <span>Новое обследование</span>
-            </label>
-          )}
-        <details className="border-t pt-4">
-          <summary className="w-fit cursor-pointer text-sm text-muted-foreground">
-            Ранее учтённые начисления
-          </summary>
-          <div className="space-y-4 pt-4">
-            <Choice
-              id={`${id}-missing`}
-              label="Штраф за отсутствие медкнижки"
-              value={form.missing_fine_state}
-              options={fineStateLabels}
-              onChange={(v) =>
-                patch({
-                  missing_fine_state:
-                    v as EmployeeMedicalInput["missing_fine_state"],
-                })
-              }
-            />
-            <Choice
-              id={`${id}-expiry`}
-              label="Штраф за просрочку"
-              value={form.expiry_fine_state}
-              options={fineStateLabels}
-              onChange={(v) =>
-                patch({
-                  expiry_fine_state:
-                    v as EmployeeMedicalInput["expiry_fine_state"],
-                })
-              }
-            />
-            <label className="flex items-start gap-3 text-sm">
-              <Checkbox
-                checked={form.legacy_reconciled}
-                onCheckedChange={(v) =>
-                  patch({ legacy_reconciled: v === true })
-                }
-              />
-              Прежние штрафы и компенсация проверены
-            </label>
-          </div>
-        </details>
         <div className="flex justify-end">
           <Button
             className="w-full sm:w-auto"

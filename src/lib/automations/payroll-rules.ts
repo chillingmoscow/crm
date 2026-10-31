@@ -360,10 +360,18 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
             "Не указан срок действия медицинской книжки",
             document.id,
           );
-        if (medical.reimbursement && document.examinedOn) {
+        if (
+          medical.reimbursement &&
+          document.examinedOn &&
+          ![...recorded].some((key) =>
+            key.startsWith(
+              `payroll:${input.venueId}:${employee.id}:medical_reimbursement:`,
+            ),
+          )
+        ) {
           day(document.examinedOn);
           if (
-            today ===
+            today >=
             addMonths(
               document.examinedOn,
               medical.reimbursement_after_exam_months,
@@ -393,7 +401,7 @@ export function planPayrollAutomations(input: PayrollAutomationInput): {
               )
                 emit(
                   employee.id,
-                  document.id,
+                  employee.id,
                   "medical_reimbursement",
                   "once",
                   "bonus",

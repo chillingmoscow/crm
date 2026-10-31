@@ -107,9 +107,15 @@ export function planFromSnapshot(
                 examinedOn: s.examined_on,
                 validUntil: s.valid_until,
                 reimbursementRecorded:
-                  s.reimbursement_state === "unknown"
-                    ? null
-                    : s.reimbursement_state === "recorded",
+                  snapshot.recorded.some(
+                    (r) =>
+                      r.decision.employeeId === e.id &&
+                      r.decision.rule === "medical_reimbursement",
+                  ) || s.reimbursement_state === "recorded"
+                    ? true
+                    : s.reimbursement_state === "unknown"
+                      ? null
+                      : false,
               },
             }
           : {}),
@@ -133,21 +139,6 @@ export function planFromSnapshot(
     tasks: [],
     recordedKeys: snapshot.recorded.map((r) => r.key),
   });
-  for (const d of result.decisions) {
-    if (
-      d.medium === "money" &&
-      d.rule.startsWith("medical_") &&
-      !snapshot.employees.find((e) => e.id === d.employeeId)?.subject
-        ?.legacy_reconciled
-    )
-      result.blockers.push({
-        employeeId: d.employeeId,
-        sourceId: d.sourceId,
-        code: "legacy_medical_unreconciled",
-        message:
-          "Сначала сверьте прежние штрафы и компенсации медкнижки с Glide",
-      });
-  }
   result.decisions = result.decisions.filter((d) => {
     if (d.rule !== "medical_missing" && d.rule !== "medical_expired")
       return true;

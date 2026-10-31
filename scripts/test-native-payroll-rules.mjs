@@ -211,6 +211,13 @@ try {
     ).amount,
     3000,
   );
+  reimbursementInput.businessDate = "2026-04-10";
+  assert.ok(plan(reimbursementInput).decisions.some(d=>d.rule==="medical_reimbursement"), "A late document entry does not lose the single award");
+  const firstReimbursement = plan(reimbursementInput).decisions.find(d=>d.rule==="medical_reimbursement");
+  assert.equal(firstReimbursement.sourceId,baseEmployee.id,"Compensation identity belongs to employee");
+  reimbursementInput.recordedKeys=[`payroll:${reimbursementInput.venueId}:${baseEmployee.id}:medical_reimbursement:old-book:once`];
+  reimbursementInput.employees[0].medicalCase.id="renewed-book";
+  assert.ok(!plan(reimbursementInput).decisions.some(d=>d.rule==="medical_reimbursement"),"A legacy award prevents another after renewal");
   const parts = uniformSchedule(1000.01, "2026-12-18", 4, [3, 18]);
   assert.equal(nextUniformPaymentDate("2026-12-29", [3, 18]), "2027-01-03");
   assert.equal(nextUniformPaymentDate("2026-10-18", [3, 18]), "2026-10-18");

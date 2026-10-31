@@ -242,7 +242,8 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
           </span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Общие правила медкнижек и удержаний за форму. Сведения и покупки хранятся во вкладке «Документы» сотрудника.
+          Общие правила медкнижек и удержаний за форму. Сведения и покупки
+          хранятся во вкладке «Документы» сотрудника.
         </p>
         {record.current.version === 0 && (
           <p className="text-sm text-muted-foreground">
@@ -333,7 +334,7 @@ export function AutomationSettings({ venueId }: { venueId: string }) {
           </div>
           <div className="space-y-4 border-t pt-5">
             <Toggle
-              label="Компенсировать изготовление книжки"
+              label="Компенсация медкнижки один раз сотруднику"
               checked={m.reimbursement}
               onChange={(reimbursement) => change("medical", { reimbursement })}
             />

@@ -11,8 +11,12 @@ import {
   useReactTable,
   type ColumnDef,
 } from "@tanstack/react-table";
-import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, X } from "lucide-react";
-import type { StaffMember, PendingInvitation } from "../actions";
+import { ArrowUp, ArrowDown, ArrowUpDown, RotateCcw, X } from "lucide-react";
+import type {
+  StaffMember,
+  PendingInvitation,
+  FiredStaffMember,
+} from "../actions";
 import { Button } from "@/components/ui/button";
 import {
   TableControls,
@@ -34,6 +38,7 @@ import styles from "@/components/people/people-table.module.css";
 
 type Row =
   | { kind: "staff"; id: string; member: StaffMember }
+  | { kind: "fired"; id: string; member: FiredStaffMember }
   | { kind: "invitation"; id: string; invitation: PendingInvitation };
 export type StaffColKey =
   | "avatar"
@@ -46,14 +51,17 @@ export type StaffColKey =
   | "role"
   | "department"
   | "qr_import"
-  | "employment_date";
-const definitions: {
+  | "employment_date"
+  | "fired_at"
+  | "fired_reason";
+type StaffColumn = {
   id: StaffColKey;
   label: string;
   size: number;
   min: number;
   visible: boolean;
-}[] = [
+};
+const activeDefinitions: StaffColumn[] = [
   { id: "avatar", label: "Фото", size: 72, min: 72, visible: true },
   { id: "name", label: "Сотрудник", size: 300, min: 280, visible: true },
   { id: "email", label: "Email", size: 230, min: 140, visible: true },
@@ -90,21 +98,47 @@ const definitions: {
     visible: true,
   },
 ];
-const config = definitions.map((c) => ({
-  id: c.id,
-  defaultSize: c.size,
-  defaultVisible: c.visible,
-}));
-const labels = Object.fromEntries(definitions.map((c) => [c.id, c.label]));
-const sortable = new Set(
-  definitions.filter((c) => c.id !== "avatar").map((c) => c.id),
+const firedDefinitions: StaffColumn[] = [
+  ...activeDefinitions
+    .filter((column) => ["avatar", "name", "email", "role"].includes(column.id))
+    .map((column) =>
+      column.id === "email"
+        ? { ...column, visible: false }
+        : column.id === "name"
+          ? { ...column, min: 220 }
+          : column,
+    ),
+  {
+    id: "fired_at",
+    label: "Дата увольнения",
+    size: 180,
+    min: 168,
+    visible: true,
+  },
+  {
+    id: "fired_reason",
+    label: "Причина увольнения",
+    size: 300,
+    min: 176,
+    visible: true,
+  },
+];
+const toConfig = (definitions: StaffColumn[]) =>
+  definitions.map((c) => ({
+    id: c.id,
+    defaultSize: c.size,
+    defaultVisible: c.visible,
+  }));
+const activeConfig = toConfig(activeDefinitions);
+const firedConfig = toConfig(firedDefinitions);
+const labels = Object.fromEntries(
+  [...activeDefinitions, ...firedDefinitions].map((c) => [c.id, c.label]),
 );
-const fields = [...sortable];
 const collator = new Intl.Collator("ru", {
   numeric: true,
   sensitivity: "base",
 });
-const name = (m: StaffMember) =>
+const name = (m: StaffMember | FiredStaffMember) =>
   [m.first_name, m.last_name].filter(Boolean).join(" ") ||
   m.email.split("@")[0];
 function value(row: Row, id: StaffColKey): string | undefined {
@@ -116,6 +150,20 @@ function value(row: Row, id: StaffColKey): string | undefined {
         : id === "employment_date"
           ? row.invitation.invited_at
           : undefined;
+  if (row.kind === "fired") {
+    const m = row.member;
+    return (
+      (
+        {
+          name: name(m),
+          email: m.email,
+          role: m.role_name,
+          fired_at: m.fired_at,
+          fired_reason: m.fired_reason,
+        } as Record<string, string | null>
+      )[id] || undefined
+    );
+  }
   const m = row.member;
   return (
     (
@@ -136,34 +184,49 @@ function value(row: Row, id: StaffColKey): string | undefined {
 }
 export function StaffTable({
   staff,
+  fired,
+  showFired,
   invitations,
   roles,
   departments,
   preferenceKey,
   renderCell,
   renderInvCell,
+  renderFiredCell,
   primaryAction,
+  secondaryActions,
   canEdit,
   isPending,
   onCancelInvitation,
+  onRestore,
 }: {
   staff: StaffMember[];
+  fired: FiredStaffMember[];
+  showFired: boolean;
   invitations: PendingInvitation[];
   roles: { id: string; name: string }[];
   departments: { id: string; name: string }[];
   preferenceKey: string;
   renderCell: (key: StaffColKey, m: StaffMember) => ReactNode;
   renderInvCell: (key: StaffColKey, i: PendingInvitation) => ReactNode;
+  renderFiredCell: (key: StaffColKey, m: FiredStaffMember) => ReactNode;
   primaryAction: ReactNode;
+  secondaryActions: ReactNode;
   canEdit: boolean;
   isPending: boolean;
   onCancelInvitation: (id: string) => void;
+  onRestore: (id: string) => void;
 }) {
   const router = useRouter();
+  const definitions = showFired ? firedDefinitions : activeDefinitions;
+  const sortable = new Set(
+    definitions.filter((c) => c.id !== "avatar").map((c) => c.id),
+  );
+  const fields = [...sortable];
   const st = useTableState({
-    tableId: `staff.list.${preferenceKey}`,
-    legacyVisibilityKey: "crm-staff-visible-cols",
-    columns: config,
+    tableId: `staff.list.${preferenceKey}${showFired ? ".fired" : ""}`,
+    legacyVisibilityKey: showFired ? undefined : "crm-staff-visible-cols",
+    columns: showFired ? firedConfig : activeConfig,
     defaultPageSize: 25,
   });
   // Same chip vocabulary as Candidates; filtering is local because the full venue roster is loaded.
@@ -176,18 +239,21 @@ export function StaffTable({
   });
   const q = st.search.trim().toLocaleLowerCase("ru");
   const active = Object.values(filter).some(Boolean);
-  const rows: Row[] = [
-    ...staff.map((member) => ({
-      kind: "staff" as const,
-      id: member.uvr_id,
-      member,
-    })),
-    ...invitations.map((invitation) => ({
-      kind: "invitation" as const,
-      id: invitation.inv_id,
-      invitation,
-    })),
-  ].filter((row) => {
+  const source: Row[] = showFired
+    ? fired.map((member) => ({ kind: "fired", id: member.uvr_id, member }))
+    : [
+        ...staff.map((member) => ({
+          kind: "staff" as const,
+          id: member.uvr_id,
+          member,
+        })),
+        ...invitations.map((invitation) => ({
+          kind: "invitation" as const,
+          id: invitation.inv_id,
+          invitation,
+        })),
+      ];
+  const rows = source.filter((row) => {
     if (
       q &&
       !fields.some((id) => value(row, id)?.toLocaleLowerCase("ru").includes(q))
@@ -200,6 +266,8 @@ export function StaffTable({
         !filter.gender &&
         !filter.imported
       );
+    if (row.kind === "fired")
+      return !filter.role || row.member.role_id === filter.role;
     const m = row.member;
     return (
       (!filter.role || m.role_id === filter.role) &&
@@ -232,20 +300,32 @@ export function StaffTable({
           cell: ({ row }) =>
             row.original.kind === "staff"
               ? renderCell(c.id, row.original.member)
-              : renderInvCell(c.id, row.original.invitation),
+              : row.original.kind === "fired"
+                ? renderFiredCell(c.id, row.original.member)
+                : renderInvCell(c.id, row.original.invitation),
         }) satisfies ColumnDef<Row>,
     ),
     {
       id: "actions",
-      size: 44,
-      minSize: 44,
-      maxSize: 44,
+      size: showFired ? 152 : 44,
+      minSize: showFired ? 152 : 44,
+      maxSize: showFired ? 152 : 44,
       enableHiding: false,
       enableResizing: false,
       cell: ({ row }) =>
-        row.original.kind === "staff" ? (
-          <ChevronRight className="size-4 text-muted-foreground" />
-        ) : canEdit ? (
+        row.original.kind === "fired" && canEdit ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 px-2 text-xs"
+            aria-label={`Восстановить: ${name(row.original.member)}`}
+            disabled={isPending}
+            onClick={() => onRestore(row.original.id)}
+          >
+            <RotateCcw className="size-3.5" />
+            Восстановить
+          </Button>
+        ) : row.original.kind === "invitation" && canEdit ? (
           <Button
             variant="ghost"
             size="icon"
@@ -266,7 +346,12 @@ export function StaffTable({
     data: rows,
     columns,
     state: {
-      columnVisibility: { ...st.columnVisibility, name: true, actions: true },
+      columnVisibility: {
+        ...st.columnVisibility,
+        name: true,
+        actions:
+          canEdit && (showFired ? fired.length > 0 : invitations.length > 0),
+      },
       columnOrder: [...st.columnOrder, "actions"],
       columnSizing: st.columnSizing,
       sorting: st.sorting,
@@ -313,7 +398,11 @@ export function StaffTable({
       <PeopleListHeader
         title="Сотрудники"
         count={rows.length}
-        description="Состав команды, приглашения и список уволенных"
+        description={
+          showFired
+            ? "Уволенные сотрудники, история и восстановление"
+            : "Состав команды и приглашения в выбранном заведении"
+        }
         actions={
           <TableControls
             search={{
@@ -366,6 +455,7 @@ export function StaffTable({
               ),
             }}
             primaryActions={primaryAction}
+            secondaryActions={secondaryActions}
           />
         }
       />
@@ -400,11 +490,21 @@ export function StaffTable({
               onChange={(v) => set("role", v)}
               options={[
                 { value: "", label: "Все должности" },
-                ...roles.map((r) => ({ value: r.id, label: r.name })),
+                ...(showFired
+                  ? [
+                      ...new Map(
+                        fired.map((m) => [
+                          m.role_id,
+                          { id: m.role_id, name: m.role_name },
+                        ]),
+                      ).values(),
+                    ]
+                  : roles
+                ).map((r) => ({ value: r.id, label: r.name })),
               ]}
             />
           )}
-          {(filtersVisible || !!filter.department) && (
+          {!showFired && (filtersVisible || !!filter.department) && (
             <TableFilterChip
               label="Подразделение"
               value={filter.department}
@@ -416,7 +516,7 @@ export function StaffTable({
               ]}
             />
           )}
-          {(filtersVisible || !!filter.gender) && (
+          {!showFired && (filtersVisible || !!filter.gender) && (
             <TableFilterChip
               label="Пол"
               value={filter.gender}
@@ -428,7 +528,7 @@ export function StaffTable({
               ]}
             />
           )}
-          {(filtersVisible || !!filter.imported) && (
+          {!showFired && (filtersVisible || !!filter.imported) && (
             <TableFilterChip
               label="Импорт из QR"
               value={filter.imported}
@@ -520,11 +620,13 @@ export function StaffTable({
               <tr
                 key={row.id}
                 className={
-                  row.original.kind === "staff" ? "cursor-pointer" : undefined
+                  row.original.kind !== "invitation"
+                    ? "cursor-pointer"
+                    : undefined
                 }
                 onClick={(e) => {
                   if (
-                    row.original.kind === "staff" &&
+                    row.original.kind !== "invitation" &&
                     !(e.target as HTMLElement).closest("button,a,input")
                   )
                     router.push(`/people/staff/${row.original.member.user_id}`);
@@ -545,7 +647,9 @@ export function StaffTable({
                 >
                   {active || q
                     ? "По этим условиям сотрудников нет"
-                    : "Добавьте первого сотрудника или отправьте приглашение."}
+                    : showFired
+                      ? "Уволенных сотрудников нет."
+                      : "Добавьте первого сотрудника или отправьте приглашение."}
                 </td>
               </tr>
             )}
@@ -554,19 +658,24 @@ export function StaffTable({
       </div>
       <PeopleMobileCards
         table={table}
-        label="Карточки сотрудников"
+        label={
+          showFired ? "Карточки уволенных сотрудников" : "Карточки сотрудников"
+        }
+        actionsPlacement={showFired ? "footer" : "header"}
         nameColumn="name"
         photoColumn="avatar"
         roleColumn="role"
         labels={labels}
         onOpen={(row) => {
-          if (row.original.kind === "staff")
+          if (row.original.kind !== "invitation")
             router.push(`/people/staff/${row.original.member.user_id}`);
         }}
         empty={
           active || q
             ? "По этим условиям сотрудников нет"
-            : "Добавьте первого сотрудника или отправьте приглашение."
+            : showFired
+              ? "Уволенных сотрудников нет."
+              : "Добавьте первого сотрудника или отправьте приглашение."
         }
       />
       <TablePagination

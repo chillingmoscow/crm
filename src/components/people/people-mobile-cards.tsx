@@ -17,6 +17,7 @@ export function PeopleMobileCards<T>({
   selection,
   empty,
   onOpen,
+  actionsPlacement = "header",
 }: {
   table: Table<T>;
   label: string;
@@ -28,6 +29,7 @@ export function PeopleMobileCards<T>({
   selection?: ReactNode;
   empty: ReactNode;
   onOpen?: (row: Row<T>) => void;
+  actionsPlacement?: "header" | "footer";
 }) {
   const rows = table.getRowModel().rows;
   return (
@@ -84,11 +86,11 @@ export function PeopleMobileCards<T>({
                 <label className="flex size-9 shrink-0 cursor-pointer items-center justify-center -mr-2">
                   {render("select")}
                 </label>
-              ) : (
+              ) : actionsPlacement === "header" ? (
                 <div className="flex h-9 shrink-0 items-center">
                   {render("actions")}
                 </div>
-              )}
+              ) : null}
             </div>
             {hasStatus && <div className="mt-3">{render(statusColumn!)}</div>}
             {details.length > 0 && (
@@ -106,6 +108,10 @@ export function PeopleMobileCards<T>({
                 ))}
               </dl>
             )}
+            {actionsPlacement === "footer" &&
+              cells.some((cell) => cell.column.id === "actions") && (
+                <div className="mt-4 flex justify-end">{render("actions")}</div>
+              )}
           </article>
         );
       })}

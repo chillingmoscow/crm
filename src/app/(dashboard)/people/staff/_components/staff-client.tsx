@@ -13,14 +13,14 @@ import {
   Clock,
   X,
   Check,
-  ChevronDown,
+  Archive,
   Loader2,
-  RotateCcw,
   Lock,
   HeartPulse,
   Cake,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { formatPhoneDisplay } from "@/lib/format/phone";
@@ -622,18 +622,94 @@ export function StaffClient({
     }
   };
 
+  const renderFiredCell = (key: ColKey, member: FiredStaffMember) => {
+    switch (key) {
+      case "avatar":
+        return <StaffAvatar member={member} faded />;
+      case "name":
+        return (
+          <Link
+            href={`/people/staff/${member.user_id}`}
+            title={displayName(member)}
+            className="block truncate text-sm font-medium hover:text-brand"
+          >
+            {displayName(member)}
+          </Link>
+        );
+      case "email":
+        return (
+          <span className="block truncate text-muted-foreground">
+            {member.email.toLowerCase().endsWith("@import.local")
+              ? "Email не указан"
+              : member.email}
+          </span>
+        );
+      case "role":
+        return (
+          <Badge variant="secondary" className="max-w-full truncate text-xs">
+            {member.role_name}
+          </Badge>
+        );
+      case "fired_at":
+        return (
+          <span className="whitespace-nowrap">
+            {formatDate(member.fired_at)}
+          </span>
+        );
+      case "fired_reason":
+        return (
+          <span
+            className="block truncate text-muted-foreground"
+            title={member.fired_reason ?? undefined}
+          >
+            {member.fired_reason || "Не указана"}
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────
   return (
     <PageFrame className="space-y-4">
       <StaffTable
-        key={`${venueId}:${currentUserId}`}
+        key={`${venueId}:${currentUserId}:${firedOpen}`}
         preferenceKey={`${venueId}.${currentUserId}`}
         staff={staff}
+        fired={fired}
+        showFired={firedOpen}
         invitations={invitations}
         roles={roles}
         departments={departments}
         renderCell={renderCell}
         renderInvCell={renderInvCell}
+        renderFiredCell={renderFiredCell}
+        onRestore={onRestore}
+        secondaryActions={
+          <IconTooltip
+            label={
+              firedOpen
+                ? "Вернуться к действующим сотрудникам"
+                : `Уволенные сотрудники (${fired.length})`
+            }
+          >
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={
+                firedOpen
+                  ? "Показать действующих сотрудников"
+                  : `Показать уволенных сотрудников (${fired.length})`
+              }
+              aria-pressed={firedOpen}
+              onClick={() => setFiredOpen((value) => !value)}
+              className={`size-9 text-muted-foreground ${firedOpen ? "border-brand bg-brand/5 text-brand" : ""}`}
+            >
+              <Archive className="size-4" />
+            </Button>
+          </IconTooltip>
+        }
         canEdit={canEdit}
         isPending={isPending}
         onCancelInvitation={onCancelInvitation}
@@ -650,60 +726,6 @@ export function StaffClient({
           ) : null
         }
       />
-
-      {/* ── Fired staff section ── */}
-      {fired.length > 0 && (
-        <div className="mt-8">
-          <button
-            onClick={() => setFiredOpen((v) => !v)}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3"
-          >
-            <ChevronDown
-              className={`w-4 h-4 transition-transform ${firedOpen ? "" : "-rotate-90"}`}
-            />
-            Уволенные сотрудники ({fired.length})
-          </button>
-          {firedOpen && (
-            <div className="rounded-lg border bg-card overflow-hidden">
-              {fired.map((member) => (
-                <div
-                  key={member.uvr_id}
-                  className="grid grid-cols-[40px_1fr_auto] gap-4 items-center px-5 py-3.5 border-b last:border-b-0"
-                >
-                  <div className="flex items-center justify-center">
-                    <StaffAvatar member={member} faded />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-medium text-sm truncate text-muted-foreground">
-                      {displayName(member)}
-                    </p>
-                    <p className="text-xs text-muted-foreground/70 mt-0.5">
-                      {member.role_name} · уволен {formatDate(member.fired_at)}
-                    </p>
-                    {member.fired_reason && (
-                      <p className="mt-1.5 text-[13px] text-muted-foreground leading-snug line-clamp-3">
-                        {member.fired_reason}
-                      </p>
-                    )}
-                  </div>
-                  {canEdit && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs gap-1"
-                      disabled={isPending}
-                      onClick={() => onRestore(member.uvr_id)}
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      Восстановить
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Add staff sheet — два режима: «По email» (отсылает invite, юзер
           логинится сам) и «Без email» (placeholder-аккаунт, админ ведёт карточку). */}

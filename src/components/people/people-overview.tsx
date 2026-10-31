@@ -216,13 +216,6 @@ function OverviewBody({ data }: { data: PeopleOverviewData }) {
   if (data.kind === "staff")
     return (
       <div className={styles.staffBody}>
-        <dl>
-          <Metric
-            label="Средний стаж"
-            value={overviewTenure(data.average_days)}
-            hint={`Среднее время с даты найма у действующих сотрудников на ${new Date(`${data.today}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" })}. Учитываются указанные в карточках даты, которые уже наступили.`}
-          />
-        </dl>
         <section>
           <h3>Стаж команды</h3>
           {data.dated_staff > 0 ? (
@@ -240,14 +233,14 @@ function OverviewBody({ data }: { data: PeopleOverviewData }) {
                 : "В заведении пока нет действующих сотрудников"}
             </EmptyChart>
           )}
-          <p className={styles.caption}>
-            Стаж рассчитан для {data.dated_staff} из {data.working}{" "}
-            {data.working % 10 === 1 && data.working % 100 !== 11
-              ? "сотрудника"
-              : "сотрудников"}
-            .
-          </p>
         </section>
+        <dl className={styles.staffAverage}>
+          <Metric
+            label="Средний стаж"
+            value={overviewTenure(data.average_days)}
+            hint={`Среднее время с даты найма у действующих сотрудников на ${new Date(`${data.today}T12:00:00Z`).toLocaleDateString("ru-RU", { timeZone: "UTC" })}. В расчёте: ${data.dated_staff} из ${data.working}. Записи без даты трудоустройства и с будущей датой не учитываются.`}
+          />
+        </dl>
       </div>
     );
   return (

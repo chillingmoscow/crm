@@ -49,6 +49,7 @@ import {
 } from "./candidate-sort-settings";
 
 import { PageFrame } from "@/components/shared/page-frame";
+import { usePeopleOverview } from "@/components/people/people-overview";
 import { PeopleListHeader } from "@/components/people/people-list-header";
 import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
 import peopleTable from "@/components/people/people-table.module.css";
@@ -62,14 +63,17 @@ const isControlColumn = (id: string) => id === "select";
 export function CandidatesClient({
   initialList,
   preferenceKey,
+  accountId,
   options,
   permissions,
 }: {
   initialList: CandidatePage;
   preferenceKey: string;
+  accountId: string;
   options: HiringOptions;
   permissions: CandidatePermissions;
 }) {
+  const overview = usePeopleOverview("candidates", accountId);
   const st = useTableState({
     tableId: `candidates.list.${preferenceKey}`,
     columns: COLUMN_CONFIG,
@@ -276,6 +280,7 @@ export function CandidatesClient({
         actions={
           <>
             <TableControls
+              secondaryActions={overview.button}
               className="min-w-0 max-w-full"
               search={{
                 value: search,
@@ -326,6 +331,7 @@ export function CandidatesClient({
           </>
         }
       />
+      {overview.panel}
       {filtersVisible || hasFilters || st.sorting.length > 0 ? (
         <div
           className="flex flex-wrap items-center gap-2"

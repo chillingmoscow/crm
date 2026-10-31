@@ -195,6 +195,7 @@ export function StaffTable({
   renderFiredCell,
   primaryAction,
   secondaryActions,
+  overviewPanel,
   canEdit,
   isPending,
   onCancelInvitation,
@@ -212,6 +213,7 @@ export function StaffTable({
   renderFiredCell: (key: StaffColKey, m: FiredStaffMember) => ReactNode;
   primaryAction: ReactNode;
   secondaryActions: ReactNode;
+  overviewPanel: ReactNode;
   canEdit: boolean;
   isPending: boolean;
   onCancelInvitation: (id: string) => void;
@@ -459,6 +461,7 @@ export function StaffTable({
           />
         }
       />
+      {overviewPanel}
       {(filtersVisible || active || q || st.sorting.length > 0) && (
         <div
           className="flex flex-wrap items-center gap-2"

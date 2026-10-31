@@ -53,6 +53,7 @@ import type {
 } from "../actions";
 
 import { PageFrame } from "@/components/shared/page-frame";
+import { usePeopleOverview } from "@/components/people/people-overview";
 import { PersonAvatar } from "@/components/people/person-avatar";
 import { StaffTable, type StaffColKey as ColKey } from "./staff-table";
 
@@ -249,6 +250,11 @@ export function StaffClient({
   const [addMode, setAddMode] = useState<"email" | "manual">("manual");
   const [isPending, startTransition] = useTransition();
   const [firedOpen, setFiredOpen] = useState(false);
+  const overview = usePeopleOverview(
+    "staff",
+    venueId,
+    `${staff.length}:${fired.length}`,
+  );
 
   const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
 
@@ -686,29 +692,33 @@ export function StaffClient({
         renderInvCell={renderInvCell}
         renderFiredCell={renderFiredCell}
         onRestore={onRestore}
+        overviewPanel={overview.panel}
         secondaryActions={
-          <IconTooltip
-            label={
-              firedOpen
-                ? "Вернуться к действующим сотрудникам"
-                : `Уволенные сотрудники (${fired.length})`
-            }
-          >
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label={
+          <>
+            {overview.button}
+            <IconTooltip
+              label={
                 firedOpen
-                  ? "Показать действующих сотрудников"
-                  : `Показать уволенных сотрудников (${fired.length})`
+                  ? "Вернуться к действующим сотрудникам"
+                  : `Уволенные сотрудники (${fired.length})`
               }
-              aria-pressed={firedOpen}
-              onClick={() => setFiredOpen((value) => !value)}
-              className={`size-9 text-muted-foreground ${firedOpen ? "border-brand bg-brand/5 text-brand" : ""}`}
             >
-              <Archive className="size-4" />
-            </Button>
-          </IconTooltip>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={
+                  firedOpen
+                    ? "Показать действующих сотрудников"
+                    : `Показать уволенных сотрудников (${fired.length})`
+                }
+                aria-pressed={firedOpen}
+                onClick={() => setFiredOpen((value) => !value)}
+                className={`size-8 sm:size-9 text-muted-foreground ${firedOpen ? "border-brand bg-brand/5 text-brand" : ""}`}
+              >
+                <Archive className="size-4" />
+              </Button>
+            </IconTooltip>
+          </>
         }
         canEdit={canEdit}
         isPending={isPending}

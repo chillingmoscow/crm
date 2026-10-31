@@ -36,6 +36,7 @@ import { DayDiscussionPanel } from "../../_components/day-discussion";
 import { SettlementPanel } from "./settlement-panel";
 import { CashControlPanel } from "./cash-control-panel";
 import { CashControlHistory } from "./cash-control-history";
+import { CashMovementsPanel, CashMovementHistory } from "./cash-movements-panel";
 
 export function DayDrawer({
   day,
@@ -272,6 +273,7 @@ export function DayDrawer({
             )}
             <SettlementPanel venueId={day.venue_id} date={day.business_date}/>
             <CashControlPanel venueId={day.venue_id} date={day.business_date}/>
+            <CashMovementsPanel venueId={day.venue_id} date={day.business_date}/>
           </TabsContent>
           <TabsContent value="employees">
             <PayrollDayPanel date={day.business_date} />
@@ -340,6 +342,7 @@ export function DayDrawer({
               ))
             )}
             <CashControlHistory venueId={day.venue_id} date={day.business_date}/>
+            <CashMovementHistory venueId={day.venue_id} date={day.business_date}/>
           </TabsContent>
         </Tabs>
       </EditDrawer>

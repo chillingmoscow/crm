@@ -31,3 +31,7 @@ jobs:
           node scripts/test-native-payroll-rules.mjs
           node scripts/test-native-automation-state.mjs
           python3 scripts/test-payroll-automation-import.py
+      - name: Daily finance comparison invariants
+        run: |
+          node scripts/test-sales-settlement.mjs
+          node scripts/test-settlement-reader.mjs

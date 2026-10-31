@@ -119,6 +119,24 @@ export function salesSource(
       }),
     detail: (id: number) =>
       publicRead("front.orders", id) as Promise<Record<string, unknown>>,
+    payments: (id: number, start: number) => {
+      if (
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        !Number.isSafeInteger(start) ||
+        start < 0
+      )
+        throw new Error("Проверьте чек и страницу платежей");
+      return backRead("front.orders.payment/select", {
+        start,
+        count: 150,
+        ownerContextId: id,
+        ownerContextClassName:
+          "ru.edgex.quickresto.modules.front.orders.orderinfoweb.OrderInfoWeb",
+        businessDayOffsetInMs: settings.day_start_hour * 3600000,
+        timeZone: 0,
+      });
+    },
     zList: () =>
       publicRead("front.zreport", undefined, [
         {

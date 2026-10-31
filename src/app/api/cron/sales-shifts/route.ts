@@ -15,6 +15,10 @@ import {
   scheduleStockWriteoffs,
   processStockWriteoff,
 } from "@/lib/stock/writeoff-sync";
+import {
+  scheduleSettlements,
+  processSettlement,
+} from "@/lib/sales/settlement-sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -38,7 +42,9 @@ export async function POST(request: NextRequest) {
       additionalReports = 0,
       additionalErrors = 0,
       stockSlices = 0,
-      stockErrors = 0;
+      stockErrors = 0,
+      settlementSlices = 0,
+      settlementErrors = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -54,6 +60,11 @@ export async function POST(request: NextRequest) {
     } catch {
       stockErrors++;
     }
+    try {
+      await scheduleSettlements();
+    } catch {
+      settlementErrors++;
+    }
     // One provider workload per tick: a slow two-report day must not be appended
     // to 25 seconds of order imports and a monthly report in the same request.
     // Persist rotation: a once-per-minute scheduler would otherwise always pick
@@ -65,11 +76,27 @@ export async function POST(request: NextRequest) {
       rotation.error ||
       !Number.isInteger(rotation.data) ||
       Number(rotation.data) < 0 ||
-      Number(rotation.data) > 3
+      Number(rotation.data) > 4
     )
       throw new Error("Не удалось выбрать очередь");
     const lane = Number(rotation.data);
-    if (lane === 3) {
+    if (lane === 4) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && settlementSlices < 100) {
+        try {
+          const r = await processSettlement();
+          if (r.idle) break;
+          settlementSlices++;
+          if (r.error) {
+            settlementErrors++;
+            break;
+          }
+        } catch {
+          settlementErrors++;
+          break;
+        }
+      }
+    } else if (lane === 3) {
       try {
         const r = await processStockWriteoff();
         if (!r.idle) stockSlices++;
@@ -115,6 +142,8 @@ export async function POST(request: NextRequest) {
       additionalErrors,
       stockSlices,
       stockErrors,
+      settlementSlices,
+      settlementErrors,
     });
   } catch {
     return NextResponse.json(

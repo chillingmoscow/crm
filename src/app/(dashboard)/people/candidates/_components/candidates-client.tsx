@@ -8,20 +8,13 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { arrayMove } from "@dnd-kit/sortable";
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Trash2,
-  X,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
-  TablePageHeader,
   TableControls,
   TableControlPin,
   TableColumnManager,
@@ -55,7 +48,10 @@ import {
   CandidateSortPicker,
 } from "./candidate-sort-settings";
 
-import { PageBreadcrumb } from "@/components/shared/page-header-actions";
+import { PageFrame } from "@/components/shared/page-frame";
+import { PeopleListHeader } from "@/components/people/people-list-header";
+import { PeopleMobileCards } from "@/components/people/people-mobile-cards";
+import peopleTable from "@/components/people/people-table.module.css";
 import type { CandidateStatusUpdate } from "./candidate-status-cell";
 import { CandidateFilterChip } from "./candidate-filter-chip";
 import { useCandidateColumnResize } from "./use-candidate-column-resize";
@@ -91,7 +87,9 @@ export function CandidatesClient({
     [loading, setLoading] = useState(false),
     [error, setError] = useState(""),
     [reload, setReload] = useState(0);
-  const [deleting, setDeleting] = useState<{ id: string; full_name: string }[] | null>(null);
+  const [deleting, setDeleting] = useState<
+    { id: string; full_name: string }[] | null
+  >(null);
   const { setPagination } = st;
   const pageSize = [25, 50, 100].includes(st.pagination.pageSize)
     ? st.pagination.pageSize
@@ -118,8 +116,12 @@ export function CandidatesClient({
   ]);
   const loaded = useRef(key);
   const { setRowSelection } = st;
-  useEffect(() => { setRowSelection({}); }, [key, setRowSelection]);
-  const versions = useRef(new Map(initialList.rows.map((row) => [row.id, row.revision])));
+  useEffect(() => {
+    setRowSelection({});
+  }, [key, setRowSelection]);
+  const versions = useRef(
+    new Map(initialList.rows.map((row) => [row.id, row.revision])),
+  );
   const firstPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -142,7 +144,9 @@ export function CandidatesClient({
         if (cancelled) return;
         loaded.current = JSON.stringify([filters, next.page, pageSize, reload]);
         setList(next);
-        versions.current = new Map(next.rows.map((row) => [row.id, row.revision]));
+        versions.current = new Map(
+          next.rows.map((row) => [row.id, row.revision]),
+        );
         setPagination((p) =>
           p.pageIndex === next.page ? p : { ...p, pageIndex: next.page },
         );
@@ -179,26 +183,36 @@ export function CandidatesClient({
     window.addEventListener("candidates:incoming", refreshList);
     return () => window.removeEventListener("candidates:incoming", refreshList);
   }, [refreshList]);
-  const statusSaved = useCallback((saved: CandidateStatusUpdate) => {
-    if ((versions.current.get(saved.id) ?? -1) >= saved.revision) return;
-    versions.current.set(saved.id, saved.revision);
-    setList((current) => ({
-      ...current,
-      rows: current.rows.map((c) =>
-        c.id === saved.id ? { ...c, ...saved } : c,
-      ),
-    }));
-    // Only a status-dependent filter/order needs a quiet server reconciliation.
-    if (saved.status === "hired" || status.length > 0 || st.sorting.some((sort) => sort.id === "status")) refreshList();
-    window.dispatchEvent(new Event("candidates:changed"));
-  }, [status, st.sorting, refreshList]);
+  const statusSaved = useCallback(
+    (saved: CandidateStatusUpdate) => {
+      if ((versions.current.get(saved.id) ?? -1) >= saved.revision) return;
+      versions.current.set(saved.id, saved.revision);
+      setList((current) => ({
+        ...current,
+        rows: current.rows.map((c) =>
+          c.id === saved.id ? { ...c, ...saved } : c,
+        ),
+      }));
+      // Only a status-dependent filter/order needs a quiet server reconciliation.
+      if (
+        saved.status === "hired" ||
+        status.length > 0 ||
+        st.sorting.some((sort) => sort.id === "status")
+      )
+        refreshList();
+      window.dispatchEvent(new Event("candidates:changed"));
+    },
+    [status, st.sorting, refreshList],
+  );
   useEffect(() => {
-    const updated = (event: Event) => statusSaved((event as CustomEvent<CandidateStatusUpdate>).detail);
+    const updated = (event: Event) =>
+      statusSaved((event as CustomEvent<CandidateStatusUpdate>).detail);
     window.addEventListener("candidates:row-updated", updated);
     return () => window.removeEventListener("candidates:row-updated", updated);
   }, [statusSaved]);
   const columns = useMemo(
-    () => candidateColumns(statusSaved, refreshList, options, permissions.owner),
+    () =>
+      candidateColumns(statusSaved, refreshList, options, permissions.owner),
     [statusSaved, refreshList, options, permissions.owner],
   );
   const table = useReactTable({
@@ -207,7 +221,11 @@ export function CandidatesClient({
     state: {
       sorting: st.sorting,
       pagination: { ...st.pagination, pageSize },
-      columnVisibility: { ...st.columnVisibility, full_name: true, select: true },
+      columnVisibility: {
+        ...st.columnVisibility,
+        full_name: true,
+        select: true,
+      },
       columnOrder: ["select", ...st.columnOrder],
       columnSizing: st.columnSizing,
       rowSelection: st.rowSelection,
@@ -224,18 +242,11 @@ export function CandidatesClient({
     columnResizeMode: "onChange",
     autoResetPageIndex: false,
   });
-  const selectedRows = table.getSelectedRowModel().rows.map((row) => row.original);
-  const { tableRef, onResizeStart } = useCandidateColumnResize(
-    table,
-    st.setColumnSizing,
-  );
-  const statusColumn = table.getColumn("status");
-  const minimumTableWidth = statusColumn?.getIsVisible()
-    ? Math.max(
-        640,
-        Math.ceil((180 * table.getTotalSize()) / statusColumn.getSize()),
-      )
-    : 640;
+  const selectedRows = table
+    .getSelectedRowModel()
+    .rows.map((row) => row.original);
+  const { tableRef, onResizeStart, columnWidths, minTableWidth } =
+    useCandidateColumnResize(table, st.setColumnSizing);
   const hasFilters = !!(status.length || position || from || to);
   const reset = () => {
     setStatus([]);
@@ -252,32 +263,16 @@ export function CandidatesClient({
     <CandidateSortSettings sorting={st.sorting} onChange={changeSorting} />
   );
   return (
-    <div className={cn("mx-auto flex w-full min-w-0 max-w-[1600px] flex-col gap-4 p-4 md:p-6", selectedRows.length > 0 && "pb-28 md:pb-24")}>
-      <PageBreadcrumb>
-        <nav
-          aria-label="Навигация по разделам"
-          className="flex min-w-0 items-center gap-2 text-sm"
-        >
-          <span className="text-muted-foreground">Люди</span>
-          <span className="text-muted-foreground" aria-hidden="true">
-            /
-          </span>
-          <span className="truncate">Кандидаты</span>
-        </nav>
-      </PageBreadcrumb>
-      <TablePageHeader
-        className="md:flex-wrap md:items-center [&>div:last-child]:max-w-full"
-        title={
-          <span className="inline-flex items-center gap-3">
-            Кандидаты
-            <span
-              aria-hidden="true"
-              className="rounded-md bg-muted px-2 py-1 text-sm font-normal tabular-nums text-muted-foreground"
-            >
-              {list.total}
-            </span>
-          </span>
-        }
+    <PageFrame
+      className={cn(
+        "flex min-w-0 flex-col gap-4",
+        selectedRows.length > 0 && "pb-28 md:pb-24",
+      )}
+    >
+      <PeopleListHeader
+        title="Кандидаты"
+        count={list.total}
+        description="Анкеты с сайта и этапы приёма на работу"
         actions={
           <>
             <TableControls
@@ -305,13 +300,16 @@ export function CandidatesClient({
               columns={{
                 content: (
                   <TableColumnManager
-                    columns={table.getAllLeafColumns().filter((c) => !isControlColumn(c.id)).map((c) => ({
-                      id: c.id,
-                      label: FIELD_LABELS[c.id as CandidateField],
-                      visible: c.getIsVisible(),
-                      canHide: c.getCanHide(),
-                      width: c.getSize(),
-                    }))}
+                    columns={table
+                      .getAllLeafColumns()
+                      .filter((c) => !isControlColumn(c.id))
+                      .map((c) => ({
+                        id: c.id,
+                        label: FIELD_LABELS[c.id as CandidateField],
+                        visible: c.getIsVisible(),
+                        canHide: c.getCanHide(),
+                        width: c.getSize(),
+                      }))}
                     onVisibilityChange={(id, v) =>
                       table.getColumn(id)?.toggleVisibility(v)
                     }
@@ -325,7 +323,6 @@ export function CandidatesClient({
                 ),
               }}
             />
-
           </>
         }
       />
@@ -454,20 +451,27 @@ export function CandidatesClient({
             </Button>
           </div>
         ) : null}
-        <div className="overflow-auto rounded-xl border">
+        <div className={peopleTable.scroll}>
           <table
             ref={tableRef}
-            className="w-full table-fixed border-collapse text-left text-sm"
-            style={{ minWidth: minimumTableWidth }}
+            className={peopleTable.table}
+            aria-label="Кандидаты"
+            style={{ minWidth: minTableWidth }}
           >
             <ResizableTableHead
               table={table}
               onResizeStart={onResizeStart}
+              columnWidths={columnWidths}
               isControlColumn={isControlColumn}
               renderControlHeader={() => (
                 <Checkbox
-                  checked={table.getIsAllPageRowsSelected() || (table.getIsSomePageRowsSelected() && "indeterminate")}
-                  onCheckedChange={(checked) => table.toggleAllPageRowsSelected(checked === true)}
+                  checked={
+                    table.getIsAllPageRowsSelected() ||
+                    (table.getIsSomePageRowsSelected() && "indeterminate")
+                  }
+                  onCheckedChange={(checked) =>
+                    table.toggleAllPageRowsSelected(checked === true)
+                  }
                   disabled={loading || !list.rows.length}
                   aria-label="Выбрать все анкеты на странице"
                   className="align-middle"
@@ -503,13 +507,15 @@ export function CandidatesClient({
                 <tr
                   key={row.original.id}
                   data-state={row.getIsSelected() ? "selected" : undefined}
-                  className={cn("border-t transition-colors", row.getIsSelected() ? "bg-brand/5 hover:bg-brand/10" : "hover:bg-muted/30")}
+                  className={cn(
+                    "border-t transition-colors",
+                    row.getIsSelected()
+                      ? "bg-brand/5 hover:bg-brand/10"
+                      : "hover:bg-muted/30",
+                  )}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className={cn("overflow-hidden px-3 py-3", isControlColumn(cell.column.id) ? "align-middle" : "align-top")}
-                    >
+                    <td key={cell.id} className="align-middle">
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
@@ -533,6 +539,40 @@ export function CandidatesClient({
             </tbody>
           </table>
         </div>
+        <PeopleMobileCards
+          table={table}
+          label="Карточки кандидатов"
+          nameColumn="full_name"
+          photoColumn="photo"
+          roleColumn="desired_position"
+          statusColumn="status"
+          labels={FIELD_LABELS}
+          selection={
+            permissions.owner && list.rows.length > 0 ? (
+              <label className="flex min-h-10 items-center gap-3 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={
+                    table.getIsAllPageRowsSelected() ||
+                    (table.getIsSomePageRowsSelected() && "indeterminate")
+                  }
+                  onCheckedChange={(checked) =>
+                    table.toggleAllPageRowsSelected(checked === true)
+                  }
+                  disabled={loading}
+                  aria-label="Выбрать все анкеты на странице"
+                />
+                Выбрать все на странице
+              </label>
+            ) : null
+          }
+          empty={
+            !loading
+              ? query || hasFilters
+                ? "По этим условиям анкет нет"
+                : "Новые анкеты появятся здесь после отправки формы на сайте."
+              : null
+          }
+        />
         <div
           aria-disabled={loading}
           className={loading ? "pointer-events-none opacity-60" : undefined}
@@ -562,31 +602,48 @@ export function CandidatesClient({
                 size="sm"
                 disabled={loading}
                 className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                onClick={() => setDeleting(selectedRows.map(({ id, full_name }) => ({ id, full_name })))}
+                onClick={() =>
+                  setDeleting(
+                    selectedRows.map(({ id, full_name }) => ({
+                      id,
+                      full_name,
+                    })),
+                  )
+                }
               >
-                <Trash2 className="mr-2 size-4" />Удалить
+                <Trash2 className="mr-2 size-4" />
+                Удалить
               </Button>
             }
           />
           <CandidateDeleteDialog
             open={!!deleting}
-            onOpenChange={(open) => { if (!open) setDeleting(null); }}
+            onOpenChange={(open) => {
+              if (!open) setDeleting(null);
+            }}
             count={deleting?.length ?? 0}
             name={deleting?.length === 1 ? deleting[0].full_name : undefined}
             onConfirm={async () => {
               if (!deleting?.length) return;
-              const count = await deleteCandidates(deleting.map((row) => row.id));
+              const count = await deleteCandidates(
+                deleting.map((row) => row.id),
+              );
               const deletedIds = new Set(deleting.map((row) => row.id));
-              setList((current) => ({ ...current, rows: current.rows.filter((row) => !deletedIds.has(row.id)), total: Math.max(0, current.total - count) }));
+              setList((current) => ({
+                ...current,
+                rows: current.rows.filter((row) => !deletedIds.has(row.id)),
+                total: Math.max(0, current.total - count),
+              }));
               setRowSelection({});
               refreshList();
               window.dispatchEvent(new Event("candidates:changed"));
-              toast.success(count === 1 ? "Анкета удалена" : `Удалено анкет: ${count}`);
+              toast.success(
+                count === 1 ? "Анкета удалена" : `Удалено анкет: ${count}`,
+              );
             }}
           />
         </>
       ) : null}
-
-    </div>
+    </PageFrame>
   );
 }

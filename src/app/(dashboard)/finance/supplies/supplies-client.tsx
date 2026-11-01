@@ -485,6 +485,9 @@ export function SuppliesClient({
           .map(([id, name]) => ({ id: Number(id), name })),
       ]
     : [];
+  // Capture the session before a child's asynchronous save starts. Reading the
+  // ref only after that save could adopt a newly opened invoice's session.
+  const displayedSession = detailSequence.current;
   return (
     <PageFrame className="space-y-6">
       <TablePageHeader
@@ -904,12 +907,12 @@ export function SuppliesClient({
                   detail={detail}
                   timezone={data.timezone}
                   onChanged={async () => {
-                    const seq = detailSequence.current;
+                    await refresh(filtersRef.current, true);
+                    if (displayedSession !== detailSequence.current) return;
                     const next = await loadSupply(initial.venueId, detail.id);
-                    if (seq !== detailSequence.current) return;
+                    if (displayedSession !== detailSequence.current) return;
                     setHistoryMore(next.history.length > 20);
                     setDetail({ ...next, history: next.history.slice(0, 20) });
-                    await refresh(filtersRef.current, true);
                   }}
                 />
                 <dl>

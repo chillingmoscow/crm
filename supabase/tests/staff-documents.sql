@@ -1,5 +1,8 @@
 -- Synthetic file metadata only. No scans or external calls; all changes roll back.
 begin;
+do $$ begin
+ if not exists(select 1 from storage.buckets where id='staff-documents' and not public and allowed_mime_types @> array['image/heic','image/heif']) then raise exception 'Existing bucket MIME upgrade missing';end if;
+end $$;
 do $$
 declare owner_id uuid;v uuid;a uuid;target uuid;viewer uuid;roster uuid;r uuid;path text;
 begin

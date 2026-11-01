@@ -15,6 +15,7 @@ import { loadPayrollRules, saveRoleCompensation } from "../actions";
 import { PayrollDetailDialog } from "./payroll-detail-dialog";
 import { PayrollMonthPicker } from "./payroll-month-picker";
 import { CompensationRow, CompensationRates } from "./compensation-summary";
+import { ExperienceScaleEditor } from "./experience-scale-editor";
 import form from "@/app/payroll-concept/concept-payment-form.module.css";
 import s from "./role-compensation.module.css";
 type Panel = "salary" | "base" | "percent" | "extras" | "benefits" | "history" | null;
@@ -38,6 +39,7 @@ export function RoleCompensation({ roleId }: {
     const [panel, setPanel] = useState<Panel>(null), [busy, setBusy] = useState(false);
     const [draft, setDraft] = useState<PayRule | null>(null), [from, setFrom] = useState(""), [reason, setReason] = useState("");
     const [viewed, setViewed] = useState<PayRule | null>(null);
+    const [scaleError, setScaleError] = useState("");
     const reload = async () => { const next = await loadPayrollRules(); setData(next); };
     useEffect(() => { let alive = true; loadPayrollRules().then(d => { if (alive)
         setData(d); }).catch(e => { if (alive)
@@ -57,7 +59,7 @@ export function RoleCompensation({ roleId }: {
     const canExtras = model && ["Мастер", "Бармен"].includes(model.role_name);
     const extrasEnabled = Boolean(canExtras && effective?.extras_enabled !== false);
     const defaultDraft = (): PayRule => ({ id: "", model_id: model?.id ?? "", employee_id: null, valid_from: today, created_at: "", rates: {}, experience_steps: {}, monthly_amount: 0, tenure_requires_exam: false, config: { basis: "none", tips: false, experience: false, shift_pay: false, extras_enabled: false, knowledge_amount: 0, food_amount: 0, cleaner_bonus: 0 } });
-    const open = (next: Panel) => { setPanel(next); setViewed(null); setFrom(next === "salary" ? `${(latest && latest.valid_from > today ? latest.valid_from : today).slice(0, 7)}-01` : latest && latest.valid_from > today ? latest.valid_from : today); setReason(""); const base = latest ?? defaultDraft(); setDraft(structuredClone({ ...base, monthly_amount: base.monthly_amount ?? model?.monthly_amount ?? 0, config: { basis: model?.basis ?? "none", tips: model?.tips ?? false, experience: model?.experience ?? false, knowledge_amount: model?.knowledge_amount ?? 0, food_amount: model?.food_amount ?? 0, cleaner_bonus: model?.cleaner_bonus ?? 0, ...base.config } })); };
+    const open = (next: Panel) => { setScaleError(""); setPanel(next); setViewed(null); setFrom(next === "salary" ? `${(latest && latest.valid_from > today ? latest.valid_from : today).slice(0, 7)}-01` : latest && latest.valid_from > today ? latest.valid_from : today); setReason(""); const base = latest ?? defaultDraft(); setDraft(structuredClone({ ...base, monthly_amount: base.monthly_amount ?? model?.monthly_amount ?? 0, config: { basis: model?.basis ?? "none", tips: model?.tips ?? false, experience: model?.experience ?? false, knowledge_amount: model?.knowledge_amount ?? 0, food_amount: model?.food_amount ?? 0, cleaner_bonus: model?.cleaner_bonus ?? 0, ...base.config } })); };
     const patchConfig = (patch: PayRule["config"]) => setDraft(d => d ? { ...d, config: { ...d.config, ...patch } } : d);
     const setRate = (count: string, day: string, key: "base" | "percent", value: number | null) => setDraft(d => d ? { ...d, rates: { ...d.rates, [count]: { ...d.rates[count], [day]: { base: d.rates[count]?.[day]?.base ?? null, percent: d.rates[count]?.[day]?.percent ?? null, [key]: value } } } } : d);
     const setWholeWeek = (count: string, key: "base" | "percent", value: number | null) => setDraft(d => {
@@ -74,7 +76,7 @@ export function RoleCompensation({ roleId }: {
     };
     const varying = (key: "base" | "percent") => ["1", "2"].some(c => new Set(weekdays.map((_, i) => current?.rates[c]?.[String(i + 1)]?.[key] ?? null)).size > 1);
     const save = async () => {
-        if (!draft)
+        if (!draft || (panel === "benefits" && draft.config.experience && scaleError))
             return;
         setBusy(true);
         try {
@@ -106,7 +108,7 @@ export function RoleCompensation({ roleId }: {
    <CompensationRow title="Надбавки и чаевые" hint={[effective?.experience ? "Стаж" : null, money("food_amount") ? "Питание" : null, money("cleaner_bonus") ? "Клининг" : null, effective?.tips ? "Чаевые" : null].filter(Boolean).join(" · ") || "Не включены"} icon={<Wallet size={20}/>} onEdit={() => open("benefits")}><strong className={s.value}>{benefitsTotal ? rub(benefitsTotal) : effective?.experience ? "По стажу" : effective?.tips ? "Чаевые" : "Не включены"}</strong><small className={s.subvalue}>{benefitsTotal ? `по условиям смены${effective?.experience ? " + стаж" : ""}` : effective?.tips ? "чаевые распределяются поровну" : ""}</small></CompensationRow>
   </div>
   <PayrollDetailDialog open={Boolean(panel)} onOpenChange={v => { if (!v && !busy)
-        setPanel(null); }} title={panel ? titles[panel] : "Оплата должности"} description={data.roles?.find(r => r.id === roleId)?.name ?? "Правила начисления зарплаты"} footer={panel !== "history" ? <Button className="ml-auto" disabled={busy || !from || reason.trim().length < 3} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить условия"}</Button> : undefined}>
+        setPanel(null); }} title={panel ? titles[panel] : "Оплата должности"} description={data.roles?.find(r => r.id === roleId)?.name ?? "Правила начисления зарплаты"} footer={panel !== "history" ? <Button className="ml-auto" disabled={busy || !from || reason.trim().length < 3 || Boolean(panel === "benefits" && draft?.config.experience && scaleError)} onClick={() => void save()}>{busy ? "Сохраняем…" : "Сохранить условия"}</Button> : undefined}>
    {panel === "history" ? <div className={s.history}>{versions.map(r => <button key={r.id} onClick={() => setViewed(viewed?.id === r.id ? null : r)}><span>С {dateLabel(r.valid_from)}</span><strong>{rub(r.monthly_amount ?? model?.monthly_amount ?? 0)} / месяц</strong><small>{r.change_reason ?? "Перенесённые условия"} · {new Date(r.created_at).toLocaleString("ru-RU", { timeZone: data.timezone })}{r.created_by ? ` · ${data.staff.find(p => p.user_id === r.created_by)?.name ?? "Пользователь системы"}` : r.change_reason ? " · система" : " · импорт"}</small>{viewed?.id === r.id && <div className={s.version}><p>{bases[r.config.basis ?? model?.basis ?? "none"]}</p>{Object.entries(r.rates).map(([count, days]) => <p key={count}>{count} сотрудника: {Object.entries(days).map(([day, rate]) => `${weekdays[Number(day) - 1]} ${rate.base ?? "—"} ₽ + ${rate.percent ?? "—"}%`).join("; ")}</p>)}<p>Стаж: {Object.entries(r.experience_steps).map(([m, n]) => `${m} мес. — ${n} ₽`).join("; ") || "нет шкалы"}</p><p>Питание: {r.config.food_amount ?? model?.food_amount ?? 0} ₽ · клининг: {r.config.cleaner_bonus ?? model?.cleaner_bonus ?? 0} ₽</p></div>}</button>)}{!versions.length && <p>Первая версия появится после сохранения условий.</p>}</div> : draft && <div className={form.form}>
     {panel === "salary" && <NumberField label="Оклад за полный месяц, ₽" value={draft.monthly_amount ?? 0} onChange={v => setDraft({ ...draft, monthly_amount: v ?? 0 })}/>}
     {panel === "base" && <label className={s.toggle}><span>Начислять оплату за смены</span><Switch checked={draft.config.shift_pay ?? shiftEnabled} onCheckedChange={v => patchConfig({ shift_pay: v })}/></label>}
@@ -121,7 +123,7 @@ export function RoleCompensation({ roleId }: {
      <div className={s.grid}>{([['food_amount', 'Питание за выход, ₽'], ['cleaner_bonus', 'Если нет клиннера, ₽']] as const).map(([key, label]) => <NumberField key={key} label={label} value={draft.config[key] ?? 0} onChange={v => patchConfig({ [key]: v ?? 0 })}/>)}</div>
      <label className={s.toggle}><span>Распределять чаевые</span><Switch checked={draft.config.tips ?? false} onCheckedChange={v => patchConfig({ tips: v })}/></label>
      <label className={s.toggle}><span>Надбавка за стаж</span><Switch checked={draft.config.experience ?? false} onCheckedChange={v => patchConfig({ experience: v })}/></label>
-     {draft.config.experience && <><p className={s.note}>{data.settings?.experience_starts_on ? `Начисление с ${dateLabel(data.settings.experience_starts_on)}. Дата общая для заведения.` : "Назначьте дату начала начисления стажа в настройках оплаты заведения."}</p><details className={s.weekdays}><summary>Шкала стажа · {Object.keys(draft.experience_steps).length} ступеней</summary>{Object.entries(draft.experience_steps).sort((a, b) => Number(a[0]) - Number(b[0])).map(([months, amount]) => <NumberField key={months} label={`С ${months} мес., ₽ за смену`} value={amount} onChange={v => setDraft({ ...draft, experience_steps: { ...draft.experience_steps, [months]: v ?? 0 } })}/>)}<Button variant="outline" onClick={() => { const next = String(Math.max(0, ...Object.keys(draft.experience_steps).map(Number)) + 1); setDraft({ ...draft, experience_steps: { ...draft.experience_steps, [next]: 0 } }); }}>Добавить ступень</Button></details></>}
+     {draft.config.experience && <><p className={s.note}>{data.settings?.experience_starts_on ? `Начисление с ${dateLabel(data.settings.experience_starts_on)}. Дата общая для заведения.` : "Назначьте дату начала начисления стажа в настройках оплаты заведения."}</p><ExperienceScaleEditor value={draft.experience_steps} disabled={busy} onError={setScaleError} onChange={experience_steps => setDraft(d => d ? { ...d, experience_steps } : d)}/></>}
     </>}
     <div className={s.effective}><div className="space-y-2"><Label>{panel === "salary" ? "С какого месяца" : "Действует с"}</Label>{panel === "salary" ? <PayrollMonthPicker variant="field" prefix="" ariaLabel="Месяц начала оклада" value={from} min={data.settings?.starts_on ?? "2026-09-01"} onChange={setFrom}/> : <DatePicker value={from} onChange={setFrom} clearable={false}/>}</div><div className="space-y-2"><Label htmlFor="compensation-reason">Причина изменения</Label><Textarea id="compensation-reason" placeholder="Что изменилось и почему" value={reason} onChange={e => setReason(e.target.value)}/></div><p className={s.note}>Сохраняется новая версия условий. Утверждённые начисления остаются в истории.</p></div>
    </div>}

@@ -1,5 +1,4 @@
 "use client";
-
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
@@ -14,6 +13,7 @@ import { ChartNoAxesCombined, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { EditDrawer } from "@/components/ui/edit-drawer";
 import {
   Select,
   SelectContent,
@@ -29,89 +29,95 @@ import {
   useMultiSort,
   useTableState,
 } from "@/components/shared/table";
-import {
-  monthBounds,
-  sumSalesMetric,
-  type MetricTotal,
-  type SalesMonth,
-} from "@/lib/sales/monthly";
-import { metricHints, metricLabels, type MetricKey } from "@/lib/sales/types";
+import { PageFrame } from "@/components/shared/page-frame";
+import { monthBounds } from "@/lib/sales/monthly";
+import { metricLabels } from "@/lib/sales/types";
 import { money } from "@/lib/sales/format";
 import { csvCell } from "@/lib/sales/csv";
+import {
+  buildStatisticsRows,
+  type StatisticsRow,
+  type StatisticsValue,
+} from "@/lib/sales/statistics-view";
 import { cn } from "@/lib/utils";
-import { PageFrame } from "@/components/shared/page-frame";
-import { exportSalesRows } from "../shifts/actions";
 import {
   loadStatistics,
+  exportStatistics,
   requestStatisticsMonth,
   type StatisticsData,
 } from "./actions";
-import {
-  combineStatisticsMonths,
-  type StatisticsReport,
-} from "@/lib/sales/statistics-reports";
+import { StatisticsChart } from "./statistics-chart";
 
-const keys = [
-  "turnover",
-  "hookah",
-  "bar",
-  "tips_total",
-  "parking",
-  "taxi",
-  "checks",
-  "staff_checks",
-  "deposits",
-] as const;
 const labels: Record<string, string> = {
   month: "Месяц",
   shifts: "Смены",
   ...metricLabels,
+  tips_total: "Чаевые",
   hookahShare: "Доля кальянов",
   barShare: "Доля бара",
   perShift: "Оборот за смену",
   alcoholRevenue: "Алкоголь",
+  alcoholShare: "Доля алкоголя",
   regularGuests: "Постоянные гости",
   regularRevenue: "Постоянные гости, ₽",
+  regularShare: "Доля постоянных гостей",
   averageCheck: "Средний чек",
+  food: "Питание",
+  payroll: "ФОТ",
+  mastersSales: "Продажи мастеров",
 };
-const reportColumns = {
-  alcoholRevenue: { kind: "alcohol", field: "revenue", unit: "₽" },
-  regularGuests: { kind: "regular_guests", field: "guests", unit: "" },
-  regularRevenue: { kind: "regular_guests", field: "revenue", unit: "₽" },
-  averageCheck: { kind: "average_check", field: "average", unit: "₽" },
-} as const;
-function reportMap(reports: StatisticsReport[]) {
-  return new Map(reports.map((r) => [`${r.month.slice(0, 7)}:${r.kind}`, r]));
-}
-function reportValue(
-  reports: Map<string, StatisticsReport>,
-  month: string,
-  column: keyof typeof reportColumns,
-) {
-  const c = reportColumns[column],
-    r = reports.get(`${month}:${c.kind}`);
-  return { report: r, value: r?.metrics?.[c.field] ?? null, unit: c.unit };
-}
-const stateColumns = [
-  { id: "month", defaultSize: 185 },
-  { id: "shifts", defaultSize: 95 },
-  ...keys.map((id) => ({
-    id,
-    defaultSize: 145,
-    defaultVisible: !["taxi", "staff_checks", "deposits"].includes(id),
-  })),
-  ...["hookahShare", "barShare", "perShift"].map((id) => ({
-    id,
-    defaultSize: 155,
-    defaultVisible: id === "perShift",
-  })),
-  ...Object.keys(reportColumns).map((id) => ({
-    id,
-    defaultSize: 165,
-    defaultVisible: id !== "regularGuests",
-  })),
+const defaultColumns = [
+  "month",
+  "turnover",
+  "hookahShare",
+  "barShare",
+  "tips_total",
+  "parking",
+  "perShift",
+  "averageCheck",
 ];
-const sortMap = Object.fromEntries(stateColumns.map((c) => [c.id, c.id]));
+const stateColumns = [
+  ...defaultColumns,
+  "shifts",
+  "hookah",
+  "bar",
+  "alcoholRevenue",
+  "alcoholShare",
+  "regularGuests",
+  "regularRevenue",
+  "regularShare",
+  "taxi",
+  "checks",
+  "staff_checks",
+  "deposits",
+  "food",
+  "payroll",
+  "mastersSales",
+].map((id) => ({
+  id,
+  defaultSize: id === "month" ? 190 : 155,
+  defaultVisible: defaultColumns.includes(id),
+}));
+const unit = (key: string) =>
+  ["shifts", "checks", "regularGuests"].includes(key)
+    ? ""
+    : key.endsWith("Share")
+      ? "%"
+      : "₽";
+const monthLabel = (month: string) =>
+  new Intl.DateTimeFormat("ru-RU", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${month}-01T12:00:00Z`));
+const dateLabel = (date: string) =>
+  new Intl.DateTimeFormat("ru-RU", { timeZone: "Europe/Moscow" }).format(
+    new Date(date),
+  );
+const shiftHref = (month: string) => {
+  const b = monthBounds(month);
+  return `/sales/shifts?from=${b.from}&to=${b.to}`;
+};
 type SortMode = `${string}:${"asc" | "desc"}`;
 const codec = {
   toField: (s: SortMode) => s.split(":")[0],
@@ -120,42 +126,47 @@ const codec = {
   combine: (field: string, direction: "asc" | "desc") =>
     `${field}:${direction}` as SortMode,
 };
-const monthLabel = (month: string) =>
-  new Intl.DateTimeFormat("ru-RU", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${month}-01T12:00:00Z`));
-const shiftHref = (month: string) => {
-  const b = monthBounds(month);
-  return `/sales/shifts?from=${b.from}&to=${b.to}`;
-};
+const sourceRows = (data: StatisticsData, source: "native" | "archive") =>
+  buildStatisticsRows(
+    data.days,
+    data.reports,
+    data.archives,
+    source,
+    data.timezone,
+    data.settings?.day_start_hour ?? 9,
+  );
 
 function Amount({
-  total,
-  unit = true,
+  value,
+  column,
 }: {
-  total: MetricTotal;
-  unit?: boolean;
+  value?: StatisticsValue;
+  column: string;
 }) {
   return (
     <span
       className="inline-flex flex-col items-end tabular-nums"
-      title={
-        total.known < total.total
-          ? "Сумма по сменам с известным значением"
-          : undefined
-      }
+      title={value?.hint}
     >
       <span>
-        {money(total.value)}
-        {unit && total.value !== null && (
-          <span className="ml-1 text-muted-foreground">₽</span>
+        {money(value?.value ?? null)}
+        {value?.value != null && (
+          <span className="ml-1 text-muted-foreground">{unit(column)}</span>
         )}
       </span>
-      {total.known < total.total && (
+      {value?.total != null && value.known! < value.total && (
         <span className="text-xs text-muted-foreground">
-          {total.known} из {total.total} смен
+          {value.known} из {value.total} смен
+        </span>
+      )}
+      {value?.through && (
+        <span className="text-xs text-muted-foreground">
+          по {dateLabel(value.through + "T12:00:00Z")}
+        </span>
+      )}
+      {value?.state && value.state !== "ready" && (
+        <span className="text-xs text-muted-foreground">
+          {value.state === "error" ? "Не обновлено" : "Обновляется"}
         </span>
       )}
     </span>
@@ -164,22 +175,20 @@ function Amount({
 
 export function StatisticsClient({ initial }: { initial: StatisticsData }) {
   const [data, setData] = useState(initial);
-  const months = useMemo(
-    () => combineStatisticsMonths(data.days, data.reports),
-    [data.days, data.reports],
+  const [source, setSource] = useState<"native" | "archive">("native");
+  const months = useMemo(() => sourceRows(data, source), [data, source]);
+  const [year, setYear] = useState("all");
+  const [reportMonth, setReportMonth] = useState(
+    sourceRows(initial, "native")[0]?.month ?? "",
   );
-  const reports = useMemo(() => reportMap(data.reports), [data.reports]);
-  const [reportMonth, setReportMonth] = useState(months[0]?.month ?? "");
-  const [reportBusy, setReportBusy] = useState(false);
-  const [year, setYear] = useState(months[0]?.month.slice(0, 4) ?? "all");
-  const [busy, setBusy] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [busy, setBusy] = useState(false),
+    [reportBusy, setReportBusy] = useState(false),
+    [exporting, setExporting] = useState(false);
+  const [detail, setDetail] = useState<StatisticsRow | null>(null);
   const st = useTableState({
-    tableId: `sales-statistics.${initial.venueId}`,
+    tableId: `sales-statistics.v2.${initial.venueId}`,
     columns: stateColumns,
   });
-  // The input already has newest months first. Keep that natural order out of
-  // explicit sorting, so the first chosen column can actually become primary.
   const years = [...new Set(months.map((m) => m.month.slice(0, 4)))];
   const rows = useMemo(
     () =>
@@ -192,119 +201,74 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
       ),
     [months, year, st.search],
   );
-  const visibleMonths = new Set(rows.map((r) => r.month));
-  const days = data.days.filter((d) =>
-    visibleMonths.has(d.business_date.slice(0, 7)),
-  );
-  const columns = useMemo<ColumnDef<SalesMonth>[]>(
+  const columns = useMemo<ColumnDef<StatisticsRow>[]>(
     () => [
       {
         id: "month",
         accessorKey: "month",
         header: labels.month,
-        size: 185,
         minSize: 160,
-        cell: ({ row }) => (
-          <Link
-            href={shiftHref(row.original.month)}
-            className="group inline-flex flex-col text-left outline-offset-4 focus-visible:outline focus-visible:outline-brand"
-          >
-            <span className="font-medium capitalize group-hover:text-brand">
-              {monthLabel(row.original.month)}
-            </span>
-            {row.original.preliminary > 0 && (
-              <span className="text-xs text-muted-foreground">
-                Предварительных смен: {row.original.preliminary}
-              </span>
-            )}
-            {row.original.errors > 0 && (
-              <span className="text-xs text-amber-700 dark:text-amber-400">
-                Ошибок обновления: {row.original.errors}
-              </span>
-            )}
-          </Link>
-        ),
-      },
-      { id: "shifts", accessorKey: "shifts", header: labels.shifts, size: 95 },
-      ...keys.map(
-        (key): ColumnDef<SalesMonth> => ({
-          id: key,
-          accessorFn: (r) => r.totals[key].value ?? undefined,
-          sortUndefined: "last",
-          header: labels[key],
-          size: 145,
-          cell: ({ row }) => (
-            <Amount total={row.original.totals[key]} unit={key !== "checks"} />
-          ),
-        }),
-      ),
-      ...(["hookahShare", "barShare", "perShift"] as const).map(
-        (key): ColumnDef<SalesMonth> => ({
-          id: key,
-          accessorFn: (r) => r[key] ?? undefined,
-          sortUndefined: "last",
-          header: labels[key],
-          size: 155,
-          cell: ({ row }) => (
-            <span
-              title={
-                key === "perShift"
-                  ? `По ${row.original.totals.turnover.known} сменам с известным оборотом`
-                  : "Доля в обороте; только при полной базе показателей за месяц"
-              }
-            >
-              {money(row.original[key])}
-              {row.original[key] !== null
-                ? key === "perShift"
-                  ? " ₽"
-                  : "%"
-                : ""}
-            </span>
-          ),
-        }),
-      ),
-      ...(Object.keys(reportColumns) as (keyof typeof reportColumns)[]).map(
-        (key): ColumnDef<SalesMonth> => ({
-          id: key,
-          header: labels[key],
-          accessorFn: (r) =>
-            reportValue(reports, r.month, key).value ?? undefined,
-          sortUndefined: "last",
-          size: 165,
-          cell: ({ row }) => {
-            const { report, value, unit } = reportValue(
-              reports,
-              row.original.month,
-              key,
-            );
-            return (
-              <span
-                className="inline-flex flex-col items-end tabular-nums"
-                title={report?.last_error ?? undefined}
-              >
-                <span>
-                  {money(value)}
-                  {value !== null && unit && (
-                    <span className="ml-1 text-muted-foreground">{unit}</span>
-                  )}
+        size: 190,
+        cell: ({ row }) => {
+          const r = row.original;
+          const content = (
+            <>
+              <span className="font-medium">{monthLabel(r.month)}</span>
+              {r.archive ? (
+                <span className="text-xs text-muted-foreground">
+                  Снимок {dateLabel(r.archive.captured_at)}
                 </span>
-                {report?.through_date && (
+              ) : (
+                <>
                   <span className="text-xs text-muted-foreground">
-                    по {report.through_date.split("-").reverse().join(".")}
+                    {r.native!.shifts} смен
+                    {r.native!.preliminary
+                      ? ` · предварительных: ${r.native!.preliminary}`
+                      : ""}
                   </span>
-                )}
-                {report && report.state !== "ready" && (
-                  <span className="text-xs text-muted-foreground">
-                    {report.state === "error" ? "Не обновлено" : "Обновляется"}
-                  </span>
-                )}
-              </span>
-            );
-          },
-        }),
-      ),
+                  {r.native!.errors > 0 && (
+                    <span className="text-xs text-amber-700 dark:text-amber-400">
+                      Ошибок обновления: {r.native!.errors}
+                    </span>
+                  )}
+                </>
+              )}
+            </>
+          );
+          return r.archive ? (
+            <button
+              type="button"
+              className="flex flex-col items-start gap-1 text-left hover:text-brand"
+              onClick={() => setDetail(r)}
+            >
+              {content}
+            </button>
+          ) : (
+            <Link
+              className="flex flex-col items-start gap-1 hover:text-brand"
+              href={shiftHref(r.month)}
+            >
+              {content}
+            </Link>
+          );
+        },
+      },
+      ...stateColumns
+        .filter((c) => c.id !== "month")
+        .map(
+          (c): ColumnDef<StatisticsRow> => ({
+            id: c.id,
+            header: labels[c.id],
+            size: c.defaultSize,
+            accessorFn: (r) => r.values[c.id]?.value ?? undefined,
+            sortUndefined: "last",
+            cell: ({ row }) => (
+              <Amount value={row.original.values[c.id]} column={c.id} />
+            ),
+          }),
+        ),
     ],
-    [reports],
+    [],
   );
   const table = useReactTable({
     data: rows,
@@ -328,119 +292,87 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     sorts: st.sorting.map(
       (s) => `${s.id}:${s.desc ? "desc" : "asc"}` as SortMode,
     ),
-    onChange: (values) =>
+    onChange: (v) =>
       st.setSorting(
-        values.map((v) => ({
-          id: codec.toField(v),
-          desc: codec.toDirection(v) === "desc",
+        v.map((s) => ({
+          id: codec.toField(s),
+          desc: codec.toDirection(s) === "desc",
         })),
       ),
-    columnToField: sortMap,
+    columnToField: Object.fromEntries(stateColumns.map((c) => [c.id, c.id])),
     codec,
   });
-  async function refresh() {
-    setBusy(true);
+  async function refresh(reports = false) {
+    (reports ? setReportBusy : setBusy)(true);
     try {
+      if (reports) await requestStatisticsMonth(reportMonth, initial.venueId);
       const next = await loadStatistics();
       if (next.venueId !== initial.venueId)
         throw new Error("Заведение изменилось. Обновите страницу");
       setData(next);
+      if (reports) toast.success("Месячные отчёты запрошены");
     } catch (e) {
       toast.error(
-        e instanceof Error ? e.message : "Не удалось загрузить статистику",
+        e instanceof Error ? e.message : "Не удалось обновить статистику",
       );
     } finally {
-      setBusy(false);
-    }
-  }
-  async function updateMonthReports() {
-    setReportBusy(true);
-    try {
-      await requestStatisticsMonth(reportMonth, initial.venueId);
-      const next = await loadStatistics();
-      if (next.venueId !== initial.venueId)
-        throw new Error("Заведение изменилось. Обновите страницу");
-      setData(next);
-      toast.success("Месячные отчёты запрошены");
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Не удалось обновить отчёты",
-      );
-    } finally {
-      setReportBusy(false);
+      (reports ? setReportBusy : setBusy)(false);
     }
   }
   async function download() {
     setExporting(true);
     try {
-      const fresh = await exportSalesRows(days.map((d) => d.id));
-      if (fresh.length !== days.length)
-        throw new Error("Данные изменились. Обновите статистику");
-      const snapshot = await loadStatistics();
-      if (snapshot.venueId !== initial.venueId)
-        throw new Error("Заведение изменилось. Обновите страницу");
-      const freshReports = reportMap(snapshot.reports);
-      const map = new Map(
-        combineStatisticsMonths(fresh, snapshot.reports).map((r) => [
-          r.month,
-          r,
-        ]),
+      const snapshot = await exportStatistics(initial.venueId);
+      const fresh = new Map(
+        sourceRows(snapshot, source).map((r) => [r.month, r]),
       );
       const cols = table.getVisibleLeafColumns();
       const lines: unknown[][] = [
-        cols.flatMap((c) =>
-          keys.includes(c.id as (typeof keys)[number])
-            ? [
-                labels[c.id],
-                `${labels[c.id]}: смен с данными`,
-                `${labels[c.id]}: всего смен`,
-              ]
-            : c.id in reportColumns
-              ? [
+        [
+          ...cols.flatMap((c) =>
+            c.id === "month"
+              ? [labels[c.id]]
+              : [
                   labels[c.id],
+                  `${labels[c.id]}: смен с данными`,
+                  `${labels[c.id]}: всего смен`,
                   `${labels[c.id]}: по дату`,
                   `${labels[c.id]}: обновлено`,
                   `${labels[c.id]}: состояние`,
-                ]
-              : [labels[c.id]],
-        ),
+                ],
+          ),
+          "Источник",
+          "Снимок",
+          "Строка источника",
+        ],
       ];
-      for (const row of table.getSortedRowModel().rows) {
-        const r = map.get(row.original.month);
-        if (!r) throw new Error("Данные изменились. Обновите статистику");
-        lines.push(
-          cols.flatMap((c) => {
-            if (keys.includes(c.id as (typeof keys)[number])) {
-              const t = r.totals[c.id as MetricKey];
-              return [t.value, t.known, t.total];
-            }
-            if (c.id in reportColumns) {
-              const value = reportValue(
-                freshReports,
-                r.month,
-                c.id as keyof typeof reportColumns,
-              );
-              return [
-                value.value,
-                value.report?.through_date ?? null,
-                value.report?.synced_at ?? null,
-                value.report
-                  ? {
-                      ready: "Обновлено",
-                      pending: "Ожидает обновления",
-                      running: "Обновляется",
-                      error: "Не обновлено",
-                    }[value.report.state]
-                  : "Нет данных",
-              ];
-            }
+      for (const old of table.getSortedRowModel().rows) {
+        const row = fresh.get(old.original.month);
+        if (!row) throw new Error("Данные изменились. Обновите статистику");
+        lines.push([
+          ...cols.flatMap((c) => {
+            if (c.id === "month") return [monthLabel(row.month)];
+            const v = row.values[c.id];
             return [
-              c.id === "month"
-                ? monthLabel(r.month)
-                : r[c.id as "shifts" | "hookahShare" | "barShare" | "perShift"],
+              v?.value ?? null,
+              v?.known ?? null,
+              v?.total ?? null,
+              v?.through ?? null,
+              v?.updatedAt ?? null,
+              v?.state
+                ? {
+                    ready: "Обновлено",
+                    error: "Не обновлено",
+                    pending: "Ожидает обновления",
+                    running: "Обновляется",
+                  }[v.state]
+                : null,
             ];
           }),
-        );
+          row.archive ? "Архив Glide" : "Sheerly",
+          row.archive?.captured_at ?? null,
+          row.archive?.origin.range ?? null,
+        ]);
       }
       const url = URL.createObjectURL(
         new Blob(
@@ -450,7 +382,7 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
       );
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Статистика-${year === "all" ? "все-годы" : year}.csv`;
+      a.download = `Статистика-${source === "archive" ? "Glide" : "Sheerly"}-${year}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -465,19 +397,37 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
     <PageFrame className="space-y-6">
       <TablePageHeader title="Статистика" />
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Select value={year} onValueChange={setYear}>
-          <SelectTrigger className="w-36" aria-label="Год статистики">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все годы</SelectItem>
-            {years.map((y) => (
-              <SelectItem key={y} value={y}>
-                {y} год
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex min-w-0 flex-wrap gap-2">
+          <Select
+            value={source}
+            onValueChange={(v) => {
+              setSource(v as typeof source);
+              setYear("all");
+              setDetail(null);
+            }}
+          >
+            <SelectTrigger className="w-44" aria-label="Источник статистики">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="native">Sheerly</SelectItem>
+              <SelectItem value="archive">Архив Glide</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={year} onValueChange={setYear}>
+            <SelectTrigger className="w-36" aria-label="Год статистики">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все годы</SelectItem>
+              {years.map((y) => (
+                <SelectItem key={y} value={y}>
+                  {y} год
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <TableControls
           search={{
             value: st.search,
@@ -562,44 +512,45 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
           }
         />
       </div>
-      {data.reportsConfigured &&
-        data.permissions.includes("sales.sync_shifts") && (
-          <div className="flex flex-wrap items-center gap-3">
-            <Select value={reportMonth} onValueChange={setReportMonth}>
-              <SelectTrigger
-                className="w-52"
-                aria-label="Месяц отчётов Quick Resto"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {months.map((m) => (
-                  <SelectItem key={m.month} value={m.month}>
-                    {monthLabel(m.month)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button
-              variant="outline"
-              disabled={reportBusy || !reportMonth}
-              onClick={() => void updateMonthReports()}
-            >
-              {reportBusy ? "Загрузка…" : "Обновить отчёты Quick Resto"}
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Алкоголь, постоянные гости и средний чек — по завершённым рабочим
-              дням.
-            </p>
-          </div>
-        )}
-      {!data.reportsConfigured && (
+      {source === "archive" ? (
         <p className="text-sm text-muted-foreground">
-          Дополнительные отчёты Quick Resto ещё не подключены.
+          Архивные итоги Glide без пересчёта.
         </p>
+      ) : data.reportsConfigured &&
+        data.permissions.includes("sales.sync_shifts") ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <Select value={reportMonth} onValueChange={setReportMonth}>
+            <SelectTrigger
+              className="w-52"
+              aria-label="Месяц отчётов Quick Resto"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {sourceRows(data, "native").map((m) => (
+                <SelectItem key={m.month} value={m.month}>
+                  {monthLabel(m.month)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            variant="outline"
+            disabled={reportBusy || !reportMonth}
+            onClick={() => void refresh(true)}
+          >
+            {reportBusy ? "Загрузка…" : "Обновить отчёты Quick Resto"}
+          </Button>
+        </div>
+      ) : (
+        !data.reportsConfigured && (
+          <p className="text-sm text-muted-foreground">
+            Дополнительные отчёты Quick Resto ещё не подключены.
+          </p>
+        )
       )}
-      {data.reports.some((r) => r.state === "error") && (
-        <details className="rounded-xl border p-4 text-sm">
+      {source === "native" && data.reports.some((r) => r.state === "error") && (
+        <details className="rounded-lg border p-4 text-sm">
           <summary className="cursor-pointer font-medium">
             Не обновились отчёты ·{" "}
             {data.reports.filter((r) => r.state === "error").length}
@@ -625,42 +576,51 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
         <>
           <section
             aria-label="Итоги статистики"
-            className="grid grid-cols-2 gap-y-5 rounded-xl border py-5 sm:grid-cols-4"
+            className="grid grid-cols-2 gap-y-5 rounded-lg border py-5 sm:grid-cols-4"
           >
-            {(
-              ["turnover", "tips_total", "parking", "checks"] as MetricKey[]
-            ).map((key) => {
-              const total = sumSalesMetric(days, key);
+            {[
+              "turnover",
+              "tips_total",
+              "parking",
+              source === "archive" ? "alcoholRevenue" : "checks",
+            ].map((key) => {
+              const known = rows.filter((r) => r.values[key]?.value != null),
+                total = known.length
+                  ? known.reduce((s, r) => s + r.values[key].value!, 0)
+                  : null;
+              const partial =
+                known.length !== rows.length ||
+                known.some(
+                  (r) =>
+                    r.values[key].known != null &&
+                    r.values[key].known !== r.values[key].total,
+                );
               return (
                 <div
                   key={key}
-                  className="min-w-0 px-5 sm:border-r sm:last:border-0"
+                  className="min-w-0 px-4 sm:border-r sm:px-5 sm:last:border-0"
                 >
-                  <p
-                    className="text-sm text-muted-foreground"
-                    title={metricHints[key]}
-                  >
-                    {metricLabels[key]}
-                  </p>
-                  <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums">
-                    {money(total.value)}
-                    {key !== "checks" && total.value !== null && (
+                  <p className="text-sm text-muted-foreground">{labels[key]}</p>
+                  <p className="mt-2 text-xl font-semibold tracking-tight tabular-nums sm:text-2xl">
+                    {money(total)}
+                    {total !== null && (
                       <span className="ml-1 text-base font-normal text-muted-foreground">
-                        ₽
+                        {unit(key)}
                       </span>
                     )}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {total.known < total.total
-                      ? `Данные по ${total.known} из ${total.total} смен`
-                      : `${days.length} смен за выбранный период`}
-                  </p>
+                  {partial && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      По имеющимся данным
+                    </p>
+                  )}
                 </div>
               );
             })}
           </section>
-          <div className="overflow-hidden rounded-xl border">
-            <div className="max-h-[calc(100dvh-360px)] min-h-64 overflow-auto">
+          <StatisticsChart rows={rows} />
+          <div className="overflow-hidden rounded-lg border">
+            <div className="max-h-[65dvh] min-h-64 overflow-auto">
               <table
                 aria-label="Статистика продаж по месяцам"
                 className="w-full table-fixed text-sm"
@@ -702,30 +662,97 @@ export function StatisticsClient({ initial }: { initial: StatisticsData }) {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Месяц открывает исходные смены. Ручные исправления учтены. Чеки
-            включают сотрудников; прочерк означает отсутствие данных.
+            {source === "archive"
+              ? "Прочерк — значение отсутствовало в источнике. Архив не изменяет смены и финансовые операции."
+              : "Доли алкоголя и постоянных гостей доступны в столбцах таблицы. Они рассчитываются только за совпадающий период; прочерк означает отсутствие полной базы."}
           </p>
         </>
       ) : (
         <EmptyState
           icon={ChartNoAxesCombined}
           title={
-            data.days.length
-              ? "Месяцы не найдены"
-              : "Статистика появится после загрузки смен"
+            source === "archive"
+              ? "Архив пока не перенесён"
+              : "Месяцы не найдены"
           }
-          description={
-            data.days.length
-              ? "Измените год или поисковый запрос."
-              : "Загрузите данные в разделе «Продажи → Смены»."
-          }
-          action={
-            <Button variant="outline" asChild>
-              <Link href="/sales/shifts">Перейти к сменам</Link>
-            </Button>
-          }
+          description="Измените источник, год или поисковый запрос."
         />
       )}
+      <EditDrawer
+        open={!!detail}
+        onOpenChange={(open) => !open && setDetail(null)}
+        title={detail ? monthLabel(detail.month) : "Архив статистики"}
+        description={
+          detail?.archive
+            ? `Архив Glide · снимок ${dateLabel(detail.archive.captured_at)}`
+            : undefined
+        }
+      >
+        {detail?.archive && (
+          <>
+            <dl className="divide-y">
+              {stateColumns
+                .filter((c) => c.id in detail.values)
+                .map(({ id: key }) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between gap-4 py-3 text-sm"
+                  >
+                    <dt className="text-muted-foreground">
+                      {labels[key] ?? key}
+                    </dt>
+                    <dd>
+                      <Amount value={detail.values[key]} column={key} />
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+            <section>
+              <h3 className="text-base font-semibold">
+                Средний оборот по дням недели
+              </h3>
+              <dl className="mt-2 divide-y">
+                {detail.archive.weekday_turnover.map((v, i) => (
+                  <div
+                    key={i}
+                    className="flex justify-between gap-3 py-2 text-sm"
+                  >
+                    <dt className="text-muted-foreground">
+                      {
+                        [
+                          "Понедельник",
+                          "Вторник",
+                          "Среда",
+                          "Четверг",
+                          "Пятница",
+                          "Суббота",
+                          "Воскресенье",
+                        ][i]
+                      }
+                    </dt>
+                    <dd className="tabular-nums">
+                      {money(v)}
+                      {v !== null && " ₽"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+            {detail.archive.note && (
+              <section>
+                <h3 className="text-base font-semibold">Комментарий</h3>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">
+                  {detail.archive.note}
+                </p>
+              </section>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Источник: {detail.archive.origin.range}. Прежняя методика расчёта
+              сохранена.
+            </p>
+          </>
+        )}
+      </EditDrawer>
     </PageFrame>
   );
 }

@@ -6,6 +6,8 @@ import {
 export type ShiftWeight = {
   employeeId: string;
   roleId: string;
+  /** Department at the time of the shift, supplied by the calculation snapshot. */
+  departmentId?: string | null;
   shifts: number;
 };
 type Allocation = { employeeId: string; amount: number };
@@ -47,13 +49,14 @@ export function allocateSharedShortage(
   unallocated: number | null;
   allocations: Allocation[];
   unassignedRoles: string[];
+  unassignedDepartments: string[];
   state: "disabled" | "incomplete" | "period_required" | "ready";
 } {
   const c = deductionRulesSchema.parse(config),
     scope = companyShortage(total, c.companyAllowance);
   const ids = new Set<string>();
   for (const w of weights) {
-    const key = w.employeeId + ":" + w.roleId;
+    const key = w.employeeId + ":" + w.roleId + ":" + (w.departmentId ?? "");
     if (
       !w.employeeId ||
       !w.roleId ||
@@ -71,6 +74,7 @@ export function allocateSharedShortage(
     unallocated: scope.employees,
     allocations: [] as Allocation[],
     unassignedRoles: [] as string[],
+    unassignedDepartments: [] as string[],
   };
   if (!c.enabled)
     return {
@@ -83,7 +87,10 @@ export function allocateSharedShortage(
   if (scope.employees === null) return { ...base, state: "incomplete" };
   if (scope.employees === 0) return { ...base, unallocated: 0, state: "ready" };
   const included = weights.filter(
-    (w) => w.shifts > 0 && !c.excludedRoleIds.includes(w.roleId),
+    (w) =>
+      w.shifts > 0 &&
+      !c.excludedRoleIds.includes(w.roleId) &&
+      (!w.departmentId || !c.excludedDepartmentIds?.includes(w.departmentId)),
   );
   const result = new Map<string, number>(),
     pool = Math.round(scope.employees * 100);
@@ -96,6 +103,22 @@ export function allocateSharedShortage(
     return [...m].map(([key, weight]) => ({ key, weight }));
   };
   let unassignedRoles: string[] = [];
+  let unassignedDepartments: string[] = [];
+  if (
+    c.distribution === "shifts" &&
+    c.excludedDepartmentIds?.length &&
+    included.some((w) => !w.departmentId)
+  )
+    return {
+      ...base,
+      state: "incomplete",
+      unassignedRoles: [
+        ...new Set(
+          included.filter((w) => !w.departmentId).map((w) => w.roleId),
+        ),
+      ].sort(),
+      unassignedDepartments: ["unassigned"],
+    };
   if (c.distribution === "shifts")
     add(distribute(pool, personWeights(included)));
   else {
@@ -103,18 +126,23 @@ export function allocateSharedShortage(
       pool,
       c.groups.map((g) => ({ key: g.id, weight: Math.round(g.share * 100) })),
     );
-    unassignedRoles = [
-      ...new Set(
-        included
-          .filter((w) => !c.groups.some((g) => g.roleIds.includes(w.roleId)))
-          .map((w) => w.roleId),
-      ),
-    ].sort();
+    const belongs = (g: DeductionRules["groups"][number], w: ShiftWeight) =>
+      c.distribution === "departments"
+        ? !!w.departmentId && !!g.departmentIds?.includes(w.departmentId)
+        : g.roleIds.includes(w.roleId);
+    const unassigned = included.filter(
+      (w) => !c.groups.some((g) => belongs(g, w)),
+    );
+    unassignedRoles = [...new Set(unassigned.map((w) => w.roleId))].sort();
+    if (c.distribution === "departments")
+      unassignedDepartments = [
+        ...new Set(unassigned.map((w) => w.departmentId ?? "unassigned")),
+      ].sort();
     for (const g of c.groups)
       add(
         distribute(
           pools.get(g.id) ?? 0,
-          personWeights(included.filter((w) => g.roleIds.includes(w.roleId))),
+          personWeights(included.filter((w) => belongs(g, w))),
         ),
       );
   }
@@ -128,6 +156,7 @@ export function allocateSharedShortage(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([employeeId, amount]) => ({ employeeId, amount: amount / 100 })),
     unassignedRoles,
+    unassignedDepartments,
     state:
       unallocated > 0 || unassignedRoles.length
         ? "incomplete"

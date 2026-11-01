@@ -30,6 +30,7 @@ try {
   const {
     companyShortage: split,
     deductionDraft,
+    departmentDraft,
     deductionRulesSchema: schema,
   } = await import(pathToFileURL(join(dir, "deduction-rules.mjs")));
   const { allocateSharedShortage: allocate } = await import(
@@ -122,6 +123,126 @@ try {
   const once = { ...cfg, split: "once" };
   assert.equal(allocate(10000.01, once, weights).allocated, 0.01);
   assert.equal(allocate(10000.01, once, weights).state, "ready");
+  const depConfig = {
+    ...once,
+    distribution: "departments",
+    excludedDepartmentIds: [],
+    groups: cfg.groups.map((g, i) => ({
+      ...g,
+      roleIds: [],
+      departmentIds: [[A, B, C][i]],
+    })),
+  };
+  const depWeights = [
+    { employeeId: "bar", roleId: A, departmentId: A, shifts: 5 },
+    {
+      employeeId: "senior-bar",
+      roleId: "senior-role",
+      departmentId: A,
+      shifts: 5,
+    },
+    { employeeId: "manager", roleId: B, departmentId: B, shifts: 10 },
+    {
+      employeeId: "senior-master",
+      roleId: "senior-master-role",
+      departmentId: C,
+      shifts: 10,
+    },
+  ];
+  const departmentResult = allocate(11000, depConfig, depWeights);
+  assert.equal(departmentResult.state, "ready");
+  assert.deepEqual(
+    departmentResult.allocations,
+    [
+      { employeeId: "bar", amount: 275 },
+      { employeeId: "manager", amount: 350 },
+      { employeeId: "senior-bar", amount: 275 },
+      { employeeId: "senior-master", amount: 100 },
+    ],
+    "Senior positions share their department's pool",
+  );
+  assert.deepEqual(
+    allocate(11000, depConfig, depWeights.slice().reverse()),
+    departmentResult,
+  );
+  const substitutions = allocate(11000, depConfig, [
+    ...depWeights,
+    { employeeId: "bar", roleId: A, departmentId: B, shifts: 5 },
+  ]);
+  assert.equal(substitutions.state, "ready");
+  assert.equal(
+    substitutions.allocated,
+    1000,
+    "A changed department does not duplicate the pool",
+  );
+  const unresolved = allocate(11000, depConfig, [
+    ...depWeights,
+    { employeeId: "new", roleId: "unknown", shifts: 1 },
+  ]);
+  assert.equal(unresolved.state, "incomplete");
+  assert.deepEqual(unresolved.unassignedDepartments, ["unassigned"]);
+  assert.throws(() =>
+    schema.parse({
+      ...depConfig,
+      groups: [{ ...depConfig.groups[0], roleIds: [A] }],
+    }),
+  );
+  assert.throws(() =>
+    schema.parse({ ...depConfig, excludedDepartmentIds: [A.toUpperCase()] }),
+  );
+  assert.throws(() =>
+    schema.parse({
+      ...depConfig,
+      groups: [{ ...depConfig.groups[0], share: 100, departmentIds: [] }],
+    }),
+  );
+  const excluded = allocate(
+    11000,
+    {
+      ...depConfig,
+      distribution: "shifts",
+      groups: [],
+      excludedDepartmentIds: [A],
+    },
+    depWeights,
+  );
+  assert.deepEqual(excluded.allocations, [
+    { employeeId: "manager", amount: 500 },
+    { employeeId: "senior-master", amount: 500 },
+  ]);
+  assert.equal(
+    allocate(
+      11000,
+      {
+        ...depConfig,
+        distribution: "shifts",
+        groups: [],
+        excludedDepartmentIds: [A],
+      },
+      [{ employeeId: "new", roleId: A, shifts: 1 }],
+    ).state,
+    "incomplete",
+  );
+  const mappedDraft = departmentDraft(cfg, [
+    { id: A, name: "Bar", department_id: A },
+    { id: B, name: "Manager", department_id: B },
+    { id: C, name: "Master", department_id: C },
+  ]);
+  assert.equal(mappedDraft.split, "once");
+  assert.equal(mappedDraft.distribution, "departments");
+  assert.deepEqual(mappedDraft.groups[0].departmentIds, [A]);
+  assert.deepEqual(
+    cfg.groups[0].roleIds,
+    [A],
+    "Opening a new draft never rewrites the old version",
+  );
+  const conflictDraft = departmentDraft(cfg, [
+    { id: A, name: "Bar", department_id: A },
+    { id: B, name: "Manager", department_id: A },
+    { id: C, name: "Master" },
+  ]);
+  assert.deepEqual(conflictDraft.groups[0].departmentIds, []);
+  assert.deepEqual(conflictDraft.groups[1].departmentIds, []);
   const unknown = allocate(11000, cfg, [
     ...weights,
     { employeeId: "new", roleId: "unmapped", shifts: 1 },
@@ -173,7 +294,7 @@ try {
     assert.equal(draft.inventoryExclusions.length, 32);
   }
   console.log(
-    "PASS: actual 5339 RUB company-only pool, unknown/negative rejection, no unused-limit bonus, cent conservation, role substitutions, missing/unmapped groups blocked, exact dated-source draft, pending installment policy",
+    "PASS: company allowance boundaries, unknown/negative rejection, no unused-limit bonus, cent conservation, role substitutions, missing/unmapped groups blocked, exact dated-source draft, department and senior-position allocation, missing department blocked",
   );
 } finally {
   await rm(dir, { recursive: true, force: true });

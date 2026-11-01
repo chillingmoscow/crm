@@ -38,12 +38,13 @@ export const deductionRulesSchema = z
         "Не больше четырёх знаков после запятой",
       ),
     ingredientTolerance: amount,
-    distribution: z.enum(["groups", "shifts"]),
+    distribution: z.enum(["groups", "departments", "shifts"]),
     split: z.enum(["pending", "once", "two_months", "two_payments"]),
     inventoryExclusions: list,
     roleSpecificCategories: list,
     writeoffReasons: list,
     excludedRoleIds: z.array(roleId).max(100),
+    excludedDepartmentIds: z.array(roleId).max(100).optional(),
     groups: z
       .array(
         z
@@ -60,6 +61,7 @@ export const deductionRulesSchema = z
                 "Не больше двух знаков после запятой",
               ),
             roleIds: z.array(roleId).max(100),
+            departmentIds: z.array(roleId).max(100).optional(),
             categories: list,
           })
           .strict(),
@@ -81,8 +83,33 @@ export const deductionRulesSchema = z
         path: ["groups"],
         message: "Должность может входить только в одну группу",
       });
+    const departments = [
+      ...r.groups.flatMap((g) => g.departmentIds ?? []),
+      ...(r.excludedDepartmentIds ?? []),
+    ];
+    if (new Set(departments).size !== departments.length)
+      c.addIssue({
+        code: "custom",
+        path: ["groups"],
+        message: "Подразделение может входить только в одну группу",
+      });
+    if (r.distribution === "departments") {
+      if (ids.length > 0)
+        c.addIssue({
+          code: "custom",
+          path: ["groups"],
+          message:
+            "В распределении по подразделениям выберите подразделения вместо должностей",
+        });
+      if (r.groups.some((g) => g.share > 0 && !g.departmentIds?.length))
+        c.addIssue({
+          code: "custom",
+          path: ["groups"],
+          message: "Выберите подразделения для каждой группы с ненулевой долей",
+        });
+    }
     if (
-      r.distribution === "groups" &&
+      r.distribution !== "shifts" &&
       (r.groups.length === 0 ||
         Math.abs(r.groups.reduce((s, g) => s + g.share, 0) - 100) > 0.000001)
     )
@@ -107,7 +134,54 @@ export type StockRoleOption = {
   id: string;
   name: string;
   archived_at?: string | null;
+  department_id?: string | null;
 };
+export type StockDepartmentOption = {
+  id: string;
+  name: string;
+  archived_at?: string | null;
+};
+
+/** Only the new draft changes. Stored versions keep their original role assignments. */
+export function departmentDraft(
+  config: DeductionRules,
+  roles: StockRoleOption[],
+): DeductionRules {
+  if (config.distribution === "departments")
+    return { ...config, split: "once" };
+  const roleDepartment = (id: string) =>
+    roles.find((r) => r.id === id)?.department_id;
+  const candidates = config.groups.map((g) => [
+    ...new Set(
+      g.roleIds.map(roleDepartment).filter((id): id is string => !!id),
+    ),
+  ]);
+  const excluded = [
+    ...new Set(
+      config.excludedRoleIds
+        .map(roleDepartment)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  // A department spanning old groups/exclusions requires an explicit choice.
+  const uses = [...candidates.flat(), ...excluded];
+  return {
+    ...config,
+    split: "once",
+    distribution: config.distribution === "groups" ? "departments" : "shifts",
+    excludedRoleIds: [],
+    excludedDepartmentIds: excluded.filter(
+      (id) => uses.filter((x) => x === id).length === 1,
+    ),
+    groups: config.groups.map((g, i) => ({
+      ...g,
+      roleIds: [],
+      departmentIds: candidates[i].filter(
+        (id) => uses.filter((x) => x === id).length === 1,
+      ),
+    })),
+  };
+}
 export const splitLabels: Record<DeductionRules["split"], string> = {
   pending: "Нужно уточнить",
   once: "В одном месяце",

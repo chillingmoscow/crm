@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { z } from "zod";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,7 +27,6 @@ import {
 import {
   deductionRulesSchema,
   readLines,
-  splitLabels,
   type DeductionRules,
 } from "@/lib/stock/deduction-rules";
 import { dayLabel } from "@/lib/sales/format";
@@ -43,7 +43,10 @@ function RulesForm({
   onSaved: (d: StockRuleData) => void;
 }) {
   const router = useRouter();
-  const [config, setConfig] = useState(initial.draft),
+  const formInitial = initial.canEdit
+    ? initial.draft
+    : (initial.versions[0]?.config ?? initial.draft);
+  const [config, setConfig] = useState(formInitial),
     [numbers, setNumbers] = useState({
       companyAllowance: String(initial.draft.companyAllowance),
       multiplier: String(initial.draft.multiplier),
@@ -89,6 +92,7 @@ function RulesForm({
     try {
       const next = deductionRulesSchema.parse({
         ...config,
+        split: "once",
         ...Object.fromEntries(
           Object.entries(numbers).map(([k, v]) => [k, numeric(v)]),
         ),
@@ -137,7 +141,7 @@ function RulesForm({
           <h2 className="text-lg font-semibold">Инвентаризация и удержания</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {initial.versions[0]
-              ? `Версия ${initial.versions[0].version} · с ${dayLabel(initial.versions[0].valid_from)}`
+              ? `Сохранённая версия ${initial.versions[0].version} · с ${dayLabel(initial.versions[0].valid_from)}`
               : initial.hasLegacy
                 ? "Параметры Glide подготовлены для сохранения"
                 : "Правила ещё не сохранены"}
@@ -168,7 +172,7 @@ function RulesForm({
               onCheckedChange={(v) => set("enabled", v)}
             />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="max-w-sm">
             <div className="space-y-2">
               <Label htmlFor="stock-allowance">
                 Лимит за счёт заведения, ₽
@@ -187,26 +191,6 @@ function RulesForm({
               <p className="text-xs leading-5 text-muted-foreground">
                 Сотрудникам распределяется только превышение этого лимита.
               </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="stock-split">Распределение удержания</Label>
-              <Select
-                value={config.split}
-                onValueChange={(v) =>
-                  set("split", v as DeductionRules["split"])
-                }
-              >
-                <SelectTrigger id="stock-split">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(splitLabels).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>
-                      {v}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
         </section>
@@ -282,12 +266,53 @@ function RulesForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="groups">По группам должностей</SelectItem>
+                {config.distribution === "groups" && (
+                  <SelectItem value="groups">По должностям</SelectItem>
+                )}
+                <SelectItem value="departments">По подразделениям</SelectItem>
                 <SelectItem value="shifts">По количеству смен</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {config.distribution === "departments" && (
+            <p className="text-sm text-muted-foreground">
+              {initial.departments.some((d) => !d.archived_at)
+                ? "Доля подразделения распределяется между его сотрудниками по количеству смен."
+                : "Подразделения ещё не настроены. Создайте их и укажите в настройках должностей."}
+            </p>
+          )}
+          {initial.canEdit &&
+            initial.versions[0]?.config.distribution === "groups" && (
+              <p className="text-xs leading-5 text-muted-foreground">
+                До сохранения новых правил действует прежнее распределение по
+                должностям.
+              </p>
+            )}
           {config.distribution === "groups" && (
+            <dl className="divide-y rounded-lg border px-4">
+              {config.groups.map((g) => (
+                <div
+                  key={g.id}
+                  className="flex items-start justify-between gap-4 py-3 text-sm"
+                >
+                  <dt>
+                    <p className="font-medium">{g.name}</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {g.roleIds
+                        .map(
+                          (id) =>
+                            initial.roles.find((r) => r.id === id)?.name ??
+                            "Удалённая должность",
+                        )
+                        .join(", ") || "Не назначено"}
+                    </p>
+                  </dt>
+                  <dd className="tabular-nums">{g.share}%</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+          {config.distribution === "departments" && (
             <div className="divide-y rounded-lg border">
               {config.groups.map((g) => (
                 <div key={g.id} className="space-y-3 p-4">
@@ -328,19 +353,20 @@ function RulesForm({
                     </Button>
                   </div>
                   <MultiOptionPicker
-                    label={`Должности группы ${g.name}`}
-                    placeholder="Выберите должности"
-                    searchPlaceholder="Найти должность"
-                    selectedIds={g.roleIds}
-                    onChange={(ids) => groupSet(g.id, { roleIds: ids })}
-                    options={initial.roles.map((r) => ({
+                    label={`Подразделения группы ${g.name}`}
+                    placeholder="Выберите подразделения"
+                    searchPlaceholder="Найти подразделение"
+                    selectedIds={g.departmentIds ?? []}
+                    onChange={(ids) => groupSet(g.id, { departmentIds: ids })}
+                    options={initial.departments.map((r) => ({
                       id: r.id,
                       label: r.archived_at ? `${r.name} · в архиве` : r.name,
                       disabled:
-                        (!!r.archived_at && !g.roleIds.includes(r.id)) ||
-                        config.excludedRoleIds.includes(r.id) ||
+                        (!!r.archived_at && !g.departmentIds?.includes(r.id)) ||
+                        !!config.excludedDepartmentIds?.includes(r.id) ||
                         config.groups.some(
-                          (x) => x.id !== g.id && x.roleIds.includes(r.id),
+                          (x) =>
+                            x.id !== g.id && !!x.departmentIds?.includes(r.id),
                         ),
                     }))}
                   />
@@ -363,7 +389,7 @@ function RulesForm({
               ))}
             </div>
           )}
-          {config.distribution === "groups" && (
+          {config.distribution === "departments" && (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Button
                 type="button"
@@ -378,6 +404,7 @@ function RulesForm({
                       name: "Новая группа",
                       share: 0,
                       roleIds: [],
+                      departmentIds: [],
                       categories: [],
                     },
                   ]);
@@ -400,29 +427,57 @@ function RulesForm({
               </p>
             </div>
           )}
-          <div className="space-y-2">
-            <Label>Не участвуют в общем распределении</Label>
-            <MultiOptionPicker
-              label="Исключённые должности"
-              placeholder="Выберите должности"
-              searchPlaceholder="Найти должность"
-              selectedIds={config.excludedRoleIds}
-              onChange={(ids) => set("excludedRoleIds", ids)}
-              options={initial.roles.map((r) => ({
-                id: r.id,
-                label: r.archived_at ? `${r.name} · в архиве` : r.name,
-                disabled:
-                  (!!r.archived_at && !config.excludedRoleIds.includes(r.id)) ||
-                  config.groups.some((g) => g.roleIds.includes(r.id)),
-              }))}
-            />
-          </div>
+          {initial.canEdit || config.distribution === "departments" ? (
+            <div className="space-y-2">
+              <Label>Не участвуют в общем распределении</Label>
+              <MultiOptionPicker
+                label="Исключённые подразделения"
+                placeholder="Выберите подразделения"
+                searchPlaceholder="Найти подразделение"
+                selectedIds={config.excludedDepartmentIds ?? []}
+                onChange={(ids) => set("excludedDepartmentIds", ids)}
+                options={initial.departments.map((r) => ({
+                  id: r.id,
+                  label: r.archived_at ? `${r.name} · в архиве` : r.name,
+                  disabled:
+                    (!!r.archived_at &&
+                      !config.excludedDepartmentIds?.includes(r.id)) ||
+                    config.groups.some(
+                      (g) => !!g.departmentIds?.includes(r.id),
+                    ),
+                }))}
+              />
+              <p className="text-xs leading-5 text-muted-foreground">
+                Учитывается подразделение должности в смене, включая старших
+                сотрудников.{" "}
+                <Link
+                  href="/people/departments"
+                  className="text-primary underline underline-offset-4"
+                >
+                  Настроить подразделения
+                </Link>
+              </p>
+            </div>
+          ) : (
+            config.excludedRoleIds.length > 0 && (
+              <p className="text-sm text-muted-foreground">
+                Не участвуют:{" "}
+                {config.excludedRoleIds
+                  .map(
+                    (id) =>
+                      initial.roles.find((r) => r.id === id)?.name ??
+                      "Удалённая должность",
+                  )
+                  .join(", ")}
+              </p>
+            )
+          )}
           <details className="text-sm">
             <summary className="cursor-pointer text-muted-foreground">
-              Категории, распределяемые по должностям
+              Категории, распределяемые по группам
             </summary>
             <Textarea
-              aria-label="Категории по должностям"
+              aria-label="Категории по группам"
               className="mt-3"
               rows={4}
               value={lists.roleSpecificCategories}
@@ -471,7 +526,7 @@ function RulesForm({
                 id="stock-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Например, изменили доли должностей"
+                placeholder="Например, изменили доли подразделений"
                 maxLength={1000}
               />
             </div>
@@ -499,6 +554,42 @@ function RulesForm({
                   Версия {v.version} · с {dayLabel(v.valid_from)}
                 </p>
                 <p>{v.reason}</p>
+                <details className="py-1">
+                  <summary className="cursor-pointer text-muted-foreground">
+                    Параметры этой версии
+                  </summary>
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                    <p>
+                      Лимит заведения:{" "}
+                      {v.config.companyAllowance.toLocaleString("ru-RU")} ₽
+                    </p>
+                    <p>
+                      Распределение:{" "}
+                      {v.config.distribution === "departments"
+                        ? "по подразделениям"
+                        : v.config.distribution === "groups"
+                          ? "по должностям"
+                          : "по количеству смен"}
+                    </p>
+                    {v.config.groups.map((g) => (
+                      <p key={g.id}>
+                        {g.name}: {g.share}% ·{" "}
+                        {(v.config.distribution === "departments"
+                          ? (g.departmentIds ?? []).map(
+                              (id) =>
+                                initial.departments.find((d) => d.id === id)
+                                  ?.name ?? "Удалённое подразделение",
+                            )
+                          : g.roleIds.map(
+                              (id) =>
+                                initial.roles.find((r) => r.id === id)?.name ??
+                                "Удалённая должность",
+                            )
+                        ).join(", ") || "Не назначено"}
+                      </p>
+                    ))}
+                  </div>
+                </details>
                 <p className="text-xs text-muted-foreground">
                   {v.actor_name} ·{" "}
                   {new Date(v.created_at).toLocaleString("ru-RU", {

@@ -9,16 +9,19 @@ import {
 import { asLooseDb } from "@/lib/supabase/loose";
 import {
   deductionDraft,
+  departmentDraft,
   deductionRulesSchema,
   type DeductionRules,
   type DeductionRuleVersion,
   type StockRoleOption,
+  type StockDepartmentOption,
 } from "@/lib/stock/deduction-rules";
 export type StockRuleData = {
   venueId: string;
   versions: DeductionRuleVersion[];
   draft: DeductionRules;
   roles: StockRoleOption[];
+  departments: StockDepartmentOption[];
   today: string;
   timezone: string;
   canEdit: boolean;
@@ -65,7 +68,7 @@ export async function loadStockRules(venueId: string): Promise<StockRuleData> {
   for (let start = 0; start < 10000; start += 1000) {
     const r = await s.db
       .from<StockRoleOption[]>("roles")
-      .select("id,name,archived_at")
+      .select("id,name,archived_at,department_id")
       .eq("venue_id", venueId)
       .order("name")
       .order("id")
@@ -85,6 +88,21 @@ export async function loadStockRules(venueId: string): Promise<StockRuleData> {
   const visibleRoles = roles.filter(
     (r) => !r.archived_at || referenced.has(r.id),
   );
+  const departments: StockDepartmentOption[] = [];
+  for (let start = 0; start < 10000; start += 1000) {
+    const r = await s.db
+      .from<StockDepartmentOption[]>("departments")
+      .select("id,name,archived_at")
+      .eq("venue_id", venueId)
+      .order("name")
+      .order("id")
+      .range(start, start + 999);
+    if (r.error) throw new Error("Не удалось загрузить подразделения");
+    departments.push(...(r.data ?? []));
+    if ((r.data ?? []).length < 1000) break;
+    if (start === 9000)
+      throw new Error("Не удалось загрузить все подразделения");
+  }
   const [source, venue, account] = await Promise.all([
     s.db
       .from<{ origin: Record<string, unknown> }>("stock_writeoff_sources")
@@ -125,8 +143,9 @@ export async function loadStockRules(venueId: string): Promise<StockRuleData> {
   return {
     venueId,
     versions,
-    draft: versions[0]?.config ?? legacy ?? fallback,
+    draft: departmentDraft(versions[0]?.config ?? legacy ?? fallback, roles),
     roles: visibleRoles,
+    departments,
     today: new Intl.DateTimeFormat("en-CA", {
       timeZone: venue.data.timezone ?? "Europe/Moscow",
       year: "numeric",

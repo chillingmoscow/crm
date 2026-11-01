@@ -28,6 +28,16 @@ begin
   'banks',(select jsonb_agg(to_jsonb(t) order by id) from public.bank_accounts t),
   'notifications',(select jsonb_agg(to_jsonb(t) order by id) from public.notifications t))::text),true);
 end $test$;
+do $test$
+declare v uuid:=current_setting('test.dep_venue')::uuid; d1 uuid:=(current_setting('test.dep_cfg')::jsonb#>>'{groups,0,departmentIds,0}')::uuid;
+ d2 uuid:=(current_setting('test.dep_cfg')::jsonb#>>'{groups,1,departmentIds,0}')::uuid;r uuid;
+begin
+ insert into public.roles(venue_id,name,code) values(v,'QA Support Role','qa_support_role_history') returning id into r;
+ perform public.set_role_department(r,d1);perform public.set_role_department(r,d1);
+ if (select count(*) from public.audit_logs where action_code='role.department_changed' and entity_id=r)<>1 then raise exception 'Missing or duplicated department history';end if;
+ perform public.set_role_department(r,d2);
+ if not exists(select 1 from public.audit_logs where action_code='role.department_changed' and entity_id=r and user_id=auth.uid() and details->>'old_department_id'=d1::text and details->>'new_department_id'=d2::text and details->>'new_department_name'='QA Зал') then raise exception 'Department history missing actor or before/after';end if;
+end $test$;
 set local role authenticated;
 do $test$
 declare c jsonb:=current_setting('test.dep_cfg')::jsonb;v uuid:=current_setting('test.dep_venue')::uuid;

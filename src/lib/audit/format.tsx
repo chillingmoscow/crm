@@ -169,7 +169,9 @@ function StaffName({ event }: { event: AuditEvent }) {
 function roleNameFromEvent(event: AuditEvent): string {
   if (event.entity && event.entity.type === "role") return event.entity.name;
   const fromDetails =
-    (event.details.new_name as string) ?? (event.details.name as string);
+    (event.details.new_name as string) ??
+    (event.details.name as string) ??
+    (event.details.role_name as string);
   return fromDetails || "роль";
 }
 
@@ -762,6 +764,20 @@ const SPECS: Record<string, AuditEventSpec> = {
       <>
         создал(а) должность <RoleName event={e} />
       </>
+    ),
+  },
+  "role.department_changed": {
+    icon: FileEdit,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>изменил(а) подразделение должности <RoleName event={e} /></>
+    ),
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        {String(e.details.old_department_name || "Без подразделения")}
+        {" → "}
+        {String(e.details.new_department_name || "Без подразделения")}
+      </p>
     ),
   },
   "role.renamed": {

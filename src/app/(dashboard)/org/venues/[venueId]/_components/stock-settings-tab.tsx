@@ -49,7 +49,6 @@ function RulesForm({
   const [config, setConfig] = useState(formInitial),
     [numbers, setNumbers] = useState({
       companyAllowance: String(initial.draft.companyAllowance),
-      multiplier: String(initial.draft.multiplier),
       ingredientTolerance: String(initial.draft.ingredientTolerance),
     }),
     [shares, setShares] = useState<Record<string, string>>(
@@ -93,6 +92,7 @@ function RulesForm({
       const next = deductionRulesSchema.parse({
         ...config,
         split: "once",
+        multiplier: 1,
         ...Object.fromEntries(
           Object.entries(numbers).map(([k, v]) => [k, numeric(v)]),
         ),
@@ -196,18 +196,7 @@ function RulesForm({
         </section>
         <section className="space-y-4 border-b pb-6">
           <h3 className="font-semibold">Инвентаризация</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="stock-multiplier">Коэффициент недостачи</Label>
-              <Input
-                id="stock-multiplier"
-                inputMode="decimal"
-                value={numbers.multiplier}
-                onChange={(e) =>
-                  setNumbers((n) => ({ ...n, multiplier: e.target.value }))
-                }
-              />
-            </div>
+          <div className="max-w-sm">
             <div className="space-y-2">
               <Label htmlFor="stock-tolerance">
                 Погрешность на ингредиент, ₽
@@ -223,6 +212,9 @@ function RulesForm({
                   }))
                 }
               />
+              <p className="text-xs leading-5 text-muted-foreground">
+                До этой суммы включительно позиция не учитывается. Выше — учитывается целиком.
+              </p>
             </div>
           </div>
           <details className="rounded-lg border px-4 py-3">

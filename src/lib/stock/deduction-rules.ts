@@ -153,7 +153,7 @@ export function departmentDraft(
       (config.excludedDepartmentIds !== undefined ||
         config.groups.some((g) => g.departmentIds !== undefined)))
   )
-    return { ...config, split: "once" };
+    return { ...config, split: "once", multiplier: 1 };
   const roleDepartment = (id: string) =>
     roles.find((r) => r.id === id)?.department_id;
   const candidates = config.groups.map((g) => [
@@ -173,6 +173,7 @@ export function departmentDraft(
   return {
     ...config,
     split: "once",
+    multiplier: 1,
     distribution: config.distribution === "groups" ? "departments" : "shifts",
     excludedRoleIds: [],
     excludedDepartmentIds: excluded.filter(
@@ -248,7 +249,8 @@ export function deductionDraft(
   return deductionRulesSchema.parse({
     enabled: r[0],
     companyAllowance: r[5],
-    multiplier: r[1],
+    // Retained in the schema for immutable legacy versions; new rules use face value.
+    multiplier: 1,
     ingredientTolerance: r[2],
     distribution: r[3] === true ? "groups" : "shifts",
     split:

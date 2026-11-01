@@ -165,7 +165,7 @@ export async function saveStockRules(input: {
   reason: string;
 }) {
   const s = await context(input.venueId);
-  const config = deductionRulesSchema.parse(input.config);
+  const config = deductionRulesSchema.parse({ ...input.config, multiplier: 1 });
   z.string()
     .regex(/^20\d{2}-\d{2}-\d{2}$/)
     .parse(input.validFrom);

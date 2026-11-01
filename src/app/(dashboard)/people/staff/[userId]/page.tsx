@@ -83,22 +83,13 @@ export default async function StaffMemberPage({
 
   // Гейт доступа к карточке сотрудника. Данные ниже читаются через
   // service-role (admin, в обход RLS), поэтому страницу обязательно закрываем
-  // правом people.view_staff — иначе её можно открыть по прямому URL. Свою
+  // правом people.view_staff_details — иначе ПДн и документы доступны по прямому URL. Свою
   // информацию пользователь смотрит в /profile, отдельный доступ к карточке
   // сотрудника без права не нужен.
   const can = await getCachedPermissionChecker();
-  if (!can("people.view_staff")) redirect("/dashboard");
+  if (!can("people.view_staff") || !can("people.view_staff_details")) redirect("/dashboard");
 
-  // Current user's role → canEdit
-  const { data: uvr } = await supabase
-    .from("user_venue_roles")
-    .select("roles(code)")
-    .eq("user_id", user.id)
-    .eq("venue_id", venueId)
-    .maybeSingle();
-
-  const activeRoleCode = (uvr?.roles as { code: string } | null)?.code ?? null;
-  const canEdit = ["owner", "manager", "admin"].includes(activeRoleCode ?? "");
+  const canEdit = can("people.edit_staff");
 
   // Текущее заведение → account_id (для запроса staff_account_details).
   const { data: venueRow } = await supabase

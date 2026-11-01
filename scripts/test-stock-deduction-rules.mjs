@@ -229,6 +229,8 @@ try {
     { id: C, name: "Master", department_id: C },
   ]);
   assert.equal(mappedDraft.split, "once");
+  assert.equal(mappedDraft.multiplier, 1);
+  assert.equal(cfg.multiplier, 1.1, "The archived coefficient stays in its old version");
   assert.equal(mappedDraft.distribution, "departments");
   assert.deepEqual(mappedDraft.groups[0].departmentIds, [A]);
   assert.deepEqual(
@@ -252,7 +254,7 @@ try {
   const reopenedShiftRules = departmentDraft(savedShiftRules, []);
   assert.deepEqual(
     reopenedShiftRules,
-    savedShiftRules,
+    { ...savedShiftRules, multiplier: 1 },
     "Reloading saved shift rules preserves department exclusions",
   );
   assert.deepEqual(
@@ -263,7 +265,7 @@ try {
   const switchedAwayFromGroups = { ...depConfig, distribution: "shifts" };
   assert.deepEqual(
     departmentDraft(switchedAwayFromGroups, []),
-    switchedAwayFromGroups,
+    { ...switchedAwayFromGroups, multiplier: 1 },
     "Inactive group assignments survive switching distribution modes",
   );
   const unknown = allocate(11000, cfg, [
@@ -310,7 +312,7 @@ try {
       draft = deductionDraft(source.origin, source.roles);
     assert.equal(source.total, 5339);
     assert.equal(draft.companyAllowance, 10000);
-    assert.equal(draft.multiplier, 1.1);
+    assert.equal(draft.multiplier, 1);
     assert.equal(draft.ingredientTolerance, 250);
     assert.equal(draft.split, "pending");
     assert.equal(allocate(source.total, draft, []).employees, 0);

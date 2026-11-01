@@ -10,6 +10,10 @@ import {
 } from "react";
 import Link from "next/link";
 import { isStaffPlaceholderEmail } from "@/lib/people/staff-identity";
+import {
+  encodeStaffDocumentName,
+  decodeStaffDocumentName,
+} from "@/lib/people/staff-document-name";
 import { useRouter } from "next/navigation";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -69,6 +73,7 @@ import {
   updateStaffAccountDetails,
   updateStaffTerminalPin,
   updateStaffRole,
+  changeStaffDocument,
 } from "../../actions";
 import type { StaffProfile, StaffAccountDetails } from "../../actions";
 
@@ -520,57 +525,66 @@ export function StaffDetailPage({
     }
   };
 
-  // Имя документа кодируется в filename: ${ts}__${encName}__${origFile}.
+  // Display name is reversible ASCII; user filenames never become storage paths.
   const submitDocModal = async () => {
     if (!docFile) return;
+    const formats: Record<string, string> = {
+      "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+      "image/heic": "heic", "image/heif": "heif", "application/pdf": "pdf",
+    };
+    const extension = formats[docFile.type];
+    if (!extension || docFile.size > 10 * 1024 * 1024) {
+      toast.error("Выберите JPEG, PNG, WebP, HEIC или PDF размером до 10 МБ");
+      return;
+    }
     const trimmedName = docName.trim();
-    if (!trimmedName) {
-      toast.error("Укажите название документа");
+    if (!trimmedName || trimmedName.length > 100) {
+      toast.error("Укажите название документа до 100 символов");
       return;
     }
     setUploadingDocs(true);
-    const supabase = createClient();
-    const ts = Date.now();
-    const safeName = encodeURIComponent(trimmedName);
-    const filename = `${ts}__${safeName}__${docFile.name}`;
-    const path = `${venueId}/${profile.id}/passport/${filename}`;
-    const { error } = await supabase.storage
-      .from("staff-documents")
-      .upload(path, docFile, { contentType: docFile.type });
-    if (error) {
-      toast.error(`Ошибка загрузки: ${error.message}`);
+    try {
+      const supabase = createClient();
+      const ts = Date.now();
+      const safeName = encodeStaffDocumentName(trimmedName);
+      const filename = `${ts}__${safeName}__${crypto.randomUUID()}.${extension}`;
+      const path = `${venueId}/${profile.id}/passport/${filename}`;
+      const { error } = await supabase.storage
+        .from("staff-documents")
+        .upload(path, docFile, { contentType: docFile.type });
+      if (error) {
+        toast.error(`Ошибка загрузки: ${error.message}`);
+        return;
+      }
+      const updated = [...passportPhotos, path];
+      const result = await changeStaffDocument({
+        userId: profile.id, accountId, expectedPaths: passportPhotos, addPath: path,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setPassportPhotos(result.paths ?? updated);
+      setDocModalOpen(false);
+      setDocName("");
+      setDocFile(null);
+      toast.success("Документ добавлен");
+    } catch {
+      toast.error("Не удалось завершить загрузку. Обновите карточку, чтобы проверить документы");
+    } finally {
       setUploadingDocs(false);
-      return;
     }
-    const updated = [...passportPhotos, path];
-    const result = await updateStaffAccountDetails(profile.id, accountId, {
-      passport_photos: updated,
-    });
-    if (result.error) {
-      toast.error(result.error);
-      setUploadingDocs(false);
-      return;
-    }
-    setPassportPhotos(updated);
-    setUploadingDocs(false);
-    setDocModalOpen(false);
-    setDocName("");
-    setDocFile(null);
-    toast.success("Документ добавлен");
   };
 
   const handleDeletePassportPhoto = async (path: string) => {
-    const supabase = createClient();
-    await supabase.storage.from("staff-documents").remove([path]);
-    const updated = passportPhotos.filter((p) => p !== path);
-    const result = await updateStaffAccountDetails(profile.id, accountId, {
-      passport_photos: updated,
+    const result = await changeStaffDocument({
+      userId: profile.id, accountId, expectedPaths: passportPhotos, removePath: path,
     });
     if (result.error) {
       toast.error(result.error);
       return;
     }
-    setPassportPhotos(updated);
+    setPassportPhotos(result.paths ?? passportPhotos.filter((p) => p !== path));
     toast.success("Документ удалён");
   };
 
@@ -629,7 +643,7 @@ export function StaffDetailPage({
       const ts = Number(newFormat[1]);
       let displayName = "";
       try {
-        displayName = decodeURIComponent(newFormat[2]);
+        displayName = decodeStaffDocumentName(newFormat[2]);
       } catch {
         displayName = newFormat[3];
       }
@@ -1343,6 +1357,17 @@ export function StaffDetailPage({
                                 ? `Загружен ${formatDate(uploadedAt)}`
                                 : "Файл"}
                             </p>
+                            {url && (
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-2 text-[13px] text-brand hover:underline"
+                                aria-label={`Открыть документ: ${name}`}
+                              >
+                                Открыть файл
+                              </a>
+                            )}
                           </div>
                           {canEdit && (
                             <button
@@ -1589,7 +1614,7 @@ export function StaffDetailPage({
           <DialogHeader>
             <DialogTitle>Добавить документ</DialogTitle>
             <DialogDescription>
-              Укажите название и загрузите файл в формате JPG, PNG или PDF.
+              Укажите название и выберите файл.
             </DialogDescription>
           </DialogHeader>
 
@@ -1636,7 +1661,7 @@ export function StaffDetailPage({
                     Перетащите файл или нажмите для выбора
                   </p>
                   <p className="text-[11px] text-muted-foreground/70">
-                    JPG, PNG, PDF до 10 МБ
+                    JPG, PNG, WebP, HEIC, PDF до 10 МБ
                   </p>
                 </>
               )}
@@ -1644,7 +1669,7 @@ export function StaffDetailPage({
             <input
               ref={docInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,application/pdf"
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];

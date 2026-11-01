@@ -194,6 +194,26 @@ export async function updateStaffAccountDetails(
   return { error: null };
 }
 
+export async function changeStaffDocument(input: {
+  userId: string;
+  accountId: string;
+  expectedPaths: string[];
+  addPath?: string;
+  removePath?: string;
+}): Promise<{ paths: string[] | null; error: string | null }> {
+  const client = asLooseDb(await createClient());
+  const result = await client.rpc("staff_change_document", {
+    p_account_id: input.accountId,
+    p_user_id: input.userId,
+    p_expected_paths: input.expectedPaths,
+    p_add_path: input.addPath ?? null,
+    p_remove_path: input.removePath ?? null,
+  });
+  if (result.error) return { paths: null, error: result.error.message };
+  revalidatePath("/people/staff", "layout");
+  return { paths: result.data as string[], error: null };
+}
+
 // PIN терминала — venue-specific, лежит на UVR.
 export async function updateStaffTerminalPin(
   uvrId: string,

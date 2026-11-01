@@ -83,5 +83,22 @@ do $$begin
  if exists(select 1 from public.audit_logs where action_code like 'finance.supply.%')then raise exception 'Revoked reader saw supply audit';end if;
 end $$;
 reset role;
+-- A disconnected tenant cannot roll back a healthy tenant's scheduled read.
+do $$
+declare v uuid:='0bd81f1b-53be-4250-af97-eb5f693b30e1';a uuid;u uuid;bad_a uuid:=gen_random_uuid();bad_v uuid:='00000001-0000-4000-8000-000000000001';cfg jsonb;n integer;jobs_n integer;begin
+ select account_id into a from public.venues where id=v;select owner_id into u from public.accounts where id=a;
+ insert into public.accounts(id,name,owner_id)values(bad_a,'QA disconnected supply account',u);
+ insert into public.venues(id,account_id,name)values(bad_v,bad_a,'QA disconnected supply venue');
+ select config,version into cfg,n from private.supply_read_rules where venue_id=v order by version desc limit 1;
+ cfg:=jsonb_set(cfg,'{autoRead}','true');
+ insert into private.supply_read_rules(account_id,venue_id,version,config,actor_name,reason)values(a,v,n+1,cfg,'QA','QA healthy scheduler'),(bad_a,bad_v,1,cfg,'QA','QA disconnected scheduler');
+ update private.supply_jobs set state='done',lease=null,claimed_at=null,created_at=now()-interval '2 hours'where venue_id=v;
+ perform public.supply_schedule();
+ if not exists(select 1 from private.supply_jobs where venue_id=v and state='pending')then raise exception 'Disconnected tenant blocked healthy scheduling';end if;
+ if(select count(*)from private.supply_jobs where venue_id=bad_v and state='error')<>1 then raise exception 'Disconnected source error was hidden';end if;
+ select count(*)into jobs_n from private.supply_jobs where venue_id in(v,bad_v);
+ perform public.supply_schedule();
+ if(select count(*)from private.supply_jobs where venue_id in(v,bad_v))<>jobs_n then raise exception 'Scheduler duplicated error/live read on retry';end if;
+end $$;
 do $$begin raise notice 'PASS: full paginated supply publication, independent financial equality, phase/lease guards, immutable history, separate same-number invoices, missing/return protection, scope, role revocation, unchanged money/payroll/messages';end $$;
 rollback;

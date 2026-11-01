@@ -215,10 +215,22 @@ revoke all on function public.supply_fail(uuid,uuid,text,integer)from public,ano
 grant execute on function public.supply_fail(uuid,uuid,text,integer)to service_role;
 create function public.supply_schedule()returns integer language plpgsql security definer set search_path=''as $$
 declare rule private.supply_read_rules;last_read timestamptz;begin
- for rule in select p.*from(select distinct on(venue_id)*from private.supply_read_rules order by venue_id,version desc)p join public.venues v on v.id=p.venue_id and v.account_id=p.account_id where v.archived_at is null and(p.config->>'autoRead')::boolean loop
+ for rule in select p.*from(select distinct on(venue_id)*from private.supply_read_rules order by venue_id,version desc)p join public.venues v on v.id=p.venue_id and v.account_id=p.account_id where v.archived_at is null and(p.config->>'autoRead')::boolean order by p.venue_id loop
   if exists(select 1 from private.supply_jobs where venue_id=rule.venue_id and state in('pending','running'))then continue;end if;
   select max(created_at)into last_read from private.supply_jobs where venue_id=rule.venue_id;
-  if last_read is null or last_read<=now()-make_interval(mins=>(rule.config->>'intervalMinutes')::integer)then perform private.supply_enqueue(rule.account_id,rule.venue_id,null);end if;
+  if last_read is null or last_read<=now()-make_interval(mins=>(rule.config->>'intervalMinutes')::integer)then
+   begin
+    perform private.supply_enqueue(rule.account_id,rule.venue_id,null);
+   exception when others then
+    -- Each venue is an independent scheduling unit. Record a bounded, visible
+    -- failure without rolling back healthy venues or retrying every cron tick.
+    perform pg_advisory_xact_lock(hashtextextended('supply-job:'||rule.venue_id,0));
+    if not exists(select 1 from private.supply_jobs where venue_id=rule.venue_id and(state in('pending','running')or created_at>now()-make_interval(mins=>(rule.config->>'intervalMinutes')::integer)))then
+     insert into private.supply_jobs(account_id,venue_id,state,payload,request,last_error)
+     values(rule.account_id,rule.venue_id,'error','{}',jsonb_build_object('ruleId',rule.id),case when sqlstate='P0001'then left(sqlerrm,1000)else 'Не удалось запланировать чтение поставок. Проверьте подключение и настройки источника.'end);
+    end if;
+   end;
+  end if;
  end loop;return(select count(*)::integer from private.supply_jobs q join public.venues v on v.id=q.venue_id and v.account_id=q.account_id join public.sales_settings s on s.venue_id=q.venue_id and s.account_id=q.account_id where v.archived_at is null and(q.state='pending'or(q.state='running'and q.claimed_at<now()-interval '2 minutes'))and q.next_retry_at<=now()and(s.provider_retry_at is null or s.provider_retry_at<=now()));
 end $$;
 revoke all on function public.supply_schedule()from public,anon,authenticated;

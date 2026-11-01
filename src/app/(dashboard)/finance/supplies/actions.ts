@@ -12,6 +12,7 @@ import {
   type SupplyList,
   type SupplyDetail,
   type SupplyConfiguration,
+  type SupplyPaymentCandidates,
 } from "@/lib/supplies/types";
 function checked<T>(schema: z.ZodType<T>, v: unknown): T {
   const r = schema.safeParse(v);
@@ -192,4 +193,56 @@ export async function requestSupplies(venue: string) {
     r = await s.db.rpc("supply_request", { p_venue: s.venueId });
   if (r.error) throw Error(r.error.message);
   return String(r.data);
+}
+export async function loadSupplyPaymentCandidates(
+  venue: string,
+  document: string,
+  search: string,
+  page: number,
+): Promise<SupplyPaymentCandidates> {
+  const s = await scope(venue);
+  const r = await s.db.rpc("supply_payment_candidates", {
+    p_venue: s.venueId,
+    p_document: checked(z.string().uuid(), document),
+    p_search: checked(z.string().max(120), search),
+    p_page: checked(z.number().int().min(0).max(100000), page),
+  });
+  if (r.error) throw Error(r.error.message);
+  return r.data as SupplyPaymentCandidates;
+}
+export async function setSupplyPayment(
+  venue: string,
+  input: {
+    document: string;
+    transaction: string;
+    amountCents: number;
+    revision: number;
+    request: string;
+    reason: string;
+  },
+) {
+  const s = await scope(venue),
+    p = checked(
+      z
+        .object({
+          document: z.string().uuid(),
+          transaction: z.string().uuid(),
+          amountCents: z.number().int().nonnegative().max(999999999999999),
+          revision: z.number().int().positive(),
+          request: z.string().uuid(),
+          reason: z.string().trim().min(1).max(1000),
+        })
+        .strict(),
+      input,
+    );
+  const r = await s.db.rpc("supply_set_payment", {
+    p_venue: s.venueId,
+    p_document: p.document,
+    p_transaction: p.transaction,
+    p_amount_cents: p.amountCents,
+    p_revision: p.revision,
+    p_request: p.request,
+    p_reason: p.reason,
+  });
+  if (r.error) throw Error(r.error.message);
 }

@@ -65,7 +65,7 @@ begin
 end $$;
 set local role authenticated;
 do $$declare v uuid:=current_setting('test.supply_venue')::uuid;r jsonb;begin
- r:=public.supply_list(v,'2026-10-01','2026-10-31','QA Supplier');if r->>'total'<>'2'or r->>'paidCents'<>'2900'or r->>'unpaidCents'<>'2900'then raise exception 'Invoice list/summary not scoped';end if;
+ r:=public.supply_list(v,'2026-10-01','2026-10-31','QA Supplier');if r->>'total'<>'2'or r->>'paidCents'<>'0'or r->>'unpaidCents'<>'5800'then raise exception 'Invoice list/financial summary not scoped';end if;
  if public.supply_detail(v,current_setting('test.supply_document')::uuid)->'data'->>'number'<>'SAME NUMBER'then raise exception 'Authorized reader cannot open invoice';end if;
  begin perform public.supply_request(v);raise exception 'Reader requested source refresh';exception when raise_exception then if sqlerrm<>'Нет доступа к поставкам'then raise;end if;end;
  begin perform public.supply_read_configuration(v);raise exception 'Reader obtained owner configuration';exception when raise_exception then if sqlerrm<>'Нет доступа к поставкам'then raise;end if;end;

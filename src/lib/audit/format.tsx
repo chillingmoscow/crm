@@ -365,6 +365,21 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>изменил(а) настройки чтения поставок</>,
     buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
   },
+  "finance.supply.payment_linked": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: e => <>связал(а) расход с накладной «{String(e.details.number ?? "")}»</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatAmount(Number(e.details.amountCents ?? 0) / 100)} · {String(e.details.reason ?? "")}</p>,
+  },
+  "finance.supply.payment_updated": {
+    icon: Pencil, iconClass: "text-brand bg-brand/10",
+    buildHeadline: e => <>изменил(а) оплату накладной «{String(e.details.number ?? "")}»</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatAmount(Number(e.details.beforeCents ?? 0) / 100)} → {formatAmount(Number(e.details.amountCents ?? 0) / 100)} · {String(e.details.reason ?? "")}</p>,
+  },
+  "finance.supply.payment_unlinked": {
+    icon: Pencil, iconClass: "text-brand bg-brand/10",
+    buildHeadline: e => <>убрал(а) связь расхода с накладной «{String(e.details.number ?? "")}»</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{String(e.details.reason ?? "")}</p>,
+  },
   "finance.supply.read_requested": {
     icon: RotateCcw, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>запросил(а) обновление накладных</>,

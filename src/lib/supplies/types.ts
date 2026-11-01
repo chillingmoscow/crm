@@ -20,18 +20,66 @@ export type SupplyRow = {
   revision: number;
   data: SupplyFact;
   missing: boolean;
+  payment: SupplyPaymentSummary;
+};
+export type SupplyPaymentSummary = {
+  state: "unlinked" | "partial" | "paid" | "review";
+  allocatedCents: number;
+  paidCents: number;
+  remainingCents: number | null;
+  sourceMismatch: boolean;
+};
+export type SupplyPayment = {
+  id: string;
+  transactionId: string | null;
+  reference: string;
+  publicId: number | null;
+  amountCents: number;
+  transactionCents: number | null;
+  date: string | null;
+  bank: string | null;
+  description: string | null;
+  cancelled: boolean;
+  unavailable: boolean;
+  canManage: boolean;
+};
+export type SupplyPaymentCandidate = {
+  id: string;
+  publicId: number;
+  date: string;
+  amountCents: number;
+  availableCents: number;
+  description: string | null;
+  bank: string;
+  counterparty: string | null;
+};
+export type SupplyPaymentCandidates = {
+  total: number;
+  rows: SupplyPaymentCandidate[];
 };
 export type SupplyHistory = {
   id: number;
   revision: number;
-  action: "created" | "updated" | "missing" | "returned";
+  action:
+    | "created"
+    | "updated"
+    | "missing"
+    | "returned"
+    | "payment_linked"
+    | "payment_updated"
+    | "payment_unlinked"
+    | "payment_changed";
   before_data: Record<string, unknown> | null;
   after_data: Record<string, unknown> | null;
   actor_name: string;
   reason: string;
   created_at: string;
 };
-export type SupplyDetail = SupplyRow & { history: SupplyHistory[] };
+export type SupplyDetail = SupplyRow & {
+  history: SupplyHistory[];
+  payments: SupplyPayment[];
+  canLink: boolean;
+};
 export type SupplyList = {
   venueId: string;
   rows: SupplyRow[];
@@ -39,6 +87,7 @@ export type SupplyList = {
   amountCents: number;
   paidCents: number;
   unpaidCents: number;
+  reviewCount: number;
   providers: { id: number; name: string }[];
   stores: { id: number; name: string }[];
   canConfigure: boolean;

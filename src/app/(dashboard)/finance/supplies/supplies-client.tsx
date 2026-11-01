@@ -62,6 +62,7 @@ import {
   requestSupplies,
   saveSupplyReadRules,
 } from "./actions";
+import { SupplyPaymentPanel } from "./payment-panel";
 
 const money = (cents: number) =>
   new Intl.NumberFormat("ru-RU", {
@@ -92,6 +93,10 @@ const historyActions: Record<SupplyHistory["action"], string> = {
   updated: "Накладная обновлена",
   missing: "Накладной нет в источнике",
   returned: "Накладная снова появилась в источнике",
+  payment_linked: "Платёж связан с накладной",
+  payment_updated: "Распределение платежа изменено",
+  payment_unlinked: "Связь с платежом удалена",
+  payment_changed: "Связанный расход изменён",
 };
 const sorts: { value: SupplyFilters["sort"]; label: string }[] = [
   { value: "date", label: "Дата накладной" },
@@ -109,26 +114,32 @@ function Value({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 function Status({ row }: { row: SupplyRow }) {
-  const text = row.missing
-    ? "Нет в источнике"
-    : !row.data.processed
-      ? "Черновик"
-      : row.data.paid
-        ? "Оплачено"
-        : "Не оплачено";
+  const text =
+    row.payment.state === "paid"
+      ? "Оплачено"
+      : row.payment.state === "partial"
+        ? "Частичная оплата"
+        : row.payment.state === "review"
+          ? "Проверить оплату"
+          : "Платёж не связан";
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1.5 text-xs",
-        row.missing || !row.data.processed
+        row.payment.state === "unlinked"
           ? "text-muted-foreground"
-          : row.data.paid
+          : row.payment.state === "paid"
             ? "text-emerald-700 dark:text-emerald-400"
             : "text-amber-700 dark:text-amber-400",
       )}
     >
       <span className="size-1.5 shrink-0 rounded-full bg-current" />
       {text}
+      {(row.missing || !row.data.processed) && (
+        <span className="text-muted-foreground">
+          · {row.missing ? "Нет в источнике" : "Черновик"}
+        </span>
+      )}
     </span>
   );
 }
@@ -196,6 +207,31 @@ function History({
                   </div>
                 ))}
               </dl>
+            )}
+            {h.action.startsWith("payment_") && (
+              <p className="text-xs tabular-nums">
+                {h.after_data?.publicId != null
+                  ? `Расход №${h.after_data.publicId} · `
+                  : ""}
+                {h.action === "payment_changed" ? (
+                  h.after_data?.unavailable ? (
+                    "Расход недоступен в этом заведении"
+                  ) : h.after_data?.cancelled ? (
+                    "Расход отменён"
+                  ) : (
+                    "Данные расхода обновлены"
+                  )
+                ) : (
+                  <>
+                    {h.before_data?.amountCents != null && (
+                      <span className="text-muted-foreground line-through">
+                        {money(Number(h.before_data.amountCents))} →{" "}
+                      </span>
+                    )}
+                    {money(Number(h.after_data?.amountCents ?? 0))}
+                  </>
+                )}
+              </p>
             )}
             <p className="text-xs text-muted-foreground">{h.reason}</p>
           </li>
@@ -524,7 +560,9 @@ export function SuppliesClient({
                   <SelectContent>
                     <SelectItem value="all">Все состояния</SelectItem>
                     <SelectItem value="paid">Оплачено</SelectItem>
-                    <SelectItem value="unpaid">Не оплачено</SelectItem>
+                    <SelectItem value="unpaid">
+                      Без полной связи с оплатой
+                    </SelectItem>
                     <SelectItem value="draft">Черновики</SelectItem>
                     <SelectItem value="review">Проверить данные</SelectItem>
                   </SelectContent>
@@ -860,6 +898,20 @@ export function SuppliesClient({
                 <TabsTrigger value="history">История</TabsTrigger>
               </TabsList>
               <TabsContent value="details" className="mt-5 space-y-5">
+                <SupplyPaymentPanel
+                  key={`${detail.id}:${detail.revision}`}
+                  venue={initial.venueId}
+                  detail={detail}
+                  timezone={data.timezone}
+                  onChanged={async () => {
+                    const seq = detailSequence.current;
+                    const next = await loadSupply(initial.venueId, detail.id);
+                    if (seq !== detailSequence.current) return;
+                    setHistoryMore(next.history.length > 20);
+                    setDetail({ ...next, history: next.history.slice(0, 20) });
+                    await refresh(filtersRef.current, true);
+                  }}
+                />
                 <dl>
                   <Value label="Поставщик">
                     {detail.data.providerName ?? "Не указан"}
@@ -870,12 +922,17 @@ export function SuppliesClient({
                       ? "Проведена в Quick Resto"
                       : "Черновик"}
                   </Value>
-                  <Value label="Дата оплаты">
+                  <Value label="Оплата в Quick Resto">
+                    {detail.data.paid
+                      ? "Отмечена оплаченной"
+                      : "Отмечена неоплаченной"}
+                  </Value>
+                  <Value label="Дата оплаты в Quick Resto">
                     {detail.data.paidDate
                       ? day(detail.data.paidDate)
                       : "Не указана"}
                   </Value>
-                  <Value label="Счёт оплаты">
+                  <Value label="Счёт в Quick Resto">
                     {detail.data.accountTitle ?? "Не указан"}
                   </Value>
                   <Value label="Создал в Quick Resto">
@@ -893,10 +950,6 @@ export function SuppliesClient({
                     </ul>
                   </div>
                 )}
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  Состояние оплаты получено из Quick Resto. Чтение накладной не
-                  создаёт расход в Sheerly.
-                </p>
               </TabsContent>
               <TabsContent value="history" className="mt-5">
                 <History entries={detail.history} timezone={data.timezone} />

@@ -88,4 +88,53 @@ declare outcome jsonb;t1 uuid;e1 uuid;t3 uuid;e3 uuid;items jsonb;one jsonb;begi
  if (select state from private.finance_execution_jobs where id=current_setting('test.cash_job')::uuid)<>'done' then raise exception 'Unrelated decision replayed posted day';end if;
  raise notice 'PASS: complete native cash chains, late taxi remainder, corrections/cancellations/restores, preserved Adesk identities, exact account balances, source membership';
 end $$;
+-- Explicit cash-in purposes use the existing posting, balance and history machinery.
+do $$
+declare a uuid:=current_setting('test.cash_a')::uuid;v uuid:=current_setting('test.cash_v')::uuid;
+ u uuid:=current_setting('test.cash_u')::uuid;cfg jsonb;one jsonb;decision jsonb;cmd jsonb;outcome jsonb;
+ category uuid;income_tx uuid;transfer_tx uuid;n integer;cash_before numeric;safe_before numeric;total_before integer;
+begin
+ perform set_config('request.jwt.claim.sub',u::text,true);perform set_config('app.ctx_ready','0',true);
+ insert into public.finance_categories(account_id,name,type) values(a,'Purchase return purpose QA','income') returning id into category;
+ select config,version into cfg,n from public.cash_movement_rules where venue_id=v order by version desc limit 1;
+ cfg:=cfg||jsonb_build_object('cashInMode','review','incomeCategoryId',null,'overrides','[]'::jsonb);
+ perform private.cash_movement_validate_config(a,v,cfg);
+ one:=jsonb_build_object('id',9010044,'date','2000-01-04','amountCents',299500,'type','cashIn','shiftId',1,'openedAt','2000-01-04T09:00:00Z','occurredAt','2000-01-04T20:00:00Z','arrivedAt','2000-01-04T21:00:00Z','comment','Возврат покупки');
+ cmd:=jsonb_build_object('key','qr:cash-movement:'||v||':9010044:income','date','2000-01-04','type','income','bankAccountId',cfg->>'cashAccountId','toBankAccountId',null,'categoryId',category,'amountCents',299500,'description','Возврат покупки #9010044','sourceIds',jsonb_build_array(9010044),'mode','create','transactionIds','[]'::jsonb);
+ if private.cash_movement_route_matches(cmd,cfg,jsonb_build_array(one)) then raise exception 'Unknown cash-in was treated as income';end if;
+ decision:=jsonb_build_object('sourceId',9010044,'sourceType','cashIn','date','2000-01-04','amountCents',299500,'comment','Возврат покупки','route','income','categoryId',category,'reason','Confirmed purchase return');
+ cfg:=jsonb_set(cfg,'{overrides}',jsonb_build_array(decision));
+ perform public.cash_movement_save_rules(v,n,cfg,'QA explicit purchase return');
+ if private.cash_movement_route_matches(cmd||jsonb_build_object('categoryId',null),cfg,jsonb_build_array(one)) is distinct from false then raise exception 'Missing income category did not fail closed';end if;
+ begin perform private.cash_movement_validate_config(a,v,jsonb_set(cfg,'{overrides,0,categoryId}',to_jsonb(current_setting('test.cash_category'))));raise exception 'Expense category accepted for an income purpose';exception when raise_exception then if sqlerrm<>'Статья поступления недоступна' then raise;end if;end;
+ if private.cash_movement_route_matches(cmd,cfg,jsonb_build_array(jsonb_set(one,'{type}','"cashOut"'))) then raise exception 'A changed source type reused a purpose';end if;
+ if private.cash_movement_route_matches(cmd,cfg,jsonb_build_array(jsonb_set(one,'{comment}','"Другой возврат"'))) then raise exception 'A changed source comment reused a purpose';end if;
+ perform pg_temp.cash_source(jsonb_build_array(one));
+ select balance into cash_before from public.bank_accounts where id=current_setting('test.cash_bank')::uuid;
+ select balance into safe_before from public.bank_accounts where id=current_setting('test.cash_safe')::uuid;
+ select count(*) into total_before from public.transactions where account_id=a;
+ update private.finance_execution_jobs set next_retry_at=now()+interval '1 day' where id<>current_setting('test.cash_job')::uuid;
+ perform set_config('request.jwt.claim.sub','',true);perform set_config('app.ctx_ready','0',true);
+ outcome:=pg_temp.cash_apply(jsonb_build_array(cmd));
+ if outcome->>'state'<>'committed' or (select balance from public.bank_accounts where id=current_setting('test.cash_bank')::uuid)<>cash_before+2995 then raise exception 'Explicit return income failed: %',outcome;end if;
+ select transaction_id into income_tx from private.finance_execution_bindings where venue_id=v and key=cmd->>'key';
+ if (select category_id from public.transactions where id=income_tx)<>category then raise exception 'Return category lost';end if;
+ outcome:=pg_temp.cash_apply('[]'::jsonb);
+ if outcome->>'state'<>'committed' or (select count(*) from public.transactions where account_id=a)<>total_before+1 then raise exception 'Unchanged return duplicated';end if;
+ -- Reclassifying this source as a transfer cancels the prior income before moving funds.
+ perform set_config('request.jwt.claim.sub',u::text,true);perform set_config('app.ctx_ready','0',true);
+ one:=one||jsonb_build_object('amountCents',5000,'comment','Пополнение из сейфа');
+ decision:=(decision-'categoryId')||jsonb_build_object('amountCents',5000,'comment','Пополнение из сейфа','route','safe');
+ cfg:=jsonb_set(cfg,'{overrides}',jsonb_build_array(decision));
+ select max(version) into n from public.cash_movement_rules where venue_id=v;
+ perform public.cash_movement_save_rules(v,n,cfg,'QA reclassify cash-in as transfer');
+ perform pg_temp.cash_source(jsonb_build_array(one));
+ perform set_config('request.jwt.claim.sub','',true);perform set_config('app.ctx_ready','0',true);
+ cmd:=cmd||jsonb_build_object('mode','cancel','transactionIds',jsonb_build_array(income_tx));
+ outcome:=pg_temp.cash_apply(jsonb_build_array(cmd,jsonb_build_object('key','qr:cash-movement:'||v||':9010044:transfer','date','2000-01-04','type','transfer','bankAccountId',cfg->>'safeAccountId','toBankAccountId',cfg->>'cashAccountId','categoryId',null,'amountCents',5000,'description','Пополнение из сейфа #9010044','sourceIds',jsonb_build_array(9010044),'mode','create','transactionIds','[]'::jsonb)));
+ if outcome->>'state'<>'committed' or (select balance from public.bank_accounts where id=current_setting('test.cash_bank')::uuid)<>cash_before+50 or (select balance from public.bank_accounts where id=current_setting('test.cash_safe')::uuid)<>safe_before-50 then raise exception 'Cash-in reclassification changed total funds: %',outcome;end if;
+ if not exists(select 1 from public.transactions where id=income_tx and deleted_at is not null) then raise exception 'Old income remained after reclassification';end if;
+ if has_function_privilege('authenticated','private.cash_movement_route_matches(jsonb,jsonb,jsonb)','execute') or has_function_privilege('service_role','private.cash_movement_route_matches(jsonb,jsonb,jsonb)','execute') then raise exception 'Internal route guard exposed';end if;
+ raise notice 'PASS: explicit return category, unknown cash-in review, immutable source purpose, no duplicate income, balanced cash top-up and cancelled prior income';
+end $$;
 rollback;

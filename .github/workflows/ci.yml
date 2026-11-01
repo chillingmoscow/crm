@@ -31,3 +31,18 @@ jobs:
           node scripts/test-native-payroll-rules.mjs
           node scripts/test-native-automation-state.mjs
           python3 scripts/test-payroll-automation-import.py
+      - name: Daily finance comparison invariants
+        run: |
+          node scripts/test-sales-settlement.mjs
+          node scripts/test-settlement-reader.mjs
+          node scripts/test-cash-control.mjs
+          node scripts/test-cash-movements.mjs
+          node scripts/test-native-finance.mjs
+      - name: Guest source invariants
+        run: node scripts/test-guests.mjs
+      - name: Supply source invariants
+        run: |
+          node scripts/test-supplies.mjs
+          node scripts/test-supply-payments.mjs
+      - name: Stock deduction invariants
+        run: node scripts/test-stock-deduction-rules.mjs

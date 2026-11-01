@@ -97,6 +97,18 @@ export function salesSource(
           }),
       }),
     );
+  const guestPage = (start: number) => {
+    if (!Number.isSafeInteger(start) || start < 0)
+      throw new Error("Проверьте страницу гостей");
+    return backRead("report.datasources.bonuses/select", {
+      vid: 29,
+      mode: "allTime",
+      start,
+      count: 500,
+      businessDayOffsetInMs: settings.day_start_hour * 3600000,
+      timeZone: 0,
+    });
+  };
   return {
     orders: (start: number) =>
       backRead("front.orders.orderinfoweb/select", {
@@ -108,23 +120,53 @@ export function salesSource(
         businessDayOffsetInMs: settings.day_start_hour * 3600000,
         timeZone: 0,
       }),
-    staff: (start: number) =>
-      backRead("report.datasources.bonuses/select", {
-        vid: 29,
-        mode: "allTime",
+    staff: guestPage,
+    guests: guestPage,
+    guestGroups: () => publicRead("crm.customer.group"),
+    supplyCompanies: () => publicRead("warehouse.store"),
+    supplyPage: (start: number) => {
+      if (!Number.isSafeInteger(start) || start < 0)
+        throw Error("Проверьте страницу накладных");
+      return backRead("warehouse.documents.incoming/select", {
         start,
         count: 500,
-        businessDayOffsetInMs: settings.day_start_hour * 3600000,
-        timeZone: 0,
-      }),
+      });
+    },
+    supplies: () => publicRead("warehouse.documents.incoming"),
     detail: (id: number) =>
       publicRead("front.orders", id) as Promise<Record<string, unknown>>,
+    payments: (id: number, start: number) => {
+      if (
+        !Number.isSafeInteger(id) ||
+        id <= 0 ||
+        !Number.isSafeInteger(start) ||
+        start < 0
+      )
+        throw new Error("Проверьте чек и страницу платежей");
+      return backRead("front.orders.payment/select", {
+        start,
+        count: 150,
+        ownerContextId: id,
+        ownerContextClassName:
+          "ru.edgex.quickresto.modules.front.orders.orderinfoweb.OrderInfoWeb",
+        businessDayOffsetInMs: settings.day_start_hour * 3600000,
+        timeZone: 0,
+      });
+    },
     zList: () =>
       publicRead("front.zreport", undefined, [
         {
           field: "localOpenedTime",
           operation: "range",
           value: { since: date, till: addDays(date, 1) },
+        },
+      ]) as Promise<Record<string, unknown>[]>,
+    cashControlList: () =>
+      publicRead("front.zreport", undefined, [
+        {
+          field: "localOpenedTime",
+          operation: "range",
+          value: { since: date, till: addDays(date, 2) },
         },
       ]) as Promise<Record<string, unknown>[]>,
     zDetail: (id: number) =>
@@ -165,6 +207,14 @@ export function salesSource(
         timeZone: 0,
       });
     },
+    cashMovements: (since: string, till: string) =>
+      publicRead("front.encashment", undefined, [
+        {
+          field: "serverRegisterTime",
+          operation: "range",
+          value: { since, till },
+        },
+      ]) as Promise<Record<string, unknown>[]>,
     taxi: () =>
       publicRead("front.encashment", undefined, [
         {

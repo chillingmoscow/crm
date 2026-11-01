@@ -6,7 +6,8 @@ export function FinanceSectionHeader({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   if (
     pathname === "/finance/payroll" ||
-    pathname?.startsWith("/finance/payroll/")
+    pathname?.startsWith("/finance/payroll/") ||
+    pathname === "/finance/supplies"
   )
     return null;
   return <>{children}</>;

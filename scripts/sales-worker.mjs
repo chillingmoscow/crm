@@ -27,7 +27,19 @@ while (!stopping) {
     if (!r.ok) console.error(`Обработчик смен: HTTP ${r.status}`);
     else {
       const stats = await r.json();
-      if (stats.slices && !stats.failed) delay = 500;
+      if (
+        (stats.slices && !stats.failed) ||
+        (stats.monthReports && !stats.monthReportErrors) ||
+        (stats.additionalReports && !stats.additionalErrors) ||
+        (stats.stockSlices && !stats.stockErrors) ||
+        (stats.settlementSlices && !stats.settlementErrors) ||
+        (stats.cashControlSlices && !stats.cashControlErrors) ||
+        (stats.cashMovementSlices && !stats.cashMovementErrors) ||
+        (stats.nativeFinanceSlices && !stats.nativeFinanceErrors) ||
+        (stats.guestSlices && !stats.guestErrors) ||
+        ((stats.supplySlices || stats.supplyPending) && !stats.supplyErrors)
+      )
+        delay = 500;
       if (stats.slices || stats.queued)
         console.log(
           `Смены: поставлено ${stats.queued}, обработано частей ${stats.slices}, ошибок ${stats.failed}`,
@@ -35,6 +47,38 @@ while (!stopping) {
       if (stats.monthReports || stats.monthReportErrors)
         console.log(
           `Месячные отчёты: обработано ${stats.monthReports}, ошибок ${stats.monthReportErrors}`,
+        );
+      if (stats.additionalReports || stats.additionalErrors)
+        console.log(
+          `Допродажи: обработано ${stats.additionalReports}, ошибок ${stats.additionalErrors}`,
+        );
+      if (stats.stockSlices || stats.stockErrors)
+        console.log(
+          `Списания: обработано частей ${stats.stockSlices}, ошибок ${stats.stockErrors}`,
+        );
+      if (stats.settlementSlices || stats.settlementErrors)
+        console.log(
+          `Сверка поступлений: обработано частей ${stats.settlementSlices}, ошибок ${stats.settlementErrors}`,
+        );
+      if (stats.cashControlSlices || stats.cashControlErrors)
+        console.log(
+          `Контроль кассы: обработано частей ${stats.cashControlSlices}, ошибок ${stats.cashControlErrors}`,
+        );
+      if (stats.cashMovementSlices || stats.cashMovementErrors)
+        console.log(
+          `Инкассации и внесения: обработано частей ${stats.cashMovementSlices}, ошибок ${stats.cashMovementErrors}`,
+        );
+      if (stats.supplySlices || stats.supplyErrors)
+        console.log(
+          `Поставки: частей ${stats.supplySlices}, ошибок ${stats.supplyErrors}`,
+        );
+      if (stats.guestSlices || stats.guestErrors)
+        console.log(
+          `Гости: частей ${stats.guestSlices}, ошибок ${stats.guestErrors}`,
+        );
+      if (stats.nativeFinanceSlices || stats.nativeFinanceErrors)
+        console.log(
+          `Финансовые операции: обработано частей ${stats.nativeFinanceSlices}, ошибок ${stats.nativeFinanceErrors}`,
         );
     }
   } catch (e) {

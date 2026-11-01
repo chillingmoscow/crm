@@ -31,7 +31,7 @@ import {
 
 export interface NotificationTypeSpec {
   /** Module category — для filter-chips в bell'е. */
-  category: "kb" | "finance" | "schedule" | "staff" | "inventory" | "system";
+  category: "kb" | "finance" | "schedule" | "staff" | "inventory" | "crm" | "system";
   /** Lucide-иконка для row'а (когда нет actor'а / fallback). */
   icon: LucideIcon;
   /** Tailwind-класс цвета иконки. */
@@ -49,6 +49,15 @@ const FALLBACK: NotificationTypeSpec = {
 };
 
 const REGISTRY: Record<string, NotificationTypeSpec> = {
+  "finance.cash_discrepancy": {
+    category: "finance",
+    icon: AlertTriangle,
+    iconColor: "text-amber-600",
+    verb: null,
+  },
+  "crm.guest.birthday": {category:"crm",icon:Cake,iconColor:"text-brand",verb:null},
+  "crm.guest.birthday_upcoming": {category:"crm",icon:Cake,iconColor:"text-brand",verb:null},
+  "crm.guest.group": {category:"crm",icon:UserPlus,iconColor:"text-brand",verb:null},
   // KB
   "kb.mention_in_page": {
     category: "kb",
@@ -171,6 +180,7 @@ export const KNOWN_CATEGORIES = [
   "schedule",
   "staff",
   "inventory",
+  "crm",
   "system",
 ] as const;
 
@@ -180,6 +190,7 @@ export const CATEGORY_LABELS: Record<string, string> = {
   schedule: "График",
   staff: "Команда",
   inventory: "Инвентаризация",
+  crm: "Гости",
   system: "Прочее",
 };
 

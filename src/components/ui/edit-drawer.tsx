@@ -57,6 +57,7 @@ export function EditDrawer({
         <SheetPrimitive.Overlay className={overlayClass} />
         <SheetPrimitive.Content
           tabIndex={-1}
+          {...(!description ? { "aria-describedby": undefined } : {})}
           onOpenAutoFocus={focusContentOnOpen ? focusOverlayContent : undefined}
           className={cn(
             "fixed inset-y-0 right-0 z-50 h-full bg-background shadow-lg outline-none transition",

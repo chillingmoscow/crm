@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   Archive,
   ArrowLeftRight,
   ArrowRightFromLine,
@@ -36,6 +37,7 @@ import type { ReactNode } from "react";
 
 import type { AuditEntitySnapshot, AuditEvent } from "@/lib/audit/list";
 import { auditFallbackHeadline, auditFieldValueLabel, auditFieldLabel, formatAuditDate as formatDate } from "./labels";
+import {guestAuditSpecs} from "./guests";
 import { candidateAuditSpecs } from "./candidates";
 
 /** Заголовок KB-страницы в фразе события: кликабельная ссылка, если
@@ -167,7 +169,9 @@ function StaffName({ event }: { event: AuditEvent }) {
 function roleNameFromEvent(event: AuditEvent): string {
   if (event.entity && event.entity.type === "role") return event.entity.name;
   const fromDetails =
-    (event.details.new_name as string) ?? (event.details.name as string);
+    (event.details.new_name as string) ??
+    (event.details.name as string) ??
+    (event.details.role_name as string);
   return fromDetails || "роль";
 }
 
@@ -298,6 +302,7 @@ function payrollTransferSpec(verb: string): AuditEventSpec {
 }
 
 const SPECS: Record<string, AuditEventSpec> = {
+  ...guestAuditSpecs,
   "integration.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: (e) => <>изменил(а) настройки интеграции{e.details.provider === "quickresto" ? " Quick Resto" : e.details.provider === "adesk" ? " Adesk" : e.details.provider === "telegram" ? " Telegram" : e.details.provider === "office_codes" ? " «Коды замка»" : ""}</>,
@@ -307,6 +312,179 @@ const SPECS: Record<string, AuditEventSpec> = {
       {typeof e.details.backoffice_configured === "boolean" && <p className="text-xs text-muted-foreground">Доступ к бэк-офису: {e.details.backoffice_configured ? "настроен" : "не настроен"}</p>}
       {typeof e.details.bonus_writes === "boolean" && <p className="text-xs text-muted-foreground">Бонусные списания: {e.details.bonus_writes ? "включены" : "выключены"}</p>}
     </>,
+  },
+  ...Object.fromEntries(
+    Object.entries({
+      created: "добавил(а) комментарий к смене",
+      updated: "изменил(а) комментарий к смене",
+      deleted: "удалил(а) комментарий к смене",
+      restored: "восстановил(а) комментарий к смене",
+      imported: "перенёс(ла) комментарий из Glide",
+      source_updated: "обновил(а) комментарий из Glide",
+    }).map(([action, verb]) => [
+      `sales.comment.${action}`,
+      {
+        icon: FilePlus2,
+        iconClass: "text-brand bg-brand/10",
+        buildHeadline: (e: AuditEvent) => (
+          <>
+            {verb} ·{" "}
+            <Link
+              className="text-brand hover:underline"
+              href={`/sales/shifts?from=${String(e.details.business_date)}&to=${String(e.details.business_date)}&day=${String(e.details.business_date)}&tab=comments`}
+            >
+              {formatDate(e.details.business_date)}
+            </Link>
+          </>
+        ),
+      },
+    ]),
+  ),
+  "sales.day_archive.imported": {
+    icon: FilePlus2,
+    iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) архив смен и обсуждений</>,
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        Смен: {Number(e.details.days ?? 0)} · строк команды:{" "}
+        {Number(e.details.members ?? 0)} · комментариев:{" "}
+        {Number(e.details.comments ?? 0)}
+      </p>
+    ),
+  },
+  "stock.writeoffs.refresh_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление списаний</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Месяц: {String(e.details.month ?? "").slice(0,7)}</p>,
+  },
+  "stock.deductions.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила инвентаризации и удержаний</>,
+    buildDetails: e => <div className="space-y-1 text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)} · действует с {formatDate(e.details.valid_from)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "finance.supply.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) настройки чтения поставок</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "finance.supply.payment_linked": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: e => <>связал(а) расход с накладной «{String(e.details.number ?? "")}»</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatAmount(Number(e.details.amountCents ?? 0) / 100)} · {String(e.details.reason ?? "")}</p>,
+  },
+  "finance.supply.payment_updated": {
+    icon: Pencil, iconClass: "text-brand bg-brand/10",
+    buildHeadline: e => <>изменил(а) оплату накладной «{String(e.details.number ?? "")}»</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatAmount(Number(e.details.beforeCents ?? 0) / 100)} → {formatAmount(Number(e.details.amountCents ?? 0) / 100)} · {String(e.details.reason ?? "")}</p>,
+  },
+  "finance.supply.payment_unlinked": {
+    icon: Pencil, iconClass: "text-brand bg-brand/10",
+    buildHeadline: e => <>убрал(а) связь расхода с накладной «{String(e.details.number ?? "")}»</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{String(e.details.reason ?? "")}</p>,
+  },
+  "finance.supply.read_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление накладных</>,
+  },
+  "finance.supply.source_updated": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) накладные из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Накладных: {Number(e.details.rows??0)} · добавлено: {Number(e.details.created??0)} · изменено: {Number(e.details.changed??0)}</p>,
+  },
+  "finance.settlement.settings_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила поступлений из Quick Resto</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "finance.execution.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) режим проведения финансовых операций</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)} · {e.details.enabled?`автоматически с ${formatDate(e.details.from)}`:"режим сверки"}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "finance.execution.requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>повторно запустил(а) проведение операций</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · {e.details.kind==="settlement"?"поступления":"кассовые операции"}</p>,
+  },
+  "finance.execution.committed": {
+    icon: CreditCard, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>провёл(а) финансовые операции по смене</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · создано {Number(e.details.created??0)} · исправлено {Number(e.details.corrected??0)} · отменено {Number(e.details.cancelled??0)}</p>,
+  },
+  "finance.settlement.requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) сверку поступлений по счетам</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)}</p>,
+  },
+  "finance.settlement.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>сохранил(а) результат чтения чеков</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · версия {Number(e.details.version??0)} · чеков: {Number(e.details.receipts??0)}</p>,
+  },
+  "cash.control.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила контроля кассы</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "cash.control.alert_sent": {
+    icon: AlertTriangle, iconClass: "text-amber-600 bg-amber-500/10",
+    buildHeadline: () => <>уведомил(а) о расхождении кассы</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · {e.details.kind === "open" ? "открытие" : "закрытие"} · {Number(e.details.diffCents ?? 0) / 100} ₽ · получателей: {Number(e.details.recipients ?? 0)}</p>,
+  },
+  "cash.movement.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила инкассаций и внесений</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "cash.movement.rules_imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) прежние ручные решения по инкассациям</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Сохранено решений: {Number(e.details.decisions??0)}</p>,
+  },
+  "cash.movement.requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) сверку инкассаций и внесений</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)}</p>,
+  },
+  "cash.movement.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) инкассации и внесения из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.from)} — {formatDate(e.details.through)} · операций: {Number(e.details.operations??0)} · обновлено дней: {Number(e.details.days??0)}</p>,
+  },
+  "cash.control.requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) контроль кассовых остатков</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)}</p>,
+  },
+  "cash.control.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) кассовые остатки из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{formatDate(e.details.date)} · отчётов: {Number(e.details.reports??0)} · версия {Number(e.details.version??0)}</p>,
+  },
+  "stock.writeoffs.synced": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) журнал списаний из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Актов: {Number(e.details.documents ?? 0)} · изменений: {Number(e.details.changed ?? 0)}</p>,
+  },
+  "stock.writeoffs.archive_imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) архив списаний</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Записей: {Number(e.details.rows ?? 0)} · Glide</p>,
+  },
+  "sales.additional_rules.updated": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) правила допродаж</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Действует с {formatDate(e.details.valid_from)}</p><p>{String(e.details.reason ?? "")}</p></div>,
+  },
+  "sales.additional.refresh_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление допродаж</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">{String(e.details.month).slice(0,7)} · отчётов: {Number(e.details.reports??0)}</p>,
+  },
+  "sales.additional.archive_imported": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>перенёс(ла) архив допродаж</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Записей: {Number(e.details.days??0)} · {String(e.details.source??"Glide")}</p>,
   },
   "sales.settings.updated": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
@@ -586,6 +764,20 @@ const SPECS: Record<string, AuditEventSpec> = {
       <>
         создал(а) должность <RoleName event={e} />
       </>
+    ),
+  },
+  "role.department_changed": {
+    icon: FileEdit,
+    iconClass: "text-blue-600 bg-blue-50",
+    buildHeadline: (e) => (
+      <>изменил(а) подразделение должности <RoleName event={e} /></>
+    ),
+    buildDetails: (e) => (
+      <p className="text-xs text-muted-foreground">
+        {String(e.details.old_department_name || "Без подразделения")}
+        {" → "}
+        {String(e.details.new_department_name || "Без подразделения")}
+      </p>
     ),
   },
   "role.renamed": {

@@ -7,6 +7,7 @@ import { useNewCandidateCount } from "@/lib/candidates/use-new-candidate-count";
 import { useTheme } from "next-themes";
 import { applyTheme } from "@/lib/theme";
 import {
+  UserRound,
   ArrowLeftRight,
   BookOpen,
   Boxes,
@@ -169,6 +170,7 @@ const NAV_SECTIONS: NavSection[] = [
         icon: CalendarDays,
         permission: "sales.view_shifts",
       },
+      { title: "Допродажи", href: "/sales/additional", icon: ChartNoAxesCombined, permission: "sales.view_shifts" },
     ],
   },
   {
@@ -236,6 +238,12 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "finance.view_bank_accounts",
       },
       {
+        title: "Поставки",
+        href: "/finance/supplies",
+        icon: PackageSearch,
+        permission: "finance.view_transactions",
+      },
+      {
         title: "Статьи",
         href: "/finance/categories",
         icon: Tags,
@@ -279,8 +287,7 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    // Документы — учётные документы. Сейчас акты инвентаризации;
-    // позже Списания/Перемещения (Этап 2).
+    // Учётные документы и журнал складских списаний.
     label: "Документы",
     icon: ClipboardList,
     items: [
@@ -295,8 +302,16 @@ const NAV_SECTIONS: NavSection[] = [
         ],
         roles: ["owner", "admin", "manager", "hostess", "waiter"],
       },
+      {
+        title: "Списания",
+        href: "/documents/writeoffs",
+        icon: ClipboardList,
+        permission: "inventory.view_results",
+        roles: ["owner", "admin", "manager"],
+      },
     ],
   },
+  {label: "Гости",icon: UserRound,href:"/crm/guests",permission:"crm.view_guests",items:[]},
   {
     // База знаний (стадия 8). Flat-section — клик по самому пункту
     // ведёт на /knowledge, без вложенных подпунктов и chevron'а.

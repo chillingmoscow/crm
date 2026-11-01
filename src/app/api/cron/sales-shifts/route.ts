@@ -1,10 +1,38 @@
 import { timingSafeEqual } from "node:crypto";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { asLooseDb } from "@/lib/supabase/loose";
 import { NextRequest, NextResponse } from "next/server";
 import { runOneSlice, scheduleDueDays } from "@/lib/sales/sync";
+import {
+  scheduleAdditionalReports,
+  processAdditionalReport,
+} from "@/lib/sales/additional-sync";
 import {
   scheduleStatisticsReports,
   processStatisticsReport,
 } from "@/lib/sales/statistics-sync";
+import {
+  scheduleStockWriteoffs,
+  processStockWriteoff,
+} from "@/lib/stock/writeoff-sync";
+import {
+  scheduleSettlements,
+  processSettlement,
+} from "@/lib/sales/settlement-sync";
+import {
+  scheduleCashControls,
+  processCashControl,
+} from "@/lib/sales/cash-control-sync";
+import {
+  scheduleCashMovements,
+  processCashMovement,
+} from "@/lib/sales/cash-movement-sync";
+import {
+  scheduleNativeFinance,
+  processNativeFinance,
+} from "@/lib/finance/native-sync";
+import { scheduleGuestReads, processGuestRead } from "@/lib/guests/sync";
+import { scheduleSupplies, processSupplyRead } from "@/lib/supplies/sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -21,34 +49,218 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Нет доступа" }, { status: 401 });
   try {
     const queued = await scheduleDueDays();
-    const started = Date.now();
     let slices = 0,
-      failed = 0;
-    while (Date.now() - started < 25000 && slices < 100) {
-      const result = await runOneSlice();
-      if (result.idle) break;
-      slices++;
-      if (result.error) {
-        failed++;
-        break;
-      }
-    }
-    let monthReports = 0,
-      monthReportErrors = 0;
+      failed = 0,
+      monthReports = 0,
+      monthReportErrors = 0,
+      additionalReports = 0,
+      additionalErrors = 0,
+      stockSlices = 0,
+      stockErrors = 0,
+      settlementSlices = 0,
+      settlementErrors = 0,
+      cashControlSlices = 0,
+      cashControlErrors = 0,
+      cashMovementSlices = 0,
+      cashMovementErrors = 0,
+      nativeFinanceSlices = 0,
+      nativeFinanceErrors = 0,
+      guestSlices = 0,
+      guestErrors = 0,
+      supplySlices = 0,
+      supplyErrors = 0,
+      supplyPending = 0;
     try {
       await scheduleStatisticsReports();
-      const start = Date.now();
-      while (Date.now() - start < 5000) {
-        const r = await processStatisticsReport();
-        if (r.idle) break;
-        monthReports++;
-        if (r.error) {
-          monthReportErrors++;
+    } catch {
+      monthReportErrors++;
+    }
+    try {
+      await scheduleAdditionalReports();
+    } catch {
+      additionalErrors++;
+    }
+    try {
+      await scheduleStockWriteoffs();
+    } catch {
+      stockErrors++;
+    }
+    try {
+      await scheduleSettlements();
+    } catch {
+      settlementErrors++;
+    }
+    try {
+      await scheduleCashControls();
+    } catch {
+      cashControlErrors++;
+    }
+    try {
+      await scheduleCashMovements();
+    } catch {
+      cashMovementErrors++;
+    }
+    try {
+      await scheduleNativeFinance();
+    } catch {
+      nativeFinanceErrors++;
+    }
+    try {
+      await scheduleGuestReads();
+    } catch {
+      guestErrors++;
+    }
+    try {
+      supplyPending = await scheduleSupplies();
+    } catch {
+      supplyErrors++;
+    }
+    // One provider workload per tick: a slow two-report day must not be appended
+    // to 25 seconds of order imports and a monthly report in the same request.
+    // Persist rotation: a once-per-minute scheduler would otherwise always pick
+    // the same lane with a clock modulo divisible by four.
+    const rotation = await asLooseDb(createAdminClient()).rpc(
+      "sales_next_worker_lane",
+    );
+    if (
+      rotation.error ||
+      !Number.isInteger(rotation.data) ||
+      Number(rotation.data) < 0 ||
+      Number(rotation.data) > 9
+    )
+      throw new Error("Не удалось выбрать очередь");
+    const lane = Number(rotation.data);
+    if (lane === 9) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && supplySlices < 100) {
+        try {
+          const r = await processSupplyRead();
+          if (r.idle) break;
+          supplySlices++;
+          if (r.error) {
+            supplyErrors++;
+            break;
+          }
+        } catch {
+          supplyErrors++;
           break;
         }
       }
-    } catch {
-      monthReportErrors++;
+    } else if (lane === 8) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && guestSlices < 100) {
+        try {
+          const r = await processGuestRead();
+          if (r.idle) break;
+          guestSlices++;
+          if (r.error) {
+            guestErrors++;
+            break;
+          }
+        } catch {
+          guestErrors++;
+          break;
+        }
+      }
+    } else if (lane === 7) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && nativeFinanceSlices < 100) {
+        try {
+          const r = await processNativeFinance();
+          if (r.idle) break;
+          nativeFinanceSlices++;
+          if (r.error) {
+            nativeFinanceErrors++;
+            break;
+          }
+        } catch {
+          nativeFinanceErrors++;
+          break;
+        }
+      }
+    } else if (lane === 6) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && cashMovementSlices < 100) {
+        try {
+          const r = await processCashMovement();
+          if (r.idle) break;
+          cashMovementSlices++;
+          if (r.error) {
+            cashMovementErrors++;
+            break;
+          }
+        } catch {
+          cashMovementErrors++;
+          break;
+        }
+      }
+    } else if (lane === 5) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && cashControlSlices < 100) {
+        try {
+          const r = await processCashControl();
+          if (r.idle) break;
+          cashControlSlices++;
+          if (r.error) {
+            cashControlErrors++;
+            break;
+          }
+        } catch {
+          cashControlErrors++;
+          break;
+        }
+      }
+    } else if (lane === 4) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && settlementSlices < 100) {
+        try {
+          const r = await processSettlement();
+          if (r.idle) break;
+          settlementSlices++;
+          if (r.error) {
+            settlementErrors++;
+            break;
+          }
+        } catch {
+          settlementErrors++;
+          break;
+        }
+      }
+    } else if (lane === 3) {
+      try {
+        const r = await processStockWriteoff();
+        if (!r.idle) stockSlices++;
+        if (r.error) stockErrors++;
+      } catch {
+        stockErrors++;
+      }
+    } else if (lane === 2) {
+      try {
+        const r = await processAdditionalReport();
+        if (!r.idle) additionalReports++;
+        if (r.error) additionalErrors++;
+      } catch {
+        additionalErrors++;
+      }
+    } else if (lane === 1) {
+      try {
+        const r = await processStatisticsReport();
+        if (!r.idle) monthReports++;
+        if (r.error) monthReportErrors++;
+      } catch {
+        monthReportErrors++;
+      }
+    } else {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && slices < 100) {
+        const r = await runOneSlice();
+        if (r.idle) break;
+        slices++;
+        if (r.error) {
+          failed++;
+          break;
+        }
+      }
     }
     return NextResponse.json({
       queued,
@@ -56,6 +268,23 @@ export async function POST(request: NextRequest) {
       failed,
       monthReports,
       monthReportErrors,
+      additionalReports,
+      additionalErrors,
+      stockSlices,
+      stockErrors,
+      settlementSlices,
+      settlementErrors,
+      cashControlSlices,
+      cashControlErrors,
+      cashMovementSlices,
+      cashMovementErrors,
+      nativeFinanceSlices,
+      nativeFinanceErrors,
+      guestSlices,
+      guestErrors,
+      supplySlices,
+      supplyErrors,
+      supplyPending,
     });
   } catch {
     return NextResponse.json(

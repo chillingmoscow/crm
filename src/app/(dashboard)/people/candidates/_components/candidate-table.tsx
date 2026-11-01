@@ -1,17 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
+import { PersonAvatar } from "@/components/people/person-avatar";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { formatPhoneDisplay } from "@/lib/format/phone";
-import { type AppointmentOptions, type Candidate } from "@/lib/candidates/types";
-import { dateLabel, plural } from "./fields";
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
+  type AppointmentOptions,
+  type Candidate,
+} from "@/lib/candidates/types";
+import { dateLabel, plural } from "./fields";
 import {
   CandidateStatusCell,
   type CandidateStatusUpdate,
@@ -23,7 +21,7 @@ export const FIELD_LABELS = {
   status: "Статус",
   phone: "Телефон",
   submitted_at: "Дата заявки",
-  photo: "Фотография",
+  photo: "Фото",
   age: "Возраст",
   salary_expectation: "Ожидания по зарплате",
   address: "Адрес",
@@ -31,9 +29,13 @@ export const FIELD_LABELS = {
   education: "Образование",
 } as const;
 export type CandidateField = keyof typeof FIELD_LABELS;
-export const COLUMN_CONFIG = Object.keys(FIELD_LABELS).map((id) => ({
+export const COLUMN_CONFIG = [
+  "photo",
+  ...Object.keys(FIELD_LABELS).filter((id) => id !== "photo"),
+].map((id) => ({
   id,
   defaultVisible: [
+    "photo",
     "full_name",
     "desired_position",
     "status",
@@ -49,103 +51,96 @@ export function candidateColumns(
   options: AppointmentOptions,
   canDelete = false,
 ): ColumnDef<Candidate>[] {
-  const fields: ColumnDef<Candidate>[] = COLUMN_CONFIG.map(({ id, defaultSize }) => ({
-    id,
-    accessorKey: id,
-    header: FIELD_LABELS[id as CandidateField],
-    size: defaultSize,
-    minSize: id === "photo" ? 60 : id === "status" ? 180 : 80,
-    maxSize: 800,
-    enableHiding: id !== "full_name",
-    cell: ({ row }) => {
-      const c = row.original;
-      if (id === "full_name")
-        return (
-          <Link
-            className="block break-words font-medium hover:text-brand"
-            href={`/people/candidates/${c.id}`}
-          >
-            {c.full_name}
-          </Link>
-        );
-      if (id === "photo")
-        return c.photo_url ? (
-          <HoverCard openDelay={150} closeDelay={80}>
-            <HoverCardTrigger asChild>
-              <button
-                type="button"
-                aria-label={`Увеличить фотографию: ${c.full_name}`}
-                className="block rounded-md outline-none focus-visible:ring-2 focus-visible:ring-brand"
-              >
-                <Image
-                  unoptimized
-                  width={36}
-                  height={36}
-                  alt=""
-                  src={c.photo_url}
-                  className="size-9 rounded-md object-cover"
-                />
-              </button>
-            </HoverCardTrigger>
-            <HoverCardContent
-              side="right"
-              align="start"
-              className="w-auto max-w-[min(340px,calc(100vw-32px))] p-2"
+  const fields: ColumnDef<Candidate>[] = COLUMN_CONFIG.map(
+    ({ id, defaultSize }) => ({
+      id,
+      accessorKey: id,
+      header: FIELD_LABELS[id as CandidateField],
+      size: defaultSize,
+      minSize:
+        id === "photo"
+          ? 72
+          : id === "status"
+            ? 184
+            : id === "full_name"
+              ? 200
+              : id === "salary_expectation"
+                ? 220
+                : id === "desired_position"
+                  ? 144
+                  : id === "submitted_at"
+                    ? 156
+                    : id === "phone"
+                      ? 168
+                      : 112,
+      maxSize: 3000,
+      enableHiding: id !== "full_name",
+      cell: ({ row }) => {
+        const c = row.original;
+        if (id === "full_name")
+          return (
+            <Link
+              className="block truncate font-medium hover:text-brand"
+              title={c.full_name}
+              href={`/people/candidates/${c.id}`}
             >
-              <Image
-                unoptimized
-                width={300}
-                height={360}
-                src={c.photo_url}
-                alt={`Фотография кандидата ${c.full_name}`}
-                className="max-h-[60vh] max-w-full rounded object-contain"
-              />
-            </HoverCardContent>
-          </HoverCard>
-        ) : (
-          "—"
-        );
-      if (id === "status")
+              {c.full_name}
+            </Link>
+          );
+        if (id === "photo")
+          return <PersonAvatar src={c.photo_url} name={c.full_name} />;
+        if (id === "status")
+          return (
+            <CandidateStatusCell
+              candidate={c}
+              onSaved={onSaved}
+              onRefresh={onRefresh}
+              options={options}
+            />
+          );
+        const value =
+          id === "submitted_at"
+            ? dateLabel(c.submitted_at)
+            : id === "phone"
+              ? formatPhoneDisplay(c.phone)
+              : id === "age"
+                ? c.age
+                  ? `${c.age} ${plural(c.age, ["год", "года", "лет"])}`
+                  : "Не указан"
+                : c[id as keyof Candidate];
         return (
-          <CandidateStatusCell
-            candidate={c}
-            onSaved={onSaved}
-            onRefresh={onRefresh}
-            options={options}
-          />
+          <span
+            className="block truncate"
+            title={value == null ? undefined : String(value)}
+          >
+            {value == null || value === "" ? "Не указано" : String(value)}
+          </span>
         );
-      const value =
-        id === "submitted_at"
-          ? dateLabel(c.submitted_at)
-          : id === "phone"
-            ? formatPhoneDisplay(c.phone)
-          : id === "age"
-            ? c.age
-              ? `${c.age} ${plural(c.age, ["год", "года", "лет"])}`
-              : "Не указан"
-            : c[id as keyof Candidate];
-      return (
-        <span className="line-clamp-3 break-words">
-          {value == null || value === "" ? "Не указано" : String(value)}
-        </span>
-      );
-    },
-  }));
-  return canDelete ? [{
-    id: "select",
-    size: 44,
-    minSize: 44,
-    maxSize: 44,
-    enableHiding: false,
-    enableResizing: false,
-    cell: ({ row }) => (
-      <Checkbox
-        checked={row.getIsSelected()}
-        disabled={!row.getCanSelect()}
-        onCheckedChange={(checked) => row.toggleSelected(checked === true)}
-        aria-label={`Выбрать анкету: ${row.original.full_name}`}
-        className="align-middle"
-      />
-    ),
-  }, ...fields] : fields;
+      },
+    }),
+  );
+  return canDelete
+    ? [
+        {
+          id: "select",
+          size: 44,
+          minSize: 44,
+          maxSize: 44,
+          enableHiding: false,
+          enableResizing: false,
+          cell: ({ row }) => (
+            <Checkbox
+              checked={row.getIsSelected()}
+              disabled={!row.getCanSelect()}
+              onCheckedChange={(checked) =>
+                row.toggleSelected(checked === true)
+              }
+              aria-label={`Выбрать анкету: ${row.original.full_name}`}
+              className="align-middle"
+            />
+          ),
+        },
+        ...fields,
+      ]
+    : fields;
 }

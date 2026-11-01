@@ -1,29 +1,137 @@
 "use client";
-import {useEffect,useTransition} from 'react';
-import {useRouter} from 'next/navigation';
-import {CheckCircle2,AlertCircle,Loader2} from 'lucide-react';
-import {toast} from 'sonner';
-import {Button} from '@/components/ui/button';
-import {retryStaffTermination} from '../actions';
-export function StaffTerminationStatus({uvrId,status,doorNumbers=[]}:{uvrId:string;doorNumbers?:number[];status:{state:string;error:string|null;door_revoked:boolean;shared_access:boolean;employee_id:number|null;guest_id:number|null;attempts:number}}){
- const router=useRouter(),[busy,start]=useTransition();
- const complete=status.state==='complete';
- useEffect(()=>{
-  if(complete||(status.state==='error'&&status.attempts>=5))return;
-  const timer=setInterval(()=>router.refresh(),5000);
-  return()=>clearInterval(timer);
- },[complete,status.state,status.attempts,router]);
- const Icon=complete?CheckCircle2:status.state==='error'?AlertCircle:Loader2;
- return <div className="mx-4 mt-4 rounded-xl border bg-card px-4 py-3 md:mx-8" role="status">
-  <div className="flex items-start gap-3">
-   <Icon className={'mt-0.5 size-4 shrink-0 '+(complete?'text-emerald-600':status.state==='error'?'text-destructive':'animate-spin text-muted-foreground')}/>
-   <div className="min-w-0 flex-1 space-y-1 text-sm">
-    <p className="font-medium">{complete?(status.shared_access||(!status.employee_id&&!status.guest_id)?'Доступ к этому заведению закрыт':'Доступ закрыт, удаление в Quick Resto подтверждено'):status.state==='error'?'Доступ к заведению закрыт, внешнее удаление требует проверки':'Доступ к заведению закрыт, завершаем удаление в Quick Resto'}</p>
-    {status.shared_access&&<p className="text-muted-foreground">Сотрудник работает в другом заведении аккаунта. Общий доступ Quick Resto и код замка сохранены.</p>}
-    {status.state==='error'&&status.error&&<p className="break-words text-muted-foreground">{status.error}</p>}
-    {status.door_revoked&&<p className="text-muted-foreground">Код замка отозван в CRM. Если он был записан в физический замок, удалите {doorNumbers.length?'пользователя № '+doorNumbers.join(', '):'его'} из замка вручную.</p>}
-   </div>
-   {!complete&&<Button size="sm" variant="outline" disabled={busy||status.state==='working'} onClick={()=>start(async()=>{const r=await retryStaffTermination(uvrId);if(r.error)toast.error(r.error);else toast.success('Удаление подтверждено');router.refresh();})}>{busy?'Проверяем…':'Продолжить'}</Button>}
-  </div>
- </div>;
+
+import { useEffect, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { CheckCircle2, AlertCircle, Loader2, ChevronDown } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { retryStaffTermination } from "../actions";
+
+export function StaffTerminationStatus({
+  uvrId,
+  status,
+  doorNumbers = [],
+}: {
+  uvrId: string;
+  doorNumbers?: number[];
+  status: {
+    state: string;
+    error: string | null;
+    door_revoked: boolean;
+    shared_access: boolean;
+    employee_id: number | null;
+    guest_id: number | null;
+    attempts: number;
+  };
+}) {
+  const router = useRouter();
+  const [busy, start] = useTransition();
+  const complete = status.state === "complete";
+  const error = status.state === "error";
+  const manualDoorCheck = status.door_revoked;
+  useEffect(() => {
+    if (complete || (status.state === "error" && status.attempts >= 5)) return;
+    const timer = setInterval(() => router.refresh(), 5000);
+    return () => clearInterval(timer);
+  }, [complete, status.state, status.attempts, router]);
+
+  const Icon = error
+    ? AlertCircle
+    : !complete
+      ? Loader2
+      : manualDoorCheck
+        ? AlertCircle
+        : CheckCircle2;
+  const label = error
+    ? "Требует внимания"
+    : !complete
+      ? "В процессе"
+      : manualDoorCheck
+        ? "Проверить замок"
+        : "Завершено";
+  return (
+    <details
+      open={error || manualDoorCheck || !complete}
+      className="group border-t pt-4 text-sm"
+    >
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-brand [&::-webkit-details-marker]:hidden">
+        <span className="flex-1 font-medium">Закрытие доступов</span>
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs ${error ? "bg-destructive/10 text-destructive" : !complete ? "bg-muted text-muted-foreground" : manualDoorCheck ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"}`}
+        >
+          <Icon
+            className={`size-3.5 ${!error && !complete ? "animate-spin motion-reduce:animate-none" : ""}`}
+          />
+          {label}
+        </span>
+        <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+      </summary>
+      <div className="mt-4 space-y-3" role="status">
+        <dl className="space-y-2 text-xs">
+          <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+            <dt className="text-muted-foreground">Доступ к заведению</dt>
+            <dd>Закрыт</dd>
+          </div>
+          <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+            <dt className="text-muted-foreground">Quick Resto</dt>
+            <dd>
+              {status.shared_access
+                ? "Сохранён для других заведений"
+                : complete
+                  ? !status.employee_id && !status.guest_id
+                    ? "Связанных записей нет"
+                    : "Удаление подтверждено"
+                  : error
+                    ? "Требует проверки"
+                    : "Завершаем удаление"}
+            </dd>
+          </div>
+          {manualDoorCheck && (
+            <div className="flex flex-wrap justify-between gap-x-4 gap-y-1">
+              <dt className="text-muted-foreground">Код замка в CRM</dt>
+              <dd>Отозван</dd>
+            </div>
+          )}
+        </dl>
+        {status.shared_access && (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Сотрудник работает в другом заведении аккаунта. Общий доступ Quick
+            Resto и код замка сохранены.
+          </p>
+        )}
+        {error && status.error && (
+          <p className="break-words text-xs leading-relaxed text-destructive">
+            {status.error}
+          </p>
+        )}
+        {manualDoorCheck && (
+          <p className="rounded-lg bg-amber-500/5 px-3 py-2.5 text-xs leading-relaxed text-amber-800 dark:text-amber-300">
+            Если код был добавлен в физический замок, удалите{" "}
+            {doorNumbers.length
+              ? `пользователя № ${doorNumbers.join(", ")}`
+              : "его"}{" "}
+            из замка вручную.
+          </p>
+        )}
+        {!complete && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={busy || status.state === "working"}
+            onClick={() =>
+              start(async () => {
+                const result = await retryStaffTermination(uvrId);
+                if (result.error) toast.error(result.error);
+                else toast.success("Удаление подтверждено");
+                router.refresh();
+              })
+            }
+          >
+            {busy ? "Проверяем…" : "Продолжить проверку"}
+          </Button>
+        )}
+      </div>
+    </details>
+  );
 }

@@ -1,6 +1,10 @@
 "use client";
 
-import { flexRender, type Header, type Table as TanStackTable } from "@tanstack/react-table";
+import {
+  flexRender,
+  type Header,
+  type Table as TanStackTable,
+} from "@tanstack/react-table";
 import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
@@ -25,19 +29,30 @@ export function ResizableTableHead<TData>({
   headerAriaSort,
   renderControlHeader,
   onResizeStart,
+  columnWidths,
 }: {
   table: TanStackTable<TData>;
+  /** Pixel widths resolved against the scroll container, respecting header minima. */
+  columnWidths?: Record<string, number>;
   /** Служебные колонки: без сортировки и без ручки ресайза (чекбокс, «⋯»). */
   isControlColumn: (columnId: string) => boolean;
   isRightAligned?: (columnId: string) => boolean;
   sortableColumnIds: Set<string>;
-  onSort: (columnId: string, event: React.MouseEvent<HTMLButtonElement>) => void;
+  onSort: (
+    columnId: string,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => void;
   headerIndicator: (columnId: string) => ReactNode;
-  headerAriaSort: (columnId: string) => "ascending" | "descending" | "none" | undefined;
+  headerAriaSort: (
+    columnId: string,
+  ) => "ascending" | "descending" | "none" | undefined;
   /** Содержимое шапки служебной колонки. По умолчанию — пусто. */
   renderControlHeader?: (header: Header<TData, unknown>) => ReactNode;
   /** Live resize without committing React state on every pointer movement. */
-  onResizeStart?: (columnId: string, event: React.PointerEvent<HTMLDivElement>) => void;
+  onResizeStart?: (
+    columnId: string,
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => void;
 }) {
   return (
     <>
@@ -45,7 +60,11 @@ export function ResizableTableHead<TData>({
         {table.getVisibleLeafColumns().map((column) => (
           <col
             key={column.id}
-            style={{ width: `${(column.getSize() / table.getTotalSize()) * 100}%` }}
+            style={{
+              width:
+                columnWidths?.[column.id] ??
+                `${(column.getSize() / table.getTotalSize()) * 100}%`,
+            }}
           />
         ))}
       </colgroup>
@@ -72,26 +91,41 @@ export function ResizableTableHead<TData>({
                       type="button"
                       className={cn(
                         "flex max-w-full items-center gap-1 truncate hover:text-foreground",
-                        isRightAligned?.(columnId) && "ml-auto justify-end text-right",
+                        isRightAligned?.(columnId) &&
+                          "ml-auto justify-end text-right",
                       )}
                       onClick={(event) => onSort(columnId, event)}
                     >
                       {isRightAligned?.(columnId) && headerIndicator(columnId)}
                       <span className="truncate">
-                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {flexRender(
+                          header.column.columnDef.header,
+                          header.getContext(),
+                        )}
                       </span>
                       {!isRightAligned?.(columnId) && headerIndicator(columnId)}
                     </button>
                   ) : (
                     <span className="truncate">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {flexRender(
+                        header.column.columnDef.header,
+                        header.getContext(),
+                      )}
                     </span>
                   )}
                   {header.column.getCanResize() && !isControl ? (
                     <div
-                      onPointerDown={onResizeStart ? (event) => onResizeStart(columnId, event) : undefined}
-                      onMouseDown={onResizeStart ? undefined : header.getResizeHandler()}
-                      onTouchStart={onResizeStart ? undefined : header.getResizeHandler()}
+                      onPointerDown={
+                        onResizeStart
+                          ? (event) => onResizeStart(columnId, event)
+                          : undefined
+                      }
+                      onMouseDown={
+                        onResizeStart ? undefined : header.getResizeHandler()
+                      }
+                      onTouchStart={
+                        onResizeStart ? undefined : header.getResizeHandler()
+                      }
                       className="absolute -right-1 top-0 z-10 flex h-full w-2 cursor-col-resize select-none items-stretch justify-center touch-none"
                     >
                       <span
@@ -99,7 +133,9 @@ export function ResizableTableHead<TData>({
                           "my-2 w-px rounded-full bg-border opacity-0 transition-[width,background-color,opacity]",
                           "group-hover/header:opacity-80",
                           "hover:w-1 hover:bg-brand hover:opacity-100",
-                          header.column.getIsResizing() ? "w-1 bg-brand opacity-100" : null,
+                          header.column.getIsResizing()
+                            ? "w-1 bg-brand opacity-100"
+                            : null,
                         )}
                       />
                     </div>

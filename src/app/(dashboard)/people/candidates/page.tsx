@@ -7,9 +7,14 @@ import {
 } from "@/lib/candidates/data";
 import { CandidatesClient } from "./_components/candidates-client";
 export const dynamic = "force-dynamic";
-export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ settings?: string }> }) {
+export default async function CandidatesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ settings?: string }>;
+}) {
   if (!(await getCachedUser())) redirect("/login");
-  if ((await searchParams).settings === "1") redirect("/settings/integrations/tilda");
+  if ((await searchParams).settings === "1")
+    redirect("/settings/integrations/tilda");
   const s = await candidateScope();
   const [list, options] = await Promise.all([
     candidateList(),
@@ -18,6 +23,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
   return (
     <CandidatesClient
       key={`${s.accountId}:${s.user.id}`}
+      accountId={s.accountId}
       initialList={list}
       preferenceKey={`${s.accountId}:${s.user.id}`}
       options={options}

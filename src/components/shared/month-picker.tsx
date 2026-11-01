@@ -17,6 +17,7 @@ export function MonthPicker({
   value,
   onChange,
   min,
+  max,
   employee,
   disabled = false,
   prefix = "За ",
@@ -26,11 +27,12 @@ export function MonthPicker({
   value: string;
   onChange: (month: string) => void;
   min: string;
+  max?: string;
   employee?: string;
   disabled?: boolean;
   prefix?: string;
   ariaLabel?: string;
-  variant?: "inline" | "field";
+  variant?: "inline" | "field" | "toolbar";
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -49,9 +51,11 @@ export function MonthPicker({
           disabled={disabled}
           aria-label={ariaLabel ?? `За какой месяц: ${employee}`}
           className={
-            variant === "field"
-              ? "inline-flex h-10 w-full items-center gap-2 rounded-lg border bg-background px-3 text-[13px] font-normal text-foreground hover:bg-muted disabled:opacity-50"
-              : "mt-2 inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 text-xs font-normal text-foreground hover:bg-muted disabled:opacity-50"
+            variant === "toolbar"
+              ? "inline-flex h-8 items-center gap-2 rounded-md px-2 text-sm font-normal text-foreground hover:bg-muted disabled:opacity-50"
+              : variant === "field"
+                ? "inline-flex h-10 w-full items-center gap-2 rounded-lg border bg-background px-3 text-[13px] font-normal text-foreground hover:bg-muted disabled:opacity-50"
+                : "mt-2 inline-flex items-center gap-1.5 rounded-md border bg-background px-2 py-1.5 text-xs font-normal text-foreground hover:bg-muted disabled:opacity-50"
           }
         >
           <CalendarDays size={12} className="text-muted-foreground" />
@@ -89,7 +93,7 @@ export function MonthPicker({
           <button
             type="button"
             aria-label="Следующий год"
-            disabled={year >= 9999}
+            disabled={year >= (max ? Number(max.slice(0, 4)) : 9999)}
             className="rounded p-1.5 hover:bg-muted"
             onClick={() => setYear((y) => y + 1)}
           >
@@ -103,7 +107,7 @@ export function MonthPicker({
               <button
                 type="button"
                 key={date}
-                disabled={date < min}
+                disabled={date < min || (!!max && date > max)}
                 aria-pressed={value === date}
                 className={`rounded-md py-2 text-sm disabled:opacity-30 ${value === date ? "bg-brand text-white" : "hover:bg-muted"}`}
                 onClick={() => {

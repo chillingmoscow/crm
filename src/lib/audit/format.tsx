@@ -360,6 +360,20 @@ const SPECS: Record<string, AuditEventSpec> = {
     buildHeadline: () => <>изменил(а) правила инвентаризации и удержаний</>,
     buildDetails: e => <div className="space-y-1 text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)} · действует с {formatDate(e.details.valid_from)}</p><p>{String(e.details.reason??'')}</p></div>,
   },
+  "finance.supply.rules_saved": {
+    icon: Settings2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>изменил(а) настройки чтения поставок</>,
+    buildDetails: e => <div className="text-xs text-muted-foreground"><p>Версия {Number(e.details.version??0)}</p><p>{String(e.details.reason??'')}</p></div>,
+  },
+  "finance.supply.read_requested": {
+    icon: RotateCcw, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>запросил(а) обновление накладных</>,
+  },
+  "finance.supply.source_updated": {
+    icon: FilePlus2, iconClass: "text-brand bg-brand/10",
+    buildHeadline: () => <>обновил(а) накладные из Quick Resto</>,
+    buildDetails: e => <p className="text-xs text-muted-foreground">Накладных: {Number(e.details.rows??0)} · добавлено: {Number(e.details.created??0)} · изменено: {Number(e.details.changed??0)}</p>,
+  },
   "finance.settlement.settings_saved": {
     icon: Settings2, iconClass: "text-brand bg-brand/10",
     buildHeadline: () => <>изменил(а) правила поступлений из Quick Resto</>,

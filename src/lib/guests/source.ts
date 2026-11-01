@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canonicalSourceValue as canonicalGuestValue } from "@/lib/source/canonical";
 
 export const guestFactSchema = z
   .object({
@@ -68,18 +69,8 @@ export function normalizeGuestGroups(raw: unknown): GuestGroup[] {
     )
     .sort((a, b) => a.id - b.id);
 }
-export function canonicalGuestValue(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(canonicalGuestValue).join(",")}]`;
-  if (v && typeof v === "object")
-    return `{${Object.keys(v)
-      .sort()
-      .map(
-        (k) =>
-          `${JSON.stringify(k)}:${canonicalGuestValue((v as Record<string, unknown>)[k])}`,
-      )
-      .join(",")}}`;
-  return JSON.stringify(v);
-}
+export { canonicalSourceValue as canonicalGuestValue } from "@/lib/source/canonical";
+
 function object(v: unknown): Record<string, unknown> {
   if (!v || typeof v !== "object" || Array.isArray(v))
     throw Error("Quick Resto не подтвердил данные гостей");

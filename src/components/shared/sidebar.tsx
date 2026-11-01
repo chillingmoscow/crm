@@ -238,6 +238,12 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "finance.view_bank_accounts",
       },
       {
+        title: "Поставки",
+        href: "/finance/supplies",
+        icon: PackageSearch,
+        permission: "finance.view_transactions",
+      },
+      {
         title: "Статьи",
         href: "/finance/categories",
         icon: Tags,

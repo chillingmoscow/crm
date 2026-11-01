@@ -18,6 +18,17 @@ try {
       /from ["']zod["']/g,
       `from ${JSON.stringify(import.meta.resolve("zod"))}`,
     );
+  const canonicalCode = ts.transpileModule(
+    await readFile("src/lib/source/canonical.ts", "utf8"),
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.ES2022,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+  await writeFile(join(dir, "canonical.mjs"), canonicalCode);
+  code = code.replaceAll("@/lib/source/canonical", "./canonical.mjs");
   await writeFile(join(dir, "source.mjs"), code);
   const {
     advanceGuestReader: advance,

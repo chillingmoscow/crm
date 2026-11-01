@@ -98,10 +98,15 @@ export function salesSource(
       }),
     );
   const guestPage = (start: number) => {
-    if (!Number.isSafeInteger(start) || start < 0) throw new Error("Проверьте страницу гостей");
+    if (!Number.isSafeInteger(start) || start < 0)
+      throw new Error("Проверьте страницу гостей");
     return backRead("report.datasources.bonuses/select", {
-      vid: 29, mode: "allTime", start, count: 500,
-      businessDayOffsetInMs: settings.day_start_hour * 3600000, timeZone: 0,
+      vid: 29,
+      mode: "allTime",
+      start,
+      count: 500,
+      businessDayOffsetInMs: settings.day_start_hour * 3600000,
+      timeZone: 0,
     });
   };
   return {
@@ -118,6 +123,16 @@ export function salesSource(
     staff: guestPage,
     guests: guestPage,
     guestGroups: () => publicRead("crm.customer.group"),
+    supplyCompanies: () => publicRead("warehouse.store"),
+    supplyPage: (start: number) => {
+      if (!Number.isSafeInteger(start) || start < 0)
+        throw Error("Проверьте страницу накладных");
+      return backRead("warehouse.documents.incoming/select", {
+        start,
+        count: 500,
+      });
+    },
+    supplies: () => publicRead("warehouse.documents.incoming"),
     detail: (id: number) =>
       publicRead("front.orders", id) as Promise<Record<string, unknown>>,
     payments: (id: number, start: number) => {
@@ -193,9 +208,13 @@ export function salesSource(
       });
     },
     cashMovements: (since: string, till: string) =>
-      publicRead("front.encashment", undefined, [{
-        field: "serverRegisterTime", operation: "range", value: { since, till },
-      }]) as Promise<Record<string, unknown>[]>,
+      publicRead("front.encashment", undefined, [
+        {
+          field: "serverRegisterTime",
+          operation: "range",
+          value: { since, till },
+        },
+      ]) as Promise<Record<string, unknown>[]>,
     taxi: () =>
       publicRead("front.encashment", undefined, [
         {

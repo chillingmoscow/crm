@@ -32,6 +32,7 @@ import {
   processNativeFinance,
 } from "@/lib/finance/native-sync";
 import { scheduleGuestReads, processGuestRead } from "@/lib/guests/sync";
+import { scheduleSupplies, processSupplyRead } from "@/lib/supplies/sync";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -65,7 +66,10 @@ export async function POST(request: NextRequest) {
       nativeFinanceSlices = 0,
       nativeFinanceErrors = 0,
       guestSlices = 0,
-      guestErrors = 0;
+      guestErrors = 0,
+      supplySlices = 0,
+      supplyErrors = 0,
+      supplyPending = 0;
     try {
       await scheduleStatisticsReports();
     } catch {
@@ -106,6 +110,11 @@ export async function POST(request: NextRequest) {
     } catch {
       guestErrors++;
     }
+    try {
+      supplyPending = await scheduleSupplies();
+    } catch {
+      supplyErrors++;
+    }
     // One provider workload per tick: a slow two-report day must not be appended
     // to 25 seconds of order imports and a monthly report in the same request.
     // Persist rotation: a once-per-minute scheduler would otherwise always pick
@@ -117,11 +126,27 @@ export async function POST(request: NextRequest) {
       rotation.error ||
       !Number.isInteger(rotation.data) ||
       Number(rotation.data) < 0 ||
-      Number(rotation.data) > 8
+      Number(rotation.data) > 9
     )
       throw new Error("Не удалось выбрать очередь");
     const lane = Number(rotation.data);
-    if (lane === 8) {
+    if (lane === 9) {
+      const started = Date.now();
+      while (Date.now() - started < 25000 && supplySlices < 100) {
+        try {
+          const r = await processSupplyRead();
+          if (r.idle) break;
+          supplySlices++;
+          if (r.error) {
+            supplyErrors++;
+            break;
+          }
+        } catch {
+          supplyErrors++;
+          break;
+        }
+      }
+    } else if (lane === 8) {
       const started = Date.now();
       while (Date.now() - started < 25000 && guestSlices < 100) {
         try {
@@ -257,6 +282,9 @@ export async function POST(request: NextRequest) {
       nativeFinanceErrors,
       guestSlices,
       guestErrors,
+      supplySlices,
+      supplyErrors,
+      supplyPending,
     });
   } catch {
     return NextResponse.json(

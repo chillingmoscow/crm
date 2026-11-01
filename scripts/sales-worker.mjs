@@ -36,7 +36,8 @@ while (!stopping) {
         (stats.cashControlSlices && !stats.cashControlErrors) ||
         (stats.cashMovementSlices && !stats.cashMovementErrors) ||
         (stats.nativeFinanceSlices && !stats.nativeFinanceErrors) ||
-        (stats.guestSlices && !stats.guestErrors)
+        (stats.guestSlices && !stats.guestErrors) ||
+        ((stats.supplySlices || stats.supplyPending) && !stats.supplyErrors)
       )
         delay = 500;
       if (stats.slices || stats.queued)
@@ -66,6 +67,10 @@ while (!stopping) {
       if (stats.cashMovementSlices || stats.cashMovementErrors)
         console.log(
           `Инкассации и внесения: обработано частей ${stats.cashMovementSlices}, ошибок ${stats.cashMovementErrors}`,
+        );
+      if (stats.supplySlices || stats.supplyErrors)
+        console.log(
+          `Поставки: частей ${stats.supplySlices}, ошибок ${stats.supplyErrors}`,
         );
       if (stats.guestSlices || stats.guestErrors)
         console.log(

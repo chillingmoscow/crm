@@ -243,6 +243,29 @@ try {
   ]);
   assert.deepEqual(conflictDraft.groups[0].departmentIds, []);
   assert.deepEqual(conflictDraft.groups[1].departmentIds, []);
+  const savedShiftRules = {
+    ...depConfig,
+    distribution: "shifts",
+    groups: [],
+    excludedDepartmentIds: [A],
+  };
+  const reopenedShiftRules = departmentDraft(savedShiftRules, []);
+  assert.deepEqual(
+    reopenedShiftRules,
+    savedShiftRules,
+    "Reloading saved shift rules preserves department exclusions",
+  );
+  assert.deepEqual(
+    allocate(11000, reopenedShiftRules, depWeights),
+    allocate(11000, savedShiftRules, depWeights),
+    "Reopening cannot silently change the people being charged",
+  );
+  const switchedAwayFromGroups = { ...depConfig, distribution: "shifts" };
+  assert.deepEqual(
+    departmentDraft(switchedAwayFromGroups, []),
+    switchedAwayFromGroups,
+    "Inactive group assignments survive switching distribution modes",
+  );
   const unknown = allocate(11000, cfg, [
     ...weights,
     { employeeId: "new", roleId: "unmapped", shifts: 1 },

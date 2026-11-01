@@ -147,7 +147,12 @@ export function departmentDraft(
   config: DeductionRules,
   roles: StockRoleOption[],
 ): DeductionRules {
-  if (config.distribution === "departments")
+  if (
+    config.distribution === "departments" ||
+    (config.distribution === "shifts" &&
+      (config.excludedDepartmentIds !== undefined ||
+        config.groups.some((g) => g.departmentIds !== undefined)))
+  )
     return { ...config, split: "once" };
   const roleDepartment = (id: string) =>
     roles.find((r) => r.id === id)?.department_id;

@@ -142,11 +142,14 @@ export async function saveMovementConfiguration(input: {
     "cashAccountId",
     "safeAccountId",
     "operatingAccountId",
-    "incomeCategoryId",
     "taxiCategoryId",
     "tipsCategoryId",
   ] as const)
     z.string().uuid().parse(config[key]);
+  if (config.incomeCategoryId !== null)
+    z.string().uuid().parse(config.incomeCategoryId);
+  for (const override of config.overrides)
+    if (override.categoryId) z.string().uuid().parse(override.categoryId);
   z.number().int().min(0).parse(input.version);
   z.string().trim().min(1).max(1000).parse(input.reason);
   const r = await s.db.rpc("cash_movement_save_rules", {

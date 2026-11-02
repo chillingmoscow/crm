@@ -74,7 +74,7 @@ function Form({
         cashAccountId: "",
         safeAccountId: "",
         operatingAccountId: "",
-        incomeCategoryId: "",
+        incomeCategoryId: null,
         taxiCategoryId: "",
         tipsCategoryId: "",
       },
@@ -159,10 +159,35 @@ function Form({
           ))}
         </div>
         <div className="space-y-4 border-t pt-5">
+          <h3 className="text-sm font-semibold">Внесения в кассу</h3>
+          <Choice
+            name="movement-cash-in-mode"
+            label="Обработка новых внесений"
+            value={rules.cashInMode ?? "income"}
+            options={[
+              { id: "review", name: "Назначение выбираем вручную" },
+              { id: "income", name: "Всегда поступление по статье" },
+            ]}
+            onChange={(value) => setRules((r) => ({
+              ...r,
+              cashInMode: value as "review" | "income",
+              incomeCategoryId: value === "review" ? null : r.incomeCategoryId,
+            }))}
+          />
+          {(rules.cashInMode ?? "income") === "income" && (
+            <Choice
+              name="movement-income-category"
+              label="Статья поступлений"
+              value={rules.incomeCategoryId ?? ""}
+              options={data.categories.filter((c) => c.type === "income")}
+              onChange={(v) => set("incomeCategoryId", v)}
+            />
+          )}
+        </div>
+        <div className="space-y-4 border-t pt-5">
           <h3 className="text-sm font-semibold">Статьи</h3>
           {(
             [
-              ["incomeCategoryId", "Внесения", "income"],
               ["taxiCategoryId", "Такси", "expense"],
               ["tipsCategoryId", "Чаевые", "expense"],
             ] as const
@@ -316,16 +341,48 @@ function Form({
                   />
                 </div>
                 <Choice
+                  name={`movement-type-${i}`}
+                  label="Тип кассовой операции"
+                  value={o.sourceType ?? "cashOut"}
+                  options={[
+                    { id: "cashOut", name: "Изъятие из кассы" },
+                    { id: "cashIn", name: "Внесение в кассу" },
+                  ]}
+                  onChange={(v) => patch(i, {
+                    sourceType: v as "cashIn" | "cashOut",
+                    route: "hold",
+                    categoryId: undefined,
+                  })}
+                />
+                <Choice
                   name={`movement-route-${i}`}
                   label="Решение"
                   value={o.route}
                   options={[
                     { id: "hold", name: "Оставить на проверке" },
-                    { id: "safe", name: "Перевод в сейф" },
-                    { id: "operating", name: "Перевод на операционный счёт" },
+                    ...((o.sourceType ?? "cashOut") === "cashIn" ? [
+                      { id: "income", name: "Поступление по статье" },
+                      { id: "safe", name: "Из сейфа в кассу" },
+                      { id: "operating", name: "С операционного счёта в кассу" },
+                    ] : [
+                      { id: "safe", name: "Перевод в сейф" },
+                      { id: "operating", name: "Перевод на операционный счёт" },
+                    ]),
                   ]}
-                  onChange={(v) => patch(i, { route: v as typeof o.route })}
+                  onChange={(v) => patch(i, {
+                    route: v as typeof o.route,
+                    categoryId: v === "income" ? o.categoryId : undefined,
+                  })}
                 />
+                {o.route === "income" && (
+                  <Choice
+                    name={`movement-category-${i}`}
+                    label="Статья поступления"
+                    value={o.categoryId ?? ""}
+                    options={data.categories.filter((c) => c.type === "income")}
+                    onChange={(categoryId) => patch(i, { categoryId })}
+                  />
+                )}
                 <div className="space-y-2">
                   <Label htmlFor={`movement-reason-${i}`}>
                     Основание решения
@@ -350,6 +407,7 @@ function Form({
                     date: "",
                     amountCents: 0,
                     comment: "",
+                    sourceType: "cashOut",
                     route: "hold",
                     reason: "",
                   },
@@ -360,7 +418,7 @@ function Form({
               Добавить решение
             </Button>
             <p className="text-xs text-muted-foreground">
-              Решение действует только для указанной суммы, даты и комментария.
+              Решение действует только для указанного типа, суммы, даты и комментария.
               Изменившаяся операция требует новой проверки.
             </p>
           </div>

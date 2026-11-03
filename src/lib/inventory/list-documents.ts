@@ -19,17 +19,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import { hasCountedResults } from "@/lib/inventory/act-status";
-import {
-  applyResortItemSnapshot,
-  applyResortSnapshot,
-  isInventoryResultFrozen,
-  resultLineTotals,
-} from "@/lib/inventory/results-snapshot";
-import {
-  calculateManagementTotals,
-  type InventoryResortAllocationItem,
-  type InventoryResultCalculationItem,
-} from "@/lib/inventory/results";
+import { managementTotalsByDocument } from "@/lib/inventory/management-totals";
 
 import {
   buildRpcArgs,
@@ -258,66 +248,21 @@ export async function listInventoryDocuments(
       const snapshotAtByDoc = new Map(
         (docFlagRows ?? []).map((row) => [row.id, row.results_snapshot_at]),
       );
-      // Акты, по которым показываем СНИМОК итогов, а не живые значения: итоги
-      // залочены и снимок снят (миграции 221/227). Для них и строки, и пересорты,
-      // и исключения берутся из зафиксированного состояния — иначе в одном итоге
-      // сходятся замороженные строки и живые пересорты, то есть две разные даты.
-      const frozenDocIds = new Set(
-        (docFlagRows ?? [])
-          .filter((doc) => isInventoryResultFrozen(doc))
-          .map((doc) => doc.id),
-      );
-
-      const resorts = (resortRows ?? []).map((resort) =>
-        applyResortSnapshot(resort, frozenDocIds.has(resort.document_id)),
-      );
-      const activeResortIds = new Set(
-        resorts.filter((resort) => resort.status === "active").map((resort) => resort.id),
-      );
-
-      const itemsByDoc = new Map<string, InventoryResultCalculationItem[]>();
-      for (const item of itemRows ?? []) {
-        const list = itemsByDoc.get(item.document_id) ?? [];
-        const totals = resultLineTotals(item, frozenDocIds.has(item.document_id));
-        list.push({
-          id: item.id,
-          differenceAmount: totals.differenceAmount,
-          differenceSum: totals.differenceSum,
-          excluded: totals.excluded,
-        });
-        itemsByDoc.set(item.document_id, list);
-      }
-
-      const resortItemsByDoc = new Map<string, InventoryResortAllocationItem[]>();
-      for (const rawResortItem of resortItemRows ?? []) {
-        // Только активные пересорты (voided не учитываем).
-        if (!activeResortIds.has(rawResortItem.resort_id)) continue;
-        const resortItem = applyResortItemSnapshot(
-          rawResortItem,
-          frozenDocIds.has(rawResortItem.document_id),
-        );
-        const list = resortItemsByDoc.get(resortItem.document_id) ?? [];
-        list.push({
-          id: resortItem.document_item_id,
-          sourceDifferenceAmount: Number(resortItem.source_difference_amount ?? 0),
-          sourceDifferenceSum: Number(resortItem.source_difference_sum ?? 0),
-          offsetAmount: Number(resortItem.offset_amount ?? 0),
-          remainingDifferenceAmount: Number(resortItem.remaining_difference_amount ?? 0),
-          remainingDifferenceSum: Number(resortItem.remaining_difference_sum ?? 0),
-          role: resortItem.role,
-        });
-        resortItemsByDoc.set(resortItem.document_id, list);
-      }
-
-      const costAdjustmentsByDoc = new Map<string, number[]>();
-      for (const resort of resorts) {
-        if (resort.status !== "active") continue;
-        const value = Number(resort.cost_adjustment_sum ?? 0);
-        if (!Number.isFinite(value) || value <= 0) continue;
-        const list = costAdjustmentsByDoc.get(resort.document_id) ?? [];
-        list.push(value);
-        costAdjustmentsByDoc.set(resort.document_id, list);
-      }
+      // Арифметика итогов (снимок строк и пересортов, исключения, корректировки
+      // себестоимости) живёт в management-totals.ts: её же использует месячный
+      // снимок удержаний, и две копии разошлись бы.
+      const totalsByDoc = managementTotalsByDocument({
+        docs: (docFlagRows ?? []).map((doc) => ({
+          id: doc.id,
+          status: doc.status,
+          results_finalized_at: doc.results_finalized_at,
+          results_reopened_at: doc.results_reopened_at,
+          results_snapshot_at: doc.results_snapshot_at,
+        })),
+        items: itemRows ?? [],
+        resorts: resortRows ?? [],
+        resortItems: resortItemRows ?? [],
+      });
 
       for (const row of rows) {
         // F6: метка «итоги правились после проведения» — независимо от наличия позиций.
@@ -338,17 +283,12 @@ export async function listInventoryDocuments(
         // Управленческий итог считается по строкам. Нет строк — итог нулевой:
         // оставлять хранимое значение нельзя, там раньше лежала сумма Quick Resto
         // (другая метрика), и она читалась бы как управленческая.
-        const items = itemsByDoc.get(row.id);
-        if (!items) {
+        const totals = totalsByDoc.get(row.id);
+        if (!totals) {
           row.shortfall_sum = 0;
           row.surplus_sum = 0;
           continue;
         }
-        const totals = calculateManagementTotals({
-          items,
-          resortItems: resortItemsByDoc.get(row.id) ?? [],
-          resortCostAdjustments: costAdjustmentsByDoc.get(row.id) ?? [],
-        });
         // documents-table считает net = surplus_sum − shortfall_sum; недостачу
         // храним положительным модулем (managementShortfallSum ≤ 0).
         row.shortfall_sum = Math.abs(totals.managementShortfallSum);

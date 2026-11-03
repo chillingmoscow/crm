@@ -11,6 +11,8 @@ export type LooseQuery<T = unknown> = PromiseLike<LooseResult<T>> & {
   eq: (column: string, value: unknown) => LooseQuery<T>;
   neq: (column: string, value: unknown) => LooseQuery<T>;
   lte: (column: string, value: unknown) => LooseQuery<T>;
+  gte: (column: string, value: unknown) => LooseQuery<T>;
+  lt: (column: string, value: unknown) => LooseQuery<T>;
   is: (column: string, value: unknown) => LooseQuery<T>;
   in: (column: string, values: unknown[]) => LooseQuery<T>;
   or: (filters: string) => LooseQuery<T>;

@@ -3,79 +3,112 @@
 -- ПРИМЕНЯЕТСЯ ВРУЧНУЮ, по SSH, после мержа переименования в main, и только с явного
 -- согласия владельца. Скрипт ничего не применяет сам и не запускается из CI или миграций.
 --
--- Для каждого файла: если строка с прежней версией есть — переписываем version на новый номер;
--- если её нет — вставляем строку с новым номером, а не пропускаем молча. Существующая строка
--- с новым номером не перезаписывается (where not exists).
+-- Перед запуском: \d supabase_migrations.schema_migrations
+-- Проверить, что колонки version и name есть и что это прод, а не локальная база.
+-- Запуск: psql ... -f scripts/renumber-timestamp-migrations.sql
 --
--- Сверка: число строк до и после должно совпасть (новых строк не появляется, если все девять
--- прежних версий найдены). Смотреть вывод select в начале и в конце.
+-- Поведение:
+--   * ON_ERROR_STOP включён: любая ошибка останавливает скрипт и откатывает транзакцию.
+--   * Для каждой пары: если строка с прежней версией есть — version и name переписываются
+--     (name задаётся явно, старое имя не сохраняется); если строки нет — вставляется строка
+--     с новым номером и тем же именем, и это выводится в NOTICE.
+--   * В конце DO-блок сверяет результат и делает raise exception при расхождении:
+--     число строк должно вырасти ровно на число вставленных строк, прежних версий не остаётся,
+--     новых строк ровно девять. При расхождении транзакция откатывается сама.
+--   * По умолчанию скрипт заканчивается rollback. Фиксация — только после проверки вывода:
+--     заменить последнюю строку на commit (раскомментировать -- commit; и убрать rollback).
+
+\set ON_ERROR_STOP on
 
 begin;
 
+do $$
+begin
+  if to_regclass('supabase_migrations.schema_migrations') is null then
+    raise exception 'supabase_migrations.schema_migrations не найдена: не та база';
+  end if;
+end $$;
+
+select current_database() as database_name;
+
 select count(*) as rows_before from supabase_migrations.schema_migrations;
 
-select version, name
-from supabase_migrations.schema_migrations
-where version in (
-  '20260301162546', '20260509120000', '20261030231538',
-  '20261031002045', '20261031144659', '20261031153759',
-  '20261031171241', '20261101165423', '20261101174630'
-)
-order by version;
+create temp table renumber_map (
+  old_version text primary key,
+  new_version text not null,
+  new_name    text not null
+) on commit drop;
 
-update supabase_migrations.schema_migrations set version = '298' where version = '20260301162546';
-insert into supabase_migrations.schema_migrations (version, name)
-select '298', 'gender_constraint'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '298');
+insert into renumber_map (old_version, new_version, new_name) values
+  ('20260301162546', '298', 'gender_constraint'),
+  ('20260509120000', '299', 'account_amount_rounding'),
+  ('20261030231538', '300', 'candidate_bulk_delete'),
+  ('20261031002045', '301', 'integrations_recruiting_settings'),
+  ('20261031144659', '302', 'people_overviews'),
+  ('20261031153759', '303', 'recruiting_overview_funnel'),
+  ('20261031171241', '304', 'staff_profile_identity'),
+  ('20261101165423', '305', 'staff_document_access'),
+  ('20261101174630', '306', 'staff_document_formats');
 
-update supabase_migrations.schema_migrations set version = '299' where version = '20260509120000';
-insert into supabase_migrations.schema_migrations (version, name)
-select '299', 'account_amount_rounding'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '299');
+select m.old_version, m.new_version,
+       exists (select 1 from supabase_migrations.schema_migrations s where s.version = m.old_version) as old_row_present
+from renumber_map m
+order by m.new_version;
 
-update supabase_migrations.schema_migrations set version = '300' where version = '20261030231538';
-insert into supabase_migrations.schema_migrations (version, name)
-select '300', 'candidate_bulk_delete'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '300');
+do $$
+declare
+  r record;
+  rows_before int;
+  rows_after int;
+  inserted int := 0;
+  old_left int;
+  new_count int;
+begin
+  select count(*) into rows_before from supabase_migrations.schema_migrations;
 
-update supabase_migrations.schema_migrations set version = '301' where version = '20261031002045';
-insert into supabase_migrations.schema_migrations (version, name)
-select '301', 'integrations_recruiting_settings'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '301');
+  for r in select * from renumber_map order by new_version loop
+    if exists (select 1 from supabase_migrations.schema_migrations where version = r.old_version) then
+      update supabase_migrations.schema_migrations
+         set version = r.new_version, name = r.new_name
+       where version = r.old_version;
+    else
+      if not exists (select 1 from supabase_migrations.schema_migrations where version = r.new_version) then
+        insert into supabase_migrations.schema_migrations (version, name)
+        values (r.new_version, r.new_name);
+        inserted := inserted + 1;
+        raise notice 'строки % не было, вставлена строка с номером %', r.old_version, r.new_version;
+      end if;
+    end if;
+  end loop;
 
-update supabase_migrations.schema_migrations set version = '302' where version = '20261031144659';
-insert into supabase_migrations.schema_migrations (version, name)
-select '302', 'people_overviews'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '302');
+  select count(*) into rows_after from supabase_migrations.schema_migrations;
 
-update supabase_migrations.schema_migrations set version = '303' where version = '20261031153759';
-insert into supabase_migrations.schema_migrations (version, name)
-select '303', 'recruiting_overview_funnel'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '303');
+  select count(*) into old_left
+  from supabase_migrations.schema_migrations s
+  join renumber_map m on s.version = m.old_version;
 
-update supabase_migrations.schema_migrations set version = '304' where version = '20261031171241';
-insert into supabase_migrations.schema_migrations (version, name)
-select '304', 'staff_profile_identity'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '304');
+  select count(*) into new_count
+  from supabase_migrations.schema_migrations s
+  join renumber_map m on s.version = m.new_version;
 
-update supabase_migrations.schema_migrations set version = '305' where version = '20261101165423';
-insert into supabase_migrations.schema_migrations (version, name)
-select '305', 'staff_document_access'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '305');
-
-update supabase_migrations.schema_migrations set version = '306' where version = '20261101174630';
-insert into supabase_migrations.schema_migrations (version, name)
-select '306', 'staff_document_formats'
-where not exists (select 1 from supabase_migrations.schema_migrations where version = '306');
-
-select count(*) as rows_after from supabase_migrations.schema_migrations;
+  if old_left <> 0 then
+    raise exception 'остались строки со старыми версиями: %', old_left;
+  end if;
+  if new_count <> 9 then
+    raise exception 'строк с новыми версиями 298–306 должно быть 9, найдено %', new_count;
+  end if;
+  if rows_after <> rows_before + inserted then
+    raise exception 'число строк: до % после %, вставлено %, ожидалось after = before + inserted',
+      rows_before, rows_after, inserted;
+  end if;
+  raise notice 'сверка пройдена: до %, после %, вставлено %', rows_before, rows_after, inserted;
+end $$;
 
 select version, name
 from supabase_migrations.schema_migrations
 where version between '298' and '306'
 order by version;
 
--- Ожидаемо: rows_after = rows_before, если все девять прежних строк нашлись.
--- Разница = число вставленных строк (их вывод select в начале покажет, каких не хватало).
--- Если результат не сходится с ожиданием, заменить commit на rollback и разобраться.
-commit;
+-- Прод по умолчанию: откат. Фиксация только после проверки вывода выше.
+-- commit;  (раскомментировать только после проверки: заменить rollback на commit)
+rollback;

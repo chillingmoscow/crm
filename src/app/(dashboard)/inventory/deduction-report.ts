@@ -169,7 +169,6 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
     // Названия актов для перечня «чего не хватает».
     const docIds = new Set<string>([
       ...snapshot.dataProblems.undatedActs,
-      ...snapshot.dataProblems.actsWithoutVenue,
       ...alloc.unresolved.filter((r) => r.startsWith("inventory:")).map((r) => r.slice("inventory:".length)),
     ]);
     const docRows =
@@ -190,7 +189,6 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
 
     const dataProblems = [
       { title: "Акты без бизнес-даты: ни к какому месяцу не отнести", ids: snapshot.dataProblems.undatedActs },
-      { title: "Акты без заведения: склад не привязан, ни в чьих пулах не учтены", ids: snapshot.dataProblems.actsWithoutVenue },
     ]
       .filter((p) => p.ids.length > 0)
       .map((p) => ({ title: p.title, items: p.ids.map((id) => documentItem(id, lookup)) }));

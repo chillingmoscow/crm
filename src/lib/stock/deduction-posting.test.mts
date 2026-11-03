@@ -46,7 +46,7 @@ const snap = (over: Partial<MonthlySnapshot> = {}): MonthlySnapshot => ({
   month: "2026-10-01",
   timezone: "Europe/Moscow",
   payrollDayStartHour: 0,
-  dataProblems: { undatedActs: [], actsWithoutVenue: [] },
+  dataProblems: { undatedActs: [] },
   ...over,
 });
 
@@ -73,7 +73,7 @@ test("incomplete не пишет ничего и возвращает, чего 
   const { d, calls } = deps(
     snap({
       unresolved: ["inventory:orphan-store", "writeoff:1:77"],
-      dataProblems: { undatedActs: ["inventory:undated"], actsWithoutVenue: ["inventory:no-venue"] },
+      dataProblems: { undatedActs: ["inventory:undated"] },
     }),
   );
   const out = await postMonthlyDeduction(d);
@@ -82,7 +82,6 @@ test("incomplete не пишет ничего и возвращает, чего 
   if (out.state === "incomplete") {
     assert.deepEqual(out.unresolved, ["inventory:orphan-store", "writeoff:1:77"]);
     assert.deepEqual(out.dataProblems.undatedActs, ["inventory:undated"]);
-    assert.deepEqual(out.dataProblems.actsWithoutVenue, ["inventory:no-venue"]);
   }
 });
 
@@ -142,6 +141,29 @@ test("сотрудник в двух пулах получает одну стр
   assert.equal(lines[0].pools.length, 2);
 });
 
+test("сотрудник с отрицательной суммой по пулам строки не получает: удержание всегда положительное", () => {
+  const lines = buildDeductionLines([
+    { pool: "shared", key: null, net: -10, chargeable: 10, company: 0, employees: 10, allocations: [{ employeeId: E1, amount: 10 }, { employeeId: E2, amount: -5 }] },
+  ]);
+  assert.deepEqual(lines.map((l) => [l.employeeId, l.amount]), [[E1, 10]]);
+});
+
+test("строки не сходятся с итогом расчёта - постановка останавливается до записи", async () => {
+  const { d, calls } = deps(snap());
+  d.allocate = () => ({
+    pools: [
+      { pool: "shared", key: null, net: -10, chargeable: 10, company: 0, employees: 5, allocations: [{ employeeId: E1, amount: 10 }, { employeeId: E2, amount: -5 }] },
+    ],
+    total: 10,
+    company: 0,
+    employees: 5,
+    unresolved: [],
+    state: "ready",
+  });
+  await assert.rejects(postMonthlyDeduction(d), /не сходятся с итогом расчёта/);
+  assert.equal(calls.post.length, 0, "в ведомость ничего не записано");
+});
+
 test("нулевое удержание не даёт строки", () => {
   assert.deepEqual(
     buildDeductionLines([
@@ -193,7 +215,7 @@ test("описание неполного месяца называет прич
     posted: false,
     month: "2026-10-01",
     unresolved: ["writeoff:v:1"],
-    dataProblems: { undatedActs: ["inventory:u"], actsWithoutVenue: [] },
+    dataProblems: { undatedActs: ["inventory:u"] },
   });
   assert.match(text, /не поставлено/);
   assert.match(text, /актов списаний без плательщика: 1/);

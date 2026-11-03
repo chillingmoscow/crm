@@ -15,9 +15,12 @@
  * делает месяц неполным и видимым. Молчаливый общий пул или роль по умолчанию
  * переложили бы чужие деньги на всю команду.
  *
- * Исключение - проблемы данных заведения, у которых нет месяца: акт без даты и
- * акт без заведения. Их нельзя исправить «в месяце», в котором их нет, поэтому
- * они не блокируют ничей месяц, а отдаются отдельным списком `dataProblems`.
+ * Исключение - проблема данных заведения, у которой нет месяца: проведённый акт
+ * без бизнес-даты. Его нельзя исправить «в месяце», в котором его нет, поэтому
+ * он не блокирует ничей месяц, а отдаётся отдельным списком `dataProblems`.
+ * Акт месяца без заведения - не такой: у него есть и дата, и месяц, а чинится он
+ * одним действием (привязать склад к заведению на /org/stores). Он блокирует
+ * месяц: тихий ноль на месте недостачи был бы потерей денег, которую никто не заметит.
  *
  * Устройство: чистые функции берут обычные данные (их проверяет node:test без
  * базы); `buildMonthlySnapshot` читает таблицы и отдаёт данные в
@@ -160,8 +163,6 @@ export type RawMonthData = {
 export type SnapshotDataProblems = {
   /** Проведённые акты без бизнес-даты: ни к какому месяцу не отнести. */
   undatedActs: string[];
-  /** Проведённые акты месяца без заведения (склад не привязан): ни в чьих пулах не учтены. */
-  actsWithoutVenue: string[];
 };
 
 export type MonthlySnapshot = MonthlyShortageInput & {
@@ -234,10 +235,12 @@ const micro = (n: number) => Math.round(n * 1e6) / 1e6;
  * при локальном статусе `processed`) обнуляются. Месяц определяет бизнес-день
  * акта в таймзоне заведения.
  *
- * Акт без даты и акт месяца без заведения - проблемы данных, а не неполный
- * месяц: первый не принадлежит никакому месяцу, второй - никакому заведению, и
- * если бы они блокировали расчёт, снять блок было бы нечем. Они возвращаются
- * отдельными списками.
+ * Акт без даты - проблема данных, а не неполный месяц: он не принадлежит
+ * никакому месяцу, и если бы блокировал расчёт, снять блок было бы нечем.
+ * Он возвращается отдельным списком `undated`.
+ * Датированный акт месяца без заведения (`withoutVenue`) тоже возвращается
+ * отдельно, но месяц он блокирует: у него есть месяц, и чинится он привязкой
+ * склада к заведению (assembleMonthlySnapshot кладёт его в `unresolved`).
  */
 export function classifyActs(
   acts: ActRow[],
@@ -700,6 +703,7 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
         ...unfrozen,
         ...timezones,
         ...inventory.unresolved,
+        ...classified.withoutVenue,
         ...writeoffs.unresolved,
         ...shifts.unresolved,
       ]),
@@ -713,7 +717,6 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
     payrollDayStartHour: raw.payrollDayStartHour,
     dataProblems: {
       undatedActs: [...new Set(classified.undated)].sort(),
-      actsWithoutVenue: [...new Set(classified.withoutVenue)].sort(),
     },
   };
 }
@@ -925,7 +928,10 @@ export async function buildMonthlySnapshot(
     db
       .from<DepartmentRow[]>("departments")
       .select("id, venue_id, archived_at")
-      .in("id", ids),
+      .in("id", ids)
+      // У подразделений нет account_id: аккаунт - через заведение, которое уже проверено.
+      // Подразделение другого заведения всё равно не годится (проверяют и места использования).
+      .eq("venue_id", venueId),
   );
 
   const accruals = await readAll<AccrualRow & { id: string }>(

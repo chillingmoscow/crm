@@ -210,7 +210,7 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
   return (
     <PageFrame className="min-w-0 space-y-6">
       <TablePageHeader
-        title="Удержание"
+        title="Удержание по недостаче"
         subtitle="По недостаче: сличение расчёта Sheerly с Google-таблицей. Таблицу страница не меняет; кнопка пересчёта ставит строки в зарплатную ведомость Sheerly."
         actions={
           data.canRecalculate ? (
@@ -396,7 +396,7 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
             <AlertTriangle className="size-4 shrink-0" />
             Проблемы данных вне месяца
           </p>
-          <p>Эти акты не относятся ни к одному месяцу, расчёт месяца они не блокируют, но в нём не учтены.</p>
+          <p>Эти акты без бизнес-даты не относятся ни к одному месяцу, расчёт месяца они не блокируют, но в нём не учтены.</p>
           {calc.dataProblems.map((p) => (
             <div key={p.title}>
               <p className="font-medium">{p.title}</p>

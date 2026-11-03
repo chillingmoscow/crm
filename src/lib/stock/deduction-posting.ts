@@ -121,6 +121,8 @@ export type PostDeps = {
     ratio: number | null;
   }) => Promise<void>;
   newId: () => string;
+  /** Подмена расчёта месяца: только для тестов страховки; в работе всегда `allocateMonthlyShortage`. */
+  allocate?: typeof allocateMonthlyShortage;
 };
 
 export type PostOutcome =
@@ -148,7 +150,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function postMonthlyDeduction(deps: PostDeps): Promise<PostOutcome> {
   const snap = await deps.buildSnapshot();
-  const alloc = allocateMonthlyShortage(snap);
+  const alloc = (deps.allocate ?? allocateMonthlyShortage)(snap);
 
   if (alloc.state === "incomplete")
     return {
@@ -275,7 +277,7 @@ export function describePostOutcome(out: PostOutcome): string {
       (out.reversed > 0 ? ` Прежних строк сторнировано: ${out.reversed}.` : "")
     );
   if (out.state === "incomplete") {
-    const problems = out.dataProblems.undatedActs.length + out.dataProblems.actsWithoutVenue.length;
+    const problems = out.dataProblems.undatedActs.length;
     return (
       `Удержание за ${label} не поставлено: месяц не посчитан до конца. Не хватает: ${describeUnresolved(out.unresolved)}.` +
       (problems > 0 ? ` Проблем данных вне месяца: ${problems}.` : "")

@@ -331,7 +331,7 @@ test("акт без даты - проблема данных заведения,
   }
 });
 
-test("проведённый акт месяца без заведения - проблема данных, месяц не блокируется", () => {
+test("проведённый датированный акт месяца без заведения блокирует месяц, а не уходит в проблемы данных", () => {
   const r = assembleMonthlySnapshot(
     raw({
       acts: [
@@ -342,12 +342,11 @@ test("проведённый акт месяца без заведения - п�
       items: [item("no-venue", "i", -1)],
     }),
   );
-  assert.deepEqual(r.unresolved, []);
+  // Молчаливый ноль на месте недостачи был бы потерей денег: месяц неполный.
+  assert.deepEqual(r.unresolved, ["inventory:no-venue"]);
   assert.deepEqual(r.sources, []);
-  assert.deepEqual(r.dataProblems.actsWithoutVenue, ["inventory:no-venue"]);
   assert.deepEqual(r.dataProblems.undatedActs, []);
-  // Месяц считаем: данные без заведения его не блокируют.
-  assert.equal(allocateMonthlyShortage(r).state, "ready");
+  assert.equal(allocateMonthlyShortage(r).state, "incomplete");
 });
 
 test("акт без строк и акт без построчных сумм дают unresolved, а не ноль", () => {
@@ -1221,16 +1220,13 @@ test("чтение: берёт только акты месяца своего �
       [`writeoff:${VENUE}:1`, -50],
     ],
   );
-  // Без заведения и без даты - проблемы данных: месяц не блокируют, но и не теряются.
-  assert.deepEqual(snap.unresolved, []);
-  assert.deepEqual(snap.dataProblems, {
-    undatedActs: ["inventory:undated"],
-    actsWithoutVenue: ["inventory:no-venue"],
-  });
+  // Без даты - проблема данных: месяц не блокирует, но и не теряется.
+  // Без заведения - месяц неполный: акт датирован и чинится привязкой склада.
+  assert.deepEqual(snap.unresolved, ["inventory:no-venue"]);
+  assert.deepEqual(snap.dataProblems, { undatedActs: ["inventory:undated"] });
   assert.equal(snap.payrollDayStartHour, 9);
   // Обе отметки найдены: вторая лежит вне окна дат месяца, но названа в начислении.
   assert.deepEqual(snap.weights, [{ employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 2 }]);
-  assert.deepEqual(snap.unresolved, []);
   const attendanceQuery = log.find((q) => q.table === "payroll_attendance");
   assert.ok(attendanceQuery?.filters.includes("external_id in"));
   assert.ok(!attendanceQuery?.filters.some((f) => f.startsWith("business_date")), "отметки читаются по ключам, не по окну дат");
@@ -1241,11 +1237,10 @@ test("чтение: берёт только акты месяца своего �
   // Каждый запрос ограничен аккаунтом (а где есть заведение - и им).
   for (const q of log) {
     // У этих таблиц нет account_id: они ограничены заведением, которое уже проверено на аккаунт.
-    if (q.table === "roles" || q.table === "schedule_shifts") {
+    if (q.table === "roles" || q.table === "schedule_shifts" || q.table === "departments") {
       assert.ok(q.filters.includes(`venue_id=${VENUE}`), `${q.table}: нет фильтра по заведению`);
       continue;
     }
-    if (q.table === "departments") continue;
     assert.ok(
       q.filters.includes(`account_id=${ACCOUNT}`),
       `${q.table}: нет фильтра по аккаунту (${q.filters.join("; ")})`,

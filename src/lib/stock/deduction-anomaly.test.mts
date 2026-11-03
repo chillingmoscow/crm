@@ -107,7 +107,7 @@ const snapshot = (over: Partial<MonthlySnapshot> = {}): MonthlySnapshot => ({
   month: "2026-10-01",
   timezone: "Europe/Moscow",
   payrollDayStartHour: 0,
-  dataProblems: { undatedActs: [], actsWithoutVenue: [] },
+  dataProblems: { undatedActs: [] },
   ...over,
 });
 

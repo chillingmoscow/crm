@@ -6,6 +6,7 @@ import {
   businessMonthOf,
   monthBounds,
   pickRuleVersion,
+  sameZone,
   type ActRow,
   type AssignmentRow,
   type AttendanceRow,
@@ -15,6 +16,7 @@ import {
   type RawMonthData,
   type ResortItemRow,
   type ResortRow,
+  type RoleRow,
   type RuleVersionRow,
   type ShiftRow,
   type StoreRow,
@@ -122,7 +124,7 @@ const day = (
 ): { attendance: AttendanceRow; accrual: AccrualRow } => {
   const external_id = ext++;
   return {
-    attendance: { external_id, employee_id: employee, business_date: date, shift_id: shiftId },
+    attendance: { external_id, employee_id: employee, business_date: date, shift_id: shiftId, role_name: "" },
     accrual: {
       employee_id: employee,
       business_date: date,
@@ -148,6 +150,17 @@ const raw = (over: Partial<RawMonthData> = {}): RawMonthData => ({
   attendance: [],
   shifts: [],
   ruleVersions: [ruleVersion()],
+  roles: [],
+  writeoffSourceTimezone: null,
+  payrollTimezone: null,
+  payrollDayStartHour: null,
+  ...over,
+});
+const role = (id: string, name: string, over: Partial<RoleRow> = {}): RoleRow => ({
+  id,
+  name,
+  department_id: null,
+  archived_at: null,
   ...over,
 });
 
@@ -298,19 +311,39 @@ test("не проведённый, архивный и распроведённ�
   assert.deepEqual(r.unresolved, []);
 });
 
-test("акт без даты нельзя отнести к месяцу: он блокирует расчёт", () => {
-  const r = assembleMonthlySnapshot(
-    raw({ acts: [act("no-date", { invoice_date: null })], items: [item("no-date", "i", -1)] }),
-  );
-  assert.deepEqual(r.unresolved, ["inventory:no-date"]);
+test("акт без даты - проблема данных заведения, а не блокировка месяцев", () => {
+  const acts = [
+    act("no-date", { invoice_date: null }),
+    act("no-date-no-venue", { invoice_date: null, venue_id: null }),
+    // Недатированный акт другого заведения заведение не касается.
+    act("foreign-no-date", { invoice_date: null, venue_id: OTHER_VENUE }),
+    // Не проведённый акт без даты - просто черновик.
+    act("draft-no-date", { invoice_date: null, status: "assigned", processed: false }),
+  ];
+  for (const month of ["2026-10-01", "2026-11-01"]) {
+    const r = assembleMonthlySnapshot(raw({ month, acts }));
+    assert.deepEqual(r.unresolved, [], month);
+    assert.deepEqual(r.dataProblems.undatedActs, ["inventory:no-date", "inventory:no-date-no-venue"], month);
+  }
 });
 
-test("проведённый акт без заведения блокирует месяц, а не пропадает", () => {
+test("проведённый акт месяца без заведения - проблема данных, месяц не блокируется", () => {
   const r = assembleMonthlySnapshot(
-    raw({ acts: [act("no-venue", { venue_id: null })], items: [item("no-venue", "i", -1)] }),
+    raw({
+      acts: [
+        act("no-venue", { venue_id: null }),
+        // Другой месяц: в этом списке его нет.
+        act("no-venue-nov", { venue_id: null, invoice_date: "2026-11-15T12:00:00+00:00" }),
+      ],
+      items: [item("no-venue", "i", -1)],
+    }),
   );
-  assert.deepEqual(r.unresolved, ["inventory:no-venue"]);
+  assert.deepEqual(r.unresolved, []);
   assert.deepEqual(r.sources, []);
+  assert.deepEqual(r.dataProblems.actsWithoutVenue, ["inventory:no-venue"]);
+  assert.deepEqual(r.dataProblems.undatedActs, []);
+  // Месяц считаем: данные без заведения его не блокируют.
+  assert.equal(allocateMonthlyShortage(r).state, "ready");
 });
 
 test("акт без строк и акт без построчных сумм дают unresolved, а не ноль", () => {
@@ -781,6 +814,204 @@ test("порядок строк в базе не влияет на резуль�
   assert.deepEqual(rev, fwd);
 });
 
+// ── отметки вне графика ──────────────────────────────────────
+
+const named = (employee: string, date: string, roleName: string, shiftId: string | null = null) => {
+  const d = day(employee, date, shiftId);
+  d.attendance.role_name = roleName;
+  return d;
+};
+
+test("отметка вне графика берёт должность по role_name и подразделение этой должности", () => {
+  const d = named(EMP_A, "2026-10-03", "Бармен");
+  const r = assembleMonthlySnapshot(
+    raw({
+      attendance: [d.attendance],
+      accruals: [d.accrual],
+      roles: [role(ROLE_BAR, "Бармен", { department_id: DEPT_BAR })],
+    }),
+  );
+  assert.deepEqual(r.weights, [{ employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 1 }]);
+  assert.deepEqual(r.unresolved, []);
+});
+
+test("название должности без совпадения, с двумя совпадениями или пустое - unresolved", () => {
+  const none = named(EMP_A, "2026-10-03", "Фея");
+  const twice = named(EMP_A, "2026-10-04", "Бармен");
+  const empty = named(EMP_B, "2026-10-03", "");
+  const r = assembleMonthlySnapshot(
+    raw({
+      attendance: [none.attendance, twice.attendance, empty.attendance],
+      accruals: [none.accrual, twice.accrual, empty.accrual],
+      roles: [role(ROLE_BAR, "Бармен"), role(ROLE_HOOKAH, "Бармен"), role("rr", "", {})],
+    }),
+  );
+  assert.deepEqual(r.weights, []);
+  assert.deepEqual(r.unresolved, [
+    `shift:${EMP_A}:2026-10-03`,
+    `shift:${EMP_A}:2026-10-04`,
+    `shift:${EMP_B}:2026-10-03`,
+  ]);
+});
+
+test("архивная должность с тем же названием не создаёт неоднозначности и не подходит", () => {
+  const d = named(EMP_A, "2026-10-03", "Бармен");
+  const ok = assembleMonthlySnapshot(
+    raw({
+      attendance: [d.attendance],
+      accruals: [d.accrual],
+      roles: [role(ROLE_BAR, "Бармен"), role(ROLE_HOOKAH, "Бармен", { archived_at: "2026-09-01T00:00:00+00:00" })],
+    }),
+  );
+  assert.deepEqual(ok.weights.map((w) => w.roleId), [ROLE_BAR]);
+  const onlyArchived = assembleMonthlySnapshot(
+    raw({
+      attendance: [d.attendance],
+      accruals: [d.accrual],
+      roles: [role(ROLE_BAR, "Бармен", { archived_at: "2026-09-01T00:00:00+00:00" })],
+    }),
+  );
+  assert.deepEqual(onlyArchived.unresolved, [`shift:${EMP_A}:2026-10-03`]);
+});
+
+test("смена из графика приоритетнее role_name; без должности у смены - запасной путь по названию", () => {
+  const withRole = named(EMP_A, "2026-10-03", "Мастер", "s1");
+  const noShiftRole = named(EMP_B, "2026-10-03", "Мастер", "s2");
+  const r = assembleMonthlySnapshot(
+    raw({
+      attendance: [withRole.attendance, noShiftRole.attendance],
+      accruals: [withRole.accrual, noShiftRole.accrual],
+      shifts: [
+        shift("s1", { role_id: ROLE_BAR, department_id: DEPT_BAR }),
+        shift("s2", { role_id: null, department_id: DEPT_BAR }),
+      ],
+      roles: [role(ROLE_HOOKAH, "Мастер", { department_id: DEPT_HOOKAH })],
+    }),
+  );
+  assert.deepEqual(r.weights, [
+    { employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 1 },
+    // Подразделение смены сохраняется, если оно задано; должность - из названия.
+    { employeeId: EMP_B, roleId: ROLE_HOOKAH, departmentId: DEPT_BAR, shifts: 1 },
+  ]);
+  assert.deepEqual(r.unresolved, []);
+});
+
+test("месяц с отметками вне графика считается", () => {
+  const a = named(EMP_A, "2026-10-03", "Бармен");
+  const b = named(EMP_B, "2026-10-03", "Бармен");
+  const snap = assembleMonthlySnapshot(
+    raw({
+      acts: [act("shared")],
+      items: [item("shared", "i", -12000)],
+      attendance: [a.attendance, b.attendance],
+      accruals: [a.accrual, b.accrual],
+      roles: [role(ROLE_BAR, "Бармен", { department_id: DEPT_BAR })],
+      ruleVersions: [ruleVersion({ config: rules({ companyAllowance: 10000 }) })],
+    }),
+  );
+  const out = allocateMonthlyShortage(snap);
+  assert.equal(out.state, "ready");
+  assert.equal(out.employees, 2000);
+});
+
+// ── акт без зафиксированных итогов ───────────────────────────
+
+test("акт без снимка итогов, переоткрытый или с поздней строкой не читается по живым значениям", () => {
+  const cases: Array<[string, ActRow, ItemRow[], ResortRow[], ResortItemRow[]]> = [
+    ["no-snapshot", act("no-snapshot", { results_snapshot_at: null }), [item("no-snapshot", "i", -500)], [], []],
+    [
+      "reopened",
+      act("reopened", { results_finalized_at: null, results_reopened_at: "2026-10-20T00:00:00+00:00" }),
+      [item("reopened", "i", -500)],
+      [],
+      [],
+    ],
+    [
+      "late-line",
+      act("late-line"),
+      [item("late-line", "i1", -500), item("late-line", "i2", -999, { finalized_at: null })],
+      [],
+      [],
+    ],
+    [
+      "late-resort",
+      act("late-resort"),
+      [item("late-resort", "i", -500)],
+      [
+        {
+          id: "r",
+          document_id: "late-resort",
+          status: "active",
+          offset_amount: 1,
+          residual_shortfall_sum: 0,
+          residual_surplus_sum: 0,
+          cost_adjustment_sum: 0,
+          finalized_at: null,
+        },
+      ],
+      [],
+    ],
+    [
+      "late-resort-item",
+      act("late-resort-item"),
+      [item("late-resort-item", "i", -500)],
+      [],
+      [
+        {
+          document_id: "late-resort-item",
+          resort_id: "r",
+          document_item_id: "i",
+          role: "shortage",
+          source_difference_amount: -1,
+          source_difference_sum: -500,
+          offset_amount: 1,
+          remaining_difference_amount: 0,
+          remaining_difference_sum: 0,
+          finalized_at: null,
+        },
+      ],
+    ],
+  ];
+  for (const [name, a, items, resorts, resortItems] of cases) {
+    const r = assembleMonthlySnapshot(raw({ acts: [a], items, resorts, resortItems }));
+    assert.deepEqual(r.sources, [], name);
+    assert.deepEqual(r.unresolved, [`inventory:${name}`], name);
+  }
+});
+
+test("зафиксированный акт читается по снимку и месяц остаётся вычислимым", () => {
+  const r = assembleMonthlySnapshot(raw({ acts: [act("ok")], items: [item("ok", "i", -500)] }));
+  assert.deepEqual(r.sources.map((s) => s.amount), [-500]);
+  assert.deepEqual(r.unresolved, []);
+});
+
+// ── таймзоны ─────────────────────────────────────────────────
+
+test("расхождение таймзон названо в unresolved вместе с обеими зонами", () => {
+  const writeoffs = assembleMonthlySnapshot(raw({ writeoffSourceTimezone: "Asia/Yekaterinburg" }));
+  assert.deepEqual(writeoffs.unresolved, ["timezone:venue=Europe/Moscow;writeoffs=Asia/Yekaterinburg"]);
+  const payroll = assembleMonthlySnapshot(raw({ payrollTimezone: "Europe/Samara", payrollDayStartHour: 9 }));
+  assert.deepEqual(payroll.unresolved, ["timezone:venue=Europe/Moscow;payroll=Europe/Samara"]);
+  assert.equal(payroll.payrollDayStartHour, 9);
+  const both = assembleMonthlySnapshot(
+    raw({ writeoffSourceTimezone: "Asia/Omsk", payrollTimezone: "Asia/Omsk" }),
+  );
+  assert.equal(both.unresolved.length, 2);
+  assert.equal(allocateMonthlyShortage(both).state, "incomplete");
+});
+
+test("одинаковые зоны и зоны-псевдонимы расхождением не считаются; нет настроек - нет сравнения", () => {
+  assert.deepEqual(
+    assembleMonthlySnapshot(raw({ writeoffSourceTimezone: "Europe/Moscow", payrollTimezone: "Europe/Moscow" })).unresolved,
+    [],
+  );
+  assert.equal(sameZone("Asia/Kolkata", "Asia/Calcutta", "2026-10-01"), true);
+  assert.equal(sameZone("Europe/Moscow", "Europe/Minsk", "2026-10-01"), true);
+  assert.equal(sameZone("Europe/Moscow", "Europe/Samara", "2026-10-01"), false);
+  assert.equal(sameZone("Europe/Moscow", "Not/AZone", "2026-10-01"), false);
+  assert.deepEqual(assembleMonthlySnapshot(raw()).unresolved, []);
+});
+
 // ── чтение из базы ───────────────────────────────────────────
 
 type Row = Record<string, unknown>;
@@ -873,6 +1104,9 @@ test("чтение: берёт только акты месяца своего �
         { account_id: ACCOUNT, venue_id: VENUE, ...day(EMP_B, "2026-11-01", "s1").accrual },
       ],
       payroll_attendance: [{ account_id: ACCOUNT, venue_id: VENUE, ...d1.attendance }],
+      stock_writeoff_sources: [{ account_id: ACCOUNT, venue_id: VENUE, config: { timezone: "Europe/Moscow" } }],
+      sales_settings: [{ account_id: ACCOUNT, venue_id: VENUE, timezone: "Europe/Moscow", day_start_hour: 9 }],
+      roles: [{ ...role(ROLE_BAR, "Бармен"), venue_id: VENUE }, { ...role(ROLE_HOOKAH, "Мастер"), venue_id: OTHER_VENUE }],
       schedule_shifts: [{ venue_id: VENUE, ...shift("s1") }, { venue_id: OTHER_VENUE, ...shift("s2") }],
     },
     log,
@@ -891,8 +1125,13 @@ test("чтение: берёт только акты месяца своего �
       [`writeoff:${VENUE}:1`, -50],
     ],
   );
-  // Без заведения и без даты - блокируют месяц, а не теряются.
-  assert.deepEqual(snap.unresolved, ["inventory:no-venue", "inventory:undated"]);
+  // Без заведения и без даты - проблемы данных: месяц не блокируют, но и не теряются.
+  assert.deepEqual(snap.unresolved, []);
+  assert.deepEqual(snap.dataProblems, {
+    undatedActs: ["inventory:undated"],
+    actsWithoutVenue: ["inventory:no-venue"],
+  });
+  assert.equal(snap.payrollDayStartHour, 9);
   assert.deepEqual(snap.weights, [{ employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 1 }]);
   assert.equal(snap.ruleVersionId, RULE_ID);
   assert.equal(snap.venueId, VENUE);
@@ -900,7 +1139,12 @@ test("чтение: берёт только акты месяца своего �
   assert.equal(snap.timezone, "Europe/Moscow");
   // Каждый запрос ограничен аккаунтом (а где есть заведение - и им).
   for (const q of log) {
-    if (q.table === "departments" || q.table === "schedule_shifts") continue;
+    // У этих таблиц нет account_id: они ограничены заведением, которое уже проверено на аккаунт.
+    if (q.table === "roles" || q.table === "schedule_shifts") {
+      assert.ok(q.filters.includes(`venue_id=${VENUE}`), `${q.table}: нет фильтра по заведению`);
+      continue;
+    }
+    if (q.table === "departments") continue;
     assert.ok(
       q.filters.includes(`account_id=${ACCOUNT}`),
       `${q.table}: нет фильтра по аккаунту (${q.filters.join("; ")})`,

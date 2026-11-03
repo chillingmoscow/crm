@@ -11,9 +11,13 @@
  *
  * Главный принцип: то, что нельзя определить, попадает в `unresolved`, а не в
  * значение по умолчанию. Склад без подразделения, архивное подразделение, смена
- * без должности, акт без даты - всё это делает месяц неполным и видимым.
- * Молчаливый общий пул или роль по умолчанию переложили бы чужие деньги на всю
- * команду.
+ * без должности, акт без зафиксированных итогов, расхождение таймзон - всё это
+ * делает месяц неполным и видимым. Молчаливый общий пул или роль по умолчанию
+ * переложили бы чужие деньги на всю команду.
+ *
+ * Исключение - проблемы данных заведения, у которых нет месяца: акт без даты и
+ * акт без заведения. Их нельзя исправить «в месяце», в котором их нет, поэтому
+ * они не блокируют ничей месяц, а отдаются отдельным списком `dataProblems`.
  *
  * Устройство: чистые функции берут обычные данные (их проверяет node:test без
  * базы); `buildMonthlySnapshot` читает таблицы и отдаёт данные в
@@ -38,6 +42,7 @@ import {
   type ManagementTotalsResortItemRow,
   type ManagementTotalsResortRow,
 } from "../inventory/management-totals.ts";
+import { isInventoryResultFrozen } from "../inventory/results-snapshot.ts";
 import { addDays, validDate } from "../sales/time.ts";
 import type { LooseDb, LooseQuery } from "../supabase/loose.ts";
 
@@ -91,6 +96,14 @@ export type AttendanceRow = {
   employee_id: string | null;
   business_date: string;
   shift_id: string | null;
+  /** Должность сотрудника на момент расчёта дня: по ней ведомость и считала начисление. */
+  role_name: string;
+};
+export type RoleRow = {
+  id: string;
+  name: string;
+  department_id: string | null;
+  archived_at: string | null;
 };
 export type ShiftRow = {
   id: string;
@@ -129,6 +142,20 @@ export type RawMonthData = {
   attendance: AttendanceRow[];
   shifts: ShiftRow[];
   ruleVersions: RuleVersionRow[];
+  roles: RoleRow[];
+  /** Таймзона источника списаний заведения; null - источника нет. */
+  writeoffSourceTimezone: string | null;
+  /** Таймзона и начало рабочего дня зарплатной ведомости; null - настроек нет. */
+  payrollTimezone: string | null;
+  payrollDayStartHour: number | null;
+};
+
+/** Проблемы данных заведения, у которых нет месяца: месяц они не блокируют. */
+export type SnapshotDataProblems = {
+  /** Проведённые акты без бизнес-даты: ни к какому месяцу не отнести. */
+  undatedActs: string[];
+  /** Проведённые акты месяца без заведения (склад не привязан): ни в чьих пулах не учтены. */
+  actsWithoutVenue: string[];
 };
 
 export type MonthlySnapshot = MonthlyShortageInput & {
@@ -139,6 +166,9 @@ export type MonthlySnapshot = MonthlyShortageInput & {
   /** Первое число месяца, `YYYY-MM-01`. */
   month: string;
   timezone: string;
+  /** Начало рабочего дня ведомости: по нему смены попали в месяц. Для аудита, на расчёт не влияет. */
+  payrollDayStartHour: number | null;
+  dataProblems: SnapshotDataProblems;
 };
 
 // ── Месяц ────────────────────────────────────────────────────
@@ -196,39 +226,80 @@ const micro = (n: number) => Math.round(n * 1e6) / 1e6;
  * Считается только проведённый акт, который ещё живёт в Quick Resto: суммы акта
  * там появляются после проведения, а у распроведённого акта (`processed = false`
  * при локальном статусе `processed`) обнуляются. Месяц определяет бизнес-день
- * акта в таймзоне заведения. Акт, который нельзя отнести к месяцу или заведению
- * (нет даты, нет заведения), блокирует расчёт, а не пропадает.
+ * акта в таймзоне заведения.
+ *
+ * Акт без даты и акт месяца без заведения - проблемы данных, а не неполный
+ * месяц: первый не принадлежит никакому месяцу, второй - никакому заведению, и
+ * если бы они блокировали расчёт, снять блок было бы нечем. Они возвращаются
+ * отдельными списками.
  */
 export function classifyActs(
   acts: ActRow[],
   ctx: { venueId: string; month: string; timezone: string },
-): { counted: ActRow[]; unresolved: string[] } {
+): {
+  counted: ActRow[];
+  unresolved: string[];
+  undated: string[];
+  withoutVenue: string[];
+} {
   const counted: ActRow[] = [];
   const unresolved: string[] = [];
+  const undated: string[] = [];
+  const withoutVenue: string[] = [];
   const want = ctx.month.slice(0, 7);
   for (const a of acts) {
     if (a.archived_at) continue;
     if (a.status !== "processed" || a.processed !== true) continue;
     if (!a.invoice_date) {
-      unresolved.push(inventoryRef(a.id));
+      // Недатированный акт чужого заведения нас не касается.
+      if (a.venue_id === null || a.venue_id === ctx.venueId) undated.push(inventoryRef(a.id));
       continue;
     }
     let actMonth: string;
     try {
       actMonth = businessMonthOf(a.invoice_date, ctx.timezone);
     } catch {
-      unresolved.push(inventoryRef(a.id));
+      // Дата есть, но не читается: как отсутствующая, это проблема данных акта.
+      if (a.venue_id === null || a.venue_id === ctx.venueId) undated.push(inventoryRef(a.id));
       continue;
     }
     if (actMonth !== want) continue;
     if (!a.venue_id) {
-      unresolved.push(inventoryRef(a.id));
+      withoutVenue.push(inventoryRef(a.id));
       continue;
     }
     if (a.venue_id !== ctx.venueId) continue;
     counted.push(a);
   }
-  return { counted, unresolved };
+  return { counted, unresolved, undated, withoutVenue };
+}
+
+/**
+ * Акты, итоги которых нельзя считать зафиксированными. Деньги, которые уже
+ * выплатили, не должны двигаться от поздней правки исключения или пересорта, а
+ * пообещать это можно только по снимку (`finalized_*`). Поэтому акт, проведённый
+ * мимо Sheerly (снимка нет), переоткрытый, либо со строкой, пересортом или
+ * позицией пересорта, добавленными после снимка, не читается по живым значениям:
+ * месяц с ним неполный, пока кто-то не посмотрит на акт.
+ */
+export function splitFrozenActs(
+  counted: ActRow[],
+  rows: {
+    items: Array<{ document_id: string; finalized_at?: string | null }>;
+    resorts: Array<{ document_id: string; finalized_at?: string | null }>;
+    resortItems: Array<{ document_id: string; finalized_at?: string | null }>;
+  },
+): { frozen: ActRow[]; unfrozen: string[] } {
+  const live = new Set<string>();
+  for (const list of [rows.items, rows.resorts, rows.resortItems])
+    for (const r of list) if (r.finalized_at == null) live.add(r.document_id);
+  const frozen: ActRow[] = [];
+  const unfrozen: string[] = [];
+  for (const a of counted) {
+    if (isInventoryResultFrozen(a) && !live.has(a.id)) frozen.push(a);
+    else unfrozen.push(inventoryRef(a.id));
+  }
+  return { frozen, unfrozen };
 }
 
 /**
@@ -398,25 +469,50 @@ export function writeoffSourcesForMonth(input: {
 const shiftDayRef = (employeeId: string, date: string) => `shift:${employeeId}:${date}`;
 
 /**
+ * Должность и подразделение отметки. Цепочка, и ошибка только в её конце:
+ *  1. смена из графика (`shift_id`): её должность и подразделение;
+ *  2. иначе (отметка Quick Resto вне графика, `unplanned`, или у смены нет
+ *     должности) - `role_name` отметки, т.е. должность, по которой ведомость
+ *     и считала начисление, и подразделение этой должности. Название сопоставляется
+ *     с действующей должностью заведения точно так же, как это делает сама
+ *     ведомость (`payroll_employee_role_guard`, миграция 246): точное имя,
+ *     не архивная, ровно одна. Названия должностей уникальностью не защищены
+ *     (уникален только код), поэтому ноль совпадений и больше одного - `null`.
+ */
+function resolveAttendanceRole(
+  att: AttendanceRow,
+  shiftById: Map<string, ShiftRow>,
+  roles: RoleRow[],
+): { roleId: string; departmentId: string | null } | null {
+  const sh = att.shift_id ? shiftById.get(att.shift_id) : undefined;
+  if (sh?.role_id) return { roleId: sh.role_id, departmentId: sh.department_id };
+  if (!att.role_name || att.role_name.trim() === "") return null;
+  const named = roles.filter((r) => !r.archived_at && r.name === att.role_name);
+  if (named.length !== 1) return null;
+  return { roleId: named[0].id, departmentId: sh?.department_id ?? named[0].department_id };
+}
+
+/**
  * Состав смен месяца: ровно то, что заплатила зарплатная ведомость.
  *
  * Единица - день работы сотрудника, по которому есть начисление, в снимке
- * которого перечислены отметки прихода. Начисление только по окладу или
- * корректировке отметок не содержит и смен не даёт; отметка без начисления
- * (игнорируемая, без ставки за смену) тоже. Так знаменатель распределения
- * совпадает с тем, за что фактически заплатили.
+ * которого перечислены отметки прихода (`calculation_snapshot.attendance_ids`).
+ * Само наличие строки начисления смену не доказывает: в `payroll_accruals` лежат
+ * и начисления только по окладу или корректировке, без единой отметки. Они смен
+ * не дают; отметка без начисления (игнорируемая, без ставки за смену) тоже. Так
+ * знаменатель распределения совпадает с тем, за что фактически заплатили.
  *
- * Подразделение и должность смены - из графика (`schedule_shifts` через
- * `shift_id` отметки). Нет смены, нет должности, отметка из начисления не
- * найдена или в один день две разные должности/подразделения - день уходит в
- * `unresolved`; подставлять должность по умолчанию или угадывать нельзя.
- * Идентификатор сотрудника - `payroll_employees.id`, как и у личных пометок
- * списаний.
+ * Должность и подразделение - см. resolveAttendanceRole. День, где их не
+ * определить, где отметка из начисления не найдена или принадлежит другому
+ * сотруднику, или где две разные пары (должность, подразделение), уходит в
+ * `unresolved`; угадывать нельзя. Идентификатор сотрудника - `payroll_employees.id`,
+ * как и у личных пометок списаний.
  */
 export function buildShiftWeights(input: {
   accruals: AccrualRow[];
   attendance: AttendanceRow[];
   shifts: ShiftRow[];
+  roles: RoleRow[];
 }): { weights: ShiftWeight[]; unresolved: string[] } {
   const attendanceByExternal = new Map(input.attendance.map((a) => [Number(a.external_id), a]));
   const shiftById = new Map(input.shifts.map((s) => [s.id, s]));
@@ -431,15 +527,14 @@ export function buildShiftWeights(input: {
     const combos = new Map<string, { roleId: string; departmentId: string | null }>();
     for (const id of ids) {
       const att = attendanceByExternal.get(id);
-      const sh = att?.shift_id ? shiftById.get(att.shift_id) : undefined;
-      if (!att || att.employee_id !== acc.employee_id || !sh || !sh.role_id) {
+      const place = att && att.employee_id === acc.employee_id
+        ? resolveAttendanceRole(att, shiftById, input.roles)
+        : null;
+      if (!place) {
         ok = false;
         break;
       }
-      combos.set(`${sh.role_id}\u0000${sh.department_id ?? ""}`, {
-        roleId: sh.role_id,
-        departmentId: sh.department_id,
-      });
+      combos.set(`${place.roleId}\u0000${place.departmentId ?? ""}`, place);
     }
     if (!ok || combos.size !== 1) {
       unresolved.push(shiftDayRef(acc.employee_id, acc.business_date));
@@ -461,6 +556,57 @@ export function buildShiftWeights(input: {
   return { weights, unresolved };
 }
 
+// ── Таймзоны ─────────────────────────────────────────────────
+
+function offsetMinutes(at: Date, timezone: string): number {
+  const part = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    timeZoneName: "longOffset",
+  })
+    .formatToParts(at)
+    .find((p) => p.type === "timeZoneName")?.value;
+  const m = /^GMT(?:([+-])(\d{2}):(\d{2}))?$/.exec(part ?? "");
+  if (!m) throw new Error("offset");
+  return m[1] ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
+}
+
+/**
+ * Одна и та же граница суток у двух таймзон в этом месяце: совпадают названия
+ * либо смещения от UTC во все выбранные моменты месяца (псевдонимы одной зоны).
+ */
+export function sameZone(a: string, b: string, month: string): boolean {
+  if (a === b) return true;
+  try {
+    const { first, next } = monthBounds(month);
+    const end = Date.parse(`${addDays(next, 1)}T00:00:00Z`);
+    for (let t = Date.parse(`${addDays(first, -1)}T00:00:00Z`); t <= end; t += 12 * 3600_000) {
+      if (offsetMinutes(new Date(t), a) !== offsetMinutes(new Date(t), b)) return false;
+    }
+    return true;
+  } catch {
+    // Неизвестное название зоны сравнить нельзя: считаем расхождением.
+    return false;
+  }
+}
+
+/**
+ * Граница месяца у актов считается в таймзоне заведения, а у списаний и смен
+ * уже посчитана по таймзоне их источников. Если зоны расходятся, акт и смены
+ * режутся по разным границам, и удержание ляжет на другой состав смен, чем в
+ * ведомости: расхождение блокирует расчёт и называет обе зоны.
+ * Начало рабочего дня ведомости (`day_start_hour`) расхождением не считается:
+ * оно часть правила, по которому смена получает дату, и записывается в снимок.
+ */
+export function timezoneDisagreements(input: {
+  venue: string;
+  month: string;
+  others: Array<{ label: string; timezone: string | null }>;
+}): string[] {
+  return input.others
+    .filter((o) => o.timezone !== null && !sameZone(input.venue, o.timezone, input.month))
+    .map((o) => `timezone:venue=${input.venue};${o.label}=${o.timezone}`);
+}
+
 // ── Сборка ───────────────────────────────────────────────────
 
 /** Чистая сборка снимка из прочитанных строк. Бросает, если на месяц нет ни одной версии правил. */
@@ -476,17 +622,26 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
     throw new Error(`Правила удержаний (версия ${rule.version}) не прошли проверку`);
   const config: DeductionRules = parsed.data;
 
-  const { counted, unresolved: actUnresolved } = classifyActs(raw.acts, {
+  const classified = classifyActs(raw.acts, {
     venueId: raw.venueId,
     month: raw.month,
     timezone: raw.timezone,
   });
-  const countedIds = new Set(counted.map((a) => a.id));
+  const countedIds = new Set(classified.counted.map((a) => a.id));
+  const rowsOf = <T extends { document_id: string }>(rows: T[]) =>
+    rows.filter((r) => countedIds.has(r.document_id));
+  // Акт без зафиксированных итогов по живым значениям не читаем (см. splitFrozenActs).
+  const { frozen: counted, unfrozen } = splitFrozenActs(classified.counted, {
+    items: rowsOf(raw.items),
+    resorts: rowsOf(raw.resorts),
+    resortItems: rowsOf(raw.resortItems),
+  });
+  const frozenIds = new Set(counted.map((a) => a.id));
   const totals = managementTotalsByDocument({
     docs: counted,
-    items: raw.items.filter((i) => countedIds.has(i.document_id)),
-    resorts: raw.resorts.filter((r) => countedIds.has(r.document_id)),
-    resortItems: raw.resortItems.filter((r) => countedIds.has(r.document_id)),
+    items: raw.items.filter((i) => frozenIds.has(i.document_id)),
+    resorts: raw.resorts.filter((r) => frozenIds.has(r.document_id)),
+    resortItems: raw.resortItems.filter((r) => frozenIds.has(r.document_id)),
   });
   const inventory = inventoryPoolSources({
     counted,
@@ -506,6 +661,15 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
     accruals: raw.accruals,
     attendance: raw.attendance,
     shifts: raw.shifts,
+    roles: raw.roles,
+  });
+  const timezones = timezoneDisagreements({
+    venue: raw.timezone,
+    month: raw.month,
+    others: [
+      { label: "writeoffs", timezone: raw.writeoffSourceTimezone },
+      { label: "payroll", timezone: raw.payrollTimezone },
+    ],
   });
 
   return {
@@ -516,7 +680,9 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
     weights: shifts.weights,
     unresolved: [
       ...new Set([
-        ...actUnresolved,
+        ...classified.unresolved,
+        ...unfrozen,
+        ...timezones,
         ...inventory.unresolved,
         ...writeoffs.unresolved,
         ...shifts.unresolved,
@@ -528,6 +694,11 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
     venueId: raw.venueId,
     month: raw.month,
     timezone: raw.timezone,
+    payrollDayStartHour: raw.payrollDayStartHour,
+    dataProblems: {
+      undatedActs: [...new Set(classified.undated)].sort(),
+      actsWithoutVenue: [...new Set(classified.withoutVenue)].sort(),
+    },
   };
 }
 
@@ -748,7 +919,7 @@ export async function buildMonthlySnapshot(
       () =>
         db
           .from<Array<AttendanceRow & { id: string }>>("payroll_attendance")
-          .select("id, external_id, employee_id, business_date, shift_id")
+          .select("id, external_id, employee_id, business_date, shift_id, role_name")
           .eq("account_id", accountId)
           .eq("venue_id", venueId)
           .gte("business_date", first)
@@ -756,6 +927,34 @@ export async function buildMonthlySnapshot(
       "id",
     ),
   ]);
+  const [writeoffSource, salesSettings, roles] = await Promise.all([
+    db
+      .from<{ config: { timezone?: string } | null }>("stock_writeoff_sources")
+      .select("config")
+      .eq("account_id", accountId)
+      .eq("venue_id", venueId)
+      .maybeSingle(),
+    db
+      .from<{ timezone: string | null; day_start_hour: number | null }>("sales_settings")
+      .select("timezone, day_start_hour")
+      .eq("account_id", accountId)
+      .eq("venue_id", venueId)
+      .maybeSingle(),
+    readAll<RoleRow>(
+      "roles",
+      () =>
+        db
+          .from<RoleRow[]>("roles")
+          .select("id, name, department_id, archived_at")
+          .eq("venue_id", venueId),
+      "id",
+    ),
+  ]);
+  if (writeoffSource.error)
+    throw new Error(`Не удалось прочитать источник списаний: ${writeoffSource.error.message}`);
+  if (salesSettings.error)
+    throw new Error(`Не удалось прочитать настройки смен: ${salesSettings.error.message}`);
+
   const shifts = await readByIds<ShiftRow>(
     "schedule_shifts",
     attendance.map((a) => a.shift_id).filter((id): id is string => !!id),
@@ -784,5 +983,9 @@ export async function buildMonthlySnapshot(
     attendance,
     shifts,
     ruleVersions,
+    roles,
+    writeoffSourceTimezone: writeoffSource.data?.config?.timezone ?? null,
+    payrollTimezone: salesSettings.data?.timezone ?? null,
+    payrollDayStartHour: salesSettings.data?.day_start_hour ?? null,
   });
 }

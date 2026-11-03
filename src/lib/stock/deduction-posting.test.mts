@@ -214,3 +214,16 @@ test("описание постановки: перенос периода и у
   assert.match(text, /перенесены в ноябрь 2026/);
   assert.match(text, /уволенному сотруднику: Иван/);
 });
+
+import { joinUniqueNotices } from "./deduction-posting.ts";
+
+test("одинаковые пояснения по нескольким месяцам показываются один раз", () => {
+  const same = "Удержание по недостаче не пересчитано: нет права. Месяц пересчитает пользователь с правом.";
+  assert.equal(joinUniqueNotices([same, same]), same);
+  assert.equal(joinUniqueNotices([same, "Удержание за октябрь 2026 поставлено.", same]), `${same} Удержание за октябрь 2026 поставлено.`);
+});
+
+test("пустые пояснения отбрасываются, без пояснений - null", () => {
+  assert.equal(joinUniqueNotices([null, undefined, "", "  "]), null);
+  assert.equal(joinUniqueNotices([]), null);
+});

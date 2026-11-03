@@ -29,6 +29,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb, type LooseDb } from "@/lib/supabase/loose";
 import {
   describePostOutcome,
+  joinUniqueNotices,
   monthLabel,
   postMonthlyDeduction,
   type PostDeps,
@@ -311,8 +312,10 @@ export async function reverseInventoryDeductionForDocument(input: {
       return { error: e instanceof Error ? e.message : "Заведение недоступно", reversed: 0, summary: null };
     }
     const can = await asLooseDb(ctx.supabase).rpc("can_post_inventory_deduction", { p_venue: where.venueId });
-    if (can.error || can.data !== true)
-      return { error: "Недостаточно прав, чтобы сторнировать удержания по недостаче в этом заведении", reversed: 0, summary: null };
+    // Нет права ставить удержания - молчим целиком: ни ошибки, ни пояснения. Переоткрытие акта
+    // обычная операция, а удержание может быть выключено или не относиться к этому человеку;
+    // ответ без права не должен ничего говорить и о том, есть ли у месяца удержание.
+    if (can.error || can.data !== true) return { error: null, reversed: 0, summary: null };
 
     // Есть ли вообще живые строки месяца: без них сторнировать нечего.
     const snaps = await admin
@@ -484,7 +487,8 @@ async function runAutoRecalculation(trigger: AutoDeductionTrigger): Promise<stri
       const n = autoNotice(await runRecalculation(ctx, venueId, month), trigger);
       if (n) notices.push(n);
     }
-    return notices.length > 0 ? notices.join(" ") : null;
+    // Один месяц за другим дают одно и то же пояснение (например об отказе по праву): без повторов.
+    return joinUniqueNotices(notices);
   } catch (error) {
     console.error("[deduction] автопересчёт не выполнен", { trigger, error });
     return `Удержание по недостаче не пересчитано из-за ошибки. ${PERMIT_SUFFIX}`;

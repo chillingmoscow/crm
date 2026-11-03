@@ -300,3 +300,9 @@ export function describePostOutcome(out: PostOutcome): string {
   if (out.notifyError) parts.push(`Уведомление не отправлено: ${out.notifyError}.`);
   return parts.join(" ");
 }
+
+/** Склеивает пояснения без повторов: несколько месяцев с одним и тем же отказом дают одну фразу. `null`, если пояснений нет. */
+export function joinUniqueNotices(notices: Array<string | null | undefined>): string | null {
+  const unique = [...new Set(notices.filter((n): n is string => !!n && n.trim() !== ""))];
+  return unique.length > 0 ? unique.join(" ") : null;
+}

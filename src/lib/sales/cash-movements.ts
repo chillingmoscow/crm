@@ -40,10 +40,23 @@ export const cashMovementOverridesSchema = z
         date: z.string().refine(validDate, "Укажите дату смены"),
         amountCents: z.number().int().positive().max(100000000000),
         comment: z.string().max(2000),
-        route: z.enum(["safe", "operating", "hold"]),
+        sourceType: z.enum(["cashIn", "cashOut"]).optional(),
+        route: z.enum(["safe", "operating", "income", "hold"]),
+        categoryId: id.optional(),
         reason: z.string().trim().min(1).max(1000),
       })
-      .strict(),
+      .strict()
+      .superRefine((o, ctx) => {
+        if (
+          o.route === "income"
+            ? o.sourceType !== "cashIn" || !o.categoryId
+            : o.categoryId !== undefined
+        )
+          ctx.addIssue({
+            code: "custom",
+            message: "Для поступления выберите внесение и статью дохода",
+          });
+      }),
   )
   .max(1000)
   .refine(
@@ -55,7 +68,9 @@ export const cashMovementRulesSchema = z
     cashAccountId: id,
     safeAccountId: id,
     operatingAccountId: id,
-    incomeCategoryId: id,
+    // Missing mode preserves the meaning of already saved versions.
+    cashInMode: z.enum(["review", "income"]).optional(),
+    incomeCategoryId: id.nullable(),
     taxiCategoryId: id,
     tipsCategoryId: id,
     safePattern: pattern,
@@ -68,6 +83,8 @@ export const cashMovementRulesSchema = z
   })
   .strict()
   .superRefine((s, ctx) => {
+    if ((s.cashInMode ?? "income") === "income" && !s.incomeCategoryId)
+      ctx.addIssue({ code: "custom", message: "Выберите статью внесений" });
     if (
       new Set([s.cashAccountId, s.safeAccountId, s.operatingAccountId]).size !==
       3
@@ -79,6 +96,7 @@ export const cashMovementRulesSchema = z
   });
 export type CashMovementRules = z.infer<typeof cashMovementRulesSchema>;
 export const cashMovementDefaults = {
+  cashInMode: "review",
   safePattern: "инкас|инк.*ация",
   taxiPattern: "такси",
   tipsPattern: "ча[йеюёвы]",
@@ -243,6 +261,7 @@ export function planCashMovements(
     if (
       override &&
       (override.date !== row.date ||
+        (override.sourceType ?? "cashOut") !== row.type ||
         override.amountCents !== row.amountCents ||
         override.comment.trim().toLowerCase() !==
           row.comment.trim().toLowerCase())
@@ -265,11 +284,28 @@ export function planCashMovements(
       continue;
     }
     if (row.type === "cashIn") {
-      if (override) {
-        review.push({
-          sourceId: row.id,
-          message: "Исключение маршрута не применяется к внесению",
+      if (override?.route === "safe" || override?.route === "operating") {
+        const fromSafe = override.route === "safe";
+        plans.push({
+          key: `qr:cash-movement:${venueId}:${row.id}:transfer`,
+          label: fromSafe ? "Пополнение кассы из сейфа" : "Пополнение кассы с операционного счёта",
+          date: row.date,
+          sourceIds: [row.id],
+          type: "transfer",
+          bankAccountId: fromSafe ? rules.safeAccountId : rules.operatingAccountId,
+          toBankAccountId: rules.cashAccountId,
+          categoryId: null,
+          amountCents: row.amountCents,
         });
+        continue;
+      }
+      const categoryId = override?.route === "income"
+        ? override.categoryId
+        : (rules.cashInMode ?? "income") === "income"
+          ? rules.incomeCategoryId
+          : null;
+      if (!categoryId) {
+        review.push({ sourceId: row.id, message: "Укажите назначение внесения: поступление или перевод" });
         continue;
       }
       plans.push({
@@ -280,9 +316,13 @@ export function planCashMovements(
         type: "income",
         bankAccountId: rules.cashAccountId,
         toBankAccountId: null,
-        categoryId: rules.incomeCategoryId,
+        categoryId,
         amountCents: row.amountCents,
       });
+      continue;
+    }
+    if (override?.route === "income") {
+      review.push({ sourceId: row.id, message: "Поступление не применяется к изъятию" });
       continue;
     }
     const safe = override

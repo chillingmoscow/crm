@@ -68,6 +68,7 @@ try {
       cashAccountId: "cash",
       safeAccountId: "safe",
       operatingAccountId: "operating",
+      cashInMode: "income",
       incomeCategoryId: "income",
       taxiCategoryId: "taxi",
       tipsCategoryId: "tips",
@@ -294,6 +295,40 @@ try {
     schema.safeParse({ ...rules, overrides: [override, override] }).success,
     false,
   );
+  const incoming = rows.find((r) => r.id === 5);
+  const manualIncome = {
+    sourceId: incoming.id,
+    sourceType: "cashIn",
+    date: incoming.date,
+    amountCents: incoming.amountCents,
+    comment: incoming.comment,
+    route: "income",
+    categoryId: "returns",
+    reason: "Возврат покупки",
+  };
+  const reviewedRules = { ...rules, cashInMode: "review", incomeCategoryId: null };
+  assert.equal(defaults.cashInMode, "review");
+  assert.equal(plan("venue", [incoming], reviewedRules).plans.length, 0);
+  assert.equal(plan("venue", [incoming], reviewedRules).review.length, 1);
+  assert.equal(
+    plan("venue", [incoming], { ...reviewedRules, overrides: [manualIncome] }).plans[0].categoryId,
+    "returns",
+  );
+  const cashTopUp = { ...manualIncome, route: "safe", categoryId: undefined };
+  const topUpPlan = plan("venue", [incoming], { ...reviewedRules, overrides: [cashTopUp] }).plans[0];
+  assert.equal(topUpPlan.type, "transfer");
+  assert.equal(topUpPlan.bankAccountId, "safe");
+  assert.equal(topUpPlan.toBankAccountId, "cash");
+  assert.equal(topUpPlan.categoryId, null);
+  assert.equal(schema.safeParse({ ...reviewedRules, overrides: [{ ...manualIncome, sourceType: "cashOut" }] }).success, false);
+  assert.equal(schema.safeParse({ ...reviewedRules, overrides: [{ ...manualIncome, categoryId: undefined }] }).success, false);
+  assert.equal(schema.safeParse({ ...reviewedRules, overrides: [{ ...manualIncome, route: "safe" }] }).success, false);
+  assert.equal(plan("venue", [{ ...incoming, type: "cashOut" }], { ...reviewedRules, overrides: [manualIncome] }).review.length, 1);
+  assert.equal(plan("venue", [{ ...incoming, comment: "Другой возврат" }], { ...reviewedRules, overrides: [manualIncome] }).plans.length, 0);
+  // Old saved rules and decisions keep their original semantics.
+  const legacyRules = { ...rules };
+  delete legacyRules.cashInMode;
+  assert.equal(plan("venue", [incoming], legacyRules).plans[0].categoryId, "income");
   if (process.env.CASH_MOVEMENT_REAL_FIXTURE) {
     const real = normalize(
       JSON.parse(

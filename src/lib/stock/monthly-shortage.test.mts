@@ -172,3 +172,83 @@ test("личное списание ложится на сотрудника ц�
   assert.equal(r.company, 0);
   assert.equal(r.employees, 700);
 });
+
+test("легаси split: pending не считается готовым месяцем", () => {
+  const r = allocateMonthlyShortage({
+    sources: [shared(-1000)],
+    config: rules({ split: "pending" }),
+    weights: [w("e1", "bar", 1)],
+    unresolved: [],
+  });
+  assert.equal(r.state, "incomplete");
+  assert.equal(r.employees, 0);
+  assert.deepEqual(r.pools[0].allocations, []);
+});
+
+test("неразданный пул делает неполным весь месяц, даже распределимые пулы", () => {
+  const r = allocateMonthlyShortage({
+    sources: [dept("hookah", -900), shared(-500)],
+    config: rules(),
+    weights: [w("e1", "bar", 2), w("e2", "hookah", 0)],
+    unresolved: [],
+  });
+  assert.equal(r.state, "incomplete");
+  assert.equal(r.employees, 0);
+  assert.equal(r.company, 0);
+  assert.equal(r.total, 1400);
+  assert.ok(r.pools.every((p) => p.allocations.length === 0));
+});
+
+test("выключенные правила важнее непривязанных источников", () => {
+  const r = allocateMonthlyShortage({
+    sources: [shared(-1000)],
+    config: rules({ enabled: false }),
+    weights: [w("e1", "bar", 1)],
+    unresolved: ["act-1"],
+  });
+  assert.equal(r.state, "disabled");
+  assert.equal(r.company, 1000);
+  assert.equal(r.employees, 0);
+});
+
+test("пустой ключ пула считается отсутствующим", () => {
+  const r = allocateMonthlyShortage({
+    sources: [dept("", -100, "a")],
+    config: rules(),
+    weights: [w("e1", "", 1)],
+    unresolved: [],
+  });
+  assert.equal(r.state, "incomplete");
+  assert.equal(r.pools[0].key, null);
+});
+
+test("unresolved возвращается копией", () => {
+  const input = {
+    sources: [shared(-1)],
+    config: rules(),
+    weights: [w("e1", "bar", 1)],
+    unresolved: ["x"],
+  };
+  const r = allocateMonthlyShortage(input);
+  r.unresolved.push("y");
+  assert.deepEqual(input.unresolved, ["x"]);
+});
+
+test("порядок пулов не зависит от порядка источников", () => {
+  const sources = [
+    dept("hookah", -300),
+    shared(-100),
+    dept("bar", -200),
+    { pool: "personal" as const, key: "e1", amount: -50, sourceRef: "p" },
+  ];
+  const weights = [w("e1", "bar", 1), w("e2", "hookah", 1)];
+  const run = (s: typeof sources) =>
+    allocateMonthlyShortage({ sources: s, config: rules(), weights, unresolved: [] });
+  const a = run(sources);
+  const b = run([...sources].reverse());
+  assert.deepEqual(a, b);
+  assert.deepEqual(
+    a.pools.map((p) => `${p.pool}:${p.key}`),
+    ["department:bar", "department:hookah", "personal:e1", "shared:null"],
+  );
+});

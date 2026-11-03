@@ -46,3 +46,5 @@ jobs:
           node scripts/test-supply-payments.mjs
       - name: Stock deduction invariants
         run: node scripts/test-stock-deduction-rules.mjs
+      - name: Stock shortage allocation
+        run: node --test --experimental-strip-types src/lib/stock/*.test.mts

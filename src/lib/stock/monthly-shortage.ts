@@ -51,13 +51,15 @@ export function allocateMonthlyShortage(input: MonthlyShortageInput): {
     { pool: PoolKind; key: string | null; netCents: number }
   >();
   for (const s of input.sources) {
-    const k = `${s.pool}\u0000${s.key ?? ""}`;
-    const g = grouped.get(k) ?? { pool: s.pool, key: s.key, netCents: 0 };
+    // Пустая строка — не ключ: считаем её отсутствующей.
+    const key = s.key === "" ? null : s.key;
+    const k = `${s.pool}\u0000${key ?? ""}`;
+    const g = grouped.get(k) ?? { pool: s.pool, key, netCents: 0 };
     g.netCents += cents(s.amount);
     grouped.set(k, g);
   }
 
-  let incomplete = unresolved.length > 0;
+  let incomplete = unresolved.length > 0 && config.enabled;
   const pools: MonthlyShortagePool[] = [];
 
   for (const g of grouped.values()) {
@@ -70,12 +72,13 @@ export function allocateMonthlyShortage(input: MonthlyShortageInput): {
     };
     const empty = { company: 0, employees: 0, allocations: [] };
 
-    if (incomplete && unresolved.length > 0) {
-      pools.push({ ...base, ...empty });
-      continue;
-    }
+    // Правила выключены: всё заведению, "неполным" месяц не считаем.
     if (!config.enabled) {
       pools.push({ ...base, ...empty, company: base.chargeable });
+      continue;
+    }
+    if (unresolved.length > 0) {
+      pools.push({ ...base, ...empty });
       continue;
     }
     // Пул без владельца (подразделение/сотрудник не указан) считать нельзя.
@@ -120,6 +123,12 @@ export function allocateMonthlyShortage(input: MonthlyShortageInput): {
     });
   }
 
+  // Порядок результата не зависит от порядка источников.
+  pools.sort(
+    (a, b) =>
+      a.pool.localeCompare(b.pool) || (a.key ?? "").localeCompare(b.key ?? ""),
+  );
+
   if (incomplete) {
     // Без распределения: ничего не раздаём, пока месяц не полон.
     const total = pools.reduce((s, p) => s + cents(p.chargeable), 0) / 100;
@@ -133,7 +142,7 @@ export function allocateMonthlyShortage(input: MonthlyShortageInput): {
       total,
       company: 0,
       employees: 0,
-      unresolved,
+      unresolved: [...unresolved],
       state: "incomplete",
     };
   }
@@ -145,7 +154,7 @@ export function allocateMonthlyShortage(input: MonthlyShortageInput): {
     total: sumOf((p) => p.chargeable),
     company: sumOf((p) => p.company),
     employees: sumOf((p) => p.employees),
-    unresolved,
+    unresolved: [...unresolved],
     state: config.enabled ? "ready" : "disabled",
   };
 }

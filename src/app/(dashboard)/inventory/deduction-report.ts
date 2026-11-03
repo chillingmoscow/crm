@@ -19,6 +19,7 @@ import "server-only";
 // есть ли оно. Остальные проверки: аккаунт сессии, заведение в аккаунте.
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { assertVenueInAccount } from "@/lib/stock/deduction-guard";
 import { buildDeductionLines, monthLabel } from "@/lib/stock/deduction-posting";
@@ -89,9 +90,18 @@ function previousMonth(today: string): string {
 
 export async function loadDeductionReport(requestedMonth: string | null): Promise<DeductionReportResult> {
   try {
-    // Суммы по сотрудникам - зарплатные данные, а читаются серверным клиентом в обход RLS, поэтому
-    // нужны оба права: итоги склада и payroll.view (то же право, что просит RLS таблицы снимков).
-    const ctx = await getActiveContext(["inventory.view_results", "payroll.view"]);
+    // Суммы по сотрудникам - зарплатные данные, а читаются серверным клиентом в обход RLS,
+    // поэтому к праву на итоги склада нужно второе. Их два, и достаточно любого:
+    // payroll.view (то же, что просит RLS таблицы снимков) ИЛИ inventory.post_deductions.
+    // Второе - решение владельца 3 ноября: доступ определяется правами в настройках, а кто
+    // ставит удержание, обязан видеть результат своего действия. Иначе человек нажимает
+    // кнопку, после которой у сотрудников меняется выплата, и проверить итог не может.
+    // Выдавать ради этого payroll.view нельзя: оно открывает всю ведомость целиком.
+    const ctx = await getActiveContext("inventory.view_results");
+    const checker = await getCachedPermissionChecker();
+    const mayReadAmounts = checker("payroll.view") || checker("inventory.post_deductions");
+    if (!ctx.error && !mayReadAmounts)
+      return { ok: false, error: "Нет доступа к отчёту об удержаниях. Обратитесь к владельцу аккаунта.", forbidden: true };
     if (ctx.error === "Недостаточно прав")
       return { ok: false, error: "Нет доступа к отчёту об удержаниях. Обратитесь к владельцу аккаунта.", forbidden: true };
     if (ctx.error || !ctx.user || !ctx.accountId) return { ok: false, error: ctx.error ?? "Не авторизован" };

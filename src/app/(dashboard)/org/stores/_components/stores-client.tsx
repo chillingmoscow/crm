@@ -49,8 +49,8 @@ export function StoresClient({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  // Спиннер только на той строке, которую меняют: список общий, а запись одна.
-  const [pendingStoreId, setPendingStoreId] = useState<string | null>(null);
+  // Спиннер только у того контрола, который меняли: список общий, а запись одна.
+  const [pending, setPending] = useState<{ storeId: string; field: "venue" | "department" } | null>(null);
 
   // Архивное заведение выбрать нельзя: резолвер привязки его тоже обходит
   // (src/lib/inventory/default-venue.ts), и предлагать то, что автоматика
@@ -109,14 +109,14 @@ export function StoresClient({
         : "unset";
 
   const updateDepartment = (storeId: string, value: string) => {
-    setPendingStoreId(storeId);
+    setPending({ storeId, field: "department" });
     startTransition(async () => {
       const result = await updateInventoryStoreDepartment(
         value.startsWith("department:")
           ? { storeId, scope: "department", departmentId: value.slice("department:".length) }
           : { storeId, scope: value === "shared" ? "shared" : "unset", departmentId: null },
       );
-      setPendingStoreId(null);
+      setPending(null);
       if (result.error) {
         toast.error(result.error);
         return;
@@ -127,13 +127,13 @@ export function StoresClient({
   };
 
   const updateVenue = (storeId: string, venueId: string) => {
-    setPendingStoreId(storeId);
+    setPending({ storeId, field: "venue" });
     startTransition(async () => {
       const result = await updateInventoryStoreVenue({
         storeId,
         venueId: venueId || null,
       });
-      setPendingStoreId(null);
+      setPending(null);
       if (result.error) {
         toast.error(result.error);
         return;
@@ -173,7 +173,11 @@ export function StoresClient({
                 ? `${currentDepartment.name}${currentDepartment.archived_at ? " (в архиве)" : ""}`
                 : "Другое подразделение"
               : null;
-          const rowPending = isPending && pendingStoreId === store.id;
+          const venuePending = isPending && pending?.storeId === store.id && pending.field === "venue";
+          const departmentPending = isPending && pending?.storeId === store.id && pending.field === "department";
+          // Привязка к архивному подразделению расчёт месяца считает
+          // неразрешённой, так что выглядеть настроенной она не должна.
+          const archivedBinding = Boolean(currentDepartment?.archived_at) && store.department_scope === "department";
           return (
             <div
               key={store.id}
@@ -185,12 +189,15 @@ export function StoresClient({
                   QR #{store.external_id}
                   {store.store_code ? <span className="md:hidden"> · {store.store_code}</span> : null}
                 </div>
-                {/* «Не задано» — состояние, при котором месяц по складу не посчитать
-                    до конца. Серый текст в селекте читался как «пусто, нормально»,
-                    поэтому маркер отдельный, в янтарной палитре бейджей статусов. */}
-                {value === "unset" ? (
-                  <Badge variant="outline" className={`mt-1.5 max-w-full overflow-hidden text-xs font-normal ${WARNING_BADGE_CLASS}`}>
-                    <span className="min-w-0 truncate">Подразделение не задано</span>
+                {/* «Не задано» и привязка к архивному подразделению — состояния, при
+                    которых месяц по складу не посчитать до конца. Серый текст в
+                    селекте читался как «пусто, нормально», поэтому маркер отдельный,
+                    в янтарной палитре бейджей статусов. */}
+                {value === "unset" || archivedBinding ? (
+                  <Badge variant="outline" className={`mt-2 max-w-full overflow-hidden text-xs font-normal ${WARNING_BADGE_CLASS}`}>
+                    <span className="min-w-0 truncate">
+                      {archivedBinding ? "Подразделение в архиве" : "Подразделение не задано"}
+                    </span>
                   </Badge>
                 ) : null}
               </div>
@@ -212,6 +219,7 @@ export function StoresClient({
                       </option>
                     ))}
                   </select>
+                  {venuePending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
                 </div>
               </div>
               <div className="min-w-0">
@@ -238,7 +246,7 @@ export function StoresClient({
                       </optgroup>
                     ) : null}
                   </select>
-                  {rowPending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+                  {departmentPending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
                 </div>
                 {!store.local_venue_id ? (
                   <div className="mt-1 text-xs text-muted-foreground">

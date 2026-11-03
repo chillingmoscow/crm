@@ -176,7 +176,12 @@ revoke all on function public.can_post_inventory_deduction(uuid) from public, an
 grant execute on function public.can_post_inventory_deduction(uuid) to authenticated;
 
 -- Под service_role нет auth.uid(), а триггеры ведомости (история, аудит, имя автора) читают его.
--- На время записи подставляем проверенного исполнителя; прежние значения возвращаются после.
+-- auth.uid() берёт request.jwt.claim.sub первым, поэтому на время записи подставляется только он;
+-- request.jwt.claims не трогается вообще, так что то, что кастуют из него в jsonb, остаётся как было.
+-- Прежнее значение возвращается после записи. Если sub не был задан, вернуть его в NULL нельзя:
+-- PostgreSQL после set_config/reset оставляет пустую строку (проверено), а auth.uid() и остальные
+-- помощники Supabase читают sub через nullif(..., ''), для них '' и NULL равны. Значение к тому же
+-- транзакционное (is_local = true): на границе транзакции пул соединений ничего не уносит.
 create or replace function private.inventory_deduction_act_as(p_actor uuid)
 returns jsonb
 language plpgsql
@@ -184,13 +189,9 @@ security definer
 set search_path = public, pg_catalog
 as $$
 declare
-  prev jsonb := jsonb_build_object(
-    'sub', coalesce(current_setting('request.jwt.claim.sub', true), ''),
-    'claims', coalesce(current_setting('request.jwt.claims', true), ''));
+  prev jsonb := jsonb_build_object('sub', current_setting('request.jwt.claim.sub', true));
 begin
   perform set_config('request.jwt.claim.sub', p_actor::text, true);
-  perform set_config('request.jwt.claims',
-    jsonb_build_object('sub', p_actor::text, 'role', 'service_role')::text, true);
   return prev;
 end;
 $$;
@@ -203,8 +204,7 @@ security definer
 set search_path = public, pg_catalog
 as $$
 begin
-  perform set_config('request.jwt.claim.sub', p_prev->>'sub', true);
-  perform set_config('request.jwt.claims', p_prev->>'claims', true);
+  perform set_config('request.jwt.claim.sub', coalesce(p_prev->>'sub', ''), true);
 end;
 $$;
 revoke all on function private.inventory_deduction_restore(jsonb) from public, anon, authenticated, service_role;

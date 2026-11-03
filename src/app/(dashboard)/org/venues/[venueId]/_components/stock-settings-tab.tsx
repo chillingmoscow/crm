@@ -113,9 +113,11 @@ function RulesForm({
         config: next,
         reason,
       });
-      onSaved(d);
+      onSaved(d.data);
       router.refresh();
       toast.success("Новая версия правил сохранена");
+      // Пересчёт удержания текущего месяца (если автопересчёт включён): не теряем результат.
+      if (d.deductionNotice) toast.message(d.deductionNotice);
     } catch (e) {
       toast.error(
         e instanceof z.ZodError

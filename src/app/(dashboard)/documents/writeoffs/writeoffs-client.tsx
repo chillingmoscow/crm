@@ -568,7 +568,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     key: string | null,
   ) {
     if (!row.native) return;
-    const mark = await assignWriteoffPool(
+    const { mark, notice } = await assignWriteoffPool(
       data.venueId,
       row.native.external_id,
       to,
@@ -585,6 +585,8 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
         ...(mark ? [mark] : []),
       ],
     }));
+    // Результат пересчёта удержания за месяц акта (если автопересчёт включён): не теряем его.
+    if (notice) toast.message(notice);
   }
   async function download() {
     setExporting(true);

@@ -381,6 +381,10 @@ begin
   end if;
   -- Подставленный на время записи исполнитель не протекает наружу.
   if (select auth.uid()) is not null then raise exception 'FAIL 18g: acting user leaked out of the RPC'; end if;
+  -- request.jwt.claims RPC не трогает вообще: то, что из него кастуют в jsonb, остаётся прежним.
+  if current_setting('request.jwt.claims', true) is distinct from '{"role":"service_role"}' then
+    raise exception 'FAIL 18h: request.jwt.claims was modified: %', current_setting('request.jwt.claims', true);
+  end if;
 
   -- 19. Исполнитель проверяется самим RPC: пустой, несуществующий и без права - отказ.
   begin perform public.post_inventory_deduction(null, v, '2026-09-01', '[]', jsonb_build_object('id', gen_random_uuid(), 'state', 'ready', 'captured_at', t0, 'rule_version_id', rule_id, 'shortage_total', 0, 'company_total', 0, 'employees_total', 0));

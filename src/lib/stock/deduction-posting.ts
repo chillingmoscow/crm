@@ -77,7 +77,8 @@ export function monthLabel(month: string): string {
 export type RpcLine = { employee_id: string; amount: number; request_key: string; reason: string; pools: DeductionLine["pools"] };
 export type RpcSnapshot = {
   id: string;
-  state: "ready" | "incomplete";
+  /** Всегда "ready": неготовый расчёт не отправляется, а таблица снимков принимает только "ready". */
+  state: "ready";
   captured_at: string;
   rule_version_id: string;
   shortage_total: number;

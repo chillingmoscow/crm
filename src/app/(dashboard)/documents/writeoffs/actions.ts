@@ -14,7 +14,7 @@ import type {
   WriteoffRules,
 } from "@/lib/stock/writeoffs";
 import type { WriteoffPoolAssignment } from "@/lib/stock/writeoff-pools";
-import { autoRecalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
+import { autoRecalculateInventoryDeduction } from "@/app/(dashboard)/inventory/deduction-service";
 export type WriteoffPoolTargets = {
   departments: Array<{ id: string; name: string; archived: boolean }>;
   employees: Array<{ id: string; name: string; active: boolean }>;
@@ -219,14 +219,15 @@ export async function requestWriteoffs(venueId: string, month: string) {
  * Поставить, сменить или снять (pool = null) плательщика за акт. Право отдельное
  * от просмотра журнала: пометка двигает деньги сотрудников. Возвращает пометку
  * этого акта после записи (null, если её нет), а не весь список: так запись не
- * тянет заново всё разнесение заведения.
+ * тянет заново всё разнесение заведения. `notice` - пояснение об удержании по недостаче
+ * (пересчёт месяца после пометки), если автоматический пересчёт включён.
  */
 export async function assignWriteoffPool(
   venueId: string,
   externalId: number,
   pool: WriteoffPoolAssignment["pool"] | null,
   key: string | null,
-): Promise<WriteoffPoolAssignment | null> {
+): Promise<{ mark: WriteoffPoolAssignment | null; notice: string | null }> {
   const s = await scope(venueId);
   if (!s.permissions.includes("inventory.assign_writeoff_pool"))
     throw new Error("Нет права разносить списания");
@@ -249,7 +250,7 @@ export async function assignWriteoffPool(
   if (r.error) throw new Error(r.error.message);
   // Плательщик за акт меняет результат месяца. Выключено по умолчанию (INVENTORY_DEDUCTION_AUTOPOST);
   // сбой пересчёта пометку не отменяет - она уже записана.
-  await autoRecalculateInventoryDeduction({ kind: "writeoff", venueId, externalId });
+  const notice = await autoRecalculateInventoryDeduction({ kind: "writeoff", venueId, externalId });
   const mark = await s.db
     .from<AssignmentRow>("writeoff_pool_assignments")
     .select("venue_id,external_id,pool,department_id,employee_id")
@@ -258,7 +259,7 @@ export async function assignWriteoffPool(
     .eq("external_id", externalId)
     .maybeSingle();
   if (mark.error) throw new Error("Не удалось загрузить разнесение");
-  return mark.data ? toAssignment(mark.data) : null;
+  return { mark: mark.data ? toAssignment(mark.data) : null, notice };
 }
 export type WriteoffHistory = {
   id: string;

@@ -20,7 +20,7 @@ import {
 import {
   autoRecalculateInventoryDeduction,
   reverseInventoryDeductionForDocument,
-} from "./deduction";
+} from "../deduction-service";
 import {
   actionErrorMessage,
   assertDocumentVisible,

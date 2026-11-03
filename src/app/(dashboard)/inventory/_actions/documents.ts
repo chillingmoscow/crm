@@ -5,7 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
-import { autoRecalculateInventoryDeduction } from "./deduction";
+import { autoRecalculateInventoryDeduction } from "../deduction-service";
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import {
   actionErrorMessage,

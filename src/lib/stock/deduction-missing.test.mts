@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groupMissing } from "./deduction-missing.ts";
+import { groupMissing, bareDocumentId } from "./deduction-missing.ts";
 
 const lookup = {
   documents: new Map([["d1", { number: "ИНВ-15", date: "2026-10-31" }]]),
@@ -41,4 +41,14 @@ test("пустой список - пустой результат", () => {
 test("группы идут в стабильном порядке, не зависящем от порядка записей", () => {
   const groups = groupMissing(["shift:e1:2026-10-05", "writeoff:v1:77", "inventory:d1"], lookup);
   assert.deepEqual(groups.map((g) => g.kind), ["inventory", "writeoff", "shift"]);
+});
+
+test("голый id акта: префикс снимается, голый id не портится", () => {
+  assert.equal(bareDocumentId("inventory:11111111-1111-4111-8111-111111111111"), "11111111-1111-4111-8111-111111111111");
+  assert.equal(bareDocumentId("11111111-1111-4111-8111-111111111111"), "11111111-1111-4111-8111-111111111111");
+});
+
+test("голый id акта: чужие префиксы не трогаются", () => {
+  assert.equal(bareDocumentId("writeoff:v1:42"), "writeoff:v1:42");
+  assert.equal(bareDocumentId("shift:e1:2026-10-01"), "shift:e1:2026-10-01");
 });

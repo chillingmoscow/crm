@@ -24,7 +24,7 @@ import { assertVenueInAccount } from "@/lib/stock/deduction-guard";
 import { buildDeductionLines, monthLabel } from "@/lib/stock/deduction-posting";
 import { allocateMonthlyShortage } from "@/lib/stock/monthly-shortage";
 import { buildMonthlySnapshot } from "@/lib/stock/monthly-snapshot";
-import { groupMissing, documentItem, type MissingGroup, type MissingItem } from "@/lib/stock/deduction-missing";
+import { groupMissing, documentItem, bareDocumentId, type MissingGroup, type MissingItem } from "@/lib/stock/deduction-missing";
 import { stockCalendarDate } from "@/lib/stock/writeoffs";
 import { actionErrorMessage, getActiveContext } from "./actions-shared";
 
@@ -167,9 +167,12 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
     const employees: ReportEmployee[] = employeeRows.data ?? [];
 
     // Названия актов для перечня «чего не хватает».
+    // Снимок отдаёт акты с префиксом; в фильтр по documents.id и в documentItem
+    // идёт голый id, иначе запрос падает на неверном UUID и отчёт не грузится.
+    const undatedDocIds = snapshot.dataProblems.undatedActs.map(bareDocumentId);
     const docIds = new Set<string>([
-      ...snapshot.dataProblems.undatedActs,
-      ...alloc.unresolved.filter((r) => r.startsWith("inventory:")).map((r) => r.slice("inventory:".length)),
+      ...undatedDocIds,
+      ...alloc.unresolved.filter((r) => r.startsWith("inventory:")).map(bareDocumentId),
     ]);
     const docRows =
       docIds.size === 0
@@ -188,7 +191,7 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
     };
 
     const dataProblems = [
-      { title: "Акты без бизнес-даты: ни к какому месяцу не отнести", ids: snapshot.dataProblems.undatedActs },
+      { title: "Акты без бизнес-даты: ни к какому месяцу не отнести", ids: undatedDocIds },
     ]
       .filter((p) => p.ids.length > 0)
       .map((p) => ({ title: p.title, items: p.ids.map((id) => documentItem(id, lookup)) }));

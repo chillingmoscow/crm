@@ -33,6 +33,17 @@ function dayText(value: string): string {
 }
 
 /** Акт по ID: «Акт ИНВ-15 от 31.10.2026»; если акта нет в справочнике, виден хотя бы его ID. */
+/**
+ * Голый id акта из устойчивой ссылки расчёта. Снимок отдаёт акты как
+ * `inventory:<id>` — и в `unresolved`, и в `dataProblems.undatedActs`, — а
+ * фильтр по `documents.id` и `documentItem` ждут id без префикса. Снимать его
+ * в каждом потребителе по-своему уже привело к падению страницы отчёта на
+ * недатированном акте: префикс уходил прямо в UUID-фильтр.
+ */
+export function bareDocumentId(ref: string): string {
+  return ref.startsWith("inventory:") ? ref.slice("inventory:".length) : ref;
+}
+
 export function documentItem(id: string, lookup: MissingLookup): MissingItem {
   const doc = lookup.documents.get(id);
   const label = doc
@@ -58,7 +69,7 @@ export function groupMissing(refs: string[], lookup: MissingLookup): MissingGrou
   const add = (kind: MissingKind, item: MissingItem) => groups.set(kind, [...(groups.get(kind) ?? []), item]);
 
   for (const ref of refs) {
-    if (ref.startsWith("inventory:")) add("inventory", documentItem(ref.slice("inventory:".length), lookup));
+    if (ref.startsWith("inventory:")) add("inventory", documentItem(bareDocumentId(ref), lookup));
     else if (ref.startsWith("writeoff:"))
       add("writeoff", { label: `Акт списания ${ref.slice(ref.lastIndexOf(":") + 1)}`, href: "/documents/writeoffs" });
     else if (ref.startsWith("shift:")) {

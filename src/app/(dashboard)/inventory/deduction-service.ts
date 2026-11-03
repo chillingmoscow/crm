@@ -38,6 +38,7 @@ import {
 import type { HistoryMonth } from "@/lib/stock/deduction-anomaly";
 import { buildMonthlySnapshot, businessMonthOf, monthBounds } from "@/lib/stock/monthly-snapshot";
 import { stockCalendarDate } from "@/lib/stock/writeoffs";
+import { addDays } from "@/lib/sales/time";
 import { assertVenueInAccount } from "@/lib/stock/deduction-guard";
 import { whenAutopostEnabled } from "@/lib/stock/deduction-flag";
 import { actionErrorMessage, getActiveContext } from "./actions-shared";
@@ -534,7 +535,10 @@ async function recalculateStoreMonths(
     .eq("status", "processed")
     .eq("processed", true)
     .is("archived_at", null)
-    .gte("invoice_date", `${earliest}-01T00:00:00Z`)
+    // Запас в двое суток: в таймзоне к востоку от UTC первые часы месяца лежат
+    // в предыдущих сутках по UTC, и жёсткая граница их отрезала бы. Точную
+    // границу ставит businessMonthOf ниже — здесь только предфильтр.
+    .gte("invoice_date", `${addDays(`${earliest}-01`, -2)}T00:00:00Z`)
     .limit(1000);
   if (acts.error) return `Удержание по недостаче не пересчитано: ${acts.error.message}. ${PERMIT_SUFFIX}`;
   const months = new Set<string>();

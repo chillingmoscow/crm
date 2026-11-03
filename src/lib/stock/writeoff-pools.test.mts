@@ -248,10 +248,7 @@ test("каждая копеечная позиция округляется от
   assert.equal(r.sources[0].amount, -8);
 });
 
-test("акт на ноль рублей даёт ноль, а не минус ноль", () => {
-  const r = writeoffPoolSources([doc(1, [0])], [shared(1)]);
-  assert.equal(Object.is(r.sources[0].amount, 0), true);
-});
+
 
 test("журнал и расчёт одинаково понимают, что акту нужна пометка", () => {
   const cases: Array<[WriteoffPoolDoc, WriteoffPoolAssignment | undefined]> = [
@@ -300,4 +297,71 @@ test("подпись плательщика не придумывает имя, 
   assert.equal(label({ external_id: 1, pool: "department", key: DEPT }), "Подразделение: Кальяны");
   assert.equal(label({ external_id: 1, pool: "personal", key: EMP }), "Сотрудник: Иван");
   assert.equal(label({ external_id: 1, pool: "personal", key: "x" }), "Сотрудник: не найден");
+});
+
+const excluded = (externalId: number): WriteoffPoolAssignment => ({
+  external_id: externalId,
+  pool: "excluded",
+  key: null,
+});
+
+test("«не удерживать» не даёт источника и не блокирует месяц", () => {
+  const r = writeoffPoolSources(
+    [
+      doc(1, [500], { kind: "personal" }),
+      doc(2, [null, 10], { kind: "personal" }), // сумма неизвестна, но решение принято
+      doc(3, [100]),
+    ],
+    [excluded(1), excluded(2), shared(3)],
+  );
+  assert.deepEqual(
+    r.sources.map((s) => s.sourceRef),
+    ["writeoff:3"],
+  );
+  assert.deepEqual(r.unresolved, []);
+});
+
+test("«не удерживать» отличается от «не разнесён» и в журнале, и в расчёте", () => {
+  const d = doc(1, [500], { kind: "personal" });
+  assert.equal(writeoffPoolState(d, undefined), "unassigned");
+  assert.equal(writeoffPoolState(d, excluded(1)), "assigned");
+  assert.equal(
+    writeoffPoolLabel(excluded(1), {
+      departments: new Map(),
+      employees: new Map(),
+    }),
+    "Не удерживать",
+  );
+  assert.deepEqual(writeoffPoolSources([d], []).unresolved, ["writeoff:1"]);
+  assert.deepEqual(writeoffPoolSources([d], [excluded(1)]).unresolved, []);
+});
+
+test("«не удерживать» с ключом — битая пометка, а не решение", () => {
+  const r = writeoffPoolSources(
+    [doc(1, [50])],
+    [{ external_id: 1, pool: "excluded", key: DEPT }],
+  );
+  assert.deepEqual(r.sources, []);
+  assert.deepEqual(r.unresolved, ["writeoff:1"]);
+});
+
+test("акт на ноль рублей не блокирует месяц и не создаёт источник", () => {
+  const docs = [doc(1, [0]), doc(2, [0, 0]), doc(3, [0.4], { kind: "personal" })];
+  // Без пометки: не unresolved.
+  const bare = writeoffPoolSources(docs, []);
+  assert.deepEqual(bare.sources, []);
+  assert.deepEqual(bare.unresolved, []);
+  // С пометкой: тоже ни одного источника на ноль.
+  const marked = writeoffPoolSources(docs, [shared(1), shared(2), shared(3)]);
+  assert.deepEqual(marked.sources, []);
+  assert.deepEqual(marked.unresolved, []);
+  // Журнал: видно и можно разнести, но это не «Не разнесён».
+  assert.equal(writeoffPoolState(docs[0], undefined), "not_needed");
+  assert.equal(writeoffPoolState(docs[0], shared(1)), "assigned");
+});
+
+test("ноль рублей не прячет неизвестную сумму и копейки вверх", () => {
+  // 0,40 в командном акте — вверх, это уже 1 ₽ и акт нужно разнести.
+  const r = writeoffPoolSources([doc(1, [0.4]), doc(2, [0, null])], []);
+  assert.deepEqual(r.unresolved, ["writeoff:1", "writeoff:2"]);
 });

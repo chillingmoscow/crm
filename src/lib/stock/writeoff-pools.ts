@@ -11,10 +11,14 @@ export type WriteoffPoolDoc = {
     lines: Array<{ id: number; amount: number | null }>;
   };
 };
-/** Пометка человека: кто платит за акт. Живёт отдельно от зеркала актов. */
+/**
+ * Пометка человека: кто платит за акт. Живёт отдельно от зеркала актов.
+ * "excluded" — осознанное «не удерживать» (например, личное потребление, которое
+ * сотрудник оплачивает сам): записанное решение, но не пул и не источник.
+ */
 export type WriteoffPoolAssignment = {
   external_id: number;
-  pool: PoolKind;
+  pool: PoolKind | "excluded";
   /** Подразделение для "department", сотрудник для "personal", иначе null. */
   key: string | null;
 };
@@ -58,17 +62,25 @@ export function writeoffChargeRubles(
 
 const validMark = (m: WriteoffPoolAssignment | undefined) =>
   !!m &&
-  (m.pool === "shared"
+  (m.pool === "shared" || m.pool === "excluded"
     ? !m.key
     : (m.pool === "department" || m.pool === "personal") && !!m.key);
 
-/** Состояние разнесения акта для журнала. */
+/**
+ * Состояние разнесения акта для журнала.
+ * - "unassigned": нужен выбор человека, пока его нет месяц неполный;
+ * - "not_needed": акт на ноль рублей, ничего не меняет в пулах и месяц не блокирует;
+ * - "not_counted": черновик или пропавший акт без пометки, в расчёт не идёт.
+ */
 export function writeoffPoolState(
   doc: WriteoffPoolDoc,
   mark: WriteoffPoolAssignment | undefined,
-): "assigned" | "unassigned" | "not_counted" {
+): "assigned" | "unassigned" | "not_needed" | "not_counted" {
   if (!writeoffCounts(doc)) return mark ? "assigned" : "not_counted";
-  return validMark(mark) ? "assigned" : "unassigned";
+  if (validMark(mark)) return "assigned";
+  return writeoffChargeRubles(doc.payload.kind, doc.payload.lines) === 0
+    ? "not_needed"
+    : "unassigned";
 }
 
 /** Подпись плательщика для журнала. Имена приходят отдельно: пометка хранит только ID. */
@@ -77,6 +89,7 @@ export function writeoffPoolLabel(
   names: { departments: Map<string, string>; employees: Map<string, string> },
 ): string {
   if (mark.pool === "shared") return "Вся команда";
+  if (mark.pool === "excluded") return "Не удерживать";
   if (mark.pool === "department")
     return `Подразделение: ${names.departments.get(mark.key ?? "") ?? "не найдено"}`;
   return `Сотрудник: ${names.employees.get(mark.key ?? "") ?? "не найден"}`;
@@ -103,16 +116,21 @@ export function writeoffPoolSources(
     if (!writeoffCounts(d)) continue;
     const sourceRef = `writeoff:${d.external_id}`;
     const mark = marks.get(String(d.external_id));
+    // Явное «не удерживать»: решение человека, а не пробел. Источника нет, месяц не блокируется.
+    if (mark?.pool === "excluded" && validMark(mark)) continue;
     const rubles = writeoffChargeRubles(d.payload.kind, d.payload.lines);
+    // Акт на ноль рублей не меняет ни один пул: разносить его не обязательно.
+    if (rubles === 0) continue;
     if (!mark || !validMark(mark) || rubles === null) {
       unresolved.push(sourceRef);
       continue;
     }
     sources.push({
-      pool: mark.pool,
+      // "excluded" отсёк выше: здесь остаются только настоящие пулы.
+      pool: mark.pool as PoolKind,
       key: mark.key ? mark.key : null,
-      // Списание — потеря: недостача отрицательна (без «минус нуля»).
-      amount: rubles === 0 ? 0 : -rubles,
+      // Списание — потеря: недостача отрицательна.
+      amount: -rubles,
       sourceRef,
     });
   }

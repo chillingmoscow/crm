@@ -9,7 +9,8 @@ export type WriteoffPoolFilter =
   | "unassigned"
   | "shared"
   | "department"
-  | "personal";
+  | "personal"
+  | "excluded";
 /** Как акт показан в колонке «Пул»: подпись, состояние и сама пометка. */
 export type WriteoffPoolView = {
   pool: string;

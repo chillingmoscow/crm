@@ -226,7 +226,9 @@ export async function assignWriteoffPool(
   if (!s.permissions.includes("inventory.assign_writeoff_pool"))
     throw new Error("Нет права разносить списания");
   z.number().int().positive().safe().parse(externalId);
-  z.enum(["shared", "department", "personal"]).nullable().parse(pool);
+  z.enum(["shared", "department", "personal", "excluded"])
+    .nullable()
+    .parse(pool);
   z.string().uuid().nullable().parse(key);
   const r = await s.db.rpc("set_writeoff_pool", {
     p_external_id: String(externalId),

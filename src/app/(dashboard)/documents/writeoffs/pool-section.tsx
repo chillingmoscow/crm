@@ -26,6 +26,7 @@ const poolNames: Record<Pool, string> = {
   shared: "Вся команда",
   department: "Подразделение",
   personal: "Один сотрудник",
+  excluded: "Не удерживать",
 };
 const same = (s: string) =>
   s.normalize("NFKC").trim().toLocaleLowerCase("ru-RU");
@@ -54,8 +55,10 @@ export function PoolSection({
   const hinted =
     !!doc.payload.reason &&
     data.reasonHints.some((h) => same(h) === same(doc.payload.reason!));
+  const noKey = pool === "shared" || pool === "excluded";
+  const zero = counts && rubles === 0;
   const complete =
-    pool === "shared" ||
+    noKey ||
     ((pool === "department" || pool === "personal") && !!key);
   const changed =
     pool !== (mark?.pool ?? "") || (key || null) !== (mark?.key ?? null);
@@ -75,7 +78,7 @@ export function PoolSection({
         setPool("");
         setKey("");
       } else {
-        await onAssign(pool as Pool, pool === "shared" ? null : key);
+        await onAssign(pool as Pool, noKey ? null : key);
       }
       toast.success(kind === "clear" ? "Разнесение снято" : "Акт разнесён");
     } catch (e) {
@@ -106,6 +109,10 @@ export function PoolSection({
       <p className="break-words text-sm">
         {mark ? (
           row.pool
+        ) : zero ? (
+          <span className="text-muted-foreground">
+            Сумма акта 0 ₽: разносить его не нужно, месяц он не блокирует.
+          </span>
         ) : counts ? (
           <span className="text-muted-foreground">
             Пока не выбрано. Пока акт не разнесён, месяц не посчитан.
@@ -125,10 +132,16 @@ export function PoolSection({
             : "Черновик в расчёт не идёт, пока его не проведут. Выбор сохранится."}
         </p>
       )}
-      {rubles !== null && counts && (
+      {rubles !== null && counts && mark?.pool !== "excluded" && (
         <p className="text-xs text-muted-foreground">
           К разнесению: {rubles.toLocaleString("ru-RU")} ₽ — каждая позиция
           округлена отдельно.
+        </p>
+      )}
+      {doc.payload.kind === "personal" && !mark && (
+        <p className="rounded-lg bg-muted p-3 text-xs">
+          Личное потребление сотрудник оплачивает сам, это не удержание.
+          Обычно здесь выбирают «Не удерживать».
         </p>
       )}
       {hinted && (

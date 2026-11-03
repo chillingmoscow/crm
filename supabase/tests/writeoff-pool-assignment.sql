@@ -167,6 +167,12 @@ begin
   perform public.set_writeoff_pool('900000902', null, null);
   if exists (select 1 from public.writeoff_pool_assignments where external_id = 900000902) then raise exception 'FAIL 26: clear'; end if;
   perform public.set_writeoff_pool('900000902', null, null); -- снять уже снятую: не ошибка
+  -- «Не удерживать»: отдельное явное решение, без ключа.
+  perform public.set_writeoff_pool('900000902', 'excluded', null);
+  select * into row from public.writeoff_pool_assignments where external_id = 900000902;
+  if row.pool <> 'excluded' or row.department_id is not null or row.employee_id is not null then raise exception 'FAIL 26b: excluded'; end if;
+  begin perform public.set_writeoff_pool('900000902', 'excluded', d1); raise exception 'FAIL 26c: excluded with key accepted';
+  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
   perform public.set_writeoff_pool('900000902', 'department', d1);
 end $test$;
 reset role;
@@ -201,6 +207,9 @@ declare v uuid := current_setting('test.wpa_v')::uuid; a uuid := 'cccccccc-0000-
 begin
   begin insert into public.writeoff_pool_assignments(account_id, venue_id, external_id, pool) values (a, v, 910, 'personal');
     raise exception 'FAIL 31: personal without employee accepted';
+  exception when check_violation then null; end;
+  begin insert into public.writeoff_pool_assignments(account_id, venue_id, external_id, pool, employee_id) values (a, v, 916, 'excluded', current_setting('test.wpa_e1')::uuid);
+    raise exception 'FAIL 32b: excluded with employee accepted';
   exception when check_violation then null; end;
   begin insert into public.writeoff_pool_assignments(account_id, venue_id, external_id, pool, department_id) values (a, v, 911, 'shared', current_setting('test.wpa_d1')::uuid);
     raise exception 'FAIL 32: shared with department accepted';

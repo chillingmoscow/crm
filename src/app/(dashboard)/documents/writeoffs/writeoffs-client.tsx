@@ -382,7 +382,9 @@ function poolView(data: WriteoffData) {
         ? writeoffPoolLabel(assignment, names)
         : state === "unassigned"
           ? "Не разнесён"
-          : "—",
+          : state === "not_needed"
+            ? "Не требуется"
+            : "—",
     };
   };
 }
@@ -807,6 +809,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
                 <SelectItem value="shared">Вся команда</SelectItem>
                 <SelectItem value="department">Подразделение</SelectItem>
                 <SelectItem value="personal">Один сотрудник</SelectItem>
+                <SelectItem value="excluded">Не удерживать</SelectItem>
               </SelectContent>
             </Select>
           )}

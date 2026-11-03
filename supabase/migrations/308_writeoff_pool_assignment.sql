@@ -1,4 +1,5 @@
--- Разнесение актов списаний по плательщикам: вся команда / подразделение / один сотрудник.
+-- Разнесение актов списаний по плательщикам: вся команда / подразделение / один сотрудник,
+-- либо явное «не удерживать» (например, личное потребление, которое сотрудник оплачивает сам).
 --
 -- Пометку ставит человек (обучение агента на накопленных пометках - отдельный проект).
 -- Зеркало актов `stock_writeoff_documents` переписывается синхронизацией (payload,
@@ -42,7 +43,7 @@ create table public.writeoff_pool_assignments (
   account_id uuid not null,
   venue_id uuid not null,
   external_id bigint not null check (external_id > 0),
-  pool text not null check (pool in ('shared', 'department', 'personal')),
+  pool text not null check (pool in ('shared', 'department', 'personal', 'excluded')),
   department_id uuid references public.departments(id) on delete cascade,
   employee_id uuid,
   assigned_by uuid references public.profiles(id) on delete set null,
@@ -53,9 +54,9 @@ create table public.writeoff_pool_assignments (
   foreign key (account_id, venue_id) references public.venues(account_id, id) on delete cascade,
   foreign key (account_id, venue_id, employee_id)
     references public.payroll_employees(account_id, venue_id, id),
-  -- Ключ пула обязателен для подразделения и сотрудника и запрещён для общего пула.
+  -- Ключ обязателен для подразделения и сотрудника и запрещён для общего пула и «не удерживать».
   constraint writeoff_pool_assignments_key_check check (
-    (pool = 'shared' and department_id is null and employee_id is null)
+    (pool in ('shared', 'excluded') and department_id is null and employee_id is null)
     or (pool = 'department' and department_id is not null and employee_id is null)
     or (pool = 'personal' and employee_id is not null and department_id is null)
   )
@@ -128,7 +129,7 @@ begin
     raise exception 'Проверьте номер акта';
   end if;
   ext := p_external_id::bigint;
-  if p_pool is not null and p_pool not in ('shared', 'department', 'personal') then
+  if p_pool is not null and p_pool not in ('shared', 'department', 'personal', 'excluded') then
     raise exception 'Проверьте плательщика';
   end if;
   if not exists (
@@ -138,8 +139,8 @@ begin
     raise exception 'Акт списания не найден';
   end if;
 
-  if p_pool = 'shared' and p_key is not null then
-    raise exception 'Для всей команды сотрудник и подразделение не указываются';
+  if p_pool in ('shared', 'excluded') and p_key is not null then
+    raise exception 'Для этого варианта сотрудник и подразделение не указываются';
   elsif p_pool = 'department' then
     if p_key is null or not exists (
       select 1 from public.departments d

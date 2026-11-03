@@ -126,12 +126,12 @@ Expected: FAIL — колонок ещё нет.
 
 - [ ] **Step 3: Написать миграцию**
 
-Содержит: две колонки на `stores`; `check (department_scope in ('unset','shared','department') and (department_scope='department') = (department_id is not null))`; FK `department_id → departments(id) on delete set null` с BEFORE-триггером, проверяющим, что `departments.venue_id = stores.local_venue_id`; индекс `(account_id, department_id) where department_id is not null`; триггер, переводящий scope в `'unset'` при обнулении `department_id`; таблицу истории с `account_id`, `store_id`, прежними и новыми значениями (включая **имя** подразделения текстом, чтобы строка читалась и после удаления подразделения), `changed_by`, `changed_at`; RPC `set_store_department` с правом `inventory.manage_stores` и `set search_path = public, pg_catalog`; RLS на историю по образцу `stock_deduction_rules` (миграция 286).
+Содержит: две колонки на `stores`; `check (department_scope in ('unset','shared','department') and (department_scope='department') = (department_id is not null))`; FK `department_id → departments(id) on delete set null` с BEFORE-триггером, проверяющим, что `departments.venue_id = stores.local_venue_id`; индекс `(department_id) where department_id is not null` — именно он обслуживает FK при `on delete set null`, композитный `(account_id, department_id)` ведущей колонкой department_id не покрывает; триггер, переводящий scope в `'unset'` при обнулении `department_id`; таблицу истории с `account_id`, `store_id`, прежними и новыми значениями (включая **имя** подразделения текстом, чтобы строка читалась и после удаления подразделения), `changed_by`, `changed_at`; RPC `set_store_department` с правом `inventory.manage_stores` и `set search_path = public, pg_catalog`; RLS на историю по образцу `stock_deduction_rules` (миграция 286).
 
 - [ ] **Step 4: Прогнать тест и убедиться, что проходит**
 
 Run: та же команда, что в шаге 2
-Expected: PASS, все шесть случаев.
+Expected: PASS. Случаев в итоге больше шести: к брифовым добавились проверки инварианта по заведению, сброса привязки и неизменности `departments.venue_id`.
 
 - [ ] **Step 5: Прогнать advisors**
 
@@ -363,6 +363,8 @@ git commit -m "feat(writeoffs): разнесение актов по пулам 
 Сумма акта берётся по **финализированным** строкам и активным пересортам, а не из `qr_shortfall_sum` (разделы 1.6, 225, 234). Смена считается, если по этому сотруднику и бизнес-дню есть `payroll_accruals` — тогда знаменатель распределения совпадает с тем, за что заплатили. Подразделение и роль смены берутся из `schedule_shifts` через `payroll_attendance.shift_id`; если роль не определилась, источник уходит в `unresolved`, а не получает роль по умолчанию.
 
 Снимок фиксирует привязки складов, состав смен и `ruleVersionId`: переназначение склада не должно задним числом менять плательщика (1.6).
+
+**Что считается пригодной привязкой** (решено при реализации задачи 2): склад считается привязанным к подразделению только если подразделение живо (`archived_at is null`) и его `venue_id` совпадает с `local_venue_id` склада. Схема это и так охраняет триггерами, но расчёт перепроверяет сам и при несовпадении относит склад к `unresolved`, а не к общему пулу: архивированное подразделение — частое действие, и молча переложить его недостачу на всю команду хуже, чем показать месяц непосчитанным.
 
 - [ ] **Step 1: Написать падающие тесты на чистых хелперах снимка**
 

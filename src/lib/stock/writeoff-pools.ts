@@ -1,0 +1,120 @@
+import type { PoolKind, PoolSource } from "./monthly-shortage.ts";
+import type { WriteoffKind } from "./writeoffs.ts";
+
+/** Только то, что нужно сборке: подходит и для строки зеркала `StoredWriteoff`. */
+export type WriteoffPoolDoc = {
+  external_id: number;
+  missing_at: string | null;
+  payload: {
+    processed: boolean;
+    kind: WriteoffKind;
+    lines: Array<{ id: number; amount: number | null }>;
+  };
+};
+/** Пометка человека: кто платит за акт. Живёт отдельно от зеркала актов. */
+export type WriteoffPoolAssignment = {
+  external_id: number;
+  pool: PoolKind;
+  /** Подразделение для "department", сотрудник для "personal", иначе null. */
+  key: string | null;
+};
+
+/**
+ * В расчёт идут только проведённые акты, которые ещё есть в источнике. Одно и то
+ * же условие решает и что считать, и что журнал требует разнести: «Не разнесён»
+ * на экране и `unresolved` в расчёте не могут разойтись.
+ */
+export const writeoffCounts = (d: Pick<WriteoffPoolDoc, "missing_at"> & {
+  payload: Pick<WriteoffPoolDoc["payload"], "processed">;
+}) => !d.missing_at && d.payload.processed;
+
+/**
+ * Позиция округляется так же, как это делает синхронизация (`legacyAmount`):
+ * личное потребление — до ближайшего рубля, всё остальное — вверх. Правило
+ * привязано к виду акта из источника, а не к выбранному пулу: так его применял
+ * прежний автомат, и владелец решил это сохранить.
+ */
+const roundLine = (kind: WriteoffKind, amount: number) =>
+  kind === "personal" ? Math.round(amount) : Math.ceil(amount);
+
+/**
+ * Сумма акта в рублях к разнесению: округление по каждой позиции, не по сумме.
+ * `null`, если у какой-то позиции сумма неизвестна или отрицательна: такой акт
+ * нельзя молча посчитать как ноль.
+ */
+export function writeoffChargeRubles(
+  kind: WriteoffKind,
+  lines: Array<{ amount: number | null }>,
+): number | null {
+  if (
+    lines.length === 0 ||
+    lines.some(
+      (l) => l.amount === null || !Number.isFinite(l.amount) || l.amount < 0,
+    )
+  )
+    return null;
+  return lines.reduce((s, l) => s + roundLine(kind, l.amount!), 0);
+}
+
+const validMark = (m: WriteoffPoolAssignment | undefined) =>
+  !!m &&
+  (m.pool === "shared"
+    ? !m.key
+    : (m.pool === "department" || m.pool === "personal") && !!m.key);
+
+/** Состояние разнесения акта для журнала. */
+export function writeoffPoolState(
+  doc: WriteoffPoolDoc,
+  mark: WriteoffPoolAssignment | undefined,
+): "assigned" | "unassigned" | "not_counted" {
+  if (!writeoffCounts(doc)) return mark ? "assigned" : "not_counted";
+  return validMark(mark) ? "assigned" : "unassigned";
+}
+
+/** Подпись плательщика для журнала. Имена приходят отдельно: пометка хранит только ID. */
+export function writeoffPoolLabel(
+  mark: WriteoffPoolAssignment,
+  names: { departments: Map<string, string>; employees: Map<string, string> },
+): string {
+  if (mark.pool === "shared") return "Вся команда";
+  if (mark.pool === "department")
+    return `Подразделение: ${names.departments.get(mark.key ?? "") ?? "не найдено"}`;
+  return `Сотрудник: ${names.employees.get(mark.key ?? "") ?? "не найден"}`;
+}
+
+/**
+ * Акты списаний -> источники пулов месячного сальдо. Пул выбирает человек;
+ * вид акта и причина списания пул не подсказывают и расчёт не фильтруют.
+ *
+ * Акт без пометки (или с неполной пометкой, или с неизвестной суммой) попадает
+ * в `unresolved` и ни в какой пул не идёт: молчаливый «общий пул» по умолчанию
+ * списал бы на всю команду то, что никто не разнёс.
+ */
+export function writeoffPoolSources(
+  docs: WriteoffPoolDoc[],
+  assignments: WriteoffPoolAssignment[],
+): { sources: PoolSource[]; unresolved: string[] } {
+  const marks = new Map<string, WriteoffPoolAssignment>();
+  for (const a of assignments) marks.set(String(a.external_id), a);
+
+  const sources: PoolSource[] = [];
+  const unresolved: string[] = [];
+  for (const d of docs) {
+    if (!writeoffCounts(d)) continue;
+    const sourceRef = `writeoff:${d.external_id}`;
+    const mark = marks.get(String(d.external_id));
+    const rubles = writeoffChargeRubles(d.payload.kind, d.payload.lines);
+    if (!mark || !validMark(mark) || rubles === null) {
+      unresolved.push(sourceRef);
+      continue;
+    }
+    sources.push({
+      pool: mark.pool,
+      key: mark.key ? mark.key : null,
+      // Списание — потеря: недостача отрицательна (без «минус нуля»).
+      amount: rubles === 0 ? 0 : -rubles,
+      sourceRef,
+    });
+  }
+  return { sources, unresolved };
+}

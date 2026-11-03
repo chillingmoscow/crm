@@ -3,7 +3,20 @@ import {
   type StoredWriteoff,
   type WriteoffArchive,
 } from "./writeoffs";
-export type WriteoffRow = {
+import type { WriteoffPoolAssignment } from "./writeoff-pools";
+export type WriteoffPoolFilter =
+  | "all"
+  | "unassigned"
+  | "shared"
+  | "department"
+  | "personal";
+/** Как акт показан в колонке «Пул»: подпись, состояние и сама пометка. */
+export type WriteoffPoolView = {
+  pool: string;
+  poolState: "assigned" | "unassigned" | "none";
+  assignment?: WriteoffPoolAssignment;
+};
+export type WriteoffRow = WriteoffPoolView & {
   id: string;
   date: string;
   name: string;
@@ -22,6 +35,7 @@ export function writeoffRows(
   documents: StoredWriteoff[],
   archives: WriteoffArchive[],
   source: "native" | "archive",
+  poolOf?: (d: StoredWriteoff) => WriteoffPoolView,
 ): WriteoffRow[] {
   if (source === "native")
     return documents
@@ -43,6 +57,7 @@ export function writeoffRows(
         total: d.payload.total,
         issues: d.payload.issues,
         native: d,
+        ...(poolOf?.(d) ?? { pool: "—", poolState: "none" as const }),
       }))
       .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
   const latest = new Map<string, WriteoffArchive>();
@@ -69,6 +84,8 @@ export function writeoffRows(
       total: a.total,
       issues: a.issues,
       archive: a,
+      pool: "—",
+      poolState: "none" as const,
     }))
     .sort((a, b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
 }
@@ -93,17 +110,23 @@ export function filterWriteoffs(
   month: string,
   kind: string,
   search: string,
+  pool: WriteoffPoolFilter = "all",
 ) {
   const needle = search.normalize("NFKC").toLocaleLowerCase("ru-RU").trim();
   return rows.filter(
     (r) =>
       r.date.startsWith(month.slice(0, 7)) &&
       (kind === "all" || r.kind === kind) &&
+      (pool === "all" ||
+        (pool === "unassigned"
+          ? r.poolState === "unassigned"
+          : r.assignment?.pool === pool)) &&
       [
         r.name,
         r.correspondent,
         r.reason,
         r.store,
+        r.pool,
         r.date,
         new Date(`${r.date}T12:00:00`).toLocaleDateString("ru-RU"),
         new Date(`${r.date}T12:00:00`).toLocaleDateString("ru-RU", {

@@ -485,7 +485,7 @@ function RulesForm({
         <section className="space-y-3 border-b pb-6">
           <h3 className="font-semibold">Складские списания</h3>
           <Label htmlFor="stock-reasons">
-            Причины, относимые на сотрудников
+            Причины-подсказки для разнесения списаний
           </Label>
           <Textarea
             id="stock-reasons"
@@ -496,7 +496,9 @@ function RulesForm({
             }
           />
           <p className="text-xs text-muted-foreground">
-            По одному названию причины Quick Resto в строке.
+            По одному названию причины Quick Resto в строке. Это только
+            подсказка в карточке акта: плательщика за каждый акт выбирает
+            человек, а расчёт от этого списка не зависит.
           </p>
         </section>
         <section className="space-y-4">

@@ -12,6 +12,9 @@ import {
 import { normalizeWriteoff, type WriteoffRules } from "./writeoffs.ts";
 import { allocateMonthlyShortage } from "./monthly-shortage.ts";
 
+const V = "11111111-aaaa-4aaa-8aaa-111111111111";
+const V2 = "22222222-bbbb-4bbb-8bbb-222222222222";
+const ref = (n: number, v = V) => `writeoff:${v}:${n}`;
 const DEPT = "22222222-2222-4222-8222-222222222222";
 const EMP = "33333333-3333-4333-8333-333333333333";
 
@@ -24,6 +27,7 @@ const doc = (
     missing_at?: string | null;
   } = {},
 ): WriteoffPoolDoc => ({
+  venue_id: V,
   external_id: externalId,
   missing_at: over.missing_at ?? null,
   payload: {
@@ -33,6 +37,7 @@ const doc = (
   },
 });
 const shared = (externalId: number): WriteoffPoolAssignment => ({
+  venue_id: V,
   external_id: externalId,
   pool: "shared",
   key: null,
@@ -50,6 +55,7 @@ test("личное списание округляется до целого р�
   const personal = (n: number, amounts: number[]) =>
     doc(n, amounts, { kind: "personal" });
   const asEmp = (n: number): WriteoffPoolAssignment => ({
+    venue_id: V,
     external_id: n,
     pool: "personal",
     key: EMP,
@@ -71,11 +77,13 @@ test("личное списание округляется до целого р�
 test("сотруднический акт (не личное потребление) тоже округляется вверх", () => {
   const r = writeoffPoolSources(
     [doc(1, [10.01], { kind: "employee" })],
-    [{ external_id: 1, pool: "personal", key: EMP }],
+    [{ venue_id: V, external_id: 1, pool: "personal", key: EMP }],
   );
   assert.equal(r.sources[0].amount, -11);
 });
 
+// Покрывает три вида из шести (personal, employee, team): у business и unknown
+// `legacyAmount` в источнике пуст, для них паритета нет (см. следующий тест).
 test("округление совпадает с тем, что синхронизация кладёт в legacyAmount", () => {
   const rules: WriteoffRules = {
     storeIds: [1],
@@ -110,8 +118,8 @@ test("округление совпадает с тем, что синхрони
     assert.notEqual(n.legacyTotal, null);
     const pool = n.kind === "personal" ? "personal" : "shared";
     const r = writeoffPoolSources(
-      [{ external_id: n.id, missing_at: null, payload: n }],
-      [{ external_id: n.id, pool, key: pool === "shared" ? null : EMP }],
+      [{ venue_id: V, external_id: n.id, missing_at: null, payload: n }],
+      [{ venue_id: V, external_id: n.id, pool, key: pool === "shared" ? null : EMP }],
     );
     assert.equal(r.sources[0].amount, -n.legacyTotal!, `${type}/${n.kind}`);
   }
@@ -120,7 +128,7 @@ test("округление совпадает с тем, что синхрони
 test("неразнесённый акт попадает в unresolved, а не в общий пул", () => {
   const r = writeoffPoolSources([doc(1, [50])], []);
   assert.deepEqual(r.sources, []);
-  assert.deepEqual(r.unresolved, ["writeoff:1"]);
+  assert.deepEqual(r.unresolved, [ref(1)]);
 });
 
 test("неразнесённый акт блокирует месяц, а не списывается на команду", () => {
@@ -143,7 +151,7 @@ test("неразнесённый акт блокирует месяц, а не �
     },
     weights: [],
   });
-  assert.deepEqual(out.unresolved, ["writeoff:1"]);
+  assert.deepEqual(out.unresolved, [ref(1)]);
   assert.equal(out.state, "incomplete");
   assert.equal(
     out.pools.reduce((s, p) => s + p.employees + p.company, 0),
@@ -157,7 +165,7 @@ test("вид акта из источника не подставляет пул
   for (const kind of ["team", "personal", "employee", "business", "masters"] as const) {
     const r = writeoffPoolSources([doc(1, [50], { kind })], []);
     assert.deepEqual(r.sources, [], kind);
-    assert.deepEqual(r.unresolved, ["writeoff:1"], kind);
+    assert.deepEqual(r.unresolved, [ref(1)], kind);
   }
 });
 
@@ -179,7 +187,7 @@ test("черновик и исчезнувший акт в расчёт не и�
   const r = writeoffPoolSources(docs, [shared(1), shared(2), shared(3)]);
   assert.deepEqual(
     r.sources.map((s) => s.sourceRef),
-    ["writeoff:1"],
+    [ref(1)],
   );
   assert.deepEqual(r.unresolved, []);
   // И без пометки они не блокируют месяц как «неразнесённые».
@@ -188,7 +196,7 @@ test("черновик и исчезнувший акт в расчёт не и�
 });
 
 test("пометка живёт сама по себе: исчезнувший акт возвращается и находит своё разнесение", () => {
-  const marks = [{ external_id: 5, pool: "department" as const, key: DEPT }];
+  const marks = [{ venue_id: V, external_id: 5, pool: "department" as const, key: DEPT }];
   const gone = writeoffPoolSources(
     [doc(5, [100], { missing_at: "2026-11-02T00:00:00Z" })],
     marks,
@@ -204,16 +212,16 @@ test("пул и ключ берутся из пометки", () => {
     [doc(1, [10]), doc(2, [20]), doc(3, [30])],
     [
       shared(1),
-      { external_id: 2, pool: "department", key: DEPT },
-      { external_id: 3, pool: "personal", key: EMP },
+      { venue_id: V, external_id: 2, pool: "department", key: DEPT },
+      { venue_id: V, external_id: 3, pool: "personal", key: EMP },
     ],
   );
   assert.deepEqual(
     r.sources.map((s) => [s.pool, s.key, s.amount, s.sourceRef]),
     [
-      ["shared", null, -10, "writeoff:1"],
-      ["department", DEPT, -20, "writeoff:2"],
-      ["personal", EMP, -30, "writeoff:3"],
+      ["shared", null, -10, ref(1)],
+      ["department", DEPT, -20, ref(2)],
+      ["personal", EMP, -30, ref(3)],
     ],
   );
 });
@@ -222,12 +230,12 @@ test("подразделение или сотрудник без ключа —
   const r = writeoffPoolSources(
     [doc(1, [10]), doc(2, [20])],
     [
-      { external_id: 1, pool: "department", key: null },
-      { external_id: 2, pool: "personal", key: "" },
+      { venue_id: V, external_id: 1, pool: "department", key: null },
+      { venue_id: V, external_id: 2, pool: "personal", key: "" },
     ],
   );
   assert.deepEqual(r.sources, []);
-  assert.deepEqual(r.unresolved, ["writeoff:1", "writeoff:2"]);
+  assert.deepEqual(r.unresolved, [ref(1), ref(2)]);
 });
 
 test("неизвестная или отрицательная сумма позиции — unresolved, а не ноль", () => {
@@ -236,7 +244,7 @@ test("неизвестная или отрицательная сумма поз
     [shared(1), shared(2), shared(3)],
   );
   assert.deepEqual(r.sources, []);
-  assert.deepEqual(r.unresolved, ["writeoff:1", "writeoff:2", "writeoff:3"]);
+  assert.deepEqual(r.unresolved, [ref(1), ref(2), ref(3)]);
 });
 
 test("каждая копеечная позиция округляется отдельно, а не в сумме", () => {
@@ -256,7 +264,7 @@ test("журнал и расчёт одинаково понимают, что �
     [doc(2, [10]), shared(2)],
     [doc(3, [10], { processed: false }), undefined],
     [doc(4, [10], { missing_at: "2026-11-02T00:00:00Z" }), undefined],
-    [doc(5, [10]), { external_id: 5, pool: "department", key: null }],
+    [doc(5, [10]), { venue_id: V, external_id: 5, pool: "department", key: null }],
   ];
   const state = cases.map(([d, m]) => writeoffPoolState(d, m));
   assert.deepEqual(state, [
@@ -274,7 +282,7 @@ test("журнал и расчёт одинаково понимают, что �
   assert.deepEqual(
     r.unresolved,
     cases.flatMap(([d], i) =>
-      state[i] === "unassigned" ? [`writeoff:${d.external_id}`] : [],
+      state[i] === "unassigned" ? [ref(d.external_id)] : [],
     ),
   );
   assert.equal(writeoffCounts(doc(9, [1])), true);
@@ -294,12 +302,13 @@ test("подпись плательщика не придумывает имя, 
   };
   const label = (m: WriteoffPoolAssignment) => writeoffPoolLabel(m, names);
   assert.equal(label(shared(1)), "Вся команда");
-  assert.equal(label({ external_id: 1, pool: "department", key: DEPT }), "Подразделение: Кальяны");
-  assert.equal(label({ external_id: 1, pool: "personal", key: EMP }), "Сотрудник: Иван");
-  assert.equal(label({ external_id: 1, pool: "personal", key: "x" }), "Сотрудник: не найден");
+  assert.equal(label({ venue_id: V, external_id: 1, pool: "department", key: DEPT }), "Подразделение: Кальяны");
+  assert.equal(label({ venue_id: V, external_id: 1, pool: "personal", key: EMP }), "Сотрудник: Иван");
+  assert.equal(label({ venue_id: V, external_id: 1, pool: "personal", key: "x" }), "Сотрудник: не найден");
 });
 
 const excluded = (externalId: number): WriteoffPoolAssignment => ({
+  venue_id: V,
   external_id: externalId,
   pool: "excluded",
   key: null,
@@ -316,7 +325,7 @@ test("«не удерживать» не даёт источника и не б�
   );
   assert.deepEqual(
     r.sources.map((s) => s.sourceRef),
-    ["writeoff:3"],
+    [ref(3)],
   );
   assert.deepEqual(r.unresolved, []);
 });
@@ -332,17 +341,17 @@ test("«не удерживать» отличается от «не разне�
     }),
     "Не удерживать",
   );
-  assert.deepEqual(writeoffPoolSources([d], []).unresolved, ["writeoff:1"]);
+  assert.deepEqual(writeoffPoolSources([d], []).unresolved, [ref(1)]);
   assert.deepEqual(writeoffPoolSources([d], [excluded(1)]).unresolved, []);
 });
 
 test("«не удерживать» с ключом — битая пометка, а не решение", () => {
   const r = writeoffPoolSources(
     [doc(1, [50])],
-    [{ external_id: 1, pool: "excluded", key: DEPT }],
+    [{ venue_id: V, external_id: 1, pool: "excluded", key: DEPT }],
   );
   assert.deepEqual(r.sources, []);
-  assert.deepEqual(r.unresolved, ["writeoff:1"]);
+  assert.deepEqual(r.unresolved, [ref(1)]);
 });
 
 test("акт на ноль рублей не блокирует месяц и не создаёт источник", () => {
@@ -363,5 +372,104 @@ test("акт на ноль рублей не блокирует месяц и н
 test("ноль рублей не прячет неизвестную сумму и копейки вверх", () => {
   // 0,40 в командном акте — вверх, это уже 1 ₽ и акт нужно разнести.
   const r = writeoffPoolSources([doc(1, [0.4]), doc(2, [0, null])], []);
-  assert.deepEqual(r.unresolved, ["writeoff:1", "writeoff:2"]);
+  assert.deepEqual(r.unresolved, [ref(1), ref(2)]);
+});
+
+test("вид business: синхронизация legacyAmount не считает, расчёт считает вверх, если акт разнесён", () => {
+  const rules: WriteoffRules = {
+    storeIds: [1],
+    timezone: "Europe/Moscow",
+    personalOperatorIds: [],
+    teamReasons: [],
+    masterReasons: [],
+  };
+  const n = normalizeWriteoff(
+    {
+      id: 200,
+      documentNumber: "B-1",
+      processed: true,
+      invoiceDate: "2026-10-05T12:00:00+03:00",
+      customerType: "SPECIAL",
+      store: { id: 1, title: "Основной" },
+      discardReason: { id: 1, description: "Порча" },
+      totalSum: 20.02,
+      invoiceItems: [10.01, 10.01].map((fixedTotalSum, i) => ({
+        id: i + 1,
+        product: { id: i + 1, name: `Товар ${i + 1}` },
+        actualAmount: 1,
+        fixedTotalSum,
+      })),
+    },
+    rules,
+  );
+  assert.equal(n.kind, "business");
+  assert.equal(n.legacyTotal, null);
+  const r = writeoffPoolSources(
+    [{ venue_id: V, external_id: n.id, missing_at: null, payload: n }],
+    [{ ...shared(n.id) }],
+  );
+  assert.equal(r.sources[0].amount, -22);
+});
+
+test("один external_id в двух заведениях: пометка не переходит через заведение", () => {
+  const a = doc(7, [100]);
+  const b = { ...doc(7, [300]), venue_id: V2 };
+  const markA: WriteoffPoolAssignment = shared(7);
+  const markB: WriteoffPoolAssignment = {
+    venue_id: V2,
+    external_id: 7,
+    pool: "department",
+    key: DEPT,
+  };
+  // Обе пометки: каждая ложится на свой акт, независимо от порядка.
+  for (const marks of [[markA, markB], [markB, markA]]) {
+    const r = writeoffPoolSources([a, b], marks);
+    assert.deepEqual(r.unresolved, []);
+    assert.deepEqual(
+      r.sources.map((s) => [s.sourceRef, s.pool, s.key, s.amount]),
+      [
+        [ref(7, V), "shared", null, -100],
+        [ref(7, V2), "department", DEPT, -300],
+      ],
+    );
+  }
+  // Пометка только заведения V не закрывает такой же ID в V2.
+  const only = writeoffPoolSources([a, b], [markA]);
+  assert.deepEqual(
+    only.sources.map((s) => s.sourceRef),
+    [ref(7, V)],
+  );
+  assert.deepEqual(only.unresolved, [ref(7, V2)]);
+  // Журнал: чужая пометка не делает акт «разнесённым».
+  assert.equal(writeoffPoolState(b, markA), "unassigned");
+  assert.equal(writeoffPoolState(b, markB), "assigned");
+});
+
+test("«вся команда» с ключом — битая пометка, а не пул с ключом", () => {
+  const r = writeoffPoolSources(
+    [doc(1, [50])],
+    [{ venue_id: V, external_id: 1, pool: "shared", key: DEPT }],
+  );
+  assert.deepEqual(r.sources, []);
+  assert.deepEqual(r.unresolved, [ref(1)]);
+});
+
+test("бесконечная и нечисловая сумма позиции — unresolved", () => {
+  const r = writeoffPoolSources(
+    [doc(1, [Infinity]), doc(2, [NaN]), doc(3, [10])],
+    [shared(1), shared(2), shared(3)],
+  );
+  assert.deepEqual(
+    r.sources.map((s) => s.sourceRef),
+    [ref(3)],
+  );
+  assert.deepEqual(r.unresolved, [ref(1), ref(2)]);
+});
+
+test("подпись подразделения, которого нет в списке, — «не найдено»", () => {
+  const label = writeoffPoolLabel(
+    { venue_id: V, external_id: 1, pool: "department", key: DEPT },
+    { departments: new Map(), employees: new Map() },
+  );
+  assert.equal(label, "Подразделение: не найдено");
 });

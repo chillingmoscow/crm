@@ -3,6 +3,8 @@ import type { WriteoffKind } from "./writeoffs.ts";
 
 /** Только то, что нужно сборке: подходит и для строки зеркала `StoredWriteoff`. */
 export type WriteoffPoolDoc = {
+  /** `external_id` уникален только внутри заведения, поэтому заведение — часть ключа. */
+  venue_id: string;
   external_id: number;
   missing_at: string | null;
   payload: {
@@ -17,11 +19,20 @@ export type WriteoffPoolDoc = {
  * сотрудник оплачивает сам): записанное решение, но не пул и не источник.
  */
 export type WriteoffPoolAssignment = {
+  venue_id: string;
   external_id: number;
   pool: PoolKind | "excluded";
   /** Подразделение для "department", сотрудник для "personal", иначе null. */
   key: string | null;
 };
+
+/** Ключ акта и его пометки: заведение + внешний ID (один ID бывает в разных заведениях). */
+export const writeoffPoolKey = (venueId: string, externalId: number) =>
+  `${venueId}:${externalId}`;
+
+/** Устойчивый ID источника для `PoolSource.sourceRef` и `unresolved`. */
+export const writeoffSourceRef = (venueId: string, externalId: number) =>
+  `writeoff:${writeoffPoolKey(venueId, externalId)}`;
 
 /**
  * В расчёт идут только проведённые акты, которые ещё есть в источнике. Одно и то
@@ -33,10 +44,13 @@ export const writeoffCounts = (d: Pick<WriteoffPoolDoc, "missing_at"> & {
 }) => !d.missing_at && d.payload.processed;
 
 /**
- * Позиция округляется так же, как это делает синхронизация (`legacyAmount`):
- * личное потребление — до ближайшего рубля, всё остальное — вверх. Правило
+ * Личное потребление — до ближайшего рубля, всё остальное — вверх. Правило
  * привязано к виду акта из источника, а не к выбранному пулу: так его применял
  * прежний автомат, и владелец решил это сохранить.
+ *
+ * Совпадает с `legacyAmount` из синхронизации для видов personal, employee, team
+ * и masters. Для business и unknown `legacyAmount` пуст (прежний автомат их не
+ * считал), а здесь они, раз их разнёс человек, считаются вверх.
  */
 const roundLine = (kind: WriteoffKind, amount: number) =>
   kind === "personal" ? Math.round(amount) : Math.ceil(amount);
@@ -60,6 +74,14 @@ export function writeoffChargeRubles(
   return lines.reduce((s, l) => s + roundLine(kind, l.amount!), 0);
 }
 
+const ownMark = (
+  doc: Pick<WriteoffPoolDoc, "venue_id" | "external_id">,
+  m: WriteoffPoolAssignment | undefined,
+) =>
+  m && m.venue_id === doc.venue_id && m.external_id === doc.external_id
+    ? m
+    : undefined;
+
 const validMark = (m: WriteoffPoolAssignment | undefined) =>
   !!m &&
   (m.pool === "shared" || m.pool === "excluded"
@@ -74,9 +96,11 @@ const validMark = (m: WriteoffPoolAssignment | undefined) =>
  */
 export function writeoffPoolState(
   doc: WriteoffPoolDoc,
-  mark: WriteoffPoolAssignment | undefined,
+  assignment: WriteoffPoolAssignment | undefined,
 ): "assigned" | "unassigned" | "not_needed" | "not_counted" {
-  if (!writeoffCounts(doc)) return mark ? "assigned" : "not_counted";
+  // Чужая пометка (другое заведение или другой акт) — не пометка этого акта.
+  const mark = ownMark(doc, assignment);
+  if (!writeoffCounts(doc)) return validMark(mark) ? "assigned" : "not_counted";
   if (validMark(mark)) return "assigned";
   return writeoffChargeRubles(doc.payload.kind, doc.payload.lines) === 0
     ? "not_needed"
@@ -108,14 +132,15 @@ export function writeoffPoolSources(
   assignments: WriteoffPoolAssignment[],
 ): { sources: PoolSource[]; unresolved: string[] } {
   const marks = new Map<string, WriteoffPoolAssignment>();
-  for (const a of assignments) marks.set(String(a.external_id), a);
+  for (const a of assignments)
+    marks.set(writeoffPoolKey(a.venue_id, a.external_id), a);
 
   const sources: PoolSource[] = [];
   const unresolved: string[] = [];
   for (const d of docs) {
     if (!writeoffCounts(d)) continue;
-    const sourceRef = `writeoff:${d.external_id}`;
-    const mark = marks.get(String(d.external_id));
+    const sourceRef = writeoffSourceRef(d.venue_id, d.external_id);
+    const mark = marks.get(writeoffPoolKey(d.venue_id, d.external_id));
     // Явное «не удерживать»: решение человека, а не пробел. Источника нет, месяц не блокируется.
     if (mark?.pool === "excluded" && validMark(mark)) continue;
     const rubles = writeoffChargeRubles(d.payload.kind, d.payload.lines);

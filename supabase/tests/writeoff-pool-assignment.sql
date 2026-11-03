@@ -53,6 +53,13 @@ begin
   insert into public.user_venue_roles(user_id, venue_id, role_id, status) values (x, v, r, 'active');
   perform set_config('test.wpa_assign_only', x::text, true);
 
+  -- Владелец во втором заведении: права есть, иначе проверки изоляции заведений
+  -- прошли бы по отказу в праве, а не по изоляции.
+  insert into public.roles(venue_id, name, code) values (v2, 'WPA v2 ops QA', 'wpa_v2_ops_qa') returning id into r;
+  insert into public.role_permissions(role_id, permission_id, granted)
+    select r, id, true from public.permissions where code in ('inventory.view_results', 'inventory.assign_writeoff_pool');
+  insert into public.user_venue_roles(user_id, venue_id, role_id, status) values (owner_u, v2, r, 'active');
+
   perform set_config('test.wpa_v', v::text, true);
   perform set_config('test.wpa_v2', v2::text, true);
   perform set_config('test.wpa_d1', d1::text, true);
@@ -123,30 +130,30 @@ begin
 
   -- Невалидные вызовы.
   begin perform public.set_writeoff_pool('900000901', 'shared', d1); raise exception 'FAIL 11: shared with key accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Для этого варианта%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'department', null); raise exception 'FAIL 12: department without key accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение не найдено%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'personal', null); raise exception 'FAIL 13: personal without key accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Сотрудник не найден%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'department', current_setting('test.wpa_d_arch')::uuid); raise exception 'FAIL 14: archived department accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение не найдено%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'department', current_setting('test.wpa_d_foreign')::uuid); raise exception 'FAIL 15: foreign-account department accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение не найдено%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'department', current_setting('test.wpa_d_other')::uuid); raise exception 'FAIL 16: other-venue department accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение не найдено%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'personal', current_setting('test.wpa_e_foreign')::uuid); raise exception 'FAIL 17: foreign-account employee accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Сотрудник не найден%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'personal', current_setting('test.wpa_e_other')::uuid); raise exception 'FAIL 18: other-venue employee accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Сотрудник не найден%' then raise; end if; end;
   begin perform public.set_writeoff_pool('900000901', 'everyone', null); raise exception 'FAIL 19: unknown pool accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Проверьте плательщика%' then raise; end if; end;
   begin perform public.set_writeoff_pool('abc', 'shared', null); raise exception 'FAIL 20: bad id accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Проверьте номер акта%' then raise; end if; end;
   begin perform public.set_writeoff_pool('999999999', 'shared', null); raise exception 'FAIL 21: unknown act accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Акт списания не найден%' then raise; end if; end;
   -- Акт чужого заведения того же аккаунта: активное заведение другое.
   begin perform public.set_writeoff_pool('900000903', 'shared', null); raise exception 'FAIL 22: act of another venue accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Акт списания не найден%' then raise; end if; end;
 
   -- Прямая запись в обход RPC закрыта.
   if has_table_privilege('authenticated', 'public.writeoff_pool_assignments', 'INSERT')
@@ -172,7 +179,7 @@ begin
   select * into row from public.writeoff_pool_assignments where external_id = 900000902;
   if row.pool <> 'excluded' or row.department_id is not null or row.employee_id is not null then raise exception 'FAIL 26b: excluded'; end if;
   begin perform public.set_writeoff_pool('900000902', 'excluded', d1); raise exception 'FAIL 26c: excluded with key accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Для этого варианта%' then raise; end if; end;
   perform public.set_writeoff_pool('900000902', 'department', d1);
 end $test$;
 reset role;
@@ -239,7 +246,7 @@ do $test$
 begin
   if (select count(*) from public.writeoff_pool_assignments) < 2 then raise exception 'FAIL 38: reader cannot see marks'; end if;
   begin perform public.set_writeoff_pool('900000901', 'shared', null); raise exception 'FAIL 39: reader assigned a pool';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Нет доступа к разнесению списаний%' then raise; end if; end;
   -- Читатель получает имена только тех, на кого уже поставлена пометка.
   if jsonb_array_length(public.writeoff_pool_targets()->'departments') <> 1
      or jsonb_array_length(public.writeoff_pool_targets()->'employees') <> 1
@@ -257,9 +264,9 @@ set local role authenticated;
 do $test$
 begin
   begin perform public.set_writeoff_pool('900000901', 'shared', null); raise exception 'FAIL 42: assign without view accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Нет доступа к разнесению списаний%' then raise; end if; end;
   begin perform public.writeoff_pool_targets(); raise exception 'FAIL 42b: targets without view accepted';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Нет доступа к списаниям%' then raise; end if; end;
   if (select count(*) from public.writeoff_pool_assignments) <> 0 then raise exception 'FAIL 43: marks visible without view_results'; end if;
 end $test$;
 reset role;
@@ -270,7 +277,7 @@ set local role authenticated;
 do $test$
 begin
   begin perform public.set_writeoff_pool('900000901', 'shared', null); raise exception 'FAIL 44: anonymous assigned';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Нет доступа к разнесению списаний%' then raise; end if; end;
 end $test$;
 reset role;
 -- Метка в другом заведении того же аккаунта: владелец, переключённый на второе заведение, её не видит.
@@ -284,12 +291,21 @@ select set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-0000-0000-000000000001
 set local role authenticated;
 do $test$
 begin
+  if public.get_active_venue_id() is distinct from current_setting('test.wpa_v2')::uuid then
+    raise exception 'FAIL 45a: precondition, active venue is not the second venue';
+  end if;
+  if not public.has_permission('inventory.assign_writeoff_pool') then
+    raise exception 'FAIL 45b: precondition, owner has no assign permission in the second venue';
+  end if;
+  if not exists (select 1 from public.writeoff_pool_assignments where venue_id = current_setting('test.wpa_v2')::uuid) then
+    raise exception 'FAIL 45c: precondition, own venue marks not visible';
+  end if;
   if exists (select 1 from public.writeoff_pool_assignments where venue_id <> current_setting('test.wpa_v2')::uuid) then
     raise exception 'FAIL 45: marks of another venue visible';
   end if;
   -- Акт первого заведения отсюда не разнести.
   begin perform public.set_writeoff_pool('900000901', 'shared', null); raise exception 'FAIL 46: act of the other venue assignable';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Акт списания не найден%' then raise; end if; end;
 end $test$;
 reset role;
 

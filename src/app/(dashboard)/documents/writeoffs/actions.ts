@@ -98,12 +98,14 @@ async function pagedRows<T>(
   throw new Error("Не удалось загрузить журнал целиком");
 }
 type AssignmentRow = {
+  venue_id: string;
   external_id: number;
   pool: WriteoffPoolAssignment["pool"];
   department_id: string | null;
   employee_id: string | null;
 };
 const toAssignment = (r: AssignmentRow): WriteoffPoolAssignment => ({
+  venue_id: r.venue_id,
   external_id: Number(r.external_id),
   pool: r.pool,
   key: r.pool === "department" ? r.department_id : r.employee_id,
@@ -144,7 +146,7 @@ export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
         .maybeSingle(),
       rows<AssignmentRow>(
         "writeoff_pool_assignments",
-        "id,external_id,pool,department_id,employee_id",
+        "id,venue_id,external_id,pool,department_id,employee_id",
         "assigned_at",
       ),
       s.db.rpc("writeoff_pool_targets"),
@@ -214,35 +216,45 @@ export async function requestWriteoffs(venueId: string, month: string) {
 }
 /**
  * Поставить, сменить или снять (pool = null) плательщика за акт. Право отдельное
- * от просмотра журнала: пометка двигает деньги сотрудников.
+ * от просмотра журнала: пометка двигает деньги сотрудников. Возвращает пометку
+ * этого акта после записи (null, если её нет), а не весь список: так запись не
+ * тянет заново всё разнесение заведения.
  */
 export async function assignWriteoffPool(
   venueId: string,
   externalId: number,
   pool: WriteoffPoolAssignment["pool"] | null,
   key: string | null,
-): Promise<WriteoffPoolAssignment[]> {
+): Promise<WriteoffPoolAssignment | null> {
   const s = await scope(venueId);
   if (!s.permissions.includes("inventory.assign_writeoff_pool"))
     throw new Error("Нет права разносить списания");
-  z.number().int().positive().safe().parse(externalId);
-  z.enum(["shared", "department", "personal", "excluded"])
-    .nullable()
-    .parse(pool);
-  z.string().uuid().nullable().parse(key);
+  if (!z.number().int().positive().safe().safeParse(externalId).success)
+    throw new Error("Проверьте номер акта");
+  if (
+    !z
+      .enum(["shared", "department", "personal", "excluded"])
+      .nullable()
+      .safeParse(pool).success
+  )
+    throw new Error("Проверьте, кто платит");
+  if (!z.string().uuid().nullable().safeParse(key).success)
+    throw new Error("Проверьте выбранного сотрудника или подразделение");
   const r = await s.db.rpc("set_writeoff_pool", {
     p_external_id: String(externalId),
     p_pool: pool,
     p_key: key,
   });
   if (r.error) throw new Error(r.error.message);
-  const marks = await pagedRows<AssignmentRow>(
-    s,
-    "writeoff_pool_assignments",
-    "id,external_id,pool,department_id,employee_id",
-    "assigned_at",
-  );
-  return marks.map(toAssignment);
+  const mark = await s.db
+    .from<AssignmentRow>("writeoff_pool_assignments")
+    .select("venue_id,external_id,pool,department_id,employee_id")
+    .eq("account_id", s.accountId)
+    .eq("venue_id", s.venueId)
+    .eq("external_id", externalId)
+    .maybeSingle();
+  if (mark.error) throw new Error("Не удалось загрузить разнесение");
+  return mark.data ? toAssignment(mark.data) : null;
 }
 export type WriteoffHistory = {
   id: string;

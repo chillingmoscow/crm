@@ -47,6 +47,7 @@ import {
   type WriteoffRow,
 } from "@/lib/stock/writeoff-view";
 import {
+  writeoffPoolKey,
   writeoffPoolLabel,
   writeoffPoolState,
   type WriteoffPoolAssignment,
@@ -365,26 +366,36 @@ function Detail({
 /** Колонка «Пул»: подпись, состояние и пометка акта по данным страницы. */
 function poolView(data: WriteoffData) {
   const marks = new Map(
-    data.assignments.map((m) => [String(m.external_id), m] as const),
+    data.assignments.map(
+      (m) => [writeoffPoolKey(m.venue_id, m.external_id), m] as const,
+    ),
   );
   const names = {
     departments: new Map(data.targets.departments.map((d) => [d.id, d.name])),
     employees: new Map(data.targets.employees.map((e) => [e.id, e.name])),
   };
   return (d: WriteoffData["documents"][number]): WriteoffPoolView => {
-    const assignment = marks.get(String(d.external_id));
+    const assignment = marks.get(
+      writeoffPoolKey(d.venue_id, d.external_id),
+    );
     const state = writeoffPoolState(d, assignment);
     return {
       assignment,
+      // Всё из одного состояния: подпись, фильтр и плашка не могут разойтись.
       poolState:
-        state === "unassigned" ? "unassigned" : assignment ? "assigned" : "none",
-      pool: assignment
-        ? writeoffPoolLabel(assignment, names)
-        : state === "unassigned"
-          ? "Не разнесён"
-          : state === "not_needed"
-            ? "Не требуется"
-            : "—",
+        state === "unassigned"
+          ? "unassigned"
+          : state === "assigned"
+            ? "assigned"
+            : "none",
+      pool:
+        state === "assigned" && assignment
+          ? writeoffPoolLabel(assignment, names)
+          : state === "unassigned"
+            ? "Не разнесён"
+            : state === "not_needed"
+              ? "Не требуется"
+              : "—",
     };
   };
 }
@@ -557,13 +568,23 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
     key: string | null,
   ) {
     if (!row.native) return;
-    const assignments = await assignWriteoffPool(
+    const mark = await assignWriteoffPool(
       data.venueId,
       row.native.external_id,
       to,
       key,
     );
-    setData((d) => ({ ...d, assignments }));
+    setData((d) => ({
+      ...d,
+      assignments: [
+        ...d.assignments.filter(
+          (m) =>
+            writeoffPoolKey(m.venue_id, m.external_id) !==
+            writeoffPoolKey(row.native!.venue_id, row.native!.external_id),
+        ),
+        ...(mark ? [mark] : []),
+      ],
+    }));
   }
   async function download() {
     setExporting(true);
@@ -818,7 +839,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       {unassigned > 0 && (
         <div
           role="status"
-          className="flex flex-col gap-3 rounded-lg bg-amber-500/10 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between dark:text-amber-300"
+          className={`flex flex-col gap-3 rounded-lg border p-4 text-sm sm:flex-row sm:items-center sm:justify-between ${WARNING_BADGE_CLASS}`}
         >
           <p>
             Не разнесено актов: {unassigned}. Пока они не разнесены, месяц не

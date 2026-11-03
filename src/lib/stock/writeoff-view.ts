@@ -3,7 +3,7 @@ import {
   type StoredWriteoff,
   type WriteoffArchive,
 } from "./writeoffs";
-import type { WriteoffPoolAssignment } from "./writeoff-pools";
+import { writeoffCounts, type WriteoffPoolAssignment } from "./writeoff-pools";
 export type WriteoffPoolFilter =
   | "all"
   | "unassigned"
@@ -92,9 +92,7 @@ export function writeoffRows(
 }
 export function writeoffTotal(rows: WriteoffRow[]) {
   const counted = rows.filter((r) =>
-    r.native
-      ? !r.native.missing_at && r.native.payload.processed
-      : !r.archive?.deleted,
+    r.native ? writeoffCounts(r.native) : !r.archive?.deleted,
   );
   const known = counted.flatMap((r) => (r.total === null ? [] : [r.total]));
   return {
@@ -121,7 +119,7 @@ export function filterWriteoffs(
       (pool === "all" ||
         (pool === "unassigned"
           ? r.poolState === "unassigned"
-          : r.assignment?.pool === pool)) &&
+          : r.poolState === "assigned" && r.assignment?.pool === pool)) &&
       [
         r.name,
         r.correspondent,

@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 const dir = await mkdtemp(join(tmpdir(), "stock-writeoffs-"));
 try {
-  for (const file of ["writeoffs", "writeoff-view"]) {
+  for (const file of ["writeoffs", "writeoff-pools", "writeoff-view"]) {
     const source = await readFile(`src/lib/stock/${file}.ts`, "utf8");
     await writeFile(
       join(dir, file + ".mjs"),
@@ -18,7 +18,9 @@ try {
           },
         })
         .outputText.replace('"./writeoffs"', '"./writeoffs.mjs"')
-        .replace("'./writeoffs'", "'./writeoffs.mjs'"),
+        .replace("'./writeoffs'", "'./writeoffs.mjs'")
+        .replace('"./writeoff-pools"', '"./writeoff-pools.mjs"')
+        .replace("'./writeoff-pools'", "'./writeoff-pools.mjs'"),
     );
   }
   const {
@@ -244,6 +246,26 @@ try {
   assert.equal(
     filterWriteoffs(searchable, "2026-10", "Вся команда", "Item 2").length,
     0,
+  );
+  // Битая пометка (подразделение без ключа) видна только как «не разнесён».
+  const broken = [
+    {
+      date: "2026-10-05",
+      kind: "x",
+      name: "N",
+      poolState: "unassigned",
+      assignment: { pool: "department", key: null },
+      pool: "Не разнесён",
+    },
+  ];
+  assert.equal(
+    filterWriteoffs(broken, "2026-10", "all", "", "unassigned").length,
+    1,
+  );
+  assert.equal(
+    filterWriteoffs(broken, "2026-10", "all", "", "department").length,
+    0,
+    "A broken mark must not also match the pool filter",
   );
   const summary = writeoffTotal([
     { total: 100, native: { payload: { processed: true } } },

@@ -55,7 +55,7 @@ export type DeductionActionResult = {
   /** Чего не хватает неполному месяцу (устойчивые ID источников). */
   unresolved?: string[];
   /** Проблемы данных заведения, у которых нет месяца. */
-  dataProblems?: { undatedActs: string[]; actsWithoutVenue: string[] };
+  dataProblems?: { undatedActs: string[] };
   /** Строки, поставленные уволенным сотрудникам. */
   inactive?: Array<{ employee_id: string; name: string; amount: number }>;
 };
@@ -146,7 +146,15 @@ async function runRecalculation(ctx: Ctx, venueId: string, month: string): Promi
   // не тому заведению, которое сейчас активно у пользователя.
   const userDb = asLooseDb(ctx.supabase);
   const can = await userDb.rpc("can_post_inventory_deduction", { p_venue: venueId });
-  if (can.error || can.data !== true)
+  if (can.error) {
+    // Проверка права не выполнилась: это сбой, а не отказ. Он не должен выглядеть как «нет права».
+    console.error("[deduction] проверка права ставить удержания не выполнилась", { venueId, error: can.error });
+    return {
+      error: "Не удалось проверить право ставить удержания по недостаче. Попробуйте ещё раз",
+      summary: null,
+    };
+  }
+  if (can.data !== true)
     return {
       error: "Недостаточно прав, чтобы ставить удержания по недостаче в этом заведении",
       forbidden: true,
@@ -237,7 +245,7 @@ async function resolveDocumentMonth(
   admin: LooseDb,
   accountId: string,
   documentId: string,
-): Promise<{ venueId: string; month: string } | { error: string }> {
+): Promise<{ venueId: string; month: string } | { error: string; silent?: boolean }> {
   const doc = await admin
     .from<{ venue_id: string | null; invoice_date: string | null; document_kind: string }>("documents")
     .select("venue_id, invoice_date, document_kind")
@@ -246,8 +254,10 @@ async function resolveDocumentMonth(
     .maybeSingle();
   if (doc.error || !doc.data) return { error: "Акт не найден" };
   if (doc.data.document_kind !== "inventory") return { error: "Это не акт инвентаризации" };
-  if (!doc.data.venue_id) return { error: "У акта нет заведения: склад не привязан, месяц удержания определить нельзя" };
-  if (!doc.data.invoice_date) return { error: "У акта нет бизнес-даты: месяц удержания определить нельзя" };
+  if (!doc.data.venue_id)
+    return { error: "У акта нет заведения: склад не привязан, месяц удержания определить нельзя", silent: true };
+  if (!doc.data.invoice_date)
+    return { error: "У акта нет бизнес-даты: месяц удержания определить нельзя", silent: true };
   const venue = await admin
     .from<{ timezone: string | null }>("venues")
     .select("timezone")
@@ -305,7 +315,12 @@ export async function reverseInventoryDeductionForDocument(input: {
     if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error ?? "Не авторизован", reversed: 0, summary: null };
     const admin = asLooseDb(createAdminClient());
     const where = await resolveDocumentMonth(admin, ctx.accountId, input.documentId);
-    if ("error" in where) return { error: where.error, reversed: 0, summary: null };
+    if ("error" in where) {
+      // Акт без заведения или без бизнес-даты не может нести удержания: пользователю без права
+      // (а право зависит от заведения, которого нет) о них говорить нечего. Остальное - настоящая ошибка.
+      if (where.silent) return { error: null, reversed: 0, summary: null };
+      return { error: where.error, reversed: 0, summary: null };
+    }
 
     // Заведение акта - этого аккаунта, и право по сессии есть: только после этого читается
     // что-либо о снимках месяца (иначе ответ "0 строк" выдавал бы, есть ли у месяца удержание).
@@ -318,7 +333,17 @@ export async function reverseInventoryDeductionForDocument(input: {
     // Нет права ставить удержания - молчим целиком: ни ошибки, ни пояснения. Переоткрытие акта
     // обычная операция, а удержание может быть выключено или не относиться к этому человеку;
     // ответ без права не должен ничего говорить и о том, есть ли у месяца удержание.
-    if (can.error || can.data !== true) return { error: null, reversed: 0, summary: null };
+    if (can.error) {
+      // Молчание правильно для «права нет», но здесь проверка не выполнилась: пользователь с правом
+      // переоткрывает акт, а живые строки остаются. Это нельзя оставлять без следа.
+      console.error("[deduction] проверка права при переоткрытии акта не выполнилась: строки не сторнированы", {
+        documentId: input.documentId,
+        venueId: where.venueId,
+        error: can.error,
+      });
+      return { error: null, reversed: 0, summary: null };
+    }
+    if (can.data !== true) return { error: null, reversed: 0, summary: null };
 
     // Есть ли вообще живые строки месяца: без них сторнировать нечего.
     const snaps = await admin
@@ -370,6 +395,8 @@ export type AutoDeductionTrigger =
   | { kind: "writeoff"; venueId: string; externalId: number }
   /** Склад привязали к другому подразделению. */
   | { kind: "store"; storeId: string }
+  /** Склад привязали к другому заведению (или отвязали): пересчитать нужно и прежнее, и новое. */
+  | { kind: "store-venue"; storeId: string; venueIds: Array<string | null> }
   /** Сохранена новая версия правил удержаний. */
   | { kind: "rules"; venueId: string; validFrom: string };
 
@@ -449,8 +476,17 @@ async function runAutoRecalculation(trigger: AutoDeductionTrigger): Promise<stri
       return autoNotice(await runRecalculation(ctx, trigger.venueId, `${today.slice(0, 7)}-01`), trigger);
     }
 
-    // Склад. Затрагиваются месяцы его проведённых актов, но только текущий и прошлый:
-    // привязка меняет плательщика вперёд, давно выплаченные месяцы не пересчитываются сами.
+    if (trigger.kind === "store-venue") {
+      const notices: string[] = [];
+      for (const venueId of new Set(trigger.venueIds)) {
+        if (!venueId) continue;
+        const n = await recalculateStoreMonths(ctx, admin, trigger, trigger.storeId, venueId);
+        if (n) notices.push(n);
+      }
+      return joinUniqueNotices(notices);
+    }
+
+    // Склад. Затрагиваются месяцы его проведённых актов, но только текущий и прошлый.
     const store = await admin
       .from<{ local_venue_id: string | null }>("stores")
       .select("local_venue_id")
@@ -459,42 +495,63 @@ async function runAutoRecalculation(trigger: AutoDeductionTrigger): Promise<stri
       .maybeSingle();
     const venueId = store.data?.local_venue_id;
     if (!venueId) return null;
-    const tz = await venueTimezone(venueId);
-    if (!tz) return null;
-    const today = stockCalendarDate(new Date().toISOString(), tz);
-    const prev = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1));
-    const earliest = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, "0")}`;
-    const acts = await admin
-      .from<Array<{ invoice_date: string | null }>>("documents")
-      .select("invoice_date")
-      .eq("account_id", accountId)
-      .eq("document_kind", "inventory")
-      .eq("store_id", trigger.storeId)
-      .eq("status", "processed")
-      .eq("processed", true)
-      .is("archived_at", null)
-      .gte("invoice_date", `${earliest}-01T00:00:00Z`)
-      .limit(1000);
-    if (acts.error) return `Удержание по недостаче не пересчитано: ${acts.error.message}. ${PERMIT_SUFFIX}`;
-    const months = new Set<string>();
-    for (const a of acts.data ?? []) {
-      if (!a.invoice_date) continue;
-      try {
-        const m = businessMonthOf(a.invoice_date, tz);
-        if (m >= earliest) months.add(`${m}-01`);
-      } catch {
-        // Дата не читается: этот акт месяц не определяет (снимок месяца назовёт его проблемой данных).
-      }
-    }
-    const notices: string[] = [];
-    for (const month of [...months].sort()) {
-      const n = autoNotice(await runRecalculation(ctx, venueId, month), trigger);
-      if (n) notices.push(n);
-    }
-    // Один месяц за другим дают одно и то же пояснение (например об отказе по праву): без повторов.
-    return joinUniqueNotices(notices);
+    return await recalculateStoreMonths(ctx, admin, trigger, trigger.storeId, venueId);
   } catch (error) {
     console.error("[deduction] автопересчёт не выполнен", { trigger, error });
     return `Удержание по недостаче не пересчитано из-за ошибки. ${PERMIT_SUFFIX}`;
   }
+}
+
+/**
+ * Месяцы проведённых актов склада в заведении (только текущий и прошлый: привязка меняет
+ * плательщика вперёд, давно выплаченные месяцы не пересчитываются сами) и пересчёт каждого.
+ */
+async function recalculateStoreMonths(
+  ctx: Ctx,
+  admin: LooseDb,
+  trigger: AutoDeductionTrigger,
+  storeId: string,
+  venueId: string,
+): Promise<string | null> {
+  const accountId = ctx.accountId!;
+  const v = await admin
+    .from<{ timezone: string | null }>("venues")
+    .select("timezone")
+    .eq("id", venueId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  const tz = v.data?.timezone ?? null;
+  if (!tz) return null;
+  const today = stockCalendarDate(new Date().toISOString(), tz);
+  const prev = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1));
+  const earliest = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, "0")}`;
+  const acts = await admin
+    .from<Array<{ invoice_date: string | null }>>("documents")
+    .select("invoice_date")
+    .eq("account_id", accountId)
+    .eq("document_kind", "inventory")
+    .eq("store_id", storeId)
+    .eq("status", "processed")
+    .eq("processed", true)
+    .is("archived_at", null)
+    .gte("invoice_date", `${earliest}-01T00:00:00Z`)
+    .limit(1000);
+  if (acts.error) return `Удержание по недостаче не пересчитано: ${acts.error.message}. ${PERMIT_SUFFIX}`;
+  const months = new Set<string>();
+  for (const a of acts.data ?? []) {
+    if (!a.invoice_date) continue;
+    try {
+      const m = businessMonthOf(a.invoice_date, tz);
+      if (m >= earliest) months.add(`${m}-01`);
+    } catch {
+      // Дата не читается: этот акт месяц не определяет (снимок месяца назовёт его проблемой данных).
+    }
+  }
+  const notices: string[] = [];
+  for (const month of [...months].sort()) {
+    const n = autoNotice(await runRecalculation(ctx, venueId, month), trigger);
+    if (n) notices.push(n);
+  }
+  // Один месяц за другим дают одно и то же пояснение (например об отказе по праву): без повторов.
+  return joinUniqueNotices(notices);
 }

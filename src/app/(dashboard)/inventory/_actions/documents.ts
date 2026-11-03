@@ -183,7 +183,7 @@ export async function updateInventoryDocumentNote(input: {
 export async function updateInventoryStoreVenue(input: {
   storeId: string;
   venueId: string | null;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string }> {
   const ctx = await getActiveContext("inventory.manage_stores");
   if (ctx.error || !ctx.accountId) return { error: ctx.error };
 
@@ -200,6 +200,14 @@ export async function updateInventoryStoreVenue(input: {
     if (!venue?.id) return { error: "Заведение не найдено" };
   }
 
+  // Прежнее заведение: после смены удержания надо пересчитать и в нём (акты склада из него ушли).
+  const { data: before } = await admin
+    .from<{ local_venue_id: string | null }>("stores")
+    .select("local_venue_id")
+    .eq("id", input.storeId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
+
   const { error } = await admin
     .from("stores")
     .update({ local_venue_id: input.venueId || null })
@@ -211,8 +219,18 @@ export async function updateInventoryStoreVenue(input: {
   // Пропагация venue в documents.venue_id — на уровне БД (триггер
   // trg_stores_propagate_venue_to_documents, миграция 194), атомарно
   // в той же транзакции UPDATE stores. Второй write из app не нужен.
+
+  // Привязка к заведению решает, чьё удержание платит за акты склада: пересчитываются месяцы
+  // и прежнего, и нового заведения. Выключено по умолчанию (INVENTORY_DEDUCTION_AUTOPOST);
+  // привязка уже сохранена и от пересчёта не зависит.
+  const notice = await autoRecalculateInventoryDeduction({
+    kind: "store-venue",
+    storeId: input.storeId,
+    venueIds: [before?.local_venue_id ?? null, input.venueId || null],
+  });
+
   revalidatePath("/org/stores");
-  return { error: null };
+  return { error: null, ...(notice ? { notice } : {}) };
 }
 
 /**

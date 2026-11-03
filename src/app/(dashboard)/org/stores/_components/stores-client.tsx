@@ -140,6 +140,7 @@ export function StoresClient({
         return;
       }
       toast.success("Склад обновлен");
+      if (result.notice) toast.message(result.notice);
       router.refresh();
     });
   };

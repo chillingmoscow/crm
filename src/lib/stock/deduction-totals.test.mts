@@ -6,6 +6,10 @@ test("пустая вставка (например, одна строка за�
   assert.deepEqual(sheetTotal([], 0), { total: null, incomplete: false });
 });
 
+test("пустая вставка при нечитаемых строках - итог неизвестен и помечен неполным", () => {
+  assert.deepEqual(sheetTotal([], 3), { total: null, incomplete: true });
+});
+
 test("сумма считается в копейках без хвостов float", () => {
   assert.deepEqual(sheetTotal([{ amount: 0.1 }, { amount: 0.2 }], 0), { total: 0.3, incomplete: false });
 });

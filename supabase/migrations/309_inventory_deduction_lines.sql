@@ -405,7 +405,8 @@ begin
           coalesce(p_snapshot->'payload', '{}'::jsonb), u);
 
   for rec in select e.value as line from jsonb_array_elements(p_lines) e loop
-    select * into emp from public.payroll_employees pe where pe.id = (rec.line->>'employee_id')::uuid;
+    select * into emp from public.payroll_employees pe
+      where pe.id = (rec.line->>'employee_id')::uuid and pe.account_id = a and pe.venue_id = p_venue;
     is_inactive := not emp.active;
     line_amount := (rec.line->>'amount')::numeric;
     line_reason := trim(rec.line->>'reason') || suffix;

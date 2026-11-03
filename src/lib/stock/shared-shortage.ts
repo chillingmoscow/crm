@@ -2,7 +2,7 @@ import {
   deductionRulesSchema,
   companyShortage,
   type DeductionRules,
-} from "./deduction-rules";
+} from "./deduction-rules.ts";
 export type ShiftWeight = {
   employeeId: string;
   roleId: string;

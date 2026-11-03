@@ -103,7 +103,7 @@ git commit -m "fix(db): линейная нумерация девяти timesta
 
 Три состояния из раздела 1.6 отдельной колонкой `department_scope`, потому что `department_id is null` не различает «ещё не настроено» и «явно общий», а от различия зависит, платит команда или расчёт неполный.
 
-У `public.departments` сегодня **нет** `unique (account_id, id)` — только PK по `id` и `unique (account_id, name)`. Без него композитный FK невозможен, поэтому миграция добавляет его первым шагом.
+**Поправка 3 ноября, по ходу реализации.** `public.departments` **venue-scoped**: миграция 172 удалила `departments.account_id` и сделала `venue_id` обязательным. Композитный FK `(account_id, department_id)` построить нельзя — вместо него обычный FK с триггером тенантности. Инвариант: привязка к подразделению требует `local_venue_id`, равного `venue_id` подразделения; смена или обнуление заведения склада снимает привязку.
 
 - [ ] **Step 1: Написать SQL-тест**
 
@@ -112,7 +112,7 @@ git commit -m "fix(db): линейная нумерация девяти timesta
 begin;
 -- 1. scope='department' без department_id отклоняется
 -- 2. scope='shared' с department_id отклоняется
--- 3. department чужого аккаунта отклоняется композитным FK
+-- 3. department чужого заведения отклоняется триггером тенантности
 -- 4. set_store_department пишет строку в store_department_history с актором
 -- 5. повторный вызов с теми же значениями истории не добавляет
 -- 6. удаление подразделения переводит склад в 'unset', а не оставляет висячий id
@@ -126,7 +126,7 @@ Expected: FAIL — колонок ещё нет.
 
 - [ ] **Step 3: Написать миграцию**
 
-Содержит: `alter table public.departments add constraint departments_account_id_unique unique (account_id, id)`; две колонки на `stores`; `check (department_scope in ('unset','shared','department') and (department_scope='department') = (department_id is not null))`; композитный FK `(account_id, department_id) → departments(account_id, id) on delete set null (department_id)` по образцу `stores_local_venue_tenant_fkey` из миграции 230; композитный индекс `(account_id, department_id) where department_id is not null`; триггер, переводящий scope в `'unset'` при обнулении `department_id`; таблицу истории с `account_id`, `store_id`, прежними и новыми значениями, `changed_by`, `changed_at`; RPC `set_store_department` с правом `inventory.manage_results` и `set search_path = public, pg_catalog`; RLS на историю по образцу `stock_deduction_rules` (миграция 286).
+Содержит: две колонки на `stores`; `check (department_scope in ('unset','shared','department') and (department_scope='department') = (department_id is not null))`; FK `department_id → departments(id) on delete set null` с BEFORE-триггером, проверяющим, что `departments.venue_id = stores.local_venue_id`; индекс `(account_id, department_id) where department_id is not null`; триггер, переводящий scope в `'unset'` при обнулении `department_id`; таблицу истории с `account_id`, `store_id`, прежними и новыми значениями (включая **имя** подразделения текстом, чтобы строка читалась и после удаления подразделения), `changed_by`, `changed_at`; RPC `set_store_department` с правом `inventory.manage_stores` и `set search_path = public, pg_catalog`; RLS на историю по образцу `stock_deduction_rules` (миграция 286).
 
 - [ ] **Step 4: Прогнать тест и убедиться, что проходит**
 

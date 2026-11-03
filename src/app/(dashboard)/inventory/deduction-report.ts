@@ -7,11 +7,15 @@ import "server-only";
 // server action recalculateInventoryDeduction (_actions/deduction.ts), его вызывает кнопка
 // пересчёта на странице.
 //
-// Сторона Sheerly - расчёт месяца, выполненный прямо сейчас (buildMonthlySnapshot +
-// allocateMonthlyShortage), с отметкой момента расчёта. Рядом - то, что последний раз
-// записано в ведомость (inventory_deduction_snapshots), чтобы было видно, не ушёл ли расчёт
-// вперёд записанного. Проверки те же, что у пересчёта: аккаунт сессии, заведение в аккаунте,
-// право ставить удержания в этом заведении.
+// Две стороны Sheerly. «Записано» - то, что реально стоит в ведомости: живые строки
+// payroll_adjustments, поставленные снимком месяца (inventory_deduction_snapshots); именно
+// это число платили, поэтому сличение идёт с ним. «Расчёт сейчас» - расчёт месяца прямо
+// сейчас (buildMonthlySnapshot + allocateMonthlyShortage); разрыв между ними означает, что
+// исходные данные поменяли после постановки. Оба с отметкой момента.
+//
+// Просмотр требует inventory.view_results и права на ставить не даёт: право ставить удержания
+// (can_post_inventory_deduction) нужно только кнопке пересчёта, страница лишь сообщает,
+// есть ли оно. Остальные проверки: аккаунт сессии, заведение в аккаунте.
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
@@ -28,9 +32,11 @@ export type ReportEmployee = { id: string; name: string; active: boolean };
 export type ReportRecorded = {
   /** Момент расчёта, который лёг в ведомость. */
   capturedAt: string;
+  /** Сколько реально удержано с сотрудников: сумма живых строк ведомости. */
   employeesTotal: number;
   shortageTotal: number;
-  reversed: boolean;
+  /** Живые строки ведомости этого месяца по сотрудникам (положительные суммы). */
+  lines: Array<{ employeeId: string; amount: number }>;
   ruleVersion: number | null;
   ruleValidFrom: string | null;
   authorName: string | null;
@@ -59,7 +65,12 @@ export type DeductionReportData = {
     dataProblems: Array<{ title: string; items: MissingItem[] }>;
   };
   employees: ReportEmployee[];
+  /** Расчёт, поставленный в ведомость; `null`, если месяц не поставлен или сторнирован. */
   recorded: ReportRecorded | null;
+  /** Месяц ставили, но потом сторнировали без замены: в ведомости ничего нет. */
+  recordedReversedAt: string | null;
+  /** Есть право ставить удержания: только от него зависит кнопка пересчёта. */
+  canRecalculate: boolean;
 };
 
 export type DeductionReportResult =
@@ -77,7 +88,9 @@ function previousMonth(today: string): string {
 
 export async function loadDeductionReport(requestedMonth: string | null): Promise<DeductionReportResult> {
   try {
-    const ctx = await getActiveContext();
+    const ctx = await getActiveContext("inventory.view_results");
+    if (ctx.error === "Недостаточно прав")
+      return { ok: false, error: "Нет доступа к отчёту об удержаниях. Обратитесь к владельцу аккаунта.", forbidden: true };
     if (ctx.error || !ctx.user || !ctx.accountId) return { ok: false, error: ctx.error ?? "Не авторизован" };
     if (!ctx.venueId) return { ok: false, error: "Не выбрано заведение" };
     const accountId = ctx.accountId;
@@ -89,13 +102,9 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Заведение недоступно", forbidden: true };
     }
+    // Право ставить удержания нужно только кнопке пересчёта; просмотр его не требует.
     const can = await asLooseDb(ctx.supabase).rpc("can_post_inventory_deduction", { p_venue: venueId });
-    if (can.error || can.data !== true)
-      return {
-        ok: false,
-        error: "Нет доступа к удержаниям по недостаче в этом заведении. Обратитесь к владельцу аккаунта.",
-        forbidden: true,
-      };
+    const canRecalculate = !can.error && can.data === true;
 
     const venue = await admin
       .from<{ timezone: string | null }>("venues")
@@ -184,9 +193,11 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
       .map((p) => ({ title: p.title, items: p.ids.map((id) => documentItem(id, lookup)) }));
 
     let recorded: ReportRecorded | null = null;
-    if (recordedRow.data) {
+    let recordedReversedAt: string | null = null;
+    if (recordedRow.data && recordedRow.data.reversed_at) recordedReversedAt = recordedRow.data.reversed_at;
+    else if (recordedRow.data) {
       const r = recordedRow.data;
-      const [recordedRule, author] = await Promise.all([
+      const [recordedRule, author, snapshotIds] = await Promise.all([
         admin
           .from<{ version: number; valid_from: string }>("stock_deduction_rules")
           .select("version, valid_from")
@@ -198,13 +209,37 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
           .select("first_name, last_name")
           .eq("id", r.created_by)
           .maybeSingle(),
+        admin
+          .from<Array<{ id: string }>>("inventory_deduction_snapshots")
+          .select("id")
+          .eq("account_id", accountId)
+          .eq("venue_id", venueId)
+          .eq("month", month),
       ]);
+      if (snapshotIds.error) throw new Error(`Не удалось прочитать снимки месяца: ${snapshotIds.error.message}`);
+      // Что реально стоит в ведомости: живые строки всех снимков месяца. Снимок, совпавший с уже
+      // поставленным, новых строк не пишет, поэтому смотреть только на последний снимок нельзя.
+      const live = await admin
+        .from<Array<{ employee_id: string; amount: number | string }>>("payroll_adjustments")
+        .select("employee_id, amount")
+        .eq("account_id", accountId)
+        .eq("venue_id", venueId)
+        .eq("origin", "inventory_deduction")
+        .is("deleted_at", null)
+        .in("inventory_snapshot_id", (snapshotIds.data ?? []).map((x) => x.id));
+      if (live.error) throw new Error(`Не удалось прочитать строки ведомости: ${live.error.message}`);
+      const cents = new Map<string, number>();
+      for (const row of live.data ?? [])
+        cents.set(row.employee_id, (cents.get(row.employee_id) ?? 0) + Math.round(Math.abs(Number(row.amount)) * 100));
+      const lines = [...cents.entries()]
+        .map(([employeeId, c]) => ({ employeeId, amount: c / 100 }))
+        .filter((l) => l.amount > 0);
       const authorName = [author.data?.first_name, author.data?.last_name].filter(Boolean).join(" ");
       recorded = {
         capturedAt: r.captured_at,
-        employeesTotal: Number(r.employees_total),
+        employeesTotal: lines.reduce((sum, l) => sum + Math.round(l.amount * 100), 0) / 100,
         shortageTotal: Number(r.shortage_total),
-        reversed: r.reversed_at !== null,
+        lines,
         ruleVersion: recordedRule.data?.version ?? null,
         ruleValidFrom: recordedRule.data?.valid_from ?? null,
         authorName: authorName || null,
@@ -233,6 +268,8 @@ export async function loadDeductionReport(requestedMonth: string | null): Promis
         },
         employees,
         recorded,
+        recordedReversedAt,
+        canRecalculate,
       },
     };
   } catch (error) {

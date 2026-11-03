@@ -11,6 +11,7 @@ import { TableControlPin, TableControls, TablePageHeader } from "@/components/sh
 import { InventoryStatusBadge, WARNING_BADGE_CLASS } from "@/components/shared/inventory-status-badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,7 +23,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { reconcileDeduction, type ReconcileRow, type ReconcileStatus } from "@/lib/stock/deduction-reconciliation";
+import {
+  looksSignFlipped,
+  negateAmounts,
+  reconcileDeduction,
+  type ReconcileStatus,
+} from "@/lib/stock/deduction-reconciliation";
 import {
   matchSheetNames,
   normalizePersonName,
@@ -81,26 +87,65 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
     if (!stampEdited.current) setSheetAtInput(text.trim() ? nowForInput() : "");
   }
 
+  // Знак суммы из таблицы переворачивает только человек, явным выбором. Подсказка ниже лишь
+  // замечает, что похоже на минус в таблице; молча знак не меняется никогда.
+  const [flipSign, setFlipSign] = useState(false);
+
   const parsed = useMemo(() => parseSheetPaste(pasted), [pasted]);
-  const matching = useMemo(
-    () => matchSheetNames(parsed.entries, data.employees),
-    [parsed.entries, data.employees],
-  );
   const nameById = useMemo(() => new Map(data.employees.map((e) => [e.id, e.name] as const)), [data.employees]);
 
-  const rows = useMemo<ReconcileRow[]>(() => {
-    if (!sheetAtIso) return [];
-    const sheerly = sheerlySideFor({
+  // Сличение строится с тем, что реально стоит в ведомости (его платили). Если месяц не поставлен
+  // или сторнирован, сличаем с расчётом сейчас, и страница говорит об этом прямо.
+  const recorded = data.recorded;
+  const basisLabel = recorded ? "В ведомости" : "Расчёт Sheerly";
+  const basisStamp = recorded ? recorded.capturedAt : calc.capturedAt;
+
+  function build(entries: typeof parsed.entries) {
+    const matching = matchSheetNames(entries, data.employees);
+    const matchedIds = matching.matched.map((m) => m.employeeId);
+    const primary = recorded
+      ? sheerlySideFor({
+          state: "ready",
+          capturedAt: recorded.capturedAt,
+          lines: recorded.lines,
+          knownEmployeeIds: matchedIds,
+        })
+      : sheerlySideFor({ state: calc.state, capturedAt: calc.capturedAt, lines: calc.lines, knownEmployeeIds: matchedIds });
+    const rows = sheetAtIso
+      ? reconcileDeduction(primary, {
+          capturedAt: sheetAtIso,
+          entries: matching.matched.map((m) => ({ employeeId: m.employeeId, amount: m.amount })),
+        })
+      : [];
+    return { matching, rows };
+  }
+  // Подсказка про знак считается по данным как вставлены, до любого переворота.
+  const raw = build(parsed.entries);
+  const shown = flipSign ? build(negateAmounts(parsed.entries)) : raw;
+  const matching = shown.matching;
+  const rows = shown.rows;
+  const signLooksFlipped = !flipSign && looksSignFlipped(raw.rows);
+  const shownEntries = useMemo(() => (flipSign ? negateAmounts(parsed.entries) : parsed.entries), [flipSign, parsed.entries]);
+
+  // Расчёт сейчас по тем же сотрудникам, что в таблице: столбец рядом с записанным.
+  const liveById = useMemo(() => {
+    const side = sheerlySideFor({
       state: calc.state,
       capturedAt: calc.capturedAt,
       lines: calc.lines,
-      knownEmployeeIds: matching.matched.map((m) => m.employeeId),
+      knownEmployeeIds: rows.map((r) => r.employeeId),
     });
-    return reconcileDeduction(sheerly, {
-      capturedAt: sheetAtIso,
-      entries: matching.matched.map((m) => ({ employeeId: m.employeeId, amount: m.amount })),
-    });
-  }, [calc.state, calc.capturedAt, calc.lines, matching.matched, sheetAtIso]);
+    return new Map(side.entries.map((e) => [e.employeeId, e.amount] as const));
+  }, [calc, rows]);
+
+  // Разрыв между записанным и расчётом сейчас: значит, исходные данные меняли после постановки.
+  const recordedVsLive = useMemo(() => {
+    if (!recorded || calc.state === "incomplete") return null;
+    const ids = [...new Set([...recorded.lines.map((l) => l.employeeId), ...calc.lines.map((l) => l.employeeId)])];
+    const recordedSide = sheerlySideFor({ state: "ready", capturedAt: recorded.capturedAt, lines: recorded.lines, knownEmployeeIds: ids });
+    const liveSide = sheerlySideFor({ state: calc.state, capturedAt: calc.capturedAt, lines: calc.lines, knownEmployeeIds: ids });
+    return reconcileDeduction(recordedSide, liveSide).filter((r) => r.status !== "match");
+  }, [recorded, calc]);
 
   // ── Фильтры таблицы ───────────────────────────────────────────
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -121,13 +166,14 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
       .sort((a, b) => (nameById.get(a.employeeId) ?? "").localeCompare(nameById.get(b.employeeId) ?? "", "ru"));
   }, [rows, statusFilter, search, nameById]);
 
-  // ── Итоги двух сторон ─────────────────────────────────────────
+  // ── Итоги ─────────────────────────────────────────────────────
   // Сторона таблицы - все прочитанные строки вставки, найденные и ненайденные: деньги
   // не пропадают из итога из-за того, что имя не сопоставилось.
-  const sheetTotal = parsed.entries.reduce((s, e) => s + (e.amount ?? 0), 0);
-  const sheetHasGaps = parsed.entries.some((e) => e.amount === null) || parsed.errors.length > 0;
-  const sheerlyTotal = calc.state === "incomplete" ? null : calc.employeesTotal;
-  const totalDelta = sheerlyTotal === null ? null : Math.round((sheerlyTotal - sheetTotal) * 100) / 100;
+  const sheetTotal = shownEntries.reduce((sum, e) => sum + (e.amount ?? 0), 0);
+  const sheetHasGaps = shownEntries.some((e) => e.amount === null) || parsed.errors.length > 0;
+  const basisTotal = recorded ? recorded.employeesTotal : calc.state === "incomplete" ? null : calc.employeesTotal;
+  const totalDelta = basisTotal === null ? null : Math.round((basisTotal - sheetTotal) * 100) / 100;
+  const liveTotal = calc.state === "incomplete" ? null : calc.employeesTotal;
 
   // ── Пересчёт месяца ───────────────────────────────────────────
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -152,12 +198,6 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
     }
   }
 
-  const recordedBehind =
-    data.recorded !== null &&
-    !data.recorded.reversed &&
-    calc.state === "ready" &&
-    Math.round(data.recorded.employeesTotal * 100) !== Math.round(calc.employeesTotal * 100);
-
   return (
     <PageFrame className="min-w-0 space-y-6">
       <TablePageHeader
@@ -165,10 +205,16 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
         title={<span className="whitespace-normal">Удержание по недостаче</span>}
         subtitle="Сличение расчёта Sheerly с Google-таблицей. Страница читает: таблицу она не меняет."
         actions={
-          <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmOpen(true)}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            Пересчитать месяц
-          </Button>
+          data.canRecalculate ? (
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmOpen(true)}>
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              Пересчитать месяц
+            </Button>
+          ) : (
+            <p className="max-w-xs text-xs text-muted-foreground">
+              Пересчитать месяц может тот, у кого есть право ставить удержания по недостаче в ведомость.
+            </p>
+          )
         }
       />
 
@@ -217,10 +263,32 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
         </p>
       </div>
 
-      {/* Два момента снятия. Разница без них нечитаема: таблица живая. */}
-      <section className="grid gap-4 rounded-lg border bg-card p-4 sm:grid-cols-2" aria-label="Моменты снятия">
+      {/* Моменты снятия всех сторон. Разница без них нечитаема: таблица живая. */}
+      <section className="grid gap-4 rounded-lg border bg-card p-4 sm:grid-cols-2 xl:grid-cols-3" aria-label="Моменты снятия">
         <div className="min-w-0">
-          <p className="text-sm text-muted-foreground">Расчёт Sheerly снят</p>
+          <p className="text-sm text-muted-foreground">В ведомости: расчёт от</p>
+          {recorded ? (
+            <>
+              <p className="mt-1 text-lg font-semibold tabular-nums">{stamp(recorded.capturedAt)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Удержано с сотрудников {money(recorded.employeesTotal)}
+                {recorded.authorName ? `, поставил(а) ${recorded.authorName}` : ""}
+                {recorded.ruleVersion !== null ? `. Правила: версия ${recorded.ruleVersion}` : ""}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-lg font-semibold text-muted-foreground">не поставлено</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {data.recordedReversedAt
+                  ? `Ранее поставленное сторнировано ${stamp(data.recordedReversedAt)}: в ведомости за этот месяц ничего нет.`
+                  : "За этот месяц в ведомость ничего не ставили."}
+              </p>
+            </>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">Расчёт сейчас снят</p>
           <p className="mt-1 text-lg font-semibold tabular-nums">{stamp(calc.capturedAt)}</p>
           <p className="mt-1 text-xs text-muted-foreground">
             Время заведения ({data.timezone})
@@ -229,7 +297,7 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
               : ""}
           </p>
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 sm:col-span-2 xl:col-span-1">
           <label htmlFor="sheet-at" className="text-sm text-muted-foreground">
             Таблица снята
           </label>
@@ -250,18 +318,34 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
               : "Появится, когда вставите данные из таблицы."}
           </p>
         </div>
-        {data.recorded && (
-          <p className="text-xs text-muted-foreground sm:col-span-2">
-            В ведомость поставлено: расчёт от {stamp(data.recorded.capturedAt)}, удержано с сотрудников{" "}
-            {money(data.recorded.employeesTotal)}
-            {data.recorded.authorName ? `, поставил(а) ${data.recorded.authorName}` : ""}
-            {data.recorded.reversed ? ". Позже сторнировано: месяц снова не посчитан" : ""}.
-            {recordedBehind && (
-              <span className={cn("ml-1 inline-block rounded-md border px-1.5 py-0.5", WARNING_BADGE_CLASS)}>
-                Расчёт сейчас отличается от поставленного: нажмите «Пересчитать месяц»
-              </span>
-            )}
+      </section>
+
+      {/* С чем сличаем и не разошлись ли записанное и расчёт сейчас. */}
+      <section className="space-y-2 text-sm" aria-label="С чем сличаем">
+        <p role="note" className="rounded-lg border bg-muted/40 p-4">
+          {recorded
+            ? "Разница считается с тем, что стоит в ведомости: именно это число платили. Расчёт сейчас показан рядом, только для сравнения."
+            : `В ведомости за ${data.monthLabel} ничего нет, поэтому разница считается с расчётом Sheerly на момент открытия страницы (${stamp(calc.capturedAt)}), а не с выплаченным.`}
+        </p>
+        {recorded && calc.state === "incomplete" && (
+          <p className={cn("rounded-lg border p-4", WARNING_BADGE_CLASS)}>
+            Сейчас месяц не посчитан до конца, поэтому расчёта для сравнения нет. В ведомости остаётся ранее поставленное.
           </p>
+        )}
+        {recorded && recordedVsLive && recordedVsLive.length > 0 && (
+          <p role="alert" className={cn("rounded-lg border p-4", WARNING_BADGE_CLASS)}>
+            Расчёт сейчас отличается от поставленного в ведомость у сотрудников: {recordedVsLive.length} (
+            {recordedVsLive
+              .slice(0, 5)
+              .map((r) => nameById.get(r.employeeId) ?? "без имени")
+              .join(", ")}
+            {recordedVsLive.length > 5 ? " и другие" : ""}). Значит, после постановки изменились исходные данные: акты,
+            списания, смены или правила.
+            {data.canRecalculate ? " Чтобы обновить ведомость, нажмите «Пересчитать месяц»." : ""}
+          </p>
+        )}
+        {recorded && recordedVsLive && recordedVsLive.length === 0 && (
+          <p className="text-xs text-muted-foreground">Расчёт сейчас совпадает с поставленным в ведомость.</p>
         )}
       </section>
 
@@ -275,6 +359,7 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
           <p>
             Это не нулевой месяц и не «удерживать нечего»: расчёта пока нет, поэтому сумм по сотрудникам здесь нет.
             Они появятся, когда данные будут дополнены и месяц пересчитан.
+            {recorded ? " Ранее поставленное в ведомость остаётся как есть." : ""}
           </p>
           {calc.missing.map((g) => (
             <div key={g.kind}>
@@ -332,16 +417,33 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
         </p>
       )}
 
-      {/* Итоги: обе суммы, у каждой свой момент снятия. */}
-      <section className="grid grid-cols-1 gap-y-4 rounded-lg border bg-card py-5 sm:grid-cols-3" aria-label="Итоги сличения">
-        <div className="px-4 sm:border-r sm:px-5">
-          <p className="text-sm text-muted-foreground">Sheerly: удержано с сотрудников</p>
-          <p className="mt-2 text-2xl font-semibold tabular-nums">
-            {sheerlyTotal === null ? <span className="text-muted-foreground">не посчитано</span> : money(sheerlyTotal)}
+      {/* Итоги: каждая сумма со своим моментом снятия. */}
+      <section
+        className={cn(
+          "grid grid-cols-1 gap-y-4 divide-y rounded-lg border bg-card py-5 sm:grid-cols-2 sm:divide-y-0",
+          recorded ? "xl:grid-cols-4" : "xl:grid-cols-3",
+        )}
+        aria-label="Итоги сличения"
+      >
+        <div className="px-4 sm:px-5">
+          <p className="text-sm text-muted-foreground">
+            {recorded ? "В ведомости: удержано с сотрудников" : "Sheerly (расчёт сейчас): удержано"}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">Снято {stamp(calc.capturedAt)}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums">
+            {basisTotal === null ? <span className="text-muted-foreground">не посчитано</span> : money(basisTotal)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Снято {stamp(basisStamp)}</p>
         </div>
-        <div className="px-4 sm:border-r sm:px-5">
+        {recorded && (
+          <div className="px-4 pt-4 sm:px-5 sm:pt-0">
+            <p className="text-sm text-muted-foreground">Расчёт сейчас: удержано</p>
+            <p className="mt-2 text-2xl font-semibold tabular-nums">
+              {liveTotal === null ? <span className="text-muted-foreground">не посчитано</span> : money(liveTotal)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Снято {stamp(calc.capturedAt)}</p>
+          </div>
+        )}
+        <div className="px-4 pt-4 sm:px-5 sm:pt-0">
           <p className="text-sm text-muted-foreground">Таблица: сумма вставленных строк</p>
           <p className="mt-2 text-2xl font-semibold tabular-nums">
             {sheetAtIso ? money(sheetTotal) : <span className="text-muted-foreground">не вставлено</span>}
@@ -349,10 +451,13 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
           <p className="mt-1 text-xs text-muted-foreground">
             {sheetAtIso ? `Снято ${stamp(sheetAtIso)}` : "Вставьте столбцы из таблицы ниже"}
             {sheetAtIso && sheetHasGaps ? ". Итог неполный: есть пустые суммы или нечитаемые строки" : ""}
+            {sheetAtIso && flipSign ? ". Знак суммы перевёрнут вами" : ""}
           </p>
         </div>
-        <div className="px-4 sm:px-5">
-          <p className="text-sm text-muted-foreground">Разница (Sheerly минус таблица)</p>
+        <div className="px-4 pt-4 sm:px-5 sm:pt-0">
+          <p className="text-sm text-muted-foreground">
+            Разница ({recorded ? "в ведомости" : "расчёт"} минус таблица)
+          </p>
           <p className="mt-2 text-2xl font-semibold tabular-nums">
             {sheetAtIso && totalDelta !== null ? signedMoney(totalDelta) : <span className="text-muted-foreground">нет данных</span>}
           </p>
@@ -380,6 +485,31 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
           табуляция или точка с запятой, запятая или точка в копейках; первая строка-заголовок пропускается. Данные
           нигде не сохраняются: они живут только на этой странице.
         </p>
+        <label className="flex cursor-pointer items-start gap-2 text-sm">
+          <Checkbox
+            checked={flipSign}
+            onCheckedChange={(v) => setFlipSign(v === true)}
+            className="mt-0.5"
+            aria-label="Перевернуть знак сумм из таблицы"
+          />
+          <span>
+            Суммы в таблице записаны со знаком минус: перевернуть знак
+            <span className="block text-xs text-muted-foreground">
+              Переворачивается только по вашему выбору. Sheerly считает удержание положительным числом.
+            </span>
+          </span>
+        </label>
+        {signLooksFlipped && (
+          <div role="alert" className={cn("rounded-lg border p-3 text-sm", WARNING_BADGE_CLASS)}>
+            <p>
+              Похоже, в таблице удержания со знаком минус: у всех сопоставленных сотрудников суммы равны по модулю и
+              противоположны по знаку. Это разница в записи, а не в расчёте.
+            </p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => setFlipSign(true)}>
+              Перевернуть знак
+            </Button>
+          </div>
+        )}
         {parsed.headerText !== null && (
           <p className="text-xs text-muted-foreground">Первая строка принята за заголовок и пропущена: «{parsed.headerText.replace(/\t/g, " | ")}»</p>
         )}
@@ -481,14 +611,20 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
             </p>
           ) : (
             <div className="overflow-x-auto rounded-lg border bg-card">
-              <table className="w-full min-w-[640px] text-sm">
+              <table className={cn("w-full text-sm", recorded ? "min-w-[760px]" : "min-w-[640px]")}>
                 <thead className="bg-muted/60 text-left text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 font-medium">Сотрудник</th>
                     <th className="px-3 py-2 text-right font-medium">
-                      Sheerly
-                      <span className="block text-xs font-normal">{stamp(calc.capturedAt)}</span>
+                      {basisLabel}
+                      <span className="block text-xs font-normal">{stamp(basisStamp)}</span>
                     </th>
+                    {recorded && (
+                      <th className="px-3 py-2 text-right font-medium">
+                        Расчёт сейчас
+                        <span className="block text-xs font-normal">{stamp(calc.capturedAt)}</span>
+                      </th>
+                    )}
                     <th className="px-3 py-2 text-right font-medium">
                       Таблица
                       <span className="block text-xs font-normal">{stamp(sheetAtIso)}</span>
@@ -506,6 +642,23 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
                         <td className="px-3 py-2 text-right tabular-nums">
                           {r.sheerly === null ? <span className="text-muted-foreground">не посчитано</span> : money(r.sheerly)}
                         </td>
+                        {recorded && (
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {(() => {
+                              const live = liveById.get(r.employeeId) ?? null;
+                              if (live === null) return <span className="text-muted-foreground">не посчитано</span>;
+                              const differs = r.sheerly !== null && Math.round(live * 100) !== Math.round(r.sheerly * 100);
+                              return (
+                                <span
+                                  className={differs ? "text-amber-700 dark:text-amber-300" : undefined}
+                                  title={differs ? "Отличается от поставленного в ведомость" : undefined}
+                                >
+                                  {money(live)}
+                                </span>
+                              );
+                            })()}
+                          </td>
+                        )}
                         <td className="px-3 py-2 text-right tabular-nums">
                           {r.sheet === null ? (
                             <span className="text-muted-foreground">{r.status === "only_sheerly" ? "нет в таблице" : "ячейка пуста"}</span>

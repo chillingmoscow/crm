@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { reconcileDeduction } from "./deduction-reconciliation.ts";
+import { looksSignFlipped, negateAmounts, reconcileDeduction } from "./deduction-reconciliation.ts";
 
 const AT_SHEERLY = "2026-11-03T09:00:00.000Z";
 const AT_SHEET = "2026-11-03T09:05:00.000Z";
@@ -115,4 +115,42 @@ test("порядок результата не зависит от порядк�
   );
   assert.deepEqual(a, b);
   assert.deepEqual(a.map((r) => r.employeeId), ["a", "b", "c"]);
+});
+
+const rowsOf = (pairs: Array<[number | null, number | null]>) =>
+  reconcileDeduction(
+    side(AT_SHEERLY, pairs.map(([a], i) => ({ employeeId: `e${i}`, amount: a }))),
+    side(AT_SHEET, pairs.map(([, b], i) => ({ employeeId: `e${i}`, amount: b }))),
+  );
+
+test("знак: все пары равны по модулю и противоположны по знаку - похоже на минус в таблице", () => {
+  assert.equal(looksSignFlipped(rowsOf([[300, -300], [150.5, -150.5]])), true);
+});
+
+test("знак: пара с нулями с обеих сторон не мешает, но одни нули ничего не доказывают", () => {
+  assert.equal(looksSignFlipped(rowsOf([[300, -300], [0, 0]])), true);
+  assert.equal(looksSignFlipped(rowsOf([[0, 0]])), false);
+});
+
+test("знак: настоящее расхождение или хоть одна пара без переворота - не знак", () => {
+  assert.equal(looksSignFlipped(rowsOf([[300, -300], [100, 90]])), false);
+  assert.equal(looksSignFlipped(rowsOf([[300, 300]])), false);
+  assert.equal(looksSignFlipped(rowsOf([[300, -299]])), false);
+});
+
+test("знак: неизвестные суммы и отсутствующие стороны в расчёте не участвуют", () => {
+  assert.equal(looksSignFlipped(rowsOf([[300, -300], [null, 50]])), true);
+  assert.equal(looksSignFlipped(rowsOf([[null, 50]])), false);
+});
+
+test("переворот знака суммы: null остаётся null, ноль остаётся нулём", () => {
+  assert.deepEqual(
+    negateAmounts([
+      { employeeId: "a", amount: -300 },
+      { employeeId: "b", amount: null },
+      { employeeId: "c", amount: 0 },
+    ]).map((e) => e.amount),
+    [300, null, 0],
+  );
+  assert.equal(Object.is(negateAmounts([{ employeeId: "c", amount: 0 }])[0].amount, -0), false);
 });

@@ -37,3 +37,8 @@ test("неизвестная запись не пропадает", () => {
 test("пустой список - пустой результат", () => {
   assert.deepEqual(groupMissing([], lookup), []);
 });
+
+test("группы идут в стабильном порядке, не зависящем от порядка записей", () => {
+  const groups = groupMissing(["shift:e1:2026-10-05", "writeoff:v1:77", "inventory:d1"], lookup);
+  assert.deepEqual(groups.map((g) => g.kind), ["inventory", "writeoff", "shift"]);
+});

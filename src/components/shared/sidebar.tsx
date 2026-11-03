@@ -314,7 +314,7 @@ const NAV_SECTIONS: NavSection[] = [
         title: "Удержание по недостаче",
         href: "/documents/deduction",
         icon: Scale,
-        permission: "inventory.post_deductions",
+        permission: "inventory.view_results",
         roles: ["owner", "admin", "manager"],
       },
     ],

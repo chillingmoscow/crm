@@ -113,3 +113,24 @@ export function reconcileDeduction(
     };
   });
 }
+
+/**
+ * Похоже ли, что таблица хранит удержания со знаком минус: все пары, где известны обе суммы и
+ * хоть одна не ноль, равны по модулю и противоположны по знаку. Только подсказка человеку:
+ * знак сам по себе никогда не переворачивается. Одни нули и расхождение хотя бы в одной паре
+ * знаком не объясняются.
+ */
+export function looksSignFlipped(rows: ReconcileRow[]): boolean {
+  const pairs = rows.filter(
+    (r) => r.sheerly !== null && r.sheet !== null && (r.sheerly !== 0 || r.sheet !== 0),
+  );
+  return (
+    pairs.length > 0 &&
+    pairs.every((r) => toCents(r.sheet!) === -toCents(r.sheerly!))
+  );
+}
+
+/** Переворот знака сумм (по явному выбору человека): `null` остаётся `null`, ноль - нулём. */
+export function negateAmounts<T extends { amount: number | null }>(entries: T[]): T[] {
+  return entries.map((e) => ({ ...e, amount: e.amount === null || e.amount === 0 ? e.amount : -e.amount }));
+}

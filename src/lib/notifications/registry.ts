@@ -150,6 +150,13 @@ const REGISTRY: Record<string, NotificationTypeSpec> = {
     verb: null,
   },
 
+  "inventory.deduction_anomaly": {
+    category: "inventory",
+    icon: AlertTriangle,
+    iconColor: "text-amber-500",
+    verb: null,
+  },
+
   // Generic / system
   invite: {
     category: "staff",

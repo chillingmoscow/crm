@@ -36,16 +36,27 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { dayLabel } from "@/lib/sales/format";
 import { csvCell } from "@/lib/sales/csv";
 import { cn } from "@/lib/utils";
+import { WARNING_BADGE_CLASS } from "@/components/shared/inventory-status-badge";
 import { personalConsumptionPlan } from "@/lib/stock/writeoffs";
 import {
   writeoffRows,
   filterWriteoffs,
   writeoffTotal,
+  type WriteoffPoolFilter,
+  type WriteoffPoolView,
   type WriteoffRow,
 } from "@/lib/stock/writeoff-view";
 import {
+  writeoffPoolKey,
+  writeoffPoolLabel,
+  writeoffPoolState,
+  type WriteoffPoolAssignment,
+} from "@/lib/stock/writeoff-pools";
+import { PoolSection } from "./pool-section";
+import {
   loadWriteoffs,
   requestWriteoffs,
+  assignWriteoffPool,
   loadWriteoffHistory,
   type WriteoffData,
   type WriteoffHistory,
@@ -56,6 +67,7 @@ const names: Record<string, string> = {
   correspondent: "Кому относится",
   kind: "Тип",
   reason: "Основание / категория",
+  pool: "Пул",
   store: "Склад",
   status: "Состояние",
   quantity: "Недостача",
@@ -70,6 +82,7 @@ const columnsConfig = Object.keys(names).map((id) => ({
         name: 160,
         correspondent: 160,
         reason: 190,
+        pool: 190,
         status: 120,
         total: 140,
       } as Record<string, number>
@@ -79,6 +92,7 @@ const columnsConfig = Object.keys(names).map((id) => ({
     "name",
     "correspondent",
     "reason",
+    "pool",
     "total",
     "status",
   ].includes(id),
@@ -113,10 +127,18 @@ function Status({ row }: { row: WriteoffRow }) {
 function Detail({
   row,
   data,
+  canAssign,
+  onAssign,
   onClose,
 }: {
   row: WriteoffRow;
   data: WriteoffData;
+  canAssign: boolean;
+  onAssign: (
+    row: WriteoffRow,
+    pool: WriteoffPoolAssignment["pool"] | null,
+    key: string | null,
+  ) => Promise<void>;
   onClose: () => void;
 }) {
   const [history, setHistory] = useState<WriteoffHistory[] | null>(null),
@@ -188,6 +210,12 @@ function Detail({
               </div>
             ))}
           </dl>
+          <PoolSection
+            row={row}
+            data={data}
+            canAssign={canAssign}
+            onAssign={(pool, key) => onAssign(row, pool, key)}
+          />
           {d?.kind === "personal" && (
             <section className="space-y-3 rounded-xl border p-4">
               <h3 className="text-sm font-semibold">Личное потребление</h3>
@@ -335,6 +363,42 @@ function Detail({
     </EditDrawer>
   );
 }
+/** Колонка «Пул»: подпись, состояние и пометка акта по данным страницы. */
+function poolView(data: WriteoffData) {
+  const marks = new Map(
+    data.assignments.map(
+      (m) => [writeoffPoolKey(m.venue_id, m.external_id), m] as const,
+    ),
+  );
+  const names = {
+    departments: new Map(data.targets.departments.map((d) => [d.id, d.name])),
+    employees: new Map(data.targets.employees.map((e) => [e.id, e.name])),
+  };
+  return (d: WriteoffData["documents"][number]): WriteoffPoolView => {
+    const assignment = marks.get(
+      writeoffPoolKey(d.venue_id, d.external_id),
+    );
+    const state = writeoffPoolState(d, assignment);
+    return {
+      assignment,
+      // Всё из одного состояния: подпись, фильтр и плашка не могут разойтись.
+      poolState:
+        state === "unassigned"
+          ? "unassigned"
+          : state === "assigned"
+            ? "assigned"
+            : "none",
+      pool:
+        state === "assigned" && assignment
+          ? writeoffPoolLabel(assignment, names)
+          : state === "unassigned"
+            ? "Не разнесён"
+            : state === "not_needed"
+              ? "Не требуется"
+              : "—",
+    };
+  };
+}
 export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
   const [data, setData] = useState(initial),
     [source, setSource] = useState<"native" | "archive">(
@@ -351,21 +415,31 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           ).slice(0, 7)) + "-01",
     ),
     [kind, setKind] = useState("all"),
+    [pool, setPool] = useState<WriteoffPoolFilter>("all"),
     [detail, setDetail] = useState<WriteoffRow | null>(null),
     [busy, setBusy] = useState(false),
     [exporting, setExporting] = useState(false),
     [filtersOpen, setFiltersOpen] = useState(false);
+  const canAssign = data.permissions.includes("inventory.assign_writeoff_pool");
+  const poolOf = useMemo(() => poolView(data), [data]);
   const allRows = useMemo(
-    () => writeoffRows(data.documents, data.archives, source),
-    [data, source],
+    () => writeoffRows(data.documents, data.archives, source, poolOf),
+    [data, source, poolOf],
   );
   const st = useTableState({
     tableId: `stock-writeoffs.${data.venueId}`,
     columns: columnsConfig,
   });
   const rows = useMemo(
-    () => filterWriteoffs(allRows, month, kind, st.search),
-    [allRows, month, kind, st.search],
+    () => filterWriteoffs(allRows, month, kind, st.search, pool),
+    [allRows, month, kind, st.search, pool],
+  );
+  const unassigned = useMemo(
+    () =>
+      source === "native"
+        ? filterWriteoffs(allRows, month, "all", "", "unassigned").length
+        : 0,
+    [allRows, month, source],
   );
   const cols = useMemo<ColumnDef<WriteoffRow>[]>(
     () =>
@@ -392,6 +466,19 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
             </button>
           ) : id === "status" ? (
             <Status row={row.original} />
+          ) : id === "pool" ? (
+            row.original.poolState === "unassigned" ? (
+              <Badge
+                variant="outline"
+                className={`whitespace-nowrap font-normal ${WARNING_BADGE_CLASS}`}
+              >
+                Не разнесён
+              </Badge>
+            ) : (
+              <span className="block truncate" title={row.original.pool}>
+                {row.original.pool}
+              </span>
+            )
           ) : id === "date" ? (
             new Date(`${row.original.date}T12:00:00`).toLocaleDateString(
               "ru-RU",
@@ -475,21 +562,47 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       setBusy(false);
     }
   }
+  async function assign(
+    row: WriteoffRow,
+    to: WriteoffPoolAssignment["pool"] | null,
+    key: string | null,
+  ) {
+    if (!row.native) return;
+    const { mark, notice } = await assignWriteoffPool(
+      data.venueId,
+      row.native.external_id,
+      to,
+      key,
+    );
+    setData((d) => ({
+      ...d,
+      assignments: [
+        ...d.assignments.filter(
+          (m) =>
+            writeoffPoolKey(m.venue_id, m.external_id) !==
+            writeoffPoolKey(row.native!.venue_id, row.native!.external_id),
+        ),
+        ...(mark ? [mark] : []),
+      ],
+    }));
+    // Результат пересчёта удержания за месяц акта (если автопересчёт включён): не теряем его.
+    if (notice) toast.message(notice);
+  }
   async function download() {
     setExporting(true);
     try {
       const fresh = await loadWriteoffs(data.venueId),
         byId = new Map(
-          writeoffRows(fresh.documents, fresh.archives, source).map((r) => [
-            r.id,
-            r,
-          ]),
+          writeoffRows(fresh.documents, fresh.archives, source, poolView(fresh)).map(
+            (r) => [r.id, r],
+          ),
         );
       const freshRows = filterWriteoffs(
         [...byId.values()],
         month,
         kind,
         st.search,
+        pool,
       );
       const unchanged =
         freshRows.length === rows.length &&
@@ -497,6 +610,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           const old = rows.find((o) => o.id === r.id);
           return (
             old &&
+            r.pool === old.pool &&
             (r.native
               ? r.native.source_hash === old.native?.source_hash &&
                 r.native.missing_at === old.native?.missing_at
@@ -572,6 +686,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
               setSource(v as typeof source);
               setDetail(null);
               setKind("all");
+              setPool("all");
               if (
                 v === "archive" &&
                 !data.archives.some((r) =>
@@ -606,7 +721,7 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
             placeholder: "Акт, товар или сотрудник",
           }}
           filters={{
-            active: filtersOpen || kind !== "all",
+            active: filtersOpen || kind !== "all" || pool !== "all",
             onClick: () => setFiltersOpen(!filtersOpen),
           }}
           sort={{
@@ -685,20 +800,67 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
           }
         />
       </div>
-      {(filtersOpen || kind !== "all") && (
-        <Select value={kind} onValueChange={setKind}>
-          <SelectTrigger className="w-full sm:w-64" aria-label="Тип списания">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Все типы</SelectItem>
-            {types.map((t) => (
-              <SelectItem key={t} value={t}>
-                {t}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {(filtersOpen || kind !== "all" || pool !== "all") && (
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Select value={kind} onValueChange={setKind}>
+            <SelectTrigger className="w-full sm:w-64" aria-label="Тип списания">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все типы</SelectItem>
+              {types.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {source === "native" && (
+            <Select
+              value={pool}
+              onValueChange={(v) => setPool(v as WriteoffPoolFilter)}
+            >
+              <SelectTrigger
+                className="w-full sm:w-64"
+                aria-label="Разнесение по пулам"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Любое разнесение</SelectItem>
+                <SelectItem value="unassigned">Не разнесены</SelectItem>
+                <SelectItem value="shared">Вся команда</SelectItem>
+                <SelectItem value="department">Подразделение</SelectItem>
+                <SelectItem value="personal">Один сотрудник</SelectItem>
+                <SelectItem value="excluded">Не удерживать</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
+      {unassigned > 0 && (
+        <div
+          role="status"
+          className={`flex flex-col gap-3 rounded-lg border p-4 text-sm sm:flex-row sm:items-center sm:justify-between ${WARNING_BADGE_CLASS}`}
+        >
+          <p>
+            Не разнесено актов: {unassigned}. Пока они не разнесены, месяц не
+            посчитан.
+          </p>
+          {pool !== "unassigned" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => {
+                setPool("unassigned");
+                setKind("all");
+              }}
+            >
+              Показать
+            </Button>
+          )}
+        </div>
       )}
       {source === "native" && job && job.state !== "ready" && (
         <p
@@ -838,8 +1000,10 @@ export function WriteoffsClient({ initial }: { initial: WriteoffData }) {
       {detail && (
         <Detail
           key={detail.id}
-          row={detail}
+          row={allRows.find((r) => r.id === detail.id) ?? detail}
           data={data}
+          canAssign={canAssign}
+          onAssign={assign}
           onClose={() => setDetail(null)}
         />
       )}

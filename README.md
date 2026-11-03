@@ -12,7 +12,7 @@ Multi-tenant CRM для HoReCa: учёт сотрудников / должнос
 - **AI**: DeepSeek (KB slash-команды) + SiliconFlow embeddings (BAAI/bge-m3) — только серверно, через `openai` SDK с custom baseURL
 - **DaData**: юрлица и адреса по ИНН — только серверно
 - **Менеджер пакетов**: pnpm 9
-- **Тесты**: нативный `node:test` (Node 20), файлы рядом с кодом `*.test.mts`
+- **Тесты**: нативный `node:test` (Node 22), файлы рядом с кодом `*.test.mts`
 
 ## Тенантность
 

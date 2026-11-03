@@ -18,6 +18,10 @@ import {
   type QuickRestoInventoryDocument2
 } from "@/lib/integrations/quickresto/client";
 import {
+  autoRecalculateInventoryDeduction,
+  reverseInventoryDeductionForDocument,
+} from "../deduction-service";
+import {
   actionErrorMessage,
   assertDocumentVisible,
   connectionPassword,
@@ -579,15 +583,21 @@ export async function finalizeInventoryResults(input: {
       body: "Проверяющий финализировал итоги инвентаризации.",
     });
 
+    // Удержание по недостаче - только после того, как И Quick Resto, И локальная
+    // финализация прошли. Повтор на уже финализированном акте сюда не доходит
+    // (ранний выход выше), а повторный расчёт месяца идемпотентен по содержимому.
+    const deductionNotice = await autoRecalculateInventoryDeduction({ kind: "document", documentId: document.id });
+
     revalidateInventoryResultPages(document.id);
+    const notices = [
+      alreadyProcessedInQr
+        ? "Акт уже был проведён в Quick Resto — итоги зафиксированы локально, повторное проведение не потребовалось."
+        : null,
+      deductionNotice,
+    ].filter((n): n is string => !!n);
     return {
       error: null,
-      ...(alreadyProcessedInQr
-        ? {
-            notice:
-              "Акт уже был проведён в Quick Resto — итоги зафиксированы локально, повторное проведение не потребовалось.",
-          }
-        : {}),
+      ...(notices.length > 0 ? { notice: notices.join(" ") } : {}),
     };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось финализировать итоги") };
@@ -597,7 +607,7 @@ export async function finalizeInventoryResults(input: {
 export async function reopenInventoryResults(input: {
   documentId: string;
   reason: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.finalize_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
@@ -645,8 +655,25 @@ export async function reopenInventoryResults(input: {
       payload: { documentId: document.id, reason, processed: isProcessed },
     });
 
+    // Переоткрытый акт больше не фиксирует итоги, на которых посчитано удержание:
+    // строки месяца сторнируются (если стоят в зафиксированном периоде - явное
+    // пояснение, итоги при этом уже переоткрыты).
+    let notice: string | undefined;
+    try {
+      const reverted = await reverseInventoryDeductionForDocument({
+        documentId: document.id,
+        reason: `Итоги акта № ${document.document_number} переоткрыты: ${reason}`,
+      });
+      if (reverted.error)
+        notice = `Итоги переоткрыты, но удержание по недостаче не сторнировано: ${reverted.error}`;
+      else if (reverted.summary) notice = reverted.summary;
+    } catch (e) {
+      console.error("[reopen] сторно удержания не выполнено", { documentId: document.id, error: e });
+      notice = "Итоги переоткрыты, но удержание по недостаче не сторнировано из-за ошибки.";
+    }
+
     revalidateInventoryResultPages(document.id);
-    return { error: null };
+    return { error: null, ...(notice ? { notice } : {}) };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось переоткрыть итоги") };
   }

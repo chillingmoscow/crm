@@ -133,12 +133,14 @@ const TIER_EDITOR = [
   "inventory.manage_documents",
   "inventory.adjust_results",
   "inventory.recount_documents",
+  "inventory.assign_writeoff_pool",
   "inventory.sync_quickresto",
   "inventory.use_ai_suggestions",
 ];
 const TIER_FULL = [
   ...TIER_EDITOR,
   "inventory.finalize_results",
+  "inventory.post_deductions",
   "inventory.view_all_venues",
 ];
 
@@ -154,14 +156,14 @@ export const INVENTORY_ACTS_TIERS: InventoryActsTier[] = [
     id: "editor",
     label: "Редактор",
     description:
-      "Всё, что у исполнителя, плюс: видит все акты, назначает исполнителя и проверяющего, делает пересорт и исключения, отправляет на пересчёт, синхронизирует Quick Resto, использует AI-подсказки.",
+      "Всё, что у исполнителя, плюс: видит все акты, назначает исполнителя и проверяющего, делает пересорт и исключения, отправляет на пересчёт, разносит акты списаний по плательщикам, синхронизирует Quick Resto, использует AI-подсказки.",
     codes: TIER_EDITOR,
   },
   {
     id: "full",
     label: "Полный доступ",
     description:
-      "Всё, что у редактора, плюс: финализация и разблокировка проведённого акта, видимость всех заведений.",
+      "Всё, что у редактора, плюс: финализация и разблокировка проведённого акта, постановка удержаний по недостаче в зарплатную ведомость, видимость всех заведений.",
     codes: TIER_FULL,
   },
 ];

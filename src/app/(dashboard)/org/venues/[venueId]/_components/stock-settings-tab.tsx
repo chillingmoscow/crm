@@ -113,9 +113,11 @@ function RulesForm({
         config: next,
         reason,
       });
-      onSaved(d);
+      onSaved(d.data);
       router.refresh();
       toast.success("Новая версия правил сохранена");
+      // Пересчёт удержания текущего месяца (если автопересчёт включён): не теряем результат.
+      if (d.deductionNotice) toast.message(d.deductionNotice);
     } catch (e) {
       toast.error(
         e instanceof z.ZodError
@@ -485,7 +487,7 @@ function RulesForm({
         <section className="space-y-3 border-b pb-6">
           <h3 className="font-semibold">Складские списания</h3>
           <Label htmlFor="stock-reasons">
-            Причины, относимые на сотрудников
+            Причины-подсказки для разнесения списаний
           </Label>
           <Textarea
             id="stock-reasons"
@@ -496,7 +498,9 @@ function RulesForm({
             }
           />
           <p className="text-xs text-muted-foreground">
-            По одному названию причины Quick Resto в строке.
+            По одному названию причины Quick Resto в строке. Это только
+            подсказка в карточке акта: плательщика за каждый акт выбирает
+            человек, а расчёт от этого списка не зависит.
           </p>
         </section>
         <section className="space-y-4">

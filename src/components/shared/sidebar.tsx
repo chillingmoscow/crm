@@ -18,6 +18,7 @@ import {
   ChevronsRight,
   ChevronsUpDown,
   ClipboardList,
+  Scale,
   Eye,
   FileBadge2,
   Keyboard,
@@ -79,6 +80,13 @@ type NavItem = {
   /** Any-of permission gate for pages that have several valid access
    *  paths, for example owner view + assigned employee fill access. */
   permissions?: string[];
+  /** All-of gate: пункт виден, только если есть ВСЕ права (roles не смягчают). Для страниц,
+   *  показывающих данные двух разных доменов, например итоги склада и зарплатные суммы. */
+  allPermissions?: string[];
+  /** Any-of добавка к `allPermissions`: к обязательным правам нужно ещё хотя бы одно из этих.
+   *  Для отчёта об удержаниях: итоги склада обязательны, а поимённые суммы открывает либо
+   *  payroll.view, либо право ставить удержания — кто ставит, тот видит результат. */
+  anyPermissions?: string[];
   /** Legacy: список role-кодов. Используется только если permission
    *  не задан. Постепенно мигрируем все пункты на permission и потом
    *  это поле уберём. */
@@ -309,6 +317,14 @@ const NAV_SECTIONS: NavSection[] = [
         permission: "inventory.view_results",
         roles: ["owner", "admin", "manager"],
       },
+      {
+        title: "Удержание по недостаче",
+        href: "/documents/deduction",
+        icon: Scale,
+        // Суммы по сотрудникам - зарплатные данные: нужны оба права (как и в странице).
+        allPermissions: ["inventory.view_results"],
+        anyPermissions: ["payroll.view", "inventory.post_deductions"],
+      },
     ],
   },
   {label: "Гости",icon: UserRound,href:"/crm/guests",permission:"crm.view_guests",items:[]},
@@ -454,6 +470,11 @@ function SidebarBody({
   //  - legacy roles задан И activeRoleCode входит в roles, ИЛИ
   //  - ни permission, ни roles не заданы (показываем всем)
   const isItemVisible = (item: NavItem): boolean => {
+    if (item.allPermissions || item.anyPermissions)
+      return (
+        (item.allPermissions ?? []).every((code) => userPermissionsSet.has(code)) &&
+        (!item.anyPermissions || item.anyPermissions.some((code) => userPermissionsSet.has(code)))
+      );
     const permissionCodes =
       item.permissions ?? (item.permission ? [item.permission] : []);
     if (

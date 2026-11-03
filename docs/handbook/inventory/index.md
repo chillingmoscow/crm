@@ -161,3 +161,7 @@ QuickResto) и **Документы** — учётные документы (с�
 - `src/app/(dashboard)/org/stores/` — склады
 - `src/lib/inventory/ingredients.ts` — доменный слой ингредиента
 - `src/app/(dashboard)/inventory/actions.ts` — server actions (нероутовый модуль)
+
+## Удержание по недостаче
+
+Как недостача месяца попадает в зарплатную ведомость: [deduction.md](deduction.md).

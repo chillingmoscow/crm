@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { autoRecalculateInventoryDeduction } from "../deduction-service";
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import {
   actionErrorMessage,
@@ -182,7 +183,7 @@ export async function updateInventoryDocumentNote(input: {
 export async function updateInventoryStoreVenue(input: {
   storeId: string;
   venueId: string | null;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string }> {
   const ctx = await getActiveContext("inventory.manage_stores");
   if (ctx.error || !ctx.accountId) return { error: ctx.error };
 
@@ -199,6 +200,14 @@ export async function updateInventoryStoreVenue(input: {
     if (!venue?.id) return { error: "Заведение не найдено" };
   }
 
+  // Прежнее заведение: после смены удержания надо пересчитать и в нём (акты склада из него ушли).
+  const { data: before } = await admin
+    .from<{ local_venue_id: string | null }>("stores")
+    .select("local_venue_id")
+    .eq("id", input.storeId)
+    .eq("account_id", ctx.accountId)
+    .maybeSingle();
+
   const { error } = await admin
     .from("stores")
     .update({ local_venue_id: input.venueId || null })
@@ -210,6 +219,99 @@ export async function updateInventoryStoreVenue(input: {
   // Пропагация venue в documents.venue_id — на уровне БД (триггер
   // trg_stores_propagate_venue_to_documents, миграция 194), атомарно
   // в той же транзакции UPDATE stores. Второй write из app не нужен.
+
+  // Привязка к заведению решает, чьё удержание платит за акты склада: пересчитываются месяцы
+  // и прежнего, и нового заведения. Выключено по умолчанию (INVENTORY_DEDUCTION_AUTOPOST);
+  // привязка уже сохранена и от пересчёта не зависит.
+  const notice = await autoRecalculateInventoryDeduction({
+    kind: "store-venue",
+    storeId: input.storeId,
+    venueIds: [before?.local_venue_id ?? null, input.venueId || null],
+  });
+
   revalidatePath("/org/stores");
-  return { error: null };
+  return { error: null, ...(notice ? { notice } : {}) };
+}
+
+/**
+ * Привязка склада к подразделению: «Не задано» / «Общий склад» / конкретное
+ * подразделение. От выбора зависит, кто платит за недостачу по складу, поэтому
+ * «не задано» — отдельное состояние, а не отсутствие значения.
+ *
+ * Подразделения принадлежат заведению (departments.venue_id), а не аккаунту:
+ * у склада без заведения подразделения быть не может, а у склада с заведением —
+ * только из него. Эти два правила держит и база (триггер миграции 307), но
+ * проверяем здесь тоже: во-первых, чтобы не показать пользователю сырой текст
+ * исключения, во-вторых, как и в updateInventoryStoreVenue, чтобы id с клиента
+ * не привёл к подразделению чужого аккаунта.
+ */
+export async function updateInventoryStoreDepartment(input: {
+  storeId: string;
+  scope: "unset" | "shared" | "department";
+  departmentId: string | null;
+}): Promise<{ error: string | null; notice?: string }> {
+  try {
+    const ctx = await getActiveContext("inventory.manage_stores");
+    if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Не удалось определить контекст" };
+
+    if (!["unset", "shared", "department"].includes(input.scope)) {
+      return { error: "Неизвестный вариант привязки" };
+    }
+    if ((input.scope === "department") !== Boolean(input.departmentId)) {
+      return { error: "Подразделение указывается только для варианта «Подразделение»" };
+    }
+
+    const admin = asLooseDb(createAdminClient());
+    if (input.departmentId) {
+      // У departments нет account_id (миграция 172): аккаунт — через заведение.
+      // Склад читаем тем же запросом в рамках аккаунта, чтобы сверить заведения.
+      const { data: store } = await admin
+        .from<{ id: string; local_venue_id: string | null }>("stores")
+        .select("id, local_venue_id")
+        .eq("id", input.storeId)
+        .eq("account_id", ctx.accountId)
+        .maybeSingle();
+      if (!store?.id) return { error: "Склад не найден" };
+      if (!store.local_venue_id) {
+        return { error: "Сначала привяжите склад к заведению: подразделение выбирается из его подразделений" };
+      }
+
+      const { data: department } = await admin
+        .from<{ id: string; venue_id: string; archived_at: string | null }>("departments")
+        .select("id, venue_id, archived_at")
+        .eq("id", input.departmentId)
+        .maybeSingle();
+      if (!department?.id) return { error: "Подразделение не найдено" };
+      if (department.archived_at) return { error: "Подразделение в архиве: выберите другое" };
+      const { data: venue } = await admin
+        .from<{ id: string }>("venues")
+        .select("id")
+        .eq("id", department.venue_id)
+        .eq("account_id", ctx.accountId)
+        .maybeSingle();
+      if (!venue?.id) return { error: "Подразделение не найдено" };
+      if (department.venue_id !== store.local_venue_id) {
+        return { error: "Подразделение относится к другому заведению, не к заведению склада" };
+      }
+    }
+
+    // RPC, а не прямой UPDATE: authenticated не имеет права писать в stores, а
+    // история изменений привязки пишется триггером от имени вызывающего
+    // (auth.uid()), поэтому вызываем клиентом пользователя, не service-role.
+    const { error } = await asLooseDb(ctx.supabase).rpc("set_store_department", {
+      p_store_id: input.storeId,
+      p_scope: input.scope,
+      p_department_id: input.departmentId || null,
+    });
+    if (error) return { error: error.message };
+
+    // Привязка склада меняет плательщика в месяцах его актов. Выключено по умолчанию
+    // (INVENTORY_DEDUCTION_AUTOPOST); привязка уже сохранена и от пересчёта не зависит.
+    const notice = await autoRecalculateInventoryDeduction({ kind: "store", storeId: input.storeId });
+
+    revalidatePath("/org/stores");
+    return { error: null, ...(notice ? { notice } : {}) };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось сохранить привязку склада") };
+  }
 }

@@ -1,11 +1,16 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { updateInventoryStoreVenue } from "@/app/(dashboard)/inventory/_actions/documents";
+import { Badge } from "@/components/ui/badge";
+import { WARNING_BADGE_CLASS } from "@/components/shared/inventory-status-badge";
+import {
+  updateInventoryStoreDepartment,
+  updateInventoryStoreVenue,
+} from "@/app/(dashboard)/inventory/_actions/documents";
 
 type StoreRow = {
   id: string;
@@ -14,6 +19,15 @@ type StoreRow = {
   store_code: string | null;
   description: string | null;
   local_venue_id: string | null;
+  department_id: string | null;
+  department_scope: "unset" | "shared" | "department";
+};
+
+type DepartmentRow = {
+  id: string;
+  name: string;
+  venue_id: string;
+  archived_at: string | null;
 };
 
 type VenueRow = {
@@ -25,14 +39,18 @@ type VenueRow = {
 export function StoresClient({
   stores,
   venues,
+  departments,
   canManage,
 }: {
   stores: StoreRow[];
   venues: VenueRow[];
+  departments: DepartmentRow[];
   canManage: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  // Спиннер только у того контрола, который меняли: список общий, а запись одна.
+  const [pending, setPending] = useState<{ storeId: string; field: "venue" | "department" } | null>(null);
 
   // Архивное заведение выбрать нельзя: резолвер привязки его тоже обходит
   // (src/lib/inventory/default-venue.ts), и предлагать то, что автоматика
@@ -65,62 +83,184 @@ export function StoresClient({
     return [...activeVenues, current];
   };
 
-  const updateVenue = (storeId: string, venueId: string) => {
+  // Подразделения принадлежат заведению: складу предлагаем только подразделения
+  // его заведения. Выбор из чужого заведения база всё равно отклонит.
+  // Архивное подразделение, как и архивное заведение, не предлагаем к выбору.
+  const departmentsByVenue = new Map<string, DepartmentRow[]>();
+  for (const department of departments) {
+    if (department.archived_at) continue;
+    const list = departmentsByVenue.get(department.venue_id) ?? [];
+    list.push(department);
+    departmentsByVenue.set(department.venue_id, list);
+  }
+  const departmentById = new Map(departments.map((department) => [department.id, department]));
+
+  /**
+   * Три состояния привязки в одном значении <select>: «unset» (ещё не
+   * настроено), «shared» (платит общий пул) и «department:<id>». «Не задано»
+   * — рабочее состояние: владелец настраивает склады по ходу, и оно должно
+   * быть видно в списке, а не выглядеть как «общий склад».
+   */
+  const departmentValue = (store: StoreRow) =>
+    store.department_scope === "department" && store.department_id
+      ? `department:${store.department_id}`
+      : store.department_scope === "shared"
+        ? "shared"
+        : "unset";
+
+  const updateDepartment = (storeId: string, value: string) => {
+    setPending({ storeId, field: "department" });
     startTransition(async () => {
-      const result = await updateInventoryStoreVenue({
-        storeId,
-        venueId: venueId || null,
-      });
+      const result = await updateInventoryStoreDepartment(
+        value.startsWith("department:")
+          ? { storeId, scope: "department", departmentId: value.slice("department:".length) }
+          : { storeId, scope: value === "shared" ? "shared" : "unset", departmentId: null },
+      );
+      setPending(null);
       if (result.error) {
         toast.error(result.error);
         return;
       }
       toast.success("Склад обновлен");
+      if (result.notice) toast.message(result.notice);
       router.refresh();
     });
   };
 
+  const updateVenue = (storeId: string, venueId: string) => {
+    setPending({ storeId, field: "venue" });
+    startTransition(async () => {
+      const result = await updateInventoryStoreVenue({
+        storeId,
+        venueId: venueId || null,
+      });
+      setPending(null);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success("Склад обновлен");
+      if (result.notice) toast.message(result.notice);
+      router.refresh();
+    });
+  };
+
+  const selectClass =
+    "h-9 w-full min-w-0 rounded-md border bg-background px-2 text-base disabled:opacity-60 sm:text-sm";
+
   return (
     <div className="overflow-hidden rounded-lg border bg-background">
-      <div className="grid grid-cols-[1fr_220px] items-center border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground md:grid-cols-[1.2fr_.8fr_280px]">
+      <div className="hidden grid-cols-[1.2fr_.6fr_240px_240px] items-center gap-3 border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
         <div>Склад Quick Resto</div>
-        <div className="hidden md:block">Код</div>
+        <div>Код</div>
         <div>Заведение</div>
+        <div>Подразделение</div>
       </div>
       {stores.length === 0 ? (
         <div className="px-4 py-12 text-center text-sm text-muted-foreground">
           Склады не найдены. Запустите синхронизацию на странице актов.
         </div>
       ) : (
-        stores.map((store) => (
-          <div
-            key={store.id}
-            className="grid grid-cols-[1fr_220px] items-center gap-3 border-b px-3 py-3 last:border-b-0 md:grid-cols-[1.2fr_.8fr_280px]"
-          >
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{store.title}</div>
-              <div className="mt-1 text-xs text-muted-foreground">QR #{store.external_id}</div>
+        stores.map((store) => {
+          const storeDepartments = store.local_venue_id ? (departmentsByVenue.get(store.local_venue_id) ?? []) : [];
+          const value = departmentValue(store);
+          // Текущее подразделение обязано быть среди опций, иначе нативный
+          // <select> молча выбрал бы первую («Не задано») и соврал бы про
+          // привязку. Не попадает в список оно в двух случаях: подразделение
+          // в архиве (мы его отфильтровали) или не видно среди загруженных.
+          const currentDepartment = store.department_id ? departmentById.get(store.department_id) : undefined;
+          const extraDepartment =
+            store.department_id && !storeDepartments.some((department) => department.id === store.department_id)
+              ? currentDepartment
+                ? `${currentDepartment.name}${currentDepartment.archived_at ? " (в архиве)" : ""}`
+                : "Другое подразделение"
+              : null;
+          const venuePending = isPending && pending?.storeId === store.id && pending.field === "venue";
+          const departmentPending = isPending && pending?.storeId === store.id && pending.field === "department";
+          // Привязка к архивному подразделению расчёт месяца считает
+          // неразрешённой, так что выглядеть настроенной она не должна.
+          const archivedBinding = Boolean(currentDepartment?.archived_at) && store.department_scope === "department";
+          return (
+            <div
+              key={store.id}
+              className="grid grid-cols-1 items-start gap-3 border-b px-3 py-3 last:border-b-0 md:grid-cols-[1.2fr_.6fr_240px_240px] md:items-center"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{store.title}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  QR #{store.external_id}
+                  {store.store_code ? <span className="md:hidden"> · {store.store_code}</span> : null}
+                </div>
+                {/* «Не задано» и привязка к архивному подразделению — состояния, при
+                    которых месяц по складу не посчитать до конца. Серый текст в
+                    селекте читался как «пусто, нормально», поэтому маркер отдельный,
+                    в янтарной палитре бейджей статусов. */}
+                {value === "unset" || archivedBinding ? (
+                  <Badge variant="outline" className={`mt-2 max-w-full overflow-hidden text-xs font-normal ${WARNING_BADGE_CLASS}`}>
+                    <span className="min-w-0 truncate">
+                      {archivedBinding ? "Подразделение в архиве" : "Подразделение не задано"}
+                    </span>
+                  </Badge>
+                ) : null}
+              </div>
+              <div className="hidden text-sm md:block">{store.store_code ?? "—"}</div>
+              <div className="min-w-0">
+                <div className="mb-1 text-xs text-muted-foreground md:hidden">Заведение</div>
+                <div className="flex items-center gap-2">
+                  <select
+                    className={selectClass}
+                    value={store.local_venue_id ?? ""}
+                    disabled={!canManage || isPending}
+                    onChange={(event) => updateVenue(store.id, event.target.value)}
+                  >
+                    <option value="">Не привязан</option>
+                    {optionsFor(store.local_venue_id).map((venue) => (
+                      <option key={venue.id} value={venue.id}>
+                        {venue.name}
+                        {venue.archived_at ? " (в архиве)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {venuePending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+                </div>
+              </div>
+              <div className="min-w-0">
+                <div className="mb-1 text-xs text-muted-foreground md:hidden">Подразделение</div>
+                <div className="flex items-center gap-2">
+                  <select
+                    className={selectClass}
+                    value={value}
+                    disabled={!canManage || isPending}
+                    onChange={(event) => updateDepartment(store.id, event.target.value)}
+                  >
+                    <option value="unset">Не задано</option>
+                    <option value="shared">Общий склад</option>
+                    {storeDepartments.length > 0 || extraDepartment ? (
+                      <optgroup label="Подразделения">
+                        {storeDepartments.map((department) => (
+                          <option key={department.id} value={`department:${department.id}`}>
+                            {department.name}
+                          </option>
+                        ))}
+                        {extraDepartment ? (
+                          <option value={`department:${store.department_id}`}>{extraDepartment}</option>
+                        ) : null}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                  {departmentPending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+                </div>
+                {!store.local_venue_id ? (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Подразделение можно выбрать после привязки к заведению
+                  </div>
+                ) : storeDepartments.length === 0 ? (
+                  <div className="mt-1 text-xs text-muted-foreground">В этом заведении пока нет подразделений</div>
+                ) : null}
+              </div>
             </div>
-            <div className="hidden text-sm md:block">{store.store_code ?? "—"}</div>
-            <div className="flex items-center gap-2">
-              <select
-                className="h-9 w-full rounded-md border bg-background px-2 text-sm disabled:opacity-60"
-                value={store.local_venue_id ?? ""}
-                disabled={!canManage || isPending}
-                onChange={(event) => updateVenue(store.id, event.target.value)}
-              >
-                <option value="">Не привязан</option>
-                {optionsFor(store.local_venue_id).map((venue) => (
-                  <option key={venue.id} value={venue.id}>
-                    {venue.name}
-                    {venue.archived_at ? " (в архиве)" : ""}
-                  </option>
-                ))}
-              </select>
-              {isPending ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
-            </div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );

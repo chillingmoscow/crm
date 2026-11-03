@@ -1,0 +1,252 @@
+-- Привязка склада к подразделению: три состояния, тенантность, история.
+-- Нужна локальная БД с seed (owner@test.com). Всё откатывается в конце.
+--   psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/store_department_binding.sql
+begin;
+do $test$
+declare
+  u uuid := 'aaaaaaaa-0000-0000-0000-000000000001';
+  a uuid := 'cccccccc-0000-0000-0000-000000000001';
+  v uuid := 'dddddddd-0000-0000-0000-000000000001';
+  s uuid; s2 uuid;
+  d uuid; d2 uuid; foreign_dept uuid; foreign_acc uuid; foreign_venue uuid;
+  v2 uuid; d_other uuid; s3 uuid; n integer;
+begin
+  insert into public.departments(name, venue_id) values ('Кальяны QA', v) returning id into d;
+  insert into public.departments(name, venue_id) values ('Бар QA', v) returning id into d2;
+  insert into public.accounts(name, owner_id) values ('Чужой QA', 'bbbbbbbb-0000-0000-0000-000000000002') returning id into foreign_acc;
+  insert into public.venues(account_id, name) values (foreign_acc, 'Чужое заведение QA') returning id into foreign_venue;
+  insert into public.departments(name, venue_id) values ('Чужое QA', foreign_venue) returning id into foreign_dept;
+  insert into public.venues(account_id, name) values (a, 'Второе заведение QA') returning id into v2;
+  insert into public.departments(name, venue_id) values ('Другое заведение QA', v2) returning id into d_other;
+  insert into public.stores(account_id, external_id, title, local_venue_id) values (a, 'qa-sdb-1', 'Кальяны Зал QA', v) returning id into s;
+  insert into public.stores(account_id, external_id, title) values (a, 'qa-sdb-2', 'Бар QA') returning id into s2;
+
+  -- По умолчанию склад «не задан».
+  if (select department_scope from public.stores where id = s) <> 'unset' then
+    raise exception 'FAIL 0: default scope is not unset';
+  end if;
+
+  -- 1. scope='department' без department_id отклоняется.
+  begin
+    update public.stores set department_scope = 'department' where id = s;
+    raise exception 'FAIL 1: department without id accepted';
+  exception when check_violation then null; end;
+
+  -- 2. scope='shared' с department_id отклоняется.
+  begin
+    update public.stores set department_scope = 'shared', department_id = d where id = s;
+    raise exception 'FAIL 2: shared with id accepted';
+  exception when check_violation then null; end;
+
+  -- 3. Подразделение чужого аккаунта отклоняется.
+  begin
+    update public.stores set department_scope = 'department', department_id = foreign_dept where id = s;
+    raise exception 'FAIL 3: foreign-account department accepted';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' then raise; end if;
+    if sqlerrm not like 'Подразделение относится к другому заведению%' then raise; end if;
+  end;
+
+  -- 3b. Подразделение другого заведения того же аккаунта отклоняется.
+  begin
+    update public.stores set department_scope = 'department', department_id = d_other where id = s;
+    raise exception 'FAIL 3b: other-venue department accepted';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' then raise; end if;
+    if sqlerrm not like 'Подразделение относится к другому заведению%' then raise; end if;
+  end;
+
+  -- 3c. Склад без заведения не принимает подразделение.
+  begin
+    update public.stores set department_scope = 'department', department_id = d where id = s2;
+    raise exception 'FAIL 3c: department on venue-less store accepted';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' then raise; end if;
+    if sqlerrm not like 'Склад не привязан к заведению%' then raise; end if;
+  end;
+
+  -- 7. Заведение склада обнулено -> подразделение и scope сброшены.
+  update public.stores set local_venue_id = v where id = s2;
+  update public.stores set department_scope = 'department', department_id = d2 where id = s2;
+  update public.stores set local_venue_id = null where id = s2;
+  if not exists (select 1 from public.stores where id = s2 and department_scope = 'unset' and department_id is null) then
+    raise exception 'FAIL 7: venue nulled, department kept';
+  end if;
+
+  -- 8. Заведение склада сменено на другое -> подразделение и scope сброшены.
+  update public.stores set local_venue_id = v, department_scope = 'department', department_id = d2 where id = s2;
+  update public.stores set local_venue_id = v2 where id = s2;
+  if not exists (select 1 from public.stores where id = s2 and department_scope = 'unset' and department_id is null and local_venue_id = v2) then
+    raise exception 'FAIL 8: venue changed, department kept';
+  end if;
+  -- 8b. Удаление заведения (FK set null) тоже сбрасывает привязку.
+  insert into public.stores(account_id, external_id, title, local_venue_id) values (a, 'qa-sdb-3', 'Склад v2 QA', v2) returning id into s3;
+  update public.stores set department_scope = 'department', department_id = d_other where id = s3;
+  delete from public.venues where id = v2;
+  if not exists (select 1 from public.stores where id = s3 and department_scope = 'unset' and department_id is null and local_venue_id is null) then
+    raise exception 'FAIL 8b: venue deleted, department kept';
+  end if;
+
+  perform set_config('test.sdb_store', s::text, true);
+  perform set_config('test.sdb_store2', s2::text, true);
+  perform set_config('test.sdb_dept', d::text, true);
+  perform set_config('test.sdb_dept2', d2::text, true);
+  perform set_config('test.sdb_foreign_dept', foreign_dept::text, true);
+end $test$;
+
+-- 4–5. RPC от имени владельца: история с актором, повтор ничего не добавляет.
+select set_config('request.jwt.claim.sub', 'aaaaaaaa-0000-0000-0000-000000000001', true),
+       set_config('app.ctx_ready', '0', true);
+set local role authenticated;
+do $test$
+declare
+  s uuid := current_setting('test.sdb_store')::uuid;
+  d uuid := current_setting('test.sdb_dept')::uuid;
+  n integer;
+begin
+  if public.set_store_department(s, 'department', d) <> s then raise exception 'FAIL 4: rpc did not return store id'; end if;
+  if not exists (
+    select 1 from public.stores where id = s and department_scope = 'department' and department_id = d
+  ) then raise exception 'FAIL 4: store not bound'; end if;
+  if not exists (
+    select 1 from public.store_department_history
+     where store_id = s and changed_by = auth.uid()
+       and old_scope = 'unset' and old_department_id is null
+       and new_scope = 'department' and new_department_id = d
+  ) then raise exception 'FAIL 4: history row missing actor/values'; end if;
+
+  -- 5. Повтор с теми же значениями.
+  perform public.set_store_department(s, 'department', d);
+  select count(*) into n from public.store_department_history where store_id = s;
+  if n <> 1 then raise exception 'FAIL 5: repeat added history (% rows)', n; end if;
+
+  -- «Общий» чистит подразделение и пишет историю.
+  perform public.set_store_department(s, 'shared', null);
+  if not exists (select 1 from public.stores where id = s and department_scope = 'shared' and department_id is null) then
+    raise exception 'FAIL 5b: shared not applied';
+  end if;
+  perform public.set_store_department(s, 'department', d);
+
+  -- Некорректные комбинации и чужое подразделение через RPC.
+  begin perform public.set_store_department(s, 'department', null); raise exception 'FAIL 5c';
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Укажите подразделение%' then raise; end if; end;
+  begin perform public.set_store_department(s, 'shared', d); raise exception 'FAIL 5d';
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Укажите подразделение%' then raise; end if; end;
+  begin perform public.set_store_department(s, 'department', current_setting('test.sdb_foreign_dept')::uuid); raise exception 'FAIL 5e';
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение относится к другому заведению%' then raise; end if; end;
+
+  -- Прямая запись и чужая история недоступны.
+  if has_table_privilege('authenticated', 'public.store_department_history', 'INSERT')
+     or has_table_privilege('authenticated', 'public.store_department_history', 'UPDATE')
+     or has_table_privilege('authenticated', 'public.store_department_history', 'DELETE')
+     or has_function_privilege('anon', 'public.set_store_department(uuid,text,uuid)', 'EXECUTE')
+  then raise exception 'FAIL 5f: unsafe grants'; end if;
+end $test$;
+
+-- Пользователь без права управлять складами не меняет привязку.
+select set_config('request.jwt.claim.sub', 'cccccccc-0000-0000-0000-000000000003', true),
+       set_config('app.ctx_ready', '0', true);
+do $test$
+begin
+  begin
+    perform public.set_store_department(current_setting('test.sdb_store')::uuid, 'shared', null);
+    raise exception 'FAIL 5g: waiter changed binding';
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Недостаточно прав для привязки%' then raise; end if; end;
+end $test$;
+reset role;
+
+-- 10. Перенос подразделения в другое заведение: запрещён, пока к нему привязан склад.
+do $test$
+declare s uuid := current_setting('test.sdb_store2')::uuid; d2 uuid := current_setting('test.sdb_dept2')::uuid;
+  v2 uuid; free_dept uuid;
+begin
+  insert into public.venues(account_id, name) values ('cccccccc-0000-0000-0000-000000000001', 'Заведение для переноса QA') returning id into v2;
+  update public.stores set local_venue_id = 'dddddddd-0000-0000-0000-000000000001', department_scope = 'department', department_id = d2 where id = s;
+  begin
+    update public.departments set venue_id = v2 where id = d2;
+    raise exception 'FAIL 10: bound department moved to another venue';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение нельзя перенести%' then raise; end if;
+  end;
+  if (select venue_id from public.departments where id = d2) <> 'dddddddd-0000-0000-0000-000000000001' then
+    raise exception 'FAIL 10: venue changed despite rejection';
+  end if;
+  -- Подразделение без привязанных складов переносится свободно.
+  insert into public.departments(name, venue_id) values ('Свободное QA', 'dddddddd-0000-0000-0000-000000000001') returning id into free_dept;
+  update public.departments set venue_id = v2 where id = free_dept;
+  if (select venue_id from public.departments where id = free_dept) <> v2 then
+    raise exception 'FAIL 10b: unbound department could not move';
+  end if;
+  -- Отвязали склад -> перенос разрешён.
+  update public.stores set department_scope = 'unset', department_id = null where id = s;
+  update public.departments set venue_id = v2 where id = d2;
+end $test$;
+
+-- 6. Удаление подразделения переводит склад в 'unset', висячего id нет.
+do $test$
+declare s uuid := current_setting('test.sdb_store')::uuid; d uuid := current_setting('test.sdb_dept')::uuid;
+begin
+  delete from public.departments where id = d;
+  if not exists (select 1 from public.stores where id = s and department_scope = 'unset' and department_id is null) then
+    raise exception 'FAIL 6: store not moved to unset after department delete';
+  end if;
+  if not exists (select 1 from public.store_department_history
+                  where store_id = s and old_scope = 'department' and old_department_id = d and new_scope = 'unset') then
+    raise exception 'FAIL 6: department delete not recorded in history';
+  end if;
+  -- История читаема после удаления: имя подразделения сохранено.
+  if not exists (select 1 from public.store_department_history
+                  where store_id = s and old_department_id = d and new_scope = 'unset'
+                    and old_department_name = 'Кальяны QA') then
+    raise exception 'FAIL 9: deleted department name lost from history';
+  end if;
+end $test$;
+
+-- 11. Охранник переноса видит все склады, а не только доступные вызывающему по RLS.
+-- Пользователь с people.manage_roles без inventory-прав не видит склад (stores_select),
+-- но перенос подразделения со связанным складом всё равно должен быть отклонён.
+do $test$
+declare
+  v uuid := 'dddddddd-0000-0000-0000-000000000001';
+  a uuid := 'cccccccc-0000-0000-0000-000000000001';
+  r uuid; x uuid := gen_random_uuid(); dep uuid; st uuid; v2 uuid;
+begin
+  insert into public.roles(venue_id, name, code) values (v, 'Только люди QA', 'sdb_people_only_qa') returning id into r;
+  delete from public.role_permissions where role_id = r;
+  insert into public.role_permissions(role_id, permission_id, granted)
+    select r, id, true from public.permissions where code in ('people.manage_roles', 'people.view_roles');
+  insert into auth.users(id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
+    values (x, 'authenticated', 'authenticated', 'sdb-people-' || x || '@qa.invalid', '{}', '{}', now(), now());
+  insert into public.profiles(id, first_name, active_venue_id) values (x, 'QA', v)
+    on conflict (id) do update set active_venue_id = v;
+  insert into public.user_venue_roles(user_id, venue_id, role_id, status) values (x, v, r, 'active');
+  insert into public.venues(account_id, name) values (a, 'Заведение переноса 2 QA') returning id into v2;
+  insert into public.departments(name, venue_id) values ('Привязанное RLS QA', v) returning id into dep;
+  insert into public.stores(account_id, external_id, title, local_venue_id)
+    values (a, 'qa-sdb-rls', 'Склад RLS QA', v) returning id into st;
+  update public.stores set department_scope = 'department', department_id = dep where id = st;
+  perform set_config('test.sdb_rls_user', x::text, true);
+  perform set_config('test.sdb_rls_dept', dep::text, true);
+  perform set_config('test.sdb_rls_venue2', v2::text, true);
+  perform set_config('test.sdb_rls_store', st::text, true);
+end $test$;
+select set_config('request.jwt.claim.sub', current_setting('test.sdb_rls_user'), true),
+       set_config('app.ctx_ready', '0', true);
+set local role authenticated;
+do $test$
+begin
+  -- Предпосылка: склад вызывающему не виден, иначе тест ничего не доказывает.
+  if exists (select 1 from public.stores where id = current_setting('test.sdb_rls_store')::uuid) then
+    raise exception 'FAIL 11: precondition broken, store is visible to the people-only user';
+  end if;
+  begin
+    update public.departments set venue_id = current_setting('test.sdb_rls_venue2')::uuid
+     where id = current_setting('test.sdb_rls_dept')::uuid;
+    raise exception 'FAIL 11: bound department moved by a user who cannot see the store';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение нельзя перенести%' then raise; end if;
+  end;
+end $test$;
+reset role;
+rollback;
+select 'store_department_binding: OK' as result;

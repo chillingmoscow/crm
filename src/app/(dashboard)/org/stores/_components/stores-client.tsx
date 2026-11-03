@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Badge } from "@/components/ui/badge";
+import { WARNING_BADGE_CLASS } from "@/components/shared/inventory-status-badge";
 import {
   updateInventoryStoreDepartment,
   updateInventoryStoreVenue,
@@ -183,6 +185,14 @@ export function StoresClient({
                   QR #{store.external_id}
                   {store.store_code ? <span className="md:hidden"> · {store.store_code}</span> : null}
                 </div>
+                {/* «Не задано» — состояние, при котором месяц по складу не посчитать
+                    до конца. Серый текст в селекте читался как «пусто, нормально»,
+                    поэтому маркер отдельный, в янтарной палитре бейджей статусов. */}
+                {value === "unset" ? (
+                  <Badge variant="outline" className={`mt-1.5 max-w-full overflow-hidden text-xs font-normal ${WARNING_BADGE_CLASS}`}>
+                    <span className="min-w-0 truncate">Подразделение не задано</span>
+                  </Badge>
+                ) : null}
               </div>
               <div className="hidden text-sm md:block">{store.store_code ?? "—"}</div>
               <div className="min-w-0">
@@ -208,7 +218,7 @@ export function StoresClient({
                 <div className="mb-1 text-xs text-muted-foreground md:hidden">Подразделение</div>
                 <div className="flex items-center gap-2">
                   <select
-                    className={`${selectClass} ${value === "unset" ? "text-muted-foreground" : ""}`}
+                    className={selectClass}
                     value={value}
                     disabled={!canManage || isPending}
                     onChange={(event) => updateDepartment(store.id, event.target.value)}

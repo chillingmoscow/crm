@@ -18,6 +18,14 @@ export const INVENTORY_STATUS_LABEL: Record<string, string> = {
   results_blocked: "Итоги требуют проверки",
 };
 
+// Янтарная палитра «требует внимания». Вынесена, чтобы маркеры вне актов
+// (например, «Подразделение не задано» в справочнике складов) брали те же
+// токены, а не копировали строку.
+export const WARNING_BADGE_CLASS =
+  "bg-amber-50 dark:bg-amber-500/15 " +
+  "text-amber-700 dark:text-amber-300 " +
+  "border-amber-200 dark:border-amber-500/30";
+
 // Dark-варианты по образцу staff-detail-page (см. memory
 // feedback_design_system_first и docs/design-system.md):
 // — light: bg-{color}-100, text-{color}-700, border-{color}-200
@@ -31,10 +39,7 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
     "bg-blue-50 dark:bg-blue-500/15 " +
     "text-blue-700 dark:text-blue-300 " +
     "border-blue-200 dark:border-blue-500/30",
-  in_progress:
-    "bg-amber-50 dark:bg-amber-500/15 " +
-    "text-amber-700 dark:text-amber-300 " +
-    "border-amber-200 dark:border-amber-500/30",
+  in_progress: WARNING_BADGE_CLASS,
   ready_for_review:
     "bg-violet-50 dark:bg-violet-500/15 " +
     "text-violet-700 dark:text-violet-300 " +

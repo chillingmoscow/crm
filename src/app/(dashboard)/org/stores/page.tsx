@@ -73,9 +73,11 @@ export default async function InventoryStoresPage() {
       .order("name"),
   ]);
 
-  // Подразделения читаем service-role'ом: политика departments требует
-  // people.view_roles, а управляющий складами этого права может не иметь — тогда
-  // привязанное подразделение пропало бы из списка и склад выглядел бы «общим».
+  // Подразделения читаем service-role'ом НАМЕРЕННО, не «чините» на обычный клиент:
+  // политика departments требует people.view_roles, а управляющий складами этого
+  // права может не иметь — тогда привязанное подразделение пропало бы из списка и
+  // склад выглядел бы «не задано»/«общим». Раскрываются только названия
+  // подразделений своего аккаунта тому, кто и так управляет его складами.
   // Тенантность — через заведения аккаунта (у departments нет account_id).
   const admin = asLooseDb(createAdminClient());
   const { data: accountVenues } = await admin
@@ -100,7 +102,7 @@ export default async function InventoryStoresPage() {
           </div>
           <h1 className="text-2xl font-semibold">Склады</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Склады Quick Resto хранятся отдельно от заведений; привязка нужна только для локального контекста.
+            Склады из Quick Resto: к какому заведению относится склад и чьё подразделение отвечает за недостачу по нему.
           </p>
         </div>
         <InventorySyncButton canSync={Boolean(canSync)} lastSyncedAt={lastSyncedAt} />

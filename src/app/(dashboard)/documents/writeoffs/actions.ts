@@ -14,6 +14,7 @@ import type {
   WriteoffRules,
 } from "@/lib/stock/writeoffs";
 import type { WriteoffPoolAssignment } from "@/lib/stock/writeoff-pools";
+import { autoRecalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 export type WriteoffPoolTargets = {
   departments: Array<{ id: string; name: string; archived: boolean }>;
   employees: Array<{ id: string; name: string; active: boolean }>;
@@ -246,6 +247,9 @@ export async function assignWriteoffPool(
     p_key: key,
   });
   if (r.error) throw new Error(r.error.message);
+  // Плательщик за акт меняет результат месяца. Выключено по умолчанию (INVENTORY_DEDUCTION_AUTOPOST);
+  // сбой пересчёта пометку не отменяет - она уже записана.
+  await autoRecalculateInventoryDeduction({ kind: "writeoff", venueId, externalId });
   const mark = await s.db
     .from<AssignmentRow>("writeoff_pool_assignments")
     .select("venue_id,external_id,pool,department_id,employee_id")

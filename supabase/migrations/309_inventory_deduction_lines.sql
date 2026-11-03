@@ -8,6 +8,14 @@
 -- Исправление идёт сторно (deleted_at / deleted_by / delete_reason), правки на месте нет.
 -- Закрытый период (payroll_periods.status <> 'draft') не вскрывается: ни поставить в него,
 -- ни сторнировать из него строку нельзя, это явная ошибка, а не молчаливый пропуск.
+--
+-- ВАЖНО про границу доверия. Суммы строк считает TypeScript (allocateMonthlyShortage), RPC их
+-- только записывает. Поэтому post_inventory_deduction и reverse_inventory_deduction доступны ТОЛЬКО
+-- service_role: из браузера (PostgREST под authenticated) их вызвать нельзя, иначе любой держатель
+-- права ввёл бы произвольные суммы и подделал снимок расчёта. Серверное действие сначала проверяет
+-- право по сессии пользователя (can_post_inventory_deduction), затем вызывает RPC серверным клиентом и
+-- передаёт id пользователя в p_actor: под service_role нет auth.uid(). Журнал корректировок 248 -
+-- намеренно иначе: там человек сам ВВОДИТ сумму с основанием, поэтому доверие к вызывающему там задумано.
 begin;
 
 -- 1. Право. Ставит удержание тот, кто подводит итоги акта: автоматическая постановка идёт от его имени.
@@ -133,6 +141,28 @@ revoke all on function private.inventory_deduction_reverse(uuid, uuid, date, tex
 
 -- 5. Право ставить удержание в заведении (по ролям именно этого заведения, не по активному в сессии:
 -- акт может принадлежать заведению, отличному от активного у пользователя).
+create or replace function private.inventory_deduction_user_can_post(p_user uuid, p_venue uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_catalog
+as $$
+  select p_user is not null and p_venue is not null and exists (
+    select 1
+    from public.user_venue_roles uvr
+    join public.venues ve on ve.id = uvr.venue_id and ve.archived_at is null
+    join public.role_permissions rp on rp.role_id = uvr.role_id and rp.granted
+    join public.permissions p on p.id = rp.permission_id
+    where uvr.user_id = p_user
+      and uvr.venue_id = p_venue
+      and uvr.status = 'active'
+      and p.code = 'inventory.post_deductions'
+  )
+$$;
+revoke all on function private.inventory_deduction_user_can_post(uuid, uuid) from public, anon, authenticated, service_role;
+
+-- Проверка по сессии: серверное действие зовёт её ДО записи. Сама ничего не пишет.
 create or replace function public.can_post_inventory_deduction(p_venue uuid)
 returns boolean
 language sql
@@ -140,23 +170,49 @@ stable
 security definer
 set search_path = public, pg_catalog
 as $$
-  select exists (
-    select 1
-    from public.user_venue_roles uvr
-    join public.venues ve on ve.id = uvr.venue_id and ve.archived_at is null
-    join public.role_permissions rp on rp.role_id = uvr.role_id and rp.granted
-    join public.permissions p on p.id = rp.permission_id
-    where uvr.user_id = (select auth.uid())
-      and uvr.venue_id = p_venue
-      and uvr.status = 'active'
-      and p.code = 'inventory.post_deductions'
-  )
+  select private.inventory_deduction_user_can_post((select auth.uid()), p_venue)
 $$;
 revoke all on function public.can_post_inventory_deduction(uuid) from public, anon, service_role;
 grant execute on function public.can_post_inventory_deduction(uuid) to authenticated;
 
+-- Под service_role нет auth.uid(), а триггеры ведомости (история, аудит, имя автора) читают его.
+-- На время записи подставляем проверенного исполнителя; прежние значения возвращаются после.
+create or replace function private.inventory_deduction_act_as(p_actor uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+declare
+  prev jsonb := jsonb_build_object(
+    'sub', coalesce(current_setting('request.jwt.claim.sub', true), ''),
+    'claims', coalesce(current_setting('request.jwt.claims', true), ''));
+begin
+  perform set_config('request.jwt.claim.sub', p_actor::text, true);
+  perform set_config('request.jwt.claims',
+    jsonb_build_object('sub', p_actor::text, 'role', 'service_role')::text, true);
+  return prev;
+end;
+$$;
+revoke all on function private.inventory_deduction_act_as(uuid) from public, anon, authenticated, service_role;
+
+create or replace function private.inventory_deduction_restore(p_prev jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_catalog
+as $$
+begin
+  perform set_config('request.jwt.claim.sub', p_prev->>'sub', true);
+  perform set_config('request.jwt.claims', p_prev->>'claims', true);
+end;
+$$;
+revoke all on function private.inventory_deduction_restore(jsonb) from public, anon, authenticated, service_role;
+
 -- 6. Постановка.
 --
+-- Только service_role (см. заметку в начале файла). p_actor - пользователь, от имени которого ставится
+-- строка; его право проверяется здесь ещё раз, а не только в серверном действии.
 -- p_lines: [{employee_id, amount (положительная, ₽), request_key, reason}] - по одной на сотрудника.
 -- p_snapshot: {id, state, captured_at, rule_version_id, shortage_total, company_total, employees_total, missing, payload}.
 --
@@ -167,16 +223,17 @@ grant execute on function public.can_post_inventory_deduction(uuid) to authentic
 --  - иначе {posted:true, reversed, target_month, displaced, lines, inactive}.
 -- Суммы в lines - как в ведомости (отрицательные).
 create or replace function public.post_inventory_deduction(
-  p_venue uuid, p_month date, p_lines jsonb, p_snapshot jsonb)
+  p_actor uuid, p_venue uuid, p_month date, p_lines jsonb, p_snapshot jsonb)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_catalog
 as $$
 declare
-  u uuid := (select auth.uid());
+  u uuid := p_actor;
   a uuid;
   tz text;
+  prev_claims jsonb;
   today date;
   cur_month date;
   starts date;
@@ -205,7 +262,10 @@ declare
   out_inactive jsonb := '[]';
   is_inactive boolean;
 begin
-  if u is null or p_venue is null or not public.can_post_inventory_deduction(p_venue) then
+  if u is null or p_venue is null or not private.inventory_deduction_user_can_post(u, p_venue) then
+    raise exception 'Нет права ставить удержания по недостаче в этом заведении';
+  end if;
+  if not exists (select 1 from public.profiles pr where pr.id = u) then
     raise exception 'Нет права ставить удержания по недостаче в этом заведении';
   end if;
   select ve.account_id, coalesce(ve.timezone, 'Europe/Moscow') into a, tz
@@ -332,6 +392,9 @@ begin
     raise exception 'Ключ строки уже использован другим расчётом';
   end if;
 
+  -- Дальше идут записи: триггеры ведомости должны видеть исполнителя, а не пустоту.
+  prev_claims := private.inventory_deduction_act_as(u);
+
   -- Сторно прежних строк (ошибка, если они в зафиксированном периоде), затем новые.
   reversed := private.inventory_deduction_reverse(a, p_venue, p_month,
     'Пересчёт удержания по недостаче за ' || to_char(p_month, 'MM.YYYY'), u);
@@ -369,27 +432,31 @@ begin
     jsonb_build_object('snapshot_id', snap_id, 'month', p_month, 'target_month', target, 'displaced', displaced,
       'reversed', reversed, 'lines', jsonb_array_length(p_lines), 'employees_total', employees));
 
+  perform private.inventory_deduction_restore(prev_claims);
+
   return jsonb_build_object('posted', true, 'unchanged', false, 'replayed', false, 'snapshot_id', snap_id,
     'month', p_month, 'target_month', target, 'displaced', displaced, 'reversed', reversed,
     'lines', out_lines, 'inactive', out_inactive);
 end;
 $$;
-revoke all on function public.post_inventory_deduction(uuid, date, jsonb, jsonb) from public, anon, service_role;
-grant execute on function public.post_inventory_deduction(uuid, date, jsonb, jsonb) to authenticated;
+-- Только серверный клиент: из браузера суммы, пришедшие от вызывающего, принимать нельзя.
+revoke all on function public.post_inventory_deduction(uuid, uuid, date, jsonb, jsonb) from public, anon, authenticated;
+grant execute on function public.post_inventory_deduction(uuid, uuid, date, jsonb, jsonb) to service_role;
 
 -- 7. Сторно без замены: переоткрытие акта делает месяц снова непосчитанным.
-create or replace function public.reverse_inventory_deduction(p_venue uuid, p_month date, p_reason text)
+create or replace function public.reverse_inventory_deduction(p_actor uuid, p_venue uuid, p_month date, p_reason text)
 returns jsonb
 language plpgsql
 security definer
 set search_path = public, pg_catalog
 as $$
 declare
-  u uuid := (select auth.uid());
+  u uuid := p_actor;
   a uuid;
   n integer;
+  prev_claims jsonb;
 begin
-  if u is null or p_venue is null or not public.can_post_inventory_deduction(p_venue) then
+  if u is null or p_venue is null or not private.inventory_deduction_user_can_post(u, p_venue) then
     raise exception 'Нет права ставить удержания по недостаче в этом заведении';
   end if;
   select ve.account_id into a from public.venues ve where ve.id = p_venue and ve.archived_at is null;
@@ -402,6 +469,7 @@ begin
   perform pg_advisory_xact_lock(hashtextextended('inventory-deduction:' || p_venue::text || ':' || p_month::text, 0));
   perform pg_advisory_xact_lock(hashtextextended(p_venue::text, 0));
 
+  prev_claims := private.inventory_deduction_act_as(u);
   n := private.inventory_deduction_reverse(a, p_venue, p_month, trim(p_reason), u);
   update public.inventory_deduction_snapshots
      set reversed_at = now()
@@ -411,10 +479,11 @@ begin
     values (a, p_venue, u, 'stock.deductions.reversed', 'venue', p_venue,
       jsonb_build_object('month', p_month, 'reversed', n, 'reason', trim(p_reason)));
   end if;
+  perform private.inventory_deduction_restore(prev_claims);
   return jsonb_build_object('reversed', n, 'month', p_month);
 end;
 $$;
-revoke all on function public.reverse_inventory_deduction(uuid, date, text) from public, anon, service_role;
-grant execute on function public.reverse_inventory_deduction(uuid, date, text) to authenticated;
+revoke all on function public.reverse_inventory_deduction(uuid, uuid, date, text) from public, anon, authenticated;
+grant execute on function public.reverse_inventory_deduction(uuid, uuid, date, text) to service_role;
 
 commit;

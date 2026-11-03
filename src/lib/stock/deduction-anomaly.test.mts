@@ -123,6 +123,7 @@ function makeDeps(over: Partial<PostDeps> & { snap?: MonthlySnapshot } = {}) {
       calls.post++;
       return { posted: true, unchanged: false, replayed: false, snapshotId: args.snapshot.id, reversed: 0, targetMonth: args.month, displaced: false, lines: [], inactive: [] };
     },
+    reverse: async () => ({ reversed: 0 }),
     notifyAnomaly: async () => {
       calls.notify++;
     },

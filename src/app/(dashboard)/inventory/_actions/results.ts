@@ -18,7 +18,7 @@ import {
   type QuickRestoInventoryDocument2
 } from "@/lib/integrations/quickresto/client";
 import {
-  recalculateInventoryDeductionForDocument,
+  autoRecalculateInventoryDeduction,
   reverseInventoryDeductionForDocument,
 } from "./deduction";
 import {
@@ -236,27 +236,6 @@ export async function updateInventoryResultComment(input: {
     return { error: null };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось обновить комментарий") };
-  }
-}
-
-/**
- * Автоматическая постановка удержания после финализации акта.
- *
- * Включается только переменной INVENTORY_DEDUCTION_AUTOPOST=1: пока её нет,
- * подведение итогов не трогает ведомость (удержание считается и ставится вручную
- * через recalculateInventoryDeduction). Финализация к этому моменту уже прошла и
- * в Quick Resto, и локально, поэтому сбой здесь НИКОГДА не превращается в ошибку
- * финализации: человек получает пояснение и может пересчитать месяц.
- */
-async function autoPostDeduction(documentId: string): Promise<string | null> {
-  if (process.env.INVENTORY_DEDUCTION_AUTOPOST !== "1") return null;
-  try {
-    const r = await recalculateInventoryDeductionForDocument({ documentId });
-    if (r.error) return `Удержание по недостаче не поставлено: ${r.error}. Пересчитайте месяц вручную.`;
-    return r.summary;
-  } catch (e) {
-    console.error("[finalize] удержание по недостаче не поставлено", { documentId, error: e });
-    return "Удержание по недостаче не поставлено из-за ошибки. Пересчитайте месяц вручную.";
   }
 }
 
@@ -607,7 +586,7 @@ export async function finalizeInventoryResults(input: {
     // Удержание по недостаче - только после того, как И Quick Resto, И локальная
     // финализация прошли. Повтор на уже финализированном акте сюда не доходит
     // (ранний выход выше), а повторный расчёт месяца идемпотентен по содержимому.
-    const deductionNotice = await autoPostDeduction(document.id);
+    const deductionNotice = await autoRecalculateInventoryDeduction({ kind: "document", documentId: document.id });
 
     revalidateInventoryResultPages(document.id);
     const notices = [

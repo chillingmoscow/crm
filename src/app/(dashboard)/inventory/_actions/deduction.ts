@@ -8,8 +8,13 @@
 //
 // Каждый экспорт файла - вызываемое извне серверное действие, поэтому каждое
 // проверяет вызывающего само: аккаунт сессии и право ставить удержания в
-// заведении (can_post_inventory_deduction). Серверный клиент читает данные месяца
-// только после этой проверки.
+// заведении (can_post_inventory_deduction, по сессии пользователя). Серверный клиент
+// читает данные месяца только после этой проверки.
+//
+// Граница доверия: суммы считает TypeScript, поэтому записывающие RPC
+// (post_inventory_deduction, reverse_inventory_deduction) доступны ТОЛЬКО service_role
+// и вызываются отсюда серверным клиентом; id проверенного пользователя уходит в p_actor.
+// Из браузера они недоступны (миграция 309): иначе держатель права вписал бы любые суммы.
 
 import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
@@ -24,10 +29,13 @@ import {
 } from "@/lib/stock/deduction-posting";
 import type { HistoryMonth } from "@/lib/stock/deduction-anomaly";
 import { buildMonthlySnapshot, businessMonthOf, monthBounds } from "@/lib/stock/monthly-snapshot";
+import { stockCalendarDate } from "@/lib/stock/writeoffs";
 import { actionErrorMessage, getActiveContext } from "../actions-shared";
 
 export type DeductionActionResult = {
   error: string | null;
+  /** Ошибка - нехватка права ставить удержания в этом заведении (автопересчёт молчит о ней). */
+  forbidden?: boolean;
   /** Одна строка для человека: что произошло с месяцем. */
   summary: string | null;
   state?: "ready" | "incomplete" | "disabled";
@@ -119,14 +127,21 @@ async function runRecalculation(ctx: Ctx, venueId: string, month: string): Promi
   const userDb = asLooseDb(ctx.supabase);
   const can = await userDb.rpc("can_post_inventory_deduction", { p_venue: venueId });
   if (can.error || can.data !== true)
-    return { error: "Недостаточно прав, чтобы ставить удержания по недостаче в этом заведении", summary: null };
+    return {
+      error: "Недостаточно прав, чтобы ставить удержания по недостаче в этом заведении",
+      forbidden: true,
+      summary: null,
+    };
+  const actorId = ctx.user.id;
 
   const admin = asLooseDb(createAdminClient());
   const deps: PostDeps = {
     buildSnapshot: () => buildMonthlySnapshot(admin, { accountId, venueId, month }),
     loadHistory: () => loadHistory(admin, accountId, venueId),
     post: async ({ venueId: v, month: m, lines, snapshot }) => {
-      const { data, error } = await userDb.rpc("post_inventory_deduction", {
+      // Записывающий RPC - только service_role, исполнитель передаётся явно.
+      const { data, error } = await admin.rpc("post_inventory_deduction", {
+        p_actor: actorId,
         p_venue: v,
         p_month: m,
         p_lines: lines,
@@ -145,6 +160,16 @@ async function runRecalculation(ctx: Ctx, venueId: string, month: string): Promi
         lines: r.lines ?? [],
         inactive: r.inactive ?? [],
       };
+    },
+    reverse: async ({ venueId: v, month: m, reason }) => {
+      const { data, error } = await admin.rpc("reverse_inventory_deduction", {
+        p_actor: actorId,
+        p_venue: v,
+        p_month: m,
+        p_reason: reason,
+      });
+      if (error) throw new Error(error.message);
+      return { reversed: Number((data as { reversed?: number } | null)?.reversed ?? 0) };
     },
     notifyAnomaly: async (info) => {
       const recipients = await deductionRecipients(admin, info.venueId);
@@ -280,7 +305,12 @@ export async function reverseInventoryDeductionForDocument(input: {
     if (live.error) return { error: live.error.message, reversed: 0, summary: null };
     if ((live.data ?? []).length === 0) return { error: null, reversed: 0, summary: null };
 
-    const { data, error } = await asLooseDb(ctx.supabase).rpc("reverse_inventory_deduction", {
+    // Право проверяется по сессии, сама запись - серверным клиентом от имени этого пользователя.
+    const can = await asLooseDb(ctx.supabase).rpc("can_post_inventory_deduction", { p_venue: where.venueId });
+    if (can.error || can.data !== true)
+      return { error: "Недостаточно прав, чтобы сторнировать удержания по недостаче в этом заведении", reversed: 0, summary: null };
+    const { data, error } = await admin.rpc("reverse_inventory_deduction", {
+      p_actor: ctx.user.id,
       p_venue: where.venueId,
       p_month: where.month,
       p_reason: input.reason,
@@ -295,5 +325,127 @@ export async function reverseInventoryDeductionForDocument(input: {
     };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось сторнировать удержание"), reversed: 0, summary: null };
+  }
+}
+
+// ── Автоматический пересчёт ──────────────────────────────────
+
+export type AutoDeductionTrigger =
+  /** Итоги акта подведены. */
+  | { kind: "document"; documentId: string }
+  /** Поставили, сменили или сняли плательщика за акт списания. */
+  | { kind: "writeoff"; venueId: string; externalId: number }
+  /** Склад привязали к другому подразделению. */
+  | { kind: "store"; storeId: string }
+  /** Сохранена новая версия правил удержаний. */
+  | { kind: "rules"; venueId: string; validFrom: string };
+
+const PERMIT_SUFFIX = "Пересчитайте месяц вручную.";
+
+function autoNotice(r: DeductionActionResult): string | null {
+  if (r.forbidden) return null; // у этого пользователя нет права; месяц пересчитает тот, у кого оно есть
+  if (r.error) return `Удержание по недостаче не пересчитано: ${r.error}. ${PERMIT_SUFFIX}`;
+  return r.summary;
+}
+
+/**
+ * Пересчёт месяца после события, которое могло изменить результат. Идемпотентен по
+ * содержимому: повторный вызов с тем же итогом ничего не добавляет.
+ *
+ * Включается ТОЛЬКО переменной INVENTORY_DEDUCTION_AUTOPOST=1 - на всех путях
+ * сразу, не на одном: выключенная функция должна оставаться выключенной везде.
+ * Событие, вызвавшее пересчёт, к этому моменту уже выполнено, поэтому сбой здесь
+ * никогда не превращается в его ошибку: возвращается пояснение (или null).
+ */
+export async function autoRecalculateInventoryDeduction(
+  trigger: AutoDeductionTrigger,
+): Promise<string | null> {
+  if (process.env.INVENTORY_DEDUCTION_AUTOPOST !== "1") return null;
+  try {
+    if (trigger.kind === "document")
+      return autoNotice(await recalculateInventoryDeductionForDocument({ documentId: trigger.documentId }));
+
+    const ctx = await getActiveContext();
+    if (ctx.error || !ctx.user || !ctx.accountId) return null;
+    const admin = asLooseDb(createAdminClient());
+    const accountId = ctx.accountId;
+
+    const venueTimezone = async (venueId: string) => {
+      const v = await admin
+        .from<{ timezone: string | null }>("venues")
+        .select("timezone")
+        .eq("id", venueId)
+        .eq("account_id", accountId)
+        .maybeSingle();
+      return v.data?.timezone ?? null;
+    };
+
+    if (trigger.kind === "writeoff") {
+      const w = await admin
+        .from<{ business_date: string }>("stock_writeoff_documents")
+        .select("business_date")
+        .eq("account_id", accountId)
+        .eq("venue_id", trigger.venueId)
+        .eq("external_id", trigger.externalId)
+        .maybeSingle();
+      if (!w.data) return null;
+      return autoNotice(await runRecalculation(ctx, trigger.venueId, `${w.data.business_date.slice(0, 7)}-01`));
+    }
+
+    if (trigger.kind === "rules") {
+      const tz = await venueTimezone(trigger.venueId);
+      if (!tz) return null;
+      const today = stockCalendarDate(new Date().toISOString(), tz);
+      // Версия с датой впереди ещё не действует: считать по ней нечего.
+      if (trigger.validFrom > today) return null;
+      return autoNotice(await runRecalculation(ctx, trigger.venueId, `${today.slice(0, 7)}-01`));
+    }
+
+    // Склад. Затрагиваются месяцы его проведённых актов, но только текущий и прошлый:
+    // привязка меняет плательщика вперёд, давно выплаченные месяцы не пересчитываются сами.
+    const store = await admin
+      .from<{ local_venue_id: string | null }>("stores")
+      .select("local_venue_id")
+      .eq("id", trigger.storeId)
+      .eq("account_id", accountId)
+      .maybeSingle();
+    const venueId = store.data?.local_venue_id;
+    if (!venueId) return null;
+    const tz = await venueTimezone(venueId);
+    if (!tz) return null;
+    const today = stockCalendarDate(new Date().toISOString(), tz);
+    const prev = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1));
+    const earliest = `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, "0")}`;
+    const acts = await admin
+      .from<Array<{ invoice_date: string | null }>>("documents")
+      .select("invoice_date")
+      .eq("account_id", accountId)
+      .eq("document_kind", "inventory")
+      .eq("store_id", trigger.storeId)
+      .eq("status", "processed")
+      .eq("processed", true)
+      .is("archived_at", null)
+      .gte("invoice_date", `${earliest}-01T00:00:00Z`)
+      .limit(1000);
+    if (acts.error) return `Удержание по недостаче не пересчитано: ${acts.error.message}. ${PERMIT_SUFFIX}`;
+    const months = new Set<string>();
+    for (const a of acts.data ?? []) {
+      if (!a.invoice_date) continue;
+      try {
+        const m = businessMonthOf(a.invoice_date, tz);
+        if (m >= earliest) months.add(`${m}-01`);
+      } catch {
+        // Дата не читается: этот акт месяц не определяет (снимок месяца назовёт его проблемой данных).
+      }
+    }
+    const notices: string[] = [];
+    for (const month of [...months].sort()) {
+      const n = autoNotice(await runRecalculation(ctx, venueId, month));
+      if (n) notices.push(n);
+    }
+    return notices.length > 0 ? notices.join(" ") : null;
+  } catch (error) {
+    console.error("[deduction] автопересчёт не выполнен", { trigger, error });
+    return `Удержание по недостаче не пересчитано из-за ошибки. ${PERMIT_SUFFIX}`;
   }
 }

@@ -5,6 +5,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { autoRecalculateInventoryDeduction } from "./deduction";
 import { getCachedPermissionChecker } from "@/lib/supabase/server";
 import {
   actionErrorMessage,
@@ -230,7 +231,7 @@ export async function updateInventoryStoreDepartment(input: {
   storeId: string;
   scope: "unset" | "shared" | "department";
   departmentId: string | null;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string }> {
   try {
     const ctx = await getActiveContext("inventory.manage_stores");
     if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Не удалось определить контекст" };
@@ -286,8 +287,12 @@ export async function updateInventoryStoreDepartment(input: {
     });
     if (error) return { error: error.message };
 
+    // Привязка склада меняет плательщика в месяцах его актов. Выключено по умолчанию
+    // (INVENTORY_DEDUCTION_AUTOPOST); привязка уже сохранена и от пересчёта не зависит.
+    const notice = await autoRecalculateInventoryDeduction({ kind: "store", storeId: input.storeId });
+
     revalidatePath("/org/stores");
-    return { error: null };
+    return { error: null, ...(notice ? { notice } : {}) };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось сохранить привязку склада") };
   }

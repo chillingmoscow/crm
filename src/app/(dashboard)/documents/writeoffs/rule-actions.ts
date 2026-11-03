@@ -7,6 +7,7 @@ import {
   getCachedPermissions,
 } from "@/lib/supabase/server";
 import { asLooseDb } from "@/lib/supabase/loose";
+import { autoRecalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 import {
   deductionDraft,
   departmentDraft,
@@ -179,5 +180,8 @@ export async function saveStockRules(input: {
     p_reason: input.reason,
   });
   if (r.error) throw new Error(r.error.message);
+  // Новая версия правил может изменить текущий месяц. Выключено по умолчанию (INVENTORY_DEDUCTION_AUTOPOST);
+  // сбой пересчёта сохранение правил не отменяет.
+  await autoRecalculateInventoryDeduction({ kind: "rules", venueId: input.venueId, validFrom: input.validFrom });
   return loadStockRules(input.venueId);
 }

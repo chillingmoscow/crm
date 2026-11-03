@@ -105,6 +105,12 @@ export type PostDeps = {
   buildSnapshot: () => Promise<MonthlySnapshot>;
   loadHistory: (month: string) => Promise<HistoryMonth[]>;
   post: (args: { venueId: string; month: string; lines: RpcLine[]; snapshot: RpcSnapshot }) => Promise<PostRpcResult>;
+  /**
+   * Сторно всех живых строк месяца без замены. Нужно, когда правила месяца выключены:
+   * заведение покрывает недостачу целиком, и прежние строки не должны остаться в ведомости.
+   * Ошибка (например, зафиксированный период) пробрасывается: её нельзя проглотить.
+   */
+  reverse: (args: { venueId: string; month: string; reason: string }) => Promise<{ reversed: number }>;
   notifyAnomaly: (info: {
     venueId: string;
     month: string;
@@ -124,7 +130,7 @@ export type PostOutcome =
       unresolved: string[];
       dataProblems: SnapshotDataProblems;
     }
-  | { state: "disabled"; posted: false; month: string }
+  | { state: "disabled"; posted: false; month: string; reversed: number }
   | {
       state: "ready";
       posted: boolean;
@@ -151,7 +157,16 @@ export async function postMonthlyDeduction(deps: PostDeps): Promise<PostOutcome>
       unresolved: alloc.unresolved,
       dataProblems: snap.dataProblems,
     };
-  if (alloc.state === "disabled") return { state: "disabled", posted: false, month: snap.month };
+  if (alloc.state === "disabled") {
+    // Правила выключены - заведение платит всё. Правильное состояние месяца: ни одной строки,
+    // поэтому всё, что поставлено раньше, сторнируется (тем же механизмом, что и пересчёт).
+    const { reversed } = await deps.reverse({
+      venueId: snap.venueId,
+      month: snap.month,
+      reason: `Пересчёт удержания по недостаче за ${snap.month.slice(5, 7)}.${snap.month.slice(0, 4)}: правила удержаний выключены`,
+    });
+    return { state: "disabled", posted: false, month: snap.month, reversed };
+  }
 
   const lines = buildDeductionLines(alloc.pools);
   // Страховка от расхождения: суммы строк обязаны сойтись с итогом расчёта.
@@ -254,7 +269,10 @@ export function describeUnresolved(refs: string[]): string {
 export function describePostOutcome(out: PostOutcome): string {
   const label = monthLabel(out.month);
   if (out.state === "disabled")
-    return `Правила удержаний за ${label} выключены: строки в ведомость не ставятся.`;
+    return (
+      `Правила удержаний за ${label} выключены: строки в ведомость не ставятся.` +
+      (out.reversed > 0 ? ` Прежних строк сторнировано: ${out.reversed}.` : "")
+    );
   if (out.state === "incomplete") {
     const problems = out.dataProblems.undatedActs.length + out.dataProblems.actsWithoutVenue.length;
     return (

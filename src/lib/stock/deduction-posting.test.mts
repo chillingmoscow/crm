@@ -51,13 +51,17 @@ const snap = (over: Partial<MonthlySnapshot> = {}): MonthlySnapshot => ({
 });
 
 function deps(s: MonthlySnapshot) {
-  const calls = { post: [] as unknown[] };
+  const calls = { post: [] as unknown[], reverse: [] as Array<{ venueId: string; month: string; reason: string }> };
   const d: PostDeps = {
     buildSnapshot: async () => s,
     loadHistory: async () => [],
     post: async (a) => {
       calls.post.push(a);
       return { posted: true, unchanged: false, replayed: false, snapshotId: a.snapshot.id, reversed: 0, targetMonth: a.month, displaced: false, lines: [], inactive: [] };
+    },
+    reverse: async (a) => {
+      calls.reverse.push(a);
+      return { reversed: 2 };
     },
     notifyAnomaly: async () => {},
     newId: () => "cccccccc-0000-4000-8000-000000000001",
@@ -89,11 +93,33 @@ test("пул без распределения (нет смен) - incomplete, �
   assert.equal(calls.post.length, 0);
 });
 
-test("правила выключены - запись не вызывается", async () => {
+test("правила выключены - ничего не ставится, а прежние строки месяца сторнируются", async () => {
   const { d, calls } = deps(snap({ config: cfg({ enabled: false }) }));
   const out = await postMonthlyDeduction(d);
   assert.equal(out.state, "disabled");
-  assert.equal(calls.post.length, 0);
+  assert.equal(calls.post.length, 0, "новые строки не ставятся");
+  assert.equal(calls.reverse.length, 1, "прежние строки сторнируются ровно один раз");
+  assert.equal(calls.reverse[0].month, "2026-10-01");
+  assert.match(calls.reverse[0].reason, /Пересчёт удержания по недостаче за 10\.2026/);
+  assert.match(calls.reverse[0].reason, /выключены/);
+  if (out.state === "disabled") assert.equal(out.reversed, 2);
+  assert.match(describePostOutcome(out), /сторнировано: 2/);
+});
+
+test("правила выключены, строк не было - сторно ничего не меняет и не пугает текстом", async () => {
+  const { d } = deps(snap({ config: cfg({ enabled: false }) }));
+  d.reverse = async () => ({ reversed: 0 });
+  const out = await postMonthlyDeduction(d);
+  assert.equal(out.state, "disabled");
+  assert.doesNotMatch(describePostOutcome(out), /сторнировано/);
+});
+
+test("правила выключены, а строка в зафиксированном периоде - ошибка сторно видна, не глотается", async () => {
+  const { d } = deps(snap({ config: cfg({ enabled: false }) }));
+  d.reverse = async () => {
+    throw new Error("Период зафиксирован");
+  };
+  await assert.rejects(postMonthlyDeduction(d), /Период зафиксирован/);
 });
 
 test("ready: строки положительные, по одной на сотрудника, сумма сходится с итогом", async () => {

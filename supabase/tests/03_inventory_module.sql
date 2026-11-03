@@ -100,10 +100,10 @@ $$;
 -- ────────────────────────────────────────────────────────────
 do $$
 begin
-  -- 15 inventory-прав по модулям inventory_*.
+  -- 17 inventory-прав по модулям inventory_*: 15 + assign_writeoff_pool (308) + post_deductions (309).
   perform public.test_assert(
-    (select count(*) from public.permissions where module like 'inventory%') = 15,
-    'expected 15 inventory permissions across inventory_* modules'
+    (select count(*) from public.permissions where module like 'inventory%') = 17,
+    'expected 17 inventory permissions across inventory_* modules'
   );
 
   -- Глобальный preset owner (venue_id is null) грантит ВСЕ inventory-права.

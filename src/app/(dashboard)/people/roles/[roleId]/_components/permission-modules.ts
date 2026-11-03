@@ -140,6 +140,7 @@ const TIER_EDITOR = [
 const TIER_FULL = [
   ...TIER_EDITOR,
   "inventory.finalize_results",
+  "inventory.post_deductions",
   "inventory.view_all_venues",
 ];
 
@@ -162,7 +163,7 @@ export const INVENTORY_ACTS_TIERS: InventoryActsTier[] = [
     id: "full",
     label: "Полный доступ",
     description:
-      "Всё, что у редактора, плюс: финализация и разблокировка проведённого акта, видимость всех заведений.",
+      "Всё, что у редактора, плюс: финализация и разблокировка проведённого акта, постановка удержаний по недостаче в зарплатную ведомость, видимость всех заведений.",
     codes: TIER_FULL,
   },
 ];

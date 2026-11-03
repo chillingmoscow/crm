@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { resolveQrUnprocessedAt, resolveStatusAfterSync } from "@/lib/inventory/act-status";
 import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
+import { storeDepartmentBindingPatch } from "@/lib/inventory/store-department-binding";
 import {
   listDishTreeItems,
   listIngredientTreeItems,
@@ -467,6 +468,8 @@ export async function syncQuickRestoInventory(input?: {
               storeExists: Boolean(existingStore?.id),
               defaultVenueId,
             }),
+            // Подразделение — по тому же правилу: только новому складу.
+            ...storeDepartmentBindingPatch({ storeExists: Boolean(existingStore?.id) }),
             raw_payload: store,
             synced_at: syncedAt,
           },

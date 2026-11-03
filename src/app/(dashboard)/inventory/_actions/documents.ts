@@ -213,3 +213,82 @@ export async function updateInventoryStoreVenue(input: {
   revalidatePath("/org/stores");
   return { error: null };
 }
+
+/**
+ * Привязка склада к подразделению: «Не задано» / «Общий склад» / конкретное
+ * подразделение. От выбора зависит, кто платит за недостачу по складу, поэтому
+ * «не задано» — отдельное состояние, а не отсутствие значения.
+ *
+ * Подразделения принадлежат заведению (departments.venue_id), а не аккаунту:
+ * у склада без заведения подразделения быть не может, а у склада с заведением —
+ * только из него. Эти два правила держит и база (триггер миграции 307), но
+ * проверяем здесь тоже: во-первых, чтобы не показать пользователю сырой текст
+ * исключения, во-вторых, как и в updateInventoryStoreVenue, чтобы id с клиента
+ * не привёл к подразделению чужого аккаунта.
+ */
+export async function updateInventoryStoreDepartment(input: {
+  storeId: string;
+  scope: "unset" | "shared" | "department";
+  departmentId: string | null;
+}): Promise<{ error: string | null }> {
+  try {
+    const ctx = await getActiveContext("inventory.manage_stores");
+    if (ctx.error || !ctx.accountId) return { error: ctx.error ?? "Не удалось определить контекст" };
+
+    if (!["unset", "shared", "department"].includes(input.scope)) {
+      return { error: "Неизвестный вариант привязки" };
+    }
+    if ((input.scope === "department") !== Boolean(input.departmentId)) {
+      return { error: "Подразделение указывается только для варианта «Подразделение»" };
+    }
+
+    const admin = asLooseDb(createAdminClient());
+    if (input.departmentId) {
+      // У departments нет account_id (миграция 172): аккаунт — через заведение.
+      // Склад читаем тем же запросом в рамках аккаунта, чтобы сверить заведения.
+      const { data: store } = await admin
+        .from<{ id: string; local_venue_id: string | null }>("stores")
+        .select("id, local_venue_id")
+        .eq("id", input.storeId)
+        .eq("account_id", ctx.accountId)
+        .maybeSingle();
+      if (!store?.id) return { error: "Склад не найден" };
+      if (!store.local_venue_id) {
+        return { error: "Сначала привяжите склад к заведению: подразделение выбирается из его подразделений" };
+      }
+
+      const { data: department } = await admin
+        .from<{ id: string; venue_id: string; archived_at: string | null }>("departments")
+        .select("id, venue_id, archived_at")
+        .eq("id", input.departmentId)
+        .maybeSingle();
+      if (!department?.id) return { error: "Подразделение не найдено" };
+      if (department.archived_at) return { error: "Подразделение в архиве: выберите другое" };
+      const { data: venue } = await admin
+        .from<{ id: string }>("venues")
+        .select("id")
+        .eq("id", department.venue_id)
+        .eq("account_id", ctx.accountId)
+        .maybeSingle();
+      if (!venue?.id) return { error: "Подразделение не найдено" };
+      if (department.venue_id !== store.local_venue_id) {
+        return { error: "Подразделение относится к другому заведению, не к заведению склада" };
+      }
+    }
+
+    // RPC, а не прямой UPDATE: authenticated не имеет права писать в stores, а
+    // история изменений привязки пишется триггером от имени вызывающего
+    // (auth.uid()), поэтому вызываем клиентом пользователя, не service-role.
+    const { error } = await asLooseDb(ctx.supabase).rpc("set_store_department", {
+      p_store_id: input.storeId,
+      p_scope: input.scope,
+      p_department_id: input.departmentId || null,
+    });
+    if (error) return { error: error.message };
+
+    revalidatePath("/org/stores");
+    return { error: null };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось сохранить привязку склада") };
+  }
+}

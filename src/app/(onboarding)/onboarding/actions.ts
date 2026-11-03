@@ -9,6 +9,7 @@ import { decryptSecret, encryptSecret } from "@/lib/integrations/crypto";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { resolveDefaultVenueId } from "@/lib/inventory/default-venue";
 import { storeVenueBindingPatch } from "@/lib/inventory/store-venue-binding";
+import { storeDepartmentBindingPatch } from "@/lib/inventory/store-department-binding";
 import {
   asObject,
   groupName,
@@ -805,6 +806,8 @@ async function syncQuickRestoInventoryCatalog(params: {
               storeExists: Boolean(existingStore?.id),
               defaultVenueId,
             }),
+            // Подразделение — по тому же правилу: только новому складу.
+            ...storeDepartmentBindingPatch({ storeExists: Boolean(existingStore?.id) }),
             raw_payload: store,
             synced_at: syncedAt,
           },

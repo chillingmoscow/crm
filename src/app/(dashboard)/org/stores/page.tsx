@@ -6,6 +6,7 @@ import {
   getCachedActiveAccountId,
   getCachedPermissionChecker,
 } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { asLooseDb } from "@/lib/supabase/loose";
 import { StoresClient } from "./_components/stores-client";
 import { InventorySyncButton } from "@/app/(dashboard)/inventory/_components/inventory-sync-button";
@@ -17,6 +18,15 @@ type StoreRow = {
   store_code: string | null;
   description: string | null;
   local_venue_id: string | null;
+  department_id: string | null;
+  department_scope: "unset" | "shared" | "department";
+};
+
+type DepartmentRow = {
+  id: string;
+  name: string;
+  venue_id: string;
+  archived_at: string | null;
 };
 
 type VenueRow = {
@@ -50,7 +60,7 @@ export default async function InventoryStoresPage() {
   const [{ data: stores }, { data: venues }] = await Promise.all([
     db
       .from<StoreRow[]>("stores")
-      .select("id, external_id, title, store_code, description, local_venue_id")
+      .select("id, external_id, title, store_code, description, local_venue_id, department_id, department_scope")
       .eq("account_id", accountId)
       .order("title"),
     supabase
@@ -62,6 +72,24 @@ export default async function InventoryStoresPage() {
       .eq("account_id", accountId)
       .order("name"),
   ]);
+
+  // Подразделения читаем service-role'ом: политика departments требует
+  // people.view_roles, а управляющий складами этого права может не иметь — тогда
+  // привязанное подразделение пропало бы из списка и склад выглядел бы «общим».
+  // Тенантность — через заведения аккаунта (у departments нет account_id).
+  const admin = asLooseDb(createAdminClient());
+  const { data: accountVenues } = await admin
+    .from<Array<{ id: string }>>("venues")
+    .select("id")
+    .eq("account_id", accountId);
+  const venueIds = (accountVenues ?? []).map((venue) => venue.id);
+  const { data: departments } = venueIds.length
+    ? await admin
+        .from<DepartmentRow[]>("departments")
+        .select("id, name, venue_id, archived_at")
+        .in("venue_id", venueIds)
+        .order("name")
+    : { data: [] as DepartmentRow[] };
 
   return (
     <div className="w-full px-4 py-4 md:px-8 md:py-6">
@@ -81,6 +109,7 @@ export default async function InventoryStoresPage() {
       <StoresClient
         stores={stores ?? []}
         venues={(venues ?? []) as VenueRow[]}
+        departments={departments ?? []}
         canManage={Boolean(canManage)}
       />
     </div>

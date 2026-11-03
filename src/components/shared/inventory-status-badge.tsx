@@ -67,12 +67,15 @@ const STATUS_FALLBACK_CLASS =
 
 export function InventoryStatusBadge({
   status,
+  label: labelOverride,
   className,
 }: {
   status: string;
+  /** Своя подпись при той же палитре (например, в сличении удержания). */
+  label?: string;
   className?: string;
 }) {
-  const label = INVENTORY_STATUS_LABEL[status] ?? status;
+  const label = labelOverride ?? INVENTORY_STATUS_LABEL[status] ?? status;
   return (
     <Badge
       variant="outline"

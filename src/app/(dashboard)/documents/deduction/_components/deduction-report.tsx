@@ -12,6 +12,7 @@ import { InventoryStatusBadge, WARNING_BADGE_CLASS } from "@/components/shared/i
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,11 +31,13 @@ import {
   type ReconcileStatus,
 } from "@/lib/stock/deduction-reconciliation";
 import {
+  duplicateEmployeeCounts,
   matchSheetNames,
   normalizePersonName,
   parseSheetPaste,
   sheerlySideFor,
 } from "@/lib/stock/deduction-sheet";
+import { sheetTotal, totalDelta } from "@/lib/stock/deduction-totals";
 import { recalculateInventoryDeduction } from "@/app/(dashboard)/inventory/_actions/deduction";
 import type { DeductionActionResult } from "@/app/(dashboard)/inventory/deduction-service";
 import type { DeductionReportData } from "@/app/(dashboard)/inventory/deduction-report";
@@ -83,8 +86,14 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
 
   function onPasteChange(text: string) {
     setPasted(text);
+    // Очищенное поле не несёт момента снятия: следующая вставка снова получит «сейчас».
+    if (!text.trim()) {
+      stampEdited.current = false;
+      setSheetAtInput("");
+      return;
+    }
     // Момент снятия по умолчанию - когда вставили; ручную правку не затираем.
-    if (!stampEdited.current) setSheetAtInput(text.trim() ? nowForInput() : "");
+    if (!stampEdited.current) setSheetAtInput(nowForInput());
   }
 
   // Знак суммы из таблицы переворачивает только человек, явным выбором. Подсказка ниже лишь
@@ -169,10 +178,10 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
   // ── Итоги ─────────────────────────────────────────────────────
   // Сторона таблицы - все прочитанные строки вставки, найденные и ненайденные: деньги
   // не пропадают из итога из-за того, что имя не сопоставилось.
-  const sheetTotal = shownEntries.reduce((sum, e) => sum + (e.amount ?? 0), 0);
-  const sheetHasGaps = shownEntries.some((e) => e.amount === null) || parsed.errors.length > 0;
+  const sheet = sheetTotal(shownEntries, parsed.errors.length);
   const basisTotal = recorded ? recorded.employeesTotal : calc.state === "incomplete" ? null : calc.employeesTotal;
-  const totalDelta = basisTotal === null ? null : Math.round((basisTotal - sheetTotal) * 100) / 100;
+  const delta = totalDelta(basisTotal, sheet.total);
+  const dupCounts = duplicateEmployeeCounts(matching.matched);
   const liveTotal = calc.state === "incomplete" ? null : calc.employeesTotal;
 
   // ── Пересчёт месяца ───────────────────────────────────────────
@@ -201,9 +210,8 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
   return (
     <PageFrame className="min-w-0 space-y-6">
       <TablePageHeader
-        // whitespace-normal: заголовок h1 в TablePageHeader усекается, а на 390 px длинное имя страницы должно переноситься.
-        title={<span className="whitespace-normal">Удержание по недостаче</span>}
-        subtitle="Сличение расчёта Sheerly с Google-таблицей. Страница читает: таблицу она не меняет."
+        title="Удержание"
+        subtitle="По недостаче: сличение расчёта Sheerly с Google-таблицей. Таблицу страница не меняет; кнопка пересчёта ставит строки в зарплатную ведомость Sheerly."
         actions={
           data.canRecalculate ? (
             <Button variant="outline" size="sm" disabled={busy} onClick={() => setConfirmOpen(true)}>
@@ -301,7 +309,7 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
           <label htmlFor="sheet-at" className="text-sm text-muted-foreground">
             Таблица снята
           </label>
-          <input
+          <Input
             id="sheet-at"
             type="datetime-local"
             value={sheetAtInput}
@@ -310,7 +318,7 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
               stampEdited.current = true;
               setSheetAtInput(e.target.value);
             }}
-            className="mt-1 block h-10 w-full max-w-full rounded-md border border-input bg-background px-3 text-base tabular-nums focus-visible:border-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/30 disabled:opacity-50 sm:text-sm"
+            className="mt-1 tabular-nums"
           />
           <p className="mt-1 text-xs text-muted-foreground">
             {sheetAtIso
@@ -446,11 +454,18 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
         <div className="px-4 pt-4 sm:px-5 sm:pt-0">
           <p className="text-sm text-muted-foreground">Таблица: сумма вставленных строк</p>
           <p className="mt-2 text-2xl font-semibold tabular-nums">
-            {sheetAtIso ? money(sheetTotal) : <span className="text-muted-foreground">не вставлено</span>}
+            {!sheetAtIso ? (
+              <span className="text-muted-foreground">не вставлено</span>
+            ) : sheet.total === null ? (
+              <span className="text-muted-foreground">нет данных</span>
+            ) : (
+              money(sheet.total)
+            )}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {sheetAtIso ? `Снято ${stamp(sheetAtIso)}` : "Вставьте столбцы из таблицы ниже"}
-            {sheetAtIso && sheetHasGaps ? ". Итог неполный: есть пустые суммы или нечитаемые строки" : ""}
+            {sheetAtIso && sheet.incomplete ? ". Итог неполный: есть пустые суммы или нечитаемые строки" : ""}
+            {sheetAtIso && sheet.total === null && !sheet.incomplete ? ". Ни одной читаемой строки" : ""}
             {sheetAtIso && flipSign ? ". Знак суммы перевёрнут вами" : ""}
           </p>
         </div>
@@ -459,8 +474,11 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
             Разница ({recorded ? "в ведомости" : "расчёт"} минус таблица)
           </p>
           <p className="mt-2 text-2xl font-semibold tabular-nums">
-            {sheetAtIso && totalDelta !== null ? signedMoney(totalDelta) : <span className="text-muted-foreground">нет данных</span>}
+            {sheetAtIso && delta !== null ? signedMoney(delta) : <span className="text-muted-foreground">нет данных</span>}
           </p>
+          {sheetAtIso && sheet.incomplete && (
+            <p className="mt-1 text-xs text-muted-foreground">Итог неполный: разница по неполной таблице.</p>
+          )}
           <p className="mt-1 text-xs text-muted-foreground">
             Совпадение итогов не доказывает совпадения по людям: смотрите таблицу по сотрудникам.
           </p>
@@ -510,13 +528,18 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
             </Button>
           </div>
         )}
-        {parsed.headerText !== null && (
-          <p className="text-xs text-muted-foreground">Первая строка принята за заголовок и пропущена: «{parsed.headerText.replace(/\t/g, " | ")}»</p>
-        )}
-        {parsed.errors.length > 0 && (
+        {(parsed.errors.length > 0 || parsed.headerText !== null) && (
           <div role="alert" className={cn("rounded-lg border p-3 text-sm", WARNING_BADGE_CLASS)}>
-            <p className="font-medium">Не удалось разобрать строк: {parsed.errors.length}. Они не учтены в сличении.</p>
+            <p className="font-medium">
+              Не учтено строк: {parsed.errors.length + (parsed.headerText !== null ? 1 : 0)}. Они не вошли в сличение.
+            </p>
             <ul className="mt-1 space-y-0.5">
+              {parsed.headerText !== null && (
+                <li className="break-words">
+                  Первая строка «{parsed.headerText.replace(/\t/g, " | ")}» принята за заголовок и пропущена. Если это данные,
+                  исправьте сумму в ней.
+                </li>
+              )}
               {parsed.errors.map((e) => (
                 <li key={e.line} className="break-words">
                   Строка {e.line}: «{e.text.replace(/\t/g, " | ")}» - {e.reason}
@@ -638,7 +661,14 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
                     const view = STATUS_VIEW[r.status];
                     return (
                       <tr key={r.employeeId} className="border-t">
-                        <td className="px-3 py-2 font-medium">{nameById.get(r.employeeId) ?? "Сотрудник вне справочника"}</td>
+                        <td className="px-3 py-2 font-medium">
+                          {nameById.get(r.employeeId) ?? "Сотрудник вне справочника"}
+                          {dupCounts.has(r.employeeId) && (
+                            <span className={cn("mt-1 block rounded-md border px-1.5 py-0.5 text-xs font-normal", WARNING_BADGE_CLASS)}>
+                              Строк с этим именем в таблице: {dupCounts.get(r.employeeId)}, суммы сложены. Проверьте, нет ли повтора.
+                            </span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {r.sheerly === null ? <span className="text-muted-foreground">не посчитано</span> : money(r.sheerly)}
                         </td>
@@ -650,7 +680,7 @@ export function DeductionReport({ data }: { data: DeductionReportData }) {
                               const differs = r.sheerly !== null && Math.round(live * 100) !== Math.round(r.sheerly * 100);
                               return (
                                 <span
-                                  className={differs ? "text-amber-700 dark:text-amber-300" : undefined}
+                                  className={differs ? cn("rounded-md border px-1.5 py-0.5", WARNING_BADGE_CLASS) : undefined}
                                   title={differs ? "Отличается от поставленного в ведомость" : undefined}
                                 >
                                   {money(live)}

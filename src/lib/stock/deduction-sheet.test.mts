@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  duplicateEmployeeCounts,
   matchSheetNames,
   normalizePersonName,
   parseSheetPaste,
@@ -117,4 +118,59 @@ test("правила выключены: по расчёту удерживат�
     knownEmployeeIds: ["e1"],
   });
   assert.deepEqual(side.entries, [{ employeeId: "e1", amount: 0 }]);
+});
+
+test("сумма с одним разделителем и тремя знаками после него неоднозначна: 1,500 - ошибка, а не 1,5", () => {
+  for (const cell of ["1,500", "1.500", "12,345", "999.000"]) {
+    const r = parseSheetPaste(`Иванов Иван\t${cell}`);
+    assert.equal(r.entries.length, 0, cell);
+    assert.equal(r.errors.length, 1, cell);
+    assert.match(r.errors[0].reason, /неоднозначн/i);
+  }
+});
+
+test("неоднозначность не мешает честным суммам", () => {
+  const r = parseSheetPaste(
+    ["А\t0,500", "Б\t1,50", "В\t1.5", "Г\t1 500", "Д\t1500,5", "Е\t12345,678", "Ж\t1,5000"].join("\n"),
+  );
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.entries.map((e) => e.amount), [0.5, 1.5, 1.5, 1500, 1500.5, 12345.678, 1.5]);
+});
+
+test("неоднозначная сумма в первой строке - ошибка, а не заголовок", () => {
+  const r = parseSheetPaste("Иванов Иван\t1,500\nПетрова Анна\t300");
+  assert.equal(r.headerText, null);
+  assert.equal(r.errors.length, 1);
+});
+
+test("incomplete: строки удержания не отдаются даже если они переданы", () => {
+  const side = sheerlySideFor({
+    state: "incomplete",
+    capturedAt: "2026-11-03T09:00:00Z",
+    lines: [{ employeeId: "e1", amount: 300 }, { employeeId: "e9", amount: 50 }],
+    knownEmployeeIds: ["e1"],
+  });
+  assert.deepEqual(side.entries, [{ employeeId: "e1", amount: null }]);
+});
+
+test("ready: человек со строкой удержания, которого нет среди известных, не пропадает", () => {
+  const side = sheerlySideFor({
+    state: "ready",
+    capturedAt: "2026-11-03T09:00:00Z",
+    lines: [{ employeeId: "e1", amount: 300 }, { employeeId: "e9", amount: 50 }],
+    knownEmployeeIds: ["e1", "e2"],
+  });
+  assert.deepEqual(
+    side.entries.map((e) => [e.employeeId, e.amount]).sort(),
+    [["e1", 300], ["e2", 0], ["e9", 50]],
+  );
+});
+
+test("повтор сотрудника во вставке считается: показываем, сколько строк слилось", () => {
+  const counts = duplicateEmployeeCounts([
+    { line: 1, name: "А", amount: 1, employeeId: "e1" },
+    { line: 2, name: "А", amount: 1, employeeId: "e1" },
+    { line: 3, name: "Б", amount: 1, employeeId: "e2" },
+  ]);
+  assert.deepEqual([...counts.entries()], [["e1", 2]]);
 });

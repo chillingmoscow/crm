@@ -33,16 +33,23 @@ export type SheetParse = {
   headerText: string | null;
 };
 
-/** Сумма из ячейки: число, `null` для пустой ячейки, `"invalid"`, если разобрать нельзя. */
-function parseAmount(cell: string): number | null | "invalid" {
+/**
+ * Сумма из ячейки: число, `null` для пустой ячейки, `"invalid"`, если разобрать нельзя, и
+ * `"ambiguous"`, если запись читается двумя способами. «1,500» и «1.500» - это 1,5 или 1500
+ * (английская запись или точка как разделитель тысяч): угадывать нельзя, ошибка в тысячу раз
+ * в чужих деньгах хуже отказа. Единственный разделитель и ровно три знака после него при
+ * ненулевом начале считаются неоднозначными; «0,500» - это 0,5.
+ */
+function parseAmount(cell: string): number | null | "invalid" | "ambiguous" {
   const compact = cell
-    .replace(/[\s  ]/g, "")
-    .replace(/[−–]/g, "-")
-    .replace(/₽|руб\.?$|р\.?$/i, "")
-    .replace(",", ".");
+    .replace(/[\s\u00a0\u202f]/g, "")
+    .replace(/[\u2212\u2013]/g, "-")
+    .replace(/₽|руб\.?$|р\.?$/i, "");
   if (compact === "") return null;
-  if (!/^-?\d+(\.\d+)?$/.test(compact)) return "invalid";
-  const n = Number(compact);
+  if (/^-?[1-9]\d{0,2}[.,]\d{3}$/.test(compact)) return "ambiguous";
+  const normalized = compact.replace(",", ".");
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return "invalid";
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : "invalid";
 }
 
@@ -76,6 +83,14 @@ export function parseSheetPaste(text: string): SheetParse {
       return;
     }
     const amount = parseAmount(amountCell);
+    if (amount === "ambiguous") {
+      errors.push({
+        line,
+        text: raw,
+        reason: `Неоднозначная сумма «${amountCell}»: это может быть и копейки, и тысячи. Впишите копейки полностью (например 1,50) или уберите разделитель (1500)`,
+      });
+      return;
+    }
     if (amount === "invalid") {
       if (first && amountCell !== "") {
         headerText = raw;
@@ -150,4 +165,15 @@ export function sheerlySideFor(input: {
     capturedAt: input.capturedAt,
     entries: [...amounts.entries()].map(([employeeId, amount]) => ({ employeeId, amount })),
   };
+}
+
+/**
+ * Сколько строк вставки пришлось на одного сотрудника, если больше одной: такие суммы
+ * складываются, и случайно повторённая строка молча удвоила бы чужие деньги.
+ */
+export function duplicateEmployeeCounts(matched: Array<{ employeeId: string }>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const m of matched) counts.set(m.employeeId, (counts.get(m.employeeId) ?? 0) + 1);
+  for (const [id, n] of counts) if (n < 2) counts.delete(id);
+  return counts;
 }

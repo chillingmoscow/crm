@@ -80,6 +80,9 @@ type NavItem = {
   /** Any-of permission gate for pages that have several valid access
    *  paths, for example owner view + assigned employee fill access. */
   permissions?: string[];
+  /** All-of gate: пункт виден, только если есть ВСЕ права (roles не смягчают). Для страниц,
+   *  показывающих данные двух разных доменов, например итоги склада и зарплатные суммы. */
+  allPermissions?: string[];
   /** Legacy: список role-кодов. Используется только если permission
    *  не задан. Постепенно мигрируем все пункты на permission и потом
    *  это поле уберём. */
@@ -314,8 +317,8 @@ const NAV_SECTIONS: NavSection[] = [
         title: "Удержание по недостаче",
         href: "/documents/deduction",
         icon: Scale,
-        permission: "inventory.view_results",
-        roles: ["owner", "admin", "manager"],
+        // Суммы по сотрудникам - зарплатные данные: нужны оба права (как и в странице).
+        allPermissions: ["inventory.view_results", "payroll.view"],
       },
     ],
   },
@@ -462,6 +465,8 @@ function SidebarBody({
   //  - legacy roles задан И activeRoleCode входит в roles, ИЛИ
   //  - ни permission, ни roles не заданы (показываем всем)
   const isItemVisible = (item: NavItem): boolean => {
+    if (item.allPermissions)
+      return item.allPermissions.every((code) => userPermissionsSet.has(code));
     const permissionCodes =
       item.permissions ?? (item.permission ? [item.permission] : []);
     if (

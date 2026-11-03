@@ -13,7 +13,8 @@ import "server-only";
 // сейчас (buildMonthlySnapshot + allocateMonthlyShortage); разрыв между ними означает, что
 // исходные данные поменяли после постановки. Оба с отметкой момента.
 //
-// Просмотр требует inventory.view_results и права на ставить не даёт: право ставить удержания
+// Просмотр требует inventory.view_results И payroll.view (суммы по людям - зарплатные данные;
+// страница читает их серверным клиентом мимо RLS, поэтому право проверяется здесь) и права ставить не даёт: право ставить удержания
 // (can_post_inventory_deduction) нужно только кнопке пересчёта, страница лишь сообщает,
 // есть ли оно. Остальные проверки: аккаунт сессии, заведение в аккаунте.
 
@@ -88,7 +89,9 @@ function previousMonth(today: string): string {
 
 export async function loadDeductionReport(requestedMonth: string | null): Promise<DeductionReportResult> {
   try {
-    const ctx = await getActiveContext("inventory.view_results");
+    // Суммы по сотрудникам - зарплатные данные, а читаются серверным клиентом в обход RLS, поэтому
+    // нужны оба права: итоги склада и payroll.view (то же право, что просит RLS таблицы снимков).
+    const ctx = await getActiveContext(["inventory.view_results", "payroll.view"]);
     if (ctx.error === "Недостаточно прав")
       return { ok: false, error: "Нет доступа к отчёту об удержаниях. Обратитесь к владельцу аккаунта.", forbidden: true };
     if (ctx.error || !ctx.user || !ctx.accountId) return { ok: false, error: ctx.error ?? "Не авторизован" };

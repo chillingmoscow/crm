@@ -89,7 +89,13 @@ export type AssignmentRow = {
 export type AccrualRow = {
   employee_id: string;
   business_date: string;
+  /**
+   * `calculation_snapshot.attendance_ids`: массив `external_id` отметок. Ключ
+   * отсутствует -> `null` (SQL NULL через `->`), пустой массив -> `[]`.
+   */
   attendance_ids: unknown;
+  /** `calculation_snapshot.kind`: monthly / adjustment / combined, у начисления за смену ключа нет. */
+  snapshot_kind?: string | null;
 };
 export type AttendanceRow = {
   external_id: number;
@@ -238,12 +244,10 @@ export function classifyActs(
   ctx: { venueId: string; month: string; timezone: string },
 ): {
   counted: ActRow[];
-  unresolved: string[];
   undated: string[];
   withoutVenue: string[];
 } {
   const counted: ActRow[] = [];
-  const unresolved: string[] = [];
   const undated: string[] = [];
   const withoutVenue: string[] = [];
   const want = ctx.month.slice(0, 7);
@@ -271,7 +275,7 @@ export function classifyActs(
     if (a.venue_id !== ctx.venueId) continue;
     counted.push(a);
   }
-  return { counted, unresolved, undated, withoutVenue };
+  return { counted, undated, withoutVenue };
 }
 
 /**
@@ -322,7 +326,7 @@ export function resolveStoreBinding(
   if (store.department_scope !== "department" || !store.department_id) return null;
   const d = departments.get(store.department_id);
   if (!d || d.archived_at) return null;
-  if (d.venue_id !== store.local_venue_id || d.venue_id !== venueId) return null;
+  if (d.venue_id !== venueId) return null;
   return { pool: "department", key: store.department_id };
 }
 
@@ -520,7 +524,20 @@ export function buildShiftWeights(input: {
   const unresolved: string[] = [];
 
   for (const acc of input.accruals) {
-    const ids = Array.isArray(acc.attendance_ids) ? acc.attendance_ids.map(Number) : [];
+    if (!Array.isArray(acc.attendance_ids)) {
+      // Ключа нет. Единственная форма без него, которую пишет ведомость, -
+      // начисление-пустышка под корректировку (`{"kind":"adjustment"}`, триггер
+      // журнала корректировок, миграции 248 и 252, и sync.ts): смен в нём нет.
+      // Любое другое начисление без перечня отметок объяснить нечем, а молча
+      // его пропустить значило бы уменьшить знаменатель, то есть переложить
+      // долю на остальных.
+      if (acc.snapshot_kind !== "adjustment")
+        unresolved.push(shiftDayRef(acc.employee_id, acc.business_date));
+      continue;
+    }
+    // `[]` - ведомость прямо говорит «отметок не было» (начисление только по
+    // окладу): принятый молчаливый пропуск, это не смена.
+    const ids = acc.attendance_ids.map(Number);
     if (ids.length === 0) continue;
 
     let ok = true;
@@ -680,7 +697,6 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
     weights: shifts.weights,
     unresolved: [
       ...new Set([
-        ...classified.unresolved,
         ...unfrozen,
         ...timezones,
         ...inventory.unresolved,
@@ -708,38 +724,50 @@ const PAGE = 1000;
 const HARD_CAP = 200_000;
 const CHUNK = 100;
 
-async function readAll<T>(
+/**
+ * Читает таблицу постранично. Ошибка страницы и упор в предел - исключения:
+ * неполный набор строк, принятый за полный, превратил бы месяц в чужие деньги.
+ * `limits` нужен только тестам.
+ */
+export async function readAll<T>(
   table: string,
   make: () => LooseQuery<T[]>,
   orderBy: string,
   ascending = true,
+  limits: { page?: number; cap?: number } = {},
 ): Promise<T[]> {
+  const page = limits.page ?? PAGE;
+  const cap = limits.cap ?? HARD_CAP;
   const out: T[] = [];
   let from = 0;
   for (;;) {
     const { data, error } = await make()
       .order(orderBy, { ascending })
-      .range(from, from + PAGE - 1);
+      .range(from, from + page - 1);
     // Ошибка страницы - не конец данных: пустой ответ превратил бы месяц в нулевой.
     if (error) throw new Error(`Не удалось прочитать ${table}: ${error.message}`);
     const chunk = (data ?? []) as T[];
     out.push(...chunk);
-    if (chunk.length < PAGE || out.length >= HARD_CAP) break;
+    if (chunk.length < page) break;
+    if (out.length >= cap)
+      throw new Error(`Не удалось прочитать ${table}: больше ${cap} строк, остальное не прочитано`);
     from += chunk.length;
   }
   return out;
 }
 
-async function readByIds<T>(
+/** Читает строки по списку ключей кусками по CHUNK. Ключи берутся из уже прочитанных данных. */
+export async function readByIds<T, K extends string | number = string>(
   table: string,
-  ids: string[],
-  make: (chunk: string[]) => LooseQuery<T[]>,
+  ids: K[],
+  make: (chunk: K[]) => LooseQuery<T[]>,
   orderBy = "id",
+  chunkSize = CHUNK,
 ): Promise<T[]> {
   const unique = [...new Set(ids)];
   const out: T[] = [];
-  for (let i = 0; i < unique.length; i += CHUNK) {
-    const chunk = unique.slice(i, i + CHUNK);
+  for (let i = 0; i < unique.length; i += chunkSize) {
+    const chunk = unique.slice(i, i + chunkSize);
     out.push(...(await readAll<T>(table, () => make(chunk), orderBy)));
   }
   return out;
@@ -900,33 +928,42 @@ export async function buildMonthlySnapshot(
       .in("id", ids),
   );
 
-  const [accruals, attendance] = await Promise.all([
-    readAll<AccrualRow & { id: string }>(
-      "payroll_accruals",
-      () =>
-        db
-          .from<Array<AccrualRow & { id: string }>>("payroll_accruals")
-          // Только перечень отметок из снимка начисления, а не весь снимок.
-          .select("id, employee_id, business_date, attendance_ids:calculation_snapshot->attendance_ids")
-          .eq("account_id", accountId)
-          .eq("venue_id", venueId)
-          .gte("business_date", first)
-          .lt("business_date", next),
-      "id",
-    ),
-    readAll<AttendanceRow & { id: string }>(
-      "payroll_attendance",
-      () =>
-        db
-          .from<Array<AttendanceRow & { id: string }>>("payroll_attendance")
-          .select("id, external_id, employee_id, business_date, shift_id, role_name")
-          .eq("account_id", accountId)
-          .eq("venue_id", venueId)
-          .gte("business_date", first)
-          .lt("business_date", next),
-      "id",
-    ),
-  ]);
+  const accruals = await readAll<AccrualRow & { id: string }>(
+    "payroll_accruals",
+    () =>
+      db
+        .from<Array<AccrualRow & { id: string }>>("payroll_accruals")
+        // Только перечень отметок и вид начисления из снимка, а не весь снимок.
+        // `->` отдаёт NULL, когда ключа нет, и `[]`, когда отметок не было.
+        .select(
+          "id, employee_id, business_date, attendance_ids:calculation_snapshot->attendance_ids, snapshot_kind:calculation_snapshot->>kind",
+        )
+        .eq("account_id", accountId)
+        .eq("venue_id", venueId)
+        .gte("business_date", first)
+        .lt("business_date", next),
+    "id",
+  );
+  // Отметки - по перечню из самих начислений, а не по окну дат. Отметка, которую
+  // пересчитали в другой день (правка времени, смена границы рабочего дня), хранит
+  // свою первоначальную `business_date`, но числится в начислении нового дня:
+  // окно дат её не нашло бы, и день стал бы неразрешимым без причины в данных.
+  const attendanceIds = accruals.flatMap((a) =>
+    Array.isArray(a.attendance_ids)
+      ? a.attendance_ids.map(Number).filter((n) => Number.isSafeInteger(n))
+      : [],
+  );
+  const attendance = await readByIds<AttendanceRow & { id: string }, number>(
+    "payroll_attendance",
+    attendanceIds,
+    (ids) =>
+      db
+        .from<Array<AttendanceRow & { id: string }>>("payroll_attendance")
+        .select("id, external_id, employee_id, business_date, shift_id, role_name")
+        .eq("account_id", accountId)
+        .eq("venue_id", venueId)
+        .in("external_id", ids),
+  );
   const [writeoffSource, salesSettings, roles] = await Promise.all([
     db
       .from<{ config: { timezone?: string } | null }>("stock_writeoff_sources")

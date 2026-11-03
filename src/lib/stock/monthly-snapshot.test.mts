@@ -5,7 +5,10 @@ import {
   buildMonthlySnapshot,
   businessMonthOf,
   monthBounds,
+  inventoryPoolSources,
   pickRuleVersion,
+  readAll,
+  readByIds,
   sameZone,
   type ActRow,
   type AssignmentRow,
@@ -120,7 +123,7 @@ const day = (
   employee: string,
   date: string,
   shiftId: string | null,
-  over: { attendanceIds?: number[] | null } = {},
+  over: { attendanceIds?: number[] | null; kind?: string | null } = {},
 ): { attendance: AttendanceRow; accrual: AccrualRow } => {
   const external_id = ext++;
   return {
@@ -129,6 +132,7 @@ const day = (
       employee_id: employee,
       business_date: date,
       attendance_ids: over.attendanceIds === undefined ? [external_id] : over.attendanceIds,
+      snapshot_kind: over.kind ?? null,
     },
   };
 };
@@ -584,12 +588,13 @@ test("смена считается, если по сотруднику и дн�
   const d2 = day(EMP_A, "2026-10-04", "s2");
   // Отметка есть, а начисления на неё нет: платёжная ведомость смену не посчитала.
   const unpaid = day(EMP_A, "2026-10-05", "s3", { attendanceIds: [] });
-  // Начисление только по окладу: смен не содержит.
-  const salary = day(EMP_B, "2026-10-03", "s4", { attendanceIds: null });
+  // Начисление только по окладу (`[]`) и пустышка корректировки (ключа нет, kind = adjustment): смен нет.
+  const salary = day(EMP_B, "2026-10-03", "s4", { attendanceIds: [], kind: "monthly" });
+  const adjustment = day(EMP_B, "2026-10-04", "s4", { attendanceIds: null, kind: "adjustment" });
   const r = assembleMonthlySnapshot(
     raw({
       attendance: [d1, d2, unpaid, salary].map((d) => d.attendance),
-      accruals: [d1, d2, unpaid, salary].map((d) => d.accrual),
+      accruals: [d1, d2, unpaid, salary, adjustment].map((d) => d.accrual),
       shifts: ["s1", "s2", "s3", "s4"].map((id) => shift(id)),
     }),
   );
@@ -597,6 +602,26 @@ test("смена считается, если по сотруднику и дн�
     { employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 2 },
   ]);
   assert.deepEqual(r.unresolved, []);
+});
+
+test("начисление без перечня отметок, не корректировка, - unresolved: молча уменьшать знаменатель нельзя", () => {
+  const noKey = day(EMP_A, "2026-10-03", "s1", { attendanceIds: null });
+  const noKeyOtherKind = day(EMP_B, "2026-10-03", "s1", { attendanceIds: null, kind: "monthly" });
+  const notAnArray: AccrualRow = { employee_id: EMP_B, business_date: "2026-10-04", attendance_ids: "oops" };
+  const r = assembleMonthlySnapshot(
+    raw({
+      attendance: [noKey.attendance, noKeyOtherKind.attendance],
+      accruals: [noKey.accrual, noKeyOtherKind.accrual, notAnArray],
+      shifts: [shift("s1")],
+    }),
+  );
+  assert.deepEqual(r.weights, []);
+  assert.deepEqual(r.unresolved, [
+    `shift:${EMP_A}:2026-10-03`,
+    `shift:${EMP_B}:2026-10-03`,
+    `shift:${EMP_B}:2026-10-04`,
+  ]);
+  assert.equal(allocateMonthlyShortage(r).state, "incomplete");
 });
 
 test("несколько отметок одного дня в одной должности - одна смена", () => {
@@ -1012,6 +1037,70 @@ test("одинаковые зоны и зоны-псевдонимы расхо�
   assert.deepEqual(assembleMonthlySnapshot(raw()).unresolved, []);
 });
 
+// ── округление и постраничное чтение ─────────────────────────
+
+test("шум float в нетто акта не превращается в деньги", () => {
+  // Недостача -0,30000000000000004 и излишек 0,3 в нетто дают -5,5e-17, а не ноль.
+  const noisy = inventoryPoolSources({
+    counted: [act("noise")],
+    totals: new Map([["noise", { managementShortfallSum: -(0.1 + 0.2), managementSurplusSum: 0.3 }]]),
+    stores: [store(STORE_MAIN)],
+    departments: [],
+    venueId: VENUE,
+  });
+  assert.deepEqual(noisy.sources, []);
+  assert.deepEqual(noisy.unresolved, []);
+  // Нетто -0,1 из строк 0,3 и -0,4 - ровно -0,1, а не -0,10000000000000003.
+  const r = assembleMonthlySnapshot(
+    raw({
+      acts: [act("doc-1")],
+      items: [
+        item("doc-1", "i1", -0.4),
+        item("doc-1", "i2", 0.3, { finalized_difference_amount: 1, difference_amount: 1 }),
+      ],
+    }),
+  );
+  assert.deepEqual(r.sources.map((s) => s.amount), [-0.1]);
+});
+
+test("постраничное чтение не теряет и не дублирует строки на границах страницы", async () => {
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => ({ id: String(i).padStart(5, "0") }));
+  for (const [n, page] of [[0, 10], [9, 10], [10, 10], [11, 10], [20, 10], [25, 10], [2050, 1000]] as const) {
+    const db = fakeDb({ t: rows(n) });
+    const got = await readAll<{ id: string }>("t", () => db.from<Array<{ id: string }>>("t").select("id"), "id", true, {
+      page,
+    });
+    assert.deepEqual(got.map((r) => r.id), rows(n).map((r) => r.id), `${n} строк по ${page}`);
+  }
+});
+
+test("упор в предел чтения - исключение, а не молча неполный результат", async () => {
+  const db = fakeDb({ t: Array.from({ length: 100 }, (_, i) => ({ id: String(i).padStart(3, "0") })) });
+  await assert.rejects(
+    readAll("t", () => db.from<Array<{ id: string }>>("t").select("id"), "id", true, { page: 10, cap: 25 }),
+    /больше 25 строк/,
+  );
+  // Ровно в предел и меньше - не ошибка.
+  const exact = fakeDb({ t: Array.from({ length: 25 }, (_, i) => ({ id: String(i).padStart(3, "0") })) });
+  const got = await readAll("t", () => exact.from<Array<{ id: string }>>("t").select("id"), "id", true, {
+    page: 10,
+    cap: 25,
+  });
+  assert.equal(got.length, 25);
+});
+
+test("чтение по списку ключей идёт кусками и ничего не теряет", async () => {
+  const ids = Array.from({ length: 250 }, (_, i) => `k${String(i).padStart(3, "0")}`);
+  const log: Array<{ table: string; filters: string[] }> = [];
+  const db = fakeDb({ t: ids.map((id) => ({ id })) }, log);
+  const got = await readByIds<{ id: string }>("t", [...ids, ...ids], (chunk) =>
+    db.from<Array<{ id: string }>>("t").select("id").in("id", chunk),
+  );
+  assert.deepEqual(got.map((r) => r.id).sort(), ids);
+  const sizes = log.flatMap((q) => q.filters.filter((f) => f.startsWith("id in#")).map((f) => Number(f.slice(6))));
+  assert.deepEqual(sizes, [100, 100, 50]);
+});
+
 // ── чтение из базы ───────────────────────────────────────────
 
 type Row = Record<string, unknown>;
@@ -1028,7 +1117,7 @@ function fakeDb(tables: Record<string, Row[]>, log: Array<{ table: string; filte
       eq: (c: string, v: unknown) => (filters.push(`${c}=${v}`), (rows = rows.filter((r) => r[c] === v)), q),
       neq: (c: string, v: unknown) => (rows = rows.filter((r) => r[c] !== v), q),
       is: (c: string, v: unknown) => (filters.push(`${c} is ${v}`), (rows = rows.filter((r) => (r[c] ?? null) === v)), q),
-      in: (c: string, vs: unknown[]) => (filters.push(`${c} in`), (rows = rows.filter((r) => vs.includes(r[c]))), q),
+      in: (c: string, vs: unknown[]) => (filters.push(`${c} in`, `${c} in#${vs.length}`), (rows = rows.filter((r) => vs.includes(r[c]))), q),
       gte: (c: string, v: unknown) => (filters.push(`${c}>=${v}`), (rows = rows.filter((r) => r[c] != null && cmp(r[c], v) >= 0)), q),
       lt: (c: string, v: unknown) => (filters.push(`${c}<${v}`), (rows = rows.filter((r) => r[c] != null && cmp(r[c], v) < 0)), q),
       lte: (c: string, v: unknown) => (rows = rows.filter((r) => r[c] != null && cmp(r[c], v) <= 0), q),
@@ -1058,6 +1147,7 @@ function fakeDb(tables: Record<string, Row[]>, log: Array<{ table: string; filte
 
 test("чтение: берёт только акты месяца своего заведения и собирает тот же снимок", async () => {
   const d1 = day(EMP_A, "2026-10-03", "s1");
+  const d3 = day(EMP_A, "2026-10-04", "s1");
   const log: Array<{ table: string; filters: string[] }> = [];
   const A = (over: Row): Row => ({ account_id: ACCOUNT, document_kind: "inventory", ...over });
   const db = fakeDb(
@@ -1101,9 +1191,15 @@ test("чтение: берёт только акты месяца своего �
       ],
       payroll_accruals: [
         { account_id: ACCOUNT, venue_id: VENUE, ...d1.accrual },
+        { account_id: ACCOUNT, venue_id: VENUE, ...d3.accrual },
         { account_id: ACCOUNT, venue_id: VENUE, ...day(EMP_B, "2026-11-01", "s1").accrual },
       ],
-      payroll_attendance: [{ account_id: ACCOUNT, venue_id: VENUE, ...d1.attendance }],
+      payroll_attendance: [
+        { account_id: ACCOUNT, venue_id: VENUE, ...d1.attendance },
+        // Отметка пересчитана в другой день: хранит прежнюю дату, но числится в начислении 2026-10-04.
+        { account_id: ACCOUNT, venue_id: VENUE, ...d3.attendance, business_date: "2026-09-30" },
+        { account_id: ACCOUNT, venue_id: OTHER_VENUE, ...day(EMP_B, "2026-10-04", "s1").attendance },
+      ],
       stock_writeoff_sources: [{ account_id: ACCOUNT, venue_id: VENUE, config: { timezone: "Europe/Moscow" } }],
       sales_settings: [{ account_id: ACCOUNT, venue_id: VENUE, timezone: "Europe/Moscow", day_start_hour: 9 }],
       roles: [{ ...role(ROLE_BAR, "Бармен"), venue_id: VENUE }, { ...role(ROLE_HOOKAH, "Мастер"), venue_id: OTHER_VENUE }],
@@ -1132,7 +1228,12 @@ test("чтение: берёт только акты месяца своего �
     actsWithoutVenue: ["inventory:no-venue"],
   });
   assert.equal(snap.payrollDayStartHour, 9);
-  assert.deepEqual(snap.weights, [{ employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 1 }]);
+  // Обе отметки найдены: вторая лежит вне окна дат месяца, но названа в начислении.
+  assert.deepEqual(snap.weights, [{ employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 2 }]);
+  assert.deepEqual(snap.unresolved, []);
+  const attendanceQuery = log.find((q) => q.table === "payroll_attendance");
+  assert.ok(attendanceQuery?.filters.includes("external_id in"));
+  assert.ok(!attendanceQuery?.filters.some((f) => f.startsWith("business_date")), "отметки читаются по ключам, не по окну дат");
   assert.equal(snap.ruleVersionId, RULE_ID);
   assert.equal(snap.venueId, VENUE);
   assert.equal(snap.month, "2026-10-01");
@@ -1150,6 +1251,42 @@ test("чтение: берёт только акты месяца своего �
       `${q.table}: нет фильтра по аккаунту (${q.filters.join("; ")})`,
     );
   }
+});
+
+test("чтение: больше страницы и больше куска ключей - ни одна строка не теряется и не двоится", async () => {
+  const n = 250;
+  const pad = (i: number) => String(i).padStart(4, "0");
+  const stores = Array.from({ length: n }, (_, i) => ({ account_id: ACCOUNT, ...store(`st${pad(i)}`) }));
+  const docs = Array.from({ length: n }, (_, i) => ({
+    account_id: ACCOUNT,
+    document_kind: "inventory",
+    ...act(`ac${pad(i)}`, { store_id: `st${pad(i)}` }),
+  }));
+  const items = Array.from({ length: n }, (_, i) => ({ account_id: ACCOUNT, ...item(`ac${pad(i)}`, `it${pad(i)}`, -1) }));
+  const wo = 1250;
+  const writeoffs = Array.from({ length: wo }, (_, i) => ({
+    account_id: ACCOUNT,
+    id: `w${pad(i)}`,
+    ...writeoff(i + 1, 10),
+  }));
+  const marks = Array.from({ length: wo }, (_, i) => ({ account_id: ACCOUNT, id: `m${pad(i)}`, ...mark(i + 1) }));
+  const snap = await buildMonthlySnapshot(
+    fakeDb({
+      venues: [{ id: VENUE, account_id: ACCOUNT, timezone: "Europe/Moscow" }],
+      stock_deduction_rules: [{ account_id: ACCOUNT, venue_id: VENUE, ...ruleVersion() }],
+      documents: docs,
+      document_items: items,
+      stores,
+      stock_writeoff_documents: writeoffs,
+      writeoff_pool_assignments: marks,
+    }),
+    { accountId: ACCOUNT, venueId: VENUE, month: "2026-10-01", now: NOW },
+  );
+  assert.equal(snap.sources.filter((s) => s.sourceRef.startsWith("inventory:")).length, n);
+  assert.equal(snap.sources.filter((s) => s.sourceRef.startsWith("writeoff:")).length, wo);
+  assert.equal(new Set(snap.sources.map((s) => s.sourceRef)).size, n + wo);
+  assert.equal(snap.storeBindings.length, n);
+  assert.deepEqual(snap.unresolved, []);
 });
 
 test("чтение: заведение чужого аккаунта и ошибка запроса - исключение, а не пустой месяц", async () => {

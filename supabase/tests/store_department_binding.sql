@@ -201,5 +201,52 @@ begin
     raise exception 'FAIL 9: deleted department name lost from history';
   end if;
 end $test$;
+
+-- 11. Охранник переноса видит все склады, а не только доступные вызывающему по RLS.
+-- Пользователь с people.manage_roles без inventory-прав не видит склад (stores_select),
+-- но перенос подразделения со связанным складом всё равно должен быть отклонён.
+do $test$
+declare
+  v uuid := 'dddddddd-0000-0000-0000-000000000001';
+  a uuid := 'cccccccc-0000-0000-0000-000000000001';
+  r uuid; x uuid := gen_random_uuid(); dep uuid; st uuid; v2 uuid;
+begin
+  insert into public.roles(venue_id, name, code) values (v, 'Только люди QA', 'sdb_people_only_qa') returning id into r;
+  delete from public.role_permissions where role_id = r;
+  insert into public.role_permissions(role_id, permission_id, granted)
+    select r, id, true from public.permissions where code in ('people.manage_roles', 'people.view_roles');
+  insert into auth.users(id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
+    values (x, 'authenticated', 'authenticated', 'sdb-people-' || x || '@qa.invalid', '{}', '{}', now(), now());
+  insert into public.profiles(id, first_name, active_venue_id) values (x, 'QA', v)
+    on conflict (id) do update set active_venue_id = v;
+  insert into public.user_venue_roles(user_id, venue_id, role_id, status) values (x, v, r, 'active');
+  insert into public.venues(account_id, name) values (a, 'Заведение переноса 2 QA') returning id into v2;
+  insert into public.departments(name, venue_id) values ('Привязанное RLS QA', v) returning id into dep;
+  insert into public.stores(account_id, external_id, title, local_venue_id)
+    values (a, 'qa-sdb-rls', 'Склад RLS QA', v) returning id into st;
+  update public.stores set department_scope = 'department', department_id = dep where id = st;
+  perform set_config('test.sdb_rls_user', x::text, true);
+  perform set_config('test.sdb_rls_dept', dep::text, true);
+  perform set_config('test.sdb_rls_venue2', v2::text, true);
+  perform set_config('test.sdb_rls_store', st::text, true);
+end $test$;
+select set_config('request.jwt.claim.sub', current_setting('test.sdb_rls_user'), true),
+       set_config('app.ctx_ready', '0', true);
+set local role authenticated;
+do $test$
+begin
+  -- Предпосылка: склад вызывающему не виден, иначе тест ничего не доказывает.
+  if exists (select 1 from public.stores where id = current_setting('test.sdb_rls_store')::uuid) then
+    raise exception 'FAIL 11: precondition broken, store is visible to the people-only user';
+  end if;
+  begin
+    update public.departments set venue_id = current_setting('test.sdb_rls_venue2')::uuid
+     where id = current_setting('test.sdb_rls_dept')::uuid;
+    raise exception 'FAIL 11: bound department moved by a user who cannot see the store';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение нельзя перенести%' then raise; end if;
+  end;
+end $test$;
+reset role;
 rollback;
 select 'store_department_binding: OK' as result;

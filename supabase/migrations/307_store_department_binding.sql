@@ -121,8 +121,10 @@ create trigger store_department_history_log
 -- заведения A молча оказался бы привязан к подразделению заведения B, и недостачу
 -- платили бы чужие люди. Смена плательщика должна быть осознанным действием
 -- (отвязать склад, видно в истории), поэтому привязки не сбрасываем, а отказываем.
+-- SECURITY DEFINER: проверка должна видеть все склады, а не те, что показывает
+-- вызывающему stores_select (иначе люди без inventory-прав обходят запрет).
 create or replace function private.departments_venue_move_guard() returns trigger
-language plpgsql set search_path = public, pg_catalog as $$
+language plpgsql security definer set search_path = public, pg_catalog as $$
 begin
   if exists (select 1 from public.stores where department_id = old.id) then
     raise exception 'Подразделение нельзя перенести в другое заведение, пока к нему привязаны склады: сначала отвяжите склады';

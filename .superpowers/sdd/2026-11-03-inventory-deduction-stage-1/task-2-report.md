@@ -37,3 +37,9 @@
 - Finding 3: у `store_department_history.changed_by` снят FK (и его индекс); актор best-effort.
 - Новый тест 10/10b: привязанное подразделение не переносится (venue не изменился), свободное переносится, после отвязки склада перенос разрешён.
 - Команда: `pnpm db:reset`, затем `psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/store_department_binding.sql` -> `store_department_binding: OK`; advisors (warn) по новым объектам пусты.
+
+## Fix round 3
+- `private.departments_venue_move_guard()` теперь SECURITY DEFINER (с `set search_path = public, pg_catalog`): `exists` по `stores` видит все строки, а не срез `stores_select`.
+- Новый тест 11 под ролью `authenticated`: пользователь с `people.manage_roles`/`view_roles` без inventory-прав. Предпосылка в тесте проверяет, что склад ему не виден (`select` по stores пуст); затем перенос привязанного подразделения должен быть отклонён с текстом «Подразделение нельзя перенести…».
+- RED: с invoker-версией тест падал: `FAIL 11: bound department moved by a user who cannot see the store` (предпосылка выполнялась). GREEN после правки: `store_department_binding: OK`; advisors (warn) по новым объектам пусты.
+- `stores_department_guard` оставил INVOKER осознанно: он читает `departments` только в путях, где пишет DEFINER-RPC или service_role (у authenticated нет UPDATE на `stores`), RLS там не мешает; при невидимой строке он закрывается ошибкой, а не пропускает.

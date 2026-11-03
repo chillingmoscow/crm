@@ -22,8 +22,8 @@ try {
         `from ${JSON.stringify(import.meta.resolve("zod"))}`,
       )
       .replace(
-        /from ["']\.\/deduction-rules["']/g,
-        'from "./deduction-rules.mjs"',
+        /from ["']\.\/([\w-]+)(?:\.ts)?["']/g,
+        'from "./$1.mjs"',
       );
     await writeFile(join(dir, file + ".mjs"), source);
   }

@@ -8,9 +8,10 @@
 -- -> платит общий пул команды; 'department' -> платит подразделение.
 begin;
 
--- У departments нет account_id (колонка снята миграцией 172), подразделение
--- принадлежит заведению. Поэтому композитный FK (account_id, department_id)
--- невозможен; аккаунт подразделения проверяет триггер ниже (через venues).
+-- У departments нет account_id (колонка снята миграцией 172): подразделение
+-- принадлежит заведению (venue_id), поэтому композитный FK невозможен. Тенантность
+-- держит триггер ниже, причём строже аккаунта: удержание считается по заведению,
+-- значит подразделение обязано быть из того же заведения, что и склад.
 alter table public.stores
   add column department_id uuid references public.departments(id) on delete set null,
   add column department_scope text not null default 'unset',
@@ -27,24 +28,35 @@ create index stores_department_idx
 create or replace function private.stores_department_guard() returns trigger
 language plpgsql set search_path = public, pg_catalog as $$
 begin
-  if new.department_id is not null and not exists (
-    select 1 from public.departments d
-      join public.venues v on v.id = d.venue_id
-     where d.id = new.department_id and v.account_id = new.account_id
-  ) then
-    raise exception 'Подразделение относится к другому аккаунту';
+  -- Заведение склада сняли (в т.ч. удалили) или сменили: прежняя привязка к
+  -- подразделению того заведения теряет смысл. Если подразделение в этой же
+  -- операции задано заново, оставляем его на проверку ниже.
+  if tg_op = 'UPDATE' and old.department_id is not null
+     and new.department_id is not distinct from old.department_id
+     and new.local_venue_id is distinct from old.local_venue_id then
+    new.department_id := null;
   end if;
-  -- Подразделение пропало (удалено), а scope остался прежним -> «не задано».
+  -- Подразделение пропало (удалено или сброшено выше), а scope остался
+  -- 'department' -> «не задано».
   if tg_op = 'UPDATE' and old.department_id is not null and new.department_id is null
      and new.department_scope = 'department' and old.department_scope = 'department' then
     new.department_scope := 'unset';
+  end if;
+  if new.department_id is not null then
+    if new.local_venue_id is null then
+      raise exception 'Склад не привязан к заведению: подразделение можно выбрать только после привязки';
+    end if;
+    if not exists (select 1 from public.departments d
+                    where d.id = new.department_id and d.venue_id = new.local_venue_id) then
+      raise exception 'Подразделение относится к другому заведению, не к заведению склада';
+    end if;
   end if;
   return new;
 end;
 $$;
 revoke all on function private.stores_department_guard() from public, anon, authenticated, service_role;
 create trigger stores_department_guard
-  before insert or update of department_id, department_scope on public.stores
+  before insert or update on public.stores
   for each row execute function private.stores_department_guard();
 
 -- История: кто, когда и как менял привязку. Название подразделения хранится
@@ -76,7 +88,7 @@ create policy store_department_history_read on public.store_department_history
          and (select public.has_permission('inventory.view_results')));
 
 -- Пишет любое изменение привязки, включая обнуление при удалении подразделения
--- (тогда changed_by пуст, а название удалённого подразделения уже недоступно).
+-- и сброс при смене заведения склада (при удалении заведения changed_by пуст).
 create or replace function private.store_department_history_log() returns trigger
 language plpgsql security definer set search_path = public, pg_catalog as $$
 begin
@@ -85,7 +97,12 @@ begin
     new_scope, new_department_id, new_department_name, changed_by)
   values (
     new.account_id, new.id, old.department_scope, old.department_id,
-    (select name from public.departments where id = old.department_id),
+    -- Подразделение могло быть удалено (FK обнулил привязку): тогда берём имя,
+    -- записанное при привязке.
+    coalesce((select name from public.departments where id = old.department_id),
+             (select h.new_department_name from public.store_department_history h
+               where h.store_id = new.id and h.new_department_id = old.department_id
+               order by h.changed_at desc, h.id limit 1)),
     new.department_scope, new.department_id,
     (select name from public.departments where id = new.department_id),
     (select auth.uid()));
@@ -94,7 +111,7 @@ end;
 $$;
 revoke all on function private.store_department_history_log() from public, anon, authenticated, service_role;
 create trigger store_department_history_log
-  after update of department_id, department_scope on public.stores
+  after update on public.stores
   for each row
   when (old.department_scope is distinct from new.department_scope
         or old.department_id is distinct from new.department_id)

@@ -9,14 +9,16 @@ declare
   v uuid := 'dddddddd-0000-0000-0000-000000000001';
   s uuid; s2 uuid;
   d uuid; d2 uuid; foreign_dept uuid; foreign_acc uuid; foreign_venue uuid;
-  n integer;
+  v2 uuid; d_other uuid; s3 uuid; n integer;
 begin
   insert into public.departments(name, venue_id) values ('Кальяны QA', v) returning id into d;
   insert into public.departments(name, venue_id) values ('Бар QA', v) returning id into d2;
   insert into public.accounts(name, owner_id) values ('Чужой QA', 'bbbbbbbb-0000-0000-0000-000000000002') returning id into foreign_acc;
   insert into public.venues(account_id, name) values (foreign_acc, 'Чужое заведение QA') returning id into foreign_venue;
   insert into public.departments(name, venue_id) values ('Чужое QA', foreign_venue) returning id into foreign_dept;
-  insert into public.stores(account_id, external_id, title) values (a, 'qa-sdb-1', 'Кальяны Зал QA') returning id into s;
+  insert into public.venues(account_id, name) values (a, 'Второе заведение QA') returning id into v2;
+  insert into public.departments(name, venue_id) values ('Другое заведение QA', v2) returning id into d_other;
+  insert into public.stores(account_id, external_id, title, local_venue_id) values (a, 'qa-sdb-1', 'Кальяны Зал QA', v) returning id into s;
   insert into public.stores(account_id, external_id, title) values (a, 'qa-sdb-2', 'Бар QA') returning id into s2;
 
   -- По умолчанию склад «не задан».
@@ -42,8 +44,48 @@ begin
     raise exception 'FAIL 3: foreign-account department accepted';
   exception when raise_exception then
     if sqlerrm like 'FAIL%' then raise; end if;
-    if sqlerrm not like 'Подразделение относится к другому аккаунту%' then raise; end if;
+    if sqlerrm not like 'Подразделение относится к другому заведению%' then raise; end if;
   end;
+
+  -- 3b. Подразделение другого заведения того же аккаунта отклоняется.
+  begin
+    update public.stores set department_scope = 'department', department_id = d_other where id = s;
+    raise exception 'FAIL 3b: other-venue department accepted';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' then raise; end if;
+    if sqlerrm not like 'Подразделение относится к другому заведению%' then raise; end if;
+  end;
+
+  -- 3c. Склад без заведения не принимает подразделение.
+  begin
+    update public.stores set department_scope = 'department', department_id = d where id = s2;
+    raise exception 'FAIL 3c: department on venue-less store accepted';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' then raise; end if;
+    if sqlerrm not like 'Склад не привязан к заведению%' then raise; end if;
+  end;
+
+  -- 7. Заведение склада обнулено -> подразделение и scope сброшены.
+  update public.stores set local_venue_id = v where id = s2;
+  update public.stores set department_scope = 'department', department_id = d2 where id = s2;
+  update public.stores set local_venue_id = null where id = s2;
+  if not exists (select 1 from public.stores where id = s2 and department_scope = 'unset' and department_id is null) then
+    raise exception 'FAIL 7: venue nulled, department kept';
+  end if;
+
+  -- 8. Заведение склада сменено на другое -> подразделение и scope сброшены.
+  update public.stores set local_venue_id = v, department_scope = 'department', department_id = d2 where id = s2;
+  update public.stores set local_venue_id = v2 where id = s2;
+  if not exists (select 1 from public.stores where id = s2 and department_scope = 'unset' and department_id is null and local_venue_id = v2) then
+    raise exception 'FAIL 8: venue changed, department kept';
+  end if;
+  -- 8b. Удаление заведения (FK set null) тоже сбрасывает привязку.
+  insert into public.stores(account_id, external_id, title, local_venue_id) values (a, 'qa-sdb-3', 'Склад v2 QA', v2) returning id into s3;
+  update public.stores set department_scope = 'department', department_id = d_other where id = s3;
+  delete from public.venues where id = v2;
+  if not exists (select 1 from public.stores where id = s3 and department_scope = 'unset' and department_id is null and local_venue_id is null) then
+    raise exception 'FAIL 8b: venue deleted, department kept';
+  end if;
 
   perform set_config('test.sdb_store', s::text, true);
   perform set_config('test.sdb_store2', s2::text, true);
@@ -124,6 +166,12 @@ begin
   if not exists (select 1 from public.store_department_history
                   where store_id = s and old_scope = 'department' and old_department_id = d and new_scope = 'unset') then
     raise exception 'FAIL 6: department delete not recorded in history';
+  end if;
+  -- История читаема после удаления: имя подразделения сохранено.
+  if not exists (select 1 from public.store_department_history
+                  where store_id = s and old_department_id = d and new_scope = 'unset'
+                    and old_department_name = 'Кальяны QA') then
+    raise exception 'FAIL 9: deleted department name lost from history';
   end if;
 end $test$;
 rollback;

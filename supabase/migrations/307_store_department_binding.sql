@@ -71,14 +71,14 @@ create table public.store_department_history (
   new_scope text not null,
   new_department_id uuid,
   new_department_name text,
-  changed_by uuid references public.profiles(id) on delete set null,
+  -- Без FK: актор - best-effort. Отсутствие профиля не должно откатывать
+  -- изменение склада, которое история только фиксирует.
+  changed_by uuid,
   changed_at timestamptz not null default now(),
   foreign key (account_id, store_id) references public.stores(account_id, id) on delete cascade
 );
 create index store_department_history_store_idx
   on public.store_department_history (account_id, store_id, changed_at desc);
-create index store_department_history_actor_idx
-  on public.store_department_history (changed_by) where changed_by is not null;
 alter table public.store_department_history enable row level security;
 revoke all on public.store_department_history from public, anon, authenticated, service_role;
 grant select on public.store_department_history to authenticated, service_role;
@@ -116,6 +116,25 @@ create trigger store_department_history_log
   when (old.department_scope is distinct from new.department_scope
         or old.department_id is distinct from new.department_id)
   execute function private.store_department_history_log();
+
+-- Заведение подразделения менять нельзя, пока к нему привязан склад: иначе склад
+-- заведения A молча оказался бы привязан к подразделению заведения B, и недостачу
+-- платили бы чужие люди. Смена плательщика должна быть осознанным действием
+-- (отвязать склад, видно в истории), поэтому привязки не сбрасываем, а отказываем.
+create or replace function private.departments_venue_move_guard() returns trigger
+language plpgsql set search_path = public, pg_catalog as $$
+begin
+  if exists (select 1 from public.stores where department_id = old.id) then
+    raise exception 'Подразделение нельзя перенести в другое заведение, пока к нему привязаны склады: сначала отвяжите склады';
+  end if;
+  return new;
+end;
+$$;
+revoke all on function private.departments_venue_move_guard() from public, anon, authenticated, service_role;
+create trigger departments_venue_move_guard
+  before update of venue_id on public.departments
+  for each row when (old.venue_id is distinct from new.venue_id)
+  execute function private.departments_venue_move_guard();
 
 -- Единственный путь для пользователя: authenticated не имеет UPDATE на stores.
 -- Возвращает id склада; повтор с теми же значениями ничего не меняет и не пишет.

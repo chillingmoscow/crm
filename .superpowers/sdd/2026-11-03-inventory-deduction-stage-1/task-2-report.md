@@ -30,3 +30,10 @@
 - Тест: добавлены 3b (подразделение другого заведения), 3c (склад без заведения), 7 (venue обнулён), 8 (venue сменён), 8b (заведение удалено), 9 (имя в истории).
 - Данные: существующие склады все `unset`, конфликтов нет.
 - Команда: `pnpm db:reset` затем `psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/store_department_binding.sql` -> `store_department_binding: OK`, ошибок нет; advisors по новым объектам чисты.
+
+## Fix round 2
+- Finding 1: BEFORE UPDATE OF venue_id триггер на `departments` (`private.departments_venue_move_guard`) отклоняет перенос в другое заведение, пока есть привязанные склады («Подразделение нельзя перенести в другое заведение, пока к нему привязаны склады: сначала отвяжите склады»). Привязки не сбрасываются молча. Проверил: в app (src) подразделения между заведениями не переносятся (только старые миграции 166/169), поток не ломается.
+- Finding 2: в тестах 5c, 5d, 5e, 5g проверяются тексты ошибок.
+- Finding 3: у `store_department_history.changed_by` снят FK (и его индекс); актор best-effort.
+- Новый тест 10/10b: привязанное подразделение не переносится (venue не изменился), свободное переносится, после отвязки склада перенос разрешён.
+- Команда: `pnpm db:reset`, затем `psql "$DB_URL" -v ON_ERROR_STOP=1 -f supabase/tests/store_department_binding.sql` -> `store_department_binding: OK`; advisors (warn) по новым объектам пусты.

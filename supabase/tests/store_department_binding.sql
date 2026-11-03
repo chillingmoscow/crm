@@ -129,11 +129,11 @@ begin
 
   -- Некорректные комбинации и чужое подразделение через RPC.
   begin perform public.set_store_department(s, 'department', null); raise exception 'FAIL 5c';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Укажите подразделение%' then raise; end if; end;
   begin perform public.set_store_department(s, 'shared', d); raise exception 'FAIL 5d';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Укажите подразделение%' then raise; end if; end;
   begin perform public.set_store_department(s, 'department', current_setting('test.sdb_foreign_dept')::uuid); raise exception 'FAIL 5e';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение относится к другому заведению%' then raise; end if; end;
 
   -- Прямая запись и чужая история недоступны.
   if has_table_privilege('authenticated', 'public.store_department_history', 'INSERT')
@@ -151,9 +151,36 @@ begin
   begin
     perform public.set_store_department(current_setting('test.sdb_store')::uuid, 'shared', null);
     raise exception 'FAIL 5g: waiter changed binding';
-  exception when raise_exception then if sqlerrm like 'FAIL%' then raise; end if; end;
+  exception when raise_exception then if sqlerrm like 'FAIL%' or sqlerrm not like 'Недостаточно прав для привязки%' then raise; end if; end;
 end $test$;
 reset role;
+
+-- 10. Перенос подразделения в другое заведение: запрещён, пока к нему привязан склад.
+do $test$
+declare s uuid := current_setting('test.sdb_store2')::uuid; d2 uuid := current_setting('test.sdb_dept2')::uuid;
+  v2 uuid; free_dept uuid;
+begin
+  insert into public.venues(account_id, name) values ('cccccccc-0000-0000-0000-000000000001', 'Заведение для переноса QA') returning id into v2;
+  update public.stores set local_venue_id = 'dddddddd-0000-0000-0000-000000000001', department_scope = 'department', department_id = d2 where id = s;
+  begin
+    update public.departments set venue_id = v2 where id = d2;
+    raise exception 'FAIL 10: bound department moved to another venue';
+  exception when raise_exception then
+    if sqlerrm like 'FAIL%' or sqlerrm not like 'Подразделение нельзя перенести%' then raise; end if;
+  end;
+  if (select venue_id from public.departments where id = d2) <> 'dddddddd-0000-0000-0000-000000000001' then
+    raise exception 'FAIL 10: venue changed despite rejection';
+  end if;
+  -- Подразделение без привязанных складов переносится свободно.
+  insert into public.departments(name, venue_id) values ('Свободное QA', 'dddddddd-0000-0000-0000-000000000001') returning id into free_dept;
+  update public.departments set venue_id = v2 where id = free_dept;
+  if (select venue_id from public.departments where id = free_dept) <> v2 then
+    raise exception 'FAIL 10b: unbound department could not move';
+  end if;
+  -- Отвязали склад -> перенос разрешён.
+  update public.stores set department_scope = 'unset', department_id = null where id = s;
+  update public.departments set venue_id = v2 where id = d2;
+end $test$;
 
 -- 6. Удаление подразделения переводит склад в 'unset', висячего id нет.
 do $test$

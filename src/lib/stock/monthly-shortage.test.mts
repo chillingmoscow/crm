@@ -209,6 +209,7 @@ test("выключенные правила важнее непривязанн�
   assert.equal(r.state, "disabled");
   assert.equal(r.company, 1000);
   assert.equal(r.employees, 0);
+  assert.deepEqual(r.unresolved, ["act-1"]);
 });
 
 test("пустой ключ пула считается отсутствующим", () => {
@@ -232,6 +233,18 @@ test("unresolved возвращается копией", () => {
   const r = allocateMonthlyShortage(input);
   r.unresolved.push("y");
   assert.deepEqual(input.unresolved, ["x"]);
+
+  // Возврат disabled и возврат ready тоже отдают копию.
+  for (const enabled of [false, true]) {
+    const src: string[] = enabled ? [] : ["x"];
+    const out = allocateMonthlyShortage({
+      ...input,
+      config: rules({ enabled }),
+      unresolved: src,
+    });
+    out.unresolved.push("y");
+    assert.deepEqual(src, enabled ? [] : ["x"]);
+  }
 });
 
 test("порядок пулов не зависит от порядка источников", () => {

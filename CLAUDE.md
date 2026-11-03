@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **DaData**: юрлица и адреса по ИНН — **только серверно**, ключи `DADATA_API_KEY`/`DADATA_SECRET_KEY` (см. memory `dadata_policy.md`).
 - **Менеджер пакетов**: pnpm 9 (lockfile `pnpm-lock.yaml`, CI использует `pnpm/action-setup@v4`).
 
-Тесты — `node:test` (нативный test runner Node 20), файлы рядом с кодом как `*.test.mts`. Vitest/Jest нет.
+Тесты — `node:test` (нативный test runner Node 22), файлы рядом с кодом как `*.test.mts`. Vitest/Jest нет.
 
 ## Команды
 

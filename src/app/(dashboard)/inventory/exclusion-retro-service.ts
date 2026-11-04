@@ -15,7 +15,13 @@ import {
   type ExclusionRuleRow,
   type GroupNode,
 } from "@/lib/inventory/exclusion-rules";
-import { planApply, planRemove, type RetroLine, type RetroPatch } from "@/lib/inventory/exclusion-retro";
+import {
+  planApply,
+  planRemove,
+  settledFinalizedLines,
+  type RetroLine,
+  type RetroPatch,
+} from "@/lib/inventory/exclusion-retro";
 import { businessMonthOf } from "@/lib/stock/monthly-snapshot";
 import { monthLabel } from "@/lib/stock/deduction-posting";
 import { isDeductionAutopostEnabled } from "@/lib/stock/deduction-flag";
@@ -24,6 +30,9 @@ import { autoRecalculateInventoryDeduction } from "./deduction-service";
 
 /** Причина на строке, если у правила своей нет. */
 export const DEFAULT_RULE_EXCLUDE_REASON = "Исключать всегда";
+
+/** Часовой пояс заведения по умолчанию (как у колонки venues.timezone). */
+const DEFAULT_VENUE_TIMEZONE = "Europe/Moscow";
 
 const PAGE_SIZE = 1000;
 const IN_CHUNK_SIZE = 300;
@@ -39,6 +48,7 @@ type ItemRow = {
   exclusion_rule_id: string | null;
   exclusion_rule_dismissed_at: string | null;
   finalized_at: string | null;
+  finalized_excluded_from_totals: boolean | null;
 };
 
 type DocumentRow = {
@@ -60,7 +70,7 @@ export type RetroResult = {
 };
 
 const ITEM_COLUMNS =
-  "id, document_id, ingredient_id, external_product_id, excluded_from_totals, exclusion_rule_id, exclusion_rule_dismissed_at, finalized_at";
+  "id, document_id, ingredient_id, external_product_id, excluded_from_totals, exclusion_rule_id, exclusion_rule_dismissed_at, finalized_at, finalized_excluded_from_totals";
 
 function chunks<T>(rows: T[], size = IN_CHUNK_SIZE): T[][] {
   const out: T[][] = [];
@@ -185,8 +195,8 @@ async function resolveMonths(admin: LooseDb, accountId: string, documents: Map<s
   const locked = new Set<string>();
   for (const d of documents.values()) {
     if (!d.venue_id || !d.invoice_date) continue;
-    const tz = timezoneByVenue.get(d.venue_id);
-    if (!tz) continue;
+    // Пояс не задан — берём пояс по умолчанию, а не пропускаем проверку фиксации.
+    const tz = timezoneByVenue.get(d.venue_id) || DEFAULT_VENUE_TIMEZONE;
     let month: string;
     try {
       month = `${businessMonthOf(d.invoice_date, tz)}-01`;
@@ -232,8 +242,10 @@ async function writePatches(input: {
   patches: RetroPatch[];
   exclude: boolean;
   now: string;
-}) {
+}): Promise<RetroPatch[]> {
   const { admin, accountId, rule, exclude } = input;
+  const byId = new Map(input.patches.map((p) => [p.id, p]));
+  const written: RetroPatch[] = [];
   for (const finalized of [false, true]) {
     const ids = input.patches.filter((p) => p.finalized === finalized).map((p) => p.id);
     if (ids.length === 0) continue;
@@ -256,7 +268,11 @@ async function writePatches(input: {
     // Утверждённый снимок подведённой строки меняется вместе с живым полем.
     if (finalized) fields.finalized_excluded_from_totals = exclude;
     for (const part of chunks(ids)) {
-      let query = admin.from("document_items").update(fields).eq("account_id", accountId).in("id", part);
+      let query = admin
+        .from<Array<{ id: string }>>("document_items")
+        .update(fields)
+        .eq("account_id", accountId)
+        .in("id", part);
       // Повторная проверка в самом UPDATE: человек мог отказаться от правила
       // или исключить строку вручную, пока мы читали.
       query = exclude
@@ -264,10 +280,16 @@ async function writePatches(input: {
             .is("exclusion_rule_dismissed_at", null)
             .or("excluded_from_totals.eq.false,exclusion_rule_id.not.is.null")
         : query.eq("exclusion_rule_id", rule.id);
-      const { error } = await query;
+      // Считаем только реально изменённые строки: проверка выше могла часть отсеять.
+      const { data, error } = await query.select("id");
       if (error) throw new Error(error.message);
+      for (const row of data ?? []) {
+        const patch = byId.get(row.id);
+        if (patch) written.push(patch);
+      }
     }
   }
+  return written;
 }
 
 /**
@@ -348,10 +370,11 @@ export async function applyExclusionRuleRetro(input: {
   const documents = await loadDocuments(admin, accountId, [...new Set(items.map((i) => i.document_id))]);
   items = items.filter((i) => documents.has(i.document_id));
   const { monthByDocument, locked } = await resolveMonths(admin, accountId, documents);
-  const inResort =
-    input.mode === "apply"
-      ? await loadActiveResortItemIds(admin, accountId, [...documents.keys()].filter((id) => !locked.has(id)))
-      : new Set<string>();
+  const inResort = await loadActiveResortItemIds(
+    admin,
+    accountId,
+    [...documents.keys()].filter((id) => !locked.has(id)),
+  );
 
   const lines: RetroLine[] = items.map((i) => ({
     id: i.id,
@@ -361,15 +384,24 @@ export async function applyExclusionRuleRetro(input: {
     dismissedAt: i.exclusion_rule_dismissed_at,
     inActiveResort: inResort.has(i.id),
     finalized: i.finalized_at != null,
+    finalizedExcluded: i.finalized_excluded_from_totals,
   }));
   const patches = input.mode === "apply" ? planApply(rule.id, lines, locked) : planRemove(rule.id, lines, locked);
 
   const now = new Date().toISOString();
-  await writePatches({ admin, accountId, rule, userId: input.userId, patches, exclude: input.mode === "apply", now });
+  const written = await writePatches({
+    admin,
+    accountId,
+    rule,
+    userId: input.userId,
+    patches,
+    exclude: input.mode === "apply",
+    now,
+  });
 
-  // Журнал: одно событие на акт.
+  // Журнал: одно событие на акт, по реально изменённым строкам.
   const linesByDocument = new Map<string, number>();
-  for (const p of patches) linesByDocument.set(p.documentId, (linesByDocument.get(p.documentId) ?? 0) + 1);
+  for (const p of written) linesByDocument.set(p.documentId, (linesByDocument.get(p.documentId) ?? 0) + 1);
   const skip = new Set(input.skipEventDocumentIds ?? []);
   const events = [...linesByDocument]
     .filter(([documentId]) => !skip.has(documentId))
@@ -391,24 +423,30 @@ export async function applyExclusionRuleRetro(input: {
     if (error) throw new Error(error.message);
   }
 
-  if (input.mode === "apply") {
-    const { error } = await admin
-      .from("inventory_result_exclusion_rules")
-      .update({ metadata: { ...(rule.metadata ?? {}), retro_applied_at: now } })
-      .eq("id", rule.id)
-      .eq("account_id", accountId);
-    if (error) throw new Error(error.message);
-  }
+  // Метка успешного завершения: без неё правило считается не применённым
+  // (или не снятым) до конца, и повторный запуск дочищает хвосты.
+  const marker = input.mode === "apply" ? "retro_applied_at" : "retro_removed_at";
+  const { error: markerError } = await admin
+    .from("inventory_result_exclusion_rules")
+    .update({ metadata: { ...(rule.metadata ?? {}), [marker]: now } })
+    .eq("id", rule.id)
+    .eq("account_id", accountId);
+  if (markerError) throw new Error(markerError.message);
 
   const documentIds = [...linesByDocument.keys()];
   for (const documentId of documentIds) revalidateInventoryResultPages(documentId);
 
   // Удержание зависит только от утверждённого снимка — пересчитываем месяцы,
-  // где он изменился.
+  // где он изменился. Если прошлое применение оборвалось (метки нет), снимок
+  // части строк мог измениться без пересчёта — их месяцы тоже пересчитываем
+  // (пересчёт идемпотентен, лишний ничего не портит).
+  const monthDocumentIds = written.filter((p) => p.snapshotChanged).map((p) => p.documentId);
+  if (input.mode === "apply" && !rule.metadata?.retro_applied_at) {
+    for (const line of settledFinalizedLines(rule.id, lines, locked)) monthDocumentIds.push(line.documentId);
+  }
   const monthKeys = new Map<string, RetroMonth>();
-  for (const p of patches) {
-    if (!p.finalized) continue;
-    const m = monthByDocument.get(p.documentId);
+  for (const documentId of monthDocumentIds) {
+    const m = monthByDocument.get(documentId);
     if (m) monthKeys.set(`${m.venueId}|${m.month}`, m);
   }
   const months = [...monthKeys.values()];

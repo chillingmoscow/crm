@@ -23,10 +23,12 @@ import {
 import { applyExclusionRuleRetro, applyExclusionRulesRetro } from "../exclusion-retro-service";
 
 /**
- * Правило применяется к уже загруженным актам незафиксированных месяцев; сбой
- * здесь не отменяет само действие (правило создано или удалено) — пользователь
- * получает пояснение. Непрошедшее применение видно по отсутствию
- * metadata.retro_applied_at у правила.
+ * Правило применяется к уже загруженным актам незафиксированных месяцев (или
+ * снимается с них). Сбой здесь не отменяет само действие — правило уже создано
+ * или удалено, — поэтому ошибка не пробрасывается, а возвращается пояснением,
+ * которое показывается пользователю. Незавершённый проход видно по метке у
+ * правила: нет metadata.retro_applied_at (создание) или metadata.retro_removed_at
+ * (удаление) — по ней повторный запуск находит правило и дочищает строки.
  */
 async function runRetro(run: () => Promise<{ notice: string | null; documentIds: string[] }>, failure: string) {
   try {
@@ -247,7 +249,7 @@ export async function createInventoryResultExclusionRule(input: {
           mode: "apply",
           skipEventDocumentIds: [input.documentId],
         }),
-      "Позиция добавлена в автоисключения, но в прошлых актах правило не применено",
+      "В прошлых актах правило не применено",
     );
 
     revalidateInventoryResultPages(input.documentId);
@@ -330,7 +332,7 @@ export async function deleteInventoryResultExclusionRule(input: {
           mode: "remove",
           skipEventDocumentIds: [input.documentId],
         }),
-      "Автоисключение удалено, но позиции в актах не возвращены в итоги",
+      "В прошлых актах позиции не возвращены в итоги — удаление завершено не полностью",
     );
     const clearedDocumentIds = retro.documentIds;
     const clearedCurrentItem =

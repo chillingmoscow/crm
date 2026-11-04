@@ -10,7 +10,8 @@
  *   - решения человека сильнее правила: строку, исключённую вручную, и строку,
  *     на которой проверяющий отказался от правила
  *     (`exclusion_rule_dismissed_at`), правило не перезаписывает;
- *   - строку в активном пересорте не исключаем (сначала пересорт);
+ *   - строку в активном пересорте не трогаем ни при применении, ни при снятии
+ *     (сначала пересорт);
  *   - у подведённой строки меняется и снимок `finalized_excluded_from_totals`.
  *
  * Что строка подпадает именно под ЭТО правило (а не под более сильное другое),
@@ -28,9 +29,31 @@ export type RetroLine = {
   dismissedAt: string | null;
   inActiveResort: boolean;
   finalized: boolean;
+  /** Текущее значение утверждённого снимка (`finalized_excluded_from_totals`). */
+  finalizedExcluded: boolean | null;
 };
 
-export type RetroPatch = { id: string; documentId: string; exclude: boolean; finalized: boolean };
+/**
+ * `snapshotChanged` — меняется ли утверждённый снимок подведённой строки: только
+ * такие изменения влияют на удержание и требуют пересчёта месяца.
+ */
+export type RetroPatch = {
+  id: string;
+  documentId: string;
+  exclude: boolean;
+  finalized: boolean;
+  snapshotChanged: boolean;
+};
+
+function patchFor(line: RetroLine, exclude: boolean): RetroPatch {
+  return {
+    id: line.id,
+    documentId: line.documentId,
+    exclude,
+    finalized: line.finalized,
+    snapshotChanged: line.finalized && line.finalizedExcluded !== exclude,
+  };
+}
 
 export function planApply(
   ruleId: string,
@@ -44,12 +67,13 @@ export function planApply(
     if (line.inActiveResort) continue;
     // Исключена вручную — за строку отвечает человек.
     if (line.excluded && line.ruleId == null) continue;
-    // Уже исключена этим правилом — ничего не меняется.
-    if (line.excluded && line.ruleId === ruleId) continue;
-    // Иначе: строка в итогах или исключена более слабым правилом (например,
+    // Уже исключена этим правилом (и в снимке, если строка подведена) —
+    // ничего не меняется.
+    if (line.excluded && line.ruleId === ruleId && (!line.finalized || line.finalizedExcluded === true)) continue;
+    // Иначе: строка в итогах, исключена более слабым правилом (например,
     // правилом группы, а теперь появилось правило на сам товар) — происхождение
-    // переходит к этому правилу.
-    patches.push({ id: line.id, documentId: line.documentId, exclude: true, finalized: line.finalized });
+    // переходит к этому правилу, — или снимок подведённой строки отстал.
+    patches.push(patchFor(line, true));
   }
   return patches;
 }
@@ -60,6 +84,29 @@ export function planRemove(
   lockedDocumentIds: Set<string>,
 ): RetroPatch[] {
   return lines
-    .filter((line) => line.ruleId === ruleId && !lockedDocumentIds.has(line.documentId))
-    .map((line) => ({ id: line.id, documentId: line.documentId, exclude: false, finalized: line.finalized }));
+    .filter(
+      (line) => line.ruleId === ruleId && !lockedDocumentIds.has(line.documentId) && !line.inActiveResort,
+    )
+    .map((line) => patchFor(line, false));
+}
+
+/**
+ * Подведённые строки незафиксированных актов, где правило уже действует и в
+ * снимке. Если прошлое применение оборвалось (нет `metadata.retro_applied_at`),
+ * часть строк могла быть записана без пересчёта удержания — их месяцы нужно
+ * пересчитать, хотя patch по ним уже не нужен.
+ */
+export function settledFinalizedLines(
+  ruleId: string,
+  lines: RetroLine[],
+  lockedDocumentIds: Set<string>,
+): RetroLine[] {
+  return lines.filter(
+    (line) =>
+      line.ruleId === ruleId &&
+      line.excluded &&
+      line.finalized &&
+      line.finalizedExcluded === true &&
+      !lockedDocumentIds.has(line.documentId),
+  );
 }

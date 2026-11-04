@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -47,11 +47,57 @@ export function StoresClient({
 }) {
   // Выбор применяется сразу, без ожидания: запись быстрая, а раньше спиннер
   // висел до полной перерисовки страницы (router.refresh заново тянул все
-  // склады и подразделения). Источник правды после выбора — локальная копия;
-  // при ошибке записи строка откатывается к значению до выбора.
-  const [stores, setStores] = useState(initialStores);
-  const patchStore = (storeId: string, patch: Partial<StoreRow>) =>
-    setStores((current) => current.map((store) => (store.id === storeId ? { ...store, ...patch } : store)));
+  // склады и подразделения). Поверх серверного списка лежат два слоя правок:
+  //  - confirmed — уже записано в базу, но серверный список ещё старый;
+  //  - pending — последний выбор, ответ на который ещё не пришёл.
+  // Серверные действия одного клиента Next выполняет по очереди, поэтому
+  // ответы приходят в порядке выбора. Ошибка откатывает только свой выбор и
+  // только если после него склад не меняли: более новый выбор не затирается.
+  // Когда приходит свежий серверный список (синхронизация вызывает
+  // router.refresh), confirmed сбрасывается — база уже в нём; pending остаются.
+  type Layer = { confirmed: Partial<StoreRow>; pending: Partial<StoreRow> | null; seq: number };
+  const [layers, setLayers] = useState<Record<string, Layer>>({});
+  const [serverStores, setServerStores] = useState(initialStores);
+  if (serverStores !== initialStores) {
+    setServerStores(initialStores);
+    setLayers((current) => {
+      const next: Record<string, Layer> = {};
+      for (const [id, layer] of Object.entries(current)) {
+        if (layer.pending) next[id] = { ...layer, confirmed: {} };
+      }
+      return next;
+    });
+  }
+  const stores = initialStores.map((store) => {
+    const layer = layers[store.id];
+    return layer ? { ...store, ...layer.confirmed, ...(layer.pending ?? {}) } : store;
+  });
+  const seqRef = useRef(0);
+
+  const applyChange = async (
+    storeId: string,
+    patch: Partial<StoreRow>,
+    write: () => Promise<{ error?: string | null; notice?: string | null }>,
+  ) => {
+    const seq = ++seqRef.current;
+    setLayers((current) => {
+      const layer = current[storeId] ?? { confirmed: {}, pending: null, seq };
+      return { ...current, [storeId]: { ...layer, pending: { ...(layer.pending ?? {}), ...patch }, seq } };
+    });
+    const result = await write();
+    setLayers((current) => {
+      const layer = current[storeId];
+      if (!layer) return current;
+      const latest = layer.seq === seq;
+      const confirmed = result.error ? layer.confirmed : { ...layer.confirmed, ...patch };
+      return { ...current, [storeId]: { confirmed, pending: latest ? null : layer.pending, seq: layer.seq } };
+    });
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    if (result.notice) toast.message(result.notice);
+  };
 
   // Архивное заведение выбрать нельзя: резолвер привязки его тоже обходит
   // (src/lib/inventory/default-venue.ts), и предлагать то, что автоматика
@@ -109,43 +155,29 @@ export function StoresClient({
         ? "shared"
         : "unset";
 
-  const updateDepartment = async (store: StoreRow, value: string) => {
-    const before = { department_scope: store.department_scope, department_id: store.department_id };
+  const updateDepartment = (store: StoreRow, value: string) => {
     const input = value.startsWith("department:")
       ? { storeId: store.id, scope: "department" as const, departmentId: value.slice("department:".length) }
       : { storeId: store.id, scope: value === "shared" ? ("shared" as const) : ("unset" as const), departmentId: null };
-    patchStore(store.id, { department_scope: input.scope, department_id: input.departmentId });
-    const result = await updateInventoryStoreDepartment(input);
-    if (result.error) {
-      patchStore(store.id, before);
-      toast.error(result.error);
-      return;
-    }
-    if (result.notice) toast.message(result.notice);
+    return applyChange(store.id, { department_scope: input.scope, department_id: input.departmentId }, () =>
+      updateInventoryStoreDepartment(input),
+    );
   };
 
-  const updateVenue = async (store: StoreRow, venueId: string) => {
-    const before = {
-      local_venue_id: store.local_venue_id,
-      department_scope: store.department_scope,
-      department_id: store.department_id,
-    };
+  const updateVenue = (store: StoreRow, venueId: string) => {
     const nextVenueId = venueId || null;
     // Так же, как триггер в базе: смена или снятие заведения снимает привязку
     // к подразделению (оно принадлежит прежнему заведению), а «общий склад»
     // переживает смену заведения.
     const dropsDepartment = store.department_scope === "department" && nextVenueId !== store.local_venue_id;
-    patchStore(store.id, {
-      local_venue_id: nextVenueId,
-      ...(dropsDepartment ? { department_scope: "unset" as const, department_id: null } : {}),
-    });
-    const result = await updateInventoryStoreVenue({ storeId: store.id, venueId: nextVenueId });
-    if (result.error) {
-      patchStore(store.id, before);
-      toast.error(result.error);
-      return;
-    }
-    if (result.notice) toast.message(result.notice);
+    return applyChange(
+      store.id,
+      {
+        local_venue_id: nextVenueId,
+        ...(dropsDepartment ? { department_scope: "unset" as const, department_id: null } : {}),
+      },
+      () => updateInventoryStoreVenue({ storeId: store.id, venueId: nextVenueId }),
+    );
   };
 
   const selectClass =

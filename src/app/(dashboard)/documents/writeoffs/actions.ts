@@ -38,8 +38,6 @@ export type WriteoffData = {
   assignments: WriteoffPoolAssignment[];
   /** Имена для подписей; полный список для выбора - только у того, кто разносит. */
   targets: WriteoffPoolTargets;
-  /** Причины из правил удержаний: подсказка при разнесении, расчёт от них не зависит. */
-  reasonHints: string[];
   rules: WriteoffRules | null;
   origin: Record<string, unknown>;
   providerOrigin: string | null;
@@ -113,9 +111,9 @@ const toAssignment = (r: AssignmentRow): WriteoffPoolAssignment => ({
 });
 export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
   const s = await scope(expected);
-  const rows = <T,>(table: string, cols: string, order: string) =>
+  const rows = <T>(table: string, cols: string, order: string) =>
     pagedRows<T>(s, table, cols, order);
-  const [documents, archives, source, jobs, connection, marks, targets, rule] =
+  const [documents, archives, source, jobs, connection, marks, targets] =
     await Promise.all([
       rows<StoredWriteoff>(
         "stock_writeoff_documents",
@@ -151,22 +149,8 @@ export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
         "assigned_at",
       ),
       s.db.rpc("writeoff_pool_targets"),
-      s.db
-        .from<{ config: { writeoffReasons?: string[] } }>("stock_deduction_rules")
-        .select("config")
-        .eq("account_id", s.accountId)
-        .eq("venue_id", s.venueId)
-        .order("version", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
     ]);
-  if (
-    source.error ||
-    jobs.error ||
-    connection.error ||
-    targets.error ||
-    rule.error
-  )
+  if (source.error || jobs.error || connection.error || targets.error)
     throw new Error("Не удалось загрузить состояние списаний");
   const check = await s.db.rpc("get_active_venue_id");
   if (check.error || check.data !== s.venueId)
@@ -183,7 +167,6 @@ export async function loadWriteoffs(expected?: string): Promise<WriteoffData> {
       departments: [],
       employees: [],
     },
-    reasonHints: rule.data?.config.writeoffReasons ?? [],
     rules: source.data?.config ?? null,
     origin: source.data?.origin ?? {},
     providerOrigin:
@@ -250,7 +233,11 @@ export async function assignWriteoffPool(
   if (r.error) throw new Error(r.error.message);
   // Плательщик за акт меняет результат месяца. Выключено по умолчанию (INVENTORY_DEDUCTION_AUTOPOST);
   // сбой пересчёта пометку не отменяет - она уже записана.
-  const notice = await autoRecalculateInventoryDeduction({ kind: "writeoff", venueId, externalId });
+  const notice = await autoRecalculateInventoryDeduction({
+    kind: "writeoff",
+    venueId,
+    externalId,
+  });
   const mark = await s.db
     .from<AssignmentRow>("writeoff_pool_assignments")
     .select("venue_id,external_id,pool,department_id,employee_id")

@@ -20,6 +20,22 @@ import {
   writeInventoryResultEvent,
   writeInventoryResultEvents
 } from "../actions-shared";
+import { applyExclusionRuleRetro, applyExclusionRulesRetro } from "../exclusion-retro-service";
+
+/**
+ * Правило применяется к уже загруженным актам незафиксированных месяцев; сбой
+ * здесь не отменяет само действие (правило создано или удалено) — пользователь
+ * получает пояснение. Непрошедшее применение видно по отсутствию
+ * metadata.retro_applied_at у правила.
+ */
+async function runRetro(run: () => Promise<{ notice: string | null; documentIds: string[] }>, failure: string) {
+  try {
+    return await run();
+  } catch (error) {
+    console.error("[exclusions] ретроактивное применение правила не выполнено", error);
+    return { notice: `${failure}: ${actionErrorMessage(error, "ошибка")}.`, documentIds: [] as string[] };
+  }
+}
 
 export async function setInventoryResultItemExcluded(input: {
   documentId: string;
@@ -123,7 +139,7 @@ export async function createInventoryResultExclusionRule(input: {
   documentId: string;
   itemId: string;
   reason?: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string | null }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
@@ -179,6 +195,7 @@ export async function createInventoryResultExclusionRule(input: {
             product_name: item.product_name,
             reason,
             created_by: ctx.user.id,
+            metadata: { source: "act" },
           })
           .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
           .single();
@@ -216,8 +233,28 @@ export async function createInventoryResultExclusionRule(input: {
       },
     });
 
+    // Строку открытого акта правило исключило выше (это явное решение человека,
+    // поэтому и отказ от правила на ней снимается). Остальные акты
+    // незафиксированных месяцев — по общим правилам ретро-применения; журнал
+    // открытого акта уже записан.
+    const retro = await runRetro(
+      () =>
+        applyExclusionRuleRetro({
+          admin,
+          accountId: ctx.accountId!,
+          userId: ctx.user!.id,
+          ruleId: rule.id,
+          mode: "apply",
+          skipEventDocumentIds: [input.documentId],
+        }),
+      "Позиция добавлена в автоисключения, но в прошлых актах правило не применено",
+    );
+
     revalidateInventoryResultPages(input.documentId);
-    return { error: null };
+    return {
+      error: null,
+      notice: retro.notice ? `Позиция добавлена в автоисключения. ${retro.notice}` : null,
+    };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось создать автоисключение") };
   }
@@ -227,7 +264,7 @@ export async function deleteInventoryResultExclusionRule(input: {
   documentId: string;
   itemId: string;
   reason: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string | null }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
@@ -242,8 +279,8 @@ export async function deleteInventoryResultExclusionRule(input: {
     });
     const reason = normalizeReason(input.reason, "Укажите причину удаления автоисключения");
     const { data: item } = await admin
-      .from<InventoryResultItemRow>("document_items")
-      .select("id, document_id, account_id, ingredient_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
+      .from<InventoryResultItemRow & { exclusion_rule_id: string | null }>("document_items")
+      .select("id, document_id, account_id, ingredient_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals, exclusion_rule_id")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
       .eq("account_id", ctx.accountId)
@@ -276,34 +313,28 @@ export async function deleteInventoryResultExclusionRule(input: {
       .eq("account_id", ctx.accountId);
     if (ruleError) throw new Error(ruleError.message);
 
-    // Снимаем исключение со ВСЕХ строк, которые исключило это правило, а не
-    // только в открытом акте. Раньше в остальных актах позиция оставалась
-    // исключённой навсегда — и уже неотличимо от ручного решения, потому что
-    // правила, которое её исключило, больше нет.
-    const { data: clearedRows, error: itemError } = await admin
-      .from<Array<{ id: string; document_id: string }>>("document_items")
-      .update({
-        excluded_from_totals: false,
-        exclude_reason: null,
-        excluded_by: null,
-        excluded_at: null,
-        exclusion_rule_id: null,
-        exclusion_rule_dismissed_at: null,
-      })
-      .eq("account_id", ctx.accountId)
-      .eq("exclusion_rule_id", rule.id)
-      .select("id, document_id");
-    if (itemError) throw new Error(itemError.message);
-    const clearedDocumentIds = Array.from(
-      new Set((clearedRows ?? []).map((row) => row.document_id)),
-    );
-
+    // Снимаем исключение со строк, которые исключило это правило, во всех
+    // актах НЕЗАФИКСИРОВАННЫХ месяцев (и в утверждённом снимке подведённых):
+    // иначе позиция осталась бы исключённой навсегда — и уже неотличимо от
+    // ручного решения. Акты месяцев, зафиксированных в зарплате, не меняются.
     // Строку, исключённую ВРУЧНУЮ, удаление правила не трогает: её исключал
-    // человек, а не правило. Раньше здесь стоял безусловный UPDATE по текущей
-    // строке — он снимал и ручное решение тоже. Строки, которые исключило это
-    // правило, уже сняты запросом выше; легаси-строки без происхождения
-    // размечены бэкфиллом миграции 231.
-    const clearedCurrentItem = (clearedRows ?? []).some((row) => row.id === item.id);
+    // человек (легаси-строки без происхождения размечены бэкфиллом миграции
+    // 231). Журнал открытого акта пишется ниже — здесь его пропускаем.
+    const retro = await runRetro(
+      () =>
+        applyExclusionRuleRetro({
+          admin,
+          accountId: ctx.accountId!,
+          userId: ctx.user!.id,
+          ruleId: rule.id,
+          mode: "remove",
+          skipEventDocumentIds: [input.documentId],
+        }),
+      "Автоисключение удалено, но позиции в актах не возвращены в итоги",
+    );
+    const clearedDocumentIds = retro.documentIds;
+    const clearedCurrentItem =
+      item.exclusion_rule_id === rule.id && clearedDocumentIds.includes(input.documentId);
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
@@ -333,7 +364,7 @@ export async function deleteInventoryResultExclusionRule(input: {
       revalidateInventoryResultPages(documentId);
     }
     revalidatePath("/documents/inventory");
-    return { error: null };
+    return { error: null, notice: retro.notice ? `Автоисключение удалено. ${retro.notice}` : null };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось удалить автоисключение") };
   }
@@ -476,7 +507,7 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
   documentId: string;
   itemIds: string[];
   reason?: string;
-}): Promise<{ updated: number; skipped: number; error: string | null }> {
+}): Promise<{ updated: number; skipped: number; error: string | null; notice?: string | null }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, skipped: 0, error: ctx.error };
 
@@ -556,6 +587,7 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
             product_name: item.product_name,
             reason,
             created_by: ctx.user.id,
+            metadata: { source: "act" },
           })),
         )
         .select("id, ingredient_id, external_product_id");
@@ -615,8 +647,23 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
     });
     const updated = eligible.length;
 
+    // Правила — на остальные акты незафиксированных месяцев, с одним
+    // пересчётом удержания на все. Журнал открытого акта уже записан.
+    const retro = await runRetro(
+      () =>
+        applyExclusionRulesRetro({
+          admin,
+          accountId: ctx.accountId!,
+          userId: ctx.user!.id,
+          ruleIds: [...itemIdsByRule.keys()],
+          mode: "apply",
+          skipEventDocumentIds: [document.id],
+        }),
+      "В прошлых актах правила не применены",
+    );
+
     revalidateInventoryResultPages(document.id);
-    return { updated, skipped: itemIds.length - updated, error: null };
+    return { updated, skipped: itemIds.length - updated, error: null, notice: retro.notice };
   } catch (error) {
     return { updated: 0, skipped: 0, error: actionErrorMessage(error, "Не удалось добавить автоисключения") };
   }

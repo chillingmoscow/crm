@@ -618,7 +618,7 @@ export function InventoryResultsTable({
       // notice — когда экшен отработал не совсем так, как ожидал пользователь,
       // и это стоит сказать словами (например: акт уже был проведён в Quick
       // Resto, повторное проведение не потребовалось).
-      action: () => Promise<{ error: string | null; notice?: string }>,
+      action: () => Promise<{ error: string | null; notice?: string | null }>,
       success: string,
       onSuccess?: () => void,
     ) => {
@@ -640,7 +640,7 @@ export function InventoryResultsTable({
   // M пропущено» (вместо клиентского цикла, падавшего на первой ошибке).
   const runBulkAction = useCallback(
     (
-      action: () => Promise<{ updated: number; skipped?: number; error: string | null }>,
+      action: () => Promise<{ updated: number; skipped?: number; error: string | null; notice?: string | null }>,
       doneLabel: string,
     ) => {
       startTransition(async () => {
@@ -655,6 +655,8 @@ export function InventoryResultsTable({
         } else {
           toast.success(skipped > 0 ? `${doneLabel}: ${result.updated} · пропущено: ${skipped}` : `${doneLabel}: ${result.updated}`);
         }
+        // Пояснение о последствиях вне этого акта (например, пересчёт удержания).
+        if (result.notice) toast.message(result.notice);
         setSelectedIds(new Set());
       });
     },

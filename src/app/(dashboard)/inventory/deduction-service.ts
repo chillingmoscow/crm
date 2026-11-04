@@ -399,7 +399,9 @@ export type AutoDeductionTrigger =
   /** Склад привязали к другому заведению (или отвязали): пересчитать нужно и прежнее, и новое. */
   | { kind: "store-venue"; storeId: string; venueIds: Array<string | null> }
   /** Сохранена новая версия правил удержаний. */
-  | { kind: "rules"; venueId: string; validFrom: string };
+  | { kind: "rules"; venueId: string; validFrom: string }
+  /** Изменились подведённые акты этих месяцев (например, правило исключения применено задним числом). */
+  | { kind: "months"; items: Array<{ venueId: string; month: string }> };
 
 const PERMIT_SUFFIX = "Пересчитайте месяц вручную.";
 
@@ -475,6 +477,17 @@ async function runAutoRecalculation(trigger: AutoDeductionTrigger): Promise<stri
       // Версия с датой впереди ещё не действует: считать по ней нечего.
       if (trigger.validFrom > today) return null;
       return autoNotice(await runRecalculation(ctx, trigger.venueId, `${today.slice(0, 7)}-01`), trigger);
+    }
+
+    if (trigger.kind === "months") {
+      const unique = new Map<string, { venueId: string; month: string }>();
+      for (const item of trigger.items) unique.set(`${item.venueId}|${item.month}`, item);
+      const notices: string[] = [];
+      for (const item of [...unique.values()].sort((a, b) => a.month.localeCompare(b.month) || a.venueId.localeCompare(b.venueId))) {
+        const n = autoNotice(await runRecalculation(ctx, item.venueId, item.month), trigger);
+        if (n) notices.push(n);
+      }
+      return joinUniqueNotices(notices);
     }
 
     if (trigger.kind === "store-venue") {

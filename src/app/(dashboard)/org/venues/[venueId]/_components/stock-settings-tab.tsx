@@ -69,7 +69,7 @@ function RulesForm({
       "groups",
       config.groups.map((g) => (g.id === id ? { ...g, ...patch } : g)),
     );
-  const [lists, setLists] = useState({
+  const [lists] = useState({
     roleSpecificCategories: config.roleSpecificCategories.join("\n"),
     writeoffReasons: config.writeoffReasons.join("\n"),
   });

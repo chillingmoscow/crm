@@ -6,7 +6,11 @@
  * импорт применяет его только к актам, которые синхронизируются после создания
  * правила. Здесь решается, какие строки старых актов правило меняет сразу:
  *
- *   - акты зафиксированных месяцев (зарплатный период не черновик) не трогаем;
+ *   - акты защищённых месяцев не трогаем: зафиксированных в зарплате
+ *     (период не черновик) и более ранних, чем дата заведения «Исключения
+ *     меняют акты начиная с» (isProtectedMonth). Акт без заведения или без
+ *     даты тоже защищён: границу для него не проверить. Набор таких актов
+ *     собирает вызывающий код и передаёт как `lockedDocumentIds`;
  *   - решения человека сильнее правила: строку, исключённую вручную, и строку,
  *     на которой проверяющий отказался от правила
  *     (`exclusion_rule_dismissed_at`), правило не перезаписывает;
@@ -109,4 +113,42 @@ export function settledFinalizedLines(
       line.finalizedExcluded === true &&
       !lockedDocumentIds.has(line.documentId),
   );
+}
+
+/**
+ * Месяц акта (YYYY-MM-01) раньше границы заведения «Исключения меняют акты
+ * начиная с» (дата, берётся её месяц). Без границы (null) защиты нет.
+ */
+export function isProtectedMonth(month: string, boundary: string | null): boolean {
+  if (!boundary) return false;
+  return month.slice(0, 7) < boundary.slice(0, 7);
+}
+
+export type RetroRuleFailure = { ruleId: string; message: string };
+
+/**
+ * Несколько правил подряд: сбой одного не обрывает остальные. Акты и месяцы
+ * собираются только по успешно завершённым правилам; упавшие возвращаются
+ * списком (их метка завершения не ставится — они остаются неприменёнными, и
+ * повторный запуск их дочищает). Пересчёт удержания по собранным месяцам —
+ * у вызывающего, и он нужен ВСЕГДА, даже если часть правил упала: подведённые
+ * акты, изменённые успешными правилами, иначе остались бы без пересчёта.
+ */
+export async function runRulesIsolated<M extends { venueId: string; month: string }>(
+  ruleIds: string[],
+  run: (ruleId: string) => Promise<{ documentIds: string[]; months: M[] }>,
+): Promise<{ documentIds: string[]; months: M[]; failures: RetroRuleFailure[] }> {
+  const documentIds = new Set<string>();
+  const months = new Map<string, M>();
+  const failures: RetroRuleFailure[] = [];
+  for (const ruleId of new Set(ruleIds)) {
+    try {
+      const r = await run(ruleId);
+      for (const id of r.documentIds) documentIds.add(id);
+      for (const m of r.months) months.set(`${m.venueId}|${m.month}`, m);
+    } catch (error) {
+      failures.push({ ruleId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { documentIds: [...documentIds], months: [...months.values()], failures };
 }

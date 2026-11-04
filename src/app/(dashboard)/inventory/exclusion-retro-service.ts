@@ -16,8 +16,10 @@ import {
   type GroupNode,
 } from "@/lib/inventory/exclusion-rules";
 import {
+  isProtectedMonth,
   planApply,
   planRemove,
+  runRulesIsolated,
   settledFinalizedLines,
   type RetroLine,
   type RetroPatch,
@@ -67,6 +69,10 @@ export type RetroResult = {
   months: RetroMonth[];
   /** Пояснение про пересчёт удержания (или null). */
   notice: string | null;
+  /** Акты со строками правила, которые не менялись: защищённый месяц. */
+  lockedDocumentIds: string[];
+  /** Строки правила, которые не менялись: активный пересорт. */
+  resortItemIds: string[];
 };
 
 const ITEM_COLUMNS =
@@ -162,20 +168,24 @@ async function loadDocuments(admin: LooseDb, accountId: string, documentIds: str
 }
 
 /**
- * Бизнес-месяц каждого акта (YYYY-MM-01) и множество актов зафиксированных
- * месяцев: есть зарплатный период заведения акта за этот месяц не в статусе
- * черновика. Акт без заведения или без даты ни к какому месяцу не относится и
- * считается незафиксированным.
+ * Бизнес-месяц каждого акта (YYYY-MM-01) и множество защищённых актов, которые
+ * ретро-проход не меняет:
+ *   - месяц зафиксирован: есть зарплатный период заведения акта за этот месяц
+ *     не в статусе черновика;
+ *   - месяц раньше границы заведения «Исключения меняют акты начиная с»
+ *     (venues.inventory_exclusions_from);
+ *   - месяц не определить (нет заведения, нет даты, дата не читается,
+ *     заведение не найдено) — защищаем: ни фиксацию, ни границу не проверить.
  */
 async function resolveMonths(admin: LooseDb, accountId: string, documents: Map<string, DocumentRow>) {
   const venueIds = [...new Set([...documents.values()].map((d) => d.venue_id).filter((v): v is string => !!v))];
-  const timezoneByVenue = new Map<string, string | null>();
+  const venueById = new Map<string, { timezone: string | null; inventory_exclusions_from: string | null }>();
   const lockedKeys = new Set<string>();
   for (const part of chunks(venueIds)) {
     const [venues, periods] = await Promise.all([
       admin
-        .from<Array<{ id: string; timezone: string | null }>>("venues")
-        .select("id, timezone")
+        .from<Array<{ id: string; timezone: string | null; inventory_exclusions_from: string | null }>>("venues")
+        .select("id, timezone, inventory_exclusions_from")
         .eq("account_id", accountId)
         .in("id", part),
       admin
@@ -187,24 +197,31 @@ async function resolveMonths(admin: LooseDb, accountId: string, documents: Map<s
     ]);
     if (venues.error) throw new Error(venues.error.message);
     if (periods.error) throw new Error(periods.error.message);
-    for (const v of venues.data ?? []) timezoneByVenue.set(v.id, v.timezone);
+    for (const v of venues.data ?? []) venueById.set(v.id, v);
     for (const p of periods.data ?? []) lockedKeys.add(`${p.venue_id}|${p.month.slice(0, 7)}-01`);
   }
 
   const monthByDocument = new Map<string, RetroMonth>();
   const locked = new Set<string>();
   for (const d of documents.values()) {
-    if (!d.venue_id || !d.invoice_date) continue;
+    const venue = d.venue_id ? venueById.get(d.venue_id) : undefined;
+    if (!d.venue_id || !d.invoice_date || !venue) {
+      locked.add(d.id);
+      continue;
+    }
     // Пояс не задан — берём пояс по умолчанию, а не пропускаем проверку фиксации.
-    const tz = timezoneByVenue.get(d.venue_id) || DEFAULT_VENUE_TIMEZONE;
+    const tz = venue.timezone || DEFAULT_VENUE_TIMEZONE;
     let month: string;
     try {
       month = `${businessMonthOf(d.invoice_date, tz)}-01`;
     } catch {
-      continue; // Дата не читается — месяц не определить.
+      locked.add(d.id); // Месяц не определить — акт не трогаем.
+      continue;
     }
     monthByDocument.set(d.id, { venueId: d.venue_id, month });
-    if (lockedKeys.has(`${d.venue_id}|${month}`)) locked.add(d.id);
+    if (lockedKeys.has(`${d.venue_id}|${month}`) || isProtectedMonth(month, venue.inventory_exclusions_from)) {
+      locked.add(d.id);
+    }
   }
   return { monthByDocument, locked };
 }
@@ -306,9 +323,10 @@ export async function recalculateRetroMonths(months: RetroMonth[]): Promise<stri
 }
 
 /**
- * Применить правило ко всем актам незафиксированных месяцев (`apply`) или
- * снять его оттуда (`remove`). Ручные решения по строке не перезаписываются,
- * акты зафиксированных месяцев не меняются.
+ * Применить правило ко всем актам незащищённых месяцев (`apply`) или снять его
+ * оттуда (`remove`). Ручные решения по строке не перезаписываются, акты
+ * защищённых месяцев (зафиксированных в зарплате или раньше границы заведения,
+ * см. resolveMonths) не меняются.
  *
  * `skipEventDocumentIds` — акты, журнал которых ведёт вызывающий (действие в
  * открытом акте пишет своё событие; второе было бы дублем).
@@ -325,7 +343,14 @@ export async function applyExclusionRuleRetro(input: {
   recalculate?: boolean;
 }): Promise<RetroResult> {
   const { admin, accountId } = input;
-  const empty: RetroResult = { touchedDocuments: 0, documentIds: [], months: [], notice: null };
+  const empty: RetroResult = {
+    touchedDocuments: 0,
+    documentIds: [],
+    months: [],
+    notice: null,
+    lockedDocumentIds: [],
+    resortItemIds: [],
+  };
 
   const { data: rule, error: ruleError } = await admin
     .from<RuleRow>("inventory_result_exclusion_rules")
@@ -451,10 +476,22 @@ export async function applyExclusionRuleRetro(input: {
   }
   const months = [...monthKeys.values()];
   const notice = input.recalculate === false ? null : await recalculateRetroMonths(months);
-  return { touchedDocuments: documentIds.length, documentIds, months, notice };
+  return {
+    touchedDocuments: documentIds.length,
+    documentIds,
+    months,
+    notice,
+    lockedDocumentIds: [...new Set(items.map((i) => i.document_id).filter((id) => locked.has(id)))],
+    resortItemIds: lines.filter((l) => l.inActiveResort).map((l) => l.id),
+  };
 }
 
-/** Несколько правил подряд с одним пересчётом удержания в конце. */
+/**
+ * Несколько правил подряд с одним пересчётом удержания в конце. Сбой одного
+ * правила не обрывает остальные и не отменяет пересчёт месяцев, изменённых
+ * успешными правилами; упавшие правила остаются неприменёнными (без метки), а
+ * их ошибки попадают в пояснение.
+ */
 export async function applyExclusionRulesRetro(input: {
   admin: LooseDb;
   accountId: string;
@@ -462,19 +499,30 @@ export async function applyExclusionRulesRetro(input: {
   ruleIds: string[];
   mode: "apply" | "remove";
   skipEventDocumentIds?: string[];
-}): Promise<RetroResult> {
-  const documentIds = new Set<string>();
-  const months = new Map<string, RetroMonth>();
-  for (const ruleId of new Set(input.ruleIds)) {
+}): Promise<RetroResult & { failedRuleIds: string[] }> {
+  const lockedDocumentIds = new Set<string>();
+  const resortItemIds = new Set<string>();
+  const { documentIds, months, failures } = await runRulesIsolated(input.ruleIds, async (ruleId) => {
     const r = await applyExclusionRuleRetro({ ...input, ruleId, recalculate: false });
-    for (const id of r.documentIds) documentIds.add(id);
-    for (const m of r.months) months.set(`${m.venueId}|${m.month}`, m);
+    for (const id of r.lockedDocumentIds) lockedDocumentIds.add(id);
+    for (const id of r.resortItemIds) resortItemIds.add(id);
+    return r;
+  });
+  for (const f of failures) {
+    console.error(`[exclusion-retro] правило ${f.ruleId} не обработано`, f.message);
   }
-  const monthList = [...months.values()];
+  const recalcNotice = await recalculateRetroMonths(months);
+  const failureNotice =
+    failures.length > 0
+      ? `${input.mode === "apply" ? "Не применены к прошлым актам" : "Не сняты в прошлых актах"} правила (${failures.length}): ${[...new Set(failures.map((f) => f.message))].join("; ")}.${input.mode === "apply" ? " Они остались неприменёнными — примените их ещё раз в списке исключений заведения." : " Повторите позже."}`
+      : null;
   return {
-    touchedDocuments: documentIds.size,
-    documentIds: [...documentIds],
-    months: monthList,
-    notice: await recalculateRetroMonths(monthList),
+    touchedDocuments: documentIds.length,
+    documentIds,
+    months,
+    notice: [failureNotice, recalcNotice].filter(Boolean).join(" ") || null,
+    lockedDocumentIds: [...lockedDocumentIds],
+    resortItemIds: [...resortItemIds],
+    failedRuleIds: failures.map((f) => f.ruleId),
   };
 }

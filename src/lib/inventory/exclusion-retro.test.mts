@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planApply, planRemove, settledFinalizedLines, type RetroLine } from "./exclusion-retro.ts";
+import {
+  isProtectedMonth,
+  planApply,
+  planRemove,
+  runRulesIsolated,
+  settledFinalizedLines,
+  type RetroLine,
+} from "./exclusion-retro.ts";
 
 const RULE = "rule-1";
 
@@ -108,4 +115,50 @@ test("settled finalized lines: excluded by this rule in snapshot, unlocked only"
     settledFinalizedLines(RULE, lines, new Set(["locked-doc"])).map((l) => l.id),
     ["settled"],
   );
+});
+
+test("protected month: before the venue boundary", () => {
+  assert.equal(isProtectedMonth("2026-09-01", "2026-10-01"), true);
+});
+
+test("protected month: the boundary month itself is not protected", () => {
+  assert.equal(isProtectedMonth("2026-10-01", "2026-10-01"), false);
+  assert.equal(isProtectedMonth("2026-10-01", "2026-10-15"), false);
+});
+
+test("protected month: later month is not protected", () => {
+  assert.equal(isProtectedMonth("2026-11-01", "2026-10-01"), false);
+});
+
+test("protected month: no boundary means no protection", () => {
+  assert.equal(isProtectedMonth("2020-01-01", null), false);
+});
+
+test("isolated rules: a failing rule does not drop months of the others", async () => {
+  const calls: string[] = [];
+  const result = await runRulesIsolated(["r1", "r2", "r3", "r1"], async (id) => {
+    calls.push(id);
+    if (id === "r2") throw new Error("boom");
+    return {
+      documentIds: [`doc-${id}`],
+      months: [{ venueId: "v", month: id === "r1" ? "2026-10-01" : "2026-11-01" }],
+    };
+  });
+  assert.deepEqual(calls, ["r1", "r2", "r3"]);
+  assert.deepEqual(result.documentIds, ["doc-r1", "doc-r3"]);
+  assert.deepEqual(result.months, [
+    { venueId: "v", month: "2026-10-01" },
+    { venueId: "v", month: "2026-11-01" },
+  ]);
+  assert.deepEqual(result.failures, [{ ruleId: "r2", message: "boom" }]);
+});
+
+test("isolated rules: months are de-duplicated per venue and month", async () => {
+  const result = await runRulesIsolated(["a", "b"], async () => ({
+    documentIds: ["d"],
+    months: [{ venueId: "v", month: "2026-10-01" }],
+  }));
+  assert.equal(result.months.length, 1);
+  assert.deepEqual(result.documentIds, ["d"]);
+  assert.deepEqual(result.failures, []);
 });

@@ -114,8 +114,24 @@ async function loadProfileNames(admin: LooseDb, userIds: string[]): Promise<Map<
   return names;
 }
 
-export async function listExclusionRules(): Promise<
-  { items: ExclusionListItem[]; canEdit: boolean; pendingRetro: number } | { error: string }
+async function loadExclusionsFrom(admin: LooseDb, accountId: string, venueId: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from<{ inventory_exclusions_from: string | null }>("venues")
+    .select("inventory_exclusions_from")
+    .eq("id", venueId)
+    .eq("account_id", accountId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.inventory_exclusions_from ?? null;
+}
+
+/**
+ * `venueId` — заведение, на странице которого открыт список: для него
+ * возвращается граница «Исключения меняют акты начиная с» (`exclusionsFrom`).
+ */
+export async function listExclusionRules(input?: { venueId?: string }): Promise<
+  | { items: ExclusionListItem[]; canEdit: boolean; pendingRetro: number; exclusionsFrom: string | null }
+  | { error: string }
 > {
   const ctx = await getActiveContext(["inventory.view_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error ?? "Не авторизован" };
@@ -184,13 +200,15 @@ export async function listExclusionRules(): Promise<
       (r) => r.target_kind !== "legacy_name" && !r.metadata?.retro_applied_at,
     ).length;
 
-    return { items, canEdit, pendingRetro };
+    const exclusionsFrom = input?.venueId ? await loadExclusionsFrom(admin, ctx.accountId, input.venueId) : null;
+
+    return { items, canEdit, pendingRetro, exclusionsFrom };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось загрузить список исключений") };
   }
 }
 
-/** Убираем символы, ломающие фильтр PostgREST `or(...)` и шаблон ilike. */
+/** Убираем символы, ломающие фильтр PostgREST и шаблон ilike (`%`, `_`). */
 function sanitizeSearch(query: string): string {
   return query.replace(/[,()%*_\\]/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -230,7 +248,7 @@ export async function searchExclusionCandidates(query: string): Promise<Exclusio
         .select("id, name, group_id")
         .eq("account_id", ctx.accountId)
         .is("archived_at", null)
-        .or(`name.ilike.%${q}%`)
+        .ilike("name", `%${q}%`)
         .order("name", { ascending: true })
         .limit(room);
       if (error) throw new Error(error.message);
@@ -440,5 +458,42 @@ export async function applyPendingExclusionRules(): Promise<{ error: string | nu
     return { error: null, notice: result.notice };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось применить исключения к прошлым актам") };
+  }
+}
+
+/**
+ * Граница заведения «Исключения меняют акты начиная с»: ретро-применение и
+ * снятие правил не трогают акты более ранних месяцев. Хранится первое число
+ * месяца; null — границы нет.
+ */
+export async function setInventoryExclusionsFrom(input: {
+  venueId: string;
+  from: string | null;
+}): Promise<{ error: string | null; from?: string | null }> {
+  const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
+  if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error ?? "Не авторизован" };
+
+  let from: string | null = null;
+  if (input.from) {
+    const m = /^(\d{4})-(\d{2})(?:-\d{2})?$/.exec(input.from.trim());
+    const month = m ? Number(m[2]) : 0;
+    if (!m || month < 1 || month > 12) return { error: "Укажите дату" };
+    from = `${m[1]}-${m[2]}-01`;
+  }
+
+  const admin = asLooseDb(createAdminClient());
+  try {
+    const { data, error } = await admin
+      .from<Array<{ id: string }>>("venues")
+      .update({ inventory_exclusions_from: from })
+      .eq("id", input.venueId)
+      .eq("account_id", ctx.accountId)
+      .select("id");
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) throw new Error("Заведение не найдено");
+    revalidateVenueSettings();
+    return { error: null, from };
+  } catch (error) {
+    return { error: actionErrorMessage(error, "Не удалось сохранить дату") };
   }
 }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Sheet,
   SheetContent,
@@ -38,6 +39,7 @@ import {
   listExclusionRules,
   removeExclusionRule,
   searchExclusionCandidates,
+  setInventoryExclusionsFrom,
   type ExclusionCandidate,
   type ExclusionListItem,
 } from "@/app/(dashboard)/inventory/_actions/exclusion-list";
@@ -48,7 +50,12 @@ const SOURCE_LABEL: Record<ExclusionListItem["source"], string> = {
   glide: "из Glide",
 };
 
-type Loaded = { items: ExclusionListItem[]; canEdit: boolean; pendingRetro: number };
+type Loaded = {
+  items: ExclusionListItem[];
+  canEdit: boolean;
+  pendingRetro: number;
+  exclusionsFrom: string | null;
+};
 
 function KindIcon({ kind }: { kind: "product" | "group" | "legacy_name" }) {
   const Icon = kind === "group" ? FolderTree : Package;
@@ -59,8 +66,16 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("ru-RU");
 }
 
-/** Строка «Исключения · N» с кнопкой «Открыть» и окном со списком правил. */
-export function ExclusionsRow() {
+/** Первое число месяца выбранной даты (YYYY-MM-01). */
+function monthStart(value: string) {
+  return `${value.slice(0, 7)}-01`;
+}
+
+/**
+ * Строка «Исключения · N» с кнопкой «Открыть» и окном со списком правил, и
+ * граница заведения «Исключения меняют акты начиная с».
+ */
+export function ExclusionsRow({ venueId }: { venueId: string }) {
   const isMobile = useIsMobile();
   const [data, setData] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -76,16 +91,17 @@ export function ExclusionsRow() {
   const [removing, setRemoving] = useState<ExclusionListItem | null>(null);
   const [removeReason, setRemoveReason] = useState("");
   const [confirmApply, setConfirmApply] = useState(false);
+  const [savingFrom, setSavingFrom] = useState(false);
 
   const reload = useCallback(async () => {
-    const res = await listExclusionRules();
+    const res = await listExclusionRules({ venueId });
     if ("error" in res) {
       setLoadError(res.error);
       return;
     }
     setLoadError("");
     setData(res);
-  }, []);
+  }, [venueId]);
 
   useEffect(() => {
     void reload();
@@ -179,6 +195,22 @@ export function ExclusionsRow() {
     }
   }
 
+  async function saveFrom(value: string) {
+    const from = value ? monthStart(value) : null;
+    setSavingFrom(true);
+    try {
+      const res = await setInventoryExclusionsFrom({ venueId, from });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      setData((d) => (d ? { ...d, exclusionsFrom: res.from ?? null } : d));
+      toast.success("Сохранено");
+    } finally {
+      setSavingFrom(false);
+    }
+  }
+
   const rules = data?.items.filter((i) => i.kind !== "legacy_name") ?? [];
   const legacy = data?.items.filter((i) => i.kind === "legacy_name") ?? [];
   const canEdit = !!data?.canEdit;
@@ -198,6 +230,21 @@ export function ExclusionsRow() {
         >
           Открыть
         </Button>
+      </div>
+
+      <div className="max-w-sm space-y-2">
+        <Label htmlFor="exclusions-from">Исключения меняют акты начиная с</Label>
+        <DatePicker
+          id="exclusions-from"
+          value={data?.exclusionsFrom ?? ""}
+          onChange={(v) => void saveFrom(v)}
+          disabled={!data || !canEdit || savingFrom}
+          placeholder="Со всех незакрытых месяцев"
+        />
+        <p className="text-xs leading-5 text-muted-foreground">
+          Акты более ранних месяцев не меняются, даже если зарплата за них не
+          зафиксирована.
+        </p>
       </div>
 
       <Sheet

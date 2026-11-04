@@ -275,7 +275,7 @@ function RulesForm({
               </p>
             </div>
           </div>
-          <ExclusionsRow />
+          <ExclusionsRow venueId={initial.venueId} />
         </section>
         <ShareSummary config={config} departments={initial.departments} />
         <section className="space-y-4">

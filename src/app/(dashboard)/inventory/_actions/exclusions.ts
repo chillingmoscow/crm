@@ -20,6 +20,45 @@ import {
   writeInventoryResultEvent,
   writeInventoryResultEvents
 } from "../actions-shared";
+import { applyExclusionRuleRetro, applyExclusionRulesRetro } from "../exclusion-retro-service";
+
+/**
+ * Правило применяется к уже загруженным актам незафиксированных месяцев (или
+ * снимается с них). Сбой здесь не отменяет само действие — правило уже создано
+ * или удалено, — поэтому ошибка не пробрасывается, а возвращается пояснением,
+ * которое показывается пользователю. Незавершённый проход видно по метке у
+ * правила: нет metadata.retro_applied_at (создание) или metadata.retro_removed_at
+ * (удаление) — по ней повторный запуск находит правило и дочищает строки.
+ */
+type RetroOutcome = {
+  notice: string | null;
+  documentIds: string[];
+  lockedDocumentIds: string[];
+  resortItemIds: string[];
+  /** Снятие: акты, где позиции вернулись в итоги. */
+  clearedDocumentIds: string[];
+  /** Снятие: строки, исключение которых перешло к другому действующему правилу. */
+  transferredItems: Array<{ id: string; documentId: string; ruleId: string; ruleName: string }>;
+  /** Проход упал целиком (правило не применено или не снято до конца). */
+  failed?: boolean;
+};
+
+async function runRetro(run: () => Promise<RetroOutcome>, failure: string): Promise<RetroOutcome> {
+  try {
+    return await run();
+  } catch (error) {
+    console.error("[exclusions] ретроактивное применение правила не выполнено", error);
+    return {
+      notice: `${failure}: ${actionErrorMessage(error, "ошибка")}.`,
+      documentIds: [],
+      lockedDocumentIds: [],
+      resortItemIds: [],
+      clearedDocumentIds: [],
+      transferredItems: [],
+      failed: true,
+    };
+  }
+}
 
 export async function setInventoryResultItemExcluded(input: {
   documentId: string;
@@ -76,7 +115,11 @@ export async function setInventoryResultItemExcluded(input: {
     // правило было бы не найти — импорт применил бы его заново.
     let dismissRuleId = item.exclusion_rule_id;
     if (!input.excluded && !dismissRuleId) {
-      const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
+      const matchRule = await loadActiveExclusionRuleMatcher({
+        admin,
+        accountId: ctx.accountId,
+        items: [item],
+      });
       dismissRuleId = matchRule(item)?.id ?? null;
     }
     const { error } = await admin
@@ -119,7 +162,7 @@ export async function createInventoryResultExclusionRule(input: {
   documentId: string;
   itemId: string;
   reason?: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string | null }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
@@ -154,17 +197,14 @@ export async function createInventoryResultExclusionRule(input: {
       throw new Error("Строка уже участвует в активном пересорте. Сначала отмените пересорт.");
     }
 
-    let existingRuleQuery = admin
-      .from<InventoryExclusionRuleLookup>("inventory_result_exclusion_rules")
-      .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
-      .eq("account_id", ctx.accountId)
-      .eq("status", "active");
-    if (item.ingredient_id) {
-      existingRuleQuery = existingRuleQuery.eq("ingredient_id", item.ingredient_id);
-    } else {
-      existingRuleQuery = existingRuleQuery.eq("external_product_id", item.external_product_id);
-    }
-    const { data: existingRule } = await existingRuleQuery.maybeSingle();
+    // Уже действующее правило (на товар или на его группу) переиспользуем —
+    // второе правило на ту же позицию не заводим.
+    const matchExistingRule = await loadActiveExclusionRuleMatcher({
+      admin,
+      accountId: ctx.accountId,
+      items: [item],
+    });
+    const existingRule = matchExistingRule(item);
 
     const reason = text(input.reason);
     const { data: rule, error: ruleError } = existingRule?.id
@@ -178,6 +218,7 @@ export async function createInventoryResultExclusionRule(input: {
             product_name: item.product_name,
             reason,
             created_by: ctx.user.id,
+            metadata: { source: "act" },
           })
           .select("id, ingredient_id, external_product_id, reason, created_by, created_at")
           .single();
@@ -215,8 +256,28 @@ export async function createInventoryResultExclusionRule(input: {
       },
     });
 
+    // Строку открытого акта правило исключило выше (это явное решение человека,
+    // поэтому и отказ от правила на ней снимается). Остальные акты
+    // незафиксированных месяцев — по общим правилам ретро-применения; журнал
+    // открытого акта уже записан.
+    const retro = await runRetro(
+      () =>
+        applyExclusionRuleRetro({
+          admin,
+          accountId: ctx.accountId!,
+          userId: ctx.user!.id,
+          ruleId: rule.id,
+          mode: "apply",
+          skipEventDocumentIds: [input.documentId],
+        }),
+      "В прошлых актах правило не применено",
+    );
+
     revalidateInventoryResultPages(input.documentId);
-    return { error: null };
+    return {
+      error: null,
+      notice: retro.notice ? `Позиция добавлена в автоисключения. ${retro.notice}` : null,
+    };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось создать автоисключение") };
   }
@@ -226,7 +287,7 @@ export async function deleteInventoryResultExclusionRule(input: {
   documentId: string;
   itemId: string;
   reason: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; notice?: string | null }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { error: ctx.error };
 
@@ -241,28 +302,27 @@ export async function deleteInventoryResultExclusionRule(input: {
     });
     const reason = normalizeReason(input.reason, "Укажите причину удаления автоисключения");
     const { data: item } = await admin
-      .from<InventoryResultItemRow>("document_items")
-      .select("id, document_id, account_id, ingredient_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals")
+      .from<InventoryResultItemRow & { exclusion_rule_id: string | null }>("document_items")
+      .select("id, document_id, account_id, ingredient_id, external_product_id, product_name, measure_unit_id, measure_unit_name, difference_amount, difference_sum, excluded_from_totals, exclusion_rule_id")
       .eq("id", input.itemId)
       .eq("document_id", input.documentId)
       .eq("account_id", ctx.accountId)
       .maybeSingle();
     if (!item?.id) throw new Error("Строка акта не найдена");
 
-    let ruleQuery = admin
-      .from<{ id: string }>("inventory_result_exclusion_rules")
-      .select("id")
-      .eq("account_id", ctx.accountId)
-      .eq("status", "active");
-    if (item.ingredient_id) {
-      ruleQuery = ruleQuery.eq("ingredient_id", item.ingredient_id);
-    } else if (item.external_product_id) {
-      ruleQuery = ruleQuery.eq("external_product_id", item.external_product_id);
-    } else {
-      throw new Error("Автоисключение не найдено");
-    }
-    const { data: rule } = await ruleQuery.maybeSingle();
+    // Правило ищем тем же сопоставлением, что и импорт: оно может быть и на
+    // товар, и на группу. Групповое отсюда не удаляем — оно действует на много
+    // позиций и живёт в списке исключений заведения.
+    const matchRule = await loadActiveExclusionRuleMatcher({
+      admin,
+      accountId: ctx.accountId,
+      items: [item],
+    });
+    const rule = matchRule(item);
     if (!rule?.id) throw new Error("Автоисключение не найдено");
+    if (rule.target_kind === "group") {
+      throw new Error("Правило группы удаляется в списке исключений заведения");
+    }
 
     const { error: ruleError } = await admin
       .from("inventory_result_exclusion_rules")
@@ -276,34 +336,49 @@ export async function deleteInventoryResultExclusionRule(input: {
       .eq("account_id", ctx.accountId);
     if (ruleError) throw new Error(ruleError.message);
 
-    // Снимаем исключение со ВСЕХ строк, которые исключило это правило, а не
-    // только в открытом акте. Раньше в остальных актах позиция оставалась
-    // исключённой навсегда — и уже неотличимо от ручного решения, потому что
-    // правила, которое её исключило, больше нет.
-    const { data: clearedRows, error: itemError } = await admin
-      .from<Array<{ id: string; document_id: string }>>("document_items")
-      .update({
-        excluded_from_totals: false,
-        exclude_reason: null,
-        excluded_by: null,
-        excluded_at: null,
-        exclusion_rule_id: null,
-        exclusion_rule_dismissed_at: null,
-      })
-      .eq("account_id", ctx.accountId)
-      .eq("exclusion_rule_id", rule.id)
-      .select("id, document_id");
-    if (itemError) throw new Error(itemError.message);
-    const clearedDocumentIds = Array.from(
-      new Set((clearedRows ?? []).map((row) => row.document_id)),
-    );
-
+    // Снимаем исключение со строк, которые исключило это правило, во всех
+    // актах НЕЗАЩИЩЁННЫХ месяцев (и в утверждённом снимке подведённых):
+    // иначе позиция осталась бы исключённой навсегда — и уже неотличимо от
+    // ручного решения. Акты месяцев, зафиксированных в зарплате или более
+    // ранних, чем граница заведения «Исключения меняют акты начиная с», не
+    // меняются.
     // Строку, исключённую ВРУЧНУЮ, удаление правила не трогает: её исключал
-    // человек, а не правило. Раньше здесь стоял безусловный UPDATE по текущей
-    // строке — он снимал и ручное решение тоже. Строки, которые исключило это
-    // правило, уже сняты запросом выше; легаси-строки без происхождения
-    // размечены бэкфиллом миграции 231.
-    const clearedCurrentItem = (clearedRows ?? []).some((row) => row.id === item.id);
+    // человек (легаси-строки без происхождения размечены бэкфиллом миграции
+    // 231). Журнал открытого акта пишется ниже — здесь его пропускаем.
+    const retro = await runRetro(
+      () =>
+        applyExclusionRuleRetro({
+          admin,
+          accountId: ctx.accountId!,
+          userId: ctx.user!.id,
+          ruleId: rule.id,
+          mode: "remove",
+          skipEventDocumentIds: [input.documentId],
+        }),
+      "В прошлых актах позиции не возвращены в итоги — удаление завершено не полностью",
+    );
+    // Позиция могла остаться исключённой более общим правилом (например,
+    // правилом группы) — тогда исключение строк перешло к нему, а не снято.
+    const clearedDocumentIds = retro.clearedDocumentIds;
+    const transferredCurrent = retro.transferredItems.find((t) => t.id === item.id) ?? null;
+    const clearedCurrentItem =
+      item.exclusion_rule_id === rule.id && !transferredCurrent && clearedDocumentIds.includes(input.documentId);
+    // Почему строка открытого акта осталась исключённой (если известно).
+    const keptReason =
+      item.exclusion_rule_id !== rule.id
+        ? item.excluded_from_totals
+          ? item.exclusion_rule_id
+            ? "позиция исключена другим правилом"
+            : "позиция исключена вручную"
+          : null
+        : retro.failed
+          ? "снять исключение не удалось"
+          : retro.resortItemIds.includes(item.id)
+            ? "строка в активном пересорте"
+            : retro.lockedDocumentIds.includes(input.documentId)
+              ? "месяц акта закрыт для изменений"
+              : null;
+    const keptMessage = `Автоисключение позиции «${item.product_name}» удалено (в этом акте исключение по позиции не снято${keptReason ? `: ${keptReason}` : ""})`;
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
@@ -313,8 +388,12 @@ export async function deleteInventoryResultExclusionRule(input: {
       documentId: input.documentId,
       documentItemId: item.id,
       eventType: "persistent_exclusion_disabled",
-      message: !clearedCurrentItem
-        ? `Автоисключение позиции «${item.product_name}» удалено (в этом акте позиция исключена вручную и осталась исключённой)`
+      message: transferredCurrent
+        ? `Автоисключение позиции «${item.product_name}» удалено: исключение перешло к правилу «${transferredCurrent.ruleName}»`
+        : !clearedCurrentItem
+        ? item.exclusion_rule_id !== rule.id && !item.excluded_from_totals
+          ? `Автоисключение позиции «${item.product_name}» удалено`
+          : keptMessage
         : clearedDocumentIds.length > 1
           ? `Автоисключение позиции «${item.product_name}» удалено (позиция вернулась в итоги в ${clearedDocumentIds.length} актах)`
           : `Автоисключение позиции «${item.product_name}» удалено`,
@@ -324,16 +403,17 @@ export async function deleteInventoryResultExclusionRule(input: {
         ruleId: rule.id,
         reason,
         clearedDocumentIds,
+        transferredToRuleId: transferredCurrent?.ruleId ?? null,
       },
     });
 
     // Правило действовало на весь аккаунт, поэтому обновляем страницы всех
     // затронутых актов, а не только открытого.
-    for (const documentId of new Set([input.documentId, ...clearedDocumentIds])) {
+    for (const documentId of new Set([input.documentId, ...retro.documentIds])) {
       revalidateInventoryResultPages(documentId);
     }
     revalidatePath("/documents/inventory");
-    return { error: null };
+    return { error: null, notice: retro.notice ? `Автоисключение удалено. ${retro.notice}` : null };
   } catch (error) {
     return { error: actionErrorMessage(error, "Не удалось удалить автоисключение") };
   }
@@ -428,7 +508,11 @@ export async function bulkSetInventoryResultItemsExcluded(input: {
       // об отказе — иначе ближайший импорт применит правило заново. Смотрим не
       // только на записанное происхождение: ручное исключение его сбрасывает,
       // а правило на позицию при этом остаётся активным.
-      const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
+      const matchRule = await loadActiveExclusionRuleMatcher({
+        admin,
+        accountId: ctx.accountId,
+        items: eligible,
+      });
       const underRule = (item: (typeof eligible)[number]) =>
         Boolean(item.exclusion_rule_id) || Boolean(matchRule(item));
       await applyUpdate(eligible.filter(underRule).map((item) => item.id), now);
@@ -472,7 +556,7 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
   documentId: string;
   itemIds: string[];
   reason?: string;
-}): Promise<{ updated: number; skipped: number; error: string | null }> {
+}): Promise<{ updated: number; skipped: number; error: string | null; notice?: string | null }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
   if (ctx.error || !ctx.user || !ctx.accountId) return { updated: 0, skipped: 0, error: ctx.error };
 
@@ -517,10 +601,14 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
     // round-trip'ов, при том что правил всего единицы. Теперь: правила
     // читаются одним запросом, недостающие вставляются одной пачкой, строки
     // обновляются группами по правилу, журнал пишется батчем.
-    const matchRule = await loadActiveExclusionRuleMatcher({ admin, accountId: ctx.accountId });
     const eligible = items.filter(
       (item) => (item.ingredient_id || item.external_product_id) && !inResort.has(item.id),
     );
+    const matchRule = await loadActiveExclusionRuleMatcher({
+      admin,
+      accountId: ctx.accountId,
+      items: eligible,
+    });
 
     // Одно правило на позицию: строки одной позиции делят его.
     const ruleKey = (item: (typeof eligible)[number]) =>
@@ -548,6 +636,7 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
             product_name: item.product_name,
             reason,
             created_by: ctx.user.id,
+            metadata: { source: "act" },
           })),
         )
         .select("id, ingredient_id, external_product_id");
@@ -607,8 +696,23 @@ export async function bulkCreateInventoryResultExclusionRules(input: {
     });
     const updated = eligible.length;
 
+    // Правила — на остальные акты незафиксированных месяцев, с одним
+    // пересчётом удержания на все. Журнал открытого акта уже записан.
+    const retro = await runRetro(
+      () =>
+        applyExclusionRulesRetro({
+          admin,
+          accountId: ctx.accountId!,
+          userId: ctx.user!.id,
+          ruleIds: [...itemIdsByRule.keys()],
+          mode: "apply",
+          skipEventDocumentIds: [document.id],
+        }),
+      "В прошлых актах правила не применены",
+    );
+
     revalidateInventoryResultPages(document.id);
-    return { updated, skipped: itemIds.length - updated, error: null };
+    return { updated, skipped: itemIds.length - updated, error: null, notice: retro.notice };
   } catch (error) {
     return { updated: 0, skipped: 0, error: actionErrorMessage(error, "Не удалось добавить автоисключения") };
   }

@@ -2801,6 +2801,7 @@ export type Database = {
           currency: string
           default_legal_entity_id: string | null
           id: string
+          inventory_exclusions_from: string | null
           logo_url: string | null
           name: string
           phone: string | null
@@ -2819,6 +2820,7 @@ export type Database = {
           currency?: string
           default_legal_entity_id?: string | null
           id?: string
+          inventory_exclusions_from?: string | null
           logo_url?: string | null
           name: string
           phone?: string | null
@@ -2837,6 +2839,7 @@ export type Database = {
           currency?: string
           default_legal_entity_id?: string | null
           id?: string
+          inventory_exclusions_from?: string | null
           logo_url?: string | null
           name?: string
           phone?: string | null

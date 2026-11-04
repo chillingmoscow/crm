@@ -73,6 +73,10 @@ export type RetroResult = {
   lockedDocumentIds: string[];
   /** Строки правила, которые не менялись: активный пересорт. */
   resortItemIds: string[];
+  /** Снятие: акты, где позиции вернулись в итоги. */
+  clearedDocumentIds: string[];
+  /** Снятие: строки, исключение которых перешло к другому действующему правилу. */
+  transferredItems: Array<{ id: string; documentId: string; ruleId: string; ruleName: string }>;
 };
 
 const ITEM_COLUMNS =
@@ -136,8 +140,19 @@ async function loadCandidateLines(
   }
 
   // Группы ингредиентов строк, найденных по товару: нужны для проверки приоритета.
-  const missing = [...new Set([...byId.values()].map((r) => r.ingredient_id).filter((id): id is string => !!id))]
-    .filter((id) => !groupIdByIngredientId.has(id));
+  await loadIngredientGroups(admin, accountId, [...byId.values()], groupIdByIngredientId);
+  return { items: [...byId.values()], groupIdByIngredientId };
+}
+
+/** Дополняет `into` группами ингредиентов строк, которых там ещё нет. */
+async function loadIngredientGroups(
+  admin: LooseDb,
+  accountId: string,
+  items: ItemRow[],
+  into: Map<string, string | null>,
+): Promise<void> {
+  const missing = [...new Set(items.map((r) => r.ingredient_id).filter((id): id is string => !!id))]
+    .filter((id) => !into.has(id));
   for (const part of chunks(missing)) {
     const { data, error } = await admin
       .from<Array<{ id: string; group_id: string | null }>>("ingredients")
@@ -145,9 +160,25 @@ async function loadCandidateLines(
       .eq("account_id", accountId)
       .in("id", part);
     if (error) throw new Error(error.message);
-    for (const ing of data ?? []) groupIdByIngredientId.set(ing.id, ing.group_id);
+    for (const ing of data ?? []) into.set(ing.id, ing.group_id);
   }
-  return { items: [...byId.values()], groupIdByIngredientId };
+}
+
+/** Действующие правила аккаунта (кроме `exceptRuleId`) и дерево групп. */
+async function loadActiveRulesAndGroups(admin: LooseDb, accountId: string, exceptRuleId?: string) {
+  let rulesQuery = admin
+    .from<ExclusionRuleRow[]>("inventory_result_exclusion_rules")
+    .select("id, target_kind, ingredient_id, external_product_id, ingredient_group_id, product_name, reason, created_by, created_at")
+    .eq("account_id", accountId)
+    .eq("status", "active");
+  if (exceptRuleId) rulesQuery = rulesQuery.neq("id", exceptRuleId);
+  const [{ data: rules, error: rulesError }, { data: groups, error: groupsError }] = await Promise.all([
+    rulesQuery,
+    admin.from<GroupNode[]>("ingredient_groups").select("id, parent_group_id").eq("account_id", accountId),
+  ]);
+  if (rulesError) throw new Error(rulesError.message);
+  if (groupsError) throw new Error(groupsError.message);
+  return { rules: rules ?? [], groups: groups ?? [] };
 }
 
 /** Инвентаризационные акты строк (архивные — удалённые в Quick Resto — не трогаем). */
@@ -251,37 +282,65 @@ async function loadActiveResortItemIds(admin: LooseDb, accountId: string, docume
   return result;
 }
 
+/**
+ * Запись patch-ей. Три вида записи:
+ *   - применение правила (`apply`): строка исключается этим правилом;
+ *   - снятие (`remove`) без преемника: строка возвращается в итоги;
+ *   - снятие с преемником (`transferTo`): строка остаётся исключённой,
+ *     происхождение и причина — от правила-преемника.
+ */
 async function writePatches(input: {
   admin: LooseDb;
   accountId: string;
   rule: RuleRow;
+  /** Правила-преемники для `transferTo`. */
+  rulesById: Map<string, ExclusionRuleRow>;
   userId: string;
   patches: RetroPatch[];
-  exclude: boolean;
+  mode: "apply" | "remove";
   now: string;
 }): Promise<RetroPatch[]> {
-  const { admin, accountId, rule, exclude } = input;
+  const { admin, accountId, rule, mode } = input;
   const byId = new Map(input.patches.map((p) => [p.id, p]));
   const written: RetroPatch[] = [];
-  for (const finalized of [false, true]) {
-    const ids = input.patches.filter((p) => p.finalized === finalized).map((p) => p.id);
-    if (ids.length === 0) continue;
-    const fields: Record<string, unknown> = exclude
-      ? {
-          excluded_from_totals: true,
-          exclude_reason: rule.reason ?? DEFAULT_RULE_EXCLUDE_REASON,
-          excluded_by: input.userId,
-          excluded_at: input.now,
-          exclusion_rule_id: rule.id,
-        }
-      : {
-          excluded_from_totals: false,
-          exclude_reason: null,
-          excluded_by: null,
-          excluded_at: null,
-          exclusion_rule_id: null,
-          exclusion_rule_dismissed_at: null,
-        };
+
+  // Группы записи: (преемник или null) × подведённость.
+  const groupsByKey = new Map<string, { transferTo: string | null; finalized: boolean; ids: string[] }>();
+  for (const p of input.patches) {
+    const transferTo = mode === "remove" ? (p.transferTo ?? null) : null;
+    const key = `${transferTo ?? ""}|${p.finalized}`;
+    const group = groupsByKey.get(key) ?? { transferTo, finalized: p.finalized, ids: [] };
+    group.ids.push(p.id);
+    groupsByKey.set(key, group);
+  }
+
+  for (const { transferTo, finalized, ids } of groupsByKey.values()) {
+    const successor = transferTo ? input.rulesById.get(transferTo) : undefined;
+    if (transferTo && !successor) throw new Error("Правило-преемник не найдено");
+    const exclude = mode === "apply" || successor != null;
+    const fields: Record<string, unknown> =
+      mode === "apply"
+        ? {
+            excluded_from_totals: true,
+            exclude_reason: rule.reason ?? DEFAULT_RULE_EXCLUDE_REASON,
+            excluded_by: input.userId,
+            excluded_at: input.now,
+            exclusion_rule_id: rule.id,
+          }
+        : successor
+          ? {
+              excluded_from_totals: true,
+              exclude_reason: successor.reason ?? DEFAULT_RULE_EXCLUDE_REASON,
+              exclusion_rule_id: successor.id,
+            }
+          : {
+              excluded_from_totals: false,
+              exclude_reason: null,
+              excluded_by: null,
+              excluded_at: null,
+              exclusion_rule_id: null,
+              exclusion_rule_dismissed_at: null,
+            };
     // Утверждённый снимок подведённой строки меняется вместе с живым полем.
     if (finalized) fields.finalized_excluded_from_totals = exclude;
     for (const part of chunks(ids)) {
@@ -291,12 +350,16 @@ async function writePatches(input: {
         .eq("account_id", accountId)
         .in("id", part);
       // Повторная проверка в самом UPDATE: человек мог отказаться от правила
-      // или исключить строку вручную, пока мы читали.
-      query = exclude
-        ? query
-            .is("exclusion_rule_dismissed_at", null)
-            .or("excluded_from_totals.eq.false,exclusion_rule_id.not.is.null")
-        : query.eq("exclusion_rule_id", rule.id);
+      // или исключить строку вручную, пока мы читали. При снятии трогаем
+      // только строки, которые всё ещё принадлежат снимаемому правилу.
+      query =
+        mode === "apply"
+          ? query
+              .is("exclusion_rule_dismissed_at", null)
+              .or("excluded_from_totals.eq.false,exclusion_rule_id.not.is.null")
+          : successor
+            ? query.eq("exclusion_rule_id", rule.id).is("exclusion_rule_dismissed_at", null)
+            : query.eq("exclusion_rule_id", rule.id);
       // Считаем только реально изменённые строки: проверка выше могла часть отсеять.
       const { data, error } = await query.select("id");
       if (error) throw new Error(error.message);
@@ -350,6 +413,8 @@ export async function applyExclusionRuleRetro(input: {
     notice: null,
     lockedDocumentIds: [],
     resortItemIds: [],
+    clearedDocumentIds: [],
+    transferredItems: [],
   };
 
   const { data: rule, error: ruleError } = await admin
@@ -362,35 +427,36 @@ export async function applyExclusionRuleRetro(input: {
   if (!rule) throw new Error("Правило исключения не найдено");
   if (input.mode === "apply" && rule.status !== "active") return empty;
 
+  // Победитель среди действующих правил: при применении — среди всех (строка
+  // достаётся правилу, только если оно и есть победитель: правило на товар
+  // сильнее правила группы, ближайшая группа сильнее дальней); при снятии —
+  // среди оставшихся (без снимаемого): к нему переходит исключение строки.
+  const { rules, groups } = await loadActiveRulesAndGroups(
+    admin,
+    accountId,
+    input.mode === "remove" ? rule.id : undefined,
+  );
+  const rulesById = new Map(rules.map((r) => [r.id, r]));
+  const matcher = buildExclusionMatcher(rules, groups);
   let items: ItemRow[];
-  let isWinner: (item: ItemRow) => boolean = () => true;
+  let groupIdByIngredientId: Map<string, string | null>;
   if (input.mode === "apply") {
-    const [{ data: rules, error: rulesError }, { data: groups, error: groupsError }] = await Promise.all([
-      admin
-        .from<ExclusionRuleRow[]>("inventory_result_exclusion_rules")
-        .select("id, target_kind, ingredient_id, external_product_id, ingredient_group_id, product_name, reason, created_by, created_at")
-        .eq("account_id", accountId)
-        .eq("status", "active"),
-      admin.from<GroupNode[]>("ingredient_groups").select("id, parent_group_id").eq("account_id", accountId),
-    ]);
-    if (rulesError) throw new Error(rulesError.message);
-    if (groupsError) throw new Error(groupsError.message);
-    const candidates = await loadCandidateLines(admin, accountId, rule, groups ?? []);
+    const candidates = await loadCandidateLines(admin, accountId, rule, groups);
     items = candidates.items;
-    // Строка достаётся правилу, только если оно и есть победитель: правило на
-    // товар сильнее правила группы, ближайшая группа сильнее дальней.
-    const matcher = buildExclusionMatcher(rules ?? [], groups ?? []);
-    isWinner = (item) =>
-      matcher({
-        ingredientId: item.ingredient_id,
-        externalProductId: item.external_product_id,
-        groupId: item.ingredient_id ? candidates.groupIdByIngredientId.get(item.ingredient_id) ?? null : null,
-      })?.id === rule.id;
+    groupIdByIngredientId = candidates.groupIdByIngredientId;
   } else {
     const ruleId = rule.id;
     items = await fetchAll(() => itemsQuery(admin, accountId).eq("exclusion_rule_id", ruleId));
+    groupIdByIngredientId = new Map();
+    await loadIngredientGroups(admin, accountId, items, groupIdByIngredientId);
   }
-  items = items.filter(isWinner);
+  const winnerOf = (item: ItemRow) =>
+    matcher({
+      ingredientId: item.ingredient_id,
+      externalProductId: item.external_product_id,
+      groupId: item.ingredient_id ? groupIdByIngredientId.get(item.ingredient_id) ?? null : null,
+    })?.id ?? null;
+  if (input.mode === "apply") items = items.filter((item) => winnerOf(item) === rule.id);
 
   const documents = await loadDocuments(admin, accountId, [...new Set(items.map((i) => i.document_id))]);
   items = items.filter((i) => documents.has(i.document_id));
@@ -410,6 +476,7 @@ export async function applyExclusionRuleRetro(input: {
     inActiveResort: inResort.has(i.id),
     finalized: i.finalized_at != null,
     finalizedExcluded: i.finalized_excluded_from_totals,
+    nextRuleId: input.mode === "remove" ? winnerOf(i) : null,
   }));
   const patches = input.mode === "apply" ? planApply(rule.id, lines, locked) : planRemove(rule.id, lines, locked);
 
@@ -418,19 +485,37 @@ export async function applyExclusionRuleRetro(input: {
     admin,
     accountId,
     rule,
+    rulesById,
     userId: input.userId,
     patches,
-    exclude: input.mode === "apply",
+    mode: input.mode,
     now,
   });
 
-  // Журнал: одно событие на акт, по реально изменённым строкам.
-  const linesByDocument = new Map<string, number>();
-  for (const p of written) linesByDocument.set(p.documentId, (linesByDocument.get(p.documentId) ?? 0) + 1);
+  // Журнал: одно событие на акт, по реально изменённым строкам. При снятии
+  // отдельно считаем вернувшиеся в итоги и перешедшие к другому правилу.
+  type DocumentTally = { count: number; cleared: number; transferredTo: Map<string, number> };
+  const linesByDocument = new Map<string, DocumentTally>();
+  for (const p of written) {
+    const t = linesByDocument.get(p.documentId) ?? { count: 0, cleared: 0, transferredTo: new Map() };
+    t.count += 1;
+    if (input.mode === "remove") {
+      if (p.transferTo) t.transferredTo.set(p.transferTo, (t.transferredTo.get(p.transferTo) ?? 0) + 1);
+      else t.cleared += 1;
+    }
+    linesByDocument.set(p.documentId, t);
+  }
+  const ruleName = (id: string) => rulesById.get(id)?.product_name ?? "другое правило";
+  const removeMessage = (t: DocumentTally) => {
+    const parts: string[] = [];
+    if (t.cleared > 0) parts.push(`позиции вернулись в итоги (строк: ${t.cleared})`);
+    for (const [id, n] of t.transferredTo) parts.push(`исключение перешло к правилу «${ruleName(id)}» (строк: ${n})`);
+    return `Правило «${rule.product_name}» удалено: ${parts.join("; ")}`;
+  };
   const skip = new Set(input.skipEventDocumentIds ?? []);
   const events = [...linesByDocument]
     .filter(([documentId]) => !skip.has(documentId))
-    .map(([documentId, count]) => ({
+    .map(([documentId, t]) => ({
       account_id: accountId,
       document_id: documentId,
       document_item_id: null,
@@ -438,9 +523,18 @@ export async function applyExclusionRuleRetro(input: {
       event_type: input.mode === "apply" ? "persistent_exclusion_enabled" : "persistent_exclusion_disabled",
       message:
         input.mode === "apply"
-          ? `Правило «${rule.product_name}» исключило позиции из итогов (строк: ${count})`
-          : `Правило «${rule.product_name}» удалено: позиции вернулись в итоги (строк: ${count})`,
-      payload: { ruleId: rule.id, retro: true, lines: count },
+          ? `Правило «${rule.product_name}» исключило позиции из итогов (строк: ${t.count})`
+          : removeMessage(t),
+      payload:
+        input.mode === "apply"
+          ? { ruleId: rule.id, retro: true, lines: t.count }
+          : {
+              ruleId: rule.id,
+              retro: true,
+              lines: t.count,
+              cleared: t.cleared,
+              transferred: Object.fromEntries(t.transferredTo),
+            },
       created_by: input.userId,
     }));
   for (const part of chunks(events)) {
@@ -483,14 +577,26 @@ export async function applyExclusionRuleRetro(input: {
     notice,
     lockedDocumentIds: [...new Set(items.map((i) => i.document_id).filter((id) => locked.has(id)))],
     resortItemIds: lines.filter((l) => l.inActiveResort).map((l) => l.id),
+    clearedDocumentIds: [...linesByDocument].filter(([, t]) => t.cleared > 0).map(([id]) => id),
+    transferredItems: written
+      .filter((p) => input.mode === "remove" && p.transferTo)
+      .map((p) => ({
+        id: p.id,
+        documentId: p.documentId,
+        ruleId: p.transferTo as string,
+        ruleName: ruleName(p.transferTo as string),
+      })),
   };
 }
 
 /**
  * Несколько правил подряд с одним пересчётом удержания в конце. Сбой одного
  * правила не обрывает остальные и не отменяет пересчёт месяцев, изменённых
- * успешными правилами; упавшие правила остаются неприменёнными (без метки), а
+ * успешными правилами; упавшие правила остаются необработанными (без метки), а
  * их ошибки попадают в пояснение.
+ *
+ * `ruleIds` обрабатываются в режиме `mode`; `removeRuleIds` (необязательно) —
+ * всегда в режиме снятия, тем же проходом (дочистка незавершённых удалений).
  */
 export async function applyExclusionRulesRetro(input: {
   admin: LooseDb;
@@ -498,31 +604,50 @@ export async function applyExclusionRulesRetro(input: {
   userId: string;
   ruleIds: string[];
   mode: "apply" | "remove";
+  removeRuleIds?: string[];
   skipEventDocumentIds?: string[];
 }): Promise<RetroResult & { failedRuleIds: string[] }> {
   const lockedDocumentIds = new Set<string>();
   const resortItemIds = new Set<string>();
-  const { documentIds, months, failures } = await runRulesIsolated(input.ruleIds, async (ruleId) => {
-    const r = await applyExclusionRuleRetro({ ...input, ruleId, recalculate: false });
+  const clearedDocumentIds = new Set<string>();
+  const transferredItems: RetroResult["transferredItems"] = [];
+  const modeOf = new Map<string, "apply" | "remove">();
+  for (const id of input.ruleIds) modeOf.set(id, input.mode);
+  for (const id of input.removeRuleIds ?? []) modeOf.set(id, "remove");
+  const { documentIds, months, failures } = await runRulesIsolated([...modeOf.keys()], async (ruleId) => {
+    const r = await applyExclusionRuleRetro({
+      admin: input.admin,
+      accountId: input.accountId,
+      userId: input.userId,
+      skipEventDocumentIds: input.skipEventDocumentIds,
+      ruleId,
+      mode: modeOf.get(ruleId) ?? input.mode,
+      recalculate: false,
+    });
     for (const id of r.lockedDocumentIds) lockedDocumentIds.add(id);
     for (const id of r.resortItemIds) resortItemIds.add(id);
+    for (const id of r.clearedDocumentIds) clearedDocumentIds.add(id);
+    transferredItems.push(...r.transferredItems);
     return r;
   });
   for (const f of failures) {
     console.error(`[exclusion-retro] правило ${f.ruleId} не обработано`, f.message);
   }
   const recalcNotice = await recalculateRetroMonths(months);
-  const failureNotice =
-    failures.length > 0
-      ? `${input.mode === "apply" ? "Не применены к прошлым актам" : "Не сняты в прошлых актах"} правила (${failures.length}): ${[...new Set(failures.map((f) => f.message))].join("; ")}.${input.mode === "apply" ? " Они остались неприменёнными — примените их ещё раз в списке исключений заведения." : " Повторите позже."}`
-      : null;
+  const failureNotice = (mode: "apply" | "remove") => {
+    const list = failures.filter((f) => modeOf.get(f.ruleId) === mode);
+    if (list.length === 0) return null;
+    return `${mode === "apply" ? "Не применены к прошлым актам" : "Не сняты в прошлых актах"} правила (${list.length}): ${[...new Set(list.map((f) => f.message))].join("; ")}. Они остались в плашке списка исключений заведения — нажмите там «Применить» ещё раз.`;
+  };
   return {
     touchedDocuments: documentIds.length,
     documentIds,
     months,
-    notice: [failureNotice, recalcNotice].filter(Boolean).join(" ") || null,
+    notice: [failureNotice("apply"), failureNotice("remove"), recalcNotice].filter(Boolean).join(" ") || null,
     lockedDocumentIds: [...lockedDocumentIds],
     resortItemIds: [...resortItemIds],
+    clearedDocumentIds: [...clearedDocumentIds],
+    transferredItems,
     failedRuleIds: failures.map((f) => f.ruleId),
   };
 }

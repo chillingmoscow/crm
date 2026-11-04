@@ -125,6 +125,61 @@ async function loadExclusionsFrom(admin: LooseDb, accountId: string, venueId: st
   return data?.inventory_exclusions_from ?? null;
 }
 
+const PENDING_CHECK_CONCURRENCY = 20;
+
+/**
+ * Незавершённые удаления: удалённые правила на товар/группу без отметки
+ * metadata.retro_removed_at, на которые ещё ссылаются строки актов (снятие
+ * оборвалось). Удалённые правила, на которые строк уже нет, получают отметку
+ * сразу: снимать нечего, и больше они не проверяются.
+ */
+async function loadPendingRemovals(admin: LooseDb, accountId: string): Promise<string[]> {
+  const { data, error } = await admin
+    .from<{ id: string; metadata: Record<string, unknown> | null }[]>("inventory_result_exclusion_rules")
+    .select("id, metadata")
+    .eq("account_id", accountId)
+    .eq("status", "deleted")
+    .in("target_kind", ["product", "group"])
+    .is("metadata->>retro_removed_at", null)
+    .limit(10000);
+  if (error) throw new Error(error.message);
+  const rules = data ?? [];
+  if (rules.length === 0) return [];
+
+  // PostgREST не умеет DISTINCT, поэтому существование строк проверяем по
+  // правилу: limit(1) по индексу (account_id, exclusion_rule_id).
+  const withLines = new Set<string>();
+  for (let i = 0; i < rules.length; i += PENDING_CHECK_CONCURRENCY) {
+    const part = rules.slice(i, i + PENDING_CHECK_CONCURRENCY);
+    const results = await Promise.all(
+      part.map((r) =>
+        admin
+          .from<Array<{ id: string }>>("document_items")
+          .select("id")
+          .eq("account_id", accountId)
+          .eq("exclusion_rule_id", r.id)
+          .limit(1),
+      ),
+    );
+    results.forEach(({ data: rows, error: rowsError }, idx) => {
+      if (rowsError) throw new Error(rowsError.message);
+      if ((rows ?? []).length > 0) withLines.add(part[idx].id);
+    });
+  }
+
+  const now = new Date().toISOString();
+  for (const r of rules) {
+    if (withLines.has(r.id)) continue;
+    const { error: stampError } = await admin
+      .from("inventory_result_exclusion_rules")
+      .update({ metadata: { ...(r.metadata ?? {}), retro_removed_at: now } })
+      .eq("id", r.id)
+      .eq("account_id", accountId);
+    if (stampError) throw new Error(stampError.message);
+  }
+  return rules.filter((r) => withLines.has(r.id)).map((r) => r.id);
+}
+
 /**
  * `venueId` — заведение, на странице которого открыт список: для него
  * возвращается граница «Исключения меняют акты начиная с» (`exclusionsFrom`).
@@ -196,9 +251,12 @@ export async function listExclusionRules(input?: { venueId?: string }): Promise<
       });
     }
 
-    const pendingRetro = rows.filter(
-      (r) => r.target_kind !== "legacy_name" && !r.metadata?.retro_applied_at,
-    ).length;
+    // Неприменённые правила и незавершённые удаления: и то и другое дочищает
+    // «Применить».
+    const pendingRemovals = canEdit ? await loadPendingRemovals(admin, ctx.accountId) : [];
+    const pendingRetro =
+      rows.filter((r) => r.target_kind !== "legacy_name" && !r.metadata?.retro_applied_at).length +
+      pendingRemovals.length;
 
     const exclusionsFrom = input?.venueId ? await loadExclusionsFrom(admin, ctx.accountId, input.venueId) : null;
 
@@ -429,7 +487,9 @@ export async function removeExclusionRule(input: {
 
 /**
  * Применяет к прошлым актам все действующие правила на товар/группу, у которых
- * ещё нет отметки metadata.retro_applied_at (в том числе созданные из актов).
+ * ещё нет отметки metadata.retro_applied_at (в том числе созданные из актов), и
+ * дочищает незавершённые удаления (см. loadPendingRemovals). Каждое правило
+ * обрабатывается отдельно, пересчёт удержания — один в конце.
  */
 export async function applyPendingExclusionRules(): Promise<{ error: string | null; notice?: string | null }> {
   const ctx = await getActiveContext(["inventory.view_results", "inventory.adjust_results"]);
@@ -445,7 +505,11 @@ export async function applyPendingExclusionRules(): Promise<{ error: string | nu
       .in("target_kind", ["product", "group"]);
     if (error) throw new Error(error.message);
     const ruleIds = (data ?? []).filter((r) => !r.metadata?.retro_applied_at).map((r) => r.id);
-    if (ruleIds.length === 0) return { error: null, notice: null };
+    const removeRuleIds = await loadPendingRemovals(admin, ctx.accountId);
+    if (ruleIds.length === 0 && removeRuleIds.length === 0) {
+      revalidateVenueSettings();
+      return { error: null, notice: null };
+    }
 
     const result = await applyExclusionRulesRetro({
       admin,
@@ -453,6 +517,7 @@ export async function applyPendingExclusionRules(): Promise<{ error: string | nu
       userId: ctx.user.id,
       ruleIds,
       mode: "apply",
+      removeRuleIds,
     });
     revalidateVenueSettings();
     return { error: null, notice: result.notice };

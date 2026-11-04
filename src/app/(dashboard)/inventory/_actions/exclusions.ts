@@ -35,6 +35,10 @@ type RetroOutcome = {
   documentIds: string[];
   lockedDocumentIds: string[];
   resortItemIds: string[];
+  /** Снятие: акты, где позиции вернулись в итоги. */
+  clearedDocumentIds: string[];
+  /** Снятие: строки, исключение которых перешло к другому действующему правилу. */
+  transferredItems: Array<{ id: string; documentId: string; ruleId: string; ruleName: string }>;
   /** Проход упал целиком (правило не применено или не снято до конца). */
   failed?: boolean;
 };
@@ -49,6 +53,8 @@ async function runRetro(run: () => Promise<RetroOutcome>, failure: string): Prom
       documentIds: [],
       lockedDocumentIds: [],
       resortItemIds: [],
+      clearedDocumentIds: [],
+      transferredItems: [],
       failed: true,
     };
   }
@@ -351,9 +357,12 @@ export async function deleteInventoryResultExclusionRule(input: {
         }),
       "В прошлых актах позиции не возвращены в итоги — удаление завершено не полностью",
     );
-    const clearedDocumentIds = retro.documentIds;
+    // Позиция могла остаться исключённой более общим правилом (например,
+    // правилом группы) — тогда исключение строк перешло к нему, а не снято.
+    const clearedDocumentIds = retro.clearedDocumentIds;
+    const transferredCurrent = retro.transferredItems.find((t) => t.id === item.id) ?? null;
     const clearedCurrentItem =
-      item.exclusion_rule_id === rule.id && clearedDocumentIds.includes(input.documentId);
+      item.exclusion_rule_id === rule.id && !transferredCurrent && clearedDocumentIds.includes(input.documentId);
     // Почему строка открытого акта осталась исключённой (если известно).
     const keptReason =
       item.exclusion_rule_id !== rule.id
@@ -379,7 +388,9 @@ export async function deleteInventoryResultExclusionRule(input: {
       documentId: input.documentId,
       documentItemId: item.id,
       eventType: "persistent_exclusion_disabled",
-      message: !clearedCurrentItem
+      message: transferredCurrent
+        ? `Автоисключение позиции «${item.product_name}» удалено: исключение перешло к правилу «${transferredCurrent.ruleName}»`
+        : !clearedCurrentItem
         ? item.exclusion_rule_id !== rule.id && !item.excluded_from_totals
           ? `Автоисключение позиции «${item.product_name}» удалено`
           : keptMessage
@@ -392,12 +403,13 @@ export async function deleteInventoryResultExclusionRule(input: {
         ruleId: rule.id,
         reason,
         clearedDocumentIds,
+        transferredToRuleId: transferredCurrent?.ruleId ?? null,
       },
     });
 
     // Правило действовало на весь аккаунт, поэтому обновляем страницы всех
     // затронутых актов, а не только открытого.
-    for (const documentId of new Set([input.documentId, ...clearedDocumentIds])) {
+    for (const documentId of new Set([input.documentId, ...retro.documentIds])) {
       revalidateInventoryResultPages(documentId);
     }
     revalidatePath("/documents/inventory");

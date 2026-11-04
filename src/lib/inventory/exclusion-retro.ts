@@ -35,6 +35,12 @@ export type RetroLine = {
   finalized: boolean;
   /** Текущее значение утверждённого снимка (`finalized_excluded_from_totals`). */
   finalizedExcluded: boolean | null;
+  /**
+   * Только для снятия: правило, которое побеждает на строке среди оставшихся
+   * действующих (без снимаемого), или null. Вызывающий считает его тем же
+   * buildExclusionMatcher.
+   */
+  nextRuleId: string | null;
 };
 
 /**
@@ -47,6 +53,12 @@ export type RetroPatch = {
   exclude: boolean;
   finalized: boolean;
   snapshotChanged: boolean;
+  /**
+   * Снятие правила, когда строку по-прежнему покрывает другое действующее
+   * правило (например, правило группы над правилом товара): строка остаётся
+   * исключённой, меняется только происхождение — на это правило.
+   */
+  transferTo?: string;
 };
 
 function patchFor(line: RetroLine, exclude: boolean): RetroPatch {
@@ -82,6 +94,13 @@ export function planApply(
   return patches;
 }
 
+/**
+ * Снятие правила. Если строку покрывает другое действующее правило
+ * (`nextRuleId`), исключение переходит к нему (строка остаётся вне итогов,
+ * снимок подведённой строки не меняется, если уже исключён); иначе строка
+ * возвращается в итоги. Строку, где проверяющий отказался от правила, не
+ * передаём — её решение сильнее любого правила.
+ */
 export function planRemove(
   ruleId: string,
   lines: RetroLine[],
@@ -91,7 +110,11 @@ export function planRemove(
     .filter(
       (line) => line.ruleId === ruleId && !lockedDocumentIds.has(line.documentId) && !line.inActiveResort,
     )
-    .map((line) => patchFor(line, false));
+    .map((line) =>
+      line.nextRuleId != null && line.nextRuleId !== ruleId && line.dismissedAt == null
+        ? { ...patchFor(line, true), transferTo: line.nextRuleId }
+        : patchFor(line, false),
+    );
 }
 
 /**

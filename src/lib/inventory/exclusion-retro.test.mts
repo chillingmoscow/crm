@@ -21,6 +21,7 @@ function line(p: Partial<RetroLine> & { id: string }): RetroLine {
     inActiveResort: false,
     finalized: false,
     finalizedExcluded: null,
+    nextRuleId: null,
     ...p,
   };
 }
@@ -88,6 +89,39 @@ test("remove clears only lines of this rule and not in locked documents", () => 
 test("remove skips line in active resort", () => {
   const lines = [line({ id: "a", excluded: true, ruleId: RULE, inActiveResort: true })];
   assert.deepEqual(planRemove(RULE, lines, new Set()), []);
+});
+
+test("remove transfers line to remaining group rule", () => {
+  const lines = [line({ id: "a", excluded: true, ruleId: RULE, nextRuleId: "group-rule" })];
+  assert.deepEqual(planRemove(RULE, lines, new Set()), [
+    { id: "a", documentId: "doc-1", exclude: true, finalized: false, snapshotChanged: false, transferTo: "group-rule" },
+  ]);
+});
+
+test("remove clears line when no other rule matches", () => {
+  const lines = [line({ id: "a", excluded: true, ruleId: RULE, nextRuleId: null })];
+  assert.deepEqual(planRemove(RULE, lines, new Set()), [
+    { id: "a", documentId: "doc-1", exclude: false, finalized: false, snapshotChanged: false },
+  ]);
+});
+
+test("transfer on finalized line does not emit a month", () => {
+  const lines = [
+    line({ id: "a", excluded: true, ruleId: RULE, finalized: true, finalizedExcluded: true, nextRuleId: "group-rule" }),
+  ];
+  const [patch] = planRemove(RULE, lines, new Set());
+  assert.equal(patch.transferTo, "group-rule");
+  assert.equal(patch.exclude, true);
+  assert.equal(patch.snapshotChanged, false);
+});
+
+test("remove does not transfer a line dismissed from rules", () => {
+  const lines = [
+    line({ id: "a", excluded: false, ruleId: RULE, dismissedAt: "2026-10-01T00:00:00Z", nextRuleId: "group-rule" }),
+  ];
+  assert.deepEqual(planRemove(RULE, lines, new Set()), [
+    { id: "a", documentId: "doc-1", exclude: false, finalized: false, snapshotChanged: false },
+  ]);
 });
 
 test("apply re-applies a finalized line whose snapshot is still included", () => {

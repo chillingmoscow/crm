@@ -278,7 +278,7 @@ export function ExclusionsRow({ venueId }: { venueId: string }) {
             {canEdit && data && data.pendingRetro > 0 && (
               <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="min-w-0 text-sm">
-                  {data.pendingRetro} исключений ещё не применены к прошлым актам
+                  {data.pendingRetro} изменений исключений ещё не применены к прошлым актам
                 </p>
                 <Button
                   type="button"

@@ -143,8 +143,9 @@ function ShortageForm({
       <h2 className="text-lg font-semibold">Недостача</h2>
       {multi && (
         <p role="alert" className="text-sm text-destructive">
-          Группа объединяет несколько подразделений. Разделите её в настройках
-          заведения.
+          Подразделение входит в одну группу удержания с другими
+          подразделениями, поэтому доли здесь не меняются. Группу должен
+          разделить администратор.
         </p>
       )}
       <div className="flex flex-wrap items-center justify-between gap-4">

@@ -36,7 +36,7 @@ export function rulesWithShares(
 ): DeductionRules {
   if (multiDepartmentGroupExists(rules))
     throw new Error(
-      "Группа объединяет несколько подразделений. Разделите её в настройках заведения",
+      "Группа объединяет несколько подразделений, поэтому доли здесь не меняются. Группу должен разделить администратор",
     );
   const byDepartment = new Map(shares.map((s) => [s.departmentId, s]));
   const written = new Set<string>();

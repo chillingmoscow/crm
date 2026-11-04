@@ -30,12 +30,27 @@ import { applyExclusionRuleRetro, applyExclusionRulesRetro } from "../exclusion-
  * правила: нет metadata.retro_applied_at (создание) или metadata.retro_removed_at
  * (удаление) — по ней повторный запуск находит правило и дочищает строки.
  */
-async function runRetro(run: () => Promise<{ notice: string | null; documentIds: string[] }>, failure: string) {
+type RetroOutcome = {
+  notice: string | null;
+  documentIds: string[];
+  lockedDocumentIds: string[];
+  resortItemIds: string[];
+  /** Проход упал целиком (правило не применено или не снято до конца). */
+  failed?: boolean;
+};
+
+async function runRetro(run: () => Promise<RetroOutcome>, failure: string): Promise<RetroOutcome> {
   try {
     return await run();
   } catch (error) {
     console.error("[exclusions] ретроактивное применение правила не выполнено", error);
-    return { notice: `${failure}: ${actionErrorMessage(error, "ошибка")}.`, documentIds: [] as string[] };
+    return {
+      notice: `${failure}: ${actionErrorMessage(error, "ошибка")}.`,
+      documentIds: [],
+      lockedDocumentIds: [],
+      resortItemIds: [],
+      failed: true,
+    };
   }
 }
 
@@ -316,9 +331,11 @@ export async function deleteInventoryResultExclusionRule(input: {
     if (ruleError) throw new Error(ruleError.message);
 
     // Снимаем исключение со строк, которые исключило это правило, во всех
-    // актах НЕЗАФИКСИРОВАННЫХ месяцев (и в утверждённом снимке подведённых):
+    // актах НЕЗАЩИЩЁННЫХ месяцев (и в утверждённом снимке подведённых):
     // иначе позиция осталась бы исключённой навсегда — и уже неотличимо от
-    // ручного решения. Акты месяцев, зафиксированных в зарплате, не меняются.
+    // ручного решения. Акты месяцев, зафиксированных в зарплате или более
+    // ранних, чем граница заведения «Исключения меняют акты начиная с», не
+    // меняются.
     // Строку, исключённую ВРУЧНУЮ, удаление правила не трогает: её исключал
     // человек (легаси-строки без происхождения размечены бэкфиллом миграции
     // 231). Журнал открытого акта пишется ниже — здесь его пропускаем.
@@ -337,6 +354,22 @@ export async function deleteInventoryResultExclusionRule(input: {
     const clearedDocumentIds = retro.documentIds;
     const clearedCurrentItem =
       item.exclusion_rule_id === rule.id && clearedDocumentIds.includes(input.documentId);
+    // Почему строка открытого акта осталась исключённой (если известно).
+    const keptReason =
+      item.exclusion_rule_id !== rule.id
+        ? item.excluded_from_totals
+          ? item.exclusion_rule_id
+            ? "позиция исключена другим правилом"
+            : "позиция исключена вручную"
+          : null
+        : retro.failed
+          ? "снять исключение не удалось"
+          : retro.resortItemIds.includes(item.id)
+            ? "строка в активном пересорте"
+            : retro.lockedDocumentIds.includes(input.documentId)
+              ? "месяц акта закрыт для изменений"
+              : null;
+    const keptMessage = `Автоисключение позиции «${item.product_name}» удалено (в этом акте исключение по позиции не снято${keptReason ? `: ${keptReason}` : ""})`;
 
     await writeInventoryResultEvent({
       supabase: ctx.supabase,
@@ -347,7 +380,9 @@ export async function deleteInventoryResultExclusionRule(input: {
       documentItemId: item.id,
       eventType: "persistent_exclusion_disabled",
       message: !clearedCurrentItem
-        ? `Автоисключение позиции «${item.product_name}» удалено (в этом акте позиция исключена вручную и осталась исключённой)`
+        ? item.exclusion_rule_id !== rule.id && !item.excluded_from_totals
+          ? `Автоисключение позиции «${item.product_name}» удалено`
+          : keptMessage
         : clearedDocumentIds.length > 1
           ? `Автоисключение позиции «${item.product_name}» удалено (позиция вернулась в итоги в ${clearedDocumentIds.length} актах)`
           : `Автоисключение позиции «${item.product_name}» удалено`,

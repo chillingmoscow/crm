@@ -99,6 +99,13 @@ export type AccrualRow = {
   attendance_ids: unknown;
   /** `calculation_snapshot.kind`: monthly / adjustment / combined, у начисления за смену ключа нет. */
   snapshot_kind?: string | null;
+  /**
+   * Начисление, перенесённое из Glide (`calculation_snapshot.historical = true`):
+   * отметок прихода у него нет, смену подтверждает сама строка Glide, а
+   * должность - `calculation_snapshot.position_name`.
+   */
+  historical?: string | null;
+  position_name?: string | null;
 };
 export type AttendanceRow = {
   external_id: number;
@@ -492,11 +499,25 @@ function resolveAttendanceRole(
   roles: RoleRow[],
 ): { roleId: string; departmentId: string | null } | null {
   const sh = att.shift_id ? shiftById.get(att.shift_id) : undefined;
-  if (sh?.role_id) return { roleId: sh.role_id, departmentId: sh.department_id };
-  if (!att.role_name || att.role_name.trim() === "") return null;
-  const named = roles.filter((r) => !r.archived_at && r.name === att.role_name);
-  if (named.length !== 1) return null;
-  return { roleId: named[0].id, departmentId: sh?.department_id ?? named[0].department_id };
+  // У смены в графике должность есть, а подразделение может быть не указано:
+  // тогда подразделение - то, к которому относится должность. Иначе одна и та
+  // же работа читалась бы как два разных места (смена без подразделения и
+  // отметка вне графика с подразделением должности) и день становился неразрешимым.
+  if (sh?.role_id)
+    return {
+      roleId: sh.role_id,
+      departmentId: sh.department_id ?? roles.find((r) => r.id === sh.role_id)?.department_id ?? null,
+    };
+  const named = roleByName(att.role_name, roles);
+  if (!named) return null;
+  return { roleId: named.id, departmentId: sh?.department_id ?? named.department_id };
+}
+
+/** Действующая должность заведения с ровно таким названием; ноль или несколько - `null`. */
+function roleByName(name: string | null | undefined, roles: RoleRow[]): RoleRow | null {
+  if (!name || name.trim() === "") return null;
+  const named = roles.filter((r) => !r.archived_at && r.name === name);
+  return named.length === 1 ? named[0] : null;
 }
 
 /**
@@ -526,7 +547,29 @@ export function buildShiftWeights(input: {
   const counts = new Map<string, ShiftWeight>();
   const unresolved: string[] = [];
 
+  const addShift = (employeeId: string, roleId: string, departmentId: string | null) => {
+    const key = `${employeeId}\u0000${roleId}\u0000${departmentId ?? ""}`;
+    const w = counts.get(key) ?? { employeeId, roleId, departmentId, shifts: 0 };
+    w.shifts += 1;
+    counts.set(key, w);
+  };
+
   for (const acc of input.accruals) {
+    // Смена, перенесённая из Glide: отметок прихода нет, должность - из строки
+    // Glide. Это та же смена, за которую заплатили, поэтому она в знаменателе.
+    // Только начисление за смену: корректировки и оклад из Glide (`adjustment`,
+    // `monthly`) смен не дают и идут обычным путём ниже.
+    if (
+      acc.historical === "true" &&
+      !Array.isArray(acc.attendance_ids) &&
+      acc.snapshot_kind !== "adjustment" &&
+      acc.snapshot_kind !== "monthly"
+    ) {
+      const role = roleByName(acc.position_name, input.roles);
+      if (!role) unresolved.push(shiftDayRef(acc.employee_id, acc.business_date));
+      else addShift(acc.employee_id, role.id, role.department_id);
+      continue;
+    }
     if (!Array.isArray(acc.attendance_ids)) {
       // Ключа нет. Единственная форма без него, которую пишет ведомость, -
       // начисление-пустышка под корректировку (`{"kind":"adjustment"}`, триггер
@@ -561,10 +604,7 @@ export function buildShiftWeights(input: {
       continue;
     }
     const [{ roleId, departmentId }] = [...combos.values()];
-    const key = `${acc.employee_id}\u0000${roleId}\u0000${departmentId ?? ""}`;
-    const w = counts.get(key) ?? { employeeId: acc.employee_id, roleId, departmentId, shifts: 0 };
-    w.shifts += 1;
-    counts.set(key, w);
+    addShift(acc.employee_id, roleId, departmentId);
   }
 
   const weights = [...counts.values()].sort(
@@ -658,6 +698,9 @@ export function assembleMonthlySnapshot(raw: RawMonthData): MonthlySnapshot {
   });
   const frozenIds = new Set(counted.map((a) => a.id));
   const totals = managementTotalsByDocument({
+    // Погрешность из правил месяца: позиция, расхождение по которой не больше
+    // этой суммы в любую сторону, в недостачу не входит.
+    lineTolerance: config.ingredientTolerance,
     docs: counted,
     items: raw.items.filter((i) => frozenIds.has(i.document_id)),
     resorts: raw.resorts.filter((r) => frozenIds.has(r.document_id)),
@@ -942,7 +985,7 @@ export async function buildMonthlySnapshot(
         // Только перечень отметок и вид начисления из снимка, а не весь снимок.
         // `->` отдаёт NULL, когда ключа нет, и `[]`, когда отметок не было.
         .select(
-          "id, employee_id, business_date, attendance_ids:calculation_snapshot->attendance_ids, snapshot_kind:calculation_snapshot->>kind",
+          "id, employee_id, business_date, attendance_ids:calculation_snapshot->attendance_ids, snapshot_kind:calculation_snapshot->>kind, historical:calculation_snapshot->>historical, position_name:calculation_snapshot->>position_name",
         )
         .eq("account_id", accountId)
         .eq("venue_id", venueId)

@@ -60,6 +60,13 @@ export type ManagementTotalsResortItemRow = InventoryResortItemSnapshotRow & {
  * расчёт удержания считает месяц неполным).
  */
 export function managementTotalsByDocument(input: {
+  /**
+   * Погрешность на позицию, ₽: строка, у которой |разница в рублях| не больше
+   * этой суммы (и в минус, и в плюс), не учитывается - как исключённая. Строки в
+   * активном пересорте не трогаем: их сумму уже разложил пересорт. Без параметра
+   * (список актов) погрешность не применяется.
+   */
+  lineTolerance?: number;
   docs: ManagementTotalsDoc[];
   items: ManagementTotalsItemRow[];
   resorts: ManagementTotalsResortRow[];
@@ -76,15 +83,27 @@ export function managementTotalsByDocument(input: {
     resorts.filter((resort) => resort.status === "active").map((resort) => resort.id),
   );
 
+  const resortedItemIds = new Set(
+    input.resortItems
+      .filter((ri) => activeResortIds.has(ri.resort_id))
+      .map((ri) => ri.document_item_id),
+  );
+  const tolerance = input.lineTolerance && input.lineTolerance > 0 ? input.lineTolerance : 0;
+
   const itemsByDoc = new Map<string, InventoryResultCalculationItem[]>();
   for (const item of input.items) {
     const list = itemsByDoc.get(item.document_id) ?? [];
     const totals = resultLineTotals(item, frozenDocIds.has(item.document_id));
+    const withinTolerance =
+      tolerance > 0 &&
+      !resortedItemIds.has(item.id) &&
+      totals.differenceSum != null &&
+      Math.abs(totals.differenceSum) <= tolerance;
     list.push({
       id: item.id,
       differenceAmount: totals.differenceAmount,
       differenceSum: totals.differenceSum,
-      excluded: totals.excluded,
+      excluded: totals.excluded || withinTolerance,
     });
     itemsByDoc.set(item.document_id, list);
   }

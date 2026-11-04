@@ -1303,3 +1303,77 @@ test("чтение: заведение чужого аккаунта и ошиб
     /boom/,
   );
 });
+
+// ── смены из Glide, смена без подразделения, погрешность ─────
+
+test("смена, перенесённая из Glide, считается по должности из Glide", () => {
+  const glide = (date: string, position: string | null): AccrualRow => ({
+    employee_id: EMP_A,
+    business_date: date,
+    attendance_ids: null,
+    snapshot_kind: "shift",
+    historical: "true",
+    position_name: position,
+  });
+  const r = assembleMonthlySnapshot(
+    raw({
+      accruals: [glide("2026-10-02", "Бармен"), glide("2026-10-03", "Бармен"), glide("2026-10-04", "Нет такой")],
+      roles: [role(ROLE_BAR, "Бармен", { department_id: DEPT_BAR })],
+    }),
+  );
+  assert.deepEqual(r.weights, [
+    { employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 2 },
+  ]);
+  assert.deepEqual(r.unresolved, [`shift:${EMP_A}:2026-10-04`]);
+});
+
+test("смена графика без подразделения берёт подразделение должности и не конфликтует с отметкой вне графика", () => {
+  const inShift = day(EMP_A, "2026-10-29", "s1", { attendanceIds: [] });
+  const offShift = day(EMP_A, "2026-10-29", null, { attendanceIds: [] });
+  offShift.attendance.role_name = "Бармен";
+  const accrual: AccrualRow = {
+    employee_id: EMP_A,
+    business_date: "2026-10-29",
+    attendance_ids: [inShift.attendance.external_id, offShift.attendance.external_id],
+    snapshot_kind: null,
+  };
+  const r = assembleMonthlySnapshot(
+    raw({
+      attendance: [inShift.attendance, offShift.attendance],
+      accruals: [accrual],
+      shifts: [shift("s1", { department_id: null })],
+      roles: [role(ROLE_BAR, "Бармен", { department_id: DEPT_BAR })],
+    }),
+  );
+  assert.deepEqual(r.weights, [
+    { employeeId: EMP_A, roleId: ROLE_BAR, departmentId: DEPT_BAR, shifts: 1 },
+  ]);
+  assert.deepEqual(r.unresolved, []);
+});
+
+test("погрешность из правил: позиции до суммы включительно в обе стороны не учитываются", () => {
+  const r = assembleMonthlySnapshot(
+    raw({
+      ruleVersions: [ruleVersion({ config: rules({ ingredientTolerance: 250 }) })],
+      acts: [act("doc-1")],
+      items: [
+        item("doc-1", "i1", -250),
+        item("doc-1", "i2", 250),
+        item("doc-1", "i3", -250.01),
+        item("doc-1", "i4", 400),
+        item("doc-1", "i5", -1000),
+      ],
+    }),
+  );
+  assert.deepEqual(r.sources.map((s) => s.amount), [-850.01]);
+});
+
+test("без погрешности в правилах позиции учитываются все", () => {
+  const r = assembleMonthlySnapshot(
+    raw({
+      acts: [act("doc-1")],
+      items: [item("doc-1", "i1", -250), item("doc-1", "i2", 100)],
+    }),
+  );
+  assert.deepEqual(r.sources.map((s) => s.amount), [-150]);
+});

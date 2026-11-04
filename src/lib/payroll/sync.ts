@@ -310,12 +310,17 @@ export async function processPayrollDay() {
             Date.parse(review.snapshot.ends_at) === Date.parse(shift.ends_at),
         ),
     );
+    // Время сравниваем как моменты, а не строки: из базы приходит «…+00:00», из
+    // Quick Resto - «…Z». При сравнении строк решение проверяющего («не учитывать»,
+    // «подтверждено») терялось, и проигнорированная отметка снова оплачивалась.
+    const sameInstant = (a: string | null | undefined, b: string | null | undefined) =>
+      a == null || b == null ? a == b : Date.parse(a) === Date.parse(b);
     const attendance = reconciled.items.map((r) => {
       const old = prior.find((o) => o.external_id === r.external_id);
       return old?.reviewed_by &&
         old.employee_id === r.employee_id &&
-        old.starts_at === r.starts_at &&
-        old.ends_at === r.ends_at
+        sameInstant(old.starts_at, r.starts_at) &&
+        sameInstant(old.ends_at, r.ends_at)
         ? { ...r, status: old.status, reviewed_by: old.reviewed_by }
         : r;
     });

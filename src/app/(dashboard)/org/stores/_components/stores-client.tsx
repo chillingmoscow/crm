@@ -1,8 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +35,7 @@ type VenueRow = {
 };
 
 export function StoresClient({
-  stores,
+  stores: initialStores,
   venues,
   departments,
   canManage,
@@ -47,10 +45,59 @@ export function StoresClient({
   departments: DepartmentRow[];
   canManage: boolean;
 }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  // Спиннер только у того контрола, который меняли: список общий, а запись одна.
-  const [pending, setPending] = useState<{ storeId: string; field: "venue" | "department" } | null>(null);
+  // Выбор применяется сразу, без ожидания: запись быстрая, а раньше спиннер
+  // висел до полной перерисовки страницы (router.refresh заново тянул все
+  // склады и подразделения). Поверх серверного списка лежат два слоя правок:
+  //  - confirmed — уже записано в базу, но серверный список ещё старый;
+  //  - pending — последний выбор, ответ на который ещё не пришёл.
+  // Серверные действия одного клиента Next выполняет по очереди, поэтому
+  // ответы приходят в порядке выбора. Ошибка откатывает только свой выбор и
+  // только если после него склад не меняли: более новый выбор не затирается.
+  // Когда приходит свежий серверный список (синхронизация вызывает
+  // router.refresh), confirmed сбрасывается — база уже в нём; pending остаются.
+  type Layer = { confirmed: Partial<StoreRow>; pending: Partial<StoreRow> | null; seq: number };
+  const [layers, setLayers] = useState<Record<string, Layer>>({});
+  const [serverStores, setServerStores] = useState(initialStores);
+  if (serverStores !== initialStores) {
+    setServerStores(initialStores);
+    setLayers((current) => {
+      const next: Record<string, Layer> = {};
+      for (const [id, layer] of Object.entries(current)) {
+        if (layer.pending) next[id] = { ...layer, confirmed: {} };
+      }
+      return next;
+    });
+  }
+  const stores = initialStores.map((store) => {
+    const layer = layers[store.id];
+    return layer ? { ...store, ...layer.confirmed, ...(layer.pending ?? {}) } : store;
+  });
+  const seqRef = useRef(0);
+
+  const applyChange = async (
+    storeId: string,
+    patch: Partial<StoreRow>,
+    write: () => Promise<{ error?: string | null; notice?: string | null }>,
+  ) => {
+    const seq = ++seqRef.current;
+    setLayers((current) => {
+      const layer = current[storeId] ?? { confirmed: {}, pending: null, seq };
+      return { ...current, [storeId]: { ...layer, pending: { ...(layer.pending ?? {}), ...patch }, seq } };
+    });
+    const result = await write();
+    setLayers((current) => {
+      const layer = current[storeId];
+      if (!layer) return current;
+      const latest = layer.seq === seq;
+      const confirmed = result.error ? layer.confirmed : { ...layer.confirmed, ...patch };
+      return { ...current, [storeId]: { confirmed, pending: latest ? null : layer.pending, seq: layer.seq } };
+    });
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    if (result.notice) toast.message(result.notice);
+  };
 
   // Архивное заведение выбрать нельзя: резолвер привязки его тоже обходит
   // (src/lib/inventory/default-venue.ts), и предлагать то, что автоматика
@@ -108,41 +155,29 @@ export function StoresClient({
         ? "shared"
         : "unset";
 
-  const updateDepartment = (storeId: string, value: string) => {
-    setPending({ storeId, field: "department" });
-    startTransition(async () => {
-      const result = await updateInventoryStoreDepartment(
-        value.startsWith("department:")
-          ? { storeId, scope: "department", departmentId: value.slice("department:".length) }
-          : { storeId, scope: value === "shared" ? "shared" : "unset", departmentId: null },
-      );
-      setPending(null);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Склад обновлен");
-      if (result.notice) toast.message(result.notice);
-      router.refresh();
-    });
+  const updateDepartment = (store: StoreRow, value: string) => {
+    const input = value.startsWith("department:")
+      ? { storeId: store.id, scope: "department" as const, departmentId: value.slice("department:".length) }
+      : { storeId: store.id, scope: value === "shared" ? ("shared" as const) : ("unset" as const), departmentId: null };
+    return applyChange(store.id, { department_scope: input.scope, department_id: input.departmentId }, () =>
+      updateInventoryStoreDepartment(input),
+    );
   };
 
-  const updateVenue = (storeId: string, venueId: string) => {
-    setPending({ storeId, field: "venue" });
-    startTransition(async () => {
-      const result = await updateInventoryStoreVenue({
-        storeId,
-        venueId: venueId || null,
-      });
-      setPending(null);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      toast.success("Склад обновлен");
-      if (result.notice) toast.message(result.notice);
-      router.refresh();
-    });
+  const updateVenue = (store: StoreRow, venueId: string) => {
+    const nextVenueId = venueId || null;
+    // Так же, как триггер в базе: смена или снятие заведения снимает привязку
+    // к подразделению (оно принадлежит прежнему заведению), а «общий склад»
+    // переживает смену заведения.
+    const dropsDepartment = store.department_scope === "department" && nextVenueId !== store.local_venue_id;
+    return applyChange(
+      store.id,
+      {
+        local_venue_id: nextVenueId,
+        ...(dropsDepartment ? { department_scope: "unset" as const, department_id: null } : {}),
+      },
+      () => updateInventoryStoreVenue({ storeId: store.id, venueId: nextVenueId }),
+    );
   };
 
   const selectClass =
@@ -175,8 +210,6 @@ export function StoresClient({
                 ? `${currentDepartment.name}${currentDepartment.archived_at ? " (в архиве)" : ""}`
                 : "Другое подразделение"
               : null;
-          const venuePending = isPending && pending?.storeId === store.id && pending.field === "venue";
-          const departmentPending = isPending && pending?.storeId === store.id && pending.field === "department";
           // Привязка к архивному подразделению расчёт месяца считает
           // неразрешённой, так что выглядеть настроенной она не должна.
           const archivedBinding = Boolean(currentDepartment?.archived_at) && store.department_scope === "department";
@@ -210,8 +243,8 @@ export function StoresClient({
                   <select
                     className={selectClass}
                     value={store.local_venue_id ?? ""}
-                    disabled={!canManage || isPending}
-                    onChange={(event) => updateVenue(store.id, event.target.value)}
+                    disabled={!canManage}
+                    onChange={(event) => void updateVenue(store, event.target.value)}
                   >
                     <option value="">Не привязан</option>
                     {optionsFor(store.local_venue_id).map((venue) => (
@@ -221,7 +254,6 @@ export function StoresClient({
                       </option>
                     ))}
                   </select>
-                  {venuePending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
                 </div>
               </div>
               <div className="min-w-0">
@@ -230,8 +262,8 @@ export function StoresClient({
                   <select
                     className={selectClass}
                     value={value}
-                    disabled={!canManage || isPending}
-                    onChange={(event) => updateDepartment(store.id, event.target.value)}
+                    disabled={!canManage}
+                    onChange={(event) => void updateDepartment(store, event.target.value)}
                   >
                     <option value="unset">Не задано</option>
                     <option value="shared">Общий склад</option>
@@ -248,7 +280,6 @@ export function StoresClient({
                       </optgroup>
                     ) : null}
                   </select>
-                  {departmentPending ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" /> : null}
                 </div>
                 {!store.local_venue_id ? (
                   <div className="mt-1 text-xs text-muted-foreground">

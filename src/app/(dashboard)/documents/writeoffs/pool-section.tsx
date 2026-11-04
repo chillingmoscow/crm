@@ -28,8 +28,6 @@ const poolNames: Record<Pool, string> = {
   personal: "Один сотрудник",
   excluded: "Не удерживать",
 };
-const same = (s: string) =>
-  s.normalize("NFKC").trim().toLocaleLowerCase("ru-RU");
 
 /** Блок «Кто платит» в карточке акта: видно, разнесён ли акт, и можно разнести. */
 export function PoolSection({
@@ -52,14 +50,10 @@ export function PoolSection({
 
   const counts = writeoffCounts(doc);
   const rubles = writeoffChargeRubles(doc.payload.kind, doc.payload.lines);
-  const hinted =
-    !!doc.payload.reason &&
-    data.reasonHints.some((h) => same(h) === same(doc.payload.reason!));
   const noKey = pool === "shared" || pool === "excluded";
   const zero = counts && rubles === 0;
   const complete =
-    noKey ||
-    ((pool === "department" || pool === "personal") && !!key);
+    noKey || ((pool === "department" || pool === "personal") && !!key);
   const changed =
     pool !== (mark?.pool ?? "") || (key || null) !== (mark?.key ?? null);
 
@@ -140,14 +134,8 @@ export function PoolSection({
       )}
       {doc.payload.kind === "personal" && !mark && (
         <p className="rounded-lg bg-muted p-3 text-xs">
-          Личное потребление сотрудник оплачивает сам, это не удержание.
-          Обычно здесь выбирают «Не удерживать».
-        </p>
-      )}
-      {hinted && (
-        <p className="rounded-lg bg-muted p-3 text-xs">
-          Причина «{doc.payload.reason}» в правилах отмечена как относимая на
-          сотрудников. Это подсказка: плательщика выбираете вы.
+          Личное потребление сотрудник оплачивает сам, это не удержание. Обычно
+          здесь выбирают «Не удерживать».
         </p>
       )}
       {canAssign ? (
